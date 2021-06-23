@@ -4836,238 +4836,11 @@ GenTree* Compiler::optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
     return jtrue;
 }
 
-// Replaces the given tree with a constant node if it has a constant VN.
-Compiler::fgWalkResult Compiler::optVNConstantPropTree(BasicBlock* block, Statement* stmt, GenTree* tree)
-{
-    // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
-    if (!tree->CanCSE())
-    {
-        return WALK_CONTINUE;
-    }
-
-    // Don't propagate floating-point constants into a TYP_STRUCT LclVar
-    // This can occur for HFA return values (see hfa_sf3E_r.exe)
-    if (tree->TypeIs(TYP_STRUCT))
-    {
-        return WALK_CONTINUE;
-    }
-
-    switch (tree->GetOper())
-    {
-        case GT_LCL_VAR:
-            if ((tree->gtFlags & GTF_VAR_DEF) != 0)
-            {
-                return WALK_CONTINUE;
-            }
-
-            // Don't undo constant CSEs.
-            if (lclNumIsCSE(tree->AsLclVar()->GetLclNum()))
-            {
-                return WALK_CONTINUE;
-            }
-
-            break;
-
-        case GT_MUL:
-            // Don't transform long multiplies.
-            if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
-            {
-                // TODO-MIKE-Review: Erm, why skip subtrees?!?
-                return WALK_SKIP_SUBTREES;
-            }
-            FALLTHROUGH;
-        case GT_ADD:
-        case GT_SUB:
-        case GT_DIV:
-        case GT_MOD:
-        case GT_UDIV:
-        case GT_UMOD:
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_OR:
-        case GT_XOR:
-        case GT_AND:
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_NEG:
-        case GT_CAST:
-        case GT_INTRINSIC:
-        case GT_JTRUE:
-            // TODO-MIKE-Review: Huh, this is missing various opers - ROL, ROR, BITCAST, NOT, BSWAP...
-            break;
-
-        default:
-            return WALK_CONTINUE;
-    }
-
-    GenTree* newTree;
-
-    if (tree->OperIs(GT_JTRUE))
-    {
-        // Treat JTRUE separately to extract side effects into separate statements
-        // rather than creating COMMA trees.
-        newTree = optVNConstantPropJTrue(block, tree->AsUnOp());
-    }
-    else
-    {
-        newTree = optVNConstantPropTree(block, tree);
-    }
-
-    if (newTree == nullptr)
-    {
-        return WALK_CONTINUE;
-    }
-
-    // Successful propagation, mark as assertion propagated and skip
-    // sub-tree (with side-effects) visits.
-    // TODO #18291: at that moment stmt could be already removed from the stmt list.
-
-    optVNConstantPropStmtUpdate(newTree, tree, stmt);
-
-    JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
-    DBEXEC(VERBOSE, gtDispStmt(stmt));
-
-    return WALK_SKIP_SUBTREES;
-}
-
-// Replaces a tree that evaluates to a constant with a constant node.
-// If the tree contains side effects then they are preserved using
-// a COMMA node.
-GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
-{
-    assert(!tree->OperIs(GT_JTRUE));
-
-    // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
-    if (tree->OperIsCompare() && ((tree->gtFlags & GTF_RELOP_JMP_USED) != 0))
-    {
-        return nullptr;
-    }
-
-    ValueNumPair vnp = tree->gtVNPair;
-    ValueNum     vn  = vnStore->VNConservativeNormalValue(vnp);
-
-    if (!vnStore->IsVNConstant(vn))
-    {
-        return nullptr;
-    }
-
-    var_types vnType  = vnStore->TypeOfVN(vn);
-    GenTree*  newTree = nullptr;
-
-    if (vnStore->IsVNHandle(vn))
-    {
-        // Don't perform constant folding that involves a handle that needs to be recorded
-        // as a relocation with the VM. The VN type should be TYP_I_IMPL but the tree may
-        // sometimes be TYP_BYREF, due to things like Unsafe.As.
-        if (!opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF) && (vnType == TYP_I_IMPL))
-        {
-            newTree = gtNewIconHandleNode(vnStore->ConstantValue<target_ssize_t>(vn), vnStore->GetHandleFlags(vn));
-        }
-    }
-    // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
-    // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
-    // not explictily initialized and .localsinit is used.
-    // TODO-MIKE-Review: Shouldn't this check the actual type of the tree?
-    else if (tree->GetType() == vnType)
-    {
-        switch (vnType)
-        {
-            case TYP_FLOAT:
-                newTree = gtNewDconNode(vnStore->ConstantValue<float>(vn), TYP_FLOAT);
-                break;
-            case TYP_DOUBLE:
-                newTree = gtNewDconNode(vnStore->ConstantValue<double>(vn), TYP_DOUBLE);
-                break;
-            case TYP_INT:
-                newTree = gtNewIconNode(vnStore->ConstantValue<int32_t>(vn));
-                break;
-            case TYP_LONG:
-                newTree = gtNewLconNode(vnStore->ConstantValue<int64_t>(vn));
-                break;
-            case TYP_REF:
-                assert(vnStore->ConstantValue<size_t>(vn) == 0);
-                newTree = gtNewIconNode(0, TYP_REF);
-                break;
-            case TYP_BYREF:
-                // Do not support const byref optimization.
-                break;
-            default:
-                unreached();
-        }
-    }
-
-    if (newTree == nullptr)
-    {
-        return nullptr;
-    }
-
-    newTree->SetVNs(vnp);
-
-    GenTree* sideEffects = optVNConstantPropExtractSideEffects(tree);
-
-    if (sideEffects != nullptr)
-    {
-        assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
-
-        // TODO-MIKE-Review: So we bother setting the VN on the constant node but not on the COMMA tree?
-        // Also, the constant node gets the wrong VN, the one that includes exceptions...
-        newTree = gtNewCommaNode(sideEffects, newTree);
-    }
-
-    return newTree;
-}
-
-GenTree* Compiler::optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, Statement* stmt)
-{
-    assert(newTree != nullptr);
-    assert(tree != nullptr);
-    assert(stmt != nullptr);
-
-    // If newTree == tree then we modified the tree in-place otherwise we have to
-    // locate our parent node and update it so that it points to newTree.
-    if (newTree != tree)
-    {
-        FindLinkData linkData = gtFindLink(stmt, tree);
-        GenTree**    useEdge  = linkData.result;
-        GenTree*     parent   = linkData.parent;
-        noway_assert(useEdge != nullptr);
-
-        if (parent != nullptr)
-        {
-            parent->ReplaceOperand(useEdge, newTree);
-        }
-        else
-        {
-            // If there's no parent, the tree being replaced is the root of the
-            // statement.
-            assert((stmt->GetRootNode() == tree) && (stmt->GetRootNodePointer() == useEdge));
-            stmt->SetRootNode(newTree);
-        }
-
-        // We only need to ensure that the gtNext field is set as it is used to traverse
-        // to the next node in the tree. We will re-morph this entire statement in
-        // optVNAssertionProp(). It will reset the gtPrev and gtNext links for all nodes.
-        newTree->gtNext = tree->gtNext;
-
-        // Old tree should not be referenced anymore.
-        DEBUG_DESTROY_NODE(tree);
-    }
-
-    optVNAssertionPropStmtMorphPending = true;
-
-    return newTree;
-}
-
 class VNConstPropVisitor final : public GenTreeVisitor<VNConstPropVisitor>
 {
+    ValueNumStore* m_vnStore;
     BasicBlock*    m_block;
     Statement*     m_stmt;
-    ValueNumStore* m_vnStore;
 
 public:
     enum
@@ -5076,33 +4849,30 @@ public:
     };
 
     VNConstPropVisitor(Compiler* compiler, BasicBlock* block, Statement* stmt)
-        : GenTreeVisitor(compiler), m_block(block), m_stmt(stmt), m_vnStore(compiler->vnStore)
+        : GenTreeVisitor(compiler), m_vnStore(compiler->vnStore), m_block(block), m_stmt(stmt)
     {
     }
 
     fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        NonNullPropNode(*use);
-        return m_compiler->optVNConstantPropTree(m_block, m_stmt, *use);
+        PropagateNonNull(*use);
+        return PropagateConst(*use);
     }
 
 private:
-    // Performs value number based non-null propagation on GT_CALL and
-    // indirections. This is different from flow based assertions and helps
-    // unify VN based constant prop and non-null prop in a single pre-order walk.
-    void NonNullPropNode(GenTree* tree)
+    void PropagateNonNull(GenTree* tree)
     {
         if (GenTreeCall* call = tree->IsCall())
         {
-            NonNullPropCall(call);
+            PropagateNonNullThisArg(call);
         }
         else if (GenTreeIndir* indir = tree->IsIndir())
         {
-            NonNullPropIndir(indir);
+            PropagateNonNullIndirAddress(indir);
         }
     }
 
-    void NonNullPropCall(GenTreeCall* call)
+    void PropagateNonNullThisArg(GenTreeCall* call)
     {
         if (!call->NeedsNullCheck())
         {
@@ -5136,7 +4906,7 @@ private:
         m_compiler->optVNAssertionPropStmtMorphPending = true;
     }
 
-    void NonNullPropIndir(GenTreeIndir* indir)
+    void PropagateNonNullIndirAddress(GenTreeIndir* indir)
     {
         if ((indir->gtFlags & GTF_EXCEPT) == 0)
         {
@@ -5177,6 +4947,226 @@ private:
         indir->gtFlags |= GTF_ORDER_SIDEEFF;
 
         m_compiler->optVNAssertionPropStmtMorphPending = true;
+    }
+
+    fgWalkResult PropagateConst(GenTree* tree)
+    {
+        // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
+        if (!tree->CanCSE())
+        {
+            return Compiler::WALK_CONTINUE;
+        }
+
+        // Don't propagate floating-point constants into a TYP_STRUCT LclVar
+        // This can occur for HFA return values (see hfa_sf3E_r.exe)
+        if (tree->TypeIs(TYP_STRUCT))
+        {
+            return Compiler::WALK_CONTINUE;
+        }
+
+        switch (tree->GetOper())
+        {
+            case GT_LCL_VAR:
+                if ((tree->gtFlags & GTF_VAR_DEF) != 0)
+                {
+                    return Compiler::WALK_CONTINUE;
+                }
+
+                // Don't undo constant CSEs.
+                if (m_compiler->lclNumIsCSE(tree->AsLclVar()->GetLclNum()))
+                {
+                    return Compiler::WALK_CONTINUE;
+                }
+
+                break;
+
+            case GT_MUL:
+                // Don't transform long multiplies.
+                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
+                {
+                    // TODO-MIKE-Review: Erm, why skip subtrees?!?
+                    return Compiler::WALK_SKIP_SUBTREES;
+                }
+                FALLTHROUGH;
+            case GT_ADD:
+            case GT_SUB:
+            case GT_DIV:
+            case GT_MOD:
+            case GT_UDIV:
+            case GT_UMOD:
+            case GT_EQ:
+            case GT_NE:
+            case GT_LT:
+            case GT_LE:
+            case GT_GE:
+            case GT_GT:
+            case GT_OR:
+            case GT_XOR:
+            case GT_AND:
+            case GT_LSH:
+            case GT_RSH:
+            case GT_RSZ:
+            case GT_NEG:
+            case GT_CAST:
+            case GT_INTRINSIC:
+            case GT_JTRUE:
+                // TODO-MIKE-Review: Huh, this is missing various opers - ROL, ROR, BITCAST, NOT, BSWAP...
+                break;
+
+            default:
+                return Compiler::WALK_CONTINUE;
+        }
+
+        GenTree* newTree;
+
+        if (tree->OperIs(GT_JTRUE))
+        {
+            // Treat JTRUE separately to extract side effects into separate statements
+            // rather than creating COMMA trees.
+            newTree = m_compiler->optVNConstantPropJTrue(m_block, tree->AsUnOp());
+        }
+        else
+        {
+            newTree = GetConstantNode(tree);
+        }
+
+        if (newTree == nullptr)
+        {
+            return Compiler::WALK_CONTINUE;
+        }
+
+        // Successful propagation, mark as assertion propagated and skip
+        // sub-tree (with side-effects) visits.
+        // TODO #18291: at that moment stmt could be already removed from the stmt list.
+
+        UpdateStmt(newTree, tree);
+
+        JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
+        DBEXEC(VERBOSE, m_compiler->gtDispStmt(m_stmt));
+
+        return Compiler::WALK_SKIP_SUBTREES;
+    }
+
+    GenTree* GetConstantNode(GenTree* tree)
+    {
+        assert(!tree->OperIs(GT_JTRUE));
+
+        // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
+        if (tree->OperIsCompare() && ((tree->gtFlags & GTF_RELOP_JMP_USED) != 0))
+        {
+            return nullptr;
+        }
+
+        ValueNumPair vnp = tree->gtVNPair;
+        ValueNum     vn  = m_vnStore->VNConservativeNormalValue(vnp);
+
+        if (!m_vnStore->IsVNConstant(vn))
+        {
+            return nullptr;
+        }
+
+        var_types vnType  = m_vnStore->TypeOfVN(vn);
+        GenTree*  newTree = nullptr;
+
+        if (m_vnStore->IsVNHandle(vn))
+        {
+            // Don't perform constant folding that involves a handle that needs to be recorded
+            // as a relocation with the VM. The VN type should be TYP_I_IMPL but the tree may
+            // sometimes be TYP_BYREF, due to things like Unsafe.As.
+            if (!m_compiler->opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF) && (vnType == TYP_I_IMPL))
+            {
+                newTree = m_compiler->gtNewIconHandleNode(m_vnStore->ConstantValue<target_ssize_t>(vn),
+                                                          m_vnStore->GetHandleFlags(vn));
+            }
+        }
+        // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
+        // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
+        // not explictily initialized and .localsinit is used.
+        // TODO-MIKE-Review: Shouldn't this check the actual type of the tree?
+        else if (tree->GetType() == vnType)
+        {
+            switch (vnType)
+            {
+                case TYP_FLOAT:
+                    newTree = m_compiler->gtNewDconNode(m_vnStore->ConstantValue<float>(vn), TYP_FLOAT);
+                    break;
+                case TYP_DOUBLE:
+                    newTree = m_compiler->gtNewDconNode(m_vnStore->ConstantValue<double>(vn), TYP_DOUBLE);
+                    break;
+                case TYP_INT:
+                    newTree = m_compiler->gtNewIconNode(m_vnStore->ConstantValue<int32_t>(vn));
+                    break;
+                case TYP_LONG:
+                    newTree = m_compiler->gtNewLconNode(m_vnStore->ConstantValue<int64_t>(vn));
+                    break;
+                case TYP_REF:
+                    assert(m_vnStore->ConstantValue<size_t>(vn) == 0);
+                    newTree = m_compiler->gtNewIconNode(0, TYP_REF);
+                    break;
+                case TYP_BYREF:
+                    // Do not support const byref optimization.
+                    break;
+                default:
+                    unreached();
+            }
+        }
+
+        if (newTree == nullptr)
+        {
+            return nullptr;
+        }
+
+        newTree->SetVNs(vnp);
+
+        GenTree* sideEffects = m_compiler->optVNConstantPropExtractSideEffects(tree);
+
+        if (sideEffects != nullptr)
+        {
+            assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
+
+            // TODO-MIKE-Review: So we bother setting the VN on the constant node but not on the COMMA tree?
+            // Also, the constant node gets the wrong VN, the one that includes exceptions...
+            newTree = m_compiler->gtNewCommaNode(sideEffects, newTree);
+        }
+
+        return newTree;
+    }
+
+    GenTree* UpdateStmt(GenTree* newTree, GenTree* tree)
+    {
+        // If newTree == tree then we modified the tree in-place otherwise we have to
+        // locate our parent node and update it so that it points to newTree.
+        if (newTree != tree)
+        {
+            Compiler::FindLinkData linkData = m_compiler->gtFindLink(m_stmt, tree);
+            GenTree**              useEdge  = linkData.result;
+            GenTree*               parent   = linkData.parent;
+            noway_assert(useEdge != nullptr);
+
+            if (parent != nullptr)
+            {
+                parent->ReplaceOperand(useEdge, newTree);
+            }
+            else
+            {
+                // If there's no parent, the tree being replaced is the root of the
+                // statement.
+                assert((m_stmt->GetRootNode() == tree) && (m_stmt->GetRootNodePointer() == useEdge));
+                m_stmt->SetRootNode(newTree);
+            }
+
+            // We only need to ensure that the gtNext field is set as it is used to traverse
+            // to the next node in the tree. We will re-morph this entire statement in
+            // optVNAssertionProp(). It will reset the gtPrev and gtNext links for all nodes.
+            newTree->gtNext = tree->gtNext;
+
+            // Old tree should not be referenced anymore.
+            DEBUG_DESTROY_NODE(tree);
+        }
+
+        m_compiler->optVNAssertionPropStmtMorphPending = true;
+
+        return newTree;
     }
 };
 

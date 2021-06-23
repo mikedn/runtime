@@ -6159,10 +6159,7 @@ protected:
     AssertionIndex optMaxAssertionCount;
 
 public:
-    fgWalkResult optVNConstantPropTree(BasicBlock* block, Statement* stmt, GenTree* tree);
-    GenTree* optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, Statement* stmt);
     GenTree* optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
-    GenTree* optVNConstantPropTree(BasicBlock* block, GenTree* tree);
     GenTree* optVNConstantPropExtractSideEffects(GenTree* tree);
 
     AssertionIndex GetAssertionCount()
