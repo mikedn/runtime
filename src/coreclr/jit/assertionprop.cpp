@@ -4018,13 +4018,16 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
         case GT_LE:
         case GT_GT:
         case GT_GE:
-
             return optAssertionProp_RelOp(assertions, tree, stmt);
 
         case GT_JTRUE:
-
             if (block != nullptr)
             {
+                // TODO-MIKE-Cleanup: This more or less pointless, we did constant propagation already.
+                // It's here only because VN assertion propagation can generate new constant relops
+                // and optAssertionPropGlobal_RelOp is such a convoluted piece of garbage that sometimes
+                // it actually changes the relop node into a constant node and sometimes only sets a
+                // constant VN on it, which then requires optVNConstantPropJTrue to change it to const.
                 return optVNConstantPropJTrue(block, tree->AsUnOp());
             }
             return nullptr;
@@ -4949,6 +4952,70 @@ private:
         m_compiler->optVNAssertionPropStmtMorphPending = true;
     }
 
+    GenTree* PropagateConstJTrue(GenTreeUnOp* jtrue)
+    {
+        GenTree* relop = jtrue->GetOp(0);
+
+        // VN based assertion non-null on this relop has been performed.
+        if (!relop->OperIsCompare())
+        {
+            return nullptr;
+        }
+
+        // Make sure GTF_RELOP_JMP_USED flag is set so that we don't replace the
+        // relop with a constant when we reach it later in the pre-order walk.
+        assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
+
+        ValueNum vnCns = m_vnStore->VNConservativeNormalValue(relop->gtVNPair);
+
+        if (!m_vnStore->IsVNConstant(vnCns))
+        {
+            return nullptr;
+        }
+
+        GenTree* sideEffects = ExtractConstTreeSideEffects(relop);
+
+        // Transform the relop into EQ|NE(0, 0)
+        ValueNum vnZero = m_vnStore->VNZeroForType(TYP_INT);
+        GenTree* op1    = m_compiler->gtNewIconNode(0);
+        op1->SetVNs(ValueNumPair(vnZero, vnZero));
+        relop->AsOp()->SetOp(0, op1);
+        GenTree* op2 = m_compiler->gtNewIconNode(0);
+        op2->SetVNs(ValueNumPair(vnZero, vnZero));
+        relop->AsOp()->SetOp(1, op2);
+        relop->SetOper(m_vnStore->CoercedConstantValue<int64_t>(vnCns) != 0 ? GT_EQ : GT_NE);
+        ValueNum vnLib = m_compiler->vnStore->VNLiberalNormalValue(relop->gtVNPair);
+        relop->SetVNs(ValueNumPair(vnLib, vnCns));
+
+        while (sideEffects != nullptr)
+        {
+            Statement* newStmt;
+
+            if (sideEffects->OperIs(GT_COMMA))
+            {
+                newStmt     = m_compiler->fgNewStmtNearEnd(m_block, sideEffects->AsOp()->GetOp(0));
+                sideEffects = sideEffects->AsOp()->GetOp(1);
+            }
+            else
+            {
+                newStmt     = m_compiler->fgNewStmtNearEnd(m_block, sideEffects);
+                sideEffects = nullptr;
+            }
+
+            // fgMorphBlockStmt could potentially affect stmts after the current one,
+            // for example when it decides to fgRemoveRestOfBlock.
+
+            // TODO-MIKE-Review: Do we really need to remorph? Seems like simply
+            // fgSetStmtSeq should suffice here. Also, this morphs trees before
+            // doing constant propagation so we may morph again if they contains
+            // constants.
+
+            m_compiler->fgMorphBlockStmt(m_block, newStmt DEBUGARG(__FUNCTION__));
+        }
+
+        return jtrue;
+    }
+
     fgWalkResult PropagateConst(GenTree* tree)
     {
         // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
@@ -5023,11 +5090,11 @@ private:
         {
             // Treat JTRUE separately to extract side effects into separate statements
             // rather than creating COMMA trees.
-            newTree = m_compiler->optVNConstantPropJTrue(m_block, tree->AsUnOp());
+            newTree = PropagateConstJTrue(tree->AsUnOp());
         }
         else
         {
-            newTree = GetConstantNode(tree);
+            newTree = GetConstNode(tree);
         }
 
         if (newTree == nullptr)
@@ -5047,7 +5114,7 @@ private:
         return Compiler::WALK_SKIP_SUBTREES;
     }
 
-    GenTree* GetConstantNode(GenTree* tree)
+    GenTree* GetConstNode(GenTree* tree)
     {
         assert(!tree->OperIs(GT_JTRUE));
 
@@ -5118,7 +5185,7 @@ private:
 
         newTree->SetVNs(vnp);
 
-        GenTree* sideEffects = m_compiler->optVNConstantPropExtractSideEffects(tree);
+        GenTree* sideEffects = ExtractConstTreeSideEffects(tree);
 
         if (sideEffects != nullptr)
         {
@@ -5167,6 +5234,26 @@ private:
         m_compiler->optVNAssertionPropStmtMorphPending = true;
 
         return newTree;
+    }
+
+    GenTree* ExtractConstTreeSideEffects(GenTree* tree)
+    {
+        if ((tree->gtFlags & GTF_SIDE_EFFECT) == 0)
+        {
+            return nullptr;
+        }
+
+        // Do a sanity check to ensure persistent side effects aren't discarded.
+        assert(!m_compiler->gtNodeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS));
+
+        // Exception side effects on root may be ignored because the root is known to be a constant
+        // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
+        // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
+        assert(m_vnStore->IsVNConstant(m_vnStore->VNConservativeNormalValue(tree->gtVNPair)));
+
+        GenTree* sideEffects = nullptr;
+        m_compiler->gtExtractSideEffList(tree, &sideEffects, GTF_SIDE_EFFECT, /* ignoreRoot */ true);
+        return sideEffects;
     }
 };
 
