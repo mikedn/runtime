@@ -5168,10 +5168,15 @@ private:
             case GT_LSH:
             case GT_RSH:
             case GT_RSZ:
+            case GT_ROL:
+            case GT_ROR:
+            case GT_BSWAP:
+            case GT_BSWAP16:
             case GT_NEG:
+            case GT_NOT:
             case GT_CAST:
+            case GT_BITCAST:
             case GT_INTRINSIC:
-                // TODO-MIKE-Review: Huh, this is missing various opers - ROL, ROR, BITCAST, NOT, BSWAP...
                 break;
 
             default:
