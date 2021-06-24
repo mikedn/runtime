@@ -4866,6 +4866,8 @@ public:
 
         do
         {
+            m_stmtMorphPending = false;
+
             if (stmt->GetRootNode()->OperIs(GT_JTRUE))
             {
                 stmt = PropagateConstJTrue(stmt);
@@ -4882,8 +4884,7 @@ public:
                 // the JTRUE statement was already removed so we won't traverse it again.
             }
 
-            m_stmt             = stmt;
-            m_stmtMorphPending = false;
+            m_stmt = stmt;
 
             WalkTree(stmt->GetRootNodePointer(), nullptr);
 
@@ -5054,47 +5055,23 @@ private:
 
         bool removed = m_compiler->fgMorphBlockStmt(m_block, stmt DEBUGARG(__FUNCTION__));
         assert(removed);
+        assert(m_block->bbJumpKind != BBJ_COND);
 
-        Statement* firstNewStmt = nullptr;
-
-        while (sideEffects != nullptr)
+        if (sideEffects == nullptr)
         {
-            GenTree* newTree;
-
-            if (sideEffects->OperIs(GT_COMMA))
-            {
-                newTree     = sideEffects->AsOp()->GetOp(0);
-                sideEffects = sideEffects->AsOp()->GetOp(1);
-            }
-            else
-            {
-                newTree     = sideEffects;
-                sideEffects = nullptr;
-            }
-
-            Statement* newStmt = m_compiler->fgNewStmtNearEnd(m_block, newTree);
-
-            // fgMorphBlockStmt could potentially affect stmts after the current one,
-            // for example when it decides to fgRemoveRestOfBlock.
-
-            // TODO-MIKE-Review: Do we really need to remorph? Seems like simply
-            // fgSetStmtSeq should suffice here. Also, this morphs trees before
-            // doing constant propagation so we may morph again if they contains
-            // constants.
-
-            if (m_compiler->fgMorphBlockStmt(m_block, newStmt DEBUGARG(__FUNCTION__)))
-            {
-                // The newly created statement was removed.
-                continue;
-            }
-
-            if (firstNewStmt == nullptr)
-            {
-                firstNewStmt = newStmt;
-            }
+            return nullptr;
         }
 
-        return firstNewStmt;
+        // The side effects statement that we're adding needs to be at least sequenced,
+        // if not morphed. And we're yet to do constant propagation on this statement,
+        // that will also require morphing if any constants are propagated.
+        //
+        // To avoid unnecessary double morphing don't morph the statement here, just
+        // set m_stmtMorphPending to ensure that the statement gets morphed even if
+        // no constants are found.
+        m_stmtMorphPending = true;
+
+        return m_compiler->fgNewStmtNearEnd(m_block, sideEffects);
     }
 
     fgWalkResult PropagateConst(GenTree** use, GenTree* user)
