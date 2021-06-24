@@ -5180,35 +5180,29 @@ private:
 
         GenTree* newTree = GetConstNode(tree);
 
-        if (newTree == nullptr)
+        if (newTree != nullptr)
         {
-            return Compiler::WALK_CONTINUE;
+            assert(newTree != tree);
+
+            if (user == nullptr)
+            {
+                assert(tree == m_stmt->GetRootNode());
+                m_stmt->SetRootNode(newTree);
+            }
+            else
+            {
+                user->ReplaceOperand(use, newTree);
+            }
+
+            JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
+            DBEXEC(VERBOSE, m_compiler->gtDispStmt(m_stmt));
+
+            DEBUG_DESTROY_NODE(tree);
+
+            m_stmtMorphPending = true;
         }
 
-        // Successful propagation, mark as assertion propagated and skip
-        // sub-tree (with side-effects) visits.
-        // TODO #18291: at that moment stmt could be already removed from the stmt list.
-
-        assert(newTree != tree);
-
-        if (user == nullptr)
-        {
-            assert(tree == m_stmt->GetRootNode());
-            m_stmt->SetRootNode(newTree);
-        }
-        else
-        {
-            user->ReplaceOperand(use, newTree);
-        }
-
-        JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
-        DBEXEC(VERBOSE, m_compiler->gtDispStmt(m_stmt));
-
-        DEBUG_DESTROY_NODE(tree);
-
-        m_stmtMorphPending = true;
-
-        return Compiler::WALK_SKIP_SUBTREES;
+        return Compiler::WALK_CONTINUE;
     }
 
     GenTree* GetConstNode(GenTree* tree)
