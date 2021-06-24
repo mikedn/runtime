@@ -4920,7 +4920,7 @@ public:
     fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         PropagateNonNull(*use);
-        return PropagateConst(*use, user);
+        return PropagateConst(use, user);
     }
 
 private:
@@ -5100,8 +5100,10 @@ private:
         return firstNewStmt;
     }
 
-    fgWalkResult PropagateConst(GenTree* tree, GenTree* user)
+    fgWalkResult PropagateConst(GenTree** use, GenTree* user)
     {
+        GenTree* tree = *use;
+
         // We already handled JTRUE's operand, skip it.
         if ((user != nullptr) && user->OperIs(GT_JTRUE))
         {
@@ -5184,10 +5186,24 @@ private:
         // sub-tree (with side-effects) visits.
         // TODO #18291: at that moment stmt could be already removed from the stmt list.
 
-        UpdateStmt(newTree, tree);
+        assert(newTree != tree);
+
+        if (user == nullptr)
+        {
+            assert(tree == m_stmt->GetRootNode());
+            m_stmt->SetRootNode(newTree);
+        }
+        else
+        {
+            user->ReplaceOperand(use, newTree);
+        }
 
         JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
         DBEXEC(VERBOSE, m_compiler->gtDispStmt(m_stmt));
+
+        DEBUG_DESTROY_NODE(tree);
+
+        m_stmtMorphPending = true;
 
         return Compiler::WALK_SKIP_SUBTREES;
     }
@@ -5267,43 +5283,6 @@ private:
             // Also, the constant node gets the wrong VN, the one that includes exceptions...
             newTree = m_compiler->gtNewCommaNode(sideEffects, newTree);
         }
-
-        return newTree;
-    }
-
-    GenTree* UpdateStmt(GenTree* newTree, GenTree* tree)
-    {
-        // If newTree == tree then we modified the tree in-place otherwise we have to
-        // locate our parent node and update it so that it points to newTree.
-        if (newTree != tree)
-        {
-            Compiler::FindLinkData linkData = m_compiler->gtFindLink(m_stmt, tree);
-            GenTree**              useEdge  = linkData.result;
-            GenTree*               parent   = linkData.parent;
-            noway_assert(useEdge != nullptr);
-
-            if (parent != nullptr)
-            {
-                parent->ReplaceOperand(useEdge, newTree);
-            }
-            else
-            {
-                // If there's no parent, the tree being replaced is the root of the
-                // statement.
-                assert((m_stmt->GetRootNode() == tree) && (m_stmt->GetRootNodePointer() == useEdge));
-                m_stmt->SetRootNode(newTree);
-            }
-
-            // We only need to ensure that the gtNext field is set as it is used to traverse
-            // to the next node in the tree. We will re-morph this entire statement in
-            // optVNAssertionProp(). It will reset the gtPrev and gtNext links for all nodes.
-            newTree->gtNext = tree->gtNext;
-
-            // Old tree should not be referenced anymore.
-            DEBUG_DESTROY_NODE(tree);
-        }
-
-        m_stmtMorphPending = true;
 
         return newTree;
     }
