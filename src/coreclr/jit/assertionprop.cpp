@@ -5084,15 +5084,67 @@ private:
             return Compiler::WALK_CONTINUE;
         }
 
-        // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
-        if (!tree->CanCSE())
+        if (tree->TypeIs(TYP_STRUCT))
         {
+            // There are no STRUCT VN constants but ZeroMap can be treated as such,
+            // at least when the value is used by an assignment, where it's valid
+            // to assign a INT 0 value to a struct variable. Also, the tree must not
+            // have side effects, so we don't have to introduce a COMMA between the
+            // assignment and the INT 0 node (the tree is likely to be a LCL_VAR
+            // this case anyway, it can't be an indir as that won't get ZeroMap as
+            // a conservative VN).
+            // Note that we intentionally ignore the GTF_DONT_CSE flag here, it is
+            // usually set for no reason on both STRUCT assignment operands even if
+            // only the destination needs it (well, the reason was probably that you
+            // can't use a 0 everywhere a STRUCT value may be used, but we're doing
+            // this transform only for assignments anyway).
+
+            // TODO-MIKE-CQ: Check what happens with struct args and returns, we
+            // probably can't use a constant INT node in all cases but perhaps it
+            // can be done when the struct fits in a register. Otherwise we may
+            // need a STRUCT typed constant node instead of abusing GT_CNS_INT.
+
+            if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree) &&
+                ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
+                (m_vnStore->VNConservativeNormalValue(tree->gtVNPair) == ValueNumStore::VNForZeroMap()))
+            {
+                user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
+                m_stmtMorphPending = true;
+            }
+
             return Compiler::WALK_CONTINUE;
         }
 
-        // Don't propagate floating-point constants into a TYP_STRUCT LclVar
-        // This can occur for HFA return values (see hfa_sf3E_r.exe)
-        if (tree->TypeIs(TYP_STRUCT))
+        if (varTypeIsSIMD(tree->GetType()))
+        {
+            // There are no SIMD VN constants currently.
+
+            // TODO-MIKE-CQ: Well, there are some VNs that can be treated as constants,
+            // VNF_HWI_Vector128_get_Zero for example. But it turns out that due to
+            // poor const register reuse in LSRA, attempting to propagate these isn't
+            // always an improvement - we simply end up with more XORPS instructions.
+            // Still, there's at least on special case where propagation helps, SIMD12
+            // memory stores. If codegen sees that the stored value is 0 then it can
+            // omit the shuffling required to exract the upper SIMD12 element. We can
+            // still end up with an extra XORPS if we propagate but that's better than
+            // unnecessary shuffling.
+            //
+            // Another case where 0 propagation might be useful is integer equality,
+            // lowering can transform it into PTEST if one operand is 0.
+            //
+            // There are others VNs that could be treated as constants (such as Create
+            // with constant operands or get_AllBitsSet) but it's not clear how useful
+            // would that be.
+            //
+            // Also, VN is messed up, in at least on case it produces a TYP_LONG 0 VN
+            // for what's really a SIMD value - when a SIMD local variable is used
+            // without being explicitly initialized and .localsinit is present.
+
+            return Compiler::WALK_CONTINUE;
+        }
+
+        // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
+        if (!tree->CanCSE())
         {
             return Compiler::WALK_CONTINUE;
         }
