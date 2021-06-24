@@ -5213,8 +5213,7 @@ private:
 
     GenTree* GetConstNode(GenTree* tree)
     {
-        ValueNumPair vnp = tree->gtVNPair;
-        ValueNum     vn  = m_vnStore->VNConservativeNormalValue(vnp);
+        ValueNum vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
 
         if (!m_vnStore->IsVNConstant(vn))
         {
@@ -5274,7 +5273,7 @@ private:
             return nullptr;
         }
 
-        newTree->SetVNs(vnp);
+        newTree->SetVNs(ValueNumPair(vn, vn));
 
         GenTree* sideEffects = ExtractConstTreeSideEffects(tree);
 
@@ -5282,9 +5281,8 @@ private:
         {
             assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
 
-            // TODO-MIKE-Review: So we bother setting the VN on the constant node but not on the COMMA tree?
-            // Also, the constant node gets the wrong VN, the one that includes exceptions...
             newTree = m_compiler->gtNewCommaNode(sideEffects, newTree);
+            newTree->SetVNs(tree->gtVNPair);
         }
 
         return newTree;
