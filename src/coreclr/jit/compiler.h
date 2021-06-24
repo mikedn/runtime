@@ -2137,8 +2137,6 @@ public:
                               unsigned  flags      = GTF_SIDE_EFFECT,
                               bool      ignoreRoot = false);
 
-    GenTree* gtGetThisArg(GenTreeCall* call);
-
     // Static fields of struct types (and sometimes the types that those are reduced to) are represented by having the
     // static field contain an object pointer to the boxed struct.  This simplifies the GC implementation...but
     // complicates the JIT somewhat.  This predicate returns "true" iff a node with type "fieldNodeType", representing

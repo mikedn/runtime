@@ -2201,10 +2201,7 @@ void Compiler::optAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                //  Retrieve the 'this' arg.
-                GenTree* thisArg = gtGetThisArg(call);
-                assert(thisArg != nullptr);
-                assertionInfo = optCreateAssertion(thisArg, nullptr, OAK_NOT_EQUAL);
+                assertionInfo = optCreateAssertion(call->GetThisArg(), nullptr, OAK_NOT_EQUAL);
             }
         }
         break;
@@ -3679,7 +3676,7 @@ GenTree* Compiler::optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, Gen
     {
         return nullptr;
     }
-    GenTree* op1 = gtGetThisArg(call);
+    GenTree* op1 = call->GetThisArg();
     noway_assert(op1 != nullptr);
     if (op1->gtOper != GT_LCL_VAR)
     {
@@ -4943,7 +4940,7 @@ private:
             return;
         }
 
-        GenTree* thisArg = m_compiler->gtGetThisArg(call);
+        GenTree* thisArg = call->GetThisArg();
         noway_assert(thisArg != nullptr);
 
         // TODO-MIKE-Review: This check is likely useless, if the VN is known to be non-null

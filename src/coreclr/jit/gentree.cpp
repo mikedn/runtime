@@ -5709,6 +5709,20 @@ GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTre
     return new (this, CMK_ASTNode) GenTreeCall::Use(node1, gtNewCallArgs(node2, node3, node4));
 }
 
+GenTree* GenTreeCall::GetThisArg() const
+{
+    assert(gtCallThisArg != nullptr);
+
+    if (fgArgInfo == nullptr)
+    {
+        return gtCallThisArg->GetNode();
+    }
+
+    CallArgInfo* argInfo = GetArgInfoByArgNum(0);
+    assert(argInfo->use == gtCallThisArg);
+    return argInfo->GetNode();
+}
+
 CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
 {
     noway_assert(fgArgInfo != nullptr);
@@ -7211,21 +7225,6 @@ bool Compiler::gtCompareTree(GenTree* op1, GenTree* op2)
         }
     }
     return false;
-}
-
-GenTree* Compiler::gtGetThisArg(GenTreeCall* call)
-{
-    assert(call->gtCallThisArg != nullptr);
-
-    if (call->GetInfo() == nullptr)
-    {
-        return call->gtCallThisArg->GetNode();
-    }
-
-    CallArgInfo* argInfo = call->GetArgInfoByArgNum(0);
-    assert(argInfo->use == call->gtCallThisArg);
-    assert(argInfo->GetRegNum() == REG_ARG_0);
-    return argInfo->GetNode();
 }
 
 bool GenTree::gtSetFlags() const
