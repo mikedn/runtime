@@ -5134,10 +5134,12 @@ private:
 
         if (m_vnStore->IsVNHandle(vn))
         {
+            assert(vnType == TYP_I_IMPL);
+
             // Don't perform constant folding that involves a handle that needs to be recorded
             // as a relocation with the VM. The VN type should be TYP_I_IMPL but the tree may
             // sometimes be TYP_BYREF, due to things like Unsafe.As.
-            if (!m_compiler->opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF) && (vnType == TYP_I_IMPL))
+            if (!m_compiler->opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF))
             {
                 newTree = m_compiler->gtNewIconHandleNode(m_vnStore->ConstantValue<target_ssize_t>(vn),
                                                           m_vnStore->GetHandleFlags(vn));
