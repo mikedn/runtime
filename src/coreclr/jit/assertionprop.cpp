@@ -4862,34 +4862,65 @@ public:
         // See: SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
         if (block->bbCatchTyp == BBCT_FAULT)
         {
-            return nullptr;
+            return stmt;
         }
 
         m_block = block;
 
-        // Propagation may add statements before `stmt` or remove `stmt`, remember
-        // the previous statment so we know where to continue from. The previous
-        // statement will never be affected by propagation in `stmt`.
-        Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
-
-        m_stmt             = stmt;
-        m_stmtMorphPending = false;
-
-        WalkTree(stmt->GetRootNodePointer(), nullptr);
-
-        if (m_stmtMorphPending)
+        do
         {
-            m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
-        }
+            if (stmt->GetRootNode()->OperIs(GT_JTRUE))
+            {
+                stmt = PropagateConstJTrue(stmt);
 
-        Statement* next = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
-        return next == stmt ? nullptr : next;
+                // JTRUE's operand was constant and without side effects so the entire
+                // statement was removed, we're done.
+                if (stmt == nullptr)
+                {
+                    return nullptr;
+                }
+
+                // Otherwise we get back the original statement or a new statement, if
+                // JTRUE's operand was constant and had side effects. In the later case
+                // the JTRUE statement was already removed so we won't traverse it again.
+            }
+
+            m_stmt             = stmt;
+            m_stmtMorphPending = false;
+
+            WalkTree(stmt->GetRootNodePointer(), nullptr);
+
+            if (!m_stmtMorphPending)
+            {
+                return stmt;
+            }
+
+            // Morph may remove the statement, get the previous one so we know where
+            // to continue from. This also works in case morph inserts new statements
+            // before or after this one, but that's unlikely.
+            Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
+            m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
+            Statement* next = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
+
+            // Morph didn't add/remove any statements, we're done.
+            if (next == stmt)
+            {
+                break;
+            }
+
+            // Morph removed the statement or perhaps added new ones before it, do constant
+            // propagation on the next statement so we don't return a statment we did not
+            // do constant propagation on.
+            stmt = next;
+        } while (stmt != nullptr);
+
+        return stmt;
     }
 
     fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         PropagateNonNull(*use);
-        return PropagateConst(*use);
+        return PropagateConst(*use, user);
     }
 
 private:
@@ -4982,26 +5013,35 @@ private:
         m_stmtMorphPending = true;
     }
 
-    GenTree* PropagateConstJTrue(GenTreeUnOp* jtrue)
+    Statement* PropagateConstJTrue(Statement* stmt)
     {
-        GenTree* relop = jtrue->GetOp(0);
+        assert(stmt->GetRootNode()->OperIs(GT_JTRUE));
+        assert(stmt->GetNextStmt() == nullptr);
+
+        GenTree* relop = stmt->GetRootNode()->AsUnOp()->GetOp(0);
 
         // VN based assertion non-null on this relop has been performed.
+        // TODO-MIKE-Review: This should probably be just an assert.
         if (!relop->OperIsCompare())
         {
-            return nullptr;
+            return stmt;
         }
-
-        // Make sure GTF_RELOP_JMP_USED flag is set so that we don't replace the
-        // relop with a constant when we reach it later in the pre-order walk.
-        assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
 
         ValueNum vn = m_vnStore->VNConservativeNormalValue(relop->gtVNPair);
 
         if (!m_vnStore->IsVNConstant(vn))
         {
-            return nullptr;
+            return stmt;
         }
+
+        // Extract any existing side effects into separate statements so we only
+        // have JTRUE(const) rather than JTRUE(COMMA(X, const)).
+        // TODO-MIKE-Review: Why? Seems like fgFoldConditional can deal with a
+        // JTRUE(COMMA...) so why bother doing it here, especially considering
+        // that this is a rather rare case?
+        // fgFoldConditional simply replaces JTRUE(COMMA(X, const)) with X so
+        // that side effects are preserved and we continue with normal constant
+        // propagation on X.
 
         GenTree* sideEffects = ExtractConstTreeSideEffects(relop);
 
@@ -5011,6 +5051,14 @@ private:
         relop->AsIntCon()->SetValue(value);
         vn = m_vnStore->VNForIntCon(value);
         relop->SetVNs(ValueNumPair(vn, vn));
+
+        JITDUMP("After JTRUE constant propagation on " FMT_TREEID ":\n", relop->GetID());
+        DBEXEC(VERBOSE, m_compiler->gtDispStmt(stmt));
+
+        bool removed = m_compiler->fgMorphBlockStmt(m_block, stmt DEBUGARG(__FUNCTION__));
+        assert(removed);
+
+        Statement* firstNewStmt = nullptr;
 
         while (sideEffects != nullptr)
         {
@@ -5037,14 +5085,29 @@ private:
             // doing constant propagation so we may morph again if they contains
             // constants.
 
-            m_compiler->fgMorphBlockStmt(m_block, newStmt DEBUGARG(__FUNCTION__));
+            if (m_compiler->fgMorphBlockStmt(m_block, newStmt DEBUGARG(__FUNCTION__)))
+            {
+                // The newly created statement was removed.
+                continue;
+            }
+
+            if (firstNewStmt == nullptr)
+            {
+                firstNewStmt = newStmt;
+            }
         }
 
-        return jtrue;
+        return firstNewStmt;
     }
 
-    fgWalkResult PropagateConst(GenTree* tree)
+    fgWalkResult PropagateConst(GenTree* tree, GenTree* user)
     {
+        // We already handled JTRUE's operand, skip it.
+        if ((user != nullptr) && user->OperIs(GT_JTRUE))
+        {
+            return Compiler::WALK_CONTINUE;
+        }
+
         // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
         if (!tree->CanCSE())
         {
@@ -5103,7 +5166,6 @@ private:
             case GT_NEG:
             case GT_CAST:
             case GT_INTRINSIC:
-            case GT_JTRUE:
                 // TODO-MIKE-Review: Huh, this is missing various opers - ROL, ROR, BITCAST, NOT, BSWAP...
                 break;
 
@@ -5111,18 +5173,7 @@ private:
                 return Compiler::WALK_CONTINUE;
         }
 
-        GenTree* newTree;
-
-        if (tree->OperIs(GT_JTRUE))
-        {
-            // Treat JTRUE separately to extract side effects into separate statements
-            // rather than creating COMMA trees.
-            newTree = PropagateConstJTrue(tree->AsUnOp());
-        }
-        else
-        {
-            newTree = GetConstNode(tree);
-        }
+        GenTree* newTree = GetConstNode(tree);
 
         if (newTree == nullptr)
         {
@@ -5143,14 +5194,6 @@ private:
 
     GenTree* GetConstNode(GenTree* tree)
     {
-        assert(!tree->OperIs(GT_JTRUE));
-
-        // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
-        if (tree->OperIsCompare() && ((tree->gtFlags & GTF_RELOP_JMP_USED) != 0))
-        {
-            return nullptr;
-        }
-
         ValueNumPair vnp = tree->gtVNPair;
         ValueNum     vn  = m_vnStore->VNConservativeNormalValue(vnp);
 
@@ -5309,32 +5352,22 @@ void Compiler::optVNAssertionProp()
     // Traverse all blocks, perform VN constant propagation and generate assertions.
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
-        compCurBB           = block;
-        fgRemoveRestOfBlock = false;
+        compCurBB = block;
 
-        for (Statement* stmt = block->GetFirstStatement(); stmt != nullptr;)
+        for (Statement* stmt = block->GetFirstStatement(); stmt != nullptr; stmt = stmt->GetNextStmt())
         {
             VNConstPropVisitor visitor(this);
-            Statement*         nextStmt = visitor.VisitStmt(block, stmt);
+            stmt = visitor.VisitStmt(block, stmt);
 
-            if (nextStmt != nullptr)
+            if (stmt == nullptr)
             {
-                // Propagation removed the current stmt or added new ones before it, continue
-                // from the right statement. If new statements were added this means that we
-                // will go back, process those statements and then process this statement again.
-                // This should only happen when side effects are extracted from a JTRUE, then
-                // the statement contains only a small JTRUE(EQ|NE(0, 0)) so this is not a
-                // throughput issue.
-                stmt = nextStmt;
-                continue;
+                break;
             }
 
             for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
             {
                 optAssertionGen(tree);
             }
-
-            stmt = stmt->GetNextStmt();
         }
     }
 
