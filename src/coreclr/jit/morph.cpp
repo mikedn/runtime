@@ -414,11 +414,13 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                     src->AsOp()->SetOp(1, gtNewCastNode(TYP_INT, src->AsOp()->GetOp(1), false, dstType));
                 }
 
+#ifndef TARGET_64BIT
                 // Clear the GT_MUL_64RSLT if it is set.
                 if (src->OperIs(GT_MUL) && ((src->gtFlags & GTF_MUL_64RSLT) != 0))
                 {
                     src->gtFlags &= ~GTF_MUL_64RSLT;
                 }
+#endif
 
                 // The operation now produces a 32-bit result.
                 src->SetType(TYP_INT);
@@ -4409,10 +4411,12 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
             return;
         }
 
-        if (oper == GT_MUL && (op2->gtFlags & GTF_MUL_64RSLT))
+#ifndef TARGET_64BIT
+        if ((oper == GT_MUL) && ((op2->gtFlags & GTF_MUL_64RSLT) != 0))
         {
             return;
         }
+#endif
 
         // Check for GTF_ADDRMODE_NO_CSE flag on add/mul Binary Operators
         if (((oper == GT_ADD) || (oper == GT_MUL)) && ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0))
@@ -9996,8 +10000,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
                 else
                 {
-                    /* We are seeing this node again. We have decided to use
-                       GTF_MUL_64RSLT, so leave it alone. */
+                    // We are seeing this node again. We have decided to use
+                    // GTF_MUL_64RSLT, so leave it alone.
 
                     assert(tree->gtIsValid64RsltMul());
                 }
@@ -11444,7 +11448,6 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_MUL:
-
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
@@ -11452,7 +11455,7 @@ DONE_MORPHING_CHILDREN:
                 assert(tree->gtIsValid64RsltMul());
                 return tree;
             }
-#endif // TARGET_64BIT
+#endif
             goto CM_OVF_OP;
 
         case GT_SUB:

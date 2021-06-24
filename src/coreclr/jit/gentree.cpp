@@ -2296,6 +2296,7 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
 /*****************************************************************************/
 
 #ifdef DEBUG
+#ifndef TARGET_64BIT
 
 bool GenTree::gtIsValid64RsltMul()
 {
@@ -2344,6 +2345,7 @@ bool GenTree::gtIsValid64RsltMul()
     return true;
 }
 
+#endif // !TARGET_64BIT
 #endif // DEBUG
 
 unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
@@ -8467,15 +8469,15 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 goto DASH;
 
             case GT_MUL:
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
             case GT_MUL_LONG:
-#endif
-                if (tree->gtFlags & GTF_MUL_64RSLT)
+                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
                 {
                     printf("L");
                     --msgLength;
                     break;
                 }
+#endif
                 goto DASH;
 
             case GT_DIV:

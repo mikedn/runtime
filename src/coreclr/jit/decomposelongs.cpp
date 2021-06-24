@@ -404,12 +404,12 @@ GenTree* DecomposeLongs::DecomposeLclFld(LIR::Use& use)
 GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
 {
     assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_STORE_LCL_VAR);
+    assert(use.Def()->OperIs(GT_STORE_LCL_VAR));
 
-    GenTree* tree = use.Def();
-    GenTree* rhs  = tree->gtGetOp1();
-    if ((rhs->OperGet() == GT_PHI) || (rhs->OperGet() == GT_CALL) ||
-        ((rhs->OperGet() == GT_MUL_LONG) && (rhs->gtFlags & GTF_MUL_64RSLT) != 0))
+    GenTreeLclVar* tree = use.Def()->AsLclVar();
+    GenTree*       rhs  = tree->GetOp(0);
+
+    if (rhs->OperIs(GT_PHI, GT_CALL) || (rhs->OperIs(GT_MUL_LONG) && ((rhs->gtFlags & GTF_MUL_64RSLT) != 0)))
     {
         // GT_CALLs are not decomposed, so will not be converted to GT_LONG
         // GT_STORE_LCL_VAR = GT_CALL are handled in genMultiRegCallStoreToLocal
@@ -417,10 +417,10 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
         return tree->gtNext;
     }
 
-    noway_assert(rhs->OperGet() == GT_LONG);
+    noway_assert(rhs->OperIs(GT_LONG));
 
-    unsigned   varNum = tree->AsLclVarCommon()->GetLclNum();
-    LclVarDsc* varDsc = m_compiler->lvaTable + varNum;
+    LclVarDsc* varDsc = m_compiler->lvaGetDesc(tree);
+
     if (!varDsc->lvPromoted)
     {
         // We cannot decompose a st.lclVar that is not promoted because doing so
@@ -1534,25 +1534,23 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 {
     assert(use.IsInitialized());
 
-    GenTree*   tree = use.Def();
-    genTreeOps oper = tree->OperGet();
+    GenTreeOp* tree = use.Def()->AsOp();
 
-    assert(oper == GT_MUL);
+    assert(tree->OperIs(GT_MUL));
     assert((tree->gtFlags & GTF_MUL_64RSLT) != 0);
-
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
 
     // We expect both operands to be int->long casts. DecomposeCast specifically
     // ignores such casts when they are used by GT_MULs.
-    assert((op1->OperGet() == GT_CAST) && (op1->TypeGet() == TYP_LONG));
-    assert((op2->OperGet() == GT_CAST) && (op2->TypeGet() == TYP_LONG));
+    GenTreeCast* op1 = tree->GetOp(0)->AsCast();
+    GenTreeCast* op2 = tree->GetOp(1)->AsCast();
+    assert(op1->TypeIs(TYP_LONG));
+    assert(op2->TypeIs(TYP_LONG));
 
     Range().Remove(op1);
     Range().Remove(op2);
 
-    tree->AsOp()->gtOp1 = op1->gtGetOp1();
-    tree->AsOp()->gtOp2 = op2->gtGetOp1();
+    tree->SetOp(0, op1->GetOp(0));
+    tree->SetOp(1, op2->GetOp(0));
     tree->SetOper(GT_MUL_LONG);
 
     return StoreNodeToVar(use);

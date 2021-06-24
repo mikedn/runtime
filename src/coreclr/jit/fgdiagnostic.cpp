@@ -2275,6 +2275,7 @@ void Compiler::fgDumpTrees(BasicBlock* firstBlock, BasicBlock* lastBlock)
            "----------\n");
 }
 
+#ifndef TARGET_64BIT
 /*****************************************************************************
  * Try to create as many candidates for GTF_MUL_64RSLT as possible.
  * We convert 'intOp1*intOp2' into 'int(long(nop(intOp1))*long(intOp2))'.
@@ -2317,6 +2318,7 @@ void Compiler::fgStress64RsltMul()
 
     fgWalkAllTreesPre(fgStress64RsltMulCB, (void*)this);
 }
+#endif // !TARGET_64BIT
 
 // BBPredsChecker checks jumps from the block's predecessors to the block.
 class BBPredsChecker
