@@ -4053,7 +4053,7 @@ public:
 
 #ifdef FEATURE_HW_INTRINSICS
     // Does value-numbering for a GT_HWINTRINSIC tree
-    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode);
+    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node);
 #endif // FEATURE_HW_INTRINSICS
 
     // Does value-numbering for a call.  We interpret some helper calls.

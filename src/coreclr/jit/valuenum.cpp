@@ -5591,11 +5591,11 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
             case VNF_ValWithExc:
                 vnDumpValWithExc(comp, &funcApp);
                 break;
-#ifdef FEATURE_SIMD
+#ifdef FEATURE_HW_INTRINSICS
             case VNF_SimdType:
                 vnDumpSimdType(comp, &funcApp);
                 break;
-#endif // FEATURE_SIMD
+#endif
 
             default:
                 printf("%s(", VNFuncName(funcApp.m_func));
@@ -5745,7 +5745,7 @@ void ValueNumStore::vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore)
     printf("]");
 }
 
-#ifdef FEATURE_SIMD
+#ifdef FEATURE_HW_INTRINSICS
 void ValueNumStore::vnDumpSimdType(Compiler* comp, VNFuncApp* simdType)
 {
     assert(simdType->m_func == VNF_SimdType); // Preconditions.
@@ -5757,7 +5757,7 @@ void ValueNumStore::vnDumpSimdType(Compiler* comp, VNFuncApp* simdType)
 
     printf("%s(simd%d, %s)", VNFuncName(simdType->m_func), simdSize, varTypeName(baseType));
 }
-#endif // FEATURE_SIMD
+#endif // FEATURE_HW_INTRINSICS
 
 #endif // DEBUG
 
@@ -8729,120 +8729,105 @@ void Compiler::fgValueNumberIntrinsic(GenTree* tree)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-// Does value-numbering for a GT_HWINTRINSIC node
-void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
+void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    // For safety/correctness we must mutate the global heap valuenumber
-    // for any HW intrinsic that performs a memory store operation
-    if (hwIntrinsicNode->OperIsMemoryStore())
+    if (node->OperIsMemoryStore())
     {
-        fgMutateGcHeap(hwIntrinsicNode DEBUGARG("HWIntrinsic - MemoryStore"));
+        fgMutateGcHeap(node DEBUGARG("HWIntrinsic - MemoryStore"));
     }
 
-    if (hwIntrinsicNode->GetNumOps() > 2)
+    if (node->OperIsMemoryLoad())
     {
-        // For now we will generate a unique value number for intrinsics with more than 2 operands.
-        hwIntrinsicNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, hwIntrinsicNode->TypeGet()));
-        return;
-    }
+        if (node->GetNumOps() > 1)
+        {
+            // For now we will generate a unique value number for loads with more
+            // than one operand (i.e. GatherVector128)
+            node->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, node->GetType()));
+            return;
+        }
 
-    VNFunc func = GetVNFuncForNode(hwIntrinsicNode);
-
-    if (hwIntrinsicNode->OperIsMemoryLoad())
-    {
         ValueNumPair addrVNP;
         ValueNumPair addrXVNP;
-        vnStore->VNPUnpackExc(hwIntrinsicNode->GetOp(0)->gtVNPair, &addrVNP, &addrXVNP);
+        vnStore->VNPUnpackExc(node->GetOp(0)->gtVNPair, &addrVNP, &addrXVNP);
 
         // The addrVN incorporates both addr's ValueNumber and the func operation
         // The func is used because operations such as LoadLow and LoadHigh perform
         // different operations, thus need to compute different ValueNumbers
         // We don't need to encode the result type as it will be encoded by the opcode in 'func'
-        ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, func, addrVNP.GetLiberal());
+        ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, GetVNFuncForNode(node), addrVNP.GetLiberal());
 
         // The address could point anywhere, so it is an ByrefExposed load.
-        ValueNum loadVN = fgValueNumberByrefExposedLoad(hwIntrinsicNode->GetType(), addrVN);
+        ValueNum loadVN = fgValueNumberByrefExposedLoad(node->GetType(), addrVN);
 
-        hwIntrinsicNode->gtVNPair.SetLiberal(loadVN);
-        hwIntrinsicNode->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, hwIntrinsicNode->GetType()));
-        hwIntrinsicNode->gtVNPair = vnStore->VNPWithExc(hwIntrinsicNode->gtVNPair, addrXVNP);
-        fgValueNumberAddExceptionSetForIndirection(hwIntrinsicNode, hwIntrinsicNode->GetOp(0));
+        node->gtVNPair.SetLiberal(loadVN);
+        node->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, node->GetType()));
+        node->gtVNPair = vnStore->VNPWithExc(node->gtVNPair, addrXVNP);
+        fgValueNumberAddExceptionSetForIndirection(node, node->GetOp(0));
 
         return;
     }
 
-    bool encodeResultType = vnEncodesResultTypeForHWIntrinsic(hwIntrinsicNode->GetIntrinsic());
+    bool     encodeResultType = vnEncodesResultTypeForHWIntrinsic(node->GetIntrinsic());
+    unsigned arity            = node->GetNumOps() + (encodeResultType ? 1 : 0);
 
-    ValueNumPair excSetPair = ValueNumStore::VNPForEmptyExcSet();
-    ValueNumPair normalPair;
-    ValueNumPair resvnp = ValueNumPair();
+    if (arity > 4)
+    {
+        node->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, node->GetType()));
+        return;
+    }
+
+    ValueNumPair opsVnp[4];
+    ValueNumPair xvnp = ValueNumStore::VNPForEmptyExcSet();
+
+    for (unsigned i = 0; i < node->GetNumOps(); i++)
+    {
+        ValueNumPair opXvnp;
+        vnStore->VNPUnpackExc(node->GetOp(i)->gtVNPair, &opsVnp[i], &opXvnp);
+        xvnp = vnStore->VNPExcSetUnion(xvnp, opXvnp);
+    }
 
     if (encodeResultType)
     {
-        ValueNum vnSize     = vnStore->VNForIntCon(hwIntrinsicNode->GetSimdSize());
-        ValueNum vnBaseType = vnStore->VNForIntCon(INT32(hwIntrinsicNode->GetSimdBaseType()));
-        ValueNum simdTypeVN = vnStore->VNForFunc(TYP_REF, VNF_SimdType, vnSize, vnBaseType);
-        resvnp.SetBoth(simdTypeVN);
+        ValueNum vnSize     = vnStore->VNForIntCon(node->GetSimdSize());
+        ValueNum vnBaseType = vnStore->VNForIntCon(static_cast<int32_t>(node->GetSimdBaseType()));
+        ValueNum vnSimdType = vnStore->VNForFunc(TYP_REF, VNF_SimdType, vnSize, vnBaseType);
+
+        opsVnp[arity - 1].SetBoth(vnSimdType);
 
 #ifdef DEBUG
         if (verbose)
         {
-            printf("    simdTypeVN is ");
-            vnPrint(simdTypeVN, 1);
+            printf("    vnSimdType is ");
+            vnPrint(vnSimdType, 1);
             printf("\n");
         }
 #endif
     }
 
-    if (hwIntrinsicNode->GetNumOps() == 0)
+    VNFunc       func = GetVNFuncForNode(node);
+    ValueNumPair vnp;
+
+    switch (arity)
     {
-        if (encodeResultType)
-        {
-            normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->GetType(), func, resvnp);
-        }
-        else
-        {
-            normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->GetType(), func);
-        }
-    }
-    else
-    {
-        ValueNumPair op1vnp;
-        ValueNumPair op1Xvnp;
-        vnStore->VNPUnpackExc(hwIntrinsicNode->GetOp(0)->gtVNPair, &op1vnp, &op1Xvnp);
-
-        if (hwIntrinsicNode->IsUnary())
-        {
-            excSetPair = op1Xvnp;
-
-            if (encodeResultType)
-            {
-                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, resvnp);
-            }
-            else
-            {
-                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp);
-            }
-        }
-        else
-        {
-            ValueNumPair op2vnp;
-            ValueNumPair op2Xvnp;
-            vnStore->VNPUnpackExc(hwIntrinsicNode->GetOp(1)->gtVNPair, &op2vnp, &op2Xvnp);
-
-            excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
-            if (encodeResultType)
-            {
-                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, op2vnp, resvnp);
-            }
-            else
-            {
-                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, op2vnp);
-            }
-        }
+        case 0:
+            vnp = vnStore->VNPairForFunc(node->GetType(), func);
+            break;
+        case 1:
+            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0]);
+            break;
+        case 2:
+            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1]);
+            break;
+        case 3:
+            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1], opsVnp[2]);
+            break;
+        default:
+            assert(arity == 4);
+            vnp = vnStore->VNPairForFunc(node->GetType(), func, opsVnp[0], opsVnp[1], opsVnp[2], opsVnp[3]);
+            break;
     }
 
-    hwIntrinsicNode->gtVNPair = vnStore->VNPWithExc(normalPair, excSetPair);
+    node->SetVNs(vnStore->VNPWithExc(vnp, xvnp));
 }
 #endif // FEATURE_HW_INTRINSICS
 
