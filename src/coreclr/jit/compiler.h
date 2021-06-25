@@ -1448,6 +1448,7 @@ class Compiler
     friend class LocalAddressVisitor;
     friend struct GenTree;
     friend class ClassLayout;
+    friend class VNConstPropVisitor;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -1877,7 +1878,7 @@ public:
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* pValue);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
 
-    GenTree* gtNewLconNode(__int64 value);
+    GenTree* gtNewLconNode(int64_t value);
 
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
 
@@ -2135,8 +2136,6 @@ public:
                               GenTree** pList,
                               unsigned  flags      = GTF_SIDE_EFFECT,
                               bool      ignoreRoot = false);
-
-    GenTree* gtGetThisArg(GenTreeCall* call);
 
     // Static fields of struct types (and sometimes the types that those are reduced to) are represented by having the
     // static field contain an object pointer to the boxed struct.  This simplifies the GC implementation...but
@@ -6141,13 +6140,12 @@ public:
 
 protected:
     static fgWalkPreFn optAddCopiesCallback;
-    static fgWalkPreFn optVNAssertionPropCurStmtVisitor;
+    static fgWalkPreFn optVNAssertionPropStmtVisitor;
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    bool optLocalAssertionProp;  // indicates that we are performing local assertion prop
-    bool optAssertionPropagated; // set to true if we modified the trees
-    bool optAssertionPropagatedCurrentStmt;
+    bool optLocalAssertionProp; // indicates that we are performing local assertion prop
+    bool optVNAssertionPropStmtMorphPending;
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
@@ -6159,11 +6157,8 @@ protected:
     AssertionIndex optMaxAssertionCount;
 
 public:
-    void optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTree* tree);
-    fgWalkResult optVNConstantPropCurStmt(BasicBlock* block, Statement* stmt, GenTree* tree);
-    GenTree* optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test);
-    GenTree* optVNConstantPropOnTree(BasicBlock* block, GenTree* tree);
-    GenTree* optExtractSideEffListFromConst(GenTree* tree);
+    GenTree* optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
+    GenTree* optVNConstantPropExtractSideEffects(GenTree* tree);
 
     AssertionIndex GetAssertionCount()
     {
@@ -6184,8 +6179,7 @@ public:
 #endif
 
     // Assertion prop data flow functions.
-    void       optAssertionPropMain();
-    Statement* optVNAssertionPropCurStmt(BasicBlock* block, Statement* stmt);
+    void optVNAssertionProp();
     bool optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     ASSERT_TP* optInitAssertionDataflowFlags();
     ASSERT_TP* optComputeAssertionGen();

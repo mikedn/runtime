@@ -3440,7 +3440,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
     }
     else
     {
-        thisArgNode = comp->gtGetThisArg(call);
+        thisArgNode = call->GetThisArg();
     }
 
     assert(thisArgNode != nullptr);

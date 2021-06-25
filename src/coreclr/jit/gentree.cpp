@@ -2296,6 +2296,7 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
 /*****************************************************************************/
 
 #ifdef DEBUG
+#ifndef TARGET_64BIT
 
 bool GenTree::gtIsValid64RsltMul()
 {
@@ -2344,6 +2345,7 @@ bool GenTree::gtIsValid64RsltMul()
     return true;
 }
 
+#endif // !TARGET_64BIT
 #endif // DEBUG
 
 unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
@@ -5460,7 +5462,7 @@ GenTreeIntCon* Compiler::gtNewStringLiteralLength(GenTreeStrCon* node)
 
 /*****************************************************************************/
 
-GenTree* Compiler::gtNewLconNode(__int64 value)
+GenTree* Compiler::gtNewLconNode(int64_t value)
 {
 #ifdef TARGET_64BIT
     GenTree* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_LONG, value);
@@ -5705,6 +5707,20 @@ GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTre
 GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3, GenTree* node4)
 {
     return new (this, CMK_ASTNode) GenTreeCall::Use(node1, gtNewCallArgs(node2, node3, node4));
+}
+
+GenTree* GenTreeCall::GetThisArg() const
+{
+    assert(gtCallThisArg != nullptr);
+
+    if (fgArgInfo == nullptr)
+    {
+        return gtCallThisArg->GetNode();
+    }
+
+    CallArgInfo* argInfo = GetArgInfoByArgNum(0);
+    assert(argInfo->use == gtCallThisArg);
+    return argInfo->GetNode();
 }
 
 CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
@@ -7211,21 +7227,6 @@ bool Compiler::gtCompareTree(GenTree* op1, GenTree* op2)
     return false;
 }
 
-GenTree* Compiler::gtGetThisArg(GenTreeCall* call)
-{
-    assert(call->gtCallThisArg != nullptr);
-
-    if (call->GetInfo() == nullptr)
-    {
-        return call->gtCallThisArg->GetNode();
-    }
-
-    CallArgInfo* argInfo = call->GetArgInfoByArgNum(0);
-    assert(argInfo->use == call->gtCallThisArg);
-    assert(argInfo->GetRegNum() == REG_ARG_0);
-    return argInfo->GetNode();
-}
-
 bool GenTree::gtSetFlags() const
 {
     //
@@ -8467,15 +8468,15 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 goto DASH;
 
             case GT_MUL:
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
             case GT_MUL_LONG:
-#endif
-                if (tree->gtFlags & GTF_MUL_64RSLT)
+                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
                 {
                     printf("L");
                     --msgLength;
                     break;
                 }
+#endif
                 goto DASH;
 
             case GT_DIV:

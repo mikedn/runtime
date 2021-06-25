@@ -537,7 +537,9 @@ enum GenTreeFlags : unsigned int
     GTF_ADDRMODE_NO_CSE         = 0x80000000, // GT_ADD/GT_MUL/GT_LSH -- Do not CSE this node only, forms complex
                                               //                         addressing mode
 
+#ifndef TARGET_64BIT
     GTF_MUL_64RSLT              = 0x40000000, // GT_MUL     -- produce 64-bit result
+#endif
 
     GTF_RELOP_NAN_UN            = 0x80000000, // GT_<relop> -- Is branch taken if ops are NaN?
     GTF_RELOP_JMP_USED          = 0x40000000, // GT_<relop> -- result of compare used for jump or ?:
@@ -3114,18 +3116,19 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
 struct GenTreeLngCon : public GenTreeIntConCommon
 {
-    INT64 gtLconVal; // Must overlap and have the same offset with the gtIconVal field in GenTreeIntCon above.
-    INT32 LoVal()
+    int64_t gtLconVal; // Must overlap and have the same offset with the gtIconVal field in GenTreeIntCon above.
+
+    int32_t LoVal() const
     {
-        return (INT32)(gtLconVal & 0xffffffff);
+        return static_cast<int32_t>(gtLconVal & 0xffffffff);
     }
 
-    INT32 HiVal()
+    int32_t HiVal() const
     {
-        return (INT32)(gtLconVal >> 32);
+        return static_cast<int32_t>(gtLconVal >> 32);
     }
 
-    GenTreeLngCon(INT64 val) : GenTreeIntConCommon(GT_CNS_NATIVELONG, TYP_LONG)
+    GenTreeLngCon(int64_t val) : GenTreeIntConCommon(GT_CNS_NATIVELONG, TYP_LONG)
     {
         SetLngValue(val);
     }
@@ -4275,6 +4278,7 @@ public:
         return UseList(gtCallLateArgs);
     }
 
+    GenTree* GetThisArg() const;
     GenTree* GetArgNodeByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;

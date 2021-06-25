@@ -6326,6 +6326,7 @@ void Compiler::fgValueNumber()
                     if (isZeroed)
                     {
                         // By default we will zero init these LclVars
+                        // TODO-MIKE-Cleanup: For SIMD locals this generates bogus typed LONG 0 VN constants.
                         initVal = vnStore->VNZeroForType(typ);
                     }
                     else

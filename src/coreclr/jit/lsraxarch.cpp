@@ -2402,7 +2402,9 @@ int LinearScan::BuildMul(GenTree* tree)
     if (tree->OperGet() != GT_MUL_LONG)
 #endif
     {
+#ifndef TARGET_64BIT
         assert((tree->gtFlags & GTF_MUL_64RSLT) == 0);
+#endif
     }
 
     BuildKills(tree, getKillSetForMul(tree->AsOp()));

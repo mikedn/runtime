@@ -4191,11 +4191,11 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
 
-#ifdef DEBUG
     // Now that locals have address-taken and implicit byref marked, we can safely apply stress.
-    lvaStressLclFld();
-    fgStress64RsltMul();
-#endif // DEBUG
+    INDEBUG(lvaStressLclFld();)
+#ifndef TARGET_64BIT
+    INDEBUG(fgStress64RsltMul();)
+#endif
 
     // Morph the trees in all the blocks of the method
     //
@@ -4418,7 +4418,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
             {
                 // Assertion propagation
                 //
-                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::optAssertionPropMain);
+                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::optVNAssertionProp);
             }
 
             if (doRangeAnalysis)
@@ -8067,14 +8067,13 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 break;
 
             case GT_MUL:
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
             case GT_MUL_LONG:
-#endif
-
-                if (tree->gtFlags & GTF_MUL_64RSLT)
+                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
                 {
                     chars += printf("[64RSLT]");
                 }
+#endif
                 if (tree->gtFlags & GTF_ADDRMODE_NO_CSE)
                 {
                     chars += printf("[ADDRMODE_NO_CSE]");
