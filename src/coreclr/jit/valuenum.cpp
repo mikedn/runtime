@@ -359,12 +359,6 @@ VNFunc GetVNFuncForNode(GenTree* node)
     return VNFunc(node->OperGet());
 }
 
-unsigned ValueNumStore::VNFuncArity(VNFunc vnf)
-{
-    // Read the bit field out of the table...
-    return (s_vnfOpAttribs[vnf] & VNFOA_ArityMask) >> VNFOA_ArityShift;
-}
-
 template <>
 bool ValueNumStore::IsOverflowIntDiv(int v0, int v1)
 {
@@ -1837,7 +1831,7 @@ class Object* ValueNumStore::s_specialRefConsts[] = {nullptr, nullptr, nullptr};
 //
 ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func)
 {
-    assert(VNFuncArity(func) == 0);
+    assert(VNFuncArityIsLegal(func, 0));
     assert(func != VNF_NotAField);
 
     ValueNum resultVN;
@@ -1920,8 +1914,7 @@ ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN, V
     assert(arg0VN == VNNormalValue(arg0VN)); // Arguments carry no exceptions.
     assert(arg1VN == VNNormalValue(arg1VN)); // Arguments carry no exceptions.
 
-    // Some SIMD functions with variable number of arguments are defined with zero arity
-    assert((VNFuncArity(func) == 0) || (VNFuncArity(func) == 2));
+    assert(VNFuncArityIsLegal(func, 2));
     assert(func != VNF_MapSelect); // Precondition: use the special function VNForMapSelect defined for that.
 
     ValueNum resultVN;
@@ -2045,7 +2038,7 @@ ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN, V
     assert(arg0VN != NoVN);
     assert(arg1VN != NoVN);
     assert(arg2VN != NoVN);
-    assert(VNFuncArity(func) == 3);
+    assert(VNFuncArityIsLegal(func, 3));
 
 #ifdef DEBUG
     // Function arguments carry no exceptions.
@@ -2061,7 +2054,6 @@ ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN, V
     }
     assert(arg2VN == VNNormalValue(arg2VN));
 #endif
-    assert(VNFuncArity(func) == 3);
 
     ValueNum resultVN;
 
@@ -2109,7 +2101,7 @@ ValueNum ValueNumStore::VNForFunc(
     assert(arg1VN == VNNormalValue(arg1VN));
     assert(arg2VN == VNNormalValue(arg2VN));
     assert(arg3VN == VNNormalValue(arg3VN));
-    assert(VNFuncArity(func) == 4);
+    assert(VNFuncArityIsLegal(func, 4));
 
     ValueNum resultVN;
 
@@ -5830,8 +5822,7 @@ void ValueNumStore::InitValueNumStoreStatics()
         vnfOpAttribs[vnfNum] |= VNFOA_KnownNonNull;                                                                    \
     if (sharedStatic)                                                                                                  \
         vnfOpAttribs[vnfNum] |= VNFOA_SharedStatic;                                                                    \
-    if (arity > 0)                                                                                                     \
-        vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);                                       \
+    vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);                                           \
     vnfNum++;
 
 #include "valuenumfuncs.h"
@@ -5839,32 +5830,21 @@ void ValueNumStore::InitValueNumStoreStatics()
 
     assert(vnfNum == VNF_COUNT);
 
-#define ValueNumFuncSetArity(vnfNum, arity)                                                                            \
-    vnfOpAttribs[vnfNum] &= ~VNFOA_ArityMask;                               /* clear old arity value   */              \
-    vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask) /* set the new arity value */
-
 #ifdef FEATURE_HW_INTRINSICS
-
-    for (NamedIntrinsic id = (NamedIntrinsic)(NI_HW_INTRINSIC_START + 1); (id < NI_HW_INTRINSIC_END);
-         id                = (NamedIntrinsic)(id + 1))
+    for (unsigned i = NI_HW_INTRINSIC_START + 1; i < NI_HW_INTRINSIC_END; i++)
     {
-        bool encodeResultType = Compiler::vnEncodesResultTypeForHWIntrinsic(id);
+        VNFunc         func      = VNFunc(VNF_HWI_FIRST + (i - NI_HW_INTRINSIC_START - 1));
+        NamedIntrinsic intrinsic = static_cast<NamedIntrinsic>(i);
 
-        if (encodeResultType)
+        if (!VNFuncArityIsVariable(func) && Compiler::vnEncodesResultTypeForHWIntrinsic(intrinsic))
         {
             // These HW_Intrinsic's have an extra VNF_SimdType arg.
-            //
-            VNFunc   func     = VNFunc(VNF_HWI_FIRST + (id - NI_HW_INTRINSIC_START - 1));
-            unsigned oldArity = VNFuncArity(func);
-            unsigned newArity = oldArity + 1;
-
-            ValueNumFuncSetArity(func, newArity);
+            unsigned arity = VNFuncArity(func) + 1;
+            vnfOpAttribs[func] &= ~VNFOA_ArityMask;
+            vnfOpAttribs[func] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);
         }
     }
-
-#endif // FEATURE_HW_INTRINSICS
-
-#undef ValueNumFuncSetArity
+#endif
 
     for (unsigned i = 0; i < _countof(genTreeOpsIllegalAsVNFunc); i++)
     {
@@ -8814,27 +8794,18 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
 #endif
     }
 
-    const bool isVariableNumArgs = HWIntrinsicInfo::lookupNumArgs(hwIntrinsicNode->GetIntrinsic()) == -1;
-
-    // There are some HWINTRINSICS operations that have zero args, i.e.  NI_Vector128_Zero
     if (hwIntrinsicNode->GetNumOps() == 0)
     {
-        // Currently we don't have intrinsics with variable number of args with a parameter-less option.
-        assert(!isVariableNumArgs);
-
         if (encodeResultType)
         {
-            // There are zero arg HWINTRINSICS operations that encode the result type, i.e.  Vector128_AllBitSet
             normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->GetType(), func, resvnp);
-            assert(vnStore->VNFuncArity(func) == 1);
         }
         else
         {
             normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->GetType(), func);
-            assert(vnStore->VNFuncArity(func) == 0);
         }
     }
-    else // HWINTRINSIC unary or binary operator.
+    else
     {
         ValueNumPair op1vnp;
         ValueNumPair op1Xvnp;
@@ -8847,12 +8818,10 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
             if (encodeResultType)
             {
                 normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, resvnp);
-                assert((vnStore->VNFuncArity(func) == 2) || isVariableNumArgs);
             }
             else
             {
                 normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp);
-                assert((vnStore->VNFuncArity(func) == 1) || isVariableNumArgs);
             }
         }
         else
@@ -8865,15 +8834,14 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
             if (encodeResultType)
             {
                 normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, op2vnp, resvnp);
-                assert((vnStore->VNFuncArity(func) == 3) || isVariableNumArgs);
             }
             else
             {
                 normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, op2vnp);
-                assert((vnStore->VNFuncArity(func) == 2) || isVariableNumArgs);
             }
         }
     }
+
     hwIntrinsicNode->gtVNPair = vnStore->VNPWithExc(normalPair, excSetPair);
 }
 #endif // FEATURE_HW_INTRINSICS
@@ -9029,8 +8997,8 @@ ValueNumPair ValueNumStore::VNPairForCast(ValueNumPair srcVNPair,
 
 void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)
 {
-    unsigned nArgs = ValueNumStore::VNFuncArity(vnf);
     assert(vnf != VNF_Boundary);
+
     GenTreeCall::Use* args                    = call->gtCallArgs;
     bool              generateUniqueVN        = false;
     bool              useEntryPointAddrAsArg0 = false;
@@ -9102,6 +9070,8 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
         }
         break;
     }
+
+    unsigned nArgs = ValueNumStore::VNFuncArity(vnf);
 
     if (generateUniqueVN)
     {

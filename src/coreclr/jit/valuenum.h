@@ -247,7 +247,22 @@ public:
     }
 
     // Returns the arity of "vnf".
-    static unsigned VNFuncArity(VNFunc vnf);
+    static unsigned VNFuncArity(VNFunc vnf)
+    {
+        unsigned arity = (s_vnfOpAttribs[vnf] & VNFOA_ArityMask) >> VNFOA_ArityShift;
+        assert(arity != VNFOA_MaxArity);
+        return arity;
+    }
+
+    static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
+    {
+        return VNFuncArityIsVariable(vnf) || (VNFuncArity(vnf) == arity);
+    }
+
+    static bool VNFuncArityIsVariable(VNFunc vnf)
+    {
+        return ((s_vnfOpAttribs[vnf] & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
+    }
 
     // Requires "gtOper" to be a genTreeOps legally representing a VNFunc, and returns that
     // VNFunc.
