@@ -89,6 +89,26 @@ var_types Compiler::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic
 //
 /* static */ bool Compiler::vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID)
 {
+    switch (hwIntrinsicID)
+    {
+        case NI_Vector128_Create:
+#ifdef TARGET_XARCH
+        case NI_Vector256_Create:
+#endif
+#ifdef TARGET_ARM64
+        case NI_Vector64_Create:
+#endif
+            // For Create we need to distinguish between different element types, otherwise we'd
+            // get the same VN for Create<byte>(42), Create<short>(42) and Create<int>(42) since
+            // as far as VN is concerned the argument is always INT 42.
+            // There's also the case of Vector128_Create being used with SIMD sizes 8, 12 and 16:
+            // Create<float, 8>(42), Create<float, 12>(42) and Create<float, 16>(42) should all
+            // produce different VNs, even if the argument and element type are the same.
+            return true;
+        default:
+            break;
+    }
+
     int numArgs = HWIntrinsicInfo::lookupNumArgs(hwIntrinsicID);
 
     // HW Intrinsic's with -1 for numArgs have a varying number of args, so we currently

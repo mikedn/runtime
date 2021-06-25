@@ -8766,15 +8766,6 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
         return;
     }
 
-    if ((hwIntrinsicNode->GetIntrinsic() == NI_Vector128_Create) && (hwIntrinsicNode->GetSimdSize() != 16))
-    {
-        // TODO-MIKE-Fix: Vector128_Create may be used to create Vector2/3 values but
-        // we ignore the SIMD size so we get the same VN for Vector128_Create(8, x),
-        // Vector128_Create(12, x) and Vector128_Create(16, x).
-        hwIntrinsicNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, hwIntrinsicNode->TypeGet()));
-        return;
-    }
-
     VNFunc func = GetVNFuncForNode(hwIntrinsicNode);
 
     if (hwIntrinsicNode->OperIsMemoryLoad())
