@@ -363,6 +363,17 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 
     assert(!signature.hasThisParam);
 
+#if defined(TARGET_XARCH)
+    if (size < 16)
+#elif defined(TARGET_ARM64)
+    if (size == 12)
+#else
+#error Unsupported platform
+#endif
+    {
+        size = 16;
+    }
+
     switch (signature.paramCount)
     {
         case 0:
@@ -527,7 +538,7 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_Vector3_Abs:
         case NI_Vector4_Abs:
         case NI_VectorT128_Abs:
-            return impVectorT128Abs(sig, ops[0]);
+            return impVector234T128Abs(sig, ops[0]);
         case NI_VectorT256_Abs:
             return impVectorT256Abs(sig, ops[0]);
         case NI_VectorT128_AndNot:
@@ -1200,7 +1211,7 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* 
 
 #ifdef TARGET_XARCH
 
-GenTree* Compiler::impVectorT128Abs(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Compiler::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.retLayout == sig.paramLayout[0]);
@@ -1691,14 +1702,14 @@ GenTree* Compiler::impVector23Division(const HWIntrinsicSignature& sig, GenTree*
     var_types    type   = layout->GetSIMDType();
     unsigned     size   = layout->GetSize();
 
-    GenTree* d = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Divide, TYP_FLOAT, size, op1, op2);
+    GenTree* d = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Divide, TYP_FLOAT, 16, op1, op2);
 
     // Since the top-most elements will be zero, we end up perfoming 0 / 0 which is NaN.
     // Therefore, post division we need to set the top-most elements to zero. This is
     // achieved by left logical shift followed by right logical shift of the result.
-    d = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical128BitLane, TYP_INT, size, d,
+    d = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical128BitLane, TYP_INT, 16, d,
                                  gtNewIconNode(16 - size));
-    d = gtNewSimdHWIntrinsicNode(type, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, size, d, gtNewIconNode(16 - size));
+    d = gtNewSimdHWIntrinsicNode(type, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, 16, d, gtNewIconNode(16 - size));
 
     return d;
 }
@@ -1720,8 +1731,8 @@ GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
         imm &= 0b11110000;
         imm |= 0b00000001;
 
-        op1 = gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_SSE41_DotProduct, TYP_FLOAT, size, op1, op2, gtNewIconNode(imm));
-        return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_GetElement, TYP_FLOAT, size, op1, gtNewIconNode(0));
+        op1 = gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_SSE41_DotProduct, TYP_FLOAT, 16, op1, op2, gtNewIconNode(imm));
+        return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_GetElement, TYP_FLOAT, 16, op1, gtNewIconNode(0));
     }
 
     return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_Dot, TYP_FLOAT, size, op1, op2);
@@ -1803,6 +1814,7 @@ GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
         cmpeq  = NI_SSE_CompareEqual;
         movmsk = NI_SSE_MoveMask;
         mask   = 0b1111 >> (4 - layout->GetElementCount());
+        size   = max(16, size);
     }
     else if (eltType == TYP_DOUBLE)
     {
