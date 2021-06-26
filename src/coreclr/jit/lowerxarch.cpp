@@ -2475,74 +2475,44 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                 unreached();
             }
         }
-
-        if (simdSize == 8)
-        {
-            assert(baseType == TYP_FLOAT);
-
-            // If simdSize == 8 then we have only two elements, not the 4 that we got from getSIMDVectorLength,
-            // which we gave a simdSize of 16. So, we set the simd16Count to 2 so that only 1 hadd will
-            // be emitted rather than 2, so that the upper two elements will be ignored.
-
-            simd16Count = 2;
-        }
-        else if (simdSize == 12)
-        {
-            assert(baseType == TYP_FLOAT);
-
-            // We will be constructing the following parts:
-            //   ...
-            //          +--*  CNS_INT    int    -1
-            //          +--*  CNS_INT    int    -1
-            //          +--*  CNS_INT    int    -1
-            //          +--*  CNS_INT    int    0
-            //   tmp1 = *  HWINTRINSIC   simd16 T Create
-            //          /--*  op2 simd16
-            //          +--*  tmp1 simd16
-            //   op1  = *  HWINTRINSIC   simd16 T And
-            //   ...
-
-            // This is roughly the following managed code:
-            //   ...
-            //   tmp1 = Vector128.Create(-1, -1, -1, 0);
-            //   op1  = Sse.And(op1, tmp2);
-            //   ...
-
-            GenTree* cns0 = comp->gtNewIconNode(-1, TYP_INT);
-            BlockRange().InsertAfter(op1, cns0);
-
-            GenTree* cns1 = comp->gtNewIconNode(-1, TYP_INT);
-            BlockRange().InsertAfter(cns0, cns1);
-
-            GenTree* cns2 = comp->gtNewIconNode(-1, TYP_INT);
-            BlockRange().InsertAfter(cns1, cns2);
-
-            GenTree* cns3 = comp->gtNewIconNode(0, TYP_INT);
-            BlockRange().InsertAfter(cns2, cns3);
-
-            tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_Vector128_Create, TYP_INT, 16, cns0, cns1, cns2, cns3);
-            BlockRange().InsertAfter(cns3, tmp1);
-            LowerNode(tmp1);
-
-            op1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_SSE_And, baseType, simdSize, op1, tmp1);
-            BlockRange().InsertAfter(tmp1, op1);
-            LowerNode(op1);
-        }
     }
-
-    // We will be constructing the following parts:
-    //          /--*  op1  simd16
-    //          +--*  op2  simd16
-    //   tmp1 = *  HWINTRINSIC   simd16 T Multiply
-    //   ...
-
-    // This is roughly the following managed code:
-    //   var tmp1 = Isa.Multiply(op1, op2);
-    //   ...
 
     tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, multiply, baseType, simdSize, op1, op2);
     BlockRange().InsertBefore(node, tmp1);
     LowerNode(tmp1);
+
+    if (simdSize == 8)
+    {
+        assert(baseType == TYP_FLOAT);
+
+        // If simdSize == 8 then we have only two elements, not the 4 that we got from getSIMDVectorLength,
+        // which we gave a simdSize of 16. So, we set the simd16Count to 2 so that only 1 hadd will
+        // be emitted rather than 2, so that the upper two elements will be ignored.
+
+        simd16Count = 2;
+    }
+    else if (simdSize == 12)
+    {
+        assert(baseType == TYP_FLOAT);
+
+        // Zero out the upper element of the multiply result so we can add 4 elements using 2 haddps.
+
+        GenTree* cns0 = comp->gtNewIconNode(-1);
+        GenTree* cns1 = comp->gtNewIconNode(-1);
+        GenTree* cns2 = comp->gtNewIconNode(-1);
+        GenTree* cns3 = comp->gtNewIconNode(0);
+        BlockRange().InsertAfter(tmp1, cns0, cns1, cns2, cns3);
+
+        GenTree* mask =
+            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, cns0, cns1, cns2, cns3);
+        BlockRange().InsertAfter(cns3, mask);
+
+        tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_And, TYP_FLOAT, 16, tmp1, mask);
+        BlockRange().InsertAfter(mask, tmp1);
+
+        LowerNode(mask);
+        LowerNode(tmp1);
+    }
 
     // HorizontalAdd combines pairs so we need log2(simd16Count) passes to sum all elements together.
     int haddCount = genLog2(simd16Count);
