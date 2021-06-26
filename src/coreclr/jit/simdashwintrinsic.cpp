@@ -533,17 +533,10 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_VectorT128_AndNot:
         case NI_VectorT256_AndNot:
             return impVectorTAndNot(sig, ops[0], ops[1]);
-        case NI_VectorT128_ConvertToInt32:
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Int32WithTruncation, TYP_FLOAT, 16,
-                                            ops[0]);
         case NI_VectorT256_ConvertToInt32:
             return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_ConvertToVector256Int32WithTruncation, TYP_INT, 32,
                                             ops[0]);
         case NI_VectorT128_ConvertToSingle:
-            if (sig.paramLayout[0]->GetElementType() == TYP_INT)
-            {
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_INT, 16, ops[0]);
-            }
             return impVectorT128ConvertUInt32ToSingle(sig, ops[0]);
         case NI_VectorT256_ConvertToSingle:
             if (sig.paramLayout[0]->GetElementType() == TYP_INT)
@@ -1371,6 +1364,12 @@ constexpr ssize_t SHUFFLE_ZZXX = 0xA0; // 10 10 00 00
 
 GenTree* Compiler::impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
 {
+    assert(sig.paramCount == 1);
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_UINT);
+    assert(sig.retType == TYP_SIMD16);
+    assert(sig.retLayout->GetElementType() == TYP_FLOAT);
+
     GenTree* uses[2];
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
