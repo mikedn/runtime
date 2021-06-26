@@ -366,7 +366,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 #if defined(TARGET_XARCH)
     if (size < 16)
 #elif defined(TARGET_ARM64)
-    if (size == 12)
+    if ((size == 12) && (hwIntrinsic != NI_Vector128_Dot))
 #else
 #error Unsupported platform
 #endif
