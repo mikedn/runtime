@@ -2300,6 +2300,68 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
+    if (simdSize < 16)
+    {
+        assert(baseType == TYP_FLOAT);
+        assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
+
+        GenTree* mul = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, 16, op1, op2);
+        BlockRange().InsertBefore(node, mul);
+
+        node->SetOp(0, mul);
+        LowerNode(mul);
+        LIR::Use mulUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        ReplaceWithLclVar(mulUse);
+        mul = node->GetOp(0);
+
+        GenTree* sum;
+
+        // Add the first 2 Vector2/3 elements.
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
+        {
+            GenTree* mul2 = comp->gtClone(mul);
+            sum           = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE3_HorizontalAdd, TYP_FLOAT, 16, mul, mul2);
+            BlockRange().InsertBefore(node, mul2, sum);
+            LowerNode(sum);
+        }
+        else
+        {
+            GenTree* mul2 = comp->gtClone(mul);
+            GenTree* imm  = comp->gtNewIconNode(0b01010101);
+            GenTree* e1   = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, mul, mul2, imm);
+            BlockRange().InsertBefore(node, mul2, imm, e1);
+            LowerNode(e1);
+
+            mul2 = comp->gtClone(mul);
+            sum  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, mul2, e1);
+            BlockRange().InsertBefore(node, mul2, sum);
+            LowerNode(sum);
+        }
+
+        // Add the 3rd Vector3 element.
+        if (simdSize == 12)
+        {
+            GenTree* mul2 = comp->gtClone(mul);
+            GenTree* mul3 = comp->gtClone(mul);
+            GenTree* e2   = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, mul2, mul3);
+            BlockRange().InsertBefore(node, mul2, mul3, e2);
+            LowerNode(e2);
+
+            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, e2, sum);
+            BlockRange().InsertBefore(node, sum);
+            LowerNode(sum);
+        }
+
+        GenTree* zero = comp->gtNewIconNode(0);
+        BlockRange().InsertBefore(node, zero);
+        node->SetIntrinsic(NI_Vector128_GetElement);
+        node->SetOp(0, sum);
+        node->SetOp(1, zero);
+        LowerNode(node);
+
+        return;
+    }
+
     // Spare GenTrees to be used for the lowering logic below
     // Defined upfront to avoid naming conflicts, etc...
     GenTree* idx  = nullptr;
@@ -2480,39 +2542,6 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, multiply, baseType, simdSize, op1, op2);
     BlockRange().InsertBefore(node, tmp1);
     LowerNode(tmp1);
-
-    if (simdSize == 8)
-    {
-        assert(baseType == TYP_FLOAT);
-
-        // If simdSize == 8 then we have only two elements, not the 4 that we got from getSIMDVectorLength,
-        // which we gave a simdSize of 16. So, we set the simd16Count to 2 so that only 1 hadd will
-        // be emitted rather than 2, so that the upper two elements will be ignored.
-
-        simd16Count = 2;
-    }
-    else if (simdSize == 12)
-    {
-        assert(baseType == TYP_FLOAT);
-
-        // Zero out the upper element of the multiply result so we can add 4 elements using 2 haddps.
-
-        GenTree* cns0 = comp->gtNewIconNode(-1);
-        GenTree* cns1 = comp->gtNewIconNode(-1);
-        GenTree* cns2 = comp->gtNewIconNode(-1);
-        GenTree* cns3 = comp->gtNewIconNode(0);
-        BlockRange().InsertAfter(tmp1, cns0, cns1, cns2, cns3);
-
-        GenTree* mask =
-            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, cns0, cns1, cns2, cns3);
-        BlockRange().InsertAfter(cns3, mask);
-
-        tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_And, TYP_FLOAT, 16, tmp1, mask);
-        BlockRange().InsertAfter(mask, tmp1);
-
-        LowerNode(mask);
-        LowerNode(tmp1);
-    }
 
     // HorizontalAdd combines pairs so we need log2(simd16Count) passes to sum all elements together.
     int haddCount = genLog2(simd16Count);
