@@ -361,15 +361,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
     unsigned  size    = layout->GetSize();
     GenTree*  ops[2];
 
-    if (signature.hasThisParam)
-    {
-        assert(GetIntrinsicInfo(intrinsic).HasThis());
-        assert(signature.paramCount == 1);
-
-        ops[1] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-        ops[0] = impPopStackAddrAsVector(signature.paramType[0]);
-        return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, eltType, size, ops[0], ops[1]);
-    }
+    assert(!signature.hasThisParam);
 
     switch (signature.paramCount)
     {
