@@ -610,6 +610,8 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
+        case NI_Vector2_Dot:
+            return impVector2Dot(sig, ops[0], ops[1]);
         case NI_VectorT128_Abs:
             assert(sig.paramCount == 1);
             assert(varTypeIsUnsigned(sig.retLayout->GetElementType()));
@@ -1063,6 +1065,17 @@ GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& si
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, eltType, 16, mask, op1, op2);
 }
 
+GenTree* Compiler::impVector2Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.paramType[0] == TYP_SIMD8);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.retType == TYP_FLOAT);
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Multiply, TYP_FLOAT, 8, op1, op2);
+    return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_FLOAT, 8, op1);
+}
+
 GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
@@ -1071,6 +1084,14 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op
 
     ClassLayout* layout  = sig.paramLayout[0];
     var_types    eltType = layout->GetElementType();
+
+    if (eltType == TYP_DOUBLE)
+    {
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_Multiply, TYP_DOUBLE, 16, op1, op2);
+        return gtNewSimdHWIntrinsicNode(TYP_DOUBLE, NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_DOUBLE, 16, op1);
+    }
+
+    assert(varTypeIsIntegral(eltType));
 
     op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Multiply, eltType, 16, op1, op2);
     op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddAcross, eltType, 16, op1);
