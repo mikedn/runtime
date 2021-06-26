@@ -347,7 +347,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 
     compFloatingPointUsed = true;
 
-    if (hwIntrinsic == intrinsic)
+    if (hwIntrinsic == NI_SIMD_AS_HWINTRINSIC_START)
     {
         return impVector234TSpecial(intrinsic, signature, layout, isNewObj);
     }
