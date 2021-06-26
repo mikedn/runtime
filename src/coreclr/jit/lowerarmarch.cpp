@@ -1038,50 +1038,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     BlockRange().InsertAfter(tmp2, tmp1);
     LowerNode(tmp1);
 
-    // Float needs an additional pairwise add to finish summing the parts
-    // The first will have summed e0 with e1 and e2 with e3 and then repeats that for the upper half
-    // So, we will have a vector that looks like this:
-    //    < e0 + e1, e2 + e3, e0 + e1, e2 + e3>
-    // Doing a second horizontal add with itself will then give us
-    //    e0 + e1 + e2 + e3 in all elements of the vector
-
-    // We will be constructing the following parts:
-    //   ...
-    //          /--*  tmp1 simd16
-    //          *  STORE_LCL_VAR simd16
-    //   tmp1 =    LCL_VAR       simd16
-    //   tmp2 =    LCL_VAR       simd16
-    //          /--*  tmp1 simd16
-    //          +--*  tmp2 simd16
-    //   tmp2 = *  HWINTRINSIC   simd16 T AddPairwise
-    //   ...
-
-    // This is roughly the following managed code:
-    //   ...
-    //   var tmp2 = tmp1;
-    //   var tmp1 = AdvSimd.Arm64.AddPairwise(tmp1, tmp2);
-    //   ...
-
+    node->SetIntrinsic(NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_FLOAT, 8, 1);
     node->SetOp(0, tmp1);
-    LIR::Use addpUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-    ReplaceWithLclVar(addpUse);
-    tmp1 = node->GetOp(0);
-
-    tmp2 = comp->gtClone(tmp1);
-    BlockRange().InsertAfter(tmp1, tmp2);
-
-    tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddPairwise, TYP_FLOAT, 16, tmp1, tmp2);
-    BlockRange().InsertAfter(tmp2, tmp1);
-    LowerNode(tmp1);
-
-    tmp2 = tmp1;
-
-    GenTree* zero = comp->gtNewIconNode(0);
-    BlockRange().InsertBefore(node, zero);
-
-    node->SetIntrinsic((simdSize == 8) ? NI_Vector64_GetElement : NI_Vector128_GetElement);
-    node->SetOp(0, tmp2);
-    node->SetOp(1, zero);
 
     LowerNode(node);
 }
