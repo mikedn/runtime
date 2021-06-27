@@ -2280,29 +2280,21 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsicDot: Lowers a Vector128 or Vector256 Dot call
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
 void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_Vector128_Dot) || (node->GetIntrinsic() == NI_Vector256_Dot));
 
-    var_types baseType    = node->GetSimdBaseType();
-    unsigned  simdSize    = node->GetSimdSize();
-    var_types simdType    = getSIMDTypeForSize(simdSize);
-    unsigned  simd16Count = getSIMDVectorLength(16, baseType);
+    var_types eltType = node->GetSimdBaseType();
+    unsigned  size    = node->GetSimdSize();
 
-    assert(varTypeIsArithmetic(baseType));
+    assert(varTypeIsArithmetic(eltType));
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
-    if (simdSize < 16)
+    if (size < 16)
     {
-        assert(baseType == TYP_FLOAT);
+        assert(eltType == TYP_FLOAT);
         assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
 
         GenTree* mul = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, 16, op1, op2);
@@ -2339,7 +2331,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         }
 
         // Add the 3rd Vector3 element.
-        if (simdSize == 12)
+        if (size == 12)
         {
             GenTree* mul2 = comp->gtClone(mul);
             GenTree* mul3 = comp->gtClone(mul);
@@ -2362,372 +2354,169 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         return;
     }
 
-    // Spare GenTrees to be used for the lowering logic below
-    // Defined upfront to avoid naming conflicts, etc...
-    GenTree* idx  = nullptr;
-    GenTree* tmp1 = nullptr;
-    GenTree* tmp2 = nullptr;
-    GenTree* tmp3 = nullptr;
-
-    NamedIntrinsic multiply      = NI_Illegal;
-    NamedIntrinsic horizontalAdd = NI_Illegal;
-    NamedIntrinsic add           = NI_Illegal;
-    NamedIntrinsic shuffle       = NI_Illegal;
-
-    if (simdType == TYP_SIMD32)
+    if ((size == 32) && (eltType == TYP_FLOAT))
     {
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
+        GenTree* imm  = comp->gtNewIconNode(0b11110001);
+        GenTree* dpps = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_DotProduct, TYP_FLOAT, 32, op1, op2, imm);
+        BlockRange().InsertBefore(node, imm, dpps);
+        LowerNode(dpps);
 
-        switch (baseType)
-        {
-            case TYP_SHORT:
-            case TYP_USHORT:
-                multiply      = NI_AVX2_MultiplyAddAdjacent;
-                baseType      = TYP_INT;
-                simd16Count   = 4;
-                horizontalAdd = NI_SSSE3_HorizontalAdd;
-                add           = NI_SSE2_Add;
-                break;
+        node->SetOp(0, dpps);
+        LIR::Use dppsUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        ReplaceWithLclVar(dppsUse);
+        dpps = node->GetOp(0);
 
-            case TYP_INT:
-            case TYP_UINT:
-            {
-                multiply      = NI_AVX2_MultiplyLow;
-                horizontalAdd = NI_SSSE3_HorizontalAdd;
-                add           = NI_SSE2_Add;
-                break;
-            }
+        GenTree* dpps2 = comp->gtClone(dpps);
+        imm            = comp->gtNewIconNode(1);
+        GenTree* dppsUpper =
+            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, dpps2, imm);
+        BlockRange().InsertBefore(node, dpps2, imm, dppsUpper);
+        LowerNode(dppsUpper);
 
-            case TYP_FLOAT:
-            {
-                // We will be constructing the following parts:
-                //   idx  =    CNS_INT       int    0xF1
-                //          /--*  op1  simd16
-                //          +--*  op2  simd16
-                //          +--*  idx  int
-                //   tmp1 = *  HWINTRINSIC   simd16 T DotProduct
-                //          /--*  tmp1 simd16
-                //          *  STORE_LCL_VAR simd16
-                //   tmp1 =    LCL_VAR       simd16
-                //   tmp2 =    LCL_VAR       simd16
-                //   idx  =    CNS_INT       int    0x01
-                //          /--*  tmp2 simd16
-                //          +--*  idx  int
-                //   tmp2 = *  HWINTRINSIC   simd16 T ExtractVector128
-                //          /--*  tmp1 simd16
-                //          +--*  tmp2 simd16
-                //   tmp3 = *  HWINTRINSIC   simd16 T Add
-                //          /--*  tmp3 simd16
-                //   node = *  HWINTRINSIC   simd16 T ToScalar
+        GenTree* add = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, dpps, dppsUpper);
+        BlockRange().InsertBefore(node, add);
+        LowerNode(add);
 
-                // This is roughly the following managed code:
-                //   var tmp1 = Avx.DotProduct(op1, op2, 0xFF);
-                //   var tmp2 = Avx.ExtractVector128(tmp1, 0x01);
-                //   var tmp3 = Sse.Add(tmp1, tmp2);
-                //   return tmp3.ToScalar();
+        GenTree* zero = comp->gtNewIconNode(0);
+        BlockRange().InsertBefore(node, zero);
+        node->SetIntrinsic(NI_Vector128_GetElement);
+        node->SetSimdSize(16);
+        node->SetOp(0, add);
+        node->SetOp(1, zero);
+        LowerNode(node);
 
-                idx = comp->gtNewIconNode(0xF1, TYP_INT);
-                BlockRange().InsertBefore(node, idx);
-
-                tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AVX_DotProduct, baseType, simdSize, op1, op2, idx);
-                BlockRange().InsertAfter(idx, tmp1);
-                LowerNode(tmp1);
-
-                node->SetOp(0, tmp1);
-                LIR::Use tmp1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                ReplaceWithLclVar(tmp1Use);
-                tmp1 = node->GetOp(0);
-
-                tmp2 = comp->gtClone(tmp1);
-                BlockRange().InsertAfter(tmp1, tmp2);
-
-                idx = comp->gtNewIconNode(0x01, TYP_INT);
-                BlockRange().InsertAfter(tmp2, idx);
-
-                tmp2 =
-                    comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, baseType, simdSize, tmp2, idx);
-                BlockRange().InsertAfter(idx, tmp2);
-                LowerNode(tmp2);
-
-                tmp3 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, baseType, 16, tmp1, tmp2);
-                BlockRange().InsertAfter(tmp2, tmp3);
-                LowerNode(tmp3);
-
-                GenTree* zero = comp->gtNewIconNode(0);
-                BlockRange().InsertBefore(node, zero);
-
-                node->SetIntrinsic(NI_Vector128_GetElement);
-                node->SetSimdSize(16);
-                node->SetOp(0, tmp3);
-                node->SetOp(1, zero);
-
-                LowerNode(node);
-
-                return;
-            }
-
-            case TYP_DOUBLE:
-            {
-                multiply      = NI_AVX_Multiply;
-                horizontalAdd = NI_SSE3_HorizontalAdd;
-                add           = NI_SSE2_Add;
-                break;
-            }
-
-            default:
-            {
-                unreached();
-            }
-        }
-    }
-    else
-    {
-        switch (baseType)
-        {
-            case TYP_SHORT:
-            case TYP_USHORT:
-            {
-                multiply      = NI_SSE2_MultiplyAddAdjacent;
-                baseType      = TYP_INT;
-                simd16Count   = 4;
-                horizontalAdd = NI_SSSE3_HorizontalAdd;
-                add           = NI_SSE2_Add;
-
-                if (!comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
-                {
-                    shuffle = NI_SSE2_Shuffle;
-                }
-                break;
-            }
-
-            case TYP_INT:
-            case TYP_UINT:
-            {
-                multiply      = NI_SSE41_MultiplyLow;
-                horizontalAdd = NI_SSSE3_HorizontalAdd;
-                add           = NI_SSE2_Add;
-
-                assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
-                break;
-            }
-
-            case TYP_FLOAT:
-            {
-                assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
-
-                multiply      = NI_SSE_Multiply;
-                horizontalAdd = NI_SSE3_HorizontalAdd;
-                add           = NI_SSE_Add;
-
-                if (!comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
-                {
-                    shuffle = NI_SSE_Shuffle;
-                }
-                break;
-            }
-
-            case TYP_DOUBLE:
-            {
-                assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
-
-                multiply      = NI_SSE2_Multiply;
-                horizontalAdd = NI_SSE3_HorizontalAdd;
-                add           = NI_SSE2_Add;
-
-                if (!comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
-                {
-                    shuffle = NI_SSE2_Shuffle;
-                }
-                break;
-            }
-
-            default:
-            {
-                unreached();
-            }
-        }
+        return;
     }
 
-    tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, multiply, baseType, simdSize, op1, op2);
-    BlockRange().InsertBefore(node, tmp1);
-    LowerNode(tmp1);
+    NamedIntrinsic mul;
 
-    if (simdSize == 32)
+    switch (eltType)
     {
-        node->SetOp(0, tmp1);
-        LIR::Use tmp1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(tmp1Use);
-        tmp1 = node->GetOp(0);
+        case TYP_SHORT:
+        case TYP_USHORT:
+            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
+            mul     = size == 32 ? NI_AVX2_MultiplyAddAdjacent : NI_SSE2_MultiplyAddAdjacent;
+            eltType = TYP_INT;
+            break;
+        case TYP_INT:
+        case TYP_UINT:
+            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
+            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
+            mul     = size == 32 ? NI_AVX2_MultiplyLow : NI_SSE41_MultiplyLow;
+            eltType = TYP_INT;
+            break;
+        case TYP_FLOAT:
+            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+            mul = size == 32 ? NI_AVX_Multiply : NI_SSE_Multiply;
+            break;
+        case TYP_DOUBLE:
+            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+            mul = size == 32 ? NI_AVX_Multiply : NI_SSE2_Multiply;
+            break;
+        default:
+            unreached();
+    }
 
-        tmp2 = comp->gtClone(tmp1);
-        BlockRange().InsertAfter(tmp1, tmp2);
+    assert((eltType == TYP_INT) || varTypeIsFloating(eltType));
 
-        idx = comp->gtNewIconNode(0x01, TYP_INT);
-        BlockRange().InsertAfter(tmp2, idx);
+    GenTree* sum = comp->gtNewSimdHWIntrinsicNode(size == 32 ? TYP_SIMD32 : TYP_SIMD16, mul, eltType, size, op1, op2);
+    BlockRange().InsertBefore(node, sum);
+    LowerNode(sum);
 
-        tmp2 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, baseType, 32, tmp2, idx);
-        BlockRange().InsertAfter(idx, tmp2);
-        LowerNode(tmp2);
+    NamedIntrinsic add = eltType == TYP_FLOAT ? NI_SSE_Add : NI_SSE2_Add;
 
-        tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, baseType, 16, tmp1, tmp2);
-        BlockRange().InsertAfter(tmp2, tmp1);
-        LowerNode(tmp1);
+    if (size == 32)
+    {
+        node->SetOp(0, sum);
+        LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        ReplaceWithLclVar(sumUse);
+        sum = node->GetOp(0);
+
+        GenTree* sum2     = comp->gtClone(sum);
+        GenTree* idx      = comp->gtNewIconNode(1);
+        GenTree* sumUpper = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, eltType, 32, sum2, idx);
+        BlockRange().InsertBefore(node, sum2, idx, sumUpper);
+        LowerNode(sumUpper);
+
+        sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, eltType, 16, sum, sumUpper);
+        BlockRange().InsertBefore(node, sum);
+        LowerNode(sum);
 
         node->SetSimdSize(16);
     }
 
-    // HorizontalAdd combines pairs so we need log2(simd16Count) passes to sum all elements together.
-    int haddCount = genLog2(simd16Count);
+    NamedIntrinsic hadd    = NI_Illegal;
+    NamedIntrinsic shuffle = NI_Illegal;
 
-    for (int i = 0; i < haddCount; i++)
+    if ((eltType == TYP_INT) && comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
     {
-        // We will be constructing the following parts:
-        //   ...
-        //          /--*  tmp1 simd16
-        //          *  STORE_LCL_VAR simd16
-        //   tmp1 =    LCL_VAR       simd16
-        //   tmp2 =    LCL_VAR       simd16
-        //   ...
+        hadd = NI_SSSE3_HorizontalAdd;
+    }
+    else if ((eltType != TYP_INT) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
+    {
+        hadd = NI_SSE3_HorizontalAdd;
+    }
+    else if (eltType == TYP_FLOAT)
+    {
+        shuffle = NI_SSE_Shuffle;
+    }
+    else
+    {
+        shuffle = NI_SSE2_Shuffle;
+    }
 
-        // This is roughly the following managed code:
-        //   ...
-        //   tmp2 = tmp1;
-        //   ...
+    unsigned haddCount = genLog2(16u / varTypeSize(eltType));
+    assert(haddCount <= 2);
 
-        node->SetOp(0, tmp1);
-        LIR::Use tmp1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(tmp1Use);
-        tmp1 = node->GetOp(0);
+    for (unsigned i = 0; i < haddCount; i++)
+    {
+        node->SetOp(0, sum);
+        LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        ReplaceWithLclVar(sumUse);
+        sum = node->GetOp(0);
 
-        tmp2 = comp->gtClone(tmp1);
-        BlockRange().InsertAfter(tmp1, tmp2);
+        GenTree* sum2 = comp->gtClone(sum);
 
-        if (shuffle == NI_Illegal)
+        if (hadd != NI_Illegal)
         {
-            // We will be constructing the following parts:
-            //   ...
-            //          /--*  tmp1 simd16
-            //          +--*  tmp2 simd16
-            //   tmp1 = *  HWINTRINSIC   simd16 T HorizontalAdd
-            //   ...
-
-            // This is roughly the following managed code:
-            //   ...
-            //   tmp1 = Isa.HorizontalAdd(tmp1, tmp2);
-            //   ...
-
-            tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, horizontalAdd, baseType, 16, tmp1, tmp2);
+            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, hadd, eltType, 16, sum, sum2);
+            BlockRange().InsertBefore(node, sum2, sum);
         }
         else
         {
-            int shuffleConst = 0x00;
+            constexpr int shuffleImm[]{0b10110001, 0b01001110};
 
-            switch (i)
+            GenTree* imm = comp->gtNewIconNode(shuffleImm[i]);
+            GenTree* shuf;
+
+            if (varTypeIsFloating(eltType))
             {
-                case 0:
-                {
-                    assert((baseType == TYP_INT) || varTypeIsFloating(baseType));
-
-                    // Adds (e0 + e1, e1 + e0, e2 + e3, e3 + e2), giving:
-                    //   e0, e1, e2, e3 | e4, e5, e6, e7
-                    //   e1, e0, e3, e2 | e5, e4, e7, e6
-                    //   ...
-
-                    shuffleConst = 0b10110001;
-                    break;
-                }
-
-                case 1:
-                {
-                    assert((baseType == TYP_INT) || (baseType == TYP_FLOAT));
-
-                    // Adds (e0 + e2, e1 + e3, e2 + e0, e3 + e1), giving:
-                    //   ...
-                    //   e2, e3, e0, e1 | e6, e7, e4, e5
-                    //   e3, e2, e1, e0 | e7, e6, e5, e4
-
-                    shuffleConst = 0b01001110;
-                    break;
-                }
-
-                default:
-                {
-                    unreached();
-                }
-            }
-
-            idx = comp->gtNewIconNode(shuffleConst, TYP_INT);
-            BlockRange().InsertAfter(tmp2, idx);
-
-            if (varTypeIsFloating(baseType))
-            {
-                // We will be constructing the following parts:
-                //   ...
-                //          /--*  tmp2 simd16
-                //          *  STORE_LCL_VAR simd16
-                //   tmp2 =    LCL_VAR       simd16
-                //   tmp3 =    LCL_VAR       simd16
-                //   idx  =    CNS_INT       int    shuffleConst
-                //          /--*  tmp2 simd16
-                //          +--*  tmp3 simd16
-                //          +--*  idx  simd16
-                //   tmp2 = *  HWINTRINSIC   simd16 T Shuffle
-                //   ...
-
-                // This is roughly the following managed code:
-                //   ...
-                //   tmp3 = tmp2;
-                //   tmp2 = Isa.Shuffle(tmp2, tmp3, shuffleConst);
-                //   ...
-
-                node->SetOp(0, tmp2);
-                LIR::Use tmp2Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                ReplaceWithLclVar(tmp2Use);
-                tmp2 = node->GetOp(0);
-
-                tmp3 = comp->gtClone(tmp2);
-                BlockRange().InsertAfter(tmp2, tmp3);
-
-                tmp2 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, shuffle, baseType, 16, tmp2, tmp3, idx);
+                GenTree* sum3 = comp->gtClone(sum2);
+                shuf          = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, shuffle, eltType, 16, sum2, sum3, imm);
+                BlockRange().InsertBefore(node, sum2, sum3, imm, shuf);
             }
             else
             {
-                assert(baseType == TYP_INT);
-                tmp2 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, shuffle, baseType, 16, tmp2, idx);
+                assert(eltType == TYP_INT);
+                shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sum2, imm);
+                BlockRange().InsertBefore(node, sum2, imm, shuf);
             }
 
-            BlockRange().InsertAfter(idx, tmp2);
-            LowerNode(tmp2);
+            LowerNode(shuf);
 
-            // We will be constructing the following parts:
-            //   ...
-            //          /--*  tmp1 simd16
-            //          +--*  tmp2 simd16
-            //   tmp1 = *  HWINTRINSIC   simd16 T Add
-            //   ...
-
-            // This is roughly the following managed code:
-            //   ...
-            //   tmp1 = Isa.Add(tmp1, tmp2);
-            //   ...
-
-            tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, baseType, 16, tmp1, tmp2);
+            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, eltType, 16, sum, shuf);
+            BlockRange().InsertBefore(node, sum);
         }
 
-        BlockRange().InsertAfter(tmp2, tmp1);
-        LowerNode(tmp1);
+        LowerNode(sum);
     }
 
     GenTree* zero = comp->gtNewIconNode(0);
     BlockRange().InsertBefore(node, zero);
-
     node->SetIntrinsic(NI_Vector128_GetElement);
-    node->SetOp(0, tmp1);
+    node->SetOp(0, sum);
     node->SetOp(1, zero);
-
     LowerNode(node);
-
-    return;
 }
 
 #endif // FEATURE_HW_INTRINSICS
