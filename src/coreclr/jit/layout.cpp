@@ -195,7 +195,7 @@ public:
                     return layout;
                 }
                 layout = FindLayout(VectorTBaseIndex);
-                if (layout != nullptr)
+                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD16))
                 {
                     return layout;
                 }
@@ -219,7 +219,7 @@ public:
                     return layout;
                 }
                 layout = FindLayout(VectorTBaseIndex);
-                if ((layout != nullptr) && (layout->GetSIMDType() == simdType))
+                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD32))
                 {
                     return layout;
                 }
