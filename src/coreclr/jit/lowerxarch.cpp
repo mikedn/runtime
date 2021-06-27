@@ -2382,6 +2382,13 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         {
             case TYP_SHORT:
             case TYP_USHORT:
+                multiply      = NI_AVX2_MultiplyAddAdjacent;
+                baseType      = TYP_INT;
+                simd16Count   = 4;
+                horizontalAdd = NI_AVX2_HorizontalAdd;
+                add           = NI_AVX2_Add;
+                break;
+
             case TYP_INT:
             case TYP_UINT:
             {
@@ -2480,13 +2487,15 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             case TYP_SHORT:
             case TYP_USHORT:
             {
-                multiply      = NI_SSE2_MultiplyLow;
+                multiply      = NI_SSE2_MultiplyAddAdjacent;
+                baseType      = TYP_INT;
+                simd16Count   = 4;
                 horizontalAdd = NI_SSSE3_HorizontalAdd;
                 add           = NI_SSE2_Add;
 
                 if (!comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
                 {
-                    shuffle = NI_SSE2_ShuffleLow;
+                    shuffle = NI_SSE2_Shuffle;
                 }
                 break;
             }
@@ -2593,42 +2602,27 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             {
                 case 0:
                 {
-                    assert((baseType == TYP_SHORT) || (baseType == TYP_USHORT) || varTypeIsFloating(baseType));
+                    assert((baseType == TYP_INT) || varTypeIsFloating(baseType));
 
                     // Adds (e0 + e1, e1 + e0, e2 + e3, e3 + e2), giving:
                     //   e0, e1, e2, e3 | e4, e5, e6, e7
                     //   e1, e0, e3, e2 | e5, e4, e7, e6
                     //   ...
 
-                    shuffleConst = 0xB1;
+                    shuffleConst = 0b10110001;
                     break;
                 }
 
                 case 1:
                 {
-                    assert((baseType == TYP_SHORT) || (baseType == TYP_USHORT) || (baseType == TYP_FLOAT));
+                    assert((baseType == TYP_INT) || (baseType == TYP_FLOAT));
 
                     // Adds (e0 + e2, e1 + e3, e2 + e0, e3 + e1), giving:
                     //   ...
                     //   e2, e3, e0, e1 | e6, e7, e4, e5
                     //   e3, e2, e1, e0 | e7, e6, e5, e4
 
-                    shuffleConst = 0x4E;
-                    break;
-                }
-
-                case 2:
-                {
-                    assert((baseType == TYP_SHORT) || (baseType == TYP_USHORT));
-
-                    // Adds (e0 + e4, e1 + e5, e2 + e6, e3 + e7), giving:
-                    //   ...
-                    //   e4, e5, e6, e7 | e0, e1, e2, e3
-                    //   e5, e4, e7, e6 | e1, e0, e3, e2
-                    //   e6, e7, e4, e5 | e2, e3, e0, e1
-                    //   e7, e6, e5, e4 | e3, e2, e1, e0
-
-                    shuffleConst = 0x4D;
+                    shuffleConst = 0b01001110;
                     break;
                 }
 
@@ -2674,55 +2668,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             }
             else
             {
-                assert((baseType == TYP_SHORT) || (baseType == TYP_USHORT));
-
-                if (i < 2)
-                {
-                    // We will be constructing the following parts:
-                    //   ...
-                    //   idx  =    CNS_INT       int    shuffleConst
-                    //          /--*  tmp2 simd16
-                    //          +--*  idx  simd16
-                    //   tmp2 = *  HWINTRINSIC   simd16 T ShuffleLow
-                    //   idx  =    CNS_INT       int    shuffleConst
-                    //          /--*  tmp2 simd16
-                    //          +--*  idx  simd16
-                    //   tmp2 = *  HWINTRINSIC   simd16 T ShuffleHigh
-                    //   ...
-
-                    // This is roughly the following managed code:
-                    //   ...
-                    //   tmp2 = Isa.Shuffle(tmp1, shuffleConst);
-                    //   ...
-
-                    tmp2 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_SSE2_ShuffleLow, baseType, simdSize, tmp2, idx);
-                    BlockRange().InsertAfter(idx, tmp2);
-                    LowerNode(tmp2);
-
-                    idx = comp->gtNewIconNode(shuffleConst, TYP_INT);
-                    BlockRange().InsertAfter(tmp2, idx);
-
-                    tmp2 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_SSE2_ShuffleHigh, baseType, simdSize, tmp2, idx);
-                }
-                else
-                {
-                    assert(i == 2);
-
-                    // We will be constructing the following parts:
-                    //   ...
-                    //   idx  =    CNS_INT       int    shuffleConst
-                    //          /--*  tmp2 simd16
-                    //          +--*  idx  simd16
-                    //   tmp2 = *  HWINTRINSIC   simd16 T ShuffleLow
-                    //   ...
-
-                    // This is roughly the following managed code:
-                    //   ...
-                    //   tmp2 = Isa.Shuffle(tmp1, shuffleConst);
-                    //   ...
-
-                    tmp2 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_SSE2_Shuffle, TYP_INT, simdSize, tmp2, idx);
-                }
+                assert(baseType == TYP_INT);
+                tmp2 = comp->gtNewSimdHWIntrinsicNode(simdType, shuffle, baseType, simdSize, tmp2, idx);
             }
 
             BlockRange().InsertAfter(idx, tmp2);
