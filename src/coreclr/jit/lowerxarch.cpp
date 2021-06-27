@@ -2445,8 +2445,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         node->SetSimdSize(16);
     }
 
-    NamedIntrinsic hadd    = NI_Illegal;
-    NamedIntrinsic shuffle = NI_Illegal;
+    NamedIntrinsic hadd = NI_Illegal;
 
     if ((eltType == TYP_INT) && comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
     {
@@ -2455,14 +2454,6 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     else if ((eltType != TYP_INT) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
     {
         hadd = NI_SSE3_HorizontalAdd;
-    }
-    else if (eltType == TYP_FLOAT)
-    {
-        shuffle = NI_SSE_Shuffle;
-    }
-    else
-    {
-        shuffle = NI_SSE2_Shuffle;
     }
 
     unsigned haddCount = genLog2(16u / varTypeSize(eltType));
@@ -2484,22 +2475,28 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         }
         else
         {
-            constexpr int shuffleImm[]{0b10110001, 0b01001110};
-
-            GenTree* imm = comp->gtNewIconNode(shuffleImm[i]);
             GenTree* shuf;
 
-            if (varTypeIsFloating(eltType))
+            if (eltType == TYP_INT)
             {
+                GenTree* imm = comp->gtNewIconNode(i == 0 ? 0b11101110 : 0b00010001);
+                shuf         = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sum2, imm);
+                BlockRange().InsertBefore(node, sum2, imm, shuf);
+            }
+            else if (i == 0)
+            {
+                assert(varTypeIsFloating(eltType));
                 GenTree* sum3 = comp->gtClone(sum2);
-                shuf          = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, shuffle, eltType, 16, sum2, sum3, imm);
-                BlockRange().InsertBefore(node, sum2, sum3, imm, shuf);
+                shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, sum2, sum3);
+                BlockRange().InsertBefore(node, sum2, sum3, shuf);
             }
             else
             {
-                assert(eltType == TYP_INT);
-                shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sum2, imm);
-                BlockRange().InsertBefore(node, sum2, imm, shuf);
+                assert(eltType == TYP_FLOAT);
+                GenTree* sum3 = comp->gtClone(sum2);
+                GenTree* imm  = comp->gtNewIconNode(0b00010001);
+                shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, sum2, sum3, imm);
+                BlockRange().InsertBefore(node, sum2, sum3, imm, shuf);
             }
 
             LowerNode(shuf);
