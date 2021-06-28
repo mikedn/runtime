@@ -2388,10 +2388,19 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         return;
     }
 
+    var_types      type = size == 32 ? TYP_SIMD32 : TYP_SIMD16;
     NamedIntrinsic mul;
 
     switch (eltType)
     {
+        case TYP_FLOAT:
+            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+            mul = size == 32 ? NI_AVX_Multiply : NI_SSE_Multiply;
+            break;
+        case TYP_DOUBLE:
+            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+            mul = size == 32 ? NI_AVX_Multiply : NI_SSE2_Multiply;
+            break;
         case TYP_SHORT:
         case TYP_USHORT:
             assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
@@ -2405,13 +2414,46 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             mul     = size == 32 ? NI_AVX2_MultiplyLow : NI_SSE41_MultiplyLow;
             eltType = TYP_INT;
             break;
-        case TYP_FLOAT:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
-            mul = size == 32 ? NI_AVX_Multiply : NI_SSE_Multiply;
-            break;
-        case TYP_DOUBLE:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
-            mul = size == 32 ? NI_AVX_Multiply : NI_SSE2_Multiply;
+        case TYP_BYTE:
+        case TYP_UBYTE:
+            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
+            {
+                LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+                ReplaceWithLclVar(op1Use);
+                op1 = node->GetOp(0);
+
+                LIR::Use op2Use(BlockRange(), &node->GetUse(1).NodeRef(), node);
+                ReplaceWithLclVar(op2Use);
+                op2 = node->GetOp(1);
+
+                NamedIntrinsic madd = size == 32 ? NI_AVX2_MultiplyAddAdjacent : NI_SSE2_MultiplyAddAdjacent;
+                NamedIntrinsic srlw = size == 32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
+
+                GenTree* lo = comp->gtNewSimdHWIntrinsicNode(type, madd, TYP_INT, size, op1, op2);
+                BlockRange().InsertBefore(node, lo);
+                LowerNode(lo);
+
+                op1          = comp->gtClone(op1);
+                GenTree* imm = comp->gtNewIconNode(8);
+                GenTree* hi1 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op1, imm);
+                BlockRange().InsertBefore(node, op1, imm, hi1);
+                LowerNode(hi1);
+
+                op2          = comp->gtClone(op2);
+                imm          = comp->gtNewIconNode(8);
+                GenTree* hi2 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op2, imm);
+                BlockRange().InsertBefore(node, op2, imm, hi2);
+                LowerNode(hi2);
+
+                GenTree* hi = comp->gtNewSimdHWIntrinsicNode(type, madd, TYP_INT, 32, hi1, hi2);
+                BlockRange().InsertBefore(node, hi);
+                LowerNode(hi);
+
+                op1 = lo;
+                op2 = hi;
+            }
+            mul     = size == 32 ? NI_AVX2_Add : NI_SSE2_Add;
+            eltType = TYP_INT;
             break;
         default:
             unreached();
@@ -2419,7 +2461,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
     assert((eltType == TYP_INT) || varTypeIsFloating(eltType));
 
-    GenTree* sum = comp->gtNewSimdHWIntrinsicNode(size == 32 ? TYP_SIMD32 : TYP_SIMD16, mul, eltType, size, op1, op2);
+    GenTree* sum = comp->gtNewSimdHWIntrinsicNode(type, mul, eltType, size, op1, op2);
     BlockRange().InsertBefore(node, sum);
     LowerNode(sum);
 
