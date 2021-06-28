@@ -957,10 +957,61 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_Vector128_Dot);
-    assert(node->GetSimdBaseType() == TYP_FLOAT);
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
+
+    if (varTypeIsLong(node->GetSimdBaseType()))
+    {
+        LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        ReplaceWithLclVar(op1Use);
+        op1 = node->GetOp(0);
+
+        LIR::Use op2Use(BlockRange(), &node->GetUse(1).NodeRef(), node);
+        ReplaceWithLclVar(op2Use);
+        op2 = node->GetOp(1);
+
+        GenTree*            idx = comp->gtNewIconNode(0);
+        GenTreeHWIntrinsic* op10 =
+            comp->gtNewSimdHWIntrinsicNode(TYP_LONG, NI_Vector128_GetElement, TYP_LONG, 16, op1, idx);
+        BlockRange().InsertBefore(node, idx, op10);
+        LowerHWIntrinsicGetElement(op10);
+
+        idx = comp->gtNewIconNode(0);
+        GenTreeHWIntrinsic* op20 =
+            comp->gtNewSimdHWIntrinsicNode(TYP_LONG, NI_Vector128_GetElement, TYP_LONG, 16, op2, idx);
+        BlockRange().InsertBefore(node, idx, op20);
+        LowerHWIntrinsicGetElement(op20);
+
+        GenTree* mul0 = comp->gtNewOperNode(GT_MUL, TYP_LONG, op10, op20);
+        BlockRange().InsertBefore(node, mul0);
+
+        op1 = comp->gtClone(op1);
+        idx = comp->gtNewIconNode(1);
+        GenTreeHWIntrinsic* op11 =
+            comp->gtNewSimdHWIntrinsicNode(TYP_LONG, NI_Vector128_GetElement, TYP_LONG, 16, op1, idx);
+        BlockRange().InsertBefore(node, op1, idx, op11);
+        LowerHWIntrinsicGetElement(op11);
+
+        op2 = comp->gtClone(op2);
+        idx = comp->gtNewIconNode(1);
+        GenTreeHWIntrinsic* op21 =
+            comp->gtNewSimdHWIntrinsicNode(TYP_LONG, NI_Vector128_GetElement, TYP_LONG, 16, op2, idx);
+        BlockRange().InsertBefore(node, op2, idx, op21);
+        LowerHWIntrinsicGetElement(op21);
+
+        GenTree* madd = node;
+        madd->ChangeOper(GT_INSTR);
+        madd->AsInstr()->SetIns(INS_madd, EA_8BYTE);
+        madd->AsInstr()->SetNumOps(3);
+        madd->AsInstr()->SetOp(0, op11);
+        madd->AsInstr()->SetOp(1, op21);
+        madd->AsInstr()->SetOp(2, mul0);
+
+        return;
+    }
+
+    assert(node->GetSimdBaseType() == TYP_FLOAT);
 
     GenTree* mul = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Multiply, TYP_FLOAT, 16, op1, op2);
     BlockRange().InsertBefore(node, mul);

@@ -481,6 +481,8 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
             return impVectorT256ConvertDoubleToInt64(sig);
         case NI_VectorT128_Dot:
             return impVectorT128Dot(sig);
+        case NI_VectorT256_Dot:
+            return impVectorT256Dot(sig);
 #endif
         case NI_Vector2_Equals:
         case NI_Vector3_Equals:
@@ -1766,7 +1768,18 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
     assert(sig.paramLayout[0] == sig.paramLayout[1]);
 
     var_types eltType = sig.paramLayout[0]->GetElementType();
-    assert((eltType == TYP_INT) || (eltType == TYP_UINT) || varTypeIsFloating(eltType));
+    assert(varTypeIsInt(eltType) || varTypeIsLong(eltType) || varTypeIsFloating(eltType));
+
+#ifndef TARGET_64BIT
+    // Vector128_Dot<long> works on x86 but it cannot be decomposed.
+    // TODO-MIKE-CQ: If we change the type of Vector128_Dot to be vector rather
+    // than LONG we could extract the LONG value from the vector and extraction
+    // can be decomposed.
+    if (varTypeIsLong(eltType))
+    {
+        return nullptr;
+    }
+#endif
 
     bool hasSse41 = compOpportunisticallyDependsOn(InstructionSet_SSE41);
 
@@ -1787,6 +1800,25 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
     }
 
     return gtNewSimdHWIntrinsicNode(eltType, NI_Vector128_Dot, eltType, 16, op1, op2);
+}
+
+GenTree* Compiler::impVectorT256Dot(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.paramType[0] == TYP_SIMD32);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+
+    var_types eltType = sig.paramLayout[0]->GetElementType();
+    assert(varTypeIsLong(eltType));
+
+#ifndef TARGET_64BIT
+    return nullptr;
+#else
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD32);
+    GenTree* op2 = impSIMDPopStack(TYP_SIMD32);
+
+    return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_Vector256_Dot, TYP_LONG, 32, op1, op2);
+#endif
 }
 
 GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
