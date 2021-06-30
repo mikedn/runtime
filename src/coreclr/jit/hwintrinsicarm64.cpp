@@ -462,7 +462,7 @@ GenTree* Compiler::impSpecialIntrinsic(
             impPopStack(); // pop the indexOp that we already have.
             GenTree* vectorOp = impSIMDPopStack(getSIMDTypeForSize(simdSize));
 
-            retNode = gtNewSimdWithElementNode(retType, baseType, simdSize, vectorOp, indexOp, valueOp);
+            retNode = gtNewSimdWithElementNode(retType, baseType, vectorOp, indexOp, valueOp);
             break;
         }
 

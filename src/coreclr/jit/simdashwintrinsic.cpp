@@ -1044,7 +1044,7 @@ GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
 
     if (isVector3)
     {
-        op1 = gtNewSimdWithElementNode(type, TYP_INT, size, op1, gtNewIconNode(3), gtNewIconNode(-1));
+        op1 = gtNewSimdWithElementNode(type, TYP_INT, op1, gtNewIconNode(3), gtNewIconNode(-1));
     }
 
     op1 = gtNewSimdHWIntrinsicNode(type, NI_AdvSimd_Arm64_MinAcross, TYP_UBYTE, size, op1);
@@ -2986,17 +2986,27 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
 //
 void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
 {
-    assert(m_index > 1);
+    var_types type;
 
-    GenTreeOp*          asg        = m_firstStmt->GetRootNode()->AsOp();
-    GenTreeHWIntrinsic* getElement = asg->GetOp(1)->AsHWIntrinsic();
-    var_types           simdType   = getSIMDTypeForSize(getElement->GetSimdSize());
+    switch (m_index)
+    {
+        case 2:
+            type = TYP_SIMD8;
+            break;
+        case 3:
+            type = TYP_SIMD12;
+            break;
+        default:
+            assert(m_index == 4);
+            type = TYP_SIMD16;
+            break;
+    }
 
 #ifdef DEBUG
     if (compiler->verbose)
     {
         printf("\nFound %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", m_index,
-               varTypeName(simdType), block->bbNum);
+               varTypeName(type), block->bbNum);
         for (Statement* s = m_firstStmt; s != m_lastStmt->GetNextStmt(); s = s->GetNextStmt())
         {
             compiler->gtDispStmt(s);
@@ -3009,14 +3019,15 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
         compiler->fgRemoveStmt(block, m_firstStmt->GetNextStmt());
     }
 
-    asg->SetType(simdType);
-    ChangeToSIMDMem(compiler, asg->GetOp(0), simdType);
-    asg->SetOp(1, getElement->GetOp(0)->AsLclVar());
+    GenTreeOp* asg = m_firstStmt->GetRootNode()->AsOp();
+    asg->SetType(type);
+    ChangeToSIMDMem(compiler, asg->GetOp(0), type);
+    asg->SetOp(1, asg->GetOp(1)->AsHWIntrinsic()->GetOp(0));
 
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("Changed to a single %s assignment:\n", varTypeName(simdType));
+        printf("Changed to a single %s assignment:\n", varTypeName(type));
         compiler->gtDispStmt(m_firstStmt);
         printf("\n");
     }

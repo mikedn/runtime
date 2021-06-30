@@ -16211,35 +16211,47 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
     assert(varActualType(index->GetType()) == TYP_INT);
 
     NamedIntrinsic intrinsic = NI_Vector128_GetElement;
+    unsigned       size;
 
 #ifdef TARGET_XARCH
     if (simdType == TYP_SIMD32)
     {
         intrinsic = NI_Vector256_GetElement;
+        size      = 32;
+    }
+    else
+    {
+        size = 16;
     }
 #elif defined(TARGET_ARM64)
     if (simdType == TYP_SIMD8)
     {
         intrinsic = NI_Vector64_GetElement;
+        size      = 8;
+    }
+    else
+    {
+        size = 16;
     }
 #else
 #error Unsupported platform
 #endif
 
-    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsic, elementType, varTypeSize(simdType), value,
-                                    index);
+    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsic, elementType, size, value, index);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
-    var_types type, var_types simdBaseType, unsigned simdSize, GenTree* op1, GenTree* op2, GenTree* op3)
+    var_types type, var_types simdBaseType, GenTree* op1, GenTree* op2, GenTree* op3)
 {
     NamedIntrinsic hwIntrinsicID = NI_Vector128_WithElement;
 
+    assert(varTypeIsSIMD(type));
     assert(varTypeIsArithmetic(simdBaseType));
     assert(op2->OperIsConst());
 
-    ssize_t imm8  = op2->AsIntCon()->GetValue();
-    ssize_t count = simdSize / varTypeSize(simdBaseType);
+    unsigned simdSize = varTypeSize(type);
+    ssize_t  imm8     = op2->AsIntCon()->GetValue();
+    ssize_t  count    = simdSize / varTypeSize(simdBaseType);
 
     assert(0 <= imm8 && imm8 < count);
 
@@ -16273,6 +16285,10 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
     {
         hwIntrinsicID = NI_Vector256_WithElement;
     }
+    else
+    {
+        simdSize = 16;
+    }
 #elif defined(TARGET_ARM64)
     switch (simdBaseType)
     {
@@ -16281,7 +16297,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
         case TYP_DOUBLE:
             if (simdSize == 8)
             {
-                return gtNewSimdHWIntrinsicNode(type, NI_Vector64_Create, simdBaseType, simdSize, op3);
+                return gtNewSimdHWIntrinsicNode(type, NI_Vector64_Create, simdBaseType, 8, op3);
             }
             break;
 
@@ -16298,6 +16314,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
             unreached();
     }
 
+    simdSize      = simdSize == 12 ? 16 : simdSize;
     hwIntrinsicID = NI_AdvSimd_Insert;
 #else
 #error Unsupported platform
