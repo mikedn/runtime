@@ -2473,7 +2473,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         if (isStructArg)
         {
             argInfo->SetIsImplicitByRef(passStructByRef);
-            argInfo->SetArgType((structBaseType == TYP_UNKNOWN) ? argx->GetType() : structBaseType);
+            argInfo->SetArgType((structBaseType == TYP_UNDEF) ? argx->GetType() : structBaseType);
         }
         else
         {

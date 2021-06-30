@@ -5319,7 +5319,7 @@ void CodeGen::genCompareInt(GenTree* treeNode)
     assert(!varTypeIsFloating(op2Type));
 
     instruction ins;
-    var_types   type = TYP_UNKNOWN;
+    var_types   type = TYP_UNDEF;
 
     if (tree->OperIs(GT_TEST_EQ, GT_TEST_NE))
     {
@@ -5375,7 +5375,7 @@ void CodeGen::genCompareInt(GenTree* treeNode)
         ins = INS_cmp;
     }
 
-    if (type == TYP_UNKNOWN)
+    if (type == TYP_UNDEF)
     {
         if (op1Type == op2Type)
         {

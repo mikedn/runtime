@@ -118,7 +118,7 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
 
         assert(dblCon->GetType() == store->GetType());
 
-        var_types type = TYP_UNKNOWN;
+        var_types type = TYP_UNDEF;
         ssize_t   bits = 0;
 
         if (dblCon->TypeIs(TYP_FLOAT))
@@ -135,7 +135,7 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
         }
 #endif
 
-        if (type != TYP_UNKNOWN)
+        if (type != TYP_UNDEF)
         {
             GenTree* intCon = dblCon;
 

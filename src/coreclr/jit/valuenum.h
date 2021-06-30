@@ -534,7 +534,7 @@ public:
 
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
-    ValueNum VNForExpr(BasicBlock* block, var_types typ = TYP_UNKNOWN);
+    ValueNum VNForExpr(BasicBlock* block, var_types typ);
 
 // This controls extra tracing of the "evaluation" of "VNF_MapSelect" functions.
 #define FEATURE_VN_TRACE_APPLY_SELECTORS 1
@@ -619,7 +619,6 @@ public:
     // they have been returned by previous "VNFor..." operations.  They can assert false if this is
     // not true.
 
-    // Returns TYP_UNKNOWN if the given value number has not been given a type.
     var_types TypeOfVN(ValueNum vn);
 
     // Returns MAX_LOOP_NUM if the given value number's loop nest is unknown or ill-defined.

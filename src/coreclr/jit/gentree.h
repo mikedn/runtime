@@ -5425,7 +5425,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(0)
     {
         assert(size < UINT8_MAX);
@@ -5436,7 +5436,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(1)
         , m_inlineUses{op1}
     {
@@ -5456,7 +5456,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(2)
         , m_inlineUses{op1, op2}
     {
@@ -5482,7 +5482,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(3)
         , m_inlineUses{op1, op2, op3}
     {

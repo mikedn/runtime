@@ -9858,7 +9858,7 @@ void Compiler::gtDispTree(GenTree*     tree,
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             printf(" %s %s %u", GetHWIntrinsicIdName(tree->AsHWIntrinsic()->GetIntrinsic()),
-                   tree->AsHWIntrinsic()->GetSimdBaseType() == TYP_UNKNOWN
+                   tree->AsHWIntrinsic()->GetSimdBaseType() == TYP_UNDEF
                        ? ""
                        : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
                    tree->AsHWIntrinsic()->GetSimdSize());
@@ -16308,7 +16308,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types      type,
@@ -16316,13 +16316,13 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types      type,
                                                          GenTree*       op1,
                                                          GenTree*       op2)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1, op2);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1, op2);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
     var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1, op2, op3);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1, op2, op3);
 }
 
 // Returns true for the HW Intrinsic instructions that have MemoryLoad semantics, false otherwise

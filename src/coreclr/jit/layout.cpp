@@ -783,11 +783,11 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
     }
 
 #ifndef FEATURE_HFA_FIELDS_PRESENT
-    m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+    m_layoutInfo.hfaElementType = TYP_VOID;
 #else
     if (!GlobalJitOptions::compFeatureHfa || (m_size > MAX_PASS_MULTIREG_BYTES))
     {
-        m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+        m_layoutInfo.hfaElementType = TYP_VOID;
 
         return;
     }
@@ -812,11 +812,11 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
 #endif
         default:
             assert(hfaType == CORINFO_HFA_ELEM_NONE);
-            m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+            m_layoutInfo.hfaElementType = TYP_VOID;
             break;
     }
 
-    assert((m_layoutInfo.hfaElementType == TYP_UNKNOWN) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
+    assert((m_layoutInfo.hfaElementType == TYP_VOID) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
 #endif
 }
 

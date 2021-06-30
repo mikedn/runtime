@@ -347,18 +347,14 @@ VNFunc GetVNFuncForNode(GenTree* node)
             GenTreeHWIntrinsic* hwi = node->AsHWIntrinsic();
             VNFunc              vnf = VNFunc(VNF_HWI_FIRST + (hwi->GetIntrinsic() - NI_HW_INTRINSIC_START - 1));
 
-            if (hwi->GetSimdBaseType() != TYP_UNKNOWN)
-            {
-                // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
-                // somehow, as some SIMD operations are not affected by it (e.g. bitwise
-                // operations). Old code sort of did this but apparently not for CQ reasons
-                // but rather due to shoddy design. Removing it did not generate any diffs.
-                // Such intrinsics are usually available for all element types so it's
-                // unlikely that user code will reinterpret vectors in such a way that
-                // we could see some benefit from canonicalization.
-                vnf = static_cast<VNFunc>(vnf | (hwi->GetSimdBaseType() << 16));
-            }
-
+            // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
+            // somehow, as some SIMD operations are not affected by it (e.g. bitwise
+            // operations). Old code sort of did this but apparently not for CQ reasons
+            // but rather due to shoddy design. Removing it did not generate any diffs.
+            // Such intrinsics are usually available for all element types so it's
+            // unlikely that user code will reinterpret vectors in such a way that
+            // we could see some benefit from canonicalization.
+            vnf = static_cast<VNFunc>(vnf | (hwi->GetSimdBaseType() << 16));
             vnf = static_cast<VNFunc>(vnf | (hwi->GetSimdSize() << 24));
             return vnf;
         }
@@ -6288,7 +6284,7 @@ void Compiler::fgValueNumber()
                     // and for the outgoing argument area if FEATURE_FIXED_OUT_ARGS is enabled.
                     // The stack associated with these LclVars are not zero initialized
                     // thus we set 'initVN' to a new, unique VN.
-                    initVal = vnStore->VNForExpr(fgFirstBB);
+                    initVal = vnStore->VNForExpr(fgFirstBB, TYP_UNKNOWN);
                     break;
 
                 case TYP_BYREF:
@@ -6320,7 +6316,9 @@ void Compiler::fgValueNumber()
 #ifdef TARGET_X86
             bool isVarargParam = (lclNum == lvaVarargsBaseOfStkArgs || lclNum == lvaVarargsHandleArg);
             if (isVarargParam)
-                initVal = vnStore->VNForExpr(fgFirstBB); // a new, unique VN.
+            {
+                initVal = vnStore->VNForExpr(fgFirstBB, TYP_UNKNOWN);
+            }
 #endif
             assert(initVal != ValueNumStore::NoVN);
 
@@ -6777,7 +6775,7 @@ void Compiler::fgMutateGcHeap(GenTree* tree DEBUGARG(const char* msg))
 void Compiler::fgMutateAddressExposedLocal(GenTree* tree DEBUGARG(const char* msg))
 {
     // Update the current ByrefExposed VN, and if we're tracking the heap SSA # caused by this node, record it.
-    recordAddressExposedLocalStore(tree, vnStore->VNForExpr(compCurBB) DEBUGARG(msg));
+    recordAddressExposedLocalStore(tree, vnStore->VNForExpr(compCurBB, TYP_UNKNOWN) DEBUGARG(msg));
 }
 
 void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(const char* msg))
@@ -6799,7 +6797,7 @@ void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(co
         // assume that this GcHeap store may alias any byref load/store, so don't
         // bother trying to record the map/select stuff, and instead just an opaque VN
         // for ByrefExposed
-        fgCurMemoryVN[ByrefExposed] = vnStore->VNForExpr(compCurBB);
+        fgCurMemoryVN[ByrefExposed] = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
     }
 
 #ifdef DEBUG
@@ -7719,7 +7717,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // through address-taken locals in regions of code with no calls or byref
                         // writes.
                         // For now, just use a new opaque VN.
-                        ValueNum heapVN = vnStore->VNForExpr(compCurBB);
+                        ValueNum heapVN = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
                         recordAddressExposedLocalStore(tree, heapVN DEBUGARG("local assign"));
                     }
 #ifdef DEBUG
@@ -7804,7 +7802,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // As with GT_LCL_VAR, we could probably use MapStore here and MapSelect at corresponding
                         // loads, but to do so would have to identify the subset of address-exposed locals
                         // whose fields can be disambiguated.
-                        ValueNum heapVN = vnStore->VNForExpr(compCurBB);
+                        ValueNum heapVN = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
                         recordAddressExposedLocalStore(tree, heapVN DEBUGARG("local field assign"));
                     }
                 }
@@ -7911,7 +7909,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                 // through address-taken locals in regions of code with no calls or byref
                                 // writes.
                                 // For now, just use a new opaque VN.
-                                ValueNum heapVN = vnStore->VNForExpr(compCurBB);
+                                ValueNum heapVN = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
                                 recordAddressExposedLocalStore(tree, heapVN DEBUGARG("PtrToLoc indir"));
                             }
                         }
@@ -8035,7 +8033,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                 // through address-taken locals in regions of code with no calls or byref
                                 // writes.
                                 // For now, just use a new opaque VN.
-                                ValueNum memoryVN = vnStore->VNForExpr(compCurBB);
+                                ValueNum memoryVN = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
                                 recordAddressExposedLocalStore(tree, memoryVN DEBUGARG("PtrToLoc indir"));
                             }
                             else if (!isLocal)
