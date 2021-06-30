@@ -246,10 +246,15 @@ public:
         return unsigned(vnf) > VNF_Boundary || GenTreeOpIsLegalVNFunc(static_cast<genTreeOps>(vnf));
     }
 
+    static uint8_t VNFuncAttribs(VNFunc vnf)
+    {
+        return s_vnfOpAttribs[vnf & 0xFFFF];
+    }
+
     // Returns the arity of "vnf".
     static unsigned VNFuncArity(VNFunc vnf)
     {
-        unsigned arity = (s_vnfOpAttribs[vnf] & VNFOA_ArityMask) >> VNFOA_ArityShift;
+        unsigned arity = (VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift;
         assert(arity != VNFOA_MaxArity);
         return arity;
     }
@@ -261,7 +266,7 @@ public:
 
     static bool VNFuncArityIsVariable(VNFunc vnf)
     {
-        return ((s_vnfOpAttribs[vnf] & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
+        return ((VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
     }
 
     // Requires "gtOper" to be a genTreeOps legally representing a VNFunc, and returns that
@@ -909,12 +914,6 @@ public:
     // Prints a representation of the set of exceptions on standard out.
     void vnDumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead);
 
-#ifdef FEATURE_HW_INTRINSICS
-    // Requires "simdType" to be a VNF_SimdType VNFuncApp.
-    // Prints a representation (comma-separated list of field names) on standard out.
-    void vnDumpSimdType(Compiler* comp, VNFuncApp* simdType);
-#endif
-
     // Returns the string name of "vnf".
     static const char* VNFuncName(VNFunc vnf);
     // Used in the implementation of the above.
@@ -1437,13 +1436,13 @@ FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset)
 // static
 inline bool ValueNumStore::GenTreeOpIsLegalVNFunc(genTreeOps gtOper)
 {
-    return (s_vnfOpAttribs[gtOper] & VNFOA_IllegalGenTreeOp) == 0;
+    return (VNFuncAttribs(static_cast<VNFunc>(gtOper)) & VNFOA_IllegalGenTreeOp) == 0;
 }
 
 // static
 inline bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
 {
-    return (s_vnfOpAttribs[vnf] & VNFOA_Commutative) != 0;
+    return (VNFuncAttribs(vnf) & VNFOA_Commutative) != 0;
 }
 
 inline bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)

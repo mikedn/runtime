@@ -7095,11 +7095,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     int lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl);
 #endif // FEATURE_SIMD
 
-#ifdef FEATURE_HW_INTRINSICS
-public:
-    static bool vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID);
-#endif // FEATURE_HW_INTRINSICS
-
 private:
     bool lvaIsSimdTypedLocalAligned(unsigned varNum);
 

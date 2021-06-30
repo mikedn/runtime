@@ -343,7 +343,25 @@ VNFunc GetVNFuncForNode(GenTree* node)
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return VNFunc(VNF_HWI_FIRST + (node->AsHWIntrinsic()->GetIntrinsic() - NI_HW_INTRINSIC_START - 1));
+        {
+            GenTreeHWIntrinsic* hwi = node->AsHWIntrinsic();
+            VNFunc              vnf = VNFunc(VNF_HWI_FIRST + (hwi->GetIntrinsic() - NI_HW_INTRINSIC_START - 1));
+
+            if (hwi->GetSimdBaseType() != TYP_UNKNOWN)
+            {
+                // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
+                // somehow, as some SIMD operations are not affected by it (e.g. bitwise
+                // operations). Old code sort of did this but apparently not for CQ reasons
+                // but rather due to shoddy design. Removing it did not generate any diffs.
+                // Such intrinsics are usually available for all element types so it's
+                // unlikely that user code will reinterpret vectors in such a way that
+                // we could see some benefit from canonicalization.
+                vnf = static_cast<VNFunc>(vnf | (hwi->GetSimdBaseType() << 16));
+            }
+
+            vnf = static_cast<VNFunc>(vnf | (hwi->GetSimdSize() << 24));
+            return vnf;
+        }
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_CAST:
@@ -1487,7 +1505,7 @@ bool ValueNumStore::IsKnownNonNull(ValueNum vn)
         return false;
     }
     VNFuncApp funcAttr;
-    return GetVNFunc(vn, &funcAttr) && (s_vnfOpAttribs[funcAttr.m_func] & VNFOA_KnownNonNull) != 0;
+    return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_KnownNonNull) != 0);
 }
 
 bool ValueNumStore::IsSharedStatic(ValueNum vn)
@@ -1497,7 +1515,7 @@ bool ValueNumStore::IsSharedStatic(ValueNum vn)
         return false;
     }
     VNFuncApp funcAttr;
-    return GetVNFunc(vn, &funcAttr) && (s_vnfOpAttribs[funcAttr.m_func] & VNFOA_SharedStatic) != 0;
+    return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_SharedStatic) != 0);
 }
 
 ValueNumStore::Chunk::Chunk(CompAllocator          alloc,
@@ -5591,14 +5609,28 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
             case VNF_ValWithExc:
                 vnDumpValWithExc(comp, &funcApp);
                 break;
-#ifdef FEATURE_HW_INTRINSICS
-            case VNF_SimdType:
-                vnDumpSimdType(comp, &funcApp);
-                break;
-#endif
-
             default:
-                printf("%s(", VNFuncName(funcApp.m_func));
+                printf("%s", VNFuncName(funcApp.m_func));
+#ifdef FEATURE_HW_INTRINSICS
+                if (funcApp.m_func >= VNF_HWI_FIRST)
+                {
+                    var_types type = static_cast<var_types>(funcApp.m_func >> 16);
+                    unsigned  size = static_cast<unsigned>(funcApp.m_func >> 24);
+
+                    if (type != TYP_UNDEF)
+                    {
+                        if (size == 0)
+                        {
+                            printf("<%s>", varTypeName(type));
+                        }
+                        else
+                        {
+                            printf("<%s x %u>", varTypeName(type), size / varTypeSize(type));
+                        }
+                    }
+                }
+#endif // FEATURE_HW_INTRINSICS
+                printf("(");
                 for (unsigned i = 0; i < funcApp.m_arity; i++)
                 {
                     if (i > 0)
@@ -5745,20 +5777,6 @@ void ValueNumStore::vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore)
     printf("]");
 }
 
-#ifdef FEATURE_HW_INTRINSICS
-void ValueNumStore::vnDumpSimdType(Compiler* comp, VNFuncApp* simdType)
-{
-    assert(simdType->m_func == VNF_SimdType); // Preconditions.
-    assert(IsVNConstant(simdType->m_args[0]));
-    assert(IsVNConstant(simdType->m_args[1]));
-
-    int       simdSize = ConstantValue<int>(simdType->m_args[0]);
-    var_types baseType = (var_types)ConstantValue<int>(simdType->m_args[1]);
-
-    printf("%s(simd%d, %s)", VNFuncName(simdType->m_func), simdSize, varTypeName(baseType));
-}
-#endif // FEATURE_HW_INTRINSICS
-
 #endif // DEBUG
 
 // Static fields, methods.
@@ -5830,22 +5848,6 @@ void ValueNumStore::InitValueNumStoreStatics()
 
     assert(vnfNum == VNF_COUNT);
 
-#ifdef FEATURE_HW_INTRINSICS
-    for (unsigned i = NI_HW_INTRINSIC_START + 1; i < NI_HW_INTRINSIC_END; i++)
-    {
-        VNFunc         func      = VNFunc(VNF_HWI_FIRST + (i - NI_HW_INTRINSIC_START - 1));
-        NamedIntrinsic intrinsic = static_cast<NamedIntrinsic>(i);
-
-        if (!VNFuncArityIsVariable(func) && Compiler::vnEncodesResultTypeForHWIntrinsic(intrinsic))
-        {
-            // These HW_Intrinsic's have an extra VNF_SimdType arg.
-            unsigned arity = VNFuncArity(func) + 1;
-            vnfOpAttribs[func] &= ~VNFOA_ArityMask;
-            vnfOpAttribs[func] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);
-        }
-    }
-#endif
-
     for (unsigned i = 0; i < _countof(genTreeOpsIllegalAsVNFunc); i++)
     {
         vnfOpAttribs[genTreeOpsIllegalAsVNFunc[i]] |= VNFOA_IllegalGenTreeOp;
@@ -5870,7 +5872,7 @@ const char* ValueNumStore::VNFuncName(VNFunc vnf)
     }
     else
     {
-        return VNFuncNameArr[vnf - (VNF_Boundary + 1)];
+        return VNFuncNameArr[(vnf & 0xFFFF) - (VNF_Boundary + 1)];
     }
 }
 
@@ -8736,6 +8738,8 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         fgMutateGcHeap(node DEBUGARG("HWIntrinsic - MemoryStore"));
     }
 
+    VNFunc func = GetVNFuncForNode(node);
+
     if (node->OperIsMemoryLoad())
     {
         if (node->GetNumOps() > 1)
@@ -8754,7 +8758,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         // The func is used because operations such as LoadLow and LoadHigh perform
         // different operations, thus need to compute different ValueNumbers
         // We don't need to encode the result type as it will be encoded by the opcode in 'func'
-        ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, GetVNFuncForNode(node), addrVNP.GetLiberal());
+        ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, func, addrVNP.GetLiberal());
 
         // The address could point anywhere, so it is an ByrefExposed load.
         ValueNum loadVN = fgValueNumberByrefExposedLoad(node->GetType(), addrVN);
@@ -8767,8 +8771,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    bool     encodeResultType = vnEncodesResultTypeForHWIntrinsic(node->GetIntrinsic());
-    unsigned arity            = node->GetNumOps() + (encodeResultType ? 1 : 0);
+    unsigned arity = node->GetNumOps();
 
     if (arity > 4)
     {
@@ -8779,32 +8782,13 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
     ValueNumPair opsVnp[4];
     ValueNumPair xvnp = ValueNumStore::VNPForEmptyExcSet();
 
-    for (unsigned i = 0; i < node->GetNumOps(); i++)
+    for (unsigned i = 0; i < arity; i++)
     {
         ValueNumPair opXvnp;
         vnStore->VNPUnpackExc(node->GetOp(i)->gtVNPair, &opsVnp[i], &opXvnp);
         xvnp = vnStore->VNPExcSetUnion(xvnp, opXvnp);
     }
 
-    if (encodeResultType)
-    {
-        ValueNum vnSize     = vnStore->VNForIntCon(node->GetSimdSize());
-        ValueNum vnBaseType = vnStore->VNForIntCon(static_cast<int32_t>(node->GetSimdBaseType()));
-        ValueNum vnSimdType = vnStore->VNForFunc(TYP_REF, VNF_SimdType, vnSize, vnBaseType);
-
-        opsVnp[arity - 1].SetBoth(vnSimdType);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("    vnSimdType is ");
-            vnPrint(vnSimdType, 1);
-            printf("\n");
-        }
-#endif
-    }
-
-    VNFunc       func = GetVNFuncForNode(node);
     ValueNumPair vnp;
 
     switch (arity)

@@ -5101,7 +5101,8 @@ private:
             ValueNum  vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
             VNFuncApp func;
 
-            if (m_vnStore->GetVNFunc(vn, &func) && (func.m_func == VNF_HWI_Vector128_get_Zero))
+            if (m_vnStore->GetVNFunc(vn, &func) &&
+                (static_cast<VNFunc>(func.m_func & 0xFFFF) == VNF_HWI_Vector128_get_Zero))
             {
                 // Due to poor const register reuse in LSRA, attempting to propagate SIMD zero
                 // isn't always an improvement - we simply end up with more XORPS instructions.
