@@ -343,22 +343,8 @@ VNFunc GetVNFuncForNode(GenTree* node)
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* hwi = node->AsHWIntrinsic();
-            VNFunc              vnf = VNFunc(VNF_HWI_FIRST + (hwi->GetIntrinsic() - NI_HW_INTRINSIC_START - 1));
-
-            // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
-            // somehow, as some SIMD operations are not affected by it (e.g. bitwise
-            // operations). Old code sort of did this but apparently not for CQ reasons
-            // but rather due to shoddy design. Removing it did not generate any diffs.
-            // Such intrinsics are usually available for all element types so it's
-            // unlikely that user code will reinterpret vectors in such a way that
-            // we could see some benefit from canonicalization.
-            vnf = static_cast<VNFunc>(vnf | (hwi->GetSimdBaseType() << 16));
-            vnf = static_cast<VNFunc>(vnf | (hwi->GetSimdSize() << 24));
-            return vnf;
-        }
-#endif // FEATURE_HW_INTRINSICS
+            return VNFuncHWIntrinsic(node->AsHWIntrinsic());
+#endif
 
         case GT_CAST:
             // GT_CAST can overflow but it has special handling and it should not appear here.
@@ -5610,8 +5596,8 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
 #ifdef FEATURE_HW_INTRINSICS
                 if (funcApp.m_func >= VNF_HWI_FIRST)
                 {
-                    var_types type = static_cast<var_types>(funcApp.m_func >> 16);
-                    unsigned  size = static_cast<unsigned>(funcApp.m_func >> 24);
+                    var_types type = VNFuncSimdBaseType(funcApp.m_func);
+                    unsigned  size = VNFuncSimdSize(funcApp.m_func);
 
                     if (type != TYP_UNDEF)
                     {
@@ -5862,13 +5848,15 @@ const char* ValueNumStore::VNFuncNameArr[] = {
 // static
 const char* ValueNumStore::VNFuncName(VNFunc vnf)
 {
+    vnf = VNFuncIndex(vnf);
+
     if (vnf < VNF_Boundary)
     {
         return GenTree::OpName(genTreeOps(vnf));
     }
     else
     {
-        return VNFuncNameArr[(vnf & 0xFFFF) - (VNF_Boundary + 1)];
+        return VNFuncNameArr[vnf - (VNF_Boundary + 1)];
     }
 }
 

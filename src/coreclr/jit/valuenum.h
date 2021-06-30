@@ -46,6 +46,47 @@ enum VNFunc
     VNF_COUNT
 };
 
+constexpr VNFunc VNFuncIndex(VNFunc vnf)
+{
+    return static_cast<VNFunc>(vnf & 0xFFFF);
+}
+
+#ifdef FEATURE_HW_INTRINSICS
+constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned simdSize)
+{
+    VNFunc vnf = VNFunc(VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_START - 1));
+
+    // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
+    // somehow, as some SIMD operations are not affected by it (e.g. bitwise
+    // operations). Old code sort of did this but apparently not for CQ reasons
+    // but rather due to shoddy design. Removing it did not generate any diffs.
+    // Such intrinsics are usually available for all element types so it's
+    // unlikely that user code will reinterpret vectors in such a way that
+    // we could see some benefit from canonicalization.
+    vnf = static_cast<VNFunc>(vnf | (static_cast<uint8_t>(simdBaseType) << 16));
+    vnf = static_cast<VNFunc>(vnf | (simdSize << 24));
+
+    return vnf;
+}
+
+inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
+{
+    return VNFuncHWIntrinsic(node->GetIntrinsic(), node->GetSimdBaseType(), node->GetSimdSize());
+}
+
+constexpr var_types VNFuncSimdBaseType(VNFunc vnf)
+{
+    assert(vnf >= VNF_HWI_FIRST);
+    return static_cast<var_types>(vnf >> 16);
+}
+
+constexpr uint8_t VNFuncSimdSize(VNFunc vnf)
+{
+    assert(vnf >= VNF_HWI_FIRST);
+    return static_cast<uint8_t>(vnf >> 24);
+}
+#endif // FEATURE_HW_INTRINSICS
+
 // Given a GenTree node return the VNFunc that should be used when value numbering
 //
 VNFunc GetVNFuncForNode(GenTree* node);
@@ -248,7 +289,7 @@ public:
 
     static uint8_t VNFuncAttribs(VNFunc vnf)
     {
-        return s_vnfOpAttribs[vnf & 0xFFFF];
+        return s_vnfOpAttribs[VNFuncIndex(vnf)];
     }
 
     // Returns the arity of "vnf".
