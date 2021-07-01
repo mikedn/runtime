@@ -1230,17 +1230,116 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
     LowerNode(relop);
 }
 
+#ifdef TARGET_X86
+void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
+{
+    GenTree* op = node->GetOp(0);
+
+    assert(op->OperIs(GT_LONG));
+
+    if (node->GetIntrinsic() == NI_Vector256_CreateScalarUnsafe)
+    {
+        GenTree* create128 =
+            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_LONG, 16, op);
+        BlockRange().InsertAfter(op, create128);
+        node->SetIntrinsic(NI_Vector128_ToVector256Unsafe);
+        node->SetOp(0, create128);
+        LowerNode(create128);
+        LowerNode(node);
+
+        return;
+    }
+
+    // TODO-MIKE-Cleanup: This should just use Vector128_Create(long, 0), with appropiate optimizations
+    // to prevent redundant 0 inserts. There's really no such thing as "unsafe" when it comes to integer
+    // vector element types since one way or another we end up zeroing the upper bits.
+
+    // TODO-MIKE-CQ: This doesn't work so well when the operand is in memory. We could simply load it
+    // with MOVQ but the operand has already been decomposed and "re-composing" it back is way too much
+    // trouble. We could recognize CreateScalarUnsafe(IND|LCL_FLD<long>) while morphing and change to
+    // LoadScalarVector128. Though for LCL_FLD that may require making the local address exposed which
+    // isn't exactly ideal. Eh, x86...
+
+    GenTree* op1 = op->AsOp()->GetOp(0);
+    GenTree* op2 = op->AsOp()->GetOp(1);
+    BlockRange().Remove(op);
+
+    if (op1->IsIntegralConst(0) && op2->IsIntegralConst(0))
+    {
+        node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
+        BlockRange().Remove(op1);
+        BlockRange().Remove(op2);
+
+        return;
+    }
+
+    if (op2->IsIntegralConst(0))
+    {
+        node->SetIntrinsic(NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, 1);
+        node->SetOp(0, op1);
+        BlockRange().Remove(op2);
+        LowerNode(node);
+
+        return;
+    }
+
+    GenTree* movd1;
+
+    if (op1->IsIntegralConst(0))
+    {
+        movd1 = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_LONG);
+        BlockRange().Remove(op1);
+        BlockRange().InsertBefore(node, movd1);
+    }
+    else
+    {
+        movd1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, op1);
+        BlockRange().InsertAfter(op1, movd1);
+    }
+
+    if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        GenTree* idx = comp->gtNewIconNode(1);
+        node->SetIntrinsic(NI_SSE41_Insert, TYP_INT, 16, 3);
+        node->SetOp(0, movd1);
+        node->SetOp(1, op2);
+        node->SetOp(2, idx);
+        BlockRange().InsertBefore(node, idx);
+        LowerNode(movd1);
+    }
+    else
+    {
+        GenTree* movd2 =
+            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, op2);
+        BlockRange().InsertAfter(op2, movd2);
+
+        node->SetIntrinsic(NI_SSE2_UnpackLow, TYP_INT, 16, 2);
+        node->SetOp(0, movd1);
+        node->SetOp(1, movd2);
+        LowerNode(movd1);
+        LowerNode(movd2);
+    }
+
+    LowerNode(node);
+}
+#endif // TARGET_X86
+
 void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
 {
     GenTree* op = node->GetOp(0);
 
+#ifdef TARGET_X86
+    if (op->OperIs(GT_LONG))
+    {
+        LowerHWIntrinsicCreateScalarUnsafeLong(node);
+        return;
+    }
+#endif
+
     if (op->IsDblConPositiveZero() || op->IsIntegralConst(0))
     {
         BlockRange().Remove(op);
-
-        node->SetIntrinsic(node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe ? NI_Vector128_get_Zero
-                                                                                   : NI_Vector256_get_Zero,
-                           0);
+        node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
     }
 }
 
@@ -1254,6 +1353,36 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     assert(varTypeIsArithmetic(eltType));
     assert((size == 16) || (size == 32));
     assert((numOps == (size / varTypeSize(eltType))) || ((numOps == 2) && (eltType == TYP_FLOAT)));
+
+#ifndef TARGET_64BIT
+    if (varTypeIsLong(eltType))
+    {
+        assert((numOps == 2) || (numOps == 4));
+
+        GenTree* ops[8];
+
+        for (unsigned i = 0; i < numOps; i++)
+        {
+            GenTree* op = node->GetOp(i);
+            assert(op->OperIs(GT_LONG));
+            ops[i * 2]     = op->AsOp()->GetOp(0);
+            ops[i * 2 + 1] = op->AsOp()->GetOp(1);
+            BlockRange().Remove(op);
+        }
+
+        numOps *= 2;
+        eltType = TYP_INT;
+
+        node->SetNumOps(0);
+        node->SetNumOps(numOps, comp->getAllocator(CMK_ASTNode));
+        node->SetSimdBaseType(eltType);
+
+        for (unsigned i = 0; i < numOps; i++)
+        {
+            node->SetOp(i, ops[i]);
+        }
+    }
+#endif
 
     // TODO-XARCH-CQ: We should be able to modify at least the paths that use Insert to trivially support partial
     // vector constants. With this, we can create a constant if say 50% of the inputs are also constant and just
@@ -1327,15 +1456,15 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 #else
         assert(numOps == 2);
 
-        GenTree* vec = ScalarToVector128(eltType, op1);
-        GenTree* idx = comp->gtNewIconNode(1);
+        GenTree* movd1 = ScalarToVector128(eltType, op1);
+        GenTree* idx   = comp->gtNewIconNode(1);
         BlockRange().InsertBefore(node, idx);
         GenTree* op2 = node->GetOp(1);
         node->SetIntrinsic(NI_SSE41_X64_Insert, 3);
-        node->SetOp(0, vec);
+        node->SetOp(0, movd1);
         node->SetOp(1, op2);
         node->SetOp(2, idx);
-        LowerNode(vec);
+        LowerNode(movd1);
 
         return;
 #endif // TARGET_AMD64
@@ -1348,13 +1477,13 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 #else
         assert(numOps == 2);
 
-        GenTree* vec1 = ScalarToVector128(eltType, op1);
-        GenTree* vec2 = ScalarToVector128(eltType, node->GetOp(1));
+        GenTree* movd1 = ScalarToVector128(eltType, op1);
+        GenTree* movd2 = ScalarToVector128(eltType, node->GetOp(1));
         node->SetIntrinsic(NI_SSE2_UnpackLow, 2);
-        node->SetOp(0, vec1);
-        node->SetOp(1, vec2);
-        LowerNode(vec1);
-        LowerNode(vec2);
+        node->SetOp(0, movd1);
+        node->SetOp(1, movd2);
+        LowerNode(movd1);
+        LowerNode(movd2);
 
         return;
 #endif // TARGET_AMD64
@@ -2028,29 +2157,24 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
 {
-    GenTree* vec = node->GetOp(0);
-    GenTree* idx = node->GetOp(1);
-    GenTree* elt = node->GetOp(2);
-
-    var_types eltType  = node->GetSimdBaseType();
-    unsigned  simdSize = node->GetSimdSize();
-
-    unsigned index = idx->AsIntCon()->GetUInt32Value();
-    unsigned count = simdSize / varTypeSize(eltType);
+    var_types      eltType = node->GetSimdBaseType();
+    GenTree*       vec     = node->GetOp(0);
+    GenTreeIntCon* idx     = node->GetOp(1)->AsIntCon();
+    GenTree*       elt     = node->GetOp(2);
+    unsigned       index   = idx->GetUInt32Value();
+    unsigned       count   = node->GetSimdSize() / varTypeSize(eltType);
 
     assert(index < count);
 
     unsigned vec256TempLclNum = BAD_VAR_NUM;
     unsigned index256         = index;
 
-    NamedIntrinsic intrinsic = node->GetIntrinsic();
-
-    if (intrinsic == NI_Vector256_WithElement)
+    if (node->GetIntrinsic() == NI_Vector256_WithElement)
     {
         assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
 
-        LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        vec              = ReplaceWithLclVar(op1Use);
+        LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        vec              = ReplaceWithLclVar(vecUse);
         vec256TempLclNum = vec->AsLclVar()->GetLclNum();
 
         if (index >= count / 2)
@@ -2072,8 +2196,41 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
         LowerNode(vec);
     }
 
+#ifndef TARGET_64BIT
+    if (varTypeIsLong(eltType))
+    {
+        assert(elt->OperIs(GT_LONG));
+        assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
+
+        index *= 2;
+        index256 *= 2;
+        eltType = TYP_INT;
+
+        GenTree* eltLo = elt->AsOp()->GetOp(0);
+        GenTree* idxLo = comp->gtNewIconNode(index);
+        vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_WithElement, eltType, 16, vec, idxLo, eltLo);
+        BlockRange().InsertBefore(node, idxLo, vec);
+        LowerNode(vec);
+
+        index++;
+        BlockRange().Remove(elt);
+        elt = elt->AsOp()->GetOp(1);
+
+        node->SetSimdBaseType(eltType);
+        node->SetOp(0, vec);
+        idx->SetValue(index);
+        node->SetOp(2, elt);
+    }
+#endif
+
+    NamedIntrinsic intrinsic;
+
     switch (eltType)
     {
+        case TYP_SHORT:
+        case TYP_USHORT:
+            intrinsic = NI_SSE2_Insert;
+            break;
         case TYP_BYTE:
         case TYP_UBYTE:
         case TYP_INT:
@@ -2081,17 +2238,13 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
             assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
             intrinsic = NI_SSE41_Insert;
             break;
-
-        case TYP_SHORT:
-        case TYP_USHORT:
-            intrinsic = NI_SSE2_Insert;
-            break;
-
+#ifdef TARGET_64BIT
         case TYP_LONG:
         case TYP_ULONG:
             assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41_X64));
             intrinsic = NI_SSE41_X64_Insert;
             break;
+#endif
 
         case TYP_DOUBLE:
             intrinsic = (index == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;

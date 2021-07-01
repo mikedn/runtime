@@ -393,6 +393,9 @@ private:
     void LowerHWIntrinsicDot(GenTreeHWIntrinsic* node);
     unsigned GetSimdMemoryTemp(var_types type);
 #if defined(TARGET_XARCH)
+#ifdef TARGET_X86
+    void LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node);
+#endif
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);

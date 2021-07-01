@@ -667,16 +667,6 @@ GenTree* Compiler::impBaseIntrinsic(
         case NI_Vector128_Create:
         case NI_Vector256_Create:
         {
-#if defined(TARGET_X86)
-            if (varTypeIsLong(baseType))
-            {
-                // TODO-XARCH-CQ: It may be beneficial to emit the movq
-                // instruction, which takes a 64-bit memory address and
-                // works on 32-bit x86 systems.
-                break;
-            }
-#endif // TARGET_X86
-
             // We shouldn't handle this as an intrinsic if the
             // respective ISAs have been disabled by the user.
 
@@ -684,155 +674,32 @@ GenTree* Compiler::impBaseIntrinsic(
             {
                 if (!compExactlyDependsOn(InstructionSet_AVX))
                 {
-                    break;
+                    return nullptr;
                 }
             }
             else if (baseType == TYP_FLOAT)
             {
                 if (!compExactlyDependsOn(InstructionSet_SSE))
                 {
-                    break;
+                    return nullptr;
                 }
             }
             else if (!compExactlyDependsOn(InstructionSet_SSE2))
             {
-                break;
+                return nullptr;
             }
 
-            GenTreeHWIntrinsic* hwIntrinsic = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
-            hwIntrinsic->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
+            GenTreeHWIntrinsic* create = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
+            create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
 
             for (unsigned i = 0; i < sig.paramCount; i++)
             {
                 GenTree* op = impPopStack().val;
-                hwIntrinsic->SetOp(sig.paramCount - 1 - i, op);
-                hwIntrinsic->gtFlags |= op->gtFlags & GTF_ALL_EFFECT;
+                create->SetOp(sig.paramCount - 1 - i, op);
+                create->gtFlags |= op->gtFlags & GTF_ALL_EFFECT;
             }
 
-            retNode = hwIntrinsic;
-            break;
-        }
-
-        case NI_Vector128_CreateScalarUnsafe:
-        {
-            assert(sig.paramCount == 1);
-
-#ifdef TARGET_X86
-            if (varTypeIsLong(baseType))
-            {
-                // TODO-XARCH-CQ: It may be beneficial to emit the movq
-                // instruction, which takes a 64-bit memory address and
-                // works on 32-bit x86 systems.
-                break;
-            }
-#endif // TARGET_X86
-
-            if (compExactlyDependsOn(InstructionSet_SSE2) ||
-                (compExactlyDependsOn(InstructionSet_SSE) && (baseType == TYP_FLOAT)))
-            {
-                op1     = impPopStack().val;
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
-            }
-            break;
-        }
-
-        case NI_Vector128_ToScalar:
-        {
-            assert(sig.paramCount == 1);
-
-            bool isSupported = false;
-
-            switch (baseType)
-            {
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                case TYP_INT:
-                case TYP_UINT:
-                {
-                    isSupported = compExactlyDependsOn(InstructionSet_SSE2);
-                    break;
-                }
-
-                case TYP_LONG:
-                case TYP_ULONG:
-                {
-                    isSupported = compExactlyDependsOn(InstructionSet_SSE2_X64);
-                    break;
-                }
-
-                case TYP_FLOAT:
-                case TYP_DOUBLE:
-                {
-                    isSupported = compExactlyDependsOn(InstructionSet_SSE);
-                    break;
-                }
-
-                default:
-                {
-                    unreached();
-                }
-            }
-
-            if (!isSupported)
-            {
-                return nullptr;
-            }
-
-            op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_GetElement, baseType, simdSize, op1,
-                                            gtNewIconNode(0));
-        }
-
-        case NI_Vector256_ToScalar:
-        {
-            assert(sig.paramCount == 1);
-
-            bool isSupported = false;
-
-            switch (baseType)
-            {
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                case TYP_INT:
-                case TYP_UINT:
-                {
-                    isSupported = compExactlyDependsOn(InstructionSet_AVX);
-                    break;
-                }
-
-                case TYP_LONG:
-                case TYP_ULONG:
-                {
-                    isSupported =
-                        compExactlyDependsOn(InstructionSet_AVX) && compExactlyDependsOn(InstructionSet_SSE2_X64);
-                    break;
-                }
-
-                case TYP_FLOAT:
-                case TYP_DOUBLE:
-                {
-                    isSupported = compExactlyDependsOn(InstructionSet_AVX);
-                    break;
-                }
-
-                default:
-                {
-                    unreached();
-                }
-            }
-
-            if (!isSupported)
-            {
-                return nullptr;
-            }
-
-            op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdHWIntrinsicNode(retType, NI_Vector256_GetElement, baseType, simdSize, op1,
-                                            gtNewIconNode(0));
+            return create;
         }
 
         case NI_Vector128_ToVector256:
@@ -860,27 +727,27 @@ GenTree* Compiler::impBaseIntrinsic(
             break;
         }
 
-        case NI_Vector256_CreateScalarUnsafe:
-        {
+        case NI_Vector128_CreateScalarUnsafe:
             assert(sig.paramCount == 1);
 
-#ifdef TARGET_X86
-            if (varTypeIsLong(baseType))
+            if (!compExactlyDependsOn(baseType == TYP_FLOAT ? InstructionSet_SSE : InstructionSet_SSE2))
             {
-                // TODO-XARCH-CQ: It may be beneficial to emit the movq
-                // instruction, which takes a 64-bit memory address and
-                // works on 32-bit x86 systems.
-                break;
+                return nullptr;
             }
-#endif // TARGET_X86
 
-            if (compExactlyDependsOn(InstructionSet_AVX))
+            op1 = impPopStack().val;
+            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+
+        case NI_Vector256_CreateScalarUnsafe:
+            assert(sig.paramCount == 1);
+
+            if (!compExactlyDependsOn(InstructionSet_AVX))
             {
-                op1     = impPopStack().val;
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+                return nullptr;
             }
-            break;
-        }
+
+            op1 = impPopStack().val;
+            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
 
         case NI_Vector256_get_Zero:
         case NI_Vector256_get_AllBitsSet:
@@ -940,15 +807,9 @@ GenTree* Compiler::impBaseIntrinsic(
                 case TYP_UBYTE:
                 case TYP_INT:
                 case TYP_UINT:
-                    if (!compExactlyDependsOn(InstructionSet_SSE41))
-                    {
-                        return nullptr;
-                    }
-                    break;
-
                 case TYP_LONG:
                 case TYP_ULONG:
-                    if (!compExactlyDependsOn(InstructionSet_SSE41_X64))
+                    if (!compExactlyDependsOn(InstructionSet_SSE41))
                     {
                         return nullptr;
                     }
@@ -993,6 +854,74 @@ GenTree* Compiler::impBaseIntrinsic(
             op2 = impPopStackCoerceArg(TYP_INT);
             op1 = impSIMDPopStack(sig.paramType[0]);
             return impVectorGetElement(sig.paramLayout[0], op1, op2);
+
+        case NI_Vector128_ToScalar:
+            assert(sig.paramCount == 1);
+
+            switch (baseType)
+            {
+                case TYP_BYTE:
+                case TYP_UBYTE:
+                case TYP_SHORT:
+                case TYP_USHORT:
+                case TYP_INT:
+                case TYP_UINT:
+                case TYP_LONG:
+                case TYP_ULONG:
+                    if (!compExactlyDependsOn(InstructionSet_SSE2))
+                    {
+                        return nullptr;
+                    }
+                    break;
+                case TYP_FLOAT:
+                case TYP_DOUBLE:
+                    // TODO-MIKE-Cleanup: This is kind of bogus for DOUBLE, SSE2 would make more sense.
+                    if (!compExactlyDependsOn(InstructionSet_SSE))
+                    {
+                        return nullptr;
+                    }
+                    break;
+                default:
+                    unreached();
+            }
+
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_GetElement, baseType, simdSize, op1,
+                                            gtNewIconNode(0));
+
+        case NI_Vector256_ToScalar:
+            assert(sig.paramCount == 1);
+
+            switch (baseType)
+            {
+                case TYP_BYTE:
+                case TYP_UBYTE:
+                case TYP_SHORT:
+                case TYP_USHORT:
+                case TYP_INT:
+                case TYP_UINT:
+                case TYP_LONG:
+                case TYP_ULONG:
+                    // TODO-MIKE-Cleanup: This is kind of bogus, AVX2 would make more sense.
+                    if (!compExactlyDependsOn(InstructionSet_AVX))
+                    {
+                        return nullptr;
+                    }
+                    break;
+                case TYP_FLOAT:
+                case TYP_DOUBLE:
+                    if (!compExactlyDependsOn(InstructionSet_AVX))
+                    {
+                        return nullptr;
+                    }
+                    break;
+                default:
+                    unreached();
+            }
+
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return gtNewSimdHWIntrinsicNode(retType, NI_Vector256_GetElement, baseType, simdSize, op1,
+                                            gtNewIconNode(0));
 
         default:
             return nullptr;

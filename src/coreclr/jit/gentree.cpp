@@ -4437,7 +4437,16 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 level = gtSetEvalOrder(op1);
                 lvl2  = gtSetEvalOrder(op2);
 
-                if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2))
+                if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2)
+#ifndef TARGET_64BIT
+                    // Create lowering depends on the evaluation ordering matching the operand order
+                    // if there are more than 2 operands. Vector128.Create<long> starts with 2 operands
+                    // but due to decomposition it ends up with 4 operands in lowering so we need to
+                    // prevent reordering.
+                    && ((tree->AsHWIntrinsic()->GetIntrinsic() != NI_Vector128_Create) ||
+                        !varTypeIsLong(tree->AsHWIntrinsic()->GetSimdBaseType()))
+#endif
+                        )
                 {
                     tree->gtFlags ^= GTF_REVERSE_OPS;
                     std::swap(level, lvl2);
@@ -16263,20 +16272,15 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
         case TYP_UBYTE:
         case TYP_INT:
         case TYP_UINT:
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
-            break;
-
         case TYP_LONG:
         case TYP_ULONG:
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41_X64));
+            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
             break;
-
         case TYP_DOUBLE:
         case TYP_FLOAT:
         case TYP_SHORT:
         case TYP_USHORT:
             break;
-
         default:
             unreached();
     }
