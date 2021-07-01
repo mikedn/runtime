@@ -775,13 +775,14 @@ GenTree* Compiler::impBaseIntrinsic(
                 }
             }
 
-            if (isSupported)
+            if (!isSupported)
             {
-                op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector128_GetElement, baseType, simdSize, op1,
-                                                   gtNewIconNode(0));
+                return nullptr;
             }
-            break;
+
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_GetElement, baseType, simdSize, op1,
+                                            gtNewIconNode(0));
         }
 
         case NI_Vector256_ToScalar:
@@ -824,28 +825,28 @@ GenTree* Compiler::impBaseIntrinsic(
                 }
             }
 
-            if (isSupported)
+            if (!isSupported)
             {
-                op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector256_GetElement, baseType, simdSize, op1,
-                                                   gtNewIconNode(0));
+                return nullptr;
             }
-            break;
+
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return gtNewSimdHWIntrinsicNode(retType, NI_Vector256_GetElement, baseType, simdSize, op1,
+                                            gtNewIconNode(0));
         }
 
         case NI_Vector128_ToVector256:
         case NI_Vector128_ToVector256Unsafe:
         case NI_Vector256_GetLower:
-        {
             assert(sig.paramCount == 1);
 
-            if (compExactlyDependsOn(InstructionSet_AVX))
+            if (!compExactlyDependsOn(InstructionSet_AVX))
             {
-                op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+                return nullptr;
             }
-            break;
-        }
+
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
 
         case NI_Vector128_get_Zero:
         case NI_Vector128_get_AllBitsSet:
@@ -966,10 +967,9 @@ GenTree* Compiler::impBaseIntrinsic(
 
             GenTree* valueOp = impPopStack().val;
             impPopStack(); // Pop the indexOp now that we know its valid
-            GenTree* vectorOp = impSIMDPopStack(getSIMDTypeForSize(simdSize));
+            GenTree* vectorOp = impSIMDPopStack(sig.paramType[0]);
 
-            retNode = gtNewSimdWithElementNode(retType, baseType, vectorOp, indexOp, valueOp);
-            break;
+            return gtNewSimdWithElementNode(retType, baseType, vectorOp, indexOp, valueOp);
         }
 
         case NI_Vector256_GetElement:

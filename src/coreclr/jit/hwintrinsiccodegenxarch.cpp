@@ -1122,11 +1122,10 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
     GenTree* op1 = node->GetNumOps() >= 1 ? node->GetOp(0) : nullptr;
     GenTree* op2 = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
 
-    emitter*    emit     = GetEmitter();
-    var_types   simdType = getSIMDTypeForSize(node->GetSimdSize());
-    emitAttr    attr     = emitActualTypeSize(simdType);
-    instruction ins      = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-    regNumber   op1Reg   = (op1 == nullptr) ? REG_NA : op1->GetRegNum();
+    emitter*    emit   = GetEmitter();
+    emitAttr    attr   = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+    instruction ins    = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
+    regNumber   op1Reg = (op1 == nullptr) ? REG_NA : op1->GetRegNum();
 
     switch (intrinsicId)
     {

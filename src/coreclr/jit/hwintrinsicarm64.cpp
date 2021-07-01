@@ -460,10 +460,9 @@ GenTree* Compiler::impSpecialIntrinsic(
 
             GenTree* valueOp = impPopStack().val;
             impPopStack(); // pop the indexOp that we already have.
-            GenTree* vectorOp = impSIMDPopStack(getSIMDTypeForSize(simdSize));
+            GenTree* vectorOp = impSIMDPopStack(sig.paramType[0]);
 
-            retNode = gtNewSimdWithElementNode(retType, baseType, vectorOp, indexOp, valueOp);
-            break;
+            return gtNewSimdWithElementNode(retType, baseType, vectorOp, indexOp, valueOp);
         }
 
         case NI_Vector128_GetUpper:
