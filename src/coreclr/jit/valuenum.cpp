@@ -8724,6 +8724,15 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         fgMutateGcHeap(node DEBUGARG("HWIntrinsic - MemoryStore"));
     }
 
+    if (node->GetAuxiliaryType() != TYP_UNDEF)
+    {
+        // TODO-MIKE-CQ: We can't generate a proper VN for nodes that use the auxiliary
+        // type because the type is simply ignored and we end up doing invalid CSE, see
+        // vn-add-saturate-scalar.cs.
+        node->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, node->GetType()));
+        return;
+    }
+
     VNFunc func = GetVNFuncForNode(node);
 
     if (node->OperIsMemoryLoad())
