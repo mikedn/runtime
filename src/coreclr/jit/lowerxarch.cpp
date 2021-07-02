@@ -2586,13 +2586,13 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                 BlockRange().InsertBefore(node, lo);
                 LowerNode(lo);
 
-                op1          = comp->gtClone(op1);
+                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), op1->GetType());
                 GenTree* imm = comp->gtNewIconNode(8);
                 GenTree* hi1 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op1, imm);
                 BlockRange().InsertBefore(node, op1, imm, hi1);
                 LowerNode(hi1);
 
-                op2          = comp->gtClone(op2);
+                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), op2->GetType());
                 imm          = comp->gtNewIconNode(8);
                 GenTree* hi2 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op2, imm);
                 BlockRange().InsertBefore(node, op2, imm, hi2);
@@ -2629,23 +2629,23 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                 BlockRange().InsertBefore(node, lo);
                 LowerNode(lo);
 
-                op1          = comp->gtClone(op1);
+                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), op1->GetType());
                 GenTree* imm = comp->gtNewIconNode(32);
                 GenTree* hi1 = comp->gtNewSimdHWIntrinsicNode(type, srl, TYP_LONG, size, op1, imm);
                 BlockRange().InsertBefore(node, op1, imm, hi1);
                 LowerNode(hi1);
 
-                op2 = comp->gtClone(op2);
+                op2 = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), op2->GetType());
                 hi1 = comp->gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi1, op2);
                 BlockRange().InsertBefore(node, op2, hi1);
 
-                op2          = comp->gtClone(op2);
+                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), op2->GetType());
                 imm          = comp->gtNewIconNode(32);
                 GenTree* hi2 = comp->gtNewSimdHWIntrinsicNode(type, srl, TYP_LONG, size, op2, imm);
                 BlockRange().InsertBefore(node, op2, imm, hi2);
                 LowerNode(hi2);
 
-                op1 = comp->gtClone(op1);
+                op1 = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), op1->GetType());
                 hi2 = comp->gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi2, op1);
                 BlockRange().InsertBefore(node, op1, hi2);
                 LowerNode(hi2);
