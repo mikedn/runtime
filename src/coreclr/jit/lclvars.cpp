@@ -7527,7 +7527,12 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
 
 void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
 {
-    lvaGetDesc(lclVar)->lvUsedInSIMDIntrinsic = true;
+    lvaRecordSimdIntrinsicUse(lclVar->GetLclNum());
+}
+
+void Compiler::lvaRecordSimdIntrinsicUse(unsigned lclNum)
+{
+    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
 }
 
 void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)

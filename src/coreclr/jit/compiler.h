@@ -4739,10 +4739,10 @@ private:
         unsigned   m_lclNum;
         unsigned   m_index;
 
-        GenTreeLclVar* IsSIMDField(GenTree* node);
-        GenTreeLclVar* IsSIMDGetElement(GenTree* node);
+        unsigned IsSimdLocalField(GenTree* node);
+        unsigned IsSimdLocalExtract(GenTree* node);
 
-        bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, GenTreeLclVar* simdLclVar);
+        bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum);
 
     public:
         SIMDCoalescingBuffer() : m_index(0)
@@ -7085,6 +7085,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
+    void lvaRecordSimdIntrinsicUse(unsigned lclNum);
     void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
