@@ -4944,16 +4944,6 @@ private:
         GenTree* thisArg = call->GetThisArg();
         noway_assert(thisArg != nullptr);
 
-        // TODO-MIKE-Review: This check is likely useless, if the VN is known to be non-null
-        // then it doesn't matter what kind of node the arg is. It's unlikely that VN will be
-        // able to prove that anything else other than a LCL_VAR is non-null conservatively,
-        // maybe a LCL_FLD?
-
-        if (!thisArg->OperIs(GT_LCL_VAR))
-        {
-            return;
-        }
-
         if (!m_vnStore->IsKnownNonNull(thisArg->gtVNPair.GetConservative()))
         {
             return;
@@ -4980,16 +4970,6 @@ private:
         if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
         {
             addr = addr->AsOp()->GetOp(0);
-        }
-
-        // TODO-MIKE-Review: This check is likely useless, if the VN is known to be non-null
-        // then it doesn't matter what kind of node the addr is. It's unlikely that VN will be
-        // able to prove that anything else other than a LCL_VAR is non-null conservatively,
-        // maybe a LCL_FLD?
-
-        if (!addr->OperIs(GT_LCL_VAR))
-        {
-            return;
         }
 
         if (!m_vnStore->IsKnownNonNull(addr->gtVNPair.GetConservative()))
