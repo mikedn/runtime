@@ -256,15 +256,18 @@ private:
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
     GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM)
     {
-        GenTree* oldUseNode = use.Def();
-        if ((oldUseNode->gtOper != GT_LCL_VAR) || (tempNum != BAD_VAR_NUM))
+        GenTree* def = use.Def();
+
+        if (def->OperIs(GT_LCL_VAR) && (tempNum == BAD_VAR_NUM))
         {
-            use.ReplaceWithLclVar(comp, tempNum);
-            GenTree* newUseNode = use.Def();
-            ContainCheckRange(oldUseNode->gtNext, newUseNode);
-            return newUseNode->AsLclVar();
+            return def->AsLclVar();
         }
-        return oldUseNode->AsLclVar();
+
+        use.ReplaceWithLclVar(comp, tempNum);
+
+        GenTreeLclVar* newDef = use.Def()->AsLclVar();
+        ContainCheckRange(def->gtNext, newDef);
+        return newDef;
     }
 
     // return true if this call target is within range of a pc-rel call on the machine

@@ -964,12 +964,10 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     if (varTypeIsLong(node->GetSimdBaseType()))
     {
         LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(op1Use);
-        op1 = node->GetOp(0);
+        op1 = ReplaceWithLclVar(op1Use);
 
         LIR::Use op2Use(BlockRange(), &node->GetUse(1).NodeRef(), node);
-        ReplaceWithLclVar(op2Use);
-        op2 = node->GetOp(1);
+        op2 = ReplaceWithLclVar(op2Use);
 
         GenTree*            idx = comp->gtNewIconNode(0);
         GenTreeHWIntrinsic* op10 =
@@ -986,14 +984,14 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         GenTree* mul0 = comp->gtNewOperNode(GT_MUL, TYP_LONG, op10, op20);
         BlockRange().InsertBefore(node, mul0);
 
-        op1 = comp->gtClone(op1);
+        op1 = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), TYP_SIMD16);
         idx = comp->gtNewIconNode(1);
         GenTreeHWIntrinsic* op11 =
             comp->gtNewSimdHWIntrinsicNode(TYP_LONG, NI_Vector128_GetElement, TYP_LONG, 16, op1, idx);
         BlockRange().InsertBefore(node, op1, idx, op11);
         LowerHWIntrinsicGetElement(op11);
 
-        op2 = comp->gtClone(op2);
+        op2 = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), TYP_SIMD16);
         idx = comp->gtNewIconNode(1);
         GenTreeHWIntrinsic* op21 =
             comp->gtNewSimdHWIntrinsicNode(TYP_LONG, NI_Vector128_GetElement, TYP_LONG, 16, op2, idx);
@@ -1033,10 +1031,9 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
     node->SetOp(0, mul);
     LIR::Use mulUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-    ReplaceWithLclVar(mulUse);
-    mul = node->GetOp(0);
+    mul = ReplaceWithLclVar(mulUse);
 
-    GenTree* mul2 = comp->gtClone(mul);
+    GenTree* mul2 = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
     GenTree* addp = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddPairwise, TYP_FLOAT, 16, mul, mul2);
     BlockRange().InsertBefore(node, mul2, addp);
     LowerNode(addp);

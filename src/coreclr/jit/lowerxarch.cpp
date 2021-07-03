@@ -1189,9 +1189,8 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
 
         node->SetOp(0, op1);
         LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(op1Use);
-        op1 = node->GetOp(0);
-        op2 = comp->gtClone(op1);
+        op1 = ReplaceWithLclVar(op1Use);
+        op2 = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), op1->GetType());
         BlockRange().InsertAfter(op1, op2);
         node->SetOp(1, op2);
 
@@ -1747,12 +1746,11 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         BlockRange().InsertAfter(op1, half);
 
         node->SetOp(0, half);
-        LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(use);
-        GenTree* tmp1 = node->GetOp(0);
-        GenTree* tmp2 = comp->gtClone(tmp1);
-        GenTree* vec  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, tmp1);
-        GenTree* idx  = comp->gtNewIconNode(1);
+        LIR::Use       use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        GenTreeLclVar* tmp1 = ReplaceWithLclVar(use);
+        GenTreeLclVar* tmp2 = comp->gtNewLclvNode(tmp1->GetLclNum(), TYP_SIMD16);
+        GenTree* vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, tmp1);
+        GenTree* idx = comp->gtNewIconNode(1);
         BlockRange().InsertBefore(node, tmp2, vec, idx);
         node->SetIntrinsic(NI_AVX_InsertVector128, 3);
         node->SetOp(0, vec);
@@ -1823,9 +1821,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(use);
-        GenTree* tmp1 = node->GetOp(0);
-        GenTree* tmp2 = comp->gtClone(tmp1);
+        GenTree* tmp1 = ReplaceWithLclVar(use);
+        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLclNum(), TYP_SIMD16);
         GenTree* idx  = comp->gtNewIconNode(0);
         BlockRange().InsertBefore(node, tmp2, idx);
         node->SetIntrinsic(NI_SSE_Shuffle, 3);
@@ -1848,9 +1845,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(use);
-        GenTree* tmp1 = node->GetOp(0);
-        GenTree* tmp2 = comp->gtClone(tmp1);
+        GenTree* tmp1 = ReplaceWithLclVar(use);
+        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLclNum(), TYP_SIMD16);
         BlockRange().InsertBefore(node, tmp2);
         node->SetIntrinsic(NI_SSE_MoveLowToHigh, TYP_FLOAT, 2);
         node->SetOp(0, tmp1);
@@ -1863,9 +1859,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(use);
-        GenTree* tmp1 = node->GetOp(0);
-        GenTree* tmp2 = comp->gtClone(tmp1);
+        GenTree* tmp1 = ReplaceWithLclVar(use);
+        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLclNum(), TYP_SIMD16);
         BlockRange().InsertBefore(node, tmp2);
         node->SetIntrinsic(NI_SSE2_UnpackLow, 2);
         node->SetOp(0, tmp1);
@@ -1891,9 +1886,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(use);
-        GenTree* tmp1 = node->GetOp(0);
-        GenTree* tmp2 = comp->gtClone(tmp1);
+        GenTree* tmp1 = ReplaceWithLclVar(use);
+        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLclNum(), TYP_SIMD16);
         vec           = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_UBYTE, 16, tmp1, tmp2);
         BlockRange().InsertAfter(tmp1, tmp2, vec);
         LowerNode(vec);
@@ -1905,9 +1899,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(use);
-        GenTree* tmp1 = node->GetOp(0);
-        GenTree* tmp2 = comp->gtClone(tmp1);
+        GenTree* tmp1 = ReplaceWithLclVar(use);
+        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLclNum(), TYP_SIMD16);
         vec           = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_USHORT, 16, tmp1, tmp2);
         BlockRange().InsertAfter(tmp1, tmp2, vec);
         LowerNode(vec);
@@ -2280,7 +2273,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
                 BlockRange().InsertBefore(node, elt);
                 LowerNode(elt);
 
-                GenTree*      vec2 = comp->gtClone(vec);
+                GenTree*      vec2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
                 constexpr int controlBits1[]{0, 0, 0b00110000, 0b00100000};
                 GenTree*      imm = comp->gtNewIconNode(controlBits1[index]);
                 elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, elt, vec2, imm);
@@ -2456,28 +2449,26 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         node->SetOp(0, mul);
         LowerNode(mul);
         LIR::Use mulUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(mulUse);
-        mul = node->GetOp(0);
+        mul = ReplaceWithLclVar(mulUse);
 
+        GenTree* mul2 = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
         GenTree* sum;
 
         // Add the first 2 Vector2/3 elements.
         if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
         {
-            GenTree* mul2 = comp->gtClone(mul);
-            sum           = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE3_HorizontalAdd, TYP_FLOAT, 16, mul, mul2);
+            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE3_HorizontalAdd, TYP_FLOAT, 16, mul, mul2);
             BlockRange().InsertBefore(node, mul2, sum);
             LowerNode(sum);
         }
         else
         {
-            GenTree* mul2 = comp->gtClone(mul);
-            GenTree* imm  = comp->gtNewIconNode(0b01010101);
-            GenTree* e1   = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, mul, mul2, imm);
+            GenTree* imm = comp->gtNewIconNode(0b01010101);
+            GenTree* e1  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, mul, mul2, imm);
             BlockRange().InsertBefore(node, mul2, imm, e1);
             LowerNode(e1);
 
-            mul2 = comp->gtClone(mul);
+            mul2 = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
             sum  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, mul2, e1);
             BlockRange().InsertBefore(node, mul2, sum);
             LowerNode(sum);
@@ -2486,8 +2477,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         // Add the 3rd Vector3 element.
         if (size == 12)
         {
-            GenTree* mul2 = comp->gtClone(mul);
-            GenTree* mul3 = comp->gtClone(mul);
+            mul2          = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
+            GenTree* mul3 = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
             GenTree* e2   = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, mul2, mul3);
             BlockRange().InsertBefore(node, mul2, mul3, e2);
             LowerNode(e2);
@@ -2516,10 +2507,9 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
         node->SetOp(0, dpps);
         LIR::Use dppsUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(dppsUse);
-        dpps = node->GetOp(0);
+        dpps = ReplaceWithLclVar(dppsUse);
 
-        GenTree* dpps2 = comp->gtClone(dpps);
+        GenTree* dpps2 = comp->gtNewLclvNode(dpps->AsLclVar()->GetLclNum(), TYP_SIMD32);
         imm            = comp->gtNewIconNode(1);
         GenTree* dppsUpper =
             comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, dpps2, imm);
@@ -2572,12 +2562,10 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
             {
                 LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                ReplaceWithLclVar(op1Use);
-                op1 = node->GetOp(0);
+                op1 = ReplaceWithLclVar(op1Use);
 
                 LIR::Use op2Use(BlockRange(), &node->GetUse(1).NodeRef(), node);
-                ReplaceWithLclVar(op2Use);
-                op2 = node->GetOp(1);
+                op2 = ReplaceWithLclVar(op2Use);
 
                 NamedIntrinsic madd = size == 32 ? NI_AVX2_MultiplyAddAdjacent : NI_SSE2_MultiplyAddAdjacent;
                 NamedIntrinsic srlw = size == 32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
@@ -2586,13 +2574,13 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                 BlockRange().InsertBefore(node, lo);
                 LowerNode(lo);
 
-                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), op1->GetType());
+                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), type);
                 GenTree* imm = comp->gtNewIconNode(8);
                 GenTree* hi1 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op1, imm);
                 BlockRange().InsertBefore(node, op1, imm, hi1);
                 LowerNode(hi1);
 
-                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), op2->GetType());
+                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), type);
                 imm          = comp->gtNewIconNode(8);
                 GenTree* hi2 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op2, imm);
                 BlockRange().InsertBefore(node, op2, imm, hi2);
@@ -2613,12 +2601,10 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
             {
                 LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                ReplaceWithLclVar(op1Use);
-                op1 = node->GetOp(0);
+                op1 = ReplaceWithLclVar(op1Use);
 
                 LIR::Use op2Use(BlockRange(), &node->GetUse(1).NodeRef(), node);
-                ReplaceWithLclVar(op2Use);
-                op2 = node->GetOp(1);
+                op2 = ReplaceWithLclVar(op2Use);
 
                 NamedIntrinsic mul = size == 32 ? NI_AVX2_Multiply : NI_SSE2_Multiply;
                 NamedIntrinsic add = size == 32 ? NI_AVX2_Add : NI_SSE2_Add;
@@ -2629,23 +2615,23 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                 BlockRange().InsertBefore(node, lo);
                 LowerNode(lo);
 
-                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), op1->GetType());
+                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), type);
                 GenTree* imm = comp->gtNewIconNode(32);
                 GenTree* hi1 = comp->gtNewSimdHWIntrinsicNode(type, srl, TYP_LONG, size, op1, imm);
                 BlockRange().InsertBefore(node, op1, imm, hi1);
                 LowerNode(hi1);
 
-                op2 = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), op2->GetType());
+                op2 = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), type);
                 hi1 = comp->gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi1, op2);
                 BlockRange().InsertBefore(node, op2, hi1);
 
-                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), op2->GetType());
+                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), type);
                 imm          = comp->gtNewIconNode(32);
                 GenTree* hi2 = comp->gtNewSimdHWIntrinsicNode(type, srl, TYP_LONG, size, op2, imm);
                 BlockRange().InsertBefore(node, op2, imm, hi2);
                 LowerNode(hi2);
 
-                op1 = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), op1->GetType());
+                op1 = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), type);
                 hi2 = comp->gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi2, op1);
                 BlockRange().InsertBefore(node, op1, hi2);
                 LowerNode(hi2);
@@ -2681,10 +2667,9 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, sum);
         LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(sumUse);
-        sum = node->GetOp(0);
+        sum = ReplaceWithLclVar(sumUse);
 
-        GenTree* sum2     = comp->gtClone(sum);
+        GenTree* sum2     = comp->gtNewLclvNode(sum->AsLclVar()->GetLclNum(), TYP_SIMD32);
         GenTree* idx      = comp->gtNewIconNode(1);
         GenTree* sumUpper = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, eltType, 32, sum2, idx);
         BlockRange().InsertBefore(node, sum2, idx, sumUpper);
@@ -2715,10 +2700,9 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, sum);
         LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        ReplaceWithLclVar(sumUse);
-        sum = node->GetOp(0);
+        sum = ReplaceWithLclVar(sumUse);
 
-        GenTree* sum2 = comp->gtClone(sum);
+        GenTreeLclVar* sum2 = comp->gtNewLclvNode(sum->AsLclVar()->GetLclNum(), TYP_SIMD16);
 
         if (hadd != NI_Illegal)
         {
@@ -2738,14 +2722,14 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             else if (i == 0)
             {
                 assert(varTypeIsFloating(eltType));
-                GenTree* sum3 = comp->gtClone(sum2);
+                GenTree* sum3 = comp->gtNewLclvNode(sum2->GetLclNum(), TYP_SIMD16);
                 shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, sum2, sum3);
                 BlockRange().InsertBefore(node, sum2, sum3, shuf);
             }
             else
             {
                 assert(eltType == TYP_FLOAT);
-                GenTree* sum3 = comp->gtClone(sum2);
+                GenTree* sum3 = comp->gtNewLclvNode(sum2->GetLclNum(), TYP_SIMD16);
                 GenTree* imm  = comp->gtNewIconNode(0b00010001);
                 shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, sum2, sum3, imm);
                 BlockRange().InsertBefore(node, sum2, sum3, imm, shuf);
