@@ -3086,10 +3086,10 @@ protected:
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVector234TInstanceEquals(const HWIntrinsicSignature& sig);
+    GenTree* impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
 #ifdef TARGET_ARM64
     GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
     GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
-    GenTree* impVector2Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
@@ -3120,9 +3120,10 @@ protected:
     GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256Dot(const HWIntrinsicSignature& sig);
+    GenTree* impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiplyLong(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
     GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
     GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);

@@ -393,13 +393,14 @@ private:
     void LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicDot(GenTreeHWIntrinsic* node);
     unsigned GetSimdMemoryTemp(var_types type);
 #if defined(TARGET_XARCH)
 #ifdef TARGET_X86
     void LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node);
 #endif
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
@@ -407,6 +408,7 @@ private:
 #elif defined(TARGET_ARM64)
     bool IsValidConstForMovImm(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicSum(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
 #endif // !TARGET_XARCH && !TARGET_ARM64

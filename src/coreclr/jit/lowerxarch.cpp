@@ -938,9 +938,11 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerHWIntrinsicCreateScalarUnsafe(node);
             break;
 
-        case NI_Vector128_Dot:
-        case NI_Vector256_Dot:
-            LowerHWIntrinsicDot(node);
+        case NI_Vector128_Sum:
+            LowerHWIntrinsicSum128(node);
+            return;
+        case NI_Vector256_Sum:
+            LowerHWIntrinsicSum256(node);
             return;
 
         case NI_Vector128_GetElement:
@@ -2426,61 +2428,52 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
     }
 }
 
-void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
+void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_Vector128_Dot) || (node->GetIntrinsic() == NI_Vector256_Dot));
+    assert(node->GetIntrinsic() == NI_Vector128_Sum);
 
     var_types eltType = node->GetSimdBaseType();
     unsigned  size    = node->GetSimdSize();
-
-    assert(varTypeIsArithmetic(eltType));
-
-    GenTree* op1 = node->GetOp(0);
-    GenTree* op2 = node->GetOp(1);
+    GenTree*  vec     = node->GetOp(0);
 
     if (size < 16)
     {
         assert(eltType == TYP_FLOAT);
         assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
 
-        GenTree* mul = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, 16, op1, op2);
-        BlockRange().InsertBefore(node, mul);
+        LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        vec = ReplaceWithLclVar(vecUse);
 
-        node->SetOp(0, mul);
-        LowerNode(mul);
-        LIR::Use mulUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        mul = ReplaceWithLclVar(mulUse);
-
-        GenTree* mul2 = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
+        GenTree* vec2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
         GenTree* sum;
 
         // Add the first 2 Vector2/3 elements.
         if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
         {
-            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE3_HorizontalAdd, TYP_FLOAT, 16, mul, mul2);
-            BlockRange().InsertBefore(node, mul2, sum);
+            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE3_HorizontalAdd, TYP_FLOAT, 16, vec, vec2);
+            BlockRange().InsertBefore(node, vec2, sum);
             LowerNode(sum);
         }
         else
         {
             GenTree* imm = comp->gtNewIconNode(0b01010101);
-            GenTree* e1  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, mul, mul2, imm);
-            BlockRange().InsertBefore(node, mul2, imm, e1);
+            GenTree* e1  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vec, vec2, imm);
+            BlockRange().InsertBefore(node, vec2, imm, e1);
             LowerNode(e1);
 
-            mul2 = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
-            sum  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, mul2, e1);
-            BlockRange().InsertBefore(node, mul2, sum);
+            vec2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
+            sum  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, vec2, e1);
+            BlockRange().InsertBefore(node, vec2, sum);
             LowerNode(sum);
         }
 
         // Add the 3rd Vector3 element.
         if (size == 12)
         {
-            mul2          = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
-            GenTree* mul3 = comp->gtNewLclvNode(mul->AsLclVar()->GetLclNum(), TYP_SIMD16);
-            GenTree* e2   = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, mul2, mul3);
-            BlockRange().InsertBefore(node, mul2, mul3, e2);
+            vec2          = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
+            GenTree* vec3 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
+            GenTree* e2   = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, vec2, vec3);
+            BlockRange().InsertBefore(node, vec2, vec3, e2);
             LowerNode(e2);
 
             sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, e2, sum);
@@ -2490,7 +2483,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
         GenTree* zero = comp->gtNewIconNode(0);
         BlockRange().InsertBefore(node, zero);
-        node->SetIntrinsic(NI_Vector128_GetElement);
+        node->SetIntrinsic(NI_Vector128_GetElement, 2);
         node->SetOp(0, sum);
         node->SetOp(1, zero);
         LowerNode(node);
@@ -2498,189 +2491,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         return;
     }
 
-    if ((size == 32) && (eltType == TYP_FLOAT))
-    {
-        GenTree* imm  = comp->gtNewIconNode(0b11110001);
-        GenTree* dpps = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_DotProduct, TYP_FLOAT, 32, op1, op2, imm);
-        BlockRange().InsertBefore(node, imm, dpps);
-        LowerNode(dpps);
-
-        node->SetOp(0, dpps);
-        LIR::Use dppsUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        dpps = ReplaceWithLclVar(dppsUse);
-
-        GenTree* dpps2 = comp->gtNewLclvNode(dpps->AsLclVar()->GetLclNum(), TYP_SIMD32);
-        imm            = comp->gtNewIconNode(1);
-        GenTree* dppsUpper =
-            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, dpps2, imm);
-        BlockRange().InsertBefore(node, dpps2, imm, dppsUpper);
-        LowerNode(dppsUpper);
-
-        GenTree* add = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, dpps, dppsUpper);
-        BlockRange().InsertBefore(node, add);
-        LowerNode(add);
-
-        GenTree* zero = comp->gtNewIconNode(0);
-        BlockRange().InsertBefore(node, zero);
-        node->SetIntrinsic(NI_Vector128_GetElement);
-        node->SetSimdSize(16);
-        node->SetOp(0, add);
-        node->SetOp(1, zero);
-        LowerNode(node);
-
-        return;
-    }
-
-    var_types      type = size == 32 ? TYP_SIMD32 : TYP_SIMD16;
-    NamedIntrinsic mul;
-
-    switch (eltType)
-    {
-        case TYP_FLOAT:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
-            mul = size == 32 ? NI_AVX_Multiply : NI_SSE_Multiply;
-            break;
-        case TYP_DOUBLE:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
-            mul = size == 32 ? NI_AVX_Multiply : NI_SSE2_Multiply;
-            break;
-        case TYP_SHORT:
-        case TYP_USHORT:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
-            mul     = size == 32 ? NI_AVX2_MultiplyAddAdjacent : NI_SSE2_MultiplyAddAdjacent;
-            eltType = TYP_INT;
-            break;
-        case TYP_INT:
-        case TYP_UINT:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
-            mul     = size == 32 ? NI_AVX2_MultiplyLow : NI_SSE41_MultiplyLow;
-            eltType = TYP_INT;
-            break;
-        case TYP_BYTE:
-        case TYP_UBYTE:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
-            {
-                LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                op1 = ReplaceWithLclVar(op1Use);
-
-                LIR::Use op2Use(BlockRange(), &node->GetUse(1).NodeRef(), node);
-                op2 = ReplaceWithLclVar(op2Use);
-
-                NamedIntrinsic madd = size == 32 ? NI_AVX2_MultiplyAddAdjacent : NI_SSE2_MultiplyAddAdjacent;
-                NamedIntrinsic srlw = size == 32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
-
-                GenTree* lo = comp->gtNewSimdHWIntrinsicNode(type, madd, TYP_INT, size, op1, op2);
-                BlockRange().InsertBefore(node, lo);
-                LowerNode(lo);
-
-                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), type);
-                GenTree* imm = comp->gtNewIconNode(8);
-                GenTree* hi1 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op1, imm);
-                BlockRange().InsertBefore(node, op1, imm, hi1);
-                LowerNode(hi1);
-
-                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), type);
-                imm          = comp->gtNewIconNode(8);
-                GenTree* hi2 = comp->gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op2, imm);
-                BlockRange().InsertBefore(node, op2, imm, hi2);
-                LowerNode(hi2);
-
-                GenTree* hi = comp->gtNewSimdHWIntrinsicNode(type, madd, TYP_INT, 32, hi1, hi2);
-                BlockRange().InsertBefore(node, hi);
-                LowerNode(hi);
-
-                op1 = lo;
-                op2 = hi;
-            }
-            mul     = size == 32 ? NI_AVX2_Add : NI_SSE2_Add;
-            eltType = TYP_INT;
-            break;
-        case TYP_LONG:
-        case TYP_ULONG:
-            assert((size == 16) || comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
-            {
-                LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                op1 = ReplaceWithLclVar(op1Use);
-
-                LIR::Use op2Use(BlockRange(), &node->GetUse(1).NodeRef(), node);
-                op2 = ReplaceWithLclVar(op2Use);
-
-                NamedIntrinsic mul = size == 32 ? NI_AVX2_Multiply : NI_SSE2_Multiply;
-                NamedIntrinsic add = size == 32 ? NI_AVX2_Add : NI_SSE2_Add;
-                NamedIntrinsic srl = size == 32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
-                NamedIntrinsic sll = size == 32 ? NI_AVX2_ShiftLeftLogical : NI_SSE2_ShiftLeftLogical;
-
-                GenTree* lo = comp->gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, op1, op2);
-                BlockRange().InsertBefore(node, lo);
-                LowerNode(lo);
-
-                op1          = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), type);
-                GenTree* imm = comp->gtNewIconNode(32);
-                GenTree* hi1 = comp->gtNewSimdHWIntrinsicNode(type, srl, TYP_LONG, size, op1, imm);
-                BlockRange().InsertBefore(node, op1, imm, hi1);
-                LowerNode(hi1);
-
-                op2 = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), type);
-                hi1 = comp->gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi1, op2);
-                BlockRange().InsertBefore(node, op2, hi1);
-
-                op2          = comp->gtNewLclvNode(op2->AsLclVar()->GetLclNum(), type);
-                imm          = comp->gtNewIconNode(32);
-                GenTree* hi2 = comp->gtNewSimdHWIntrinsicNode(type, srl, TYP_LONG, size, op2, imm);
-                BlockRange().InsertBefore(node, op2, imm, hi2);
-                LowerNode(hi2);
-
-                op1 = comp->gtNewLclvNode(op1->AsLclVar()->GetLclNum(), type);
-                hi2 = comp->gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi2, op1);
-                BlockRange().InsertBefore(node, op1, hi2);
-                LowerNode(hi2);
-
-                GenTree* hi = comp->gtNewSimdHWIntrinsicNode(type, add, TYP_ULONG, size, hi1, hi2);
-                BlockRange().InsertBefore(node, hi);
-                LowerNode(hi);
-
-                imm = comp->gtNewIconNode(32);
-                hi  = comp->gtNewSimdHWIntrinsicNode(type, sll, TYP_ULONG, size, hi, imm);
-                BlockRange().InsertBefore(node, imm, hi);
-                LowerNode(hi);
-
-                op1 = lo;
-                op2 = hi;
-            }
-            mul     = size == 32 ? NI_AVX2_Add : NI_SSE2_Add;
-            eltType = TYP_LONG;
-            break;
-        default:
-            unreached();
-    }
-
-    assert((eltType == TYP_LONG) || (eltType == TYP_INT) || varTypeIsFloating(eltType));
-
-    GenTree* sum = comp->gtNewSimdHWIntrinsicNode(type, mul, eltType, size, op1, op2);
-    BlockRange().InsertBefore(node, sum);
-    LowerNode(sum);
-
-    NamedIntrinsic add = eltType == TYP_FLOAT ? NI_SSE_Add : NI_SSE2_Add;
-
-    if (size == 32)
-    {
-        node->SetOp(0, sum);
-        LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        sum = ReplaceWithLclVar(sumUse);
-
-        GenTree* sum2     = comp->gtNewLclvNode(sum->AsLclVar()->GetLclNum(), TYP_SIMD32);
-        GenTree* idx      = comp->gtNewIconNode(1);
-        GenTree* sumUpper = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, eltType, 32, sum2, idx);
-        BlockRange().InsertBefore(node, sum2, idx, sumUpper);
-        LowerNode(sumUpper);
-
-        sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, eltType, 16, sum, sumUpper);
-        BlockRange().InsertBefore(node, sum);
-        LowerNode(sum);
-
-        node->SetSimdSize(16);
-    }
+    assert(varTypeIsFloating(eltType) || (eltType == TYP_INT) || (eltType == TYP_LONG));
+    assert(size == 16);
 
     NamedIntrinsic hadd = NI_Illegal;
 
@@ -2695,6 +2507,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
     unsigned haddCount = genLog2(16u / varTypeSize(eltType));
     assert(haddCount <= 2);
+
+    GenTree* sum = vec;
 
     for (unsigned i = 0; i < haddCount; i++)
     {
@@ -2737,7 +2551,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
             LowerNode(shuf);
 
-            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, eltType, 16, sum, shuf);
+            NamedIntrinsic add = eltType == TYP_FLOAT ? NI_SSE_Add : NI_SSE2_Add;
+            sum                = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, eltType, 16, sum, shuf);
             BlockRange().InsertBefore(node, sum);
         }
 
@@ -2746,9 +2561,37 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
     GenTree* zero = comp->gtNewIconNode(0);
     BlockRange().InsertBefore(node, zero);
-    node->SetIntrinsic(NI_Vector128_GetElement);
+    node->SetIntrinsic(NI_Vector128_GetElement, eltType, 16, 2);
     node->SetOp(0, sum);
     node->SetOp(1, zero);
+    LowerNode(node);
+}
+
+void Lowering::LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node)
+{
+    assert(node->GetIntrinsic() == NI_Vector256_Sum);
+    assert(node->GetSimdSize() == 32);
+
+    var_types eltType = node->GetSimdBaseType();
+    GenTree*  vec     = node->GetOp(0);
+
+    assert(varTypeIsArithmetic(eltType));
+
+    NamedIntrinsic extract = varTypeIsFloating(eltType) ? NI_AVX_ExtractVector128 : NI_AVX2_ExtractVector128;
+    NamedIntrinsic add     = eltType == TYP_FLOAT ? NI_SSE_Add : NI_SSE2_Add;
+
+    LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+    vec = ReplaceWithLclVar(vecUse);
+
+    GenTree* vec2     = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD32);
+    GenTree* imm      = comp->gtNewIconNode(1);
+    GenTree* vecUpper = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, extract, eltType, 32, vec2, imm);
+    BlockRange().InsertBefore(node, vec2, imm, vecUpper);
+    LowerNode(vecUpper);
+
+    node->SetIntrinsic(add, eltType, 16, 2);
+    node->SetOp(0, vec);
+    node->SetOp(1, vecUpper);
     LowerNode(node);
 }
 
