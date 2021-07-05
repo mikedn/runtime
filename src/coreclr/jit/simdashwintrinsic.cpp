@@ -1850,7 +1850,7 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
             break;
         case TYP_LONG:
         case TYP_ULONG:
-            op1     = impVectorTMultiplyLong(sig, op1, op2);
+            op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
             eltType = TYP_LONG;
             break;
         case TYP_INT:
@@ -1913,7 +1913,7 @@ GenTree* Compiler::impVectorT256Dot(const HWIntrinsicSignature& sig)
             break;
         case TYP_LONG:
         case TYP_ULONG:
-            op1     = impVectorTMultiplyLong(sig, op1, op2);
+            op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
             eltType = TYP_LONG;
             break;
         case TYP_INT:
@@ -2415,6 +2415,16 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* 
         assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
     }
 
+    if (varTypeIsByte(eltType))
+    {
+        return impVectorTMultiplyByte(sig.retLayout, op1, op2);
+    }
+
+    if (varTypeIsLong(eltType))
+    {
+        return impVectorTMultiplyLong(sig.retLayout, op1, op2);
+    }
+
     bool           isAVX = vecType == TYP_SIMD32;
     NamedIntrinsic intrinsic;
 
@@ -2459,17 +2469,17 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* 
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, 16, t, u);
 }
 
-GenTree* Compiler::impVectorTMultiplyLong(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Compiler::impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2)
 {
-    assert(varTypeIsLong(sig.paramLayout[0]->GetElementType()));
+    assert(varTypeIsLong(layout->GetElementType()));
 
     GenTree* op1Uses[3];
-    impMakeMultiUse(op1, op1Uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
+    impMakeMultiUse(op1, op1Uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
     GenTree* op2Uses[3];
-    impMakeMultiUse(op2, op2Uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
+    impMakeMultiUse(op2, op2Uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
 
-    var_types type = sig.paramType[0];
-    unsigned  size = varTypeSize(type);
+    var_types type = layout->GetSIMDType();
+    unsigned  size = layout->GetSize();
 
     NamedIntrinsic mul = size == 32 ? NI_AVX2_Multiply : NI_SSE2_Multiply;
     NamedIntrinsic add = size == 32 ? NI_AVX2_Add : NI_SSE2_Add;
@@ -2484,6 +2494,34 @@ GenTree* Compiler::impVectorTMultiplyLong(const HWIntrinsicSignature& sig, GenTr
     GenTree* hi  = gtNewSimdHWIntrinsicNode(type, add, TYP_ULONG, size, hi1, hi2);
     hi           = gtNewSimdHWIntrinsicNode(type, sll, TYP_ULONG, size, hi, gtNewIconNode(32));
     return gtNewSimdHWIntrinsicNode(type, add, TYP_LONG, size, lo, hi);
+}
+
+GenTree* Compiler::impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2)
+{
+    assert(varTypeIsByte(layout->GetElementType()));
+
+    GenTree* op1Uses[2];
+    impMakeMultiUse(op1, op1Uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<byte>.Multiply temp"));
+    GenTree* op2Uses[2];
+    impMakeMultiUse(op2, op2Uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<byte>.Multiply temp"));
+
+    var_types type = layout->GetSIMDType();
+    unsigned  size = layout->GetSize();
+
+    NamedIntrinsic mul  = size == 32 ? NI_AVX2_MultiplyLow : NI_SSE2_MultiplyLow;
+    NamedIntrinsic srlw = size == 32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
+    NamedIntrinsic sllw = size == 32 ? NI_AVX2_ShiftLeftLogical : NI_SSE2_ShiftLeftLogical;
+    NamedIntrinsic pand = size == 32 ? NI_AVX2_And : NI_SSE2_And;
+    NamedIntrinsic por  = size == 32 ? NI_AVX2_Or : NI_SSE2_Or;
+
+    GenTree* lo  = gtNewSimdHWIntrinsicNode(type, mul, TYP_SHORT, size, op1Uses[0], op2Uses[0]);
+    GenTree* hi1 = gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op1Uses[1], gtNewIconNode(8));
+    GenTree* hi2 = gtNewSimdHWIntrinsicNode(type, srlw, TYP_SHORT, size, op2Uses[1], gtNewIconNode(8));
+    GenTree* hi  = gtNewSimdHWIntrinsicNode(type, mul, TYP_SHORT, size, hi1, hi2);
+    hi           = gtNewSimdHWIntrinsicNode(type, sllw, TYP_SHORT, size, hi, gtNewIconNode(8));
+    GenTree* m   = gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), TYP_SHORT, size, gtNewIconNode(0xff));
+    lo           = gtNewSimdHWIntrinsicNode(type, pand, TYP_SHORT, size, lo, m);
+    return gtNewSimdHWIntrinsicNode(type, por, TYP_INT, size, lo, hi);
 }
 
 GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,

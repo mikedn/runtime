@@ -3123,7 +3123,8 @@ protected:
     GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256Dot(const HWIntrinsicSignature& sig);
     GenTree* impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorTMultiplyLong(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2);
     GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
     GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
     GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
