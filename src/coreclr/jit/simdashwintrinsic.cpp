@@ -13,15 +13,6 @@ var_types Compiler::GetVectorTSimdType()
         return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
     }
 
-    // TODO-MIKE-Cleanup: This should not be necessary. Only a few intrinsics use SSE42
-    // and the import code has its own SSE42 checks.
-    // More generally, this should not use compOpportunisticallyDependsOn(AVX2) because
-    // it's called while searching for intrinsics and that does not imply that an AVX2
-    // instruction will actually be used (e.g. it could be a Vector2/3/4 intrinsic that
-    // only needs SSE2).
-
-    compOpportunisticallyDependsOn(InstructionSet_SSE42);
-
     compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
     return TYP_SIMD16;
 #elif defined(TARGET_ARM64)
