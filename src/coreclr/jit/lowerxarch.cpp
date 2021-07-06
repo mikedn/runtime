@@ -2434,67 +2434,30 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
 
     var_types eltType = node->GetSimdBaseType();
     unsigned  size    = node->GetSimdSize();
-    GenTree*  vec     = node->GetOp(0);
-
-    if (size < 16)
-    {
-        assert(eltType == TYP_FLOAT);
-        assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
-
-        LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        vec = ReplaceWithLclVar(vecUse);
-
-        GenTree* vec2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
-        GenTree* sum;
-
-        // Add the first 2 Vector2/3 elements.
-        if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE3))
-        {
-            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE3_HorizontalAdd, TYP_FLOAT, 16, vec, vec2);
-            BlockRange().InsertBefore(node, vec2, sum);
-            LowerNode(sum);
-        }
-        else
-        {
-            GenTree* imm = comp->gtNewIconNode(0b01010101);
-            GenTree* e1  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vec, vec2, imm);
-            BlockRange().InsertBefore(node, vec2, imm, e1);
-            LowerNode(e1);
-
-            vec2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
-            sum  = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, vec2, e1);
-            BlockRange().InsertBefore(node, vec2, sum);
-            LowerNode(sum);
-        }
-
-        // Add the 3rd Vector3 element.
-        if (size == 12)
-        {
-            vec2          = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
-            GenTree* vec3 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
-            GenTree* e2   = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, vec2, vec3);
-            BlockRange().InsertBefore(node, vec2, vec3, e2);
-            LowerNode(e2);
-
-            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, e2, sum);
-            BlockRange().InsertBefore(node, sum);
-            LowerNode(sum);
-        }
-
-        GenTree* zero = comp->gtNewIconNode(0);
-        BlockRange().InsertBefore(node, zero);
-        node->SetIntrinsic(NI_Vector128_GetElement, 2);
-        node->SetOp(0, sum);
-        node->SetOp(1, zero);
-        LowerNode(node);
-
-        return;
-    }
 
     assert(varTypeIsFloating(eltType) || (eltType == TYP_INT) || (eltType == TYP_LONG));
-    assert(size == 16);
+    assert((size == 16) || ((eltType == TYP_FLOAT) && ((size == 8) || (size == 12))));
 
     NamedIntrinsic hadd = NI_Illegal;
+
+    // TODO-MIKE-CQ: This still generates poor code. If VEX isn't available then we
+    // get extra reg-reg moves due to poor register allocation and/or inability to
+    // describe the exact requirements to LSRA. This happens even when HADD is used,
+    // normally hadd should not need any moves because the operand is normally not a
+    // LCL_VAR so we should simply get 2 x "HADD reg, reg".
+    //
+    // And then using HADD is rather questionable because it's slower than a shuffle
+    // and an addition. HADD's only advantage is code size and not even that, it has
+    // 3 uops (even 4 on Ryzen) instead of the 2 you get for suffle + add. So HADD
+    // takes less space in the code cache but more space in the uop cache.
+    //
+    // It may be better to get rid of the HADD part and move the rest to codegen, to
+    // ensure that no extra reg-reg moves are generated. The drawback of doing this
+    // in codegen is that we may have to allocate a temp register that's not always
+    // needed. But since the current register allocation isn't ideal that's unlikely
+    // to be an issue. And moving this to codegen alsos avoid the need to allocate 2
+    // temps (though it may be possible to allocate only 1 but the code will be more
+    // complicated).
 
     if ((eltType == TYP_INT) && comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
     {
@@ -2505,65 +2468,69 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
         hadd = NI_SSE3_HorizontalAdd;
     }
 
-    unsigned haddCount = genLog2(16u / varTypeSize(eltType));
+    unsigned haddCount = genLog2(roundUp(size, 8) / varTypeSize(eltType));
     assert(haddCount <= 2);
 
-    GenTree* sum = vec;
+    LIR::Use       vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+    GenTreeLclVar* vec = ReplaceWithLclVar(vecUse);
+
+    GenTree*       sum  = vec;
+    GenTree*       sum2 = nullptr;
+    NamedIntrinsic add  = NI_Illegal;
 
     for (unsigned i = 0; i < haddCount; i++)
     {
-        node->SetOp(0, sum);
-        LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        sum = ReplaceWithLclVar(sumUse);
+        sum2 = comp->gtNewLclvNode(sum->AsLclVar()->GetLclNum(), TYP_SIMD16);
+        BlockRange().InsertBefore(node, sum2);
 
-        GenTreeLclVar* sum2 = comp->gtNewLclvNode(sum->AsLclVar()->GetLclNum(), TYP_SIMD16);
-
-        if (hadd != NI_Illegal)
+        if ((hadd != NI_Illegal) && ((size != 12) || (i == 0)))
         {
-            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, hadd, eltType, 16, sum, sum2);
-            BlockRange().InsertBefore(node, sum2, sum);
+            add = hadd;
         }
         else
         {
-            GenTree* shuf;
-
             if ((eltType == TYP_INT) || (eltType == TYP_LONG))
             {
                 GenTree* imm = comp->gtNewIconNode(i == 0 ? 0b11101110 : 0b00010001);
-                shuf         = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sum2, imm);
-                BlockRange().InsertBefore(node, sum2, imm, shuf);
+                sum2         = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sum2, imm);
+                BlockRange().InsertBefore(node, imm, sum2);
             }
-            else if (i == 0)
+            else if ((i == 0) && (eltType == TYP_FLOAT))
             {
-                assert(varTypeIsFloating(eltType));
-                GenTree* sum3 = comp->gtNewLclvNode(sum2->GetLclNum(), TYP_SIMD16);
-                shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, sum2, sum3);
-                BlockRange().InsertBefore(node, sum2, sum3, shuf);
+                GenTree* sum3 = comp->gtNewLclvNode(sum2->AsLclVar()->GetLclNum(), TYP_SIMD16);
+                GenTree* imm  = comp->gtNewIconNode(0b10110001);
+                sum2 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, sum2, sum3, imm);
+                BlockRange().InsertBefore(node, sum3, imm, sum2);
             }
             else
             {
-                assert(eltType == TYP_FLOAT);
-                GenTree* sum3 = comp->gtNewLclvNode(sum2->GetLclNum(), TYP_SIMD16);
-                GenTree* imm  = comp->gtNewIconNode(0b00010001);
-                shuf = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, sum2, sum3, imm);
-                BlockRange().InsertBefore(node, sum2, sum3, imm, shuf);
+                assert(varTypeIsFloating(eltType));
+                // For Vector3 we need to add the original vec[2] element,
+                // not sum[2] which would be wrong if vec[3] wasn't 0.
+                unsigned lclNum = size == 12 ? vec->GetLclNum() : sum2->AsLclVar()->GetLclNum();
+                GenTree* sum3   = comp->gtNewLclvNode(lclNum, TYP_SIMD16);
+                sum2 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, sum2, sum3);
+                BlockRange().InsertBefore(node, sum3, sum2);
             }
 
-            LowerNode(shuf);
-
-            NamedIntrinsic add = eltType == TYP_FLOAT ? NI_SSE_Add : NI_SSE2_Add;
-            sum                = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, eltType, 16, sum, shuf);
-            BlockRange().InsertBefore(node, sum);
+            LowerNode(sum2);
+            add = eltType == TYP_FLOAT ? NI_SSE_Add : NI_SSE2_Add;
         }
 
-        LowerNode(sum);
+        if (i < haddCount - 1)
+        {
+            sum = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, add, eltType, 16, sum, sum2);
+            BlockRange().InsertBefore(node, sum);
+            LowerNode(sum);
+            node->SetOp(0, sum);
+            LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+            sum = ReplaceWithLclVar(sumUse);
+        }
     }
 
-    GenTree* zero = comp->gtNewIconNode(0);
-    BlockRange().InsertBefore(node, zero);
-    node->SetIntrinsic(NI_Vector128_GetElement, eltType, 16, 2);
+    node->SetIntrinsic(add, eltType, 16, 2);
     node->SetOp(0, sum);
-    node->SetOp(1, zero);
+    node->SetOp(1, sum2);
     LowerNode(node);
 }
 

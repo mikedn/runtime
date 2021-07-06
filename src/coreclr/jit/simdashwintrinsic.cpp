@@ -1800,7 +1800,8 @@ GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
     }
 
     op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, 16, op1, op2);
-    return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_Sum, TYP_FLOAT, size, op1);
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Sum, TYP_FLOAT, size, op1);
+    return gtNewSimdGetElementNode(TYP_SIMD16, TYP_FLOAT, op1, gtNewIconNode(0));
 }
 
 GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
@@ -1870,14 +1871,8 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
             break;
     }
 
-    op1 = gtNewSimdHWIntrinsicNode(eltType, NI_Vector128_Sum, eltType, 16, op1);
-
-    if (varTypeIsSmall(sig.retType))
-    {
-        op1 = gtNewCastNode(TYP_INT, op1, false, sig.retType);
-    }
-
-    return op1;
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Sum, eltType, 16, op1);
+    return gtNewSimdGetElementNode(TYP_SIMD16, sig.retType, op1, gtNewIconNode(0));
 }
 
 GenTree* Compiler::impVectorT256Dot(const HWIntrinsicSignature& sig)
@@ -1934,14 +1929,8 @@ GenTree* Compiler::impVectorT256Dot(const HWIntrinsicSignature& sig)
     }
 
     op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_Sum, eltType, 32, op1);
-    op1 = gtNewSimdHWIntrinsicNode(varTypeNodeType(eltType), NI_Vector128_Sum, eltType, 16, op1);
-
-    if (varTypeIsSmall(sig.retType))
-    {
-        op1 = gtNewCastNode(TYP_INT, op1, false, sig.retType);
-    }
-
-    return op1;
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Sum, eltType, 16, op1);
+    return gtNewSimdGetElementNode(TYP_SIMD16, sig.retType, op1, gtNewIconNode(0));
 }
 
 GenTree* Compiler::impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
