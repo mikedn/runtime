@@ -7134,17 +7134,6 @@ private:
 #endif
     }
 
-    // Ensure that code will not execute if an instruction set is useable. Call only
-    // if the instruction set has previously reported as unuseable, but when
-    // that that status has not yet been recorded to the AOT compiler
-    void compVerifyInstructionSetUnuseable(CORINFO_InstructionSet isa)
-    {
-        // use compExactlyDependsOn to capture are record the use of the isa
-        bool isaUseable = compExactlyDependsOn(isa);
-        // Assert that the is unuseable. If true, this function should never be called.
-        assert(!isaUseable);
-    }
-
     // Answer the question: Is a particular ISA allowed to be used implicitly by optimizations?
     // The result of this api call will match the target machine if the result is true
     // If the result is false, then the target machine may have support for the instruction

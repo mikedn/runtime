@@ -13,7 +13,9 @@ var_types Compiler::GetVectorTSimdType()
         return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
     }
 
-    compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
+    bool isaUseable = compExactlyDependsOn(InstructionSet_AVX2);
+    assert(!isaUseable);
+
     return TYP_SIMD16;
 #elif defined(TARGET_ARM64)
     return TYP_SIMD16;
