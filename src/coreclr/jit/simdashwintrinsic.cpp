@@ -870,10 +870,6 @@ GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
     assert(varTypeIsSIMD(src->GetType()));
 
-    // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
-    // from the previous implementation that did this (in gtNewBlkOpNode).
-    src->gtFlags |= GTF_DONT_CSE;
-
     GenTree* dest;
 
     if (destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
