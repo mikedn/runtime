@@ -3084,7 +3084,7 @@ protected:
                                          SpecialCodeKind lastIndexThrowKind);
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
     GenTree* impVector234TInstanceEquals(const HWIntrinsicSignature& sig);
     GenTree* impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
 #ifdef TARGET_ARM64
