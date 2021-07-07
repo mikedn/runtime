@@ -103,9 +103,7 @@ static const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic id)
     return sysNumSimdIntrinsicInfo[id - NI_SIMD_AS_HWINTRINSIC_START - 1];
 }
 
-static SysNumSimdIntrinsicClassId FindClassId(const char* className,
-                                              const char* enclosingClassName,
-                                              var_types   vectorTSimdType)
+static SysNumSimdIntrinsicClassId FindClassId(const char* className, const char* enclosingClassName)
 {
     assert(className != nullptr);
 
@@ -127,14 +125,6 @@ static SysNumSimdIntrinsicClassId FindClassId(const char* className,
     }
     if ((strcmp(className, "Vector") == 0) || (strcmp(className, "Vector`1") == 0))
     {
-#if defined(TARGET_XARCH)
-        if (vectorTSimdType == TYP_SIMD32)
-        {
-            return SysNumSimdIntrinsicClassId::VectorT256;
-        }
-#endif
-
-        assert(vectorTSimdType == TYP_SIMD16);
         return SysNumSimdIntrinsicClassId::VectorT128;
     }
 
@@ -146,12 +136,19 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method
                                                     const char*           methodName,
                                                     const char*           enclosingClassName)
 {
-    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName, GetVectorTSimdType());
+    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName);
 
     if (classId == SysNumSimdIntrinsicClassId::Unknown)
     {
         return NI_Illegal;
     }
+
+#ifdef TARGET_XARCH
+    if ((classId == SysNumSimdIntrinsicClassId::VectorT128) && (GetVectorTSimdType() == TYP_SIMD32))
+    {
+        classId = SysNumSimdIntrinsicClassId::VectorT256;
+    }
+#endif
 
     CORINFO_SIG_INFO sig;
     info.compCompHnd->getMethodSig(method, &sig);
