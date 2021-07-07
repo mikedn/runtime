@@ -78,35 +78,6 @@ struct SysNumSimdIntrinsicInfo
     }
 };
 
-#ifdef TARGET_XARCH
-NamedIntrinsic MapVectorTIntrinsic(NamedIntrinsic intrinsic, bool isAVX)
-{
-    if (!isAVX)
-    {
-        assert((NI_VectorT128_Abs <= intrinsic) && (intrinsic < NI_VectorT256_Abs));
-        return intrinsic;
-    }
-
-    switch (intrinsic)
-    {
-        case NI_VectorT128_AndNot:
-            return NI_VectorT256_AndNot;
-        case NI_VectorT128_Equals:
-            return NI_VectorT256_Equals;
-        case NI_VectorT128_LessThan:
-            return NI_VectorT256_LessThan;
-        case NI_VectorT128_GreaterThan:
-            return NI_VectorT256_GreaterThan;
-        case NI_VectorT128_op_BitwiseAnd:
-            return NI_VectorT256_op_BitwiseAnd;
-        case NI_VectorT128_op_BitwiseOr:
-            return NI_VectorT256_op_BitwiseOr;
-        default:
-            unreached();
-    }
-}
-#endif // TARGET_XARCH
-
 static constexpr SysNumSimdIntrinsicInfo sysNumSimdIntrinsicInfo[]
 {
 // clang-format off
