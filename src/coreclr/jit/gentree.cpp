@@ -16250,22 +16250,22 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
-    var_types type, var_types simdBaseType, GenTree* op1, GenTree* op2, GenTree* op3)
+    var_types type, var_types eltType, GenTree* vec, GenTree* idx, GenTree* elt)
 {
     NamedIntrinsic hwIntrinsicID = NI_Vector128_WithElement;
 
     assert(varTypeIsSIMD(type));
-    assert(varTypeIsArithmetic(simdBaseType));
-    assert(op2->OperIsConst());
+    assert(varTypeIsArithmetic(eltType));
+    assert(idx->OperIsConst());
 
     unsigned simdSize = varTypeSize(type);
-    ssize_t  imm8     = op2->AsIntCon()->GetValue();
-    ssize_t  count    = simdSize / varTypeSize(simdBaseType);
+    ssize_t  imm8     = idx->AsIntCon()->GetValue();
+    ssize_t  count    = simdSize / varTypeSize(eltType);
 
     assert(0 <= imm8 && imm8 < count);
 
 #if defined(TARGET_XARCH)
-    switch (simdBaseType)
+    switch (eltType)
     {
         // Using software fallback if simdBaseType is not supported by hardware
         case TYP_BYTE:
@@ -16294,14 +16294,14 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
         simdSize = 16;
     }
 #elif defined(TARGET_ARM64)
-    switch (simdBaseType)
+    switch (eltType)
     {
         case TYP_LONG:
         case TYP_ULONG:
         case TYP_DOUBLE:
             if (simdSize == 8)
             {
-                return gtNewSimdHWIntrinsicNode(type, NI_Vector64_Create, simdBaseType, 8, op3);
+                return gtNewSimdHWIntrinsicNode(type, NI_Vector64_Create, eltType, 8, elt);
             }
             break;
 
@@ -16324,7 +16324,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
 #error Unsupported platform
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
-    return gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, simdBaseType, simdSize, op1, op2, op3);
+    return gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, eltType, simdSize, vec, idx, elt);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
