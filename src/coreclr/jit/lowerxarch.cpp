@@ -1800,6 +1800,76 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         return;
     }
 
+    // TODO-MIKE-Consider: Do we really need to special case Vector2/3? This was accidentally
+    // lost when deleting GenTreeSIMD and of course tests didn't fail. It should not be needed
+    // for corectness because Vector2/3 operations that depend on the upper unused element(s)
+    // (e.g. equality, dot product) simply ignore those. However, having arbitrary values in
+    // the unused elements could result in FP exceptions (if they somehow become unmasked) or
+    // poor performance due to denormals so perhaps the element zeroing cost is justified.
+    // It is however definitely unnecessary in certain cases, for example when the produced
+    // value is stored to a memory via a SIMD8/12 indirection.
+    // Also, ARM64 doesn't do this for Vector3 and it's not clear if someone simply forgot to
+    // do it or specifically decided that it isn't needed.
+
+    if ((size == 8) || (size == 12))
+    {
+        assert(eltType == TYP_FLOAT);
+
+        NamedIntrinsic intrinsic;
+        GenTree*       ops[3];
+
+        if (size == 8)
+        {
+            ops[0] = vec;
+            ops[1] = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
+            ops[2] = comp->gtNewIconNode(0);
+            BlockRange().InsertBefore(node, ops[1], ops[2]);
+
+            intrinsic = NI_SSE_Shuffle;
+        }
+        else if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX2))
+        {
+            ops[0] = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX2_BroadcastScalarToVector128, TYP_FLOAT, 16, vec);
+            ops[1] = comp->gtNewDconNode(0, TYP_FLOAT);
+            ops[2] = comp->gtNewIconNode(0b00111000);
+            BlockRange().InsertBefore(node, ops[0], ops[1], ops[2]);
+            LowerNode(ops[0]);
+
+            intrinsic = NI_SSE41_Insert;
+        }
+        else if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
+        {
+            GenTree* imm = comp->gtNewIconNode(0);
+            ops[0]       = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_Permute, TYP_FLOAT, 16, vec, imm);
+            ops[1]       = comp->gtNewDconNode(0, TYP_FLOAT);
+            ops[2]       = comp->gtNewIconNode(0b00111000);
+            BlockRange().InsertBefore(node, imm, ops[0], ops[1], ops[2]);
+            LowerNode(ops[0]);
+
+            intrinsic = NI_SSE41_Insert;
+        }
+        else
+        {
+            node->SetOp(0, vec);
+            LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+            ops[0]        = ReplaceWithLclVar(use);
+            GenTree* zero = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
+            GenTree* tmp  = comp->gtNewLclvNode(ops[0]->AsLclVar()->GetLclNum(), TYP_SIMD16);
+            ops[1]        = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, TYP_FLOAT, 16, zero, tmp);
+            ops[2]        = comp->gtNewIconNode(0b01000000);
+            BlockRange().InsertBefore(node, tmp, zero, ops[1], ops[2]);
+
+            intrinsic = NI_SSE_Shuffle;
+        }
+
+        node->SetIntrinsic(intrinsic, TYP_FLOAT, 16, 3);
+        node->SetOp(0, ops[0]);
+        node->SetOp(1, ops[1]);
+        node->SetOp(2, ops[2]);
+
+        return;
+    }
+
     if ((eltType != TYP_DOUBLE) && comp->compOpportunisticallyDependsOn(InstructionSet_AVX2))
     {
         node->SetIntrinsic(NI_AVX2_BroadcastScalarToVector128, 1);
@@ -1810,11 +1880,11 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
     if ((eltType == TYP_FLOAT) && comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
     {
-        GenTree* idx = comp->gtNewIconNode(0);
-        BlockRange().InsertBefore(node, idx);
+        GenTree* imm = comp->gtNewIconNode(0);
+        BlockRange().InsertBefore(node, imm);
         node->SetIntrinsic(NI_AVX_Permute, 2);
         node->SetOp(0, vec);
-        node->SetOp(1, idx);
+        node->SetOp(1, imm);
 
         return;
     }
