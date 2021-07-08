@@ -1031,12 +1031,23 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
     {
         case NI_AVX2_PermuteVar8x32:
         {
-            var_types baseType = sig.retLayout->GetElementType();
-            // swap the two operands
-            GenTree* indexVector  = impSIMDPopStack(TYP_SIMD32);
-            GenTree* sourceVector = impSIMDPopStack(TYP_SIMD32);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, baseType, 32, indexVector,
-                                            sourceVector);
+            var_types eltType = sig.retLayout->GetElementType();
+            GenTree*  control = impSIMDPopStack(TYP_SIMD32);
+            GenTree*  left    = impSIMDPopStack(TYP_SIMD32);
+
+            // AVX2.PermuteVar8x32 signature is messed up, parameter order does not match
+            // instruction operand order.
+
+            if (!gtCanSwapOrder(control, left))
+            {
+                // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
+
+                unsigned lclNum = lvaGrabTemp(true DEBUGARG("AVX2.PermuteVar8x32 temp"));
+                impAppendTempAssign(lclNum, left, sig.paramLayout[0], CHECK_SPILL_ALL);
+                left = gtNewLclvNode(lclNum, sig.paramType[0]);
+            }
+
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, eltType, 32, control, left);
         }
 
         case NI_AVX2_GatherMaskVector128:
@@ -1071,6 +1082,14 @@ GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntr
 {
     switch (intrinsic)
     {
+        case NI_BMI1_BitFieldExtract:
+        case NI_BMI1_X64_BitFieldExtract:
+            // The 3-arg version is implemented in managed code
+            if (sig.paramCount == 3)
+            {
+                return nullptr;
+            }
+            FALLTHROUGH;
         case NI_BMI2_ZeroHighBits:
         case NI_BMI2_X64_ZeroHighBits:
         {
@@ -1078,26 +1097,23 @@ GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntr
 
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
-            // Instruction BZHI requires to encode op2 (3rd register) in VEX.vvvv and op1 maybe memory operand,
-            // so swap op1 and op2 to unify the backend code.
-            return gtNewScalarHWIntrinsicNode(sig.retType, intrinsic, op2, op1);
-        }
 
-        case NI_BMI1_BitFieldExtract:
-        case NI_BMI1_X64_BitFieldExtract:
-        {
-            // The 3-arg version is implemented in managed code
-            if (sig.paramCount == 3)
+            if (!gtCanSwapOrder(op1, op2))
             {
-                return nullptr;
-            }
-            assert(sig.paramCount == 2);
+                // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impPopStack().val;
-            // Instruction BEXTR requires to encode op2 (3rd register) in VEX.vvvv and op1 maybe memory operand,
-            // so swap op1 and op2 to unify the backend code.
-            return gtNewScalarHWIntrinsicNode(sig.retType, intrinsic, op2, op1);
+                unsigned lclNum = lvaGrabTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"));
+                impAppendTempAssign(lclNum, op1, CHECK_SPILL_ALL);
+                op1 = gtNewLclvNode(lclNum, varActualType(sig.paramType[0]));
+            }
+
+            // Instructions BZHI and BEXTR require to encode op2 (3rd register) in VEX.vvvv and op1
+            // maybe memory operand, so swap op1 and op2 to unify the backend code.
+
+            // TODO-MIKE-Review: It would be better for codegen to handle this instead of having
+            // to swap here and potentially add a temp...
+
+            return gtNewScalarHWIntrinsicNode(varActualType(sig.retType), intrinsic, op2, op1);
         }
 
         default:
