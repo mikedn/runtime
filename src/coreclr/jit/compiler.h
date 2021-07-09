@@ -3136,11 +3136,7 @@ protected:
     GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
 #endif // TARGET_XARCH
 
-    GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
-                                 const HWIntrinsicSignature& sig,
-                                 var_types                   baseType,
-                                 var_types                   retType,
-                                 unsigned                    simdSize);
+    GenTree* impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 
     GenTree* impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout);
     GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
@@ -3149,11 +3145,7 @@ protected:
     GenTree* addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound);
 
 #ifdef TARGET_XARCH
-    GenTree* impBaseIntrinsic(NamedIntrinsic              intrinsic,
-                              const HWIntrinsicSignature& sig,
-                              var_types                   baseType,
-                              var_types                   retType,
-                              unsigned                    simdSize);
+    GenTree* impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);

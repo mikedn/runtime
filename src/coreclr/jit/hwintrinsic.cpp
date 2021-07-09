@@ -381,7 +381,7 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
     CORINFO_CLASS_HANDLE prevClass  = NO_CLASS_HANDLE;
     ClassLayout*         prevLayout = nullptr;
 
-    retType = JITtype2varType(sig->retType);
+    retType = CorTypeToPreciseVarType(sig->retType);
 
     if (retType != TYP_STRUCT)
     {
@@ -678,7 +678,27 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (!impIsTableDrivenHWIntrinsic(intrinsic, category))
     {
-        return impSpecialIntrinsic(intrinsic, sigReader, baseType, retType, simdSize);
+        switch (intrinsic)
+        {
+            case NI_Vector128_get_Count:
+#ifdef TARGET_ARM64
+            case NI_Vector64_get_Count:
+#endif
+#ifdef TARGET_XARCH
+            case NI_Vector256_get_Count:
+#endif
+                assert(sigReader.paramCount == 0);
+                assert(sigReader.retType == TYP_INT);
+
+                {
+                    GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
+                    countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
+                    return countNode;
+                }
+
+            default:
+                return impSpecialIntrinsic(intrinsic, sigReader);
+        }
     }
 
     const bool isScalar = (category == HW_Category_Scalar);
@@ -690,20 +710,20 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
-    if (sigReader.paramCount == 0)
-    {
-        assert(!isScalar);
-        return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
-    }
-
     GenTree*            op1     = nullptr;
     GenTree*            op2     = nullptr;
     GenTree*            op3     = nullptr;
     GenTree*            op4     = nullptr;
     GenTreeHWIntrinsic* retNode = nullptr;
 
+    var_types nodeType = varTypeNodeType(retType);
+
     switch (sigReader.paramCount)
     {
+        case 0:
+            assert(!isScalar);
+            return gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize);
+
         case 1:
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
@@ -717,8 +737,8 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 }
             }
 
-            retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1)
-                               : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+            retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1)
+                               : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1);
             break;
 
         case 2:
@@ -726,8 +746,8 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
-            retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2)
-                               : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
+            retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2)
+                               : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2);
 
 #ifdef TARGET_XARCH
             if ((intrinsic == NI_SSE42_Crc32) || (intrinsic == NI_SSE42_X64_Crc32))
@@ -805,8 +825,8 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 op3 = addRangeCheckIfNeeded(intrinsic, op3, mustExpand, immLowerBound, immUpperBound);
             }
 
-            retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2, op3)
-                               : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3);
+            retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
+                               : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3);
 
 #ifdef TARGET_XARCH
             if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
@@ -832,7 +852,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
             assert(!isScalar);
-            retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
+            retNode = gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
 
             if (category == HW_Category_SIMDByIndexedElement)
             {

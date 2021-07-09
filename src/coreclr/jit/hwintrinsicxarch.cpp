@@ -457,14 +457,13 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
     }
 }
 
-GenTree* Compiler::impSpecialIntrinsic(
-    NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, var_types baseType, var_types retType, unsigned simdSize)
+GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (HWIntrinsicInfo::lookupIsa(intrinsic))
     {
         case InstructionSet_Vector128:
         case InstructionSet_Vector256:
-            return impBaseIntrinsic(intrinsic, sig, baseType, retType, simdSize);
+            return impBaseIntrinsic(intrinsic, sig);
         case InstructionSet_SSE:
         case InstructionSet_SSE2:
         case InstructionSet_SSE41:
@@ -483,20 +482,25 @@ GenTree* Compiler::impSpecialIntrinsic(
     }
 }
 
-GenTree* Compiler::impBaseIntrinsic(
-    NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, var_types baseType, var_types retType, unsigned simdSize)
+GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
-    GenTree* retNode = nullptr;
-    GenTree* op1     = nullptr;
-    GenTree* op2     = nullptr;
+    assert(!sig.hasThisParam);
 
     if (!featureSIMD)
     {
         return nullptr;
     }
 
+    // TODO-MIKE-Cleanup: ISA checking & reporting is dubious.
+
     switch (intrinsic)
     {
+        CORINFO_InstructionSet requiredIsa;
+        var_types              eltType;
+        unsigned               simdSize;
+        GenTree*               op1;
+        GenTree*               op2;
+
         case NI_Vector256_As:
         case NI_Vector256_AsByte:
         case NI_Vector256_AsDouble:
@@ -508,16 +512,6 @@ GenTree* Compiler::impBaseIntrinsic(
         case NI_Vector256_AsUInt16:
         case NI_Vector256_AsUInt32:
         case NI_Vector256_AsUInt64:
-        {
-            if (!compExactlyDependsOn(InstructionSet_AVX))
-            {
-                // We don't want to deal with TYP_SIMD32 if the compiler doesn't otherwise support the type.
-                break;
-            }
-
-            FALLTHROUGH;
-        }
-
         case NI_Vector128_As:
         case NI_Vector128_AsByte:
         case NI_Vector128_AsDouble:
@@ -529,253 +523,114 @@ GenTree* Compiler::impBaseIntrinsic(
         case NI_Vector128_AsUInt16:
         case NI_Vector128_AsUInt32:
         case NI_Vector128_AsUInt64:
-        {
-            // We fold away the cast here, as it only exists to satisfy
-            // the type system. It is safe to do this here since the retNode type
-            // and the signature return type are both the same SIMD type.
-
-            assert(sig.paramCount == 1);
-
-            retNode = impSIMDPopStack(retType);
-            assert(retNode->GetType() == sig.retType);
-            break;
-        }
-
-        case NI_Vector128_AsVector:
-        {
-            assert(sig.paramCount == 1);
-
-            if (GetVectorTSimdType() == TYP_SIMD32)
-            {
-                // Vector<T> is TYP_SIMD32, so we should treat this as a call to Vector128.ToVector256
-                return impBaseIntrinsic(NI_Vector128_ToVector256, sig, baseType, retType, simdSize);
-            }
-
-            assert(GetVectorTSimdType() == TYP_SIMD16);
-
-            // We fold away the cast here, as it only exists to satisfy
-            // the type system. It is safe to do this here since the retNode type
-            // and the signature return type are both the same SIMD type.
-
-            retNode = impSIMDPopStack(retType);
-            assert(retNode->GetType() == sig.retType);
-
-            break;
-        }
-
-        case NI_Vector128_AsVector2:
-        case NI_Vector128_AsVector3:
-        {
-            // TYP_SIMD8 and TYP_SIMD12 currently only expose "safe" versions
-            // which zero the upper elements and so are implemented in managed.
-            unreached();
-        }
-
         case NI_Vector128_AsVector4:
-        {
-            // We fold away the cast here, as it only exists to satisfy
-            // the type system. It is safe to do this here since the retNode type
-            // and the signature return type are both the same SIMD type.
-
-            retNode = impSIMDPopStack(retType);
-            assert(retNode->GetType() == sig.retType);
-
-            break;
-        }
-
-        case NI_Vector128_AsVector128:
-        {
             assert(sig.paramCount == 1);
-            assert(HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic));
-
-            assert(sig.paramLayout[0]->GetElementType() == baseType);
-
-            switch (sig.paramLayout[0]->GetSIMDType())
-            {
-                case TYP_SIMD8:
-                case TYP_SIMD12:
-                    // TYP_SIMD8 and TYP_SIMD12 currently only expose "safe" versions
-                    // which zero the upper elements and so are implemented in managed.
-                    unreached();
-
-                case TYP_SIMD16:
-                    // We fold away the cast here, as it only exists to satisfy
-                    // the type system. It is safe to do this here since the retNode type
-                    // and the signature return type are both the same SIMD type.
-                    retNode = impSIMDPopStack(retType);
-                    assert(retNode->GetType() == sig.retType);
-                    break;
-
-                case TYP_SIMD32:
-                    // Vector<T> is TYP_SIMD32, so we should treat this as a call to Vector256.GetLower
-                    return impBaseIntrinsic(NI_Vector256_GetLower, sig, baseType, retType, 32);
-
-                default:
-                    unreached();
-            }
-
-            break;
-        }
-
+            assert(sig.paramType[0] == sig.retType);
+            FALLTHROUGH;
+        case NI_Vector128_AsVector:
+        case NI_Vector128_AsVector128:
         case NI_Vector256_AsVector:
         case NI_Vector256_AsVector256:
-        {
-            assert(sig.paramCount == 1);
-
-            if (GetVectorTSimdType() == TYP_SIMD32)
-            {
-                // We fold away the cast here, as it only exists to satisfy
-                // the type system. It is safe to do this here since the retNode type
-                // and the signature return type are both the same SIMD type.
-
-                retNode = impSIMDPopStack(retType);
-                assert(retNode->GetType() == sig.retType);
-
-                break;
-            }
-
-            assert(GetVectorTSimdType() == TYP_SIMD16);
-
-            if (compExactlyDependsOn(InstructionSet_AVX))
-            {
-                // We support Vector256 but Vector<T> is only 16-bytes, so we should
-                // treat this method as a call to Vector256.GetLower or Vector128.ToVector256
-
-                if (intrinsic == NI_Vector256_AsVector)
-                {
-                    return impBaseIntrinsic(NI_Vector256_GetLower, sig, baseType, retType, simdSize);
-                }
-
-                assert(intrinsic == NI_Vector256_AsVector256);
-                return impBaseIntrinsic(NI_Vector128_ToVector256, sig, baseType, retType, 16);
-            }
-
-            break;
-        }
-
-        case NI_Vector128_get_Count:
-        case NI_Vector256_get_Count:
-        {
-            assert(sig.paramCount == 0);
-
-            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
-            countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
-            retNode = countNode;
-            break;
-        }
-
-        case NI_Vector128_Create:
-        case NI_Vector256_Create:
-        {
-            // We shouldn't handle this as an intrinsic if the
-            // respective ISAs have been disabled by the user.
-
-            if (intrinsic == NI_Vector256_Create)
-            {
-                if (!compExactlyDependsOn(InstructionSet_AVX))
-                {
-                    return nullptr;
-                }
-            }
-            else if (baseType == TYP_FLOAT)
-            {
-                if (!compExactlyDependsOn(InstructionSet_SSE))
-                {
-                    return nullptr;
-                }
-            }
-            else if (!compExactlyDependsOn(InstructionSet_SSE2))
-            {
-                return nullptr;
-            }
-
-            GenTreeHWIntrinsic* create = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
-            create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
-
-            for (unsigned i = 0; i < sig.paramCount; i++)
-            {
-                GenTree* op = impPopStack().val;
-                create->SetOp(sig.paramCount - 1 - i, op);
-                create->gtFlags |= op->gtFlags & GTF_ALL_EFFECT;
-            }
-
-            return create;
-        }
-
         case NI_Vector128_ToVector256:
-        case NI_Vector128_ToVector256Unsafe:
         case NI_Vector256_GetLower:
             assert(sig.paramCount == 1);
+            assert((sig.paramType[0] == TYP_SIMD16) || (sig.paramType[0] == TYP_SIMD32));
+            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
 
-            if (!compExactlyDependsOn(InstructionSet_AVX))
+            if (((sig.paramType[0] == TYP_SIMD32) || (sig.retType == TYP_SIMD32)) &&
+                !compExactlyDependsOn(InstructionSet_AVX))
             {
                 return nullptr;
             }
 
             op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
 
-        case NI_Vector128_get_Zero:
-        case NI_Vector128_get_AllBitsSet:
-        {
-            assert(sig.paramCount == 0);
-
-            if (compExactlyDependsOn(InstructionSet_SSE))
+            if (sig.paramType[0] == sig.retType)
             {
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
-            }
-            break;
-        }
-
-        case NI_Vector128_CreateScalarUnsafe:
-            assert(sig.paramCount == 1);
-
-            if (!compExactlyDependsOn(baseType == TYP_FLOAT ? InstructionSet_SSE : InstructionSet_SSE2))
-            {
-                return nullptr;
+                return op1;
             }
 
-            op1 = impPopStack().val;
-            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+            intrinsic = sig.retType == TYP_SIMD16 ? NI_Vector256_GetLower : NI_Vector128_ToVector256;
+            eltType   = sig.paramLayout[0]->GetElementType();
+            simdSize  = sig.retType == TYP_SIMD16 ? 32 : 16;
+            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize, op1);
 
-        case NI_Vector256_CreateScalarUnsafe:
+        case NI_Vector128_ToVector256Unsafe:
             assert(sig.paramCount == 1);
+            assert((sig.paramType[0] == TYP_SIMD16) && (sig.retType == TYP_SIMD32));
+
+            eltType = sig.retLayout->GetElementType();
 
             if (!compExactlyDependsOn(InstructionSet_AVX))
             {
                 return nullptr;
             }
 
-            op1 = impPopStack().val;
-            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+            op1 = impSIMDPopStack(TYP_SIMD16);
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, op1);
 
+        case NI_Vector128_get_Zero:
+        case NI_Vector128_get_AllBitsSet:
         case NI_Vector256_get_Zero:
         case NI_Vector256_get_AllBitsSet:
-        {
             assert(sig.paramCount == 0);
+            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
 
-            if (compExactlyDependsOn(InstructionSet_AVX))
+            eltType  = sig.retLayout->GetElementType();
+            simdSize = sig.retLayout->GetSize();
+
+            if (!compExactlyDependsOn(sig.retType == TYP_SIMD32 ? InstructionSet_AVX : InstructionSet_SSE))
             {
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
+                return nullptr;
             }
-            break;
-        }
+
+            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize);
+
+        case NI_Vector128_CreateScalarUnsafe:
+        case NI_Vector256_CreateScalarUnsafe:
+        case NI_Vector128_Create:
+        case NI_Vector256_Create:
+            assert((sig.paramCount >= 1) && (sig.paramCount <= 32));
+            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
+
+            eltType  = sig.retLayout->GetElementType();
+            simdSize = sig.retLayout->GetSize();
+
+            if (sig.retType == TYP_SIMD32)
+            {
+                requiredIsa = InstructionSet_AVX;
+            }
+            else
+            {
+                requiredIsa = eltType == TYP_FLOAT ? InstructionSet_SSE : InstructionSet_SSE2;
+            }
+
+            if (!compExactlyDependsOn(requiredIsa))
+            {
+                return nullptr;
+            }
+
+            {
+                GenTreeHWIntrinsic* create = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize);
+                create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
+
+                for (unsigned i = 0; i < sig.paramCount; i++)
+                {
+                    GenTree* op = impPopStack().val;
+                    create->SetOp(sig.paramCount - 1 - i, op);
+                    create->AddSideEffects(op->GetSideEffects());
+                }
+
+                return create;
+            }
 
         case NI_Vector128_WithElement:
         case NI_Vector256_WithElement:
         {
             assert(sig.paramCount == 3);
-
-            // TODO-MIKE-Cleanup: Is this actually needed? The ARM64 version doesn't check this.
-            if (!varTypeIsSIMD(sig.paramType[0]))
-            {
-                return nullptr;
-            }
-
-            var_types eltType = sig.paramType[2];
-
+            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
             assert(sig.paramType[0] == sig.retType);
-            assert(sig.paramLayout[0]->GetElementType() == eltType);
+            assert(sig.paramLayout[0]->GetElementType() == sig.paramType[2]);
             assert(sig.paramType[1] == TYP_INT);
 
             GenTreeIntCon* idx = impStackTop(1).val->IsIntCon();
@@ -785,17 +640,15 @@ GenTree* Compiler::impBaseIntrinsic(
                 return nullptr;
             }
 
-            CORINFO_InstructionSet requiredIsa;
-
             if (sig.retType == TYP_SIMD32)
             {
                 requiredIsa = InstructionSet_AVX;
             }
-            else if (eltType == TYP_FLOAT)
+            else if (sig.paramType[2] == TYP_FLOAT)
             {
                 requiredIsa = InstructionSet_SSE;
             }
-            else if ((eltType == TYP_DOUBLE) || varTypeIsShort(eltType))
+            else if ((sig.paramType[2] == TYP_DOUBLE) || varTypeIsShort(sig.paramType[2]))
             {
                 requiredIsa = InstructionSet_SSE2;
             }
@@ -818,24 +671,25 @@ GenTree* Compiler::impBaseIntrinsic(
             /* idx = */ impPopStack();
             GenTree* vec = impSIMDPopStack(sig.retType);
 
-            return gtNewSimdWithElementNode(sig.retType, eltType, vec, idx, elt);
+            return gtNewSimdWithElementNode(sig.retType, sig.paramType[2], vec, idx, elt);
         }
 
         case NI_Vector256_GetElement:
-            if (!compExactlyDependsOn(InstructionSet_AVX))
-            {
-                // Using software fallback if JIT/hardware don't support AVX instructions and YMM registers
-                return nullptr;
-            }
-            FALLTHROUGH;
         case NI_Vector128_GetElement:
             assert(sig.paramCount == 2);
+            assert(sig.paramLayout[0]->GetElementType() == sig.retType);
 
-            if (!compExactlyDependsOn(InstructionSet_SSE2) || !varTypeIsArithmetic(baseType))
+            if (sig.paramType[0] == TYP_SIMD32)
             {
-                // Using software fallback if
-                // 1. JIT/hardware don't support SSE2 instructions
-                // 2. simdBaseType is not a numeric type (throw execptions)
+                requiredIsa = InstructionSet_AVX;
+            }
+            else
+            {
+                requiredIsa = sig.retType == TYP_FLOAT ? InstructionSet_SSE : InstructionSet_SSE2;
+            }
+
+            if (!compExactlyDependsOn(requiredIsa))
+            {
                 return nullptr;
             }
 
@@ -844,78 +698,33 @@ GenTree* Compiler::impBaseIntrinsic(
             return impVectorGetElement(sig.paramLayout[0], op1, op2);
 
         case NI_Vector128_ToScalar:
-            assert(sig.paramCount == 1);
-
-            switch (baseType)
-            {
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                case TYP_INT:
-                case TYP_UINT:
-                case TYP_LONG:
-                case TYP_ULONG:
-                    if (!compExactlyDependsOn(InstructionSet_SSE2))
-                    {
-                        return nullptr;
-                    }
-                    break;
-                case TYP_FLOAT:
-                case TYP_DOUBLE:
-                    // TODO-MIKE-Cleanup: This is kind of bogus for DOUBLE, SSE2 would make more sense.
-                    if (!compExactlyDependsOn(InstructionSet_SSE))
-                    {
-                        return nullptr;
-                    }
-                    break;
-                default:
-                    unreached();
-            }
-
-            op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_GetElement, baseType, simdSize, op1,
-                                            gtNewIconNode(0));
-
         case NI_Vector256_ToScalar:
             assert(sig.paramCount == 1);
+            assert(sig.paramLayout[0]->GetElementType() == sig.retType);
 
-            switch (baseType)
+            if (sig.paramType[0] == TYP_SIMD32)
             {
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                case TYP_INT:
-                case TYP_UINT:
-                case TYP_LONG:
-                case TYP_ULONG:
-                    // TODO-MIKE-Cleanup: This is kind of bogus, AVX2 would make more sense.
-                    if (!compExactlyDependsOn(InstructionSet_AVX))
-                    {
-                        return nullptr;
-                    }
-                    break;
-                case TYP_FLOAT:
-                case TYP_DOUBLE:
-                    if (!compExactlyDependsOn(InstructionSet_AVX))
-                    {
-                        return nullptr;
-                    }
-                    break;
-                default:
-                    unreached();
+                requiredIsa = InstructionSet_AVX;
+                intrinsic   = NI_Vector256_GetElement;
+            }
+            else
+            {
+                requiredIsa = sig.retType == TYP_FLOAT ? InstructionSet_SSE : InstructionSet_SSE2;
+                intrinsic   = NI_Vector128_GetElement;
             }
 
+            if (!compExactlyDependsOn(requiredIsa))
+            {
+                return nullptr;
+            }
+
+            op2 = gtNewIconNode(0);
             op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdHWIntrinsicNode(retType, NI_Vector256_GetElement, baseType, simdSize, op1,
-                                            gtNewIconNode(0));
+            return gtNewSimdGetElementNode(sig.paramType[0], sig.retType, op1, op2);
 
         default:
             return nullptr;
     }
-
-    return retNode;
 }
 
 GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
@@ -1049,13 +858,11 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
             GenTree* op2 = impPopArgForHWIntrinsic(sig.paramType[1], sig.paramLayout[1]);
             GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
 
-            ClassLayout* retLayout = sig.retLayout;
-            var_types    baseType  = retLayout->GetElementType();
-            var_types    retType   = retLayout->GetSIMDType();
-            unsigned     simdSize  = retLayout->GetSize();
+            var_types eltType  = sig.retLayout->GetElementType();
+            unsigned  simdSize = sig.retLayout->GetSize();
 
             GenTreeHWIntrinsic* retNode =
-                gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4, op5);
+                gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize, op1, op2, op3, op4, op5);
             retNode->SetAuxiliaryType(sig.paramLayout[2]->GetElementType());
             return retNode;
         }
