@@ -442,27 +442,25 @@ GenTree* Compiler::impSpecialIntrinsic(
         case NI_Vector128_WithElement:
         {
             assert(sig.paramCount == 3);
-            GenTree* indexOp = impStackTop(1).val;
-            if (!indexOp->OperIsConst())
+
+            var_types eltType = sig.paramType[2];
+
+            assert(sig.paramType[0] == sig.retType);
+            assert(sig.paramLayout[0]->GetElementType() == eltType);
+            assert(sig.paramType[1] == TYP_INT);
+
+            GenTreeIntCon* idx = impStackTop(1).val->IsIntCon();
+
+            if ((idx == nullptr) || (idx->GetUInt32Value() >= sig.paramLayout[0]->GetElementCount()))
             {
-                // If index is not constant use software fallback.
                 return nullptr;
             }
 
-            ssize_t imm8  = indexOp->AsIntCon()->IconValue();
-            ssize_t count = simdSize / genTypeSize(baseType);
+            GenTree* elt = impPopStack().val;
+            /* idx = */ impPopStack();
+            GenTree* vec = impSIMDPopStack(sig.paramType[0]);
 
-            if (imm8 >= count || imm8 < 0)
-            {
-                // Using software fallback if index is out of range (throw exeception)
-                return nullptr;
-            }
-
-            GenTree* valueOp = impPopStack().val;
-            impPopStack(); // pop the indexOp that we already have.
-            GenTree* vectorOp = impSIMDPopStack(sig.paramType[0]);
-
-            return gtNewSimdWithElementNode(retType, baseType, vectorOp, indexOp, valueOp);
+            return gtNewSimdWithElementNode(sig.retType, eltType, vec, idx, elt);
         }
 
         case NI_Vector128_GetUpper:

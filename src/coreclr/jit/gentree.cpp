@@ -16250,81 +16250,34 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
-    var_types type, var_types eltType, GenTree* vec, GenTree* idx, GenTree* elt)
+    var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
 {
-    NamedIntrinsic hwIntrinsicID = NI_Vector128_WithElement;
-
     assert(varTypeIsSIMD(type));
     assert(varTypeIsArithmetic(eltType));
-    assert(idx->OperIsConst());
+    assert(idx->GetUInt32Value() < varTypeSize(type) / varTypeSize(eltType));
 
-    unsigned simdSize = varTypeSize(type);
-    ssize_t  imm8     = idx->AsIntCon()->GetValue();
-    ssize_t  count    = simdSize / varTypeSize(eltType);
-
-    assert(0 <= imm8 && imm8 < count);
+    NamedIntrinsic intrinsic;
+    unsigned       simdSize;
 
 #if defined(TARGET_XARCH)
-    switch (eltType)
-    {
-        // Using software fallback if simdBaseType is not supported by hardware
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-        case TYP_LONG:
-        case TYP_ULONG:
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
-            break;
-        case TYP_DOUBLE:
-        case TYP_FLOAT:
-        case TYP_SHORT:
-        case TYP_USHORT:
-            break;
-        default:
-            unreached();
-    }
+    assert(varTypeIsFloating(eltType) || varTypeIsShort(eltType) || compIsaSupportedDebugOnly(InstructionSet_SSE41));
+    assert((eltType == TYP_FLOAT) || (varTypeSize(type) >= 16));
 
-    if (simdSize == 32)
-    {
-        hwIntrinsicID = NI_Vector256_WithElement;
-    }
-    else
-    {
-        simdSize = 16;
-    }
+    intrinsic = type == TYP_SIMD32 ? NI_Vector256_WithElement : NI_Vector128_WithElement;
+    simdSize  = type == TYP_SIMD32 ? 32 : 16;
 #elif defined(TARGET_ARM64)
-    switch (eltType)
+    if ((type == TYP_SIMD8) && (varTypeSize(eltType) == 8))
     {
-        case TYP_LONG:
-        case TYP_ULONG:
-        case TYP_DOUBLE:
-            if (simdSize == 8)
-            {
-                return gtNewSimdHWIntrinsicNode(type, NI_Vector64_Create, eltType, 8, elt);
-            }
-            break;
-
-        case TYP_FLOAT:
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-        case TYP_INT:
-        case TYP_UINT:
-            break;
-
-        default:
-            unreached();
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector64_Create, eltType, 8, elt);
     }
 
-    simdSize      = simdSize == 12 ? 16 : simdSize;
-    hwIntrinsicID = NI_AdvSimd_Insert;
+    intrinsic = NI_AdvSimd_Insert;
+    simdSize  = type == TYP_SIMD8 ? 8 : 16;
 #else
 #error Unsupported platform
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
-    return gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, eltType, simdSize, vec, idx, elt);
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, simdSize, vec, idx, elt);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)

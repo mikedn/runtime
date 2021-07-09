@@ -1941,7 +1941,7 @@ public:
                                                 GenTree*  index);
 
     GenTreeHWIntrinsic* gtNewSimdWithElementNode(
-        var_types type, var_types eltType, GenTree* vec, GenTree* idx, GenTree* elt);
+        var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt);
 
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
                                                  NamedIntrinsic hwIntrinsicID,
