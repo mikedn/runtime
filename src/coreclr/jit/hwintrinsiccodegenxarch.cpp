@@ -1195,39 +1195,22 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
             break;
         }
 
-        case NI_Vector128_get_Zero:
-        case NI_Vector256_get_Zero:
-        {
-            assert(op1 == nullptr);
-            emit->emitIns_SIMD_R_R_R(ins, attr, targetReg, targetReg, targetReg);
-            break;
-        }
-
-        case NI_Vector128_get_AllBitsSet:
-            assert(op1 == nullptr);
-            if (varTypeIsFloating(baseType) && compiler->compOpportunisticallyDependsOn(InstructionSet_AVX))
-            {
-                // The following corresponds to vcmptrueps pseudo-op and not available without VEX prefix.
-                emit->emitIns_SIMD_R_R_R_I(ins, attr, targetReg, targetReg, targetReg, 15);
-            }
-            else
-            {
-                emit->emitIns_SIMD_R_R_R(INS_pcmpeqd, attr, targetReg, targetReg, targetReg);
-            }
-            break;
-
         case NI_Vector256_get_AllBitsSet:
             assert(op1 == nullptr);
-            if (varTypeIsIntegral(baseType) && compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
-            {
-                emit->emitIns_SIMD_R_R_R(ins, attr, targetReg, targetReg, targetReg);
-            }
-            else
+            assert(ins == INS_pcmpeqd);
+            if (!compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
             {
                 assert(compiler->compIsaSupportedDebugOnly(InstructionSet_AVX));
-                // The following corresponds to vcmptrueps pseudo-op.
-                emit->emitIns_SIMD_R_R_R_I(INS_cmpps, attr, targetReg, targetReg, targetReg, 15);
+                emit->emitIns_SIMD_R_R_R(INS_xorps, EA_32BYTE, targetReg, targetReg, targetReg);
+                emit->emitIns_SIMD_R_R_R_I(INS_cmpps, EA_32BYTE, targetReg, targetReg, targetReg, 15);
+                break;
             }
+            FALLTHROUGH;
+        case NI_Vector128_get_Zero:
+        case NI_Vector256_get_Zero:
+        case NI_Vector128_get_AllBitsSet:
+            assert(op1 == nullptr);
+            emit->emitIns_SIMD_R_R_R(ins, attr, targetReg, targetReg, targetReg);
             break;
 
         default:
