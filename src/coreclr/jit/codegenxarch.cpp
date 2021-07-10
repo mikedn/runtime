@@ -4429,6 +4429,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 regNumber srcReg = genConsumeReg(node);
 
                 // TODO-MIKE-Review: Huh, this pulls EA_PTRSIZE out of the hat. Potential GC hole?
+                // It may be that this code is useless. We have reg constraints on PUTARG_REG defs
+                // so the arg is likely in the correct register already and nothing ever needs to
+                // be moved.
                 inst_Mov_Extend(node->GetType(), false, argReg, srcReg, /* canSkip */ true, EA_PTRSIZE);
             }
 

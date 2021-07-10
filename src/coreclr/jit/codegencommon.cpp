@@ -10632,6 +10632,15 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
         for (GenTreeFieldList::Use& use : list->Uses())
         {
+            // TODO-MIKE-Review: Is this correct? Shouldn't we first "consume" all the regs
+            // and then move as necessary? This is how calls do it but calls have PUTARG_REG
+            // nodes so that register constraints are placed on defs rather than uses.
+            // We could use PUTARG_REG in this case but it would be good to find at least a
+            // case where the current implementation fails so we know there's some kind of
+            // coverage for this.
+            // Keep it as is for until non-SIMD multi reg struct returns are changed to also
+            // use FIELD_LIST.
+
             regNumber srcReg = genConsumeReg(use.GetNode());
             regNumber retReg = compiler->info.retDesc.GetRegNum(regIndex++);
 

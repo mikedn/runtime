@@ -1905,6 +1905,16 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
     // A few "get"/"set"s may be better expressed as "get element"/"with element". Repeated
     // "get"s may be best handled by CSE. Only repeated "set"s are likely to benefit from
     // promotion, especially when we don't have SSE41.
+    //
+    // On ARM64 it may be useful to treat Vector2/3/4 params and locals that are used by
+    // a RETURN as "field accessed" (if they don't have intrinsic uses). Otherwise we end
+    // up with pretty stupid codegen in some rather trivial cases (e.g. Vector3 param that
+    // is immediately passed as an arg to another call - currently we pack all the param regs
+    // into a single one in the prolog and then unpack the single reg to multiple regs before
+    // the call). But if the param is passed as an argument to multiple calls then things
+    // are more complicated, it may better to not promote to avoid unnecessary register
+    // pressure. The current struct promotion is way too limited to be able to do the right
+    // thing in this case.
 
     if (!lcl->lvFieldAccessed && (structPromotionInfo.fieldCnt > 3 || varTypeIsSIMD(lcl->GetType())))
     {

@@ -1181,6 +1181,14 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op1 = impSIMDPopStack(sig.paramType[0]);
     }
 
+    // TODO-MIKE-CQ: Can we handle LONG element type like on XARCH?
+    // The approach used for LONG DotProduct doesn't seem to work so well in this
+    // case. At least on ARM Cortex A72 it is slower than just using the "software"
+    // implementation, likely because inserting/extracting from/to GPRs is rather
+    // slow. For DotProduct we only need extracts but here we'd need to insert
+    // the integer multiplication result back into a vector register and that's
+    // probably costly enough - FMOV has latency 5 and INS has latency 8!!!
+
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
 }
 
@@ -1697,6 +1705,23 @@ GenTree* Compiler::impVector23Division(const HWIntrinsicSignature& sig, GenTree*
     // Since the top-most elements will be zero, we end up perfoming 0 / 0 which is NaN.
     // Therefore, post division we need to set the top-most elements to zero. This is
     // achieved by left logical shift followed by right logical shift of the result.
+
+    // TODO-MIKE-CQ: It would be better to insert zeroes into the appropiate elements instead
+    // of doing this shifty stuff. With SSE41 we can zero 2 elements (for Vector2) with one
+    // INSERTPS instruction. Without SSE41 XORPS+MOVLHPS is likely better than integer shifts
+    // for Vector2. Vector3 is a bit more problematic without SSE41 (might need 3 instructions
+    // rather than the current 2) but it sill may be better to avoid integer shifts due to
+    // integer-float bypass delays.
+    // Also, using "high level" vector operations like "WithElement" makes it slightly simpler
+    // to eliminate this zeroing in cases where it isn't necessary (e.g. when the result is
+    // used by a SIMD8/SIMD12 store or assigned to a promoted local).
+    // The problem is what to do about Vector2 - do we insert 2 FLOAT 0 or 1 DOUBLE 0?
+    // Inserting FLOTA 0 is cleaner but we'd need to coalesce these inserts in lowering and
+    // that's slightly ugly due to the way lowering works, we probably need TryGetUse when
+    // we find the first insert. Otherwise we'll lower it to some more complex sequence and
+    // then we find the second insert it will be difficult to recognize and perform coalescing.
+    // And as a side note - ARM64 doesn't zero the upper Vector3 element for unknown reasons.
+
     d = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical128BitLane, TYP_INT, 16, d,
                                  gtNewIconNode(16 - size));
     d = gtNewSimdHWIntrinsicNode(type, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, 16, d, gtNewIconNode(16 - size));

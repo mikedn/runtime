@@ -8901,6 +8901,11 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum src, var_types toType, var_types f
         {
             resultVal = VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<INT64>(srcVal)));
         }
+
+        // TODO-MIKE-CQ: Handle BITCAST(Vector2 "constant") for win-x64 ABI needs, at least
+        // the trivial zero case if not something more complicated like BITCAST(Create(2, 3)).
+        // The main issue is that since VN doesn't really have vector constants we'd need to
+        // "parse" the BITCAST operand VN(Func) probably...
     }
 
     if (resultVal == NoVN)

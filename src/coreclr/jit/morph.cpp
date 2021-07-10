@@ -3163,6 +3163,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 #ifdef UNIX_AMD64_ABI
             return doubleValue;
 #else
+            // TODO-MIKE-Cleanup: It might be better to use GetElement(0)
             return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, doubleValue);
 #endif
         }
