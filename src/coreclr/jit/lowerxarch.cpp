@@ -4577,15 +4577,16 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 case HW_Category_SIMDScalar:
                 case HW_Category_Scalar:
                 {
-                    bool supportsRegOptional = false;
+                    bool op2SupportsRegOptional = false;
+                    bool op1SupportsRegOptional = false;
 
-                    if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                    if (IsContainableHWIntrinsicOp(node, op2, &op2SupportsRegOptional))
                     {
                         MakeSrcContained(node, op2);
                     }
                     else if ((isCommutative || (intrinsicId == NI_BMI2_MultiplyNoFlags) ||
                               (intrinsicId == NI_BMI2_X64_MultiplyNoFlags)) &&
-                             IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                             IsContainableHWIntrinsicOp(node, op1, &op1SupportsRegOptional))
                     {
                         MakeSrcContained(node, op1);
 
@@ -4593,7 +4594,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         node->SetOp(0, op2);
                         node->SetOp(1, op1);
                     }
-                    else if (supportsRegOptional)
+                    else if (op2SupportsRegOptional)
                     {
                         op2->SetRegOptional();
 
