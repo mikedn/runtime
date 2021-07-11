@@ -5097,28 +5097,38 @@ private:
 
         if (varTypeIsSIMD(tree->GetType()))
         {
-            // There are no SIMD VN constants currently.
+#ifdef FEATURE_HW_INTRINSICS
+            ValueNum  vn = m_vnStore->VNConservativeNormalValue(tree->gtVNPair);
+            VNFuncApp func;
 
-            // TODO-MIKE-CQ: Well, there are some VNs that can be treated as constants,
-            // VNF_HWI_Vector128_get_Zero for example. But it turns out that due to
-            // poor const register reuse in LSRA, attempting to propagate these isn't
-            // always an improvement - we simply end up with more XORPS instructions.
-            // Still, there's at least on special case where propagation helps, SIMD12
-            // memory stores. If codegen sees that the stored value is 0 then it can
-            // omit the shuffling required to exract the upper SIMD12 element. We can
-            // still end up with an extra XORPS if we propagate but that's better than
-            // unnecessary shuffling.
-            //
-            // Another case where 0 propagation might be useful is integer equality,
-            // lowering can transform it into PTEST if one operand is 0.
-            //
-            // There are others VNs that could be treated as constants (such as Create
-            // with constant operands or get_AllBitsSet) but it's not clear how useful
-            // would that be.
-            //
-            // Also, VN is messed up, in at least on case it produces a TYP_LONG 0 VN
-            // for what's really a SIMD value - when a SIMD local variable is used
-            // without being explicitly initialized and .localsinit is present.
+            if (m_vnStore->GetVNFunc(vn, &func) && (VNFuncIndex(func.m_func) == VNF_HWI_Vector128_get_Zero))
+            {
+                // Due to poor const register reuse in LSRA, attempting to propagate SIMD zero
+                // isn't always an improvement - we simply end up with more XORPS instructions.
+                // Still, there's at least on special case where propagation helps, SIMD12
+                // memory stores. If codegen sees that the stored value is 0 then it can
+                // omit the shuffling required to exract the upper SIMD12 element. We can
+                // still end up with an extra XORPS if we propagate but that's better than
+                // unnecessary shuffling.
+                // Note that this pattern tends to arise due to the use of `default` to get a
+                // zero vector, since `default` is translated to `initobj` which needs a temp.
+
+                // TODO-MIKE-CQ: Another case where 0 propagation might be useful is integer
+                // equality, lowering can transform it into PTEST if one operand is 0.
+                //
+                // There are others VNs that could be treated as constants (such as Create
+                // with constant operands or get_AllBitsSet) but it's not clear how useful
+                // would that be.
+
+                if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree) &&
+                    user->AsOp()->GetOp(0)->OperIs(GT_IND, GT_OBJ, GT_LCL_FLD) &&
+                    user->AsOp()->GetOp(0)->TypeIs(TYP_SIMD12) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0))
+                {
+                    user->AsOp()->SetOp(1, m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT));
+                    m_stmtMorphPending = true;
+                }
+            }
+#endif // FEATURE_HW_INTRINSICS
 
             return Compiler::WALK_CONTINUE;
         }

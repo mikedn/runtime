@@ -1931,10 +1931,6 @@ public:
                                        FieldSeqNode* fieldSeq,
                                        var_types     type = TYP_I_IMPL);
 
-#ifdef FEATURE_SIMD
-    void SetOpLclRelatedToSIMDIntrinsic(GenTree* op);
-#endif
-
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
@@ -1945,7 +1941,7 @@ public:
                                                 GenTree*  index);
 
     GenTreeHWIntrinsic* gtNewSimdWithElementNode(
-        var_types type, var_types simdBaseType, unsigned simdSize, GenTree* op1, GenTree* op2, GenTree* op3);
+        var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt);
 
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
                                                  NamedIntrinsic hwIntrinsicID,
@@ -2634,6 +2630,7 @@ public:
     unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
@@ -3064,16 +3061,21 @@ protected:
                                           CORINFO_CLASS_HANDLE  clsHnd,
                                           CORINFO_METHOD_HANDLE method,
                                           CORINFO_SIG_INFO*     sig,
-                                          GenTree*              newobjThis);
+                                          bool                  isNewObj);
 
 protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
-    GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, GenTree* newobjThis);
-    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
-    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
-    GenTree* impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impVector234TOne(const HWIntrinsicSignature& sig);
+    GenTree* impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVector234TSpecial(NamedIntrinsic              intrinsic,
+                                  const HWIntrinsicSignature& sig,
+                                  ClassLayout*                layout,
+                                  bool                        isNewObj);
+    GenTree* impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
     GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
                                          GenTree*        array,
@@ -3082,27 +3084,59 @@ protected:
                                          SpecialCodeKind lastIndexThrowKind);
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
+    GenTree* impVector234TInstanceEquals(const HWIntrinsicSignature& sig);
+    GenTree* impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+#ifdef TARGET_ARM64
+    GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
+    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
+#endif
+#ifdef TARGET_XARCH
+    var_types impVectorTUnsignedCompareAdjust(ClassLayout* layout, var_types eltType, GenTree** op1, GenTree** op2);
+    GenTree* impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
+    GenTree* impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
+    GenTree* impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Compare(const HWIntrinsicSignature& sig,
+                                  NamedIntrinsic              intrinsic,
+                                  GenTree*                    op1,
+                                  GenTree*                    op2);
+    GenTree* impVectorT256Compare(const HWIntrinsicSignature& sig,
+                                  NamedIntrinsic              intrinsic,
+                                  GenTree*                    op1,
+                                  GenTree*                    op2);
     GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256Dot(const HWIntrinsicSignature& sig);
+    GenTree* impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2);
+    GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
+    GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
+    GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
+    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
+#endif // TARGET_XARCH
 
-    GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
-                                 const HWIntrinsicSignature& sig,
-                                 var_types                   baseType,
-                                 var_types                   retType,
-                                 unsigned                    simdSize);
+    GenTree* impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 
     GenTree* impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout);
     GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
@@ -3111,17 +3145,10 @@ protected:
     GenTree* addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound);
 
 #ifdef TARGET_XARCH
-    GenTree* impBaseIntrinsic(NamedIntrinsic              intrinsic,
-                              const HWIntrinsicSignature& sig,
-                              var_types                   baseType,
-                              var_types                   retType,
-                              unsigned                    simdSize);
+    GenTree* impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-
-    GenTree* impVectorTCompare(
-        NamedIntrinsic intrinsic, var_types baseType, ClassLayout* layout, GenTree* op1, GenTree* op2);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
     GenTree* impArrayAccessIntrinsic(CORINFO_CLASS_HANDLE clsHnd,
@@ -4022,7 +4049,7 @@ public:
 
 #ifdef FEATURE_HW_INTRINSICS
     // Does value-numbering for a GT_HWINTRINSIC tree
-    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode);
+    void fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node);
 #endif // FEATURE_HW_INTRINSICS
 
     // Does value-numbering for a call.  We interpret some helper calls.
@@ -4695,9 +4722,6 @@ private:
         }
     };
 
-    // A MACK_CopyBlock context is immutable, so we can just make one of these and share it.
-    static MorphAddrContext s_CopyBlockMAC;
-
 #ifdef FEATURE_SIMD
     class SIMDCoalescingBuffer
     {
@@ -4706,10 +4730,10 @@ private:
         unsigned   m_lclNum;
         unsigned   m_index;
 
-        GenTreeLclVar* IsSIMDField(GenTree* node);
-        GenTreeLclVar* IsSIMDGetElement(GenTree* node);
+        unsigned IsSimdLocalField(GenTree* node);
+        unsigned IsSimdLocalExtract(GenTree* node);
 
-        bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, GenTreeLclVar* simdLclVar);
+        bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum);
 
     public:
         SIMDCoalescingBuffer() : m_index(0)
@@ -4792,6 +4816,10 @@ private:
                                       var_types      simdBaseType);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
+#ifdef FEATURE_SIMD
+    GenTreeOp* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
+    GenTreeOp* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
+#endif
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
@@ -4802,6 +4830,10 @@ private:
 
     GenTreeLclVar* fgMorphTryFoldObjAsLclVar(GenTreeObj* obj);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
+
+#ifdef FEATURE_HW_INTRINSICS
+    GenTree* fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree);
+#endif
 
 public:
     GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
@@ -7042,7 +7074,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impPopStackAddrAsVector(var_types type);
 
+    void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
+    void lvaRecordSimdIntrinsicUse(unsigned lclNum);
+    void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
@@ -7051,11 +7086,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     // Get preferred alignment of SIMD type.
     int lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl);
 #endif // FEATURE_SIMD
-
-#ifdef FEATURE_HW_INTRINSICS
-public:
-    static bool vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID);
-#endif // FEATURE_HW_INTRINSICS
 
 private:
     bool lvaIsSimdTypedLocalAligned(unsigned varNum);
@@ -7094,17 +7124,6 @@ private:
 #else
         return false;
 #endif
-    }
-
-    // Ensure that code will not execute if an instruction set is useable. Call only
-    // if the instruction set has previously reported as unuseable, but when
-    // that that status has not yet been recorded to the AOT compiler
-    void compVerifyInstructionSetUnuseable(CORINFO_InstructionSet isa)
-    {
-        // use compExactlyDependsOn to capture are record the use of the isa
-        bool isaUseable = compExactlyDependsOn(isa);
-        // Assert that the is unuseable. If true, this function should never be called.
-        assert(!isaUseable);
     }
 
     // Answer the question: Is a particular ISA allowed to be used implicitly by optimizations?
@@ -8443,6 +8462,9 @@ public:
     void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #endif // !TARGET_X86
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+    void abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val);
+#endif
 
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler

@@ -4437,7 +4437,16 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 level = gtSetEvalOrder(op1);
                 lvl2  = gtSetEvalOrder(op2);
 
-                if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2))
+                if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2)
+#ifndef TARGET_64BIT
+                    // Create lowering depends on the evaluation ordering matching the operand order
+                    // if there are more than 2 operands. Vector128.Create<long> starts with 2 operands
+                    // but due to decomposition it ends up with 4 operands in lowering so we need to
+                    // prevent reordering.
+                    && ((tree->AsHWIntrinsic()->GetIntrinsic() != NI_Vector128_Create) ||
+                        !varTypeIsLong(tree->AsHWIntrinsic()->GetSimdBaseType()))
+#endif
+                        )
                 {
                     tree->gtFlags ^= GTF_REVERSE_OPS;
                     std::swap(level, lvl2);
@@ -6124,14 +6133,12 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     }
 
 #ifdef FEATURE_SIMD
-    // If the source is a SIMD typed intrinsic and the destination is a local we need to
-    // prevent the local from getting promoted, fgMorphCopyBlock doesn't handle this case
-    // and the local would end up being dependent promoted.
-
-    if (src->OperIsHWIntrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
-        varTypeIsSIMD(dst->GetType()))
+    if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
     {
-        lvaRecordSimdIntrinsicUse(dst->AsLclVar());
+        if (dst->OperIs(GT_LCL_VAR) && varTypeIsSIMD(dst->GetType()))
+        {
+            lvaRecordSimdIntrinsicDef(dst->AsLclVar(), hwi);
+        }
     }
 #endif
 }
@@ -9860,7 +9867,7 @@ void Compiler::gtDispTree(GenTree*     tree,
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             printf(" %s %s %u", GetHWIntrinsicIdName(tree->AsHWIntrinsic()->GetIntrinsic()),
-                   tree->AsHWIntrinsic()->GetSimdBaseType() == TYP_UNKNOWN
+                   tree->AsHWIntrinsic()->GetSimdBaseType() == TYP_UNDEF
                        ? ""
                        : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
                    tree->AsHWIntrinsic()->GetSimdSize());
@@ -16006,36 +16013,6 @@ bool FieldSeqNode::IsField() const
     return (this != FieldSeqStore::NotAField()) && !IsBoxedValueField();
 }
 
-#ifdef FEATURE_SIMD
-// Mark locals used by SIMD intrinsics to prevent struct promotion.
-void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
-{
-    if (op == nullptr)
-    {
-        return;
-    }
-
-    if (op->OperIs(GT_LCL_VAR))
-    {
-        lvaRecordSimdIntrinsicUse(op->AsLclVar());
-    }
-    else if (op->OperIs(GT_OBJ))
-    {
-        GenTree* addr = op->AsIndir()->Addr();
-
-        if (addr->OperIs(GT_ADDR))
-        {
-            GenTree* addrOp1 = addr->AsOp()->gtGetOp1();
-
-            if (addrOp1->OperIs(GT_LCL_VAR))
-            {
-                lvaRecordSimdIntrinsicUse(addrOp1->AsLclVar());
-            }
-        }
-    }
-}
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 bool GenTree::isCommutativeHWIntrinsic() const
 {
@@ -16145,15 +16122,15 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
 {
-    SetOpLclRelatedToSIMDIntrinsic(op1);
+    lvaRecordSimdIntrinsicUse(op1);
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
 {
-    SetOpLclRelatedToSIMDIntrinsic(op1);
-    SetOpLclRelatedToSIMDIntrinsic(op2);
+    lvaRecordSimdIntrinsicUse(op1);
+    lvaRecordSimdIntrinsicUse(op2);
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1, op2);
 }
 
@@ -16165,9 +16142,9 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
                                                        GenTree*       op2,
                                                        GenTree*       op3)
 {
-    SetOpLclRelatedToSIMDIntrinsic(op1);
-    SetOpLclRelatedToSIMDIntrinsic(op2);
-    SetOpLclRelatedToSIMDIntrinsic(op3);
+    lvaRecordSimdIntrinsicUse(op1);
+    lvaRecordSimdIntrinsicUse(op2);
+    lvaRecordSimdIntrinsicUse(op3);
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1, op2, op3);
 }
 
@@ -16189,7 +16166,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
         node->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
-        SetOpLclRelatedToSIMDIntrinsic(use.GetNode());
+        lvaRecordSimdIntrinsicUse(use.GetNode());
     }
     return node;
 }
@@ -16214,7 +16191,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
         node->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
-        SetOpLclRelatedToSIMDIntrinsic(use.GetNode());
+        lvaRecordSimdIntrinsicUse(use.GetNode());
     }
     return node;
 }
@@ -16228,7 +16205,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     {
         node->SetOp(i, ops[i]);
         node->gtFlags |= ops[i]->gtFlags & GTF_ALL_EFFECT;
-        SetOpLclRelatedToSIMDIntrinsic(ops[i]);
+        lvaRecordSimdIntrinsicUse(ops[i]);
     }
     return node;
 }
@@ -16242,127 +16219,70 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
     assert(varTypeIsArithmetic(elementType));
     assert(varActualType(index->GetType()) == TYP_INT);
 
-    switch (elementType)
-    {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-        case TYP_LONG:
-        case TYP_ULONG:
-        case TYP_DOUBLE:
-        case TYP_FLOAT:
-        case TYP_SHORT:
-        case TYP_USHORT:
-#ifdef TARGET_XARCH
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
-#endif
-            break;
-
-        default:
-            unreached();
-    }
-
     NamedIntrinsic intrinsic = NI_Vector128_GetElement;
+    unsigned       size;
 
 #ifdef TARGET_XARCH
     if (simdType == TYP_SIMD32)
     {
         intrinsic = NI_Vector256_GetElement;
+        size      = 32;
+    }
+    else
+    {
+        size = 16;
     }
 #elif defined(TARGET_ARM64)
     if (simdType == TYP_SIMD8)
     {
         intrinsic = NI_Vector64_GetElement;
+        size      = 8;
+    }
+    else
+    {
+        size = 16;
     }
 #else
 #error Unsupported platform
 #endif
 
-    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsic, elementType, varTypeSize(simdType), value,
-                                    index);
+    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsic, elementType, size, value, index);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
-    var_types type, var_types simdBaseType, unsigned simdSize, GenTree* op1, GenTree* op2, GenTree* op3)
+    var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
 {
-    NamedIntrinsic hwIntrinsicID = NI_Vector128_WithElement;
+    assert(varTypeIsSIMD(type));
+    assert(varTypeIsArithmetic(eltType));
+    assert(idx->GetUInt32Value() < varTypeSize(type) / varTypeSize(eltType));
 
-    assert(varTypeIsArithmetic(simdBaseType));
-    assert(op2->OperIsConst());
-
-    ssize_t imm8  = op2->AsIntCon()->GetValue();
-    ssize_t count = simdSize / varTypeSize(simdBaseType);
-
-    assert(0 <= imm8 && imm8 < count);
+    NamedIntrinsic intrinsic;
+    unsigned       simdSize;
 
 #if defined(TARGET_XARCH)
-    switch (simdBaseType)
-    {
-        // Using software fallback if simdBaseType is not supported by hardware
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
-            break;
+    assert(varTypeIsFloating(eltType) || varTypeIsShort(eltType) || compIsaSupportedDebugOnly(InstructionSet_SSE41));
+    assert((eltType == TYP_FLOAT) || (varTypeSize(type) >= 16));
 
-        case TYP_LONG:
-        case TYP_ULONG:
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41_X64));
-            break;
-
-        case TYP_DOUBLE:
-        case TYP_FLOAT:
-        case TYP_SHORT:
-        case TYP_USHORT:
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
-            break;
-
-        default:
-            unreached();
-    }
-
-    if (simdSize == 32)
-    {
-        hwIntrinsicID = NI_Vector256_WithElement;
-    }
+    intrinsic = type == TYP_SIMD32 ? NI_Vector256_WithElement : NI_Vector128_WithElement;
+    simdSize  = type == TYP_SIMD32 ? 32 : 16;
 #elif defined(TARGET_ARM64)
-    switch (simdBaseType)
+    if ((type == TYP_SIMD8) && (varTypeSize(eltType) == 8))
     {
-        case TYP_LONG:
-        case TYP_ULONG:
-        case TYP_DOUBLE:
-            if (simdSize == 8)
-            {
-                return gtNewSimdHWIntrinsicNode(type, NI_Vector64_Create, simdBaseType, simdSize, op3);
-            }
-            break;
-
-        case TYP_FLOAT:
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-        case TYP_INT:
-        case TYP_UINT:
-            break;
-
-        default:
-            unreached();
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector64_Create, eltType, 8, elt);
     }
 
-    hwIntrinsicID = NI_AdvSimd_Insert;
+    intrinsic = NI_AdvSimd_Insert;
+    simdSize  = type == TYP_SIMD8 ? 8 : 16;
 #else
 #error Unsupported platform
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
-    return gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, simdBaseType, simdSize, op1, op2, op3);
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, simdSize, vec, idx, elt);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types      type,
@@ -16370,13 +16290,13 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types      type,
                                                          GenTree*       op1,
                                                          GenTree*       op2)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1, op2);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1, op2);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
     var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1, op2, op3);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1, op2, op3);
 }
 
 // Returns true for the HW Intrinsic instructions that have MemoryLoad semantics, false otherwise

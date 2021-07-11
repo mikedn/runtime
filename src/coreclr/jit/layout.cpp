@@ -195,7 +195,7 @@ public:
                     return layout;
                 }
                 layout = FindLayout(VectorTBaseIndex);
-                if (layout != nullptr)
+                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD16))
                 {
                     return layout;
                 }
@@ -219,7 +219,7 @@ public:
                     return layout;
                 }
                 layout = FindLayout(VectorTBaseIndex);
-                if ((layout != nullptr) && (layout->GetSIMDType() == simdType))
+                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD32))
                 {
                     return layout;
                 }
@@ -592,6 +592,7 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
             return lvaGetDesc(node->AsLclVar())->GetLayout();
         case GT_LCL_FLD:
             return node->AsLclFld()->GetLayout(this);
+        case GT_BITCAST:
         case GT_IND:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -624,6 +625,7 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
                 return layout;
             }
             FALLTHROUGH;
+        case GT_BITCAST:
         case GT_IND:
             return typGetVectorLayout(node->GetType(), TYP_UNDEF);
 #ifdef FEATURE_HW_INTRINSICS
@@ -781,11 +783,11 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
     }
 
 #ifndef FEATURE_HFA_FIELDS_PRESENT
-    m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+    m_layoutInfo.hfaElementType = TYP_VOID;
 #else
     if (!GlobalJitOptions::compFeatureHfa || (m_size > MAX_PASS_MULTIREG_BYTES))
     {
-        m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+        m_layoutInfo.hfaElementType = TYP_VOID;
 
         return;
     }
@@ -810,11 +812,11 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
 #endif
         default:
             assert(hfaType == CORINFO_HFA_ELEM_NONE);
-            m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+            m_layoutInfo.hfaElementType = TYP_VOID;
             break;
     }
 
-    assert((m_layoutInfo.hfaElementType == TYP_UNKNOWN) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
+    assert((m_layoutInfo.hfaElementType == TYP_VOID) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
 #endif
 }
 

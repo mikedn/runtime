@@ -1858,9 +1858,9 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 #ifdef TARGET_X86
     regNumber tmpReg = store->GetSingleTempReg();
 
-    GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, dstReg, retReg0);
-    GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, tmpReg, retReg1);
-    GetEmitter()->emitIns_R_R_R(INS_unpcklps, EA_16BYTE, dstReg, dstReg, tmpReg);
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, retReg0, false);
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, retReg1, false);
+    GetEmitter()->emitIns_R_R(INS_unpcklps, EA_16BYTE, dstReg, tmpReg);
 #else
     if (dstReg == retReg0)
     {
@@ -4429,6 +4429,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 regNumber srcReg = genConsumeReg(node);
 
                 // TODO-MIKE-Review: Huh, this pulls EA_PTRSIZE out of the hat. Potential GC hole?
+                // It may be that this code is useless. We have reg constraints on PUTARG_REG defs
+                // so the arg is likely in the correct register already and nothing ever needs to
+                // be moved.
                 inst_Mov_Extend(node->GetType(), false, argReg, srcReg, /* canSkip */ true, EA_PTRSIZE);
             }
 
@@ -5319,7 +5322,7 @@ void CodeGen::genCompareInt(GenTree* treeNode)
     assert(!varTypeIsFloating(op2Type));
 
     instruction ins;
-    var_types   type = TYP_UNKNOWN;
+    var_types   type = TYP_UNDEF;
 
     if (tree->OperIs(GT_TEST_EQ, GT_TEST_NE))
     {
@@ -5375,7 +5378,7 @@ void CodeGen::genCompareInt(GenTree* treeNode)
         ins = INS_cmp;
     }
 
-    if (type == TYP_UNKNOWN)
+    if (type == TYP_UNDEF)
     {
         if (op1Type == op2Type)
         {

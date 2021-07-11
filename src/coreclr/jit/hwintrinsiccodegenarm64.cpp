@@ -571,13 +571,21 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(node), targetReg, op1Reg, /* canSkip */ true);
 
-                if (intrin.op3->isContainedFltOrDblImmed())
+                if (intrin.op3->isContained())
                 {
-                    assert(intrin.op2->isContainedIntOrIImmed());
-                    assert(intrin.op2->AsIntCon()->gtIconVal == 0);
+                    assert(intrin.op2->isContained());
 
-                    const double dataValue = intrin.op3->AsDblCon()->gtDconVal;
-                    GetEmitter()->emitIns_R_F(INS_fmov, emitSize, targetReg, dataValue, opt);
+                    if (intrin.op3->IsIntegralConst(0) || intrin.op3->IsDblConPositiveZero())
+                    {
+                        ssize_t imm = intrin.op2->AsIntCon()->GetValue();
+                        GetEmitter()->emitIns_R_R_I(INS_ins, emitSize, targetReg, REG_ZR, imm, opt);
+                    }
+                    else
+                    {
+                        assert(intrin.op2->IsIntegralConst(0));
+                        double imm = intrin.op3->AsDblCon()->GetValue();
+                        GetEmitter()->emitIns_R_F(INS_fmov, emitSize, targetReg, imm, opt);
+                    }
                 }
                 else
                 {
@@ -684,27 +692,28 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 
             case NI_Vector64_CreateScalarUnsafe:
             case NI_Vector128_CreateScalarUnsafe:
-                if (intrin.op1->isContainedFltOrDblImmed())
-                {
-                    // fmov reg, #imm8
-                    const double dataValue = intrin.op1->AsDblCon()->gtDconVal;
-                    GetEmitter()->emitIns_R_F(ins, emitTypeSize(intrin.baseType), targetReg, dataValue, INS_OPTS_NONE);
-                }
-                else if (varTypeIsFloating(intrin.baseType))
-                {
-                    // fmov reg1, reg2
-                    assert(GetEmitter()->IsMovInstruction(ins));
-                    GetEmitter()->emitIns_Mov(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg,
-                                              /* canSkip */ false, INS_OPTS_NONE);
-                }
-                else if (intrin.op1->isContainedIntOrIImmed())
+                if (intrin.op1->isContainedIntOrIImmed())
                 {
                     GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, intrin.op1->AsIntCon()->GetValue(), opt);
+                    break;
+                }
+                FALLTHROUGH;
+            case NI_Vector64_CreateScalar:
+            case NI_Vector128_CreateScalar:
+                if (intrin.op1->isContainedFltOrDblImmed())
+                {
+                    GetEmitter()->emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), targetReg,
+                                              intrin.op1->AsDblCon()->GetValue(), INS_OPTS_NONE);
                 }
                 else
                 {
-                    GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg, 0,
-                                                INS_OPTS_NONE);
+                    assert(intrin.op1->isUsedFromReg());
+
+                    bool canSkip =
+                        varTypeIsFloating(intrin.baseType) && ((intrin.id == NI_Vector64_CreateScalarUnsafe) ||
+                                                               (intrin.id == NI_Vector128_CreateScalarUnsafe));
+                    GetEmitter()->emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), targetReg, op1Reg, canSkip,
+                                              INS_OPTS_NONE);
                 }
                 break;
 

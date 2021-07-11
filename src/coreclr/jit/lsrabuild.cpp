@@ -2924,14 +2924,19 @@ int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
         return BuildAddrUses(node, candidates);
     }
 #ifdef FEATURE_HW_INTRINSICS
-    if (node->OperIsHWIntrinsic())
+    if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
     {
-        if (node->AsHWIntrinsic()->OperIsMemoryLoad())
+        if (hwi->OperIsMemoryLoad())
         {
-            return BuildAddrUses(node->AsHWIntrinsic()->GetOp(0));
+            return BuildAddrUses(hwi->GetOp(0));
         }
-        BuildUse(node->AsHWIntrinsic()->GetOp(0), candidates);
-        return 1;
+
+        // TODO-MIKE-Review: What is this for?
+        if (hwi->GetNumOps() >= 1)
+        {
+            BuildUse(hwi->GetOp(0), candidates);
+            return 1;
+        }
     }
 #endif // FEATURE_HW_INTRINSICS
 
@@ -3401,6 +3406,23 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
         BuildUse(src->AsOp()->GetOp(1), RBM_LNGRET_HI);
 
         return 2;
+    }
+#endif
+
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+    if (GenTreeFieldList* list = src->IsFieldList())
+    {
+        assert(list->isContained());
+
+        unsigned useCount = 0;
+
+        for (GenTreeFieldList::Use& use : list->Uses())
+        {
+            BuildUse(use.GetNode(), genRegMask(compiler->info.retDesc.GetRegNum(useCount++)));
+        }
+
+        assert(useCount == compiler->info.retDesc.GetRegCount());
+        return useCount;
     }
 #endif
 

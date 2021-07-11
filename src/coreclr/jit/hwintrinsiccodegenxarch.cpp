@@ -23,17 +23,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfo.h"
 #include "gcinfoencoder.h"
 
-//------------------------------------------------------------------------
-// assertIsContainableHWIntrinsicOp: Asserts that op is containable by node
-//
-// Arguments:
-//    lowering - The lowering phase from the compiler
-//    node     - The HWIntrinsic node that has the contained node
-//    op       - The op that is contained
-//
-static void assertIsContainableHWIntrinsicOp(Lowering* lowering, GenTreeHWIntrinsic* node, GenTree* op)
-{
 #if DEBUG
+static bool IsContainableHWIntrinsicOp(Lowering* lowering, GenTreeHWIntrinsic* node, GenTree* op)
+{
     // The Lowering::IsContainableHWIntrinsicOp call is not quite right, since it follows pre-register allocation
     // logic. However, this check is still important due to the various containment rules that SIMD intrinsics follow.
     //
@@ -46,9 +38,9 @@ static void assertIsContainableHWIntrinsicOp(Lowering* lowering, GenTreeHWIntrin
 
     bool supportsRegOptional = false;
     bool isContainable       = lowering->IsContainableHWIntrinsicOp(node, op, &supportsRegOptional);
-    assert(isContainable || supportsRegOptional);
-#endif // DEBUG
+    return isContainable || supportsRegOptional;
 }
+#endif // DEBUG
 
 //------------------------------------------------------------------------
 // genIsTableDrivenHWIntrinsic:
@@ -418,7 +410,7 @@ void CodeGen::genHWIntrinsic_R_RM(
     if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assertIsContainableHWIntrinsicOp(compiler->m_pLowering, node, rmOp);
+        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, rmOp));
 
         TempDsc* tmpDsc = nullptr;
         unsigned varNum = BAD_VAR_NUM;
@@ -551,7 +543,7 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
     if (op1->isContained() || op1->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assertIsContainableHWIntrinsicOp(compiler->m_pLowering, node, op1);
+        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op1));
     }
     inst_RV_TT_IV(ins, simdSize, targetReg, op1, ival);
 }
@@ -599,7 +591,7 @@ void CodeGen::genHWIntrinsic_R_R_RM(
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assertIsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2);
+        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
     }
 
     bool isRMW = node->isRMWHWIntrinsic(compiler);
@@ -623,18 +615,49 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     emitAttr  simdSize  = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
     emitter*  emit      = GetEmitter();
 
+    assert(targetReg != REG_NA);
+
     // TODO-XArch-CQ: Commutative operations can have op1 be contained
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
 
-    regNumber op1Reg = op1->GetRegNum();
+    if (op1->isContained())
+    {
+        assert(ins == INS_insertps);
+        assert(op1->IsHWIntrinsicZero());
+        assert(op2->isUsedFromReg());
 
-    assert(targetReg != REG_NA);
+        regNumber op2Reg = op2->GetRegNum();
+        ival |= 0b1111 & ~(1 << ((ival >> 4) & 0b11));
+        emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op2Reg, op2Reg, ival);
+
+        return;
+    }
+
+    regNumber op1Reg = op1->GetRegNum();
     assert(op1Reg != REG_NA);
 
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
+        if (GenTreeDblCon* dblCon = op2->IsDblCon())
+        {
+            assert(ins == INS_insertps);
+
+            if (dblCon->IsPositiveZero())
+            {
+                ival |= 1 << ((ival >> 4) & 0b11);
+                emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival);
+            }
+            else
+            {
+                CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+                emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, hnd, 0, ival);
+            }
+
+            return;
+        }
+
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assertIsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2);
+        assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
 
         TempDsc* tmpDsc = nullptr;
         unsigned varNum = BAD_VAR_NUM;
@@ -782,7 +805,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assertIsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2);
+        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
 
         TempDsc* tmpDsc = nullptr;
         unsigned varNum = BAD_VAR_NUM;
@@ -1093,18 +1116,16 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
     regNumber      targetReg   = node->GetRegNum();
     var_types      baseType    = node->GetSimdBaseType();
 
-    assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE));
     assert(varTypeIsArithmetic(baseType));
     assert(node->GetNumOps() <= 2);
 
     GenTree* op1 = node->GetNumOps() >= 1 ? node->GetOp(0) : nullptr;
     GenTree* op2 = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
 
-    emitter*    emit     = GetEmitter();
-    var_types   simdType = getSIMDTypeForSize(node->GetSimdSize());
-    emitAttr    attr     = emitActualTypeSize(simdType);
-    instruction ins      = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-    regNumber   op1Reg   = (op1 == nullptr) ? REG_NA : op1->GetRegNum();
+    emitter*    emit   = GetEmitter();
+    emitAttr    attr   = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+    instruction ins    = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
+    regNumber   op1Reg = (op1 == nullptr) ? REG_NA : op1->GetRegNum();
 
     switch (intrinsicId)
     {
@@ -1174,39 +1195,22 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
             break;
         }
 
-        case NI_Vector128_get_Zero:
-        case NI_Vector256_get_Zero:
-        {
-            assert(op1 == nullptr);
-            emit->emitIns_SIMD_R_R_R(ins, attr, targetReg, targetReg, targetReg);
-            break;
-        }
-
-        case NI_Vector128_get_AllBitsSet:
-            assert(op1 == nullptr);
-            if (varTypeIsFloating(baseType) && compiler->compOpportunisticallyDependsOn(InstructionSet_AVX))
-            {
-                // The following corresponds to vcmptrueps pseudo-op and not available without VEX prefix.
-                emit->emitIns_SIMD_R_R_R_I(ins, attr, targetReg, targetReg, targetReg, 15);
-            }
-            else
-            {
-                emit->emitIns_SIMD_R_R_R(INS_pcmpeqd, attr, targetReg, targetReg, targetReg);
-            }
-            break;
-
         case NI_Vector256_get_AllBitsSet:
             assert(op1 == nullptr);
-            if (varTypeIsIntegral(baseType) && compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
-            {
-                emit->emitIns_SIMD_R_R_R(ins, attr, targetReg, targetReg, targetReg);
-            }
-            else
+            assert(ins == INS_pcmpeqd);
+            if (!compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
             {
                 assert(compiler->compIsaSupportedDebugOnly(InstructionSet_AVX));
-                // The following corresponds to vcmptrueps pseudo-op.
-                emit->emitIns_SIMD_R_R_R_I(INS_cmpps, attr, targetReg, targetReg, targetReg, 15);
+                emit->emitIns_SIMD_R_R_R(INS_xorps, EA_32BYTE, targetReg, targetReg, targetReg);
+                emit->emitIns_SIMD_R_R_R_I(INS_cmpps, EA_32BYTE, targetReg, targetReg, targetReg, 15);
+                break;
             }
+            FALLTHROUGH;
+        case NI_Vector128_get_Zero:
+        case NI_Vector256_get_Zero:
+        case NI_Vector128_get_AllBitsSet:
+            assert(op1 == nullptr);
+            emit->emitIns_SIMD_R_R_R(ins, attr, targetReg, targetReg, targetReg);
             break;
 
         default:

@@ -1246,7 +1246,7 @@ private:
         Interval*    currentInterval = nullptr;
         RefPosition* refPosition     = nullptr;
 
-        RegisterType regType         = RegisterType::TYP_UNKNOWN;
+        RegisterType regType         = TYP_UNDEF;
         LsraLocation currentLocation = MinLocation;
         RefPosition* nextRefPos      = nullptr;
 

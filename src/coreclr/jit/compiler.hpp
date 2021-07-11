@@ -1341,6 +1341,33 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
     }
 }
 
+inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
+{
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_CNS_INT);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+
+    GenTreeIntCon* intCon = AsIntCon();
+    intCon->SetValue(value);
+    intCon->gtCompileTimeHandle = 0;
+    return intCon;
+}
+
+inline GenTreeFieldList* GenTree::ChangeToFieldList()
+{
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_FIELD_LIST);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+
+    GenTreeFieldList* fieldList = AsFieldList();
+    fieldList->SetType(TYP_STRUCT);
+    fieldList->ClearFields();
+    fieldList->SetContained();
+    return fieldList;
+}
+
 inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
     assert(!OperIsConst(oper)); // use ChangeOperConst() instead
@@ -1463,6 +1490,25 @@ inline unsigned Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shor
 
     unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
     lvaSetStruct(lclNum, classHandle, false);
+    return lclNum;
+}
+
+inline unsigned Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason))
+{
+    assert(varTypeIsSIMD(tree->GetType())); // Only SIMD temps are supported for now.
+
+    unsigned lclNum     = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    ClassLayout* layout = typGetVectorLayout(tree);
+
+    if (layout != nullptr)
+    {
+        lvaSetStruct(lclNum, layout, false);
+    }
+    else
+    {
+        lvaGetDesc(lclNum)->lvType = tree->GetType();
+    }
+
     return lclNum;
 }
 

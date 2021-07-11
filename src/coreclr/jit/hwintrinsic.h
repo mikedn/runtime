@@ -755,7 +755,7 @@ private:
     {
         baseType = node->GetSimdBaseType();
 
-        if (baseType == TYP_UNKNOWN)
+        if (baseType == TYP_UNDEF)
         {
             assert(category == HW_Category_Scalar);
 

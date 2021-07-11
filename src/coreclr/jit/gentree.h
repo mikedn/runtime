@@ -386,6 +386,7 @@ enum GenTreeFlags : unsigned int
 //  expression node for one of these flags.
 //---------------------------------------------------------------------
 
+    GTF_NONE          = 0,
     GTF_ASG           = 0x00000001, // sub-expression contains an assignment
     GTF_CALL          = 0x00000002, // sub-expression contains a  func. call
     GTF_EXCEPT        = 0x00000004, // sub-expression might throw an exception
@@ -1819,6 +1820,8 @@ public:
     void SetOperResetFlags(genTreeOps oper);                              // set gtOper and reset flags
 
     void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
+    GenTreeIntCon* ChangeToIntCon(ssize_t value);
+    GenTreeFieldList* ChangeToFieldList();
     // set gtOper and only keep GTF_COMMON_MASK flags
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     void ChangeOperUnchecked(genTreeOps oper);
@@ -5422,7 +5425,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(0)
     {
         assert(size < UINT8_MAX);
@@ -5433,7 +5436,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(1)
         , m_inlineUses{op1}
     {
@@ -5453,7 +5456,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(2)
         , m_inlineUses{op1, op2}
     {
@@ -5479,7 +5482,7 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
-        , m_auxiliaryType(TYP_UNKNOWN)
+        , m_auxiliaryType(TYP_UNDEF)
         , m_numOps(3)
         , m_inlineUses{op1, op2, op3}
     {

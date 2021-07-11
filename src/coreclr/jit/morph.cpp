@@ -2473,7 +2473,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         if (isStructArg)
         {
             argInfo->SetIsImplicitByRef(passStructByRef);
-            argInfo->SetArgType((structBaseType == TYP_UNKNOWN) ? argx->GetType() : structBaseType);
+            argInfo->SetArgType((structBaseType == TYP_UNDEF) ? argx->GetType() : structBaseType);
         }
         else
         {
@@ -3157,25 +3157,13 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             GenTreeLclVar* field0LclNode = gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT);
             GenTreeLclVar* field1LclNode = gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT);
 
-            // TODO-MIKE-CQ: INSERTPS might work better when available, it can insert a float from memory.
-            // Also, there's no constant folding for intrinsics so this produces poor code when both fields
-            // are constant. Though not worse than the previous approach of going through memory...
-            // Attempting to recognize constants here and generate a constant DOUBLE directly might be too
-            // early because these are promoted struct fields and it's unlikely they'll ever be constant in
-            // the absence of some sort of constant propagation. Yet local assertion propagation would be
-            // sufficient to handle the typical case (e.g. Draw(new PointF(20, 30), new PointF(40, 50))) but
-            // apparently it doesn't have any effect now.
-
             GenTree* doubleValue =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16,
-                                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                  TYP_FLOAT, 16, field0LclNode),
-                                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                  TYP_FLOAT, 16, field1LclNode));
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
 
 #ifdef UNIX_AMD64_ABI
             return doubleValue;
 #else
+            // TODO-MIKE-Cleanup: It might be better to use GetElement(0)
             return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, doubleValue);
 #endif
         }
@@ -3622,15 +3610,8 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
                 if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
                 {
                     GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
-
-                    // TODO-MIKE-CQ: INSERTPS might work better when available, it can insert a float from memory.
-                    fieldNode =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16,
-                                                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                          TYP_FLOAT, 16, fieldNode),
-                                                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                          TYP_FLOAT, 16, nextFieldNode));
-
+                    fieldNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, fieldNode,
+                                                         nextFieldNode);
                     field++;
                 }
             }
@@ -8587,7 +8568,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
                 // this point. Still, it's not clear if it's impossible to get a promoted struct field under a
                 // COMMA too...
 
-                assert(!"Unexpected primitive type block operand");
+                assert(!"Unexpected primitive srcType block operand");
 
                 structType = TYP_STRUCT;
             }
@@ -8656,6 +8637,198 @@ GenTree* Compiler::fgMorphStructAssignment(GenTreeOp* asg)
     }
 }
 
+#ifdef FEATURE_SIMD
+
+GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum)
+{
+    LclVarDsc* srcLcl = lvaGetDesc(srcLclNum);
+    assert(varTypeIsSIMD(srcLcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    var_types dstType = asg->GetOp(0)->GetType();
+#ifdef TARGET_XARCH
+    NamedIntrinsic create = NI_Vector128_Create;
+    unsigned       numOps = 4;
+#elif defined(TARGET_ARM64)
+    NamedIntrinsic create = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
+    unsigned       numOps = dstType == TYP_SIMD8 ? 2 : 4;
+#else
+#error Unsupported platform
+#endif
+
+    unsigned srcFieldCount = srcLcl->GetPromotedFieldCount();
+    GenTree* ops[4];
+
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        if (i < srcFieldCount)
+        {
+            ops[i] = gtNewLclvNode(srcLcl->GetPromotedFieldLclNum(i), TYP_FLOAT);
+        }
+        else
+        {
+            ops[i] = gtNewDconNode(0, TYP_FLOAT);
+        }
+    }
+
+    GenTree* src = gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops);
+
+    asg->SetOp(1, src);
+    asg->SetSideEffects(GTF_ASG | asg->GetOp(0)->GetSideEffects() | src->GetSideEffects());
+
+    JITDUMPTREE(asg, "fgMorphCopyBlock (after SIMD source promotion):\n\n");
+
+    return asg;
+}
+
+GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned dstLclNum)
+{
+    LclVarDsc* dstLcl = lvaGetDesc(dstLclNum);
+    assert(varTypeIsSIMD(dstLcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(dstLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    GenTree* src         = asg->GetOp(1);
+    bool     srcIsZero   = false;
+    bool     srcIsCreate = false;
+
+    if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
+    {
+        switch (hwi->GetIntrinsic())
+        {
+#ifdef TARGET_ARM64
+            case NI_Vector64_get_Zero:
+#endif
+            case NI_Vector128_get_Zero:
+                srcIsZero = true;
+                break;
+
+#ifdef TARGET_ARM64
+            case NI_Vector64_Create:
+#endif
+            case NI_Vector128_Create:
+                // TODO-MIKE-CQ: Promote broadcast create.
+                srcIsCreate = !hwi->IsUnary();
+
+                // We can use Create's operands directly only if they don't interfere with the field
+                // assignments we're going to generate. Otherwise we'll treat Create as any other
+                // intrinsic - store it into a temp.
+                // TODO-MIKE-CQ: It would be better to add a temp for each Create operand, packing and
+                // unpacking SIMD values is rather expensive.
+                for (unsigned i = 0; i < hwi->GetNumOps() && srcIsCreate; i++)
+                {
+                    GenTree* op = hwi->GetOp(i);
+
+                    if (op->OperIs(GT_LCL_VAR))
+                    {
+                        LclVarDsc* lcl = lvaGetDesc(op->AsLclVar());
+
+                        if (lcl->IsPromotedField() && (lcl->GetPromotedFieldParentLclNum() == dstLclNum))
+                        {
+                            srcIsCreate = false;
+                        }
+                    }
+                    else if (!op->IsDblCon())
+                    {
+                        // TODO-MIKE-CQ: This is overly conservative, we need to check if the op tree contains
+                        // any references to the destination local, including its promoted fields. Basically
+                        // something like gtHasRef but that also checks for promoted fields.
+                        srcIsCreate = false;
+                    }
+                }
+                break;
+
+#ifdef TARGET_XARCH
+            case NI_SSE2_ShiftRightLogical128BitLane:
+                // TODO-MIKE-Review: Hmm, ARM64 doesn't zero out the upper Vector3 element?
+                // TODO-MIKE-CQ: It would be better to insert zeroes instead of shifting...
+                if (dstLcl->GetPromotedFieldCount() < 4)
+                {
+                    unsigned expectedShiftImm = (4 - dstLcl->GetPromotedFieldCount()) * 4;
+
+                    if (hwi->GetOp(1)->IsIntegralConst(expectedShiftImm))
+                    {
+                        if (GenTreeHWIntrinsic* shl = hwi->GetOp(0)->IsHWIntrinsic())
+                        {
+                            if ((shl->GetIntrinsic() == NI_SSE2_ShiftLeftLogical128BitLane) &&
+                                shl->GetOp(1)->IsIntegralConst(expectedShiftImm))
+                            {
+                                src = shl->GetOp(0);
+                            }
+                        }
+                    }
+                }
+                break;
+#endif
+            default:
+                break;
+        }
+    }
+
+    GenTreeOp* comma = nullptr;
+
+    if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_VAR))
+    {
+        unsigned tempLclNum = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
+
+        dstLcl = lvaGetDesc(dstLclNum);
+        comma  = gtNewAssignNode(gtNewLclvNode(tempLclNum, src->GetType()), src);
+        src    = gtNewLclvNode(tempLclNum, src->GetType());
+    }
+
+    for (unsigned i = 0; i < dstLcl->GetPromotedFieldCount(); i++)
+    {
+        unsigned fieldIndex  = dstLcl->GetPromotedFieldCount() - 1 - i;
+        unsigned fieldLclNum = dstLcl->GetPromotedFieldLclNum(fieldIndex);
+
+        GenTree* fieldSrc;
+
+        if (srcIsCreate && (i < src->AsHWIntrinsic()->GetNumOps()))
+        {
+            fieldSrc = src->AsHWIntrinsic()->GetOp(fieldIndex);
+            assert(fieldSrc->TypeIs(TYP_FLOAT));
+        }
+        else if (srcIsCreate || srcIsZero)
+        {
+            fieldSrc = gtNewDconNode(0, TYP_FLOAT);
+        }
+        else
+        {
+            src      = gtNewLclvNode(src->AsLclVar()->GetLclNum(), src->GetType());
+            fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
+        }
+
+        GenTree*   fieldDst = gtNewLclvNode(fieldLclNum, TYP_FLOAT);
+        GenTreeOp* fieldAsg = gtNewAssignNode(fieldDst, fieldSrc);
+
+#if LOCAL_ASSERTION_PROP
+        if (optLocalAssertionProp)
+        {
+            optAssertionGen(fieldAsg);
+        }
+#endif
+
+        if (comma == nullptr)
+        {
+            comma = fieldAsg;
+        }
+        else
+        {
+            comma = gtNewCommaNode(comma, fieldAsg);
+        }
+    }
+
+    comma->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
+
+    INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    JITDUMPTREE(comma, "fgMorphCopyBlock (after SIMD destination promotion):\n\n");
+
+    return comma;
+}
+
+#endif // FEATURE_SIMD
+
 //------------------------------------------------------------------------
 // fgMorphCopyBlock: Morph a block copy.
 //
@@ -8699,8 +8872,17 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
 #endif // FEATURE_MULTIREG_RET
 
-    if (src->IsCall())
+    if (GenTreeCall* call = src->IsCall())
     {
+#ifdef WINDOWS_AMD64_ABI
+        if (src->TypeIs(TYP_SIMD8) && (call->GetRegType(0) == TYP_LONG))
+        {
+            src->SetType(TYP_LONG);
+            src = gtNewBitCastNode(TYP_SIMD8, src);
+            asg->SetOp(1, src);
+        }
+#endif
+
         if (dest->OperIs(GT_OBJ))
         {
             GenTreeLclVar* lclVar = fgMorphTryFoldObjAsLclVar(dest->AsObj());
@@ -8736,7 +8918,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
     if (asg->GetType() != dest->GetType())
     {
-        JITDUMP("changing type of dest from %-6s to %-6s\n", varTypeName(asg->GetType()), varTypeName(dest->GetType()));
+        JITDUMP("changing srcType of dest from %-6s to %-6s\n", varTypeName(asg->GetType()),
+                varTypeName(dest->GetType()));
         asg->SetType(dest->GetType());
     }
 
@@ -8890,42 +9073,23 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         JITDUMP(" (srcPromote=true)");
     }
-    else if (destPromote && varTypeIsSIMD(destLclVar->GetType()) && src->IsHWIntrinsicZero())
-    {
-        GenTree* asgFieldCommaTree = nullptr;
-
-        for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); i++)
-        {
-            unsigned fieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
-
-            // Only Vector2/3/4 SIMD types get promoted.
-            assert(lvaGetDesc(fieldLclNum)->GetType() == TYP_FLOAT);
-
-            GenTree* fieldLclVar = gtNewLclvNode(fieldLclNum, TYP_FLOAT);
-            GenTree* asgField    = gtNewAssignNode(fieldLclVar, gtNewZeroConNode(TYP_FLOAT));
-
-            if (asgFieldCommaTree == nullptr)
-            {
-                asgFieldCommaTree = asgField;
-            }
-            else
-            {
-                asgFieldCommaTree = gtNewCommaNode(asgFieldCommaTree, asgField);
-            }
-        }
-
-        asgFieldCommaTree->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
-
-        INDEBUG(asgFieldCommaTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-        JITDUMPTREE(asgFieldCommaTree, "fgMorphCopyBlock (after zero SIMD promotion):\n\n");
-
-        return asgFieldCommaTree;
-    }
     else
     {
         JITDUMP(" with mismatched src offset/size");
     }
+
+#ifdef FEATURE_SIMD
+    if (!destPromote && srcPromote && varTypeIsSIMD(srcLclVar->GetType()) && dest->OperIs(GT_LCL_VAR))
+    {
+        return fgMorphPromoteSimdAssignmentSrc(asg, srcLclNum);
+    }
+
+    if (destPromote && !srcPromote && varTypeIsSIMD(destLclVar->GetType()) &&
+        src->OperIs(GT_LCL_VAR, GT_BITCAST, GT_HWINTRINSIC))
+    {
+        return fgMorphPromoteSimdAssignmentDst(asg, destLclNum);
+    }
+#endif // FEATURE_SIMD
 
     bool requiresCopyBlock   = false;
     bool srcSingleLclVarAsg  = false;
@@ -10392,6 +10556,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                                 lclVar->SetType(fieldLcl->GetType());
                             }
                         }
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+                        else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
+                        {
+                            abiMorphReturnSimdLclPromoted(tree->AsUnOp(), op1);
+                            op1 = tree->AsUnOp()->GetOp(0);
+                        }
+#endif
                     }
                 }
             }
@@ -12806,6 +12977,89 @@ GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
     return indir;
 }
 
+#ifdef TARGET_ARM64
+void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
+{
+    LclVarDsc* lcl = lvaGetDesc(val->AsLclVar());
+    assert(varTypeIsSIMD(lcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    INDEBUG(val->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
+    GenTreeFieldList* fieldList = val->ChangeToFieldList();
+
+    for (unsigned i = 0; i < info.retDesc.GetRegCount(); i++)
+    {
+        assert(info.retDesc.GetRegType(i) == TYP_FLOAT);
+
+        GenTree* field;
+
+        if (i < lcl->GetPromotedFieldCount())
+        {
+            field = gtNewLclvNode(lcl->GetPromotedFieldLclNum(i), TYP_FLOAT);
+        }
+        else
+        {
+            field = gtNewDconNode(0, TYP_FLOAT);
+        }
+
+        fieldList->AddField(this, field, i * 4, TYP_FLOAT);
+    }
+
+    ret->SetType(TYP_STRUCT);
+    ret->SetOp(0, fieldList);
+}
+#endif // TARGET_ARM64
+
+#ifdef TARGET_AMD64
+void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
+{
+    LclVarDsc* lcl = lvaGetDesc(val->AsLclVar());
+    assert(varTypeIsSIMD(lcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    GenTree* fields[2];
+
+    fields[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+                                         gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT),
+                                         gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT));
+
+#ifdef UNIX_AMD64_ABI
+    if (info.retDesc.GetRegCount() == 2)
+    {
+        assert(varTypeUsesFloatReg(info.retDesc.GetRegType(0)));
+        assert(varTypeUsesFloatReg(info.retDesc.GetRegType(1)));
+
+        if (lcl->GetPromotedFieldCount() == 3)
+        {
+            fields[1] = gtNewLclvNode(lcl->GetPromotedFieldLclNum(2), TYP_FLOAT);
+        }
+        else
+        {
+            fields[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+                                                 gtNewLclvNode(lcl->GetPromotedFieldLclNum(2), TYP_FLOAT),
+                                                 gtNewLclvNode(lcl->GetPromotedFieldLclNum(3), TYP_FLOAT));
+        }
+
+        INDEBUG(val->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
+        GenTreeFieldList* fieldList = val->ChangeToFieldList();
+        fieldList->AddField(this, fields[0], 0, info.retDesc.GetRegType(0));
+        fieldList->AddField(this, fields[1], 8, info.retDesc.GetRegType(0));
+
+        ret->SetType(TYP_STRUCT);
+        ret->SetOp(0, fieldList);
+
+        return;
+    }
+#endif // UNIX_AMD64_ABI
+
+    assert(info.retDesc.GetRegCount() == 1);
+
+    ret->SetOp(0, fields[0]);
+}
+#endif // TARGET_AMD64
+
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
@@ -13660,22 +13914,9 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            tree->gtFlags &= ~GTF_ALL_EFFECT;
-            if (tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
-            {
-                tree->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-                if (tree->AsHWIntrinsic()->OperIsMemoryStore())
-                {
-                    tree->gtFlags |= GTF_ASG;
-                }
-            }
-            for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
-            {
-                use.SetNode(fgMorphTree(use.GetNode()));
-                tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
-            }
+            fgMorphHWIntrinsic(tree->AsHWIntrinsic());
             break;
-#endif // FEATURE_SIMD
+#endif
 
         case GT_INSTR:
             assert(compRationalIRForm);
@@ -15936,3 +16177,48 @@ bool Compiler::fgCanTailCallViaJitHelper()
     return true;
 #endif
 }
+
+#ifdef FEATURE_HW_INTRINSICS
+GenTree* Compiler::fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
+{
+#ifdef TARGET_AMD64
+    if (tree->GetIntrinsic() == NI_SSE2_X64_ConvertToInt64)
+    {
+        if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
+        {
+            if ((create->GetIntrinsic() == NI_Vector128_Create) && (create->GetSimdBaseType() == TYP_FLOAT) &&
+                (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
+            {
+                assert(tree->TypeIs(TYP_LONG));
+
+                uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
+                uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
+
+                return tree->ChangeToIntCon(bits0 | (bits1 << 32));
+            }
+        }
+    }
+#endif
+
+    GenTreeFlags sideEffects = GTF_NONE;
+
+    if (tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+    {
+        sideEffects |= GTF_EXCEPT | GTF_GLOB_REF;
+        if (tree->AsHWIntrinsic()->OperIsMemoryStore())
+        {
+            sideEffects |= GTF_ASG;
+        }
+    }
+
+    for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+    {
+        use.SetNode(fgMorphTree(use.GetNode()));
+        sideEffects |= use.GetNode()->GetSideEffects();
+    }
+
+    tree->SetSideEffects(sideEffects);
+
+    return tree;
+}
+#endif

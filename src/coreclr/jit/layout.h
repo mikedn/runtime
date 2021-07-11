@@ -148,7 +148,7 @@ public:
         }
 
         assert(m_layoutInfo.hfaElementType != TYP_UNDEF);
-        return m_layoutInfo.hfaElementType != TYP_UNKNOWN;
+        return m_layoutInfo.hfaElementType != TYP_VOID;
 #else
         return false;
 #endif

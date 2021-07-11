@@ -257,6 +257,11 @@ inline bool genActualTypeIsIntOrI(T vt)
     return varActualTypeIsIntOrI(vt);
 }
 
+constexpr bool varTypeIsInt(var_types t)
+{
+    return (t == TYP_INT) || (t == TYP_UINT);
+}
+
 template <class T>
 inline bool varTypeIsLong(T vt)
 {

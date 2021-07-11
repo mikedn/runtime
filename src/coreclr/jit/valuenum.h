@@ -46,6 +46,48 @@ enum VNFunc
     VNF_COUNT
 };
 
+constexpr VNFunc VNFuncIndex(VNFunc vnf)
+{
+    return static_cast<VNFunc>(vnf & 0xFFFF);
+}
+
+#ifdef FEATURE_HW_INTRINSICS
+constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned simdSize)
+{
+    VNFunc vnf = VNFunc(VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_START - 1));
+
+    // TODO-MIKE-CQ: It may be useful to canonicalize the vector element type
+    // somehow, as some SIMD operations are not affected by it (e.g. bitwise
+    // operations). Old code sort of did this but apparently not for CQ reasons
+    // but rather due to shoddy design. Removing it did not generate any diffs.
+    // Such intrinsics are usually available for all element types so it's
+    // unlikely that user code will reinterpret vectors in such a way that
+    // we could see some benefit from canonicalization.
+    vnf = static_cast<VNFunc>(vnf | (static_cast<uint8_t>(simdBaseType) << 16));
+    vnf = static_cast<VNFunc>(vnf | (simdSize << 24));
+
+    return vnf;
+}
+
+inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
+{
+    assert(node->GetAuxiliaryType() == TYP_UNDEF);
+    return VNFuncHWIntrinsic(node->GetIntrinsic(), node->GetSimdBaseType(), node->GetSimdSize());
+}
+
+constexpr var_types VNFuncSimdBaseType(VNFunc vnf)
+{
+    assert(vnf >= VNF_HWI_FIRST);
+    return static_cast<var_types>(vnf >> 16);
+}
+
+constexpr uint8_t VNFuncSimdSize(VNFunc vnf)
+{
+    assert(vnf >= VNF_HWI_FIRST);
+    return static_cast<uint8_t>(vnf >> 24);
+}
+#endif // FEATURE_HW_INTRINSICS
+
 // Given a GenTree node return the VNFunc that should be used when value numbering
 //
 VNFunc GetVNFuncForNode(GenTree* node);
@@ -246,8 +288,28 @@ public:
         return unsigned(vnf) > VNF_Boundary || GenTreeOpIsLegalVNFunc(static_cast<genTreeOps>(vnf));
     }
 
+    static uint8_t VNFuncAttribs(VNFunc vnf)
+    {
+        return s_vnfOpAttribs[VNFuncIndex(vnf)];
+    }
+
     // Returns the arity of "vnf".
-    static unsigned VNFuncArity(VNFunc vnf);
+    static unsigned VNFuncArity(VNFunc vnf)
+    {
+        unsigned arity = (VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift;
+        assert(arity != VNFOA_MaxArity);
+        return arity;
+    }
+
+    static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity)
+    {
+        return VNFuncArityIsVariable(vnf) || (VNFuncArity(vnf) == arity);
+    }
+
+    static bool VNFuncArityIsVariable(VNFunc vnf)
+    {
+        return ((VNFuncAttribs(vnf) & VNFOA_ArityMask) >> VNFOA_ArityShift) == VNFOA_MaxArity;
+    }
 
     // Requires "gtOper" to be a genTreeOps legally representing a VNFunc, and returns that
     // VNFunc.
@@ -514,7 +576,7 @@ public:
 
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
-    ValueNum VNForExpr(BasicBlock* block, var_types typ = TYP_UNKNOWN);
+    ValueNum VNForExpr(BasicBlock* block, var_types typ);
 
 // This controls extra tracing of the "evaluation" of "VNF_MapSelect" functions.
 #define FEATURE_VN_TRACE_APPLY_SELECTORS 1
@@ -599,7 +661,6 @@ public:
     // they have been returned by previous "VNFor..." operations.  They can assert false if this is
     // not true.
 
-    // Returns TYP_UNKNOWN if the given value number has not been given a type.
     var_types TypeOfVN(ValueNum vn);
 
     // Returns MAX_LOOP_NUM if the given value number's loop nest is unknown or ill-defined.
@@ -893,12 +954,6 @@ public:
     // Requires "excSeq" to be a ExcSetCons sequence.
     // Prints a representation of the set of exceptions on standard out.
     void vnDumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead);
-
-#ifdef FEATURE_SIMD
-    // Requires "simdType" to be a VNF_SimdType VNFuncApp.
-    // Prints a representation (comma-separated list of field names) on standard out.
-    void vnDumpSimdType(Compiler* comp, VNFuncApp* simdType);
-#endif // FEATURE_SIMD
 
     // Returns the string name of "vnf".
     static const char* VNFuncName(VNFunc vnf);
@@ -1422,13 +1477,13 @@ FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset)
 // static
 inline bool ValueNumStore::GenTreeOpIsLegalVNFunc(genTreeOps gtOper)
 {
-    return (s_vnfOpAttribs[gtOper] & VNFOA_IllegalGenTreeOp) == 0;
+    return (VNFuncAttribs(static_cast<VNFunc>(gtOper)) & VNFOA_IllegalGenTreeOp) == 0;
 }
 
 // static
 inline bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
 {
-    return (s_vnfOpAttribs[vnf] & VNFOA_Commutative) != 0;
+    return (VNFuncAttribs(vnf) & VNFOA_Commutative) != 0;
 }
 
 inline bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)

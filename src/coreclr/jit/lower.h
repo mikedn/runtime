@@ -256,15 +256,18 @@ private:
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
     GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM)
     {
-        GenTree* oldUseNode = use.Def();
-        if ((oldUseNode->gtOper != GT_LCL_VAR) || (tempNum != BAD_VAR_NUM))
+        GenTree* def = use.Def();
+
+        if (def->OperIs(GT_LCL_VAR) && (tempNum == BAD_VAR_NUM))
         {
-            use.ReplaceWithLclVar(comp, tempNum);
-            GenTree* newUseNode = use.Def();
-            ContainCheckRange(oldUseNode->gtNext, newUseNode);
-            return newUseNode->AsLclVar();
+            return def->AsLclVar();
         }
-        return oldUseNode->AsLclVar();
+
+        use.ReplaceWithLclVar(comp, tempNum);
+
+        GenTreeLclVar* newDef = use.Def()->AsLclVar();
+        ContainCheckRange(def->gtNext, newDef);
+        return newDef;
     }
 
     // return true if this call target is within range of a pc-rel call on the machine
@@ -386,17 +389,26 @@ private:
 #ifdef FEATURE_HW_INTRINSICS
     void LowerHWIntrinsic(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);
-    void LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
+    void LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
+    void LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicDot(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node);
     unsigned GetSimdMemoryTemp(var_types type);
 #if defined(TARGET_XARCH)
+#ifdef TARGET_X86
+    void LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node);
+#endif
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
+    void ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
 #elif defined(TARGET_ARM64)
     bool IsValidConstForMovImm(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicSum(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
 #endif // !TARGET_XARCH && !TARGET_ARM64
@@ -414,116 +426,16 @@ private:
         {
         }
 
-        bool AllBitsZero(unsigned vectorByteSize)
-        {
-            for (unsigned i = 0; i < vectorByteSize; i++)
-            {
-                if (u8[i] != 0)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        bool AllBitsOne(unsigned vectorByteSize)
-        {
-            for (unsigned i = 0; i < vectorByteSize; i++)
-            {
-                if (u8[i] != 0xFF)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        bool SetConstant(var_types type, int index, GenTree* value)
-        {
-            if (GenTreeIntCon* icon = value->IsIntCon())
-            {
-                switch (type)
-                {
-                    case TYP_BYTE:
-                    case TYP_UBYTE:
-                        u8[index] = value->AsIntCon()->GetUInt8Value();
-                        return true;
-                    case TYP_SHORT:
-                    case TYP_USHORT:
-                        u16[index] = value->AsIntCon()->GetUInt16Value();
-                        return true;
-                    case TYP_INT:
-                    case TYP_UINT:
-                        u32[index] = value->AsIntCon()->GetUInt32Value();
-                        return true;
-#ifdef TARGET_64BIT
-                    case TYP_LONG:
-                    case TYP_ULONG:
-                        u64[index] = value->AsIntCon()->GetUInt64Value();
-                        return true;
-#endif
-                    default:
-                        return false;
-                }
-            }
-
-            if (GenTreeDblCon* dcon = value->IsDblCon())
-            {
-                if (type == TYP_FLOAT)
-                {
-                    u32[index] = value->AsDblCon()->GetFloatBits();
-                }
-                else
-                {
-                    u64[index] = value->AsDblCon()->GetDoubleBits();
-                }
-
-                return true;
-            }
-
-#ifndef TARGET_64BIT
-            if (value->OperIs(GT_LONG) && value->AsOp()->GetOp(0)->IsIntCon() && value->AsOp()->GetOp(1)->IsIntCon())
-            {
-                uint64_t loBits = value->AsOp()->GetOp(0)->AsIntCon()->GetUInt32Value();
-                uint64_t hiBits = value->AsOp()->GetOp(1)->AsIntCon()->GetUInt32Value();
-                u64[index]      = (hiBits << 32) | loBits;
-                return true;
-            }
-#endif
-
-            return false;
-        }
+        bool AllBitsZero(unsigned vectorByteSize) const;
+        bool AllBitsOne(unsigned vectorByteSize) const;
+        bool Insert(var_types type, int index, GenTree* value);
+        bool Create(GenTreeHWIntrinsic* create);
+        bool Broadcast(GenTreeHWIntrinsic* create);
     };
+
+    void LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* create, const VectorConstant& vecConst);
+    GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op);
 #endif // FEATURE_HW_INTRINSICS
-
-    GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
-    {
-        if (!op->IsCast() || op->gtOverflow() || !varTypeIsIntegral(expectedType))
-        {
-            return op;
-        }
-
-        GenTree* castOp = op->AsCast()->GetOp(0);
-
-        if (!varTypeIsIntegral(castOp->GetType()))
-        {
-            return op;
-        }
-
-        if (varTypeSize(op->AsCast()->GetCastType()) > varTypeSize(varActualType(castOp->GetType())))
-        {
-            return op;
-        }
-
-        if (varTypeSize(op->AsCast()->GetCastType()) < varTypeSize(expectedType))
-        {
-            return op;
-        }
-
-        BlockRange().Remove(op);
-        castOp->ClearContained();
-        return castOp;
-    }
 
     // Utility functions
 public:

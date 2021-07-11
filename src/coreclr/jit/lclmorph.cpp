@@ -526,7 +526,7 @@ public:
                         LclVarDsc*     lcl    = m_compiler->lvaGetDesc(lclNum);
 
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
-                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1))
+                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
                         {
                             m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
                         }
@@ -1253,8 +1253,7 @@ private:
             else
             {
                 indir->ChangeOper(GT_HWINTRINSIC);
-                indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, varTypeSize(varDsc->GetType()),
-                                                     2);
+                indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
                 indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), val.LclNum()));
                 indir->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
             }
@@ -1702,8 +1701,7 @@ private:
     GenTreeHWIntrinsic* NewInsertElement(
         var_types type, unsigned index, var_types elementType, GenTree* dest, GenTree* value)
     {
-        return m_compiler->gtNewSimdWithElementNode(type, elementType, varTypeSize(type), dest,
-                                                    m_compiler->gtNewIconNode(index), value);
+        return m_compiler->gtNewSimdWithElementNode(type, elementType, dest, m_compiler->gtNewIconNode(index), value);
     }
 #endif
 };
