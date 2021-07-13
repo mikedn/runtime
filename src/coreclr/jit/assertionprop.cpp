@@ -5139,6 +5139,12 @@ private:
             return Compiler::WALK_CONTINUE;
         }
 
+#ifndef TARGET_64BIT
+        // We can't replace the operands of a LONG MUL on 32 bit targets, they're
+        // supposed to be INT to LONG CASTs and be marked GTF_DONT_CSE.
+        assert((user == nullptr) || !user->OperIs(GT_MUL) || !varTypeIsLong(user->GetType()));
+#endif
+
         switch (tree->GetOper())
         {
             case GT_LCL_VAR:
@@ -5155,22 +5161,9 @@ private:
 
                 break;
 
-            case GT_MUL:
-#ifndef TARGET_64BIT
-                // Don't transform long multiplies.
-                // TODO-MIKE-CQ: Why not? If the MUL node itself is constant then there's no
-                // reason not to transform it. The problem here is actually transforming its
-                // operands, because they are expected to be CASTs, not constants. Which is
-                // actually ridiculous, it means that something like (long)x * 2, that should
-                // obviously use the long MUL form, ends up being a helper call...
-                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
-                {
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-                FALLTHROUGH;
-#endif
             case GT_ADD:
             case GT_SUB:
+            case GT_MUL:
             case GT_DIV:
             case GT_MOD:
             case GT_UDIV:
