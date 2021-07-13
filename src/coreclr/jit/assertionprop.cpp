@@ -5189,6 +5189,16 @@ private:
             case GT_CAST:
             case GT_BITCAST:
             case GT_INTRINSIC:
+                // Normally these nodes should not have small int type. If they do, it's either due
+                // to bogus JIT code or due to BOOL optimizations that "infect" AND/OR (though that
+                // is still more or less due to bogus desig/code). The former case is best ignored,
+                // in order to avoid surprises due to bad VN, the later case is unlikely to involve
+                // constants, as BOOL expressions tend to use BOOL indirs or BOOL HWINTRINSIC nodes
+                // that aren't currently constant evaluated.
+                if (varTypeIsSmall(tree->GetType()))
+                {
+                    return Compiler::WALK_CONTINUE;
+                }
                 break;
 
             default:
@@ -5249,9 +5259,8 @@ private:
         }
         // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
         // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
-        // not explictily initialized and .localsinit is used.
-        // TODO-MIKE-Review: Shouldn't this check the actual type of the tree?
-        else if (tree->GetType() == vnType)
+        // not explictily initialized and .locals init is used.
+        else if (varActualType(tree->GetType()) == vnType)
         {
             switch (vnType)
             {
@@ -5260,6 +5269,19 @@ private:
                     break;
                 case TYP_DOUBLE:
                     newTree = m_compiler->gtNewDconNode(m_vnStore->ConstantValue<double>(vn), TYP_DOUBLE);
+                    break;
+                case TYP_UBYTE:
+                case TYP_BOOL:
+                    newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<uint8_t>(vn));
+                    break;
+                case TYP_BYTE:
+                    newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<int8_t>(vn));
+                    break;
+                case TYP_USHORT:
+                    newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<uint16_t>(vn));
+                    break;
+                case TYP_SHORT:
+                    newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<int16_t>(vn));
                     break;
                 case TYP_INT:
                     newTree = m_compiler->gtNewIconNode(m_vnStore->ConstantValue<int32_t>(vn));
