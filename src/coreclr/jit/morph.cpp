@@ -3883,9 +3883,6 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         unsigned regSize  = varTypeSize(regType);
         GenTree* regValue = gtNewLclvNode(tempLclNum, arg->GetType());
 
-        // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
-        // in a SIMD register and at the proper position.
-
         regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
 
         if (i == 0)
@@ -4034,10 +4031,11 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
             regValue = gtNewZeroConNode(regType);
         }
 #ifdef FEATURE_SIMD
-        else if (lclIsSIMD && varTypeIsFloating(regType) && (lclOffset % regSize == 0))
+        else if (lclIsSIMD && (lclOffset % regSize == 0))
         {
-            // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
-            // in a SIMD register and at the proper position.
+            // Note that the VM ARM64 ABI doesn't recognize HVAs so a struct with a single
+            // Vector128 field will be passed in 2 GPRs instead of a single SIMD reg.
+            assert(varTypeIsFloating(regType) || (regType == TYP_I_IMPL));
 
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
             GenTree* simdValue    = gtNewLclvNode(lclNum, lcl->GetType());
@@ -4396,14 +4394,39 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
 
-    // TODO-MIKE-CQ: This should probably be removed, it's here only because
-    // a previous implementation (gtNewBlkOpNode) was setting it. And it
-    // probably blocks SIMD tree CSEing.
-    arg->gtFlags |= GTF_DONT_CSE;
+    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
+    GenTree*   dest;
 
-    GenTree* dest = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
-    GenTree* asg  = gtNewAssignNode(dest, arg);
-    asg           = fgMorphStructAssignment(asg->AsOp());
+    // Due to single field struct promotion it is possible that the argument has SIMD
+    // type while the temp has STRUCT type. Store the arg to the temp using LCL_FLD
+    // because fgMorphCopyBlock has problems with this kind of type mismatches.
+
+    // TODO-MIKE-Cleanup: This should probably be extended to other type mismatches
+    // that arise from single field struct promotion. fgMorphCopyBlock shouldn't have
+    // to deal with fall out from poorly designed struct promotion. Small int types
+    // may need some extra care. Since we're dealing with structs, widening isn't
+    // required but we need to be sure that the correct type is used to store the arg
+    // value - it may be that the struct has 2 bytes (a SHORT field) and the arg may
+    // have type UBYTE (e.g. an IND) - we do need to store 2 bytes, not 1, so using
+    // the arg type isn't correct.
+
+    // TODO-MIKE-CQ: SIMD12 stores should be widened to SIMD16 on 64 bit targets.
+
+    if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
+    {
+        dest = gtNewLclFldNode(tempLclNum, arg->GetType(), 0);
+    }
+    else
+    {
+        dest = gtNewLclvNode(tempLclNum, tempLcl->GetType());
+    }
+
+    GenTree* asg = gtNewAssignNode(dest, arg);
+
+    if (varTypeIsStruct(dest->GetType()))
+    {
+        asg = fgMorphStructAssignment(asg->AsOp());
+    }
 
     argInfo->SetNode(asg);
     argInfo->SetTempLclNum(tempLclNum);

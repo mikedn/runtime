@@ -1346,30 +1346,44 @@ private:
             }
         }
 
-        if ((indirLayout != varDsc->GetLayout()) && (indirLayout != nullptr) && varDsc->IsPromoted() &&
-            (indir->GetType() == varDsc->GetType()) && (val.Offset() == 0) &&
-            (indirLayout->GetSize() == varDsc->GetLayout()->GetSize()))
+        if ((val.Offset() == 0) && (indirLayout != nullptr))
         {
-            // If the indir layout doesn't match and the local is promoted then ignore the
-            // indir layout to avoid having to make a LCL_FLD and dependent promote the
-            // local. The indir layout isn't really needed anymore, since call arg morphing
-            // uses the one from the call signature.
+            if (varTypeIsSIMD(varDsc->GetType()) && (indirLayout->GetSize() == varTypeSize(varDsc->GetType())) &&
+                user->IsCall())
+            {
+                // A SIMD local may be accessed as a struct of the same size due to promoting
+                // single SIMD field structs - use the SIMD field directly and let call arg
+                // morphing figure out how to load it in registers if needed.
 
-            // The only thing other than the ABI the layout influences is GCness of stores
-            // to the local but in that case it really does make more sense to ignore the
-            // indir layout and use the local variable layout as that is the "real" one when
-            // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
-            // copies doesn't make a lot of sense.
+                // TODO-MIKE-CQ: This should also be done for returns.
 
-            // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
-            // not clear if it's worth doing and safe.
-            // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
-            // this can create more assignments with different source and destination types
-            // and it's not clear how well VN maps handles those.
-            // Also, discarding type information is not that great in general and it may be
-            // better to instead teach assertion propagation to deal with LCL_FLDs.
+                indir->SetType(varDsc->GetType());
+            }
+            else if ((indirLayout != varDsc->GetLayout()) && varDsc->IsPromoted() &&
+                     (indir->GetType() == varDsc->GetType()) &&
+                     (indirLayout->GetSize() == varDsc->GetLayout()->GetSize()))
+            {
+                // If the indir layout doesn't match and the local is promoted then ignore the
+                // indir layout to avoid having to make a LCL_FLD and dependent promote the
+                // local. The indir layout isn't really needed anymore, since call arg morphing
+                // uses the one from the call signature.
 
-            indirLayout = varDsc->GetLayout();
+                // The only thing other than the ABI the layout influences is GCness of stores
+                // to the local but in that case it really does make more sense to ignore the
+                // indir layout and use the local variable layout as that is the "real" one when
+                // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
+                // copies doesn't make a lot of sense.
+
+                // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
+                // not clear if it's worth doing and safe.
+                // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
+                // this can create more assignments with different source and destination types
+                // and it's not clear how well VN maps handles those.
+                // Also, discarding type information is not that great in general and it may be
+                // better to instead teach assertion propagation to deal with LCL_FLDs.
+
+                indirLayout = varDsc->GetLayout();
+            }
         }
 
         // For SIMD locals/indirs we don't care about the layout, only that the types match.
