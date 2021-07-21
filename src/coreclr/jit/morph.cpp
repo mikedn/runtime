@@ -3361,47 +3361,51 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
     // special handling for FIELD_LIST like it does for LCL_VAR and this may have a negative
     // impact on CQ if the arg ordering ends up being worse. It's not that good to begin with.
 
-    unsigned fieldCount      = lcl->GetPromotedFieldCount();
-    unsigned field           = 0;
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-    unsigned reg             = 0;
-
     if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
     {
-        if (regAndSlotCount > fieldCount)
-        {
-            return false;
-        }
-
         var_types regType = argInfo->GetRegType(0);
-        unsigned  regSize = varTypeSize(regType);
 
-        while (reg < regAndSlotCount)
+        // The VM doesn't recognize HVAs so the reg type can only be FLOAT or DOUBLE.
+        assert(varTypeIsFloating(regType));
+
+        unsigned offset = 0;
+
+        for (unsigned field = 0; field < lcl->GetPromotedFieldCount(); field++)
         {
             unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
             LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
             var_types  fieldType   = fieldLcl->GetType();
 
-            if (reg * regSize != fieldLcl->GetPromotedFieldOffset())
+            if (offset != fieldLcl->GetPromotedFieldOffset())
             {
                 return false;
             }
 
-            if (regType != fieldType)
+            if (regType == fieldType)
+            {
+                offset += varTypeSize(regType);
+            }
+            else if (varTypeIsSIMD(fieldType) && (regType == TYP_FLOAT))
+            {
+                offset += varTypeSize(fieldType);
+            }
+            else
             {
                 return false;
             }
-
-            field++;
-            reg++;
         }
 
-        return true;
+        return offset == argInfo->GetRegCount() * varTypeSize(regType);
     }
 
     // Note that the number of slots can be very high, if a smaller struct is passed as a very
     // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
     // fields which is very low (currently limited to 4).
+
+    unsigned fieldCount      = lcl->GetPromotedFieldCount();
+    unsigned field           = 0;
+    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
+    unsigned reg             = 0;
 
     while ((field < fieldCount) && (reg < regAndSlotCount))
     {
@@ -3527,38 +3531,56 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
     // Keep in sync with the logic in abiCanMorphMultiRegLclArgPromoted.
 
-    unsigned fieldCount      = lcl->GetPromotedFieldCount();
-    unsigned field           = 0;
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-    unsigned reg             = 0;
-
     if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
     {
-        assert(regAndSlotCount <= fieldCount);
-
         var_types regType = argInfo->GetRegType(0);
         unsigned  regSize = varTypeSize(regType);
 
-        while (reg < regAndSlotCount)
+        for (unsigned reg = 0, field = 0; reg < argInfo->GetRegCount(); reg++)
         {
+            unsigned regOffset = reg * regSize;
+
             unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
             LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+            var_types  fieldType   = fieldLcl->GetType();
 
-            // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
-            assert(reg * regSize == fieldLcl->GetPromotedFieldOffset());
-            assert(regType == fieldLcl->GetType());
+            GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
 
-            var_types fieldType = fieldLcl->GetType();
-            GenTree*  fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
+#ifdef FEATURE_SIMD
+            if (fieldType != regType)
+            {
+                assert(regType == TYP_FLOAT);
+                assert((regOffset >= fieldOffset) && (regOffset < fieldOffset + varTypeSize(fieldType)));
+                assert((regOffset - fieldOffset) % 4 == 0);
 
-            reg++;
+                fieldNode = gtNewSimdGetElementNode(fieldType, regType, fieldNode,
+                                                    gtNewIconNode((regOffset - fieldOffset) / 4));
 
-            list->AddField(this, fieldNode, fieldLcl->GetPromotedFieldOffset(), fieldType);
-            field++;
+                if (regOffset + regSize >= fieldOffset + varTypeSize(fieldType))
+                {
+                    field++;
+                }
+            }
+            else
+#endif
+            {
+                assert(fieldType == regType);
+                assert(regOffset == fieldOffset);
+
+                field++;
+            }
+
+            list->AddField(this, fieldNode, regOffset, regType);
         }
 
         return list;
     }
+
+    unsigned fieldCount      = lcl->GetPromotedFieldCount();
+    unsigned field           = 0;
+    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
+    unsigned reg             = 0;
 
     while ((field < fieldCount) && (reg < regAndSlotCount))
     {
