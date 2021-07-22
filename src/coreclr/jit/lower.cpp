@@ -2911,6 +2911,27 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 
     if (store->TypeIs(TYP_STRUCT))
     {
+        if (GenTreeCall* call = value->IsCall())
+        {
+            assert(call->GetRegCount() == 1);
+            var_types regType = call->GetRegType(0);
+
+            if (varTypeSize(regType) <= store->GetLayout(comp)->GetSize())
+            {
+                store->SetType(regType);
+                return;
+            }
+
+#if defined(WINDOWS_AMD64_ABI)
+            // All ABI except Windows x64 supports passing 3 byte structs in registers.
+            // Other 64 bites ABI-s support passing 5, 6, 7 byte structs.
+            unreached();
+#else
+            value = SpillStructCallResult(call);
+            store->SetOp(0, value);
+#endif
+        }
+
         GenTreeLclFld* addr =
             comp->gtNewLclFldAddrNode(store->GetLclNum(), store->GetLclOffs(), FieldSeqStore::NotAField());
         BlockRange().InsertBefore(store, addr);
@@ -2925,15 +2946,7 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
         indir->SetLayout(layout);
         indir->SetAddr(addr);
         indir->SetValue(value);
-
-        if (value->IsCall())
-        {
-            LowerStoreSingleRegCallStruct(indir->AsObj());
-        }
-        else
-        {
-            LowerStructStore(indir);
-        }
+        LowerStructStore(indir);
 
         return;
     }

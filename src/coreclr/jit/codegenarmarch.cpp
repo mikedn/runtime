@@ -1014,12 +1014,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 fieldReg = fieldNode->AsMultiRegOp()->GetRegByIndex(1);
 
                 regNumber argReg = putArg->GetRegNumByIdx(regIndex);
-
-                if (argReg != fieldReg)
-                {
-                    GetEmitter()->emitIns_R_R(INS_mov, EA_4BYTE, argReg, fieldReg);
-                }
-
+                GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, argReg, fieldReg, /* canSkip */ true);
                 regIndex++;
             }
 #endif
@@ -1153,7 +1148,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
                 emitAttr srcAddrAttr =
                     src->OperIs(GT_OBJ) ? emitTypeSize(src->AsObj()->GetAddr()->GetType()) : EA_PTRSIZE;
-                GetEmitter()->emitIns_R_R(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg);
+                GetEmitter()->emitIns_Mov(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg, /* canSkip */ false);
                 srcAddrBaseReg = tempReg;
             }
 

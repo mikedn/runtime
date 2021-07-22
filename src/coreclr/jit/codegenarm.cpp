@@ -1283,7 +1283,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
         ins = cast->IsUnsigned() ? INS_vcvt_u2f : INS_vcvt_i2f;
     }
 
-    GetEmitter()->emitIns_R_R(INS_vmov_i2f, EA_4BYTE, dstReg, srcReg);
+    GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dstReg, srcReg, /* canSkip */ false);
     GetEmitter()->emitIns_R_R(ins, EA_4BYTE, dstReg, dstReg);
 
     genProduceReg(cast);
@@ -1325,7 +1325,7 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     }
 
     GetEmitter()->emitIns_R_R(ins, EA_4BYTE, tmpReg, srcReg);
-    GetEmitter()->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, dstReg, tmpReg);
+    GetEmitter()->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, dstReg, tmpReg, false);
 
     genProduceReg(cast);
 }
@@ -1425,7 +1425,7 @@ void CodeGen::genFloatReturn(GenTree* src)
 
     if (src->TypeIs(TYP_FLOAT))
     {
-        GetEmitter()->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, REG_R0, srcReg);
+        GetEmitter()->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, REG_R0, srcReg, /* canSkip */ false);
     }
     else
     {

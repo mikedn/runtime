@@ -2046,12 +2046,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
 
 #ifdef TARGET_ARM
-#ifndef ARM_SOFTFP
-        const bool passUsingFloatRegs = ((hfaType != TYP_UNDEF) || varTypeUsesFloatReg(argx->GetType()));
-#endif
+        const bool passUsingFloatRegs =
+            !opts.compUseSoftFP && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argx->GetType())));
+
         if (argAlign == 2)
         {
-#ifndef ARM_SOFTFP
             if (passUsingFloatRegs)
             {
                 if (fltArgRegNum % 2 == 1)
@@ -2061,7 +2060,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
             else if (intArgRegNum < MAX_REG_ARG)
-#endif
             {
                 if (intArgRegNum % 2 == 1)
                 {
@@ -2075,7 +2073,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #elif defined(TARGET_AMD64)
         const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argx->GetType());
 #elif defined(TARGET_X86)
-// X86 doesn't pass anything in float registers.
+        const bool passUsingFloatRegs = false;
 #else
 #error Unsupported or unset target architecture
 #endif // TARGET*
@@ -2104,7 +2102,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
         {
 #ifdef TARGET_ARM
-#ifndef ARM_SOFTFP
             if (passUsingFloatRegs)
             {
                 // First, see if it can be back-filled
@@ -2131,7 +2128,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
             else
-#endif // !ARM_SOFTFP
             {
                 isRegArg = intArgRegNum < MAX_REG_ARG;
             }
@@ -2223,7 +2219,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
 #else  // !defined(UNIX_AMD64_ABI)
-            isRegArg = (intArgRegNum + (size - 1)) < maxRegArgs;
+            isRegArg                  = (intArgRegNum + (size - 1)) < maxRegArgs;
 #endif // !defined(UNIX_AMD64_ABI)
         }
 
@@ -2253,7 +2249,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_ARM
-#ifndef ARM_SOFTFP
         // If we ever allocate a floating point argument to the stack, then all
         // subsequent HFA/float/double arguments go on the stack.
         if (!isRegArg && passUsingFloatRegs)
@@ -2263,14 +2258,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 fltArgSkippedRegMask |= genMapArgNumToRegMask(fltArgRegNum, TYP_FLOAT);
             }
         }
-#endif
 
         // If we think we're going to split a struct between integer registers and the stack, check to
         // see if we've already assigned a floating-point arg to the stack.
-        if (isRegArg && // We decided above to use a register for the argument
-#ifndef ARM_SOFTFP
-            !passUsingFloatRegs && // We're using integer registers
-#endif
+        if (isRegArg &&                            // We decided above to use a register for the argument
+            !passUsingFloatRegs &&                 // We're using integer registers
             (intArgRegNum + size > MAX_REG_ARG) && // We're going to split a struct type onto registers and stack
             anyFloatStackArgs)                     // We've already used the stack for a floating-point argument
         {
@@ -2324,11 +2316,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             else
             {
                 // fill in or update the argInfo table
-                nextRegNum =
-#if !defined(TARGET_X86) && !defined(ARM_SOFTFP)
-                    passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(nextFltArgRegNum) :
-#endif
-                                       genMapIntRegArgNumToRegNum(intArgRegNum);
+                nextRegNum = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(nextFltArgRegNum)
+                                                : genMapIntRegArgNumToRegNum(intArgRegNum);
             }
 
 #ifdef TARGET_AMD64
@@ -2357,7 +2346,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif // defined(UNIX_AMD64_ABI)
                     if (!isNonStandard)
                 {
-#if !defined(TARGET_X86) && !defined(ARM_SOFTFP)
                     if (passUsingFloatRegs)
                     {
                         fltArgRegNum += size;
@@ -2372,7 +2360,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                         assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
                     }
                     else
-#endif // !TARGET_X86 && !ARM_SOFTFP
                     {
 #if FEATURE_ARG_SPLIT
                         // Check for a split (partially enregistered) struct
