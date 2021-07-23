@@ -3435,13 +3435,20 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
 #ifdef TARGET_64BIT
             reg++;
 #else
-            if (reg == regAndSlotCount - 1)
+            reg += 2;
+
+            if ((reg == argInfo->GetRegCount() + 1) || (reg == regAndSlotCount + 1))
             {
-                // We need to have at least 2 slots left to load a DOUBLE field.
+                // We need to have at least 2 regs/slots left to load a DOUBLE field.
+                // Note that it is difficult, but not impossible, to have a DOUBLE field
+                // spilt between registers and stack due to reinterpretation in user code
+                // (e.g. struct containing properly aligned DOUBLE field, so that it gets
+                // promoted, passed as a struct of same size containing only INT fields,
+                // so that the argument isn't 8 byte aligned). It's somewhat difficult to
+                // handle this kind of splitting in codegen and it's too unusual to even
+                // bother trying. See split-arg-double-reg-and-stack.cs.
                 return false;
             }
-
-            reg += 2;
 #endif
         }
         else if (fieldType == TYP_FLOAT)
@@ -3629,13 +3636,13 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
             reg++;
 #else
-            // We need to have at least 2 slots left to load a DOUBLE field.
-            assert(reg != regAndSlotCount - 1);
-
             // Ideally we'd bitcast the DOUBLE to LONG but decomposition doesn't currently support
             // LONG BITCAST nodes so we'll leave it as is and defer it to lowering.
 
             reg += 2;
+
+            // We need to have at least 2 slots left to load a DOUBLE field.
+            assert((reg != argInfo->GetRegCount() + 1) && (reg != regAndSlotCount + 1));
 #endif
         }
         else if (fieldType == TYP_FLOAT)
