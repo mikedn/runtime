@@ -3459,10 +3459,13 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
         }
         else if (fieldType == TYP_FLOAT)
         {
-#ifdef UNIX_AMD64_ABI
+#ifdef TARGET_64BIT
             // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
-            if ((field + 1 < fieldCount) && (reg < argInfo->GetRegCount()) &&
-                genIsValidFloatReg(argInfo->GetRegNum(reg))
+            // While at it, also handle 2 consecutive FLOAT fields in a non HFA struct for ARM64.
+            if ((field + 1 < fieldCount) && (reg < argInfo->GetRegCount())
+#ifdef UNIX_AMD64_ABI
+                && genIsValidFloatReg(argInfo->GetRegNum(reg))
+#endif
                 // TODO-MIKE-Cleanup: The JIT wrongly asserts in various places if it sees SSE intrinsics
                 // because it conflates ISA/intrinsics/feature availability...
                 && supportSIMDTypes())
@@ -3477,7 +3480,7 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
                     field++;
                 }
             }
-#endif // UNIX_AMD64_ABI
+#endif // TARGET_64BIT
 
             reg++;
         }
@@ -3662,15 +3665,14 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
         }
         else if (fieldType == TYP_FLOAT)
         {
-            if (regType == TYP_I_IMPL)
-            {
-                fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
-                fieldType = TYP_INT;
-            }
-
-#ifdef UNIX_AMD64_ABI
+#ifdef TARGET_64BIT
             // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
-            if ((field + 1 < fieldCount) && (regType == TYP_DOUBLE))
+            // While at it, also handle 2 consecutive FLOAT fields in a non HFA struct for ARM64.
+            if ((field + 1 < fieldCount) && (reg < argInfo->GetRegCount())
+#ifdef UNIX_AMD64_ABI
+                && (regType == TYP_DOUBLE)
+#endif
+                    )
             {
                 unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field + 1);
                 LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
@@ -3680,12 +3682,24 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
                 if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
                 {
                     GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
+#ifdef UNIX_AMD64_ABI
                     fieldNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, fieldNode,
                                                          nextFieldNode);
+#else
+                    fieldNode =
+                        gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT, 8, fieldNode, nextFieldNode);
+                    fieldNode = gtNewBitCastNode(regType, fieldNode);
+#endif
                     field++;
                 }
             }
-#endif // UNIX_AMD64_ABI
+            else
+#endif // TARGET_64BIT
+                if (regType == TYP_I_IMPL)
+            {
+                fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
+                fieldType = TYP_INT;
+            }
 
             reg++;
         }
