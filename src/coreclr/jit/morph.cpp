@@ -3404,18 +3404,22 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
     // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
     // fields which is very low (currently limited to 4).
 
-    unsigned fieldCount      = lcl->GetPromotedFieldCount();
-    unsigned field           = 0;
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-    unsigned reg             = 0;
+    unsigned fieldCount = lcl->GetPromotedFieldCount();
+    unsigned field      = 0;
+    unsigned regCount   = argInfo->GetRegCount();
+    unsigned reg        = 0;
 
-    while ((field < fieldCount) && (reg < regAndSlotCount))
+    while (field < fieldCount)
     {
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(field));
         unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
 
-        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldOffset)
+        if (fieldOffset >= regCount * REGSIZE_BYTES)
+        {
+            break;
+        }
+
+        if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
         {
             // This register/slot doesn't overlap any promoted field. Must be padding
             // so we can just load 0 if it's a register or skip it if it's a slot.
@@ -3443,9 +3447,9 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
 #else
             reg += 2;
 
-            if ((reg == argInfo->GetRegCount() + 1) || (reg == regAndSlotCount + 1))
+            if (reg > argInfo->GetRegCount())
             {
-                // We need to have at least 2 regs/slots left to load a DOUBLE field.
+                // We need to have at least 2 regs left to load a DOUBLE field.
                 // Note that it is difficult, but not impossible, to have a DOUBLE field
                 // spilt between registers and stack due to reinterpretation in user code
                 // (e.g. struct containing properly aligned DOUBLE field, so that it gets
@@ -3512,29 +3516,33 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
         }
 
         field++;
+    }
 
-        // Check if subsequent fields overlap this slot.
-        for (; field < fieldCount; field++)
+    if (argInfo->GetSlotCount() > 0)
+    {
+        unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
+
+        while (field < fieldCount)
         {
-            unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-            unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-            var_types  nextFieldType   = nextFieldLcl->GetType();
+            LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(field));
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
 
-            if (nextFieldOffset >= fieldOffset + REGSIZE_BYTES)
+            if (fieldOffset > regAndSlotCount * REGSIZE_BYTES)
             {
-                // The next field doesn't overlap this slot.
                 break;
             }
 
-            // Promoted fields are supposed to be aligned so a field should not straddle 2 slots.
-            assert(nextFieldOffset + varTypeSize(nextFieldType) <= fieldOffset + REGSIZE_BYTES);
+            assert(fieldOffset >= regCount * REGSIZE_BYTES);
 
-            if (reg <= argInfo->GetRegCount())
+            // Make sure we don't have a field that straddles the stack area boundary
+            // because codegen doesn't handle it properly. This can only happen due to
+            // struct reinterpretation/slicing in user code.
+            if (fieldOffset + varTypeSize(fieldLcl->GetType()) > regAndSlotCount * REGSIZE_BYTES)
             {
-                // The next field needs to be loaded in the same register, this isn't supported now.
                 return false;
             }
+
+            field++;
         }
     }
 
@@ -3600,44 +3608,43 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
     unsigned fieldCount      = lcl->GetPromotedFieldCount();
     unsigned field           = 0;
+    unsigned regCount        = argInfo->GetRegCount();
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
     unsigned reg             = 0;
 
-    while ((field < fieldCount) && (reg < regAndSlotCount))
+    while (field < fieldCount)
     {
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
         LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
         unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        var_types  fieldType   = fieldLcl->GetType();
 
-        var_types regType = TYP_UNDEF;
-
-        if (reg < argInfo->GetRegCount())
+        if (fieldOffset >= regCount * REGSIZE_BYTES)
         {
-#ifdef UNIX_AMD64_ABI
-            regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
-#else
-            regType = TYP_I_IMPL;
-#endif
+            break;
         }
 
-        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldOffset)
-        {
-            // This register/slot doesn't overlap any promoted field. Must be padding
-            // so we can just load 0 if it's a register or skip it if it's a slot.
-            if (regType != TYP_UNDEF)
-            {
-                list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
-            }
+        var_types regType;
+#ifdef UNIX_AMD64_ABI
+        regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
+#else
+        regType = TYP_I_IMPL;
+#endif
 
+        if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+        {
+            // This register doesn't overlap any promoted field. Must be padding
+            // so we can just load 0. We have to add the register to the list
+            // otherwise the backend may not allocate the register correctly.
+            list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
             reg++;
             continue;
         }
 
         // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
-        assert(reg * REGSIZE_BYTES == fieldOffset);
+        assert(fieldOffset == reg * REGSIZE_BYTES);
 
-        var_types fieldType = fieldLcl->GetType();
-        GenTree*  fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
+        GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
 
 #ifdef FEATURE_SIMD
         if ((fieldType == TYP_DOUBLE) || (fieldType == TYP_SIMD8))
@@ -3660,7 +3667,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
             reg += 2;
 
             // We need to have at least 2 slots left to load a DOUBLE field.
-            assert((reg != argInfo->GetRegCount() + 1) && (reg != regAndSlotCount + 1));
+            assert(reg <= argInfo->GetRegCount());
 #endif
         }
         else if (fieldType == TYP_FLOAT)
@@ -3742,49 +3749,44 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
         list->AddField(this, fieldNode, fieldOffset, fieldType);
         field++;
-
-        // Add subsequent fields that overlap this slot.
-        for (; field < fieldCount; field++)
-        {
-            unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-            unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-            var_types  nextFieldType   = nextFieldLcl->GetType();
-
-            if (nextFieldOffset >= fieldOffset + REGSIZE_BYTES)
-            {
-                // The next field doesn't overlap this slot.
-                break;
-            }
-
-            // Promoted fields are supposed to be aligned so a field should not straddle 2 slots.
-            assert(nextFieldOffset + varTypeSize(nextFieldType) <= fieldOffset + REGSIZE_BYTES);
-            // The next field needs to be loaded in the same register, this isn't supported now.
-            assert(regType == TYP_UNDEF);
-#ifdef TARGET_64BIT
-            assert(varTypeIsSmall(nextFieldType) || (nextFieldType == TYP_INT) || (nextFieldType == TYP_FLOAT));
-#else
-            assert(varTypeIsSmall(nextFieldType));
-#endif
-
-            GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
-            list->AddField(this, nextFieldNode, nextFieldOffset, nextFieldType);
-        }
     }
 
     // Zero out any remaining registers. Perhaps zeroing isn't strictly needed as these
-    // are basically padding bits but the backend won't allocate the arg register if a
-    // field is not added to the list.
-    while (reg < argInfo->GetRegCount())
+    // are basically padding bits but the backend won't allocate a register if a is not
+    // not added to the list.
+    while (reg < regCount)
     {
+        var_types regType;
 #ifdef UNIX_AMD64_ABI
-        var_types regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_LONG;
+        regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
 #else
-        var_types     regType = TYP_I_IMPL;
+        regType = TYP_I_IMPL;
 #endif
-
         list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
         reg++;
+    }
+
+    if (argInfo->GetSlotCount() > 0)
+    {
+        while (field < fieldCount)
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+
+            if (fieldOffset >= regAndSlotCount * REGSIZE_BYTES)
+            {
+                break;
+            }
+
+            var_types fieldType = fieldLcl->GetType();
+
+            assert(fieldOffset >= regCount * REGSIZE_BYTES);
+            assert(fieldOffset + varTypeSize(fieldType) <= regAndSlotCount * REGSIZE_BYTES);
+
+            list->AddField(this, gtNewLclvNode(fieldLclNum, fieldType), fieldOffset, fieldType);
+            field++;
+        }
     }
 
     return list;
