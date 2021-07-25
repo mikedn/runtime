@@ -3361,12 +3361,14 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
     // special handling for FIELD_LIST like it does for LCL_VAR and this may have a negative
     // impact on CQ if the arg ordering ends up being worse. It's not that good to begin with.
 
-    if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
+    if (argInfo->IsHfaArg())
     {
         var_types regType = argInfo->GetRegType(0);
 
         // The VM doesn't recognize HVAs so the reg type can only be FLOAT or DOUBLE.
         assert(varTypeIsFloating(regType));
+        // HFAs are never split.
+        assert(argInfo->GetSlotCount() == 0);
 
         unsigned offset = 0;
 
@@ -3538,10 +3540,15 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
     // Keep in sync with the logic in abiCanMorphMultiRegLclArgPromoted.
 
-    if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
+    if (argInfo->IsHfaArg())
     {
         var_types regType = argInfo->GetRegType(0);
         unsigned  regSize = varTypeSize(regType);
+
+        // The VM doesn't recognize HVAs so the reg type can only be FLOAT or DOUBLE.
+        assert(varTypeIsFloating(regType));
+        // HFAs are never split.
+        assert(argInfo->GetSlotCount() == 0);
 
         for (unsigned reg = 0, field = 0; reg < argInfo->GetRegCount(); reg++)
         {
