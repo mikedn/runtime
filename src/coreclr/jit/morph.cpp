@@ -10664,56 +10664,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 return tree;
             }
 
-            if (!tree->TypeIs(TYP_VOID))
+            if (varTypeIsStruct(tree->GetType()))
             {
-                if (op1->OperIs(GT_OBJ, GT_IND))
-                {
-                    op1 = fgMorphRetInd(tree->AsUnOp());
-                }
-
-                if (op1->OperIs(GT_LCL_VAR))
-                {
-                    // With merged returns, RETURN trees are replaced by assignments to the merged return temp.
-                    // Such assignments may be promoted to prevent dependent promotion of involved locals.
-
-                    GenTreeLclVar* lclVar = op1->AsLclVar();
-                    unsigned       lclNum = lclVar->GetLclNum();
-
-                    if ((genReturnLocal == BAD_VAR_NUM) || (genReturnLocal == lclNum))
-                    {
-                        LclVarDsc* lcl = lvaGetDesc(lclVar);
-
-                        if (lcl->CanBeReplacedWithItsField(this))
-                        {
-                            // We can replace the struct with its only field and allow copy propagation to replace
-                            // return value that was written as a field.
-                            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-                            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-
-                            if (!varTypeIsSmallInt(fieldLcl->GetType()))
-                            {
-                                // TODO-CQ: support that substitution for small types without creating `CAST` node.
-                                // When a small struct is returned in a register higher bits could be left in undefined
-                                // state.
-
-                                JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
-                                        "V%02u for "
-                                        "the return [%06u]\n",
-                                        lclNum, fieldLclNum, dspTreeID(tree));
-
-                                lclVar->SetLclNum(fieldLclNum);
-                                lclVar->SetType(fieldLcl->GetType());
-                            }
-                        }
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-                        else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
-                        {
-                            abiMorphReturnSimdLclPromoted(tree->AsUnOp(), op1);
-                            op1 = tree->AsUnOp()->GetOp(0);
-                        }
-#endif
-                    }
-                }
+                abiMorphStructReturn(tree->AsUnOp(), op1);
+                op1 = tree->AsUnOp()->GetOp(0);
             }
             break;
 
@@ -13159,6 +13113,57 @@ void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
     ret->SetOp(0, fieldList);
 }
 #endif // TARGET_ARM64
+
+void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
+{
+    if (val->OperIs(GT_OBJ, GT_IND))
+    {
+        val = fgMorphRetInd(ret);
+    }
+
+    if (val->OperIs(GT_LCL_VAR))
+    {
+        // With merged returns, RETURN trees are replaced by assignments to the merged return temp.
+        // Such assignments may be promoted to prevent dependent promotion of involved locals.
+
+        GenTreeLclVar* lclVar = val->AsLclVar();
+        unsigned       lclNum = lclVar->GetLclNum();
+
+        if ((genReturnLocal == BAD_VAR_NUM) || (genReturnLocal == lclNum))
+        {
+            LclVarDsc* lcl = lvaGetDesc(lclVar);
+
+            if (lcl->CanBeReplacedWithItsField(this))
+            {
+                // We can replace the struct with its only field and allow copy propagation to replace
+                // return value that was written as a field.
+                unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+                LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+
+                if (!varTypeIsSmallInt(fieldLcl->GetType()))
+                {
+                    // TODO-CQ: support that substitution for small types without creating `CAST` node.
+                    // When a small struct is returned in a register higher bits could be left in undefined
+                    // state.
+
+                    JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
+                            "V%02u for "
+                            "the return [%06u]\n",
+                            lclNum, fieldLclNum, dspTreeID(ret));
+
+                    lclVar->SetLclNum(fieldLclNum);
+                    lclVar->SetType(fieldLcl->GetType());
+                }
+            }
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+            else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
+            {
+                abiMorphReturnSimdLclPromoted(ret, val);
+            }
+#endif
+        }
+    }
+}
 
 #ifdef TARGET_AMD64
 void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)

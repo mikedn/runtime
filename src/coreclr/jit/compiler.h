@@ -8462,6 +8462,7 @@ public:
     void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #endif // !TARGET_X86
+    void abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val);
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
     void abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val);
 #endif
