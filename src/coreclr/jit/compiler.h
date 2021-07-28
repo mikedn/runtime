@@ -2702,10 +2702,10 @@ public:
         CORINFO_FIELD_HANDLE fldHnd;
         unsigned             fldOffset;
         unsigned             fldSize;
-        CORINFO_CLASS_HANDLE fldTypeHnd;
+        ClassLayout*         fldLayout;
         var_types            fldType;
 
-        lvaStructFieldInfo() : fldHnd(nullptr), fldOffset(0), fldSize(0), fldTypeHnd(nullptr), fldType(TYP_UNDEF)
+        lvaStructFieldInfo() : fldHnd(nullptr), fldOffset(0), fldSize(0), fldLayout(nullptr), fldType(TYP_UNDEF)
         {
         }
     };
@@ -2762,7 +2762,7 @@ public:
         void SortStructFields();
 
         void GetFieldInfo(CORINFO_CLASS_HANDLE classHandle, unsigned index);
-        void TryPromoteSingleFieldStruct(lvaStructFieldInfo& outerFieldInfo);
+        void TryPromoteSingleFieldStruct(lvaStructFieldInfo& outerFieldInfo, CORINFO_CLASS_HANDLE structHandle);
 
     private:
         Compiler*              compiler;

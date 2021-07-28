@@ -1673,12 +1673,24 @@ bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE 
             return false;
         }
 
-        if ((fieldInfo.fldSize != 1) && (fieldInfo.fldOffset % fieldInfo.fldSize) != 0)
+        if (fieldInfo.fldSize > 1)
         {
-            // The code in Compiler::genPushArgList that reconstitutes
-            // struct values on the stack from promoted fields expects
-            // those fields to be at their natural alignment.
-            return false;
+            unsigned alignment = fieldInfo.fldSize;
+
+            if (varTypeIsSIMD(fieldInfo.fldType) && (fieldInfo.fldLayout->GetVectorKind() == VectorKind::Vector234))
+            {
+                // Vector2/3/4 doesn't have special alignment rules in the VM,
+                // it has only FLOAT fields so it's 4 byte aligned.
+                alignment = 4;
+            }
+
+            if (fieldInfo.fldOffset % alignment != 0)
+            {
+                // The code in Compiler::genPushArgList that reconstitutes
+                // struct values on the stack from promoted fields expects
+                // those fields to be at their natural alignment.
+                return false;
+            }
         }
 
 #ifdef TARGET_ARM
@@ -1813,7 +1825,7 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
                 // If we have a register-passed struct with mixed non-opaque SIMD types (i.e. with defined fields)
                 // and non-SIMD types, we don't currently handle that case in the prolog, so we can't promote.
                 else if ((fieldCnt > 1) && varTypeIsStruct(fieldType) &&
-                         !compiler->typGetObjLayout(structPromotionInfo.fields[i].fldTypeHnd)->IsOpaqueVector())
+                         !structPromotionInfo.fields[i].fldLayout->IsOpaqueVector())
                 {
                     canPromote = false;
                 }
@@ -2018,38 +2030,41 @@ void Compiler::StructPromotionHelper::GetFieldInfo(CORINFO_CLASS_HANDLE classHan
 
     lvaStructFieldInfo&  fieldInfo   = structPromotionInfo.fields[index];
     CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(classHandle, index);
+    CORINFO_CLASS_HANDLE fieldTypeHandle;
+    var_types            fieldType = JITtype2varType(vm->getFieldType(fieldHandle, &fieldTypeHandle));
 
     fieldInfo.fldHnd    = fieldHandle;
     fieldInfo.fldOffset = vm->getFieldOffset(fieldHandle);
-    fieldInfo.fldType   = JITtype2varType(vm->getFieldType(fieldHandle, &fieldInfo.fldTypeHnd));
+    fieldInfo.fldType   = fieldType;
+    fieldInfo.fldLayout = nullptr;
     fieldInfo.fldSize   = varTypeSize(fieldInfo.fldType);
 
     if (fieldInfo.fldType == TYP_STRUCT)
     {
 #ifdef FEATURE_SIMD
-        var_types simdType = compiler->typGetStructType(fieldInfo.fldTypeHnd);
+        ClassLayout* layout = compiler->supportSIMDTypes() ? compiler->typGetObjLayout(fieldTypeHandle) : nullptr;
 
-        if (simdType != TYP_STRUCT)
+        if ((layout != nullptr) && layout->IsVector())
         {
-            fieldInfo.fldType = simdType;
-            fieldInfo.fldSize = varTypeSize(simdType);
+            fieldInfo.fldType   = layout->GetSIMDType();
+            fieldInfo.fldSize   = layout->GetSize();
+            fieldInfo.fldLayout = layout;
         }
         else
 #endif
         {
-            TryPromoteSingleFieldStruct(fieldInfo);
+            TryPromoteSingleFieldStruct(fieldInfo, fieldTypeHandle);
         }
     }
 }
 
-void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructFieldInfo& fieldInfo)
+void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructFieldInfo&  fieldInfo,
+                                                                  CORINFO_CLASS_HANDLE structHandle)
 {
     assert(fieldInfo.fldType == TYP_STRUCT);
-    assert(fieldInfo.fldTypeHnd != NO_CLASS_HANDLE);
+    assert(structHandle != NO_CLASS_HANDLE);
 
     ICorJitInfo* vm = compiler->info.compCompHnd;
-
-    CORINFO_CLASS_HANDLE structHandle = fieldInfo.fldTypeHnd;
 
     if (vm->getClassNumInstanceFields(structHandle) != 1)
     {
@@ -2162,7 +2177,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
 
         if (varTypeIsSIMD(pFieldInfo->fldType))
         {
-            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false);
+            compiler->lvaSetStruct(varNum, pFieldInfo->fldLayout, false);
             // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
             // be promoting this if we didn't think it could be enregistered.
             fieldVarDsc->lvRegStruct = true;
