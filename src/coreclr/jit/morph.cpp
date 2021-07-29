@@ -10663,12 +10663,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 return tree;
             }
-
-            if (varTypeIsStruct(tree->GetType()))
-            {
-                abiMorphStructReturn(tree->AsUnOp(), op1);
-                op1 = tree->AsUnOp()->GetOp(0);
-            }
             break;
 
         case GT_EQ:
@@ -11229,6 +11223,14 @@ DONE_MORPHING_CHILDREN:
                 return fgMorphStructAssignment(tree->AsOp());
             }
 
+            break;
+
+        case GT_RETURN:
+            if (varTypeIsStruct(tree->GetType()))
+            {
+                abiMorphStructReturn(tree->AsUnOp(), op1);
+                op1 = tree->AsUnOp()->GetOp(0);
+            }
             break;
 
         case GT_EQ:
