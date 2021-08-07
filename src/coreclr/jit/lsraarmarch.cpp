@@ -413,50 +413,58 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
     GenTree* src      = putArg->GetOp(0);
     unsigned srcCount = 0;
 
-    assert(src->TypeIs(TYP_STRUCT));
-    assert(src->isContained());
-
-    if (src->OperIs(GT_FIELD_LIST))
+    if (src->IsIntegralConst(0))
     {
-        unsigned regIndex = 0;
-        for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
-        {
-            GenTree*  node    = use.GetNode();
-            regMaskTP regMask = RBM_NONE;
-
-            if (regIndex < argInfo->GetRegCount())
-            {
-                regMask = genRegMask(argInfo->GetRegNum(regIndex));
-            }
-
-            BuildUse(node, regMask);
-            srcCount++;
-            regIndex++;
-
-#ifdef TARGET_ARM
-            if (node->TypeIs(TYP_LONG))
-            {
-                assert(node->OperIs(GT_BITCAST));
-
-                regMask = genRegMask(argInfo->GetRegNum(regIndex));
-
-                BuildUse(node, regMask, 1);
-                srcCount++;
-                regIndex++;
-            }
-#endif
-        }
+        BuildUse(src);
+        srcCount++;
     }
     else
     {
-        buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
+        assert(src->TypeIs(TYP_STRUCT));
+        assert(src->isContained());
 
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_FIELD_LIST))
         {
-            srcCount += BuildAddrUses(src->AsObj()->GetAddr());
-        }
+            unsigned regIndex = 0;
+            for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
+            {
+                GenTree*  node    = use.GetNode();
+                regMaskTP regMask = RBM_NONE;
 
-        buildInternalRegisterUses();
+                if (regIndex < argInfo->GetRegCount())
+                {
+                    regMask = genRegMask(argInfo->GetRegNum(regIndex));
+                }
+
+                BuildUse(node, regMask);
+                srcCount++;
+                regIndex++;
+
+#ifdef TARGET_ARM
+                if (node->TypeIs(TYP_LONG))
+                {
+                    assert(node->OperIs(GT_BITCAST));
+
+                    regMask = genRegMask(argInfo->GetRegNum(regIndex));
+
+                    BuildUse(node, regMask, 1);
+                    srcCount++;
+                    regIndex++;
+                }
+#endif
+            }
+        }
+        else
+        {
+            BuildInternalIntDef(putArg, allRegs(TYP_INT) & ~argRegMask);
+
+            if (src->OperIs(GT_OBJ))
+            {
+                srcCount += BuildAddrUses(src->AsObj()->GetAddr());
+            }
+
+            BuildInternalUses();
+        }
     }
 
     for (unsigned i = 0; i < argInfo->GetRegCount(); i++)

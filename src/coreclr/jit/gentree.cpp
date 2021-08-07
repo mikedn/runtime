@@ -9711,7 +9711,7 @@ void Compiler::gtDispTree(GenTree*     tree,
             printf(" (%d slots", tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
             const char* kindName;
-            switch (tree->AsPutArgStk()->gtPutArgStkKind)
+            switch (tree->AsPutArgStk()->GetKind())
             {
                 case GenTreePutArgStk::Kind::RepInstr:
                     kindName = "RepInst";

@@ -333,6 +333,29 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef TARGET_ARM64
+    if (src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1))
+    {
+        assert(comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()));
+        assert(putArgStk->GetSlotCount() == 2);
+
+        src->SetContained();
+
+        return;
+    }
+
+    if (src->IsIntegralConst(0) && comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()))
+    {
+        ClassLayout* layout = comp->typGetLayoutByNum(putArgStk->GetArgInfo()->GetSigTypeNum());
+        assert(layout->GetSize() <= REGSIZE_BYTES);
+
+        if (layout->GetSize() > 4)
+        {
+            src->SetType(TYP_LONG);
+        }
+
+        return;
+    }
+
     if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
     {
         src->SetContained();

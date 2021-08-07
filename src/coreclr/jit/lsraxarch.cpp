@@ -1357,7 +1357,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
 
-    if (src->OperIs(GT_FIELD_LIST))
+    if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
         assert(src->isContained());
 
@@ -1369,7 +1369,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
         // We need to iterate over the fields twice; once to determine the need for internal temps,
         // and once to actually build the uses.
-        for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* const  fieldNode   = use.GetNode();
             const var_types fieldType   = fieldNode->TypeGet();
@@ -1388,7 +1388,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef TARGET_X86
             assert(fieldType != TYP_LONG);
 
-            if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
+            if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
             {
                 // We can treat as a slot any field that is stored at a slot boundary, where the previous
                 // field is not in the same slot. (Note that we store the fields in reverse order.)
@@ -1413,7 +1413,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
         int srcCount = 0;
 
-        for (GenTreeFieldList::Use& use : putArgStk->gtOp1->AsFieldList()->Uses())
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* const fieldNode = use.GetNode();
             if (!fieldNode->isContained())
@@ -1440,7 +1440,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (src->TypeIs(TYP_STRUCT))
     {
-        switch (putArgStk->gtPutArgStkKind)
+        switch (putArgStk->GetKind())
         {
 #ifdef TARGET_X86
             case GenTreePutArgStk::Kind::Push:
@@ -1460,6 +1460,11 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 {
                     layout = src->AsLclFld()->GetLayout(compiler);
                     size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
+                }
+                else if (src->IsIntegralConst(0))
+                {
+                    layout = nullptr;
+                    size   = putArgStk->GetSlotCount() * REGSIZE_BYTES;
                 }
                 else
                 {
@@ -1531,6 +1536,35 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         assert(srcCount < BYTE_REG_COUNT);
 #endif
         return srcCount;
+    }
+
+    if ((src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1)))
+    {
+        int useCount = 0;
+
+        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
+        {
+            BuildInternalIntDef(putArgStk, RBM_RDI);
+            BuildInternalIntDef(putArgStk, RBM_RCX);
+            BuildUse(src, RBM_RAX);
+            useCount++;
+        }
+        else
+        {
+            assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
+            assert(src->isContained());
+
+#ifdef TARGET_X86
+            if (putArgStk->GetArgSize() >= XMM_REGSIZE_BYTES)
+#endif
+            {
+                BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
+            }
+        }
+
+        BuildInternalUses();
+
+        return useCount;
     }
 
     return BuildOperandUses(src);

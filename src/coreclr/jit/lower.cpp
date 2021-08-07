@@ -1055,7 +1055,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
                 }
             }
         }
-        else
+        else if (!arg->IsIntegralConst(0))
         {
             ClassLayout* layout;
 

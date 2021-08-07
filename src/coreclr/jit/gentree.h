@@ -4826,6 +4826,11 @@ public:
         return GetUse()->GetNode();
     }
 
+    unsigned GetSigTypeNum() const
+    {
+        return use->GetSigTypeNum();
+    }
+
     void SetNode(GenTree* node)
     {
         GetUse()->SetNode(node);
@@ -7023,45 +7028,35 @@ struct GenTreePhiArg : public GenTreeLclVarCommon
 
 struct GenTreePutArgStk : public GenTreeUnOp
 {
+#ifdef TARGET_XARCH
+    // Instruction selection: during codegen time, what code sequence we will be using
+    // to encode this operation.
+    // TODO-Throughput: The following information should be obtained from the child
+    // block node.
+    enum class Kind : uint8_t{Invalid,    RepInstr,     RepInstrZero, Unroll,
+                              UnrollZero, RepInstrXMM,  GCUnroll,     GCUnrollXMM,
+#ifdef TARGET_X86
+                              Push,       PushAllSlots, PushZero
+#endif
+    };
+#endif // TARGET_XARCH
+
 private:
     CallArgInfo* m_argInfo;
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
     GenTreeCall* m_call; // the call node to which this argument belongs
 #endif
 #if FEATURE_FASTTAILCALL
-private:
-    bool m_putInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
-                                 // By default this is false and will be placed in out-going arg area.
-                                 // Fast tail calls set this to true.
-                                 // In future if we need to add more such bool fields consider bit fields.
+    // Whether this arg needs to be placed in incoming arg area.
+    // By default this is false and will be placed in out-going arg area.
+    // Fast tail calls set this to true.
+    bool m_putInIncomingArgArea;
+#endif
+#ifdef TARGET_XARCH
+    Kind m_kind;
 #endif
 
 public:
-#ifdef TARGET_XARCH
-    // Instruction selection: during codegen time, what code sequence we will be using
-    // to encode this operation.
-    // TODO-Throughput: The following information should be obtained from the child
-    // block node.
-    // clang-format off
-    enum class Kind : uint8_t
-    {
-        Invalid,
-        RepInstr,
-        Unroll,
-        RepInstrXMM,
-        GCUnroll,
-        GCUnrollXMM,
-#ifdef TARGET_X86
-        Push,
-        PushAllSlots,
-#endif
-    };
-    // clang-format on
-
-    Kind gtPutArgStkKind;
-#endif // TARGET_XARCH
-
-    // clang-format off
     GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call, genTreeOps oper = GT_PUTARG_STK)
         : GenTreeUnOp(oper, TYP_VOID, arg)
         , m_argInfo(argInfo)
@@ -7072,14 +7067,13 @@ public:
         , m_putInIncomingArgArea(call->IsFastTailCall())
 #endif
 #ifdef TARGET_XARCH
-        , gtPutArgStkKind(Kind::Invalid)
+        , m_kind(Kind::Invalid)
 #endif
     {
 #if defined(TARGET_AMD64) && defined(TARGET_WINDOWS)
         assert(argInfo->GetSlotCount() == 1);
 #endif
     }
-    // clang-format on
 
     CallArgInfo* GetArgInfo() const
     {
@@ -7132,6 +7126,18 @@ public:
     unsigned IsSIMD12() const
     {
         return varTypeIsSIMD(gtOp1->GetType()) && (m_argInfo->GetSlotCount() == 3);
+    }
+#endif
+
+#ifdef TARGET_XARCH
+    Kind GetKind() const
+    {
+        return m_kind;
+    }
+
+    void SetKind(Kind kind)
+    {
+        m_kind = kind;
     }
 #endif
 

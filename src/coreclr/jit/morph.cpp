@@ -3865,7 +3865,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 #error Unknown target.
 #endif
 
-    ClassLayout* argLayout = typGetLayoutByNum(argInfo->use->GetSigTypeNum());
+    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
     unsigned tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
     GenTree* tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
@@ -4383,7 +4383,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // A<Canon> vs. A<C> issue. In general it doesn't matter if the 2 layouts
     // do not match. VN might get confused due to mismatched field sequences but
     // then this temp is never read from.
-    ClassLayout* argLayout = typGetLayoutByNum(argInfo->use->GetSigTypeNum());
+    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
     unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
 
