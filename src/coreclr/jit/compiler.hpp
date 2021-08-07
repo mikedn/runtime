@@ -1354,6 +1354,19 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
     return intCon;
 }
 
+inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
+{
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_CNS_DBL);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+
+    GenTreeDblCon* dblCon = AsDblCon();
+    dblCon->SetType(type);
+    dblCon->SetValue(value);
+    return dblCon;
+}
+
 inline GenTreeFieldList* GenTree::ChangeToFieldList()
 {
     // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,

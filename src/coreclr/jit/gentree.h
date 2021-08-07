@@ -1821,6 +1821,7 @@ public:
 
     void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
+    GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
     // set gtOper and only keep GTF_COMMON_MASK flags
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
