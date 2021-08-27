@@ -7300,15 +7300,15 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
 #ifdef TARGET_X86
     if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
     {
-        // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions so
-        // that the emitter properly detects the need to update the method's GC information.
+        // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions
+        // so that the emitter properly detects the need to update the method's GC information. We also use `push`
+        // for structs that are 8 bytes (or less, if the arg is a local var).
         //
         // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
         // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
         // future.
 
-        // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
-        assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
+        assert((srcLclNum != BAD_VAR_NUM) || (srcLayout->GetSize() % REGSIZE_BYTES == 0));
 
         for (int i = putArgStk->GetSlotCount() - 1; i >= 0; --i)
         {

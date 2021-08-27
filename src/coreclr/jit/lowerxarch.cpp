@@ -578,7 +578,11 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
         // (I don't know which).
 
-        if (!layout->HasGCPtr())
+        if (!layout->HasGCPtr()
+#ifdef TARGET_X86
+            && (size != 8)
+#endif
+                )
         {
             putArgStk->SetKind(size <= CPBLK_UNROLL_LIMIT ? GenTreePutArgStk::Kind::Unroll
                                                           : GenTreePutArgStk::Kind::RepInstr);
