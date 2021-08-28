@@ -2041,7 +2041,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             size = 1;
 #else
             // On 32 bit targets LONG and DOUBLE are passed in 2 regs/slots.
-            size                      = genTypeStSz(argx->GetType());
+            size = genTypeStSz(argx->GetType());
 #endif
         }
 
@@ -2069,7 +2069,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
         }
 #elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || varTypeUsesFloatReg(argx->GetType());
+        const bool passUsingFloatRegs =
+            (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argx->GetType()));
 #elif defined(TARGET_AMD64)
         const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argx->GetType());
 #elif defined(TARGET_X86)
