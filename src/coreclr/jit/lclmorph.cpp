@@ -1685,11 +1685,16 @@ private:
         //
         // CALL(OBJ(ADDR(LCL_VAR...)))
 
-        if ((m_ancestors.Height() >= 4) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
-            m_ancestors.Top(1)->OperIs(GT_ADDR) && m_ancestors.Top(2)->OperIs(GT_OBJ) &&
-            m_ancestors.Top(3)->OperIs(GT_CALL))
+        // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
+        // longer wraps struct args in OBJs.
+
+        if (((m_ancestors.Height() >= 4) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+             m_ancestors.Top(1)->OperIs(GT_ADDR) && m_ancestors.Top(2)->OperIs(GT_OBJ) &&
+             m_ancestors.Top(3)->OperIs(GT_CALL)) ||
+            ((m_ancestors.Height() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+             m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
-            JITDUMP("LocalAddressVisitor incrementing weighted ref count from %d to %d"
+            JITDUMP("LocalAddressVisitor incrementing weighted ref count from %f to %f"
                     " for implict byref V%02d arg passed to call\n",
                     lcl->lvRefCntWtd(RCS_EARLY), lcl->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
             lcl->incLvRefCntWtd(1, RCS_EARLY);
