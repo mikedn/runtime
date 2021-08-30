@@ -407,7 +407,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_PUTARG_SPLIT:
             genPutArgSplit(treeNode->AsPutArgSplit());
             break;
-#endif // FEATURE_ARG_SPLIT
+#endif
 
         case GT_CALL:
             genCallInstruction(treeNode->AsCall());
@@ -721,6 +721,27 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
         return;
     }
 
+    if (src->IsIntegralConst(0) && (putArg->GetSlotCount() > 1))
+    {
+#ifdef TARGET_ARM64
+        assert(putArg->GetArgSize() == 16);
+        assert(src->isContained());
+
+        GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR, outArgLclNum,
+                                      static_cast<int>(outArgLclOffs));
+#else
+        regNumber srcReg = src->GetRegNum();
+
+        for (unsigned offset = 0; offset < putArg->GetArgSize(); offset += REGSIZE_BYTES)
+        {
+            GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, srcReg, outArgLclNum,
+                                      static_cast<int>(outArgLclOffs + offset));
+        }
+#endif
+
+        return;
+    }
+
     // We can't write beyound the outgoing area area
     assert(outArgLclOffs + varTypeSize(srcType) <= outArgLclSize);
 
@@ -973,6 +994,31 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
     const unsigned outArgLclOffs = putArg->GetSlotOffset();
 
     GenTree* src = putArg->GetOp(0);
+
+    if (src->IsIntegralConst(0))
+    {
+        regNumber srcReg = src->GetRegNum();
+
+        unsigned dstOffset = outArgLclOffs;
+        unsigned stackSize = putArg->GetArgSize() - putArg->GetRegCount() * REGSIZE_BYTES;
+
+        for (; stackSize != 0; stackSize -= REGSIZE_BYTES, dstOffset += REGSIZE_BYTES)
+        {
+            // We can't write beyound the outgoing area area
+            assert(dstOffset + REGSIZE_BYTES <= outArgLclSize);
+
+            GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, srcReg, outArgLclNum, dstOffset);
+        }
+
+        for (unsigned i = 0; i < putArg->GetRegCount(); i++)
+        {
+            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, putArg->GetRegNumByIdx(i), 0);
+        }
+
+        genProduceReg(putArg);
+
+        return;
+    }
 
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());

@@ -2041,7 +2041,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             size = 1;
 #else
             // On 32 bit targets LONG and DOUBLE are passed in 2 regs/slots.
-            size                      = genTypeStSz(argx->GetType());
+            size = genTypeStSz(argx->GetType());
 #endif
         }
 
@@ -2069,7 +2069,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
         }
 #elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || varTypeUsesFloatReg(argx->GetType());
+        const bool passUsingFloatRegs =
+            (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argx->GetType()));
 #elif defined(TARGET_AMD64)
         const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argx->GetType());
 #elif defined(TARGET_X86)
@@ -2558,10 +2559,11 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             continue;
         }
 
-        if (!varTypeIsStruct(arg->GetType()))
+        bool paramIsStruct = typIsLayoutNum(argUse->GetSigTypeNum());
+
+        if (!varTypeIsStruct(arg->GetType()) && (!arg->IsIntegralConst(0) || !paramIsStruct))
         {
-            if (typIsLayoutNum(argUse->GetSigTypeNum()) && arg->IsCast() && !arg->gtOverflow() &&
-                varTypeIsSmall(arg->AsCast()->GetCastType()) &&
+            if (paramIsStruct && arg->IsCast() && !arg->gtOverflow() && varTypeIsSmall(arg->AsCast()->GetCastType()) &&
                 (varTypeSize(arg->AsCast()->GetCastType()) == typGetLayoutByNum(argUse->GetSigTypeNum())->GetSize()))
             {
                 // This is a struct arg that became a primitive type arg due to struct promotion.
@@ -2717,6 +2719,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert(argInfo->GetRegCount() == 0);
+
+    if (arg->IsIntegralConst(0))
+    {
+        return false;
+    }
+
     assert(varTypeIsStruct(arg->GetType()));
 
     if (arg->OperIs(GT_MKREFANY))
@@ -2906,7 +2914,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
 #if FEATURE_MULTIREG_ARGS
         if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
         {
-            if (varTypeIsStruct(arg->GetType()) && !arg->OperIs(GT_FIELD_LIST))
+            if (arg->IsIntegralConst(0) || (varTypeIsStruct(arg->GetType()) && !arg->IsFieldList()))
             {
                 GenTree* newArg = abiMorphMultiRegStructArg(argInfo, arg);
 
@@ -2936,6 +2944,37 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         // This being a struct, sign extension isn't needed so use unsigned small int types.
         // On XARCH we get MOVZX which may end up being shorter than MOVSX.
         argRegType = varTypeToUnsigned(argRegType);
+    }
+
+    if (arg->IsIntegralConst(0))
+    {
+        if (varTypeIsFloating(argRegType))
+        {
+            arg->ChangeToDblCon(TYP_DOUBLE, 0);
+        }
+        else if (varTypeIsLong(argRegType))
+        {
+            arg->SetType(TYP_LONG);
+        }
+        else if (varTypeIsGC(argRegType))
+        {
+            arg->SetType(TYP_I_IMPL);
+        }
+#ifdef FEATURE_HW_INTRINSICS
+        else if (varTypeIsSIMD(argRegType))
+        {
+            arg->ChangeOper(GT_HWINTRINSIC);
+            arg->SetType(argRegType);
+            arg->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(argRegType), TYP_FLOAT, varTypeSize(argRegType),
+                                               0);
+        }
+#endif
+        else
+        {
+            assert(varActualType(argRegType) == TYP_INT);
+        }
+
+        return;
     }
 
     if (arg->OperIs(GT_OBJ))
@@ -3683,7 +3722,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 #ifdef UNIX_AMD64_ABI
         var_types regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_LONG;
 #else
-        var_types regType = TYP_I_IMPL;
+        var_types     regType = TYP_I_IMPL;
 #endif
 
         list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
@@ -3703,8 +3742,43 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 #endif
 
-    assert(varTypeIsStruct(arg->TypeGet()));
     assert(argInfo->GetRegCount() != 0);
+
+    if (arg->IsIntegralConst(0))
+    {
+        if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 4)
+        {
+            return arg;
+        }
+
+        GenTreeFieldList* fieldList = abiMakeFieldList(arg);
+
+        for (unsigned i = 0, regOffset = 0; i < argInfo->GetRegCount() + argInfo->GetSlotCount(); i++)
+        {
+#if FEATURE_ARG_SPLIT
+            var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+            var_types regType = argInfo->GetRegType(i);
+#endif
+
+#ifdef FEATURE_HW_INTRINSICS
+            if (varTypeIsSIMD(regType))
+            {
+                fieldList->AddField(this, gtNewZeroSimdHWIntrinsicNode(regType, TYP_FLOAT), regOffset, regType);
+            }
+            else
+#endif
+            {
+                fieldList->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
+            }
+
+            regOffset += varTypeSize(regType);
+        }
+
+        return fieldList;
+    }
+
+    assert(varTypeIsStruct(arg->GetType()));
 
     if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
         abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
@@ -3792,7 +3866,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 #error Unknown target.
 #endif
 
-    ClassLayout* argLayout = typGetLayoutByNum(argInfo->use->GetSigTypeNum());
+    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
     unsigned tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
     GenTree* tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
@@ -4251,6 +4325,11 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 {
     GenTree* arg = argInfo->GetNode();
 
+    if (arg->TypeIs(TYP_BYREF, TYP_I_IMPL))
+    {
+        return;
+    }
+
     if (arg->OperIs(GT_MKREFANY))
     {
         unsigned tempLclNum = abiAllocateStructArgTemp(typGetObjLayout(impGetRefAnyClass()));
@@ -4305,7 +4384,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // A<Canon> vs. A<C> issue. In general it doesn't matter if the 2 layouts
     // do not match. VN might get confused due to mismatched field sequences but
     // then this temp is never read from.
-    ClassLayout* argLayout = typGetLayoutByNum(argInfo->use->GetSigTypeNum());
+    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
     unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
 

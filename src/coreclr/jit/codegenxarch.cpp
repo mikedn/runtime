@@ -6620,8 +6620,8 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
     GenTreeFieldList* const fieldList = putArgStk->gtOp1->AsFieldList();
     assert(fieldList != nullptr);
 
-    assert((putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push) ||
-           (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::PushAllSlots));
+    assert((putArgStk->GetKind() == GenTreePutArgStk::Kind::Push) ||
+           (putArgStk->GetKind() == GenTreePutArgStk::Kind::PushAllSlots));
 
     bool pushStkArg = true;
 
@@ -6878,6 +6878,96 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
+#ifdef WINDOWS_AMD64_ABI
+    assert(putArgStk->GetSlotCount() == 1);
+#else
+    if (src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1))
+    {
+        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
+        {
+            regNumber srcReg = genConsumeReg(src);
+            genCopyRegIfNeeded(src, REG_RAX);
+
+            assert((putArgStk->gtRsvdRegs & (RBM_RCX | RBM_RDI)) == (RBM_RCX | RBM_RDI));
+
+#ifdef TARGET_X86
+            genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
+            GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_RDI, REG_SPBASE, /* canSkip */ false);
+#else
+            GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, outArgLclNum, static_cast<int>(outArgLclOffs));
+#endif
+            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSlotCount());
+            GetEmitter()->emitIns(INS_r_stosp);
+        }
+#ifdef TARGET_X86
+        else if (putArgStk->GetArgSize() < XMM_REGSIZE_BYTES)
+        {
+            assert(src->isContained());
+            assert(putArgStk->gtRsvdRegs == 0);
+
+            for (unsigned i = 0; i < putArgStk->GetSlotCount(); i++)
+            {
+                GetEmitter()->emitIns_I(INS_push, EA_4BYTE, 0);
+                AddStackLevel(4);
+            }
+        }
+#endif // TARGET_X86
+        else
+        {
+            assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
+            assert(src->isContained());
+
+            unsigned size = putArgStk->GetSlotCount() * REGSIZE_BYTES;
+
+#ifdef TARGET_X86
+            genPreAdjustStackForPutArgStk(size);
+#endif
+            regNumber zeroXmmReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
+            GetEmitter()->emitIns_R_R(INS_xorps, EA_16BYTE, zeroXmmReg, zeroXmmReg);
+
+            unsigned offset = 0;
+
+            while (offset + XMM_REGSIZE_BYTES <= size)
+            {
+#ifdef TARGET_X86
+                GetEmitter()->emitIns_AR_R(INS_movups, EA_16BYTE, zeroXmmReg, REG_SPBASE, offset);
+#else
+                GetEmitter()->emitIns_S_R(INS_movups, EA_16BYTE, zeroXmmReg, outArgLclNum,
+                                          static_cast<int>(outArgLclOffs + offset));
+#endif
+                offset += XMM_REGSIZE_BYTES;
+            }
+
+#ifdef TARGET_X86
+            assert(((size - offset) & ~12) == 0);
+#else
+            assert(((size - offset) & ~8) == 0);
+#endif
+
+            if (size - offset >= 8)
+            {
+#ifdef TARGET_X86
+                GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, zeroXmmReg, REG_SPBASE, offset);
+#else
+                GetEmitter()->emitIns_S_R(INS_movq, EA_8BYTE, zeroXmmReg, outArgLclNum,
+                                          static_cast<int>(outArgLclOffs + offset));
+#endif
+                offset += 8;
+            }
+
+#ifdef TARGET_X86
+            if (size - offset != 0)
+            {
+                assert(size - offset == 4);
+                GetEmitter()->emitIns_AR_R(INS_movd, EA_4BYTE, zeroXmmReg, REG_SPBASE, offset);
+            }
+#endif
+        }
+
+        return;
+    }
+#endif // !WINDOWS_AMD64_ABI
+
 #if defined(TARGET_AMD64) || !defined(FEATURE_SIMD)
     assert(roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES);
 #else
@@ -7071,7 +7161,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         srcAddrAttr = emitTypeSize(srcAddr->GetType());
     }
 
-    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Unroll)
+    if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Unroll)
     {
         assert(!srcLayout->HasGCPtr());
 
@@ -7208,17 +7298,17 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
 
 #ifdef TARGET_X86
-    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
+    if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
     {
-        // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions so
-        // that the emitter properly detects the need to update the method's GC information.
+        // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions
+        // so that the emitter properly detects the need to update the method's GC information. We also use `push`
+        // for structs that are 8 bytes (or less, if the arg is a local var).
         //
         // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
         // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
         // future.
 
-        // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
-        assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
+        assert((srcLclNum != BAD_VAR_NUM) || (srcLayout->GetSize() % REGSIZE_BYTES == 0));
 
         for (int i = putArgStk->GetSlotCount() - 1; i >= 0; --i)
         {
@@ -7241,7 +7331,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         return;
     }
 
-    assert(putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr);
+    assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr);
     assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
 
     genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
@@ -7269,8 +7359,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     regNumber intTmpReg = REG_NA;
     regNumber xmmTmpReg = REG_NA;
 
-    if ((putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr) ||
-        (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstrXMM))
+    if ((putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr) ||
+        (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrXMM))
     {
         assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
 
@@ -7292,7 +7382,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
 
         if (!srcLayout->HasGCPtr())
         {
-            assert(putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr);
+            assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr);
             GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, srcLayout->GetSize());
             GetEmitter()->emitIns(INS_r_movsb);
             return;
@@ -7308,14 +7398,14 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
     else
     {
-        assert((putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::GCUnroll) ||
-               (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::GCUnrollXMM));
+        assert((putArgStk->GetKind() == GenTreePutArgStk::Kind::GCUnroll) ||
+               (putArgStk->GetKind() == GenTreePutArgStk::Kind::GCUnrollXMM));
 
         intTmpReg = putArgStk->GetSingleTempReg(RBM_ALLINT);
     }
 
-    if ((putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstrXMM) ||
-        (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::GCUnrollXMM))
+    if ((putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrXMM) ||
+        (putArgStk->GetKind() == GenTreePutArgStk::Kind::GCUnrollXMM))
     {
         xmmTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
     }
@@ -7378,8 +7468,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             continue;
         }
 
-        assert((putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr) ||
-               (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstrXMM));
+        assert((putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr) ||
+               (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrXMM));
         assert(srcAddrBaseReg == REG_RSI);
         assert(srcAddrIndexReg == REG_NA);
 

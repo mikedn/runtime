@@ -1359,7 +1359,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
         case GT_LCL_VAR:
         case GT_LCL_FLD:
             argLclNum = arg->AsLclVarCommon()->GetLclNum();
-            arg       = gtNewObjNode(argLayout, gtNewAddrNode(arg));
             assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
             isCanonical = true;
             break;

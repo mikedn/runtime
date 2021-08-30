@@ -663,11 +663,29 @@ private:
         INDEBUG(val.Consume();)
         assert(user != nullptr);
 
-        if (val.Node()->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            // If the location is accessed directly then we don't need to do anything.
+        LclVarDsc* lcl  = m_compiler->lvaGetDesc(val.LclNum());
+        GenTree*   node = val.Node();
 
-            assert(val.Node()->AsLclVarCommon()->GetLclNum() == val.LclNum());
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            assert(node->AsLclVarCommon()->GetLclNum() == val.LclNum());
+
+            // TODO-MIKE-Cleanup: This shouldn't be restricted to call args but ASG LHS
+            // requires special handling. In fact, the LCL_VAR|FLD special casing should
+            // probably be removed and left to a generalized MorphLocalIndir.
+
+            if (node->OperIs(GT_LCL_VAR) && lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1) && user->IsCall())
+            {
+                unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+                LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+                if (lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()))
+                {
+                    node->AsLclVar()->SetLclNum(fieldLclNum);
+                    node->SetType(fieldLcl->GetType());
+                }
+            }
+
             return;
         }
 
@@ -685,9 +703,8 @@ private:
         // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
         // say, 2 consecutive Int32 struct fields as Int64 has more practical value.
 
-        LclVarDsc* varDsc    = m_compiler->lvaGetDesc(val.LclNum());
-        unsigned   indirSize = GetIndirSize(val.Node(), user);
-        bool       isWide;
+        unsigned indirSize = GetIndirSize(node, user);
+        bool     isWide;
 
         if (indirSize == 0)
         {
@@ -702,9 +719,9 @@ private:
             {
                 isWide = true;
             }
-            else if (varDsc->GetType() == TYP_STRUCT)
+            else if (lcl->GetType() == TYP_STRUCT)
             {
-                isWide = (endOffset.Value() > varDsc->GetLayout()->GetSize());
+                isWide = (endOffset.Value() > lcl->GetLayout()->GetSize());
             }
             else
             {
@@ -719,24 +736,24 @@ private:
                 //
                 // For TYP_BLK variables the type size is 0 so they're always address
                 // exposed.
-                isWide = (endOffset.Value() > varTypeSize(varDsc->GetType()));
+                isWide = (endOffset.Value() > varTypeSize(lcl->GetType()));
             }
         }
 
         if (isWide)
         {
-            m_compiler->lvaSetVarAddrExposed(varDsc->lvIsStructField ? varDsc->lvParentLcl : val.LclNum());
+            m_compiler->lvaSetVarAddrExposed(lcl->lvIsStructField ? lcl->lvParentLcl : val.LclNum());
             return;
         }
 
-        if (varTypeIsStruct(varDsc->GetType()) && varDsc->IsPromoted())
+        if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
         {
             // If this is a promoted variable then we can use a promoted field if it completly
             // overlaps the indirection. With a lot of work, we could also handle cases where
             // the indirection spans multiple fields (e.g. reading two consecutive INT fields
             // as LONG) which would prevent dependent promotion.
 
-            unsigned fieldLclNum = FindPromotedField(varDsc, val.Offset(), indirSize);
+            unsigned fieldLclNum = FindPromotedField(lcl, val.Offset(), indirSize);
 
             if (fieldLclNum != BAD_VAR_NUM)
             {
@@ -1004,7 +1021,7 @@ private:
             // this case would be hit only due to user code reinterpretation. System.Half seems to
             // have some cases.
 
-            if (indir->OperIs(GT_OBJ) && (indirType == TYP_STRUCT) && user->OperIs(GT_CALL))
+            if (indir->OperIs(GT_OBJ) && (indirType == TYP_STRUCT) && user->IsCall())
             {
                 ClassLayout* indirLayout         = indir->AsObj()->GetLayout();
                 bool         isSingleFieldStruct = false;
@@ -1668,11 +1685,16 @@ private:
         //
         // CALL(OBJ(ADDR(LCL_VAR...)))
 
-        if ((m_ancestors.Height() >= 4) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
-            m_ancestors.Top(1)->OperIs(GT_ADDR) && m_ancestors.Top(2)->OperIs(GT_OBJ) &&
-            m_ancestors.Top(3)->OperIs(GT_CALL))
+        // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
+        // longer wraps struct args in OBJs.
+
+        if (((m_ancestors.Height() >= 4) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+             m_ancestors.Top(1)->OperIs(GT_ADDR) && m_ancestors.Top(2)->OperIs(GT_OBJ) &&
+             m_ancestors.Top(3)->OperIs(GT_CALL)) ||
+            ((m_ancestors.Height() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+             m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
-            JITDUMP("LocalAddressVisitor incrementing weighted ref count from %d to %d"
+            JITDUMP("LocalAddressVisitor incrementing weighted ref count from %f to %f"
                     " for implict byref V%02d arg passed to call\n",
                     lcl->lvRefCntWtd(RCS_EARLY), lcl->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
             lcl->incLvRefCntWtd(1, RCS_EARLY);
