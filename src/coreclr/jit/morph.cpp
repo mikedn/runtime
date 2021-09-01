@@ -1929,24 +1929,23 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             structSize = layout->GetSize();
             sigType    = TYP_STRUCT;
 
+            layout->EnsureHfaInfo(this);
+
+            if (layout->IsHfa()
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            if (!callIsVararg)
+                && !callIsVararg
 #endif
+                )
             {
-                layout->EnsureHfaInfo(this);
+                hfaType  = layout->GetHfaElementType();
+                hfaSlots = layout->GetHfaRegCount();
 
-                if (layout->IsHfa())
-                {
-                    hfaType  = layout->GetHfaElementType();
-                    hfaSlots = layout->GetHfaRegCount();
-
-                    // If we have a HFA struct it's possible we transition from a method that originally
-                    // only had integer types to now start having FP types.  We have to communicate this
-                    // through this flag since LSRA later on will use this flag to determine whether
-                    // or not to track the FP register set.
-                    //
-                    compFloatingPointUsed = true;
-                }
+                // If we have a HFA struct it's possible we transition from a method that originally
+                // only had integer types to now start having FP types.  We have to communicate this
+                // through this flag since LSRA later on will use this flag to determine whether
+                // or not to track the FP register set.
+                //
+                compFloatingPointUsed = true;
             }
 
 #ifdef TARGET_ARM
@@ -3760,7 +3759,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 #ifdef UNIX_AMD64_ABI
         regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
 #else
-        regType = TYP_I_IMPL;
+        regType               = TYP_I_IMPL;
 #endif
         list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
         reg++;
@@ -3926,26 +3925,145 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 #error Unknown target.
 #endif
 
-    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
+    bool argIsZero      = false;
+    bool argIsCreate    = false;
+    bool argIsBroadcast = false;
 
-    unsigned tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
-    GenTree* tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
+    if (GenTreeHWIntrinsic* hwi = arg->IsHWIntrinsic())
+    {
+        switch (hwi->GetIntrinsic())
+        {
+            case NI_Vector128_get_Zero:
+#ifdef TARGET_ARM64
+            case NI_Vector64_get_Zero:
+#endif
+                argIsZero = true;
+                break;
+
+            case NI_Vector128_Create:
+#ifdef TARGET_ARM64
+            case NI_Vector64_Create:
+#endif
+                if ((hwi->GetSimdBaseType() == TYP_FLOAT)
+#ifdef TARGET_ARM64
+                    && (argInfo->GetRegType() == TYP_FLOAT)
+#endif
+                        )
+                {
+                    if (hwi->IsUnary())
+                    {
+                        argIsBroadcast = true;
+                    }
+                    else
+                    {
+                        argIsCreate = true;
+                    }
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    unsigned tempLclNum = BAD_VAR_NUM;
+    GenTree* tempAssign = nullptr;
+
+    if (argIsBroadcast)
+    {
+        arg = arg->AsHWIntrinsic()->GetOp(0);
+
+        assert(arg->TypeIs(TYP_FLOAT));
+
+        if (!arg->IsDblCon() && !arg->OperIs(GT_LCL_VAR))
+        {
+            tempLclNum = lvaNewTemp(TYP_FLOAT, true DEBUGARG("multi-reg SIMD arg temp"));
+            tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, TYP_FLOAT), arg);
+
+            arg = gtNewLclvNode(tempLclNum, TYP_FLOAT);
+        }
+
+#ifdef UNIX_AMD64_ABI
+        if (arg->IsDblCon())
+        {
+            // CSE is dumb - it CSEs FP constants and that prevents us from recognizing
+            // constant vector creation in lowering. Well, recognizing constant vector
+            // creation is lowering is just as dumb...
+            arg->SetDoNotCSE();
+        }
+
+        arg = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, arg, gtCloneExpr(arg));
+        // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
+        // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
+        arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
+
+        unsigned dblTempLclNum = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"));
+        GenTree* dblTempAssign = gtNewAssignNode(gtNewLclvNode(dblTempLclNum, TYP_DOUBLE), arg);
+
+        if (tempAssign != nullptr)
+        {
+            tempAssign = gtNewCommaNode(tempAssign, dblTempAssign);
+        }
+        else
+        {
+            tempAssign = dblTempAssign;
+        }
+
+        arg = gtNewLclvNode(dblTempLclNum, TYP_DOUBLE);
+#endif // UNIX_AMD64_ABI
+    }
+    else if (!argIsZero && !argIsCreate)
+    {
+        ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
+
+        tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
+        tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
+    }
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+    for (unsigned i = 0, regOffset = 0, createOpIndex = 0; i < regCount; i++)
     {
 #if FEATURE_ARG_SPLIT
         var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
 #else
         var_types regType = argInfo->GetRegType(i);
 #endif
-        unsigned regSize  = varTypeSize(regType);
-        GenTree* regValue = gtNewLclvNode(tempLclNum, arg->GetType());
+        unsigned regSize = varTypeSize(regType);
+        GenTree* regValue;
 
-        regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
+        if (argIsBroadcast)
+        {
+            regValue = i == 0 ? arg : gtCloneExpr(arg);
+        }
+        else if (argIsCreate && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
+        {
+            regValue = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
+            assert(regValue->TypeIs(TYP_FLOAT));
+#ifdef TARGET_ARM64
+            assert(regType == TYP_FLOAT);
+#endif
 
-        if (i == 0)
+#ifdef UNIX_AMD64_ABI
+            if ((regType == TYP_DOUBLE) && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
+            {
+                GenTree* regValue2 = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
+                assert(regValue2->TypeIs(TYP_FLOAT));
+                regValue = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_Create, TYP_FLOAT, 16, regValue, regValue2);
+            }
+#endif
+        }
+        else if (argIsCreate || argIsZero)
+        {
+            regValue = gtNewZeroConNode(regType);
+        }
+        else
+        {
+            regValue = gtNewLclvNode(tempLclNum, arg->GetType());
+            regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
+        }
+
+        if ((i == 0) && (tempAssign != nullptr))
         {
             regValue = gtNewCommaNode(tempAssign, regValue);
         }

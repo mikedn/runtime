@@ -510,8 +510,6 @@ bool Compiler::isNativePrimitiveStructType(ClassLayout* layout)
 
 var_types Compiler::abiGetStructIntegerRegisterType(ClassLayout* layout)
 {
-    assert(!layout->IsHfa());
-
     switch (layout->GetSize())
     {
         case 1:
@@ -600,15 +598,14 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
 
     return {SPK_ByValue, TYP_STRUCT};
 #elif defined(TARGET_ARM64)
+    if (layout->IsHfa()
 #ifdef TARGET_WINDOWS
-    if (!isVarArg) // win-arm64 varargs doesn't use HFAs
+        && !isVarArg
 #endif
+        )
     {
-        if (layout->IsHfa())
-        {
-            return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
-                                                    : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
-        }
+        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
+                                                : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 
     var_types type = abiGetStructIntegerRegisterType(layout);
