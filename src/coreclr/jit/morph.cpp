@@ -8918,8 +8918,8 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned sr
     NamedIntrinsic create = NI_Vector128_Create;
     unsigned       numOps = 4;
 #elif defined(TARGET_ARM64)
-    NamedIntrinsic create = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
-    unsigned       numOps = dstType == TYP_SIMD8 ? 2 : 4;
+    NamedIntrinsic create  = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
+    unsigned       numOps  = dstType == TYP_SIMD8 ? 2 : 4;
 #else
 #error Unsupported platform
 #endif
@@ -13236,6 +13236,83 @@ void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
 
 void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 {
+    if ((genReturnLocal != BAD_VAR_NUM) &&
+        !(val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == genReturnLocal)))
+    {
+        // With merged returns, RETURN trees are replaced by assignments to the merged return temp.
+        // Such assignments may be promoted to prevent dependent promotion of involved locals.
+        return;
+    }
+
+#if FEATURE_MULTIREG_RET
+    if ((info.retDesc.GetRegCount() > 1) && varTypeIsSIMD(val->GetType()))
+    {
+        assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
+
+        GenTreeOp* comma = nullptr;
+
+        if (val->OperIs(GT_COMMA))
+        {
+            comma = val->AsOp();
+            val   = comma->GetOp(1);
+        }
+
+        if (val->IsFieldList())
+        {
+            return;
+        }
+
+        if (val->TypeIs(TYP_STRUCT) && val->OperIs(GT_IND))
+        {
+            val->ChangeOper(GT_OBJ);
+            val->AsObj()->SetLayout(info.GetRetLayout());
+            val->AsObj()->SetKind(StructStoreKind::Invalid);
+        }
+        else if (varTypeIsSIMD(val->GetType()) && val->OperIs(GT_LCL_FLD))
+        {
+            val->AsLclFld()->SetLayout(info.GetRetLayout(), this);
+        }
+
+        GenTreeCall::Use use(val);
+        use.SetSigTypeNum(typGetLayoutNum(info.GetRetLayout()));
+        CallArgInfo argInfo(0, &use, info.retDesc.GetRegCount());
+        argInfo.SetArgType(val->GetType());
+
+#ifdef UNIX_AMD64_ABI
+        for (unsigned i = 0; i < info.retDesc.GetRegCount(); i++)
+        {
+            argInfo.SetRegNum(i, info.retDesc.GetRegNum(i));
+            argInfo.SetRegType(i, info.retDesc.GetRegType(i));
+        }
+#else
+        var_types  regType = info.retDesc.GetRegType(0);
+
+        if (varTypeIsGC(regType))
+        {
+            regType = TYP_I_IMPL;
+        }
+
+        argInfo.SetRegType(regType);
+#endif
+
+        val = abiMorphMultiRegStructArg(&argInfo, val);
+
+        if (comma != nullptr)
+        {
+            comma->SetOp(1, val);
+            comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | val->GetSideEffects());
+            ret->SetSideEffects(comma->GetSideEffects());
+        }
+        else
+        {
+            ret->SetOp(0, val);
+            ret->SetSideEffects(val->GetSideEffects());
+        }
+
+        return;
+    }
+#endif // FEATURE_MULTIREG_RET
+
     if (val->OperIs(GT_OBJ, GT_IND))
     {
         val = fgMorphRetInd(ret);

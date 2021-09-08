@@ -2671,7 +2671,7 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
                 LowerBitCast(bitcast);
             }
         }
-        else
+        else if (!src->IsFieldList())
         {
 #if FEATURE_MULTIREG_RET
             if (varTypeIsStruct(src->GetType()))

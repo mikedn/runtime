@@ -8031,6 +8031,10 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
         call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
 #endif
     }
+    else if (varTypeIsSIMD(value->GetType()))
+    {
+        return value;
+    }
 
     LclVarDsc* lcl = nullptr;
 
