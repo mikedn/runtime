@@ -1677,12 +1677,14 @@ bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE 
         {
             unsigned alignment = fieldInfo.fldSize;
 
+#ifdef FEATURE_SIMD
             if (varTypeIsSIMD(fieldInfo.fldType) && (fieldInfo.fldLayout->GetVectorKind() == VectorKind::Vector234))
             {
                 // Vector2/3/4 doesn't have special alignment rules in the VM,
                 // it has only FLOAT fields so it's 4 byte aligned.
                 alignment = 4;
             }
+#endif
 
             if (fieldInfo.fldOffset % alignment != 0)
             {
