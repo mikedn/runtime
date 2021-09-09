@@ -8031,10 +8031,15 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
         call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
 #endif
     }
+#ifdef TARGET_64BIT
+    // TODO-MIKE-Cleanup: This should be enabled unconditionally but x86 is problematic,
+    // it has multireg returns but not multireg args so the entire multireg arg handling
+    // code also needs to be enabled and reviewed for corectness.
     else if (varTypeIsSIMD(value->GetType()))
     {
         return value;
     }
+#endif
 
     LclVarDsc* lcl = nullptr;
 
