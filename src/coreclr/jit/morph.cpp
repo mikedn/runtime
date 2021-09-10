@@ -3851,31 +3851,6 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         }
     }
 
-#ifdef TARGET_ARM
-    // If an argument is passed in registers we'd like to build a FIELD_LIST with
-    // one field for each register. But split args are problematic - they are also
-    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
-    // with one field per slot isn't an option because there may be too many and
-    // having one field for all slots doesn't work either because we don't have a
-    // layout to describe such a partial "view" of a struct.
-    // So we give up if there are too many slots.
-    //
-    // For promoted struct locals this means that we'll end up with dependent promotion.
-    // This isn't very common (because it means the struct has long or double fields,
-    // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
-    // the number of reg and slots that is also 4).
-
-    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
-    {
-        if (arg->OperIs(GT_LCL_VAR))
-        {
-            lvaSetVarDoNotEnregister(arg->AsLclVar()->GetLclNum() DEBUGARG(DNER_IsStructArg));
-        }
-
-        return arg;
-    }
-#endif
-
     assert(varTypeIsStruct(arg->GetType()));
 
     // TODO-MIKE-CQ: It may make more sense to alway use abiMorphMultiRegSimdArg for
@@ -4089,6 +4064,29 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
 
 #ifdef TARGET_ARM
+    // If an argument is passed in registers we'd like to build a FIELD_LIST with
+    // one field for each register. But split args are problematic - they are also
+    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
+    // with one field per slot isn't an option because there may be too many and
+    // having one field for all slots doesn't work either because we don't have a
+    // layout to describe such a partial "view" of a struct.
+    // So we give up if there are too many slots.
+    //
+    // For promoted struct locals this means that we'll end up with dependent promotion.
+    // This isn't very common (because it means the struct has long or double fields,
+    // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
+    // the number of reg and slots that is also 4).
+
+    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
+    {
+        if (arg->OperIs(GT_LCL_VAR))
+        {
+            lvaSetVarDoNotEnregister(arg->GetLclNum() DEBUGARG(DNER_IsStructArg));
+        }
+
+        return arg;
+    }
+
     // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
     // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
     //
@@ -4252,6 +4250,21 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
 GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
 {
+#ifdef TARGET_ARM
+    // If an argument is passed in registers we'd like to build a FIELD_LIST with
+    // one field for each register. But split args are problematic - they are also
+    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
+    // with one field per slot isn't an option because there may be too many and
+    // having one field for all slots doesn't work either because we don't have a
+    // layout to describe such a partial "view" of a struct.
+    // So we give up if there are too many slots.
+
+    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
+    {
+        return arg;
+    }
+#endif
+
     ClassLayout* argLayout = arg->GetLayout();
     unsigned     argSize   = argLayout->GetSize();
 
