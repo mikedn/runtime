@@ -3838,21 +3838,6 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(varTypeIsStruct(arg->GetType()));
 
-    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
-    {
-        if (argInfo->IsHfaArg())
-        {
-            return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclVar());
-        }
-
-        if (abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
-        {
-            return abiMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar()));
-        }
-    }
-
-    assert(varTypeIsStruct(arg->GetType()));
-
     // TODO-MIKE-CQ: It may make more sense to alway use abiMorphMultiRegSimdArg for
     // SIMD args that are memory loads. abiMorphMultiRegObjArg will just generate
     // multiple loads and those loads may have associated optimization issues in VN
@@ -3864,6 +3849,20 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
+        if (arg->OperIs(GT_LCL_VAR) &&
+            (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+        {
+            if (argInfo->IsHfaArg())
+            {
+                return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclVar());
+            }
+
+            if (abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
+            {
+                return abiMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar()));
+            }
+        }
+
         return abiMorphMultiRegLclArg(argInfo, arg->AsLclVarCommon());
     }
 
