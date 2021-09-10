@@ -3351,53 +3351,103 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
 
 #if FEATURE_MULTIREG_ARGS
 
+GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
+{
+    assert(argInfo->IsHfaArg());
+    // The VM doesn't recognize HVAs so the reg type can only be FLOAT or DOUBLE.
+    assert(varTypeIsFloating(argInfo->GetRegType(0)));
+    // HFAs are never split.
+    assert(argInfo->GetSlotCount() == 0);
+
+    LclVarDsc* lcl       = lvaGetDesc(arg);
+    var_types  regType   = argInfo->GetRegType(0);
+    unsigned   regCount  = argInfo->GetRegCount();
+    unsigned   regSize   = varTypeSize(regType);
+    unsigned   regOffset = 0;
+
+    for (unsigned field = 0; field < lcl->GetPromotedFieldCount(); field++)
+    {
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        var_types  fieldType   = fieldLcl->GetType();
+
+        if (regOffset != fieldLcl->GetPromotedFieldOffset())
+        {
+            break;
+        }
+
+        if (regType == fieldType)
+        {
+            regOffset += regSize;
+        }
+        else if (varTypeIsSIMD(fieldType) && (regType == TYP_FLOAT))
+        {
+            regOffset += varTypeSize(fieldType);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (regOffset != regCount * regSize)
+    {
+        return abiMorphMultiRegLclArg(argInfo, arg);
+    }
+
+    GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    for (unsigned reg = 0, field = 0; reg < regCount; reg++)
+    {
+        unsigned regOffset = reg * regSize;
+
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        var_types  fieldType   = fieldLcl->GetType();
+
+        GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
+
+#ifdef FEATURE_SIMD
+        if (fieldType != regType)
+        {
+            assert(regType == TYP_FLOAT);
+            assert((regOffset >= fieldOffset) && (regOffset < fieldOffset + varTypeSize(fieldType)));
+            assert((regOffset - fieldOffset) % 4 == 0);
+
+            fieldNode =
+                gtNewSimdGetElementNode(fieldType, regType, fieldNode, gtNewIconNode((regOffset - fieldOffset) / 4));
+
+            if (regOffset + regSize >= fieldOffset + varTypeSize(fieldType))
+            {
+                field++;
+            }
+        }
+        else
+#endif
+        {
+            assert(fieldType == regType);
+            assert(regOffset == fieldOffset);
+
+            field++;
+        }
+
+        list->AddField(this, fieldNode, regOffset, regType);
+    }
+
+    return list;
+}
+
 bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
 {
+    assert(!argInfo->IsHfaArg());
+
     // Keep in sync with the logic in abiMorphMultiRegLclArgPromoted. It's unfortunate
     // that this logic needs to be duplicated. Perhaps abiMorphMultiRegLclArgPromoted
     // could be used during the initial argument morphing instead of being deferred to the
     // multireg argument morphing. Probably the main issue is that arg sorting doesn't have
     // special handling for FIELD_LIST like it does for LCL_VAR and this may have a negative
     // impact on CQ if the arg ordering ends up being worse. It's not that good to begin with.
-
-    if (argInfo->IsHfaArg())
-    {
-        var_types regType = argInfo->GetRegType(0);
-
-        // The VM doesn't recognize HVAs so the reg type can only be FLOAT or DOUBLE.
-        assert(varTypeIsFloating(regType));
-        // HFAs are never split.
-        assert(argInfo->GetSlotCount() == 0);
-
-        unsigned offset = 0;
-
-        for (unsigned field = 0; field < lcl->GetPromotedFieldCount(); field++)
-        {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-            var_types  fieldType   = fieldLcl->GetType();
-
-            if (offset != fieldLcl->GetPromotedFieldOffset())
-            {
-                return false;
-            }
-
-            if (regType == fieldType)
-            {
-                offset += varTypeSize(regType);
-            }
-            else if (varTypeIsSIMD(fieldType) && (regType == TYP_FLOAT))
-            {
-                offset += varTypeSize(fieldType);
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        return offset == argInfo->GetRegCount() * varTypeSize(regType);
-    }
 
     // Note that the number of slots can be very high, if a smaller struct is passed as a very
     // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
@@ -3550,60 +3600,11 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
 
 GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
 {
+    assert(!argInfo->IsHfaArg());
+
     GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
     // Keep in sync with the logic in abiCanMorphMultiRegLclArgPromoted.
-
-    if (argInfo->IsHfaArg())
-    {
-        var_types regType = argInfo->GetRegType(0);
-        unsigned  regSize = varTypeSize(regType);
-
-        // The VM doesn't recognize HVAs so the reg type can only be FLOAT or DOUBLE.
-        assert(varTypeIsFloating(regType));
-        // HFAs are never split.
-        assert(argInfo->GetSlotCount() == 0);
-
-        for (unsigned reg = 0, field = 0; reg < argInfo->GetRegCount(); reg++)
-        {
-            unsigned regOffset = reg * regSize;
-
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-            var_types  fieldType   = fieldLcl->GetType();
-
-            GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
-
-#ifdef FEATURE_SIMD
-            if (fieldType != regType)
-            {
-                assert(regType == TYP_FLOAT);
-                assert((regOffset >= fieldOffset) && (regOffset < fieldOffset + varTypeSize(fieldType)));
-                assert((regOffset - fieldOffset) % 4 == 0);
-
-                fieldNode = gtNewSimdGetElementNode(fieldType, regType, fieldNode,
-                                                    gtNewIconNode((regOffset - fieldOffset) / 4));
-
-                if (regOffset + regSize >= fieldOffset + varTypeSize(fieldType))
-                {
-                    field++;
-                }
-            }
-            else
-#endif
-            {
-                assert(fieldType == regType);
-                assert(regOffset == fieldOffset);
-
-                field++;
-            }
-
-            list->AddField(this, fieldNode, regOffset, regType);
-        }
-
-        return list;
-    }
 
     unsigned fieldCount      = lcl->GetPromotedFieldCount();
     unsigned field           = 0;
@@ -3839,10 +3840,17 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(varTypeIsStruct(arg->GetType()));
 
-    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-        abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
+    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
     {
-        return abiMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar()));
+        if (argInfo->IsHfaArg())
+        {
+            return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclVar());
+        }
+
+        if (abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
+        {
+            return abiMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar()));
+        }
     }
 
 #ifdef TARGET_ARM

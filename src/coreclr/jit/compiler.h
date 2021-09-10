@@ -8445,6 +8445,7 @@ public:
     void abiMorphArgs2ndPass(GenTreeCall* call);
     GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
 #if FEATURE_MULTIREG_ARGS
+    GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
     bool abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
     GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
     GenTree* abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg);
