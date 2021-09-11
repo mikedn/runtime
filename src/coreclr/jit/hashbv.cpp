@@ -611,36 +611,31 @@ void hashBv::Resize(int newSize)
 #ifdef DEBUG
 void hashBv::dump()
 {
-    bool      first = true;
-    indexType index;
-
     // uncomment to print internal implementation details
     // DBEXEC(TRUE, printf("[%d(%d)(nodes:%d)]{ ", hashtable_size(), countBits(), this->numNodes));
 
     printf("{");
-    FOREACH_HBV_BIT_SET(index, this)
-    {
+    bool first = true;
+    Traverse([&first](indexType index) {
         if (!first)
         {
             printf(" ");
         }
         printf("%d", index);
         first = false;
-    }
-    NEXT_HBV_BIT_SET;
+        return true;
+    });
     printf("}\n");
 }
 
 void hashBv::dumpFancy()
 {
-    indexType index;
     indexType last_1 = -1;
     indexType last_0 = -1;
 
     printf("{");
     printf("count:%d", this->countBits());
-    FOREACH_HBV_BIT_SET(index, this)
-    {
+    Traverse([&last_0, &last_1](indexType index) {
         if (last_1 != index - 1)
         {
             if (last_0 + 1 != last_1)
@@ -654,8 +649,8 @@ void hashBv::dumpFancy()
             last_0 = index - 1;
         }
         last_1 = index;
-    }
-    NEXT_HBV_BIT_SET;
+        return true;
+    });
 
     // Print the last one
     if (last_0 + 1 != last_1)

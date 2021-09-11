@@ -260,6 +260,11 @@ public:
     template <class Action>
     bool MultiTraverse(hashBv* other);
 
+    template <class Visitor>
+    indexType Traverse(Visitor visitor);
+    template <class Predicate>
+    indexType FindFirstBit(Predicate predicate);
+
     void InorderTraverse(nodeAction a);
     void InorderTraverseTwo(hashBv* other, dualNodeAction a);
 
@@ -306,35 +311,45 @@ class hashBvGlobalData
     hashBv*     hbvFreeList;
 };
 
-// clang-format off
-#define FOREACH_HBV_BIT_SET(index, bv) \
-    { \
-        for (int hashNum=0; hashNum<(bv)->hashtable_size(); hashNum++) {\
-            hashBvNode *node = (bv)->nodeArr[hashNum];\
-            while (node) { \
-                indexType base = node->baseIndex; \
-                for (int el=0; el<node->numElements(); el++) {\
-                    elemType _i = 0; \
-                    elemType _e = node->elements[el]; \
-                    while (_e) { \
-                    int _result = BitScanForwardPtr((DWORD *) &_i, _e); \
-                        assert(_result); \
-                        (index) = base + (el*BITS_PER_ELEMENT) + _i; \
-                        _e ^= (elemType(1) << _i);
+template <typename Visitor>
+indexType hashBv::Traverse(Visitor visitor)
+{
+    for (int hashNum = 0; hashNum < hashtable_size(); hashNum++)
+    {
+        for (hashBvNode* node = nodeArr[hashNum]; node != nullptr; node = node->next)
+        {
+            for (int el = 0; el < node->numElements(); el++)
+            {
+                for (elemType e = node->elements[el]; e != 0;)
+                {
+                    DWORD    i      = 0;
+                    unsigned result = BitScanForwardPtr(&i, e);
+                    assert(result);
+                    e ^= (elemType(1) << i);
 
-#define NEXT_HBV_BIT_SET \
-                    }\
-                }\
-                node = node->next; \
-            }\
-        }\
-    } \
-//clang-format on
+                    indexType index = node->baseIndex + (el * BITS_PER_ELEMENT) + i;
+                    if (!visitor(index))
+                    {
+                        return index;
+                    }
+                }
+            }
+        }
+    }
+
+    return ~indexType(0);
+}
+
+template <typename Predicate>
+indexType hashBv::FindFirstBit(Predicate predicate)
+{
+    return Traverse([predicate](indexType i) { return !predicate(i); });
+}
 
 #ifdef DEBUG
-void SimpleDumpNode(hashBvNode *n);
-void DumpNode(hashBvNode *n);
-void SimpleDumpDualNode(hashBv *a, hashBv *b, hashBvNode *n, hashBvNode *m);
+void SimpleDumpNode(hashBvNode* n);
+void DumpNode(hashBvNode* n);
+void SimpleDumpDualNode(hashBv* a, hashBv* b, hashBvNode* n, hashBvNode* m);
 #endif // DEBUG
 
 #endif

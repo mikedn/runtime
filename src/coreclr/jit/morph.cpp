@@ -4471,18 +4471,16 @@ unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
         }
         else
         {
-            indexType lclNum;
-            FOREACH_HBV_BIT_SET(lclNum, m_abiStructArgTemps)
+            indexType index = m_abiStructArgTemps->FindFirstBit([this, argLayout](indexType i) {
+                return (lvaGetDesc(static_cast<unsigned>(i))->GetLayout() == argLayout) &&
+                       !m_abiStructArgTempsInUse->testBit(i);
+            });
+
+            if (index != -1)
             {
-                if ((lvaGetDesc(static_cast<unsigned>(lclNum))->GetLayout() == argLayout) &&
-                    !m_abiStructArgTempsInUse->testBit(lclNum))
-                {
-                    tempLclNum = static_cast<unsigned>(lclNum);
-                    JITDUMP("Reusing struct arg temp V%02u\n", tempLclNum);
-                    break;
-                }
+                tempLclNum = static_cast<unsigned>(index);
+                JITDUMP("Reusing struct arg temp V%02u\n", tempLclNum);
             }
-            NEXT_HBV_BIT_SET;
         }
     }
 
