@@ -7053,11 +7053,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         }
     }
 
-    if (varDsc->lvIsHfa())
-    {
-        printf(" HFA(%s) ", varTypeName(varDsc->GetLayout()->GetHfaElementType()));
-    }
-
     if (varDsc->lvLiveInOutOfHndlr)
     {
         printf(" EH");
