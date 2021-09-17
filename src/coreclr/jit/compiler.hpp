@@ -3754,15 +3754,13 @@ inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc*
         return PROMOTION_TYPE_DEPENDENT;
     }
 
+#ifdef TARGET_ARM
     if (lcl->IsParam())
     {
-#ifdef TARGET_ARM
         // TODO-Cleanup: return INDEPENDENT for arm32.
         return PROMOTION_TYPE_DEPENDENT;
-#else
-        return fgNoStructParamPromotion ? PROMOTION_TYPE_DEPENDENT : PROMOTION_TYPE_INDEPENDENT;
-#endif
     }
+#endif
 
     return PROMOTION_TYPE_INDEPENDENT;
 }

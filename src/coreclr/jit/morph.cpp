@@ -16233,6 +16233,13 @@ void Compiler::fgPromoteStructs()
             continue;
         }
 
+#ifdef DEBUG
+        if (lcl->IsParam() && fgNoStructParamPromotion)
+        {
+            continue;
+        }
+#endif
+
         if (varTypeIsSIMD(lcl->GetType()) && (lcl->lvIsUsedInSIMDIntrinsic() || lcl->GetLayout()->IsOpaqueVector()))
         {
             // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote

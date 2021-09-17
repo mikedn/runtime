@@ -2845,8 +2845,8 @@ public:
     }
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-    bool fgNoStructPromotion;      // Set to TRUE to turn off struct promotion for this method.
-    bool fgNoStructParamPromotion; // Set to TRUE to turn off struct promotion for parameters this method.
+    bool fgNoStructPromotion;               // Set to true to turn off struct promotion for this method.
+    INDEBUG(bool fgNoStructParamPromotion;) // Set to true to turn off struct promotion of this method's parameters.
 
     //=========================================================================
     //                          PROTECTED

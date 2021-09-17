@@ -132,8 +132,8 @@ void Compiler::fgInit()
         fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
     }
 
-    fgNoStructPromotion      = false;
-    fgNoStructParamPromotion = false;
+    fgNoStructPromotion = false;
+    INDEBUG(fgNoStructParamPromotion = false;)
 
     optValnumCSE_phase = false; // referenced in fgMorphSmpOp()
 
