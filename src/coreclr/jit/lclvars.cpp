@@ -1486,6 +1486,11 @@ bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
     return varDsc->lvDoNotEnregister;
 }
 
+bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
+{
+    return lvIsStructField && !compiler->lvaGetDesc(lvParentLcl)->IsIndependentPromoted();
+}
+
 //------------------------------------------------------------------------
 // StructPromotionHelper constructor.
 //
@@ -2493,7 +2498,7 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
             break;
         case DNER_DepField:
             JITDUMP("field of a dependently promoted struct\n");
-            assert(varDsc->lvIsStructField && (lvaGetParentPromotionType(varNum) != PROMOTION_TYPE_INDEPENDENT));
+            assert(varDsc->IsDependentPromotedField(this));
             break;
         case DNER_NoRegVars:
             JITDUMP("opts.compFlags & CLFLG_REGVAR is not set\n");
@@ -3259,7 +3264,7 @@ void Compiler::lvaSortByRefCount()
                 lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
             }
         }
-        else if (varDsc->lvIsStructField && (lvaGetParentPromotionType(lclNum) != PROMOTION_TYPE_INDEPENDENT))
+        else if (varDsc->IsDependentPromotedField(this))
         {
             lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_DepField));
         }
@@ -6099,11 +6104,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
         for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
         {
-            /* Ignore field locals of the promotion type PROMOTION_TYPE_FIELD_DEPENDENT.
-               In other words, we will not calculate the "base" address of the struct local if
-               the promotion type is PROMOTION_TYPE_FIELD_DEPENDENT.
-            */
-            if (!opts.IsOSR() && lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+            // Ignore dependent promoted fields.
+            if (!opts.IsOSR() && varDsc->IsDependentPromotedField(this))
             {
                 continue;
             }

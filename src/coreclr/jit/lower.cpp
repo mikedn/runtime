@@ -5810,20 +5810,17 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
 #ifdef FEATURE_SIMD
         case GT_HWINTRINSIC:
-            assert(node->TypeGet() != TYP_SIMD12);
+            assert(!node->TypeIs(TYP_SIMD12));
             break;
 #ifdef TARGET_64BIT
         case GT_LCL_VAR:
         case GT_STORE_LCL_VAR:
-        {
-            unsigned   lclNum = node->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* lclVar = &compiler->lvaTable[lclNum];
             if (node->TypeIs(TYP_SIMD12))
             {
-                assert(compiler->lvaIsFieldOfDependentlyPromotedStruct(lclVar) || (lclVar->lvSize() == 12));
+                LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
+                assert(lcl->IsDependentPromotedField(compiler) || (lcl->lvSize() == 12));
             }
-        }
-        break;
+            break;
 #endif // TARGET_64BIT
 #endif // SIMD
 

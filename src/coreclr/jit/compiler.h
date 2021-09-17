@@ -518,6 +518,8 @@ public:
         return lvIsStructField;
     }
 
+    bool IsDependentPromotedField(Compiler* compiler) const;
+
     unsigned GetPromotedFieldCount() const
     {
         assert(lvPromoted);
@@ -2796,18 +2798,16 @@ public:
     lvaPromotionType lvaGetPromotionType(unsigned lclNum);
     lvaPromotionType lvaGetParentPromotionType(const LclVarDsc* lcl);
     lvaPromotionType lvaGetParentPromotionType(unsigned lclNum);
-    bool lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* lcl);
     bool lvaIsGCTracked(const LclVarDsc* varDsc);
 
 #if defined(FEATURE_SIMD)
     bool lvaMapSimd12ToSimd16(const LclVarDsc* varDsc)
     {
-        assert(varDsc->lvType == TYP_SIMD12);
+        assert(varDsc->TypeIs(TYP_SIMD12));
         assert(varDsc->GetSize() == 12);
-
 #if defined(TARGET_64BIT) && !defined(OSX_ARM64_ABI)
         assert(varDsc->lvSize() == 16);
-#endif // defined(TARGET_64BIT)
+#endif
 
         // We make local variable SIMD12 types 16 bytes instead of just 12.
         // lvSize() will return 16 bytes for SIMD12, even for fields.
@@ -2818,11 +2818,13 @@ public:
         {
             return false;
         }
-        if (lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+
+        if (varDsc->IsDependentPromotedField(this))
         {
-            LclVarDsc* parentVarDsc = lvaGetDesc(varDsc->lvParentLcl);
-            return (parentVarDsc->lvFieldCnt == 1) && (parentVarDsc->lvSize() == 16);
+            LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+            return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->lvSize() == 16);
         }
+
         return true;
     }
 #endif // defined(FEATURE_SIMD)

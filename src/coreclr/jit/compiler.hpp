@@ -3767,11 +3767,6 @@ inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(unsigned l
     return lvaGetParentPromotionType(lvaGetDesc(lclNum));
 }
 
-inline bool Compiler::lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* lcl)
-{
-    return lcl->IsPromotedField() && (lvaGetParentPromotionType(lcl) == PROMOTION_TYPE_DEPENDENT);
-}
-
 //------------------------------------------------------------------------
 // lvaIsGCTracked: Determine whether this var should be reported
 //    as tracked for GC purposes.
@@ -3796,20 +3791,22 @@ inline bool Compiler::lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* lcl
 
 inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
 {
-    if (varDsc->lvTracked && (varDsc->lvType == TYP_REF || varDsc->lvType == TYP_BYREF))
-    {
-        // Stack parameters are always untracked w.r.t. GC reportings
-        const bool isStackParam = varDsc->lvIsParam && !varDsc->lvIsRegArg;
-#ifdef TARGET_AMD64
-        return !isStackParam && !lvaIsFieldOfDependentlyPromotedStruct(varDsc);
-#else  // !TARGET_AMD64
-        return !isStackParam;
-#endif // !TARGET_AMD64
-    }
-    else
+    if (!varDsc->lvTracked || !varTypeIsGC(varDsc->GetType()))
     {
         return false;
     }
+
+    // Stack parameters are always untracked w.r.t. GC reportings
+    if (varDsc->IsParam() && !varDsc->IsRegParam())
+    {
+        return false;
+    }
+
+#ifdef TARGET_AMD64
+    return !varDsc->IsDependentPromotedField(this);
+#else
+    return true;
+#endif
 }
 
 /*****************************************************************************/
@@ -3894,10 +3891,10 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
 {
     LclVarDsc* varDsc = lvaGetDesc(varNum);
 
-    if (lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+    if (varDsc->IsDependentPromotedField(this))
     {
-        // Fields of dependently promoted structs may only be initialized in the prolog when the whole
-        // struct is initialized in the prolog.
+        // Fields of dependently promoted structs may only be initialized in the prolog
+        // when the whole struct is initialized in the prolog.
         return fgVarNeedsExplicitZeroInit(varDsc->lvParentLcl, bbInALoop, bbIsReturn);
     }
 

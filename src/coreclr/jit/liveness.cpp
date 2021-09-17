@@ -2564,18 +2564,16 @@ void Compiler::fgInterBlockLocalVarLiveness()
             continue;
         }
 
-        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit on them since
-        // the whole parent struct will be initialized; however, lvLiveInOutOfHndlr should be set on them
-        // as appropriate.
-
-        bool fieldOfDependentlyPromotedStruct = lvaIsFieldOfDependentlyPromotedStruct(varDsc);
-
         // Un-init locals may need auto-initialization. Note that the
         // liveness of such locals will bubble to the top (fgFirstBB)
         // in fgInterBlockLocalVarLiveness()
 
-        if (!varDsc->lvIsParam && VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex) &&
-            (info.compInitMem || varTypeIsGC(varDsc->TypeGet())) && !fieldOfDependentlyPromotedStruct)
+        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit on them since
+        // the whole parent struct will be initialized; however, lvLiveInOutOfHndlr should be set on them
+        // as appropriate.
+
+        if (!varDsc->IsParam() && VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex) &&
+            (info.compInitMem || varTypeIsGC(varDsc->GetType())) && !varDsc->IsDependentPromotedField(this))
         {
             varDsc->lvMustInit = true;
         }
