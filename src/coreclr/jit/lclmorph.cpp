@@ -782,7 +782,7 @@ private:
     }
 
     //------------------------------------------------------------------------
-    // FindPromotedField: Find a promoted struct field that completly overlaps
+    // FindPromotedField: Find a promoted struct field that completely overlaps
     //     a location of specified size at the specified offset.
     //
     // Arguments:
@@ -804,7 +804,24 @@ private:
             assert(fieldLcl->GetType() != TYP_STRUCT);
 
             if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
-                (offset - fieldLcl->GetPromotedFieldOffset() + size <= genTypeSize(fieldLcl->GetType())))
+                (offset - fieldLcl->GetPromotedFieldOffset() + size <= varTypeSize(fieldLcl->GetType())))
+            {
+                return fieldLclNum;
+            }
+        }
+
+        return BAD_VAR_NUM;
+    }
+
+    // TODO-MIKE-Cleanup: Replace with FindPromotedField?
+    unsigned GetPromotedFieldLclNumByOffset(const LclVarDsc* lcl, unsigned offset) const
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+            LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+            if (fieldLcl->GetPromotedFieldOffset() == offset)
             {
                 return fieldLclNum;
             }
@@ -1481,12 +1498,12 @@ private:
         unsigned   lclNum = obj->AsLclVar()->GetLclNum();
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
 
-        if (!varTypeIsStruct(obj->GetType()) || !varDsc->lvPromoted)
+        if (!varTypeIsStruct(obj->GetType()) || !varDsc->IsPromoted())
         {
             return;
         }
 
-        unsigned fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, field->gtFldOffset);
+        unsigned fieldLclIndex = GetPromotedFieldLclNumByOffset(varDsc, field->GetOffset());
 
         if (fieldLclIndex == BAD_VAR_NUM)
         {
@@ -1601,7 +1618,7 @@ private:
             return;
         }
 
-        if (!varDsc->lvPromoted)
+        if (!varDsc->IsPromoted())
         {
             if (varTypeIsSIMD(varDsc->TypeGet()) && (genTypeSize(node->TypeGet()) == genTypeSize(varDsc->TypeGet())))
             {
@@ -1617,7 +1634,7 @@ private:
             return;
         }
 
-        unsigned fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, node->AsLclFld()->GetLclOffs());
+        unsigned fieldLclIndex = GetPromotedFieldLclNumByOffset(varDsc, node->AsLclFld()->GetLclOffs());
         noway_assert(fieldLclIndex != BAD_VAR_NUM);
         LclVarDsc* fldVarDsc = m_compiler->lvaGetDesc(fieldLclIndex);
 

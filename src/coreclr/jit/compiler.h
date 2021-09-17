@@ -2774,7 +2774,6 @@ public:
 #if !defined(TARGET_64BIT)
     void lvaPromoteLongVars();
 #endif // !defined(TARGET_64BIT)
-    unsigned lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset);
     bool lvaIsGCTracked(const LclVarDsc* varDsc);
 
 #if defined(FEATURE_SIMD)

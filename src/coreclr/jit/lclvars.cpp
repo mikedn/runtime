@@ -2346,35 +2346,6 @@ void Compiler::lvaPromoteLongVars()
 }
 #endif // !defined(TARGET_64BIT)
 
-//--------------------------------------------------------------------------------------------
-// lvaGetFieldLocal - returns the local var index for a promoted field in a promoted struct var.
-//
-// Arguments:
-//   lcl    - the promoted struct var descriptor;
-//   fldOffset - field offset in the struct.
-//
-// Return value:
-//   the index of the local that represents this field.
-//
-unsigned Compiler::lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset)
-{
-    noway_assert(varTypeIsStruct(varDsc));
-    noway_assert(varDsc->lvPromoted);
-
-    for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
-    {
-        noway_assert(lvaTable[i].lvIsStructField);
-        noway_assert(lvaTable[i].lvParentLcl == (unsigned)(varDsc - lvaTable));
-        if (lvaTable[i].lvFldOffset == fldOffset)
-        {
-            return i;
-        }
-    }
-
-    // This is the not-found error return path, the caller should check for BAD_VAR_NUM
-    return BAD_VAR_NUM;
-}
-
 /*****************************************************************************
  *
  *  Set the local var "varNum" as address-exposed.
