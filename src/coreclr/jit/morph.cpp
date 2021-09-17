@@ -3849,8 +3849,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        if (arg->OperIs(GT_LCL_VAR) &&
-            (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+        if (arg->OperIs(GT_LCL_VAR) && lvaGetDesc(arg->AsLclVar())->IsPromoted())
         {
             if (argInfo->IsHfaArg())
             {
@@ -4127,48 +4126,6 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 #endif
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-    if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 2) && (regCount == 2))
-    {
-        // If we have 2 promoted fields that start at offset 0 and 8 then we can pass them using FIELD_LIST.
-        // If there are more fields it means that 2 or more fields go into the same register, currently this
-        // isn't handled and LCL_FLDs will be used instead, making the struct var dependent promoted.
-
-        // TODO-MIKE-Cleanup: This is a very primitive version of abiMorphPromotedStructArgToFieldList. The
-        // difference is that abiMorphPromotedStructArgToFieldList is currently used only with independent
-        // promoted structs while this is used, mostly as a fallback, in the dependent case. It would likely
-        // be better to get rid of this and use abiMorphPromotedStructArgToFieldList in all cases.
-        //
-        // It may seem pointless to attempt to use the promoted fields in the dependent case, since they're
-        // in memory anyway we could just use the non-promoted code path which creates LCL_FLDs. But:
-        //   - The generated LCL_FLDs do not have field sequences so we lose CSE, const prop and whatever else
-        //     relies on value numbering.
-        //   - The generated LCL_FLDs have type TYP_LONG even when perhaps the type was a smaller int, this
-        //     makes the code larger due to extra REX prefixes.
-
-        unsigned loVarNum = lvaGetFieldLocal(lcl, 0);
-        unsigned hiVarNum = lvaGetFieldLocal(lcl, 8);
-
-        if ((loVarNum != BAD_VAR_NUM) && (hiVarNum != BAD_VAR_NUM))
-        {
-            LclVarDsc* loVarDsc = lvaGetDesc(loVarNum);
-            LclVarDsc* hiVarDsc = lvaGetDesc(hiVarNum);
-
-            var_types loType = loVarDsc->GetType();
-            var_types hiType = hiVarDsc->GetType();
-
-            if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(argInfo->GetRegType(0))) &&
-                (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(argInfo->GetRegType(1))))
-            {
-                fieldList->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
-                fieldList->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
-
-                return fieldList;
-            }
-        }
-    }
-#endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
 
     unsigned lclNum    = arg->GetLclNum();
     unsigned lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
