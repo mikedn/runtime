@@ -2796,7 +2796,7 @@ public:
     lvaPromotionType lvaGetPromotionType(unsigned lclNum);
     lvaPromotionType lvaGetParentPromotionType(const LclVarDsc* lcl);
     lvaPromotionType lvaGetParentPromotionType(unsigned lclNum);
-    bool lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* varDsc);
+    bool lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* lcl);
     bool lvaIsGCTracked(const LclVarDsc* varDsc);
 
 #if defined(FEATURE_SIMD)

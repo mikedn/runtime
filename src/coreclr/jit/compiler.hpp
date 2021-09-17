@@ -3767,27 +3767,9 @@ inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(unsigned l
     return lvaGetParentPromotionType(lvaGetDesc(lclNum));
 }
 
-/*****************************************************************************
- *
- *  Return true if the local is a field local of a promoted struct of type PROMOTION_TYPE_DEPENDENT.
- *  Return false otherwise.
- */
-
-inline bool Compiler::lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* varDsc)
+inline bool Compiler::lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* lcl)
 {
-    if (!varDsc->lvIsStructField)
-    {
-        return false;
-    }
-
-    lvaPromotionType promotionType = lvaGetParentPromotionType(varDsc);
-    if (promotionType == PROMOTION_TYPE_DEPENDENT)
-    {
-        return true;
-    }
-
-    assert(promotionType == PROMOTION_TYPE_INDEPENDENT);
-    return false;
+    return lcl->IsPromotedField() && (lvaGetParentPromotionType(lcl) == PROMOTION_TYPE_DEPENDENT);
 }
 
 //------------------------------------------------------------------------
