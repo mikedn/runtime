@@ -2349,25 +2349,6 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
 
-    //
-    // For both PROMOTION_TYPE_NONE and PROMOTION_TYPE_DEPENDENT the struct will
-    // be placed in the stack frame and it's fields must be laid out sequentially.
-    //
-    // For PROMOTION_TYPE_INDEPENDENT each of the struct's fields is replaced by
-    //  a local variable that can be enregistered or placed in the stack frame.
-    //  The fields do not need to be laid out sequentially
-    //
-    enum lvaPromotionType
-    {
-        PROMOTION_TYPE_NONE,        // The struct local is not promoted
-        PROMOTION_TYPE_INDEPENDENT, // The struct local is promoted,
-                                    //   and its field locals are independent of its parent struct local.
-        PROMOTION_TYPE_DEPENDENT    // The struct local is promoted,
-                                    //   but its field locals depend on its parent struct local.
-    };
-
-    /*****************************************************************************/
-
     enum FrameLayoutState
     {
         NO_FRAME_LAYOUT,
@@ -2794,8 +2775,6 @@ public:
     void lvaPromoteLongVars();
 #endif // !defined(TARGET_64BIT)
     unsigned lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset);
-    lvaPromotionType lvaGetPromotionType(const LclVarDsc* lcl);
-    lvaPromotionType lvaGetPromotionType(unsigned lclNum);
     bool lvaIsGCTracked(const LclVarDsc* varDsc);
 
 #if defined(FEATURE_SIMD)

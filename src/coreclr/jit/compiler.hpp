@@ -1653,16 +1653,8 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
         return;
     }
 
-    Compiler::lvaPromotionType promotionType = DUMMY_INIT(Compiler::PROMOTION_TYPE_NONE);
-    if (varTypeIsStruct(lvType))
-    {
-        promotionType = comp->lvaGetPromotionType(this);
-    }
-
-    //
     // Increment counts on the local itself.
-    //
-    if ((lvType != TYP_STRUCT) || (promotionType != Compiler::PROMOTION_TYPE_INDEPENDENT))
+    if ((lvType != TYP_STRUCT) || !IsIndependentPromoted())
     {
         // We increment ref counts of this local for primitive types, including structs that have been retyped as their
         // only field, as well as for structs whose fields are not independently promoted.
@@ -1704,8 +1696,7 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
     if (varTypeIsStruct(lvType) && propagate)
     {
         // For promoted struct locals, increment lvRefCnt on its field locals as well.
-        if (promotionType == Compiler::PROMOTION_TYPE_INDEPENDENT ||
-            promotionType == Compiler::PROMOTION_TYPE_DEPENDENT)
+        if (lvPromoted)
         {
             for (unsigned i = lvFieldLclStart; i < lvFieldLclStart + lvFieldCnt; ++i)
             {
@@ -3738,23 +3729,6 @@ inline bool Compiler::compDonotInline()
 inline bool Compiler::impIsPrimitive(CorInfoType jitType)
 {
     return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
-}
-
-inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc* lcl)
-{
-    assert(!lcl->IsPromoted() || varTypeIsPromotable(lcl->GetType()));
-
-    if (!lcl->IsPromoted())
-    {
-        return PROMOTION_TYPE_NONE;
-    }
-
-    return lcl->IsIndependentPromoted() ? PROMOTION_TYPE_INDEPENDENT : PROMOTION_TYPE_DEPENDENT;
-}
-
-inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(unsigned lclNum)
-{
-    return lvaGetPromotionType(lvaGetDesc(lclNum));
 }
 
 //------------------------------------------------------------------------
