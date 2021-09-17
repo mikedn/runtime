@@ -3565,19 +3565,11 @@ var_types LclVarDsc::GetActualRegisterType() const
 //
 bool LclVarDsc::CanBeReplacedWithItsField(Compiler* comp) const
 {
-    if (!lvPromoted)
+    if (!IsIndependentPromoted() || (lvFieldCnt != 1))
     {
         return false;
     }
 
-    if (comp->lvaGetPromotionType(this) != Compiler::PROMOTION_TYPE_INDEPENDENT)
-    {
-        return false;
-    }
-    if (lvFieldCnt != 1)
-    {
-        return false;
-    }
     if (lvContainsHoles)
     {
         return false;
@@ -4945,21 +4937,22 @@ void Compiler::lvaFixVirtualFrameOffsets()
 
         // Is this a non-param promoted struct field?
         //   if so then set doAssignStkOffs to false.
-        //
-        if (varDsc->lvIsStructField)
+        if (varDsc->IsPromotedField())
         {
-            LclVarDsc*       parentvarDsc  = &lvaTable[varDsc->lvParentLcl];
-            lvaPromotionType promotionType = lvaGetPromotionType(parentvarDsc);
+            LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
 
-#if defined(TARGET_X86)
-            // On x86, we set the stack offset for a promoted field
-            // to match a struct parameter in lvAssignFrameOffsetsToPromotedStructs.
-            if ((!varDsc->lvIsParam || parentvarDsc->lvIsParam) && promotionType == PROMOTION_TYPE_DEPENDENT)
-#else
-            if (!varDsc->lvIsParam && promotionType == PROMOTION_TYPE_DEPENDENT)
-#endif
+            if (parentLcl->IsDependentPromoted())
             {
-                doAssignStkOffs = false; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs()
+                if (!varDsc->IsParam()
+#ifdef TARGET_X86
+                    // On x86, we set the stack offset for a promoted field
+                    // to match a struct parameter in lvAssignFrameOffsetsToPromotedStructs.
+                    || parentLcl->IsParam()
+#endif
+                        )
+                {
+                    doAssignStkOffs = false; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs()
+                }
             }
         }
 
@@ -6784,15 +6777,15 @@ void Compiler::lvaAlignFrame()
  */
 void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
 {
-    LclVarDsc* varDsc = lvaTable;
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
         // For promoted struct fields that are params, we will
         // assign their offsets in lvaAssignVirtualFrameOffsetToArg().
         // This is not true for the System V systems since there is no
         // outgoing args space. Assign the dependently promoted fields properly.
-        //
-        if (varDsc->lvIsStructField
+        if (lcl->IsPromotedField()
 #if !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM) && !defined(TARGET_X86)
             // ARM: lo/hi parts of a promoted long arg need to be updated.
 
@@ -6801,32 +6794,29 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
             // For System V and x86, a register passed struct arg is homed on the stack in a separate local var.
             // The offset of these structs is already calculated in lvaAssignVirtualFrameOffsetToArg methos.
             // Make sure the code below is not executed for these structs and the offset is not changed.
-            && !varDsc->lvIsParam
+            && !lcl->IsParam()
 #endif // !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM) && !defined(TARGET_X86)
-            )
+                )
         {
-            LclVarDsc*       parentvarDsc  = &lvaTable[varDsc->lvParentLcl];
-            lvaPromotionType promotionType = lvaGetPromotionType(parentvarDsc);
+            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-            if (promotionType == PROMOTION_TYPE_INDEPENDENT)
+            if (parentLcl->IsIndependentPromoted())
             {
                 // The stack offset for these field locals must have been calculated
                 // by the normal frame offset assignment.
                 continue;
             }
+
+            noway_assert(lcl->lvOnFrame);
+
+            if (parentLcl->lvOnFrame)
+            {
+                lcl->SetStackOffset(parentLcl->GetStackOffset() + lcl->GetPromotedFieldOffset());
+            }
             else
             {
-                noway_assert(promotionType == PROMOTION_TYPE_DEPENDENT);
-                noway_assert(varDsc->lvOnFrame);
-                if (parentvarDsc->lvOnFrame)
-                {
-                    varDsc->SetStackOffset(parentvarDsc->GetStackOffset() + varDsc->lvFldOffset);
-                }
-                else
-                {
-                    varDsc->lvOnFrame = false;
-                    noway_assert(varDsc->lvRefCnt() == 0);
-                }
+                lcl->lvOnFrame = false;
+                noway_assert(lcl->lvRefCnt() == 0);
             }
         }
     }
@@ -7177,19 +7167,8 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
             fieldName = eeGetFieldName(varDsc->GetPromotedFieldHandle());
         }
 
-        printf(" V%02u.%s @%u", varDsc->GetPromotedFieldParentLclNum(), fieldName, varDsc->GetPromotedFieldOffset());
-
-        switch (lvaGetPromotionType(parentLcl))
-        {
-            case PROMOTION_TYPE_DEPENDENT:
-                printf(" P-DEP");
-                break;
-            case PROMOTION_TYPE_INDEPENDENT:
-                printf(" P-INDEP");
-                break;
-            default:
-                break;
-        }
+        printf(" V%02u.%s @%u ", varDsc->GetPromotedFieldParentLclNum(), fieldName, varDsc->GetPromotedFieldOffset());
+        printf(parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
     }
 
     if (varDsc->lvReason != nullptr)

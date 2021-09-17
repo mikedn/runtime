@@ -2737,7 +2737,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 
     if (arg->OperIs(GT_LCL_VAR) && varTypeIsStruct(arg->GetType()) &&
-        (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+        lvaGetDesc(arg->AsLclVar())->IsIndependentPromoted())
     {
         LclVarDsc* lcl = lvaGetDesc(arg->AsLclVar());
 
@@ -2839,7 +2839,7 @@ void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* 
 {
     assert(argInfo->GetRegCount() == 0);
 
-    if (lvaGetPromotionType(arg->GetLclNum()) != PROMOTION_TYPE_INDEPENDENT)
+    if (!lvaGetDesc(arg)->IsIndependentPromoted())
     {
         return;
     }
@@ -4108,7 +4108,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     GenTree* tempAssign = nullptr;
 
-    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+    if (arg->OperIs(GT_LCL_VAR) && lvaGetDesc(arg)->IsIndependentPromoted())
     {
         unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
         lcl                 = lvaGetDesc(tempLclNum);

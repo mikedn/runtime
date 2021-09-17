@@ -3134,23 +3134,21 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         // in the regArgTab[], either the original TYP_STRUCT argument or the introduced lvStructField.
         // We will use the lvStructField if we have a TYPE_INDEPENDENT promoted struct field otherwise
         // use the the original TYP_STRUCT argument.
-        //
-        if (varDsc->lvPromoted || varDsc->lvIsStructField)
+        if (varDsc->IsPromoted() || varDsc->IsPromotedField())
         {
             LclVarDsc* parentVarDsc = varDsc;
-            if (varDsc->lvIsStructField)
+
+            if (varDsc->IsPromotedField())
             {
-                assert(!varDsc->lvPromoted);
-                parentVarDsc = &compiler->lvaTable[varDsc->lvParentLcl];
+                assert(!varDsc->IsPromoted());
+                parentVarDsc = compiler->lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
             }
 
-            Compiler::lvaPromotionType promotionType = compiler->lvaGetPromotionType(parentVarDsc);
-
-            if (promotionType == Compiler::PROMOTION_TYPE_INDEPENDENT)
+            if (parentVarDsc->IsIndependentPromoted())
             {
                 // For register arguments that are independent promoted structs we put the promoted field varNum in the
                 // regArgTab[]
-                if (varDsc->lvPromoted)
+                if (varDsc->IsPromoted())
                 {
                     continue;
                 }
@@ -3159,7 +3157,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 // For register arguments that are not independent promoted structs we put the parent struct varNum in
                 // the regArgTab[]
-                if (varDsc->lvIsStructField)
+                if (varDsc->IsPromotedField())
                 {
                     continue;
                 }
@@ -3494,8 +3492,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 regNumber regNum  = genMapRegArgNumToRegNum(argNum, regType);
 
                 regNumber destRegNum = REG_NA;
-                if (varTypeIsStruct(varDsc) &&
-                    (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT))
+                if (varTypeIsStruct(varDsc->GetType()) && varDsc->IsIndependentPromoted())
                 {
                     assert(regArgTab[argNum].slot <= varDsc->lvFieldCnt);
                     LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + regArgTab[argNum].slot - 1);
@@ -4229,7 +4226,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 
                 if (argNum < (argMax - argRegCount + 1))
                 {
-                    if (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT)
+                    if (varDsc->IsIndependentPromoted())
                     {
                         // For an HFA type that is passed in multiple registers and promoted, we copy each field to its
                         // destination register.

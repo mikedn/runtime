@@ -2736,7 +2736,7 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 #ifdef DEBUG
     LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
 
-    if (lcl->IsPromoted() && (comp->lvaGetPromotionType(lclVar->GetLclNum()) == Compiler::PROMOTION_TYPE_INDEPENDENT))
+    if (lcl->IsIndependentPromoted())
     {
         LIR::Use use;
         assert(BlockRange().TryGetUse(lclVar, &use) && use.User()->OperIs(GT_RETURN));
@@ -6033,23 +6033,21 @@ void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* r
 
     LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
 
-    if (comp->lvaEnregMultiRegVars && lcl->IsPromoted())
+    if (comp->lvaEnregMultiRegVars && lcl->IsIndependentPromoted())
     {
         // We can enregister if we have a promoted struct and all the fields' types match the ABI requirements.
         // Note that we don't promote structs with explicit layout, so we don't need to check field offsets, and
         // if we have multiple types packed into a single register, we won't have matching reg and field counts,
         // so we can tolerate mismatches of integer size.
-        if (comp->lvaGetPromotionType(lcl) == Compiler::PROMOTION_TYPE_INDEPENDENT)
+
+        // If we have no retTypeDesc, we only care that it is independently promoted.
+        if (retDesc == nullptr)
         {
-            // If we have no retTypeDesc, we only care that it is independently promoted.
-            if (retDesc == nullptr)
-            {
-                canEnregister = true;
-            }
-            else if (retDesc->GetRegCount() == lcl->GetPromotedFieldCount())
-            {
-                canEnregister = true;
-            }
+            canEnregister = true;
+        }
+        else if (retDesc->GetRegCount() == lcl->GetPromotedFieldCount())
+        {
+            canEnregister = true;
         }
     }
 

@@ -502,6 +502,17 @@ public:
         return lvPromoted;
     }
 
+    bool IsIndependentPromoted() const
+    {
+        // TODO-Cleanup: return true for arm32.
+        return lvPromoted && !lvDoNotEnregister ARM_ONLY(&&!lvIsParam);
+    }
+
+    bool IsDependentPromoted() const
+    {
+        return lvPromoted && !IsIndependentPromoted();
+    }
+
     bool IsPromotedField() const
     {
         return lvIsStructField;

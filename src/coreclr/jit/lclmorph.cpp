@@ -2273,7 +2273,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
             unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
             assert(totalAppearances >= callAppearances);
             unsigned nonCallAppearances  = totalAppearances - callAppearances;
-            bool     isDependentPromoted = lvaGetPromotionType(lcl) == PROMOTION_TYPE_DEPENDENT;
+            bool     isDependentPromoted = lcl->IsDependentPromoted();
 
             bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->lvFieldCnt);
 

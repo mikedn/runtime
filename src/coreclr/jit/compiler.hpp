@@ -3749,20 +3749,7 @@ inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc*
         return PROMOTION_TYPE_NONE;
     }
 
-    if (lcl->lvDoNotEnregister)
-    {
-        return PROMOTION_TYPE_DEPENDENT;
-    }
-
-#ifdef TARGET_ARM
-    if (lcl->IsParam())
-    {
-        // TODO-Cleanup: return INDEPENDENT for arm32.
-        return PROMOTION_TYPE_DEPENDENT;
-    }
-#endif
-
-    return PROMOTION_TYPE_INDEPENDENT;
+    return lcl->IsIndependentPromoted() ? PROMOTION_TYPE_INDEPENDENT : PROMOTION_TYPE_DEPENDENT;
 }
 
 inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(unsigned lclNum)

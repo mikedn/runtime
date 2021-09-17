@@ -1714,9 +1714,8 @@ void LinearScan::identifyCandidates()
             else if (!isRegCandidate(varDsc) || varDsc->lvDoNotEnregister)
             {
                 refCntStk += varDsc->lvRefCnt();
-                if ((varDsc->lvType == TYP_DOUBLE) ||
-                    ((varTypeIsStruct(varDsc) && varDsc->lvStructDoubleAlign &&
-                      (compiler->lvaGetPromotionType(varDsc) != Compiler::PROMOTION_TYPE_INDEPENDENT))))
+                if (varDsc->TypeIs(TYP_DOUBLE) || ((varTypeIsStruct(varDsc->GetType()) && varDsc->lvStructDoubleAlign &&
+                                                    !varDsc->IsIndependentPromoted())))
                 {
                     refCntWtdStkDbl += varDsc->lvRefCntWtd();
                 }

@@ -1214,7 +1214,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
     LclVarDsc* varDsc = compiler->lvaGetDesc(lclVar);
     assert(varDsc->IsPromoted());
 
-    bool isMultiReg = (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT);
+    bool isMultiReg = varDsc->IsIndependentPromoted();
 
     if (!isMultiReg)
     {
