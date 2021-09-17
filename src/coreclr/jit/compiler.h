@@ -2796,8 +2796,6 @@ public:
     unsigned lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset);
     lvaPromotionType lvaGetPromotionType(const LclVarDsc* lcl);
     lvaPromotionType lvaGetPromotionType(unsigned lclNum);
-    lvaPromotionType lvaGetParentPromotionType(const LclVarDsc* lcl);
-    lvaPromotionType lvaGetParentPromotionType(unsigned lclNum);
     bool lvaIsGCTracked(const LclVarDsc* varDsc);
 
 #if defined(FEATURE_SIMD)

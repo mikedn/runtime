@@ -1643,8 +1643,9 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           life,
     {
         if (varDsc.IsPromotedField())
         {
-            if ((lvaGetDesc(varDsc.lvParentLcl)->lvRefCnt() == 1) &&
-                (lvaGetParentPromotionType(&varDsc) == PROMOTION_TYPE_DEPENDENT))
+            LclVarDsc* parentLcl = lvaGetDesc(varDsc.GetPromotedFieldParentLclNum());
+
+            if ((parentLcl->lvRefCnt() == 1) && parentLcl->IsDependentPromoted())
             {
                 return true;
             }

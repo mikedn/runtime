@@ -1716,13 +1716,13 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
 
     if (lvIsStructField && propagate)
     {
+        LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
+        assert(!parentLcl->lvRegStruct);
+
         // Depending on the promotion type, increment the ref count for the parent struct as well.
-        promotionType           = comp->lvaGetParentPromotionType(this);
-        LclVarDsc* parentvarDsc = &comp->lvaTable[lvParentLcl];
-        assert(!parentvarDsc->lvRegStruct);
-        if (promotionType == Compiler::PROMOTION_TYPE_DEPENDENT)
+        if (parentLcl->IsDependentPromoted())
         {
-            parentvarDsc->incRefCnts(weight, comp, state, false); // Don't propagate
+            parentLcl->incRefCnts(weight, comp, state, false); // Don't propagate
         }
     }
 
@@ -3755,16 +3755,6 @@ inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc*
 inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(unsigned lclNum)
 {
     return lvaGetPromotionType(lvaGetDesc(lclNum));
-}
-
-inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(const LclVarDsc* lcl)
-{
-    return lvaGetPromotionType(lcl->GetPromotedFieldParentLclNum());
-}
-
-inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(unsigned lclNum)
-{
-    return lvaGetParentPromotionType(lvaGetDesc(lclNum));
 }
 
 //------------------------------------------------------------------------
