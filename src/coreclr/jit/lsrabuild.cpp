@@ -3409,7 +3409,7 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
     }
 #endif
 
-#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
     if (GenTreeFieldList* list = src->IsFieldList())
     {
         assert(list->isContained());

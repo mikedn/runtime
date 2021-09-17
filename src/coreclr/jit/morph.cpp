@@ -13217,11 +13217,11 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         return;
     }
 
-#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
     // TODO-MIKE-Cleanup: This should be enabled unconditionally but x86 is problematic,
     // it has multireg returns but not multireg args so the entire multireg arg handling
     // code also needs to be enabled and reviewed for corectness.
-    if ((info.retDesc.GetRegCount() > 1) && varTypeIsSIMD(val->GetType()))
+    if ((info.retDesc.GetRegCount() > 1) && (varTypeIsSIMD(val->GetType()) || info.retLayout->IsHfa()))
     {
         assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
 
@@ -13287,7 +13287,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
         return;
     }
-#endif // TARGET_64BIT
+#endif // UNIX_AMD64_ABI || TARGET_ARMARCH
 
     if (val->OperIs(GT_OBJ, GT_IND))
     {

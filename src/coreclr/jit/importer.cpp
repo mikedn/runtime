@@ -8031,11 +8031,11 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
         call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
 #endif
     }
-#ifdef TARGET_64BIT
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
     // TODO-MIKE-Cleanup: This should be enabled unconditionally but x86 is problematic,
     // it has multireg returns but not multireg args so the entire multireg arg handling
     // code also needs to be enabled and reviewed for corectness.
-    else if (varTypeIsSIMD(value->GetType()))
+    else if (varTypeIsSIMD(value->GetType()) || info.GetRetLayout()->IsHfa())
     {
         return value;
     }
