@@ -3757,30 +3757,14 @@ inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(unsigned lclNum)
     return lvaGetPromotionType(lvaGetDesc(lclNum));
 }
 
-/*****************************************************************************
- *
- *  Given a field local, get the promotion type of its parent struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(const LclVarDsc* varDsc)
+inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(const LclVarDsc* lcl)
 {
-    assert(varDsc->lvIsStructField);
-    assert(varDsc->lvParentLcl < lvaCount);
-
-    lvaPromotionType promotionType = lvaGetPromotionType(varDsc->lvParentLcl);
-    assert(promotionType != PROMOTION_TYPE_NONE);
-    return promotionType;
+    return lvaGetPromotionType(lcl->GetPromotedFieldParentLclNum());
 }
 
-/*****************************************************************************
- *
- *  Given a field local, get the promotion type of its parent struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(unsigned varNum)
+inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(unsigned lclNum)
 {
-    assert(varNum < lvaCount);
-    return lvaGetParentPromotionType(&lvaTable[varNum]);
+    return lvaGetParentPromotionType(lvaGetDesc(lclNum));
 }
 
 /*****************************************************************************
