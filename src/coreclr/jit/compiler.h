@@ -2781,8 +2781,8 @@ public:
     void lvaPromoteLongVars();
 #endif // !defined(TARGET_64BIT)
     unsigned lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset);
-    lvaPromotionType lvaGetPromotionType(const LclVarDsc* varDsc);
-    lvaPromotionType lvaGetPromotionType(unsigned varNum);
+    lvaPromotionType lvaGetPromotionType(const LclVarDsc* lcl);
+    lvaPromotionType lvaGetPromotionType(unsigned lclNum);
     lvaPromotionType lvaGetParentPromotionType(const LclVarDsc* varDsc);
     lvaPromotionType lvaGetParentPromotionType(unsigned varNum);
     bool lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* varDsc);

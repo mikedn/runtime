@@ -3740,56 +3740,36 @@ inline bool Compiler::impIsPrimitive(CorInfoType jitType)
     return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
 }
 
-/*****************************************************************************
- *
- *  Get the promotion type of a struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc* varDsc)
+inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc* lcl)
 {
-    assert(!varDsc->lvPromoted || varTypeIsPromotable(varDsc->GetType()));
+    assert(!lcl->IsPromoted() || varTypeIsPromotable(lcl->GetType()));
 
-    if (!varDsc->lvPromoted)
+    if (!lcl->IsPromoted())
     {
-        // no struct promotion for this LclVar
         return PROMOTION_TYPE_NONE;
     }
-    if (varDsc->lvDoNotEnregister)
-    {
-        // The struct is not enregistered
-        return PROMOTION_TYPE_DEPENDENT;
-    }
-    if (!varDsc->lvIsParam)
-    {
-        // The struct is a register candidate
-        return PROMOTION_TYPE_INDEPENDENT;
-    }
 
-    // Has struct promotion for arguments been disabled using COMPlus_JitNoStructPromotion=2
-    if (fgNoStructParamPromotion)
+    if (lcl->lvDoNotEnregister)
     {
-        // The struct parameter is not enregistered
         return PROMOTION_TYPE_DEPENDENT;
     }
 
-// We have a parameter that could be enregistered
-#if defined(TARGET_ARM)
-    // TODO-Cleanup: return INDEPENDENT for arm32.
-    return PROMOTION_TYPE_DEPENDENT;
-#else  // !TARGET_ARM
+    if (lcl->IsParam())
+    {
+#ifdef TARGET_ARM
+        // TODO-Cleanup: return INDEPENDENT for arm32.
+        return PROMOTION_TYPE_DEPENDENT;
+#else
+        return fgNoStructParamPromotion ? PROMOTION_TYPE_DEPENDENT : PROMOTION_TYPE_INDEPENDENT;
+#endif
+    }
+
     return PROMOTION_TYPE_INDEPENDENT;
-#endif // !TARGET_ARM
 }
 
-/*****************************************************************************
- *
- *  Get the promotion type of a struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(unsigned varNum)
+inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(unsigned lclNum)
 {
-    assert(varNum < lvaCount);
-    return lvaGetPromotionType(&lvaTable[varNum]);
+    return lvaGetPromotionType(lvaGetDesc(lclNum));
 }
 
 /*****************************************************************************
