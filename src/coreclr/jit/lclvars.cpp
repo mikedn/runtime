@@ -1948,22 +1948,18 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
         return false;
     }
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-    // TODO-PERF - Only do this when the LclVar is used in an argument context
-    // TODO-ARM64 - HFA support should also eliminate the need for this.
-    // TODO-ARM32 - HFA support should also eliminate the need for this.
-    // TODO-LSRA - Currently doesn't support the passing of floating point LCL_VARS in the integer registers
-    //
-    // For now we currently don't promote structs with a single float field
-    // Promoting it can cause us to shuffle it back and forth between the int and
-    //  the float regs when it is used as a argument, which is very expensive for XARCH
+#ifdef WINDOWS_AMD64_ABI
+    // TODO-MIKE-CQ: Promoting single FP field structs almost works on x64, the main
+    // problem is the handling of method parameters and unfortunately the code that
+    // does that is a pile of garbage...
+
     if ((structPromotionInfo.fieldCnt == 1) && varTypeIsFloating(structPromotionInfo.fields[0].fldType))
     {
         JITDUMP("Not promoting struct local V%02u: struct has a single float/double field.\n", lclNum,
                 structPromotionInfo.fieldCnt);
         return false;
     }
-#endif // TARGET_AMD64 || TARGET_ARM64 || TARGET_ARM
+#endif // WINDOWS_AMD64_ABI
 
     if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->lvIsHfa())
     {
