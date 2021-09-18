@@ -3354,9 +3354,7 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
 GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
 {
     assert(argInfo->IsHfaArg());
-    // The VM doesn't recognize HVAs so the reg type can only be FLOAT or DOUBLE.
-    assert(varTypeIsFloating(argInfo->GetRegType(0)));
-    // HFAs are never split.
+    assert(varTypeUsesFloatReg(argInfo->GetRegType(0)));
     assert(argInfo->GetSlotCount() == 0);
 
     LclVarDsc* lcl       = lvaGetDesc(arg);
