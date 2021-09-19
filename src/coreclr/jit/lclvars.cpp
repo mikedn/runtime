@@ -1961,6 +1961,14 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
     }
 #endif // WINDOWS_AMD64_ABI
 
+#ifdef TARGET_ARM
+    if (lcl->IsParam())
+    {
+        // TODO-MIKE-CQ: Promote ARM struct params.
+        return false;
+    }
+#endif
+
     if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->lvIsHfa())
     {
 #if FEATURE_MULTIREG_STRUCT_PROMOTE
@@ -2284,6 +2292,14 @@ void Compiler::lvaPromoteLongVars()
         {
             continue;
         }
+
+#ifdef TARGET_ARM
+        if (varDsc->IsParam())
+        {
+            // TODO-MIKE-CQ: Promote ARM long params.
+            continue;
+        }
+#endif
 
         assert(!varDsc->lvIsMultiRegArg && !varDsc->lvIsMultiRegRet);
         varDsc->lvFieldCnt      = 2;

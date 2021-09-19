@@ -505,7 +505,7 @@ public:
     bool IsIndependentPromoted() const
     {
         // TODO-Cleanup: return true for arm32.
-        return lvPromoted && !lvDoNotEnregister ARM_ONLY(&&!lvIsParam);
+        return lvPromoted && !lvDoNotEnregister;
     }
 
     bool IsDependentPromoted() const
