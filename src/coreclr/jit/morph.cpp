@@ -13306,10 +13306,6 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
             LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
 
-            // TODO-CQ: support that substitution for small types without creating `CAST` node.
-            // When a small struct is returned in a register higher bits could be left in undefined
-            // state.
-
             JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
                     "V%02u for "
                     "the return [%06u]\n",
@@ -13317,6 +13313,19 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
             lclVar->SetLclNum(fieldLclNum);
             lclVar->SetType(fieldLcl->GetType());
+
+            if (fieldLcl->lvNormalizeOnLoad())
+            {
+                // TODO-MIKE-CQ: The return type is a struct so we don't need to actually
+                // perform load normalization here, just fix the LCL_VAR node type to be
+                // TYP_INT, as normal load normalization does it.
+                // Still, it would be better to add a cast here so that the optimizer knows
+                // that only the lower 8/16 bits are needed and thus upstream narrowing
+                // casts can be eliminated. But the optimizer isn't really capable of doing
+                // this right now...
+
+                lclVar->SetType(TYP_INT);
+            }
         }
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
         else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
