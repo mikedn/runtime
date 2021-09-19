@@ -13306,20 +13306,17 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
             LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
 
-            if (!varTypeIsSmallInt(fieldLcl->GetType()))
-            {
-                // TODO-CQ: support that substitution for small types without creating `CAST` node.
-                // When a small struct is returned in a register higher bits could be left in undefined
-                // state.
+            // TODO-CQ: support that substitution for small types without creating `CAST` node.
+            // When a small struct is returned in a register higher bits could be left in undefined
+            // state.
 
-                JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
-                        "V%02u for "
-                        "the return [%06u]\n",
-                        lclVar->GetLclNum(), fieldLclNum, dspTreeID(ret));
+            JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
+                    "V%02u for "
+                    "the return [%06u]\n",
+                    lclVar->GetLclNum(), fieldLclNum, dspTreeID(ret));
 
-                lclVar->SetLclNum(fieldLclNum);
-                lclVar->SetType(fieldLcl->GetType());
-            }
+            lclVar->SetLclNum(fieldLclNum);
+            lclVar->SetType(fieldLcl->GetType());
         }
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
         else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
