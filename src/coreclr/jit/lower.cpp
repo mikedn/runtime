@@ -2685,25 +2685,6 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 
             if (varTypeIsStruct(ret->GetType()))
             {
-#ifdef DEBUG
-                if (!varTypeIsStruct(src->GetType()))
-                {
-                    assert(comp->info.retDesc.GetRegCount() == 1);
-
-                    var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
-                    var_types srcActualType = varActualType(src->GetType());
-
-                    bool constStructInit                  = src->IsConstInitVal();
-                    bool implicitCastFromSameOrBiggerSize = varTypeSize(retActualType) <= varTypeSize(srcActualType);
-
-                    // This could happen if we have retyped op1 as a primitive type during struct promotion,
-                    // check `retypedFieldsMap` for details.
-                    bool actualTypesMatch = (retActualType == srcActualType);
-
-                    assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
-                }
-#endif // DEBUG
-
                 LowerRetStruct(ret);
             }
             else if (varTypeIsStruct(src->GetType()))
@@ -2969,6 +2950,25 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
     assert(varTypeIsStruct(ret->GetType()));
 
     GenTree* src = ret->GetOp(0);
+
+#ifdef DEBUG
+    if (!varTypeIsStruct(src->GetType()))
+    {
+        assert(comp->info.retDesc.GetRegCount() == 1);
+
+        var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
+        var_types srcActualType = varActualType(src->GetType());
+
+        bool constStructInit                  = src->IsConstInitVal();
+        bool implicitCastFromSameOrBiggerSize = varTypeSize(retActualType) <= varTypeSize(srcActualType);
+
+        // This could happen if we have retyped op1 as a primitive type during struct promotion,
+        // check `retypedFieldsMap` for details.
+        bool actualTypesMatch = (retActualType == srcActualType);
+
+        assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
+    }
+#endif // DEBUG
 
 #ifdef TARGET_ARM64
     if (varTypeIsSIMD(ret->GetType()))
