@@ -10496,6 +10496,26 @@ void CodeGen::genRetFilt(GenTree* retfilt)
 
 void CodeGen::genLongReturn(GenTree* src)
 {
+#ifdef TARGET_X86
+    if (src->TypeIs(TYP_DOUBLE))
+    {
+        regNumber srcReg = genConsumeReg(src);
+
+        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, REG_RAX, srcReg, /* canSkip */ false);
+        // TODO-MIKE-Review: This is cheating, the source register is modified without
+        // LSRA knowing about it. Shouldn't matter since this is "last use" but you never
+        // known...
+        // Also, there's a good chance that the value is spilled and we could load the INT
+        // registers straight from memory (this happens in UnmanagedCallersOnly methods and
+        // there's normally a reverse PInvoke helper call just before return that may result
+        // in spilling).
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, srcReg, srcReg, 0x55);
+        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, REG_RDX, srcReg, /* canSkip */ false);
+
+        return;
+    }
+#endif
+
     assert(src->OperIs(GT_LONG));
 
     regNumber srcReg0 = genConsumeReg(src->AsOp()->GetOp(0));

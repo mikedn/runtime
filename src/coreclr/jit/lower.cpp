@@ -2951,6 +2951,20 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 
     GenTree* src = ret->GetOp(0);
 
+#ifdef TARGET_X86
+    if (comp->info.retDesc.GetRegCount() == 2)
+    {
+        if (src->TypeIs(TYP_DOUBLE, TYP_LONG))
+        {
+            // Native win-x86 ABI returns a struct with a single DOUBLE/LONG field in 2 INT registers.
+            assert((comp->info.retDesc.GetRegType(0) == TYP_INT) && (comp->info.retDesc.GetRegType(1) == TYP_INT));
+            ret->SetType(TYP_LONG);
+
+            return;
+        }
+    }
+#endif
+
 #ifdef DEBUG
     if (!varTypeIsStruct(src->GetType()))
     {
@@ -6242,6 +6256,11 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
 #ifndef TARGET_64BIT
     if (ret->TypeIs(TYP_LONG))
     {
+        if (src->TypeIs(TYP_DOUBLE))
+        {
+            return;
+        }
+
         noway_assert(src->OperIs(GT_LONG));
         src->SetContained();
 

@@ -3400,6 +3400,15 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
 #ifndef TARGET_64BIT
     if (ret->TypeIs(TYP_LONG))
     {
+#ifdef TARGET_X86
+        if (src->TypeIs(TYP_DOUBLE))
+        {
+            BuildUse(src);
+
+            return 1;
+        }
+#endif
+
         assert(src->OperIs(GT_LONG) && src->isContained());
 
         BuildUse(src->AsOp()->GetOp(0), RBM_LNGRET_LO);
