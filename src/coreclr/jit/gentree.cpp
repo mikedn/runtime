@@ -16390,62 +16390,49 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore() const
 
 #endif // FEATURE_HW_INTRINSICS
 
-void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind)
-{
-    switch (retKind.kind)
-    {
 #if FEATURE_MULTIREG_RET
-        case SPK_ByValueAsHfa:
+void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout)
+{
+    if (retLayout->IsHfa())
+    {
+        m_regCount = retLayout->GetHfaElementCount();
+        assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
+
+        var_types regType = retLayout->GetHfaElementType();
+
+        for (unsigned i = 0; i < m_regCount; ++i)
         {
-            assert(retKind.type == TYP_STRUCT);
-
-            m_regCount = retLayout->GetHfaElementCount();
-            assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
-
-            var_types regType = retLayout->GetHfaElementType();
-
-            for (unsigned i = 0; i < m_regCount; ++i)
-            {
-                m_regType[i] = regType;
-            }
-
-            comp->compFloatingPointUsed |= true;
-            break;
+            m_regType[i] = regType;
         }
 
-        case SPK_ByValue:
-        {
-            assert(retKind.type == TYP_STRUCT);
+        comp->compFloatingPointUsed |= true;
+
+        return;
+    }
 
 #ifdef UNIX_AMD64_ABI
-            assert(retLayout->GetSysVAmd64AbiRegCount() == 2);
+    assert(retLayout->GetSysVAmd64AbiRegCount() == 2);
 
-            m_regCount = 2;
+    m_regCount = 2;
 
-            for (int i = 0; i < 2; i++)
-            {
-                m_regType[i] = varActualType(retLayout->GetSysVAmd64AbiRegType(i));
-            }
-#elif defined(TARGET_ARM64) || defined(TARGET_X86)
-            assert(retLayout->GetSlotCount() == 2);
-
-            m_regCount = 2;
-
-            for (unsigned i = 0; i < 2; i++)
-            {
-                m_regType[i] = retLayout->GetGCPtrType(i);
-            }
-#else
-            unreached();
-#endif
-            break;
-        }
-#endif //  FEATURE_MULTIREG_RET
-
-        default:
-            unreached();
+    for (int i = 0; i < 2; i++)
+    {
+        m_regType[i] = varActualType(retLayout->GetSysVAmd64AbiRegType(i));
     }
+#elif defined(TARGET_ARM64) || defined(TARGET_X86)
+    assert(retLayout->GetSlotCount() == 2);
+
+    m_regCount = 2;
+
+    for (unsigned i = 0; i < 2; i++)
+    {
+        m_regType[i] = retLayout->GetGCPtrType(i);
+    }
+#else
+    unreached();
+#endif
 }
+#endif //  FEATURE_MULTIREG_RET
 
 void ReturnTypeDesc::InitializePrimitive(var_types regType)
 {

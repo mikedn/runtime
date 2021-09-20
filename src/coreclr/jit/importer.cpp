@@ -7960,9 +7960,11 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
         retDesc->InitializePrimitive(retKind.type);
     }
 #if FEATURE_MULTIREG_RET
-    else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
+    else if (retKind.kind == SPK_ByValue)
     {
-        retDesc->InitializeStruct(this, layout, retKind);
+        assert(retKind.type == TYP_STRUCT);
+
+        retDesc->InitializeStruct(this, layout);
     }
 #endif
     else
@@ -13373,7 +13375,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
                 StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed);
 
-                if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
+                if (retKind.kind == SPK_ByValue)
                 {
                     // Unbox nullable helper returns a TYP_STRUCT.
                     // For the multi-reg case we need to spill it to a temp so that

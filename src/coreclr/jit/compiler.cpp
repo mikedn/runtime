@@ -689,7 +689,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
 
     if (layout->IsHfa())
     {
-        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
+        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValue, TYP_STRUCT)
                                                 : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 
@@ -704,7 +704,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
 
     if (layout->IsHfa())
     {
-        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
+        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValue, TYP_STRUCT)
                                                 : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 

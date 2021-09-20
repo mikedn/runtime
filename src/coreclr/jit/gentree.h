@@ -3935,7 +3935,9 @@ public:
     {
     }
 
-    void InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind);
+#if FEATURE_MULTIREG_RET
+    void InitializeStruct(Compiler* comp, ClassLayout* retLayout);
+#endif
 
     void InitializePrimitive(var_types regType);
 

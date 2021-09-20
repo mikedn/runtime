@@ -113,9 +113,11 @@ void Compiler::lvaInitTypeRef()
             }
         }
 #if FEATURE_MULTIREG_RET
-        else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
+        else if (retKind.kind == SPK_ByValue)
         {
-            info.retDesc.InitializeStruct(this, retLayout, retKind);
+            assert(retKind.type == TYP_STRUCT);
+
+            info.retDesc.InitializeStruct(this, retLayout);
         }
 #endif
         else
