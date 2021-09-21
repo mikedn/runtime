@@ -13299,56 +13299,63 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         GenTreeLclVar* lclVar = val->AsLclVar();
         LclVarDsc*     lcl    = lvaGetDesc(lclVar);
 
-        if (lcl->CanBeReplacedWithItsField(this))
+        if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1) && !lcl->lvContainsHoles)
         {
             // We can replace the struct with its only field and allow copy propagation to replace
             // return value that was written as a field.
             unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
             LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
 
-            JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
-                    "V%02u for "
-                    "the return [%06u]\n",
-                    lclVar->GetLclNum(), fieldLclNum, dspTreeID(ret));
-
-            lclVar->SetLclNum(fieldLclNum);
-            lclVar->SetType(fieldLcl->GetType());
-
-            if (fieldLcl->lvNormalizeOnLoad())
+            if (!varTypeIsSIMD(fieldLcl->GetType()) || (info.retDesc.GetRegCount() == 1))
             {
-                // TODO-MIKE-CQ: The return type is a struct so we don't need to actually
-                // perform load normalization here, just fix the LCL_VAR node type to be
-                // TYP_INT, as normal load normalization does it.
-                // Still, it would be better to add a cast here so that the optimizer knows
-                // that only the lower 8/16 bits are needed and thus upstream narrowing
-                // casts can be eliminated. But the optimizer isn't really capable of doing
-                // this right now...
+                JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
+                        "V%02u for the return [%06u]\n",
+                        lclVar->GetLclNum(), fieldLclNum, dspTreeID(ret));
 
-                lclVar->SetType(TYP_INT);
-            }
+                lclVar->SetLclNum(fieldLclNum);
+                lclVar->SetType(fieldLcl->GetType());
 
-            if (fieldLcl->TypeIs(TYP_FLOAT, TYP_DOUBLE) && (info.retDesc.GetRegCount() == 1) &&
-                varTypeIsIntegral(info.retDesc.GetRegType(0)))
-            {
-                var_types regType = varActualType(info.retDesc.GetRegType(0));
-
-                if (varTypeSize(fieldLcl->GetType()) <= REGSIZE_BYTES)
+                if (fieldLcl->lvNormalizeOnLoad())
                 {
-                    ret->SetOp(0, gtNewBitCastNode(fieldLcl->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, lclVar));
+                    // TODO-MIKE-CQ: The return type is a struct so we don't need to actually
+                    // perform load normalization here, just fix the LCL_VAR node type to be
+                    // TYP_INT, as normal load normalization does it.
+                    // Still, it would be better to add a cast here so that the optimizer knows
+                    // that only the lower 8/16 bits are needed and thus upstream narrowing
+                    // casts can be eliminated. But the optimizer isn't really capable of doing
+                    // this right now...
+
+                    lclVar->SetType(TYP_INT);
                 }
 
-                ret->SetType(regType);
-            }
-#ifdef TARGET_X86
-            else if (fieldLcl->TypeIs(TYP_DOUBLE) && (info.retDesc.GetRegCount() == 2))
-            {
-                assert((info.retDesc.GetRegType(0) == TYP_INT) && (info.retDesc.GetRegType(1) == TYP_INT));
-                ret->SetType(TYP_LONG);
-            }
+                if (fieldLcl->TypeIs(TYP_FLOAT, TYP_DOUBLE
+#ifdef WINDOWS_AMD64_ABI
+                                     ,
+                                     TYP_SIMD8
 #endif
-            else
-            {
-                ret->SetType(varActualType(fieldLcl->GetType()));
+                                     ) &&
+                    (info.retDesc.GetRegCount() == 1) && varTypeIsIntegral(info.retDesc.GetRegType(0)))
+                {
+                    var_types regType = varActualType(info.retDesc.GetRegType(0));
+
+                    if (varTypeSize(fieldLcl->GetType()) <= REGSIZE_BYTES)
+                    {
+                        ret->SetOp(0, gtNewBitCastNode(fieldLcl->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, lclVar));
+                    }
+
+                    ret->SetType(regType);
+                }
+#ifdef TARGET_X86
+                else if (fieldLcl->TypeIs(TYP_DOUBLE) && (info.retDesc.GetRegCount() == 2))
+                {
+                    assert((info.retDesc.GetRegType(0) == TYP_INT) && (info.retDesc.GetRegType(1) == TYP_INT));
+                    ret->SetType(TYP_LONG);
+                }
+#endif
+                else
+                {
+                    ret->SetType(varActualType(fieldLcl->GetType()));
+                }
             }
         }
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
