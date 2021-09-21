@@ -1955,7 +1955,8 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
     // problem is the handling of method parameters and unfortunately the code that
     // does that is a pile of garbage...
 
-    if ((structPromotionInfo.fieldCnt == 1) && varTypeIsFloating(structPromotionInfo.fields[0].fldType))
+    if ((structPromotionInfo.fieldCnt == 1) && varTypeIsFloating(structPromotionInfo.fields[0].fldType) &&
+        lcl->IsParam())
     {
         JITDUMP("Not promoting struct local V%02u: struct has a single float/double field.\n", lclNum,
                 structPromotionInfo.fieldCnt);
