@@ -13326,6 +13326,30 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
                 lclVar->SetType(TYP_INT);
             }
+
+            if (fieldLcl->TypeIs(TYP_FLOAT, TYP_DOUBLE) && (info.retDesc.GetRegCount() == 1) &&
+                varTypeIsIntegral(info.retDesc.GetRegType(0)))
+            {
+                var_types regType = varActualType(info.retDesc.GetRegType(0));
+
+                if (varTypeSize(fieldLcl->GetType()) <= REGSIZE_BYTES)
+                {
+                    ret->SetOp(0, gtNewBitCastNode(fieldLcl->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, lclVar));
+                }
+
+                ret->SetType(regType);
+            }
+#ifdef TARGET_X86
+            else if (fieldLcl->TypeIs(TYP_DOUBLE) && (info.retDesc.GetRegCount() == 2))
+            {
+                assert((info.retDesc.GetRegType(0) == TYP_INT) && (info.retDesc.GetRegType(1) == TYP_INT));
+                ret->SetType(TYP_LONG);
+            }
+#endif
+            else
+            {
+                ret->SetType(varActualType(fieldLcl->GetType()));
+            }
         }
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
         else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())

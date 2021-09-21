@@ -2665,10 +2665,13 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
         {
             if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
             {
-                GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
-                ret->SetOp(0, bitcast);
-                BlockRange().InsertBefore(ret, bitcast);
-                LowerBitCast(bitcast);
+                if (varTypeSize(src->GetType()) <= REGSIZE_BYTES)
+                {
+                    GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
+                    ret->SetOp(0, bitcast);
+                    BlockRange().InsertBefore(ret, bitcast);
+                    LowerBitCast(bitcast);
+                }
             }
         }
         else if (!src->IsFieldList())
