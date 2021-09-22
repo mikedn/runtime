@@ -852,7 +852,7 @@ private:
             return varTypeSize(indir->GetType());
         }
 
-        if (indir->OperIs(GT_IND))
+        if (indir->OperIs(GT_IND, GT_DYN_BLK))
         {
             // STRUCT typed IND nodes are only used as the source of DYN_BLK
             // so their size is unknown.
@@ -891,18 +891,16 @@ private:
             }
         }
 
-        switch (indir->GetOper())
+        if (GenTreeField* field = indir->IsField())
         {
-            case GT_FIELD:
-                return m_compiler->info.compCompHnd->getClassSize(
-                    m_compiler->info.compCompHnd->getFieldClass(indir->AsField()->gtFldHnd));
-            case GT_BLK:
-            case GT_OBJ:
-                return indir->AsBlk()->GetLayout()->GetSize();
-            default:
-                assert(indir->OperIs(GT_IND, GT_DYN_BLK));
-                return 0;
+            CORINFO_CLASS_HANDLE fieldClassHandle;
+            CorInfoType          corType =
+                m_compiler->info.compCompHnd->getFieldType(field->GetFieldHandle(), &fieldClassHandle);
+            assert(JITtype2varType(corType) == TYP_STRUCT);
+            return m_compiler->info.compCompHnd->getClassSize(fieldClassHandle);
         }
+
+        return indir->AsBlk()->GetLayout()->GetSize();
     }
 
     //------------------------------------------------------------------------
