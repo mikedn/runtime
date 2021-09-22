@@ -13092,95 +13092,6 @@ DONE_MORPHING_CHILDREN:
     return tree;
 }
 
-//----------------------------------------------------------------------------------------------
-// fgMorphRetInd: Try to get rid of extra IND(ADDR()) pairs in a return tree.
-//
-// Arguments:
-//    node - The return node that uses an indirection.
-//
-// Return Value:
-//    the original op1 of the ret if there was no optimization or an optimized new op1.
-//
-GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
-{
-    assert(ret->OperIs(GT_RETURN));
-    assert(ret->GetOp(0)->OperIs(GT_IND, GT_OBJ));
-
-    GenTreeIndir* indir = ret->GetOp(0)->AsIndir();
-    GenTree*      addr  = indir->GetAddr();
-
-    if (!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
-    {
-        return indir;
-    }
-
-    assert(!gtIsActiveCSE_Candidate(addr) && !gtIsActiveCSE_Candidate(indir));
-
-    unsigned indirSize;
-
-    if (indir->OperIs(GT_IND))
-    {
-        indirSize = varTypeSize(indir->GetType());
-    }
-    else
-    {
-        indirSize = indir->AsBlk()->GetLayout()->GetSize();
-    }
-
-    GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
-    LclVarDsc*     lcl    = lvaGetDesc(lclVar);
-
-    assert(!lcl->IsImplicitByRefParam());
-
-    unsigned lclSize;
-
-    if (lcl->TypeIs(TYP_STRUCT))
-    {
-        lclSize = lcl->GetLayout()->GetSize();
-    }
-    else
-    {
-        assert(!lcl->TypeIs(TYP_BLK));
-        lclSize = varTypeSize(lcl->GetType());
-    }
-
-    // If `return` retypes LCL_VAR as a smaller struct it should not set `doNotEnregister` on that LclVar.
-    // Example: in `Vector128:AsVector2` we have RETURN SIMD8(OBJ SIMD8(ADDR byref(LCL_VAR SIMD16))).
-
-    // TODO: change conditions in `canFold` to `indSize <= lclVarSize`, but currently do not support `BITCAST
-    // int<-SIMD16` etc.
-    assert((indirSize <= lclSize) || lcl->lvDoNotEnregister);
-
-#ifdef TARGET_64BIT
-    bool canFold = (indirSize == lclSize);
-#else
-    // TODO: improve 32 bit targets handling for LONG returns if necessary, nowadays we do not support `BITCAST
-    // long<->double` there.
-    bool canFold = (indirSize == lclSize) && (lclSize <= REGSIZE_BYTES);
-#endif
-
-    // TODO: support `genReturnBB != nullptr`, it requires #11413 to avoid `Incompatible types for
-    // gtNewTempAssign`.
-
-    if (canFold && (genReturnBB == nullptr))
-    {
-        // Fold (TYPE1)*(&(TYPE2)x) even if types do not match, lowering will handle it.
-        // Getting rid of this IND(ADDR()) pair allows to keep lclVar as not address taken
-        // and enregister it.
-
-        ret->SetOp(0, lclVar);
-
-        return lclVar;
-    }
-
-    if (!lcl->lvDoNotEnregister)
-    {
-        lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(DNER_BlockOp));
-    }
-
-    return indir;
-}
-
 #ifdef TARGET_ARM64
 void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
 {
@@ -13288,11 +13199,6 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         return;
     }
 #endif // UNIX_AMD64_ABI || TARGET_ARMARCH
-
-    if (val->OperIs(GT_OBJ, GT_IND))
-    {
-        val = fgMorphRetInd(ret);
-    }
 
     if (val->OperIs(GT_LCL_VAR))
     {
