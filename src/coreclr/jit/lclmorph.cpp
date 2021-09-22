@@ -1614,6 +1614,11 @@ private:
     {
         GenTreeField* field = node->AsField();
 
+        if ((user != nullptr) && user->OperIs(GT_RETURN))
+        {
+            return;
+        }
+
         if (!field->GetAddr()->OperIs(GT_ADDR))
         {
             return;
