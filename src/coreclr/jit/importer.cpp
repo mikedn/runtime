@@ -8060,21 +8060,29 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     if (lcl == nullptr)
     {
-        unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
-        impAppendTempAssign(tempLclNum, value, retClass, CHECK_SPILL_ALL);
+#ifdef TARGET_ARMARCH
+        if (value->IsCall())
+#endif
+        {
+            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
+            impAppendTempAssign(tempLclNum, value, retClass, CHECK_SPILL_ALL);
 
-        lcl   = lvaGetDesc(tempLclNum);
-        value = gtNewLclvNode(tempLclNum, lcl->GetType());
+            lcl   = lvaGetDesc(tempLclNum);
+            value = gtNewLclvNode(tempLclNum, lcl->GetType());
+        }
     }
 
-    if (info.GetRetSigType() == TYP_STRUCT)
+    if (lcl != nullptr)
     {
-        // Make sure that this struct stays in memory and doesn't get promoted.
-        lcl->lvIsMultiRegRet = true;
-    }
+        if (info.GetRetSigType() == TYP_STRUCT)
+        {
+            // Make sure that this struct stays in memory and doesn't get promoted.
+            lcl->lvIsMultiRegRet = true;
+        }
 
-    // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-    value->gtFlags |= GTF_DONT_CSE;
+        // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
+        value->gtFlags |= GTF_DONT_CSE;
+    }
 
     return value;
 #endif

@@ -13132,16 +13132,16 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
     // TODO-MIKE-Cleanup: This should be enabled unconditionally but x86 is problematic,
     // it has multireg returns but not multireg args so the entire multireg arg handling
     // code also needs to be enabled and reviewed for corectness.
-    if ((info.retDesc.GetRegCount() > 1) && (varTypeIsSIMD(val->GetType()) || info.retLayout->IsHfa()))
+    if (info.retDesc.GetRegCount() > 1)
     {
         assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
 
-        GenTreeOp* comma = nullptr;
+        ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
 
-        if (val->OperIs(GT_COMMA))
+        while (val->OperIs(GT_COMMA))
         {
-            comma = val->AsOp();
-            val   = comma->GetOp(1);
+            commas.Push(val->AsOp());
+            val = val->AsOp()->GetOp(1);
         }
 
         if (val->IsFieldList())
@@ -13184,11 +13184,17 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
         val = abiMorphMultiRegStructArg(&argInfo, val);
 
-        if (comma != nullptr)
+        if (!commas.Empty())
         {
-            comma->SetOp(1, val);
-            comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | val->GetSideEffects());
-            ret->SetSideEffects(comma->GetSideEffects());
+            commas.Top()->SetOp(1, val);
+
+            for (int i = 0; i < commas.Height(); i++)
+            {
+                GenTreeOp* comma = commas.Top(i);
+                comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
+            }
+
+            ret->SetSideEffects(commas.Bottom()->GetSideEffects());
         }
         else
         {
