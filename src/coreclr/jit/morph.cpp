@@ -704,9 +704,17 @@ REMOVE_CAST:
 #ifdef DEBUG
 void CallArgInfo::Dump() const
 {
-    printf("arg %u:", m_argNum);
-    printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
+    if (m_isReturn)
+    {
+        printf("return:");
+    }
+    else
+    {
+        printf("arg %u:", m_argNum);
+    }
 
+    printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
+    
     if (IsImplicitByRef())
     {
         printf(", implicit by-ref");
@@ -3349,7 +3357,9 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
     return gtNewCommaNode(asgPtrField, asgTypeField);
 }
 
-#if FEATURE_MULTIREG_ARGS
+#endif
+
+#if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
 
 GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
 {
@@ -3644,8 +3654,23 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
         GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
 
+#ifdef WINDOWS_X86_ABI
+        if (fieldType == TYP_SIMD8)
+        {
+            // Handle win-x86 multireg return of a struct with a single SIMD8 field.
+            // This would also work for ARM multireg args but ARM doesn't have SIMD.
+            assert((regType == TYP_INT) && (reg == 0) && (regCount == 2));
+
+            fieldNode = gtNewSimdGetElementNode(TYP_SIMD16, TYP_INT, fieldNode, gtNewIconNode(0));
+            list->AddField(this, fieldNode, fieldOffset, fieldType);
+            fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
+            fieldNode = gtNewSimdGetElementNode(TYP_SIMD16, TYP_INT, fieldNode, gtNewIconNode(1));
+            reg += 2;
+        }
+        else
+#endif
 #ifdef FEATURE_SIMD
-        if ((fieldType == TYP_DOUBLE) || (fieldType == TYP_SIMD8))
+            if ((fieldType == TYP_DOUBLE) || (fieldType == TYP_SIMD8))
 #else
         if (fieldType == TYP_DOUBLE)
 #endif
@@ -3795,7 +3820,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Morphing multireg struct argument: ");
+        printf("Morphing multireg struct ");
         argInfo->Dump();
     }
 #endif
@@ -3900,6 +3925,9 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
     assert(regCount == 2);
     assert(argInfo->GetRegType(0) == TYP_DOUBLE);
     assert((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE));
+#elif defined(WINDOWS_X86_ABI)
+    assert(regCount == 2);
+    assert((argInfo->GetRegType(0) == TYP_INT) && (argInfo->GetRegType(1) == TYP_INT));
 #else
 #error Unknown target.
 #endif
@@ -4309,6 +4337,8 @@ GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOf
 
 #if defined(TARGET_AMD64)
         if ((offset >= INT32_MIN) && (offset <= INT32_MAX - indirSize))
+#elif defined(WINDOWS_X86_ABI)
+        if (static_cast<unsigned>(offset) <= UINT32_MAX - indirSize)
 #elif defined(TARGET_ARMARCH)
         // For simplicity, limit the offset to values that are valid address mode
         // offsets, no matter what the indirection type is.
@@ -4411,7 +4441,9 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 #endif
 }
 
-#endif // FEATURE_MULTIREG_ARGS
+#endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
+
+#ifndef TARGET_X86
 
 unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
 {
@@ -13128,10 +13160,9 @@ void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
 
 void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 {
-#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
-    // TODO-MIKE-Cleanup: This should be enabled unconditionally but x86 is problematic,
-    // it has multireg returns but not multireg args so the entire multireg arg handling
-    // code also needs to be enabled and reviewed for corectness.
+    assert(varTypeIsStruct(ret->GetType()));
+
+#if FEATURE_MULTIREG_RET
     if (info.retDesc.GetRegCount() > 1)
     {
         assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
@@ -13162,7 +13193,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
         GenTreeCall::Use use(val);
         use.SetSigTypeNum(typGetLayoutNum(info.GetRetLayout()));
-        CallArgInfo argInfo(0, &use, info.retDesc.GetRegCount());
+        CallArgInfo argInfo(0, &use, info.retDesc.GetRegCount(), true);
         argInfo.SetArgType(val->GetType());
 
 #ifdef UNIX_AMD64_ABI
@@ -13184,6 +13215,29 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
         val = abiMorphMultiRegStructArg(&argInfo, val);
 
+        var_types retType = varActualType(val->GetType());
+
+#ifdef WINDOWS_X86_ABI
+        // TODO-MIKE-Cleanup: abiMorphMultiRegStructArg manages to generate a FIELD_LIST
+        // with a single LONG/DOUBLE field, this doesn't seem right and it certainly doesn't
+        // work correctly on x86. ARM32 multireg args may also be affected.
+        if (GenTreeFieldList* fieldList = val->IsFieldList())
+        {
+            GenTreeFieldList::Use* field = fieldList->Uses().GetHead();
+
+            if (field->GetNext() == nullptr)
+            {
+                val = field->GetNode();
+                assert(val->TypeIs(TYP_LONG, TYP_DOUBLE));
+
+                if (val->TypeIs(TYP_DOUBLE))
+                {
+                    retType = TYP_LONG;
+                }
+            }
+        }
+#endif
+
         if (!commas.Empty())
         {
             commas.Top()->SetOp(1, val);
@@ -13192,6 +13246,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             {
                 GenTreeOp* comma = commas.Top(i);
                 comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
+                comma->SetType(retType);
             }
 
             ret->SetSideEffects(commas.Bottom()->GetSideEffects());
@@ -13202,9 +13257,11 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             ret->SetSideEffects(val->GetSideEffects());
         }
 
+        ret->SetType(retType);
+
         return;
     }
-#endif // UNIX_AMD64_ABI || TARGET_ARMARCH
+#endif // FEATURE_MULTIREG_RET
 
     if (val->OperIs(GT_LCL_VAR))
     {

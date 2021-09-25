@@ -4773,6 +4773,7 @@ private:
 #ifdef TARGET_64BIT
     bool m_isImplicitByRef : 1;
 #endif
+    bool m_isReturn : 1;
 
     // Count of registers used by this argument.
     // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
@@ -4792,7 +4793,7 @@ private:
 #endif
 
 public:
-    CallArgInfo(unsigned argNum, GenTreeCall::Use* use, unsigned regCount)
+    CallArgInfo(unsigned argNum, GenTreeCall::Use* use, unsigned regCount, bool isReturn = false)
         : use(use)
         , m_lateUse(nullptr)
         , m_argNum(argNum)
@@ -4808,12 +4809,13 @@ public:
 #ifdef TARGET_64BIT
         , m_isImplicitByRef(false)
 #endif
+        , m_isReturn(isReturn)
         , m_regCount(static_cast<uint8_t>(regCount))
 #ifdef FEATURE_HFA_FIELDS_PRESENT
         , m_regType(TYP_I_IMPL)
 #endif
     {
-        assert(regCount <= MAX_ARG_REG_COUNT);
+        assert(regCount <= static_cast<unsigned>(isReturn ? MAX_RET_REG_COUNT : MAX_ARG_REG_COUNT));
     }
 
     // Get the use that coresponds to this argument.
@@ -4967,6 +4969,12 @@ public:
             return static_cast<regNumber>(m_regNum + i * 2);
         }
 #endif
+#ifdef WINDOWS_X86_ABI
+        if (m_isReturn)
+        {
+            return i == 0 ? REG_RAX : REG_RDX;
+        }
+#endif
 #ifdef UNIX_AMD64_ABI
         return static_cast<regNumber>(m_regNums[i]);
 #else
@@ -4980,7 +4988,6 @@ public:
         assert(i < m_regCount);
         m_regNums[i] = static_cast<regNumberSmall>(regNum);
 #else
-        assert(i == 0);
         m_regNum = static_cast<regNumberSmall>(regNum);
 #endif
     }

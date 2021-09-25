@@ -8432,7 +8432,8 @@ public:
 #ifndef TARGET_X86
     void abiMorphArgs2ndPass(GenTreeCall* call);
     GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
-#if FEATURE_MULTIREG_ARGS
+#endif
+#if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
     GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
     bool abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
     GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
@@ -8445,6 +8446,7 @@ public:
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
 #endif
+#ifndef TARGET_X86
     unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);
     void abiFreeAllStructArgTemps();
 #if TARGET_64BIT
