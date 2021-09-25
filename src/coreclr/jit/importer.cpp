@@ -7952,7 +7952,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     call->SetRetSigType(type);
     call->SetRetLayout(layout);
 
-    StructPassing   retKind = abiGetStructReturnType(layout, call->GetUnmanagedCallConv());
+    StructPassing   retKind = abiGetStructReturnType(layout, call->GetUnmanagedCallConv(), call->IsVarargs());
     ReturnTypeDesc* retDesc = call->GetRetDesc();
 
     if (retKind.kind == SPK_PrimitiveType)
@@ -8019,21 +8019,22 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     if (GenTreeCall* call = value->IsCall())
     {
-#ifndef TARGET_ARMARCH
-        return value;
-#else
-        if (!call->IsVarargs())
-        {
-            return value;
-        }
+        // TODO-MIKE-Cleanup: This is dubious. Existing code probably tried to ensure
+        // that the callee returns the value in the same registers as the caller and
+        // it happens so that on ARM varargs affects the return ABI (no HFA for either
+        // parameters or returns, unlike win-arm64 ABI where varargs only blocks HFA
+        // parameters). It may be better to explicitly check the return registers to
+        // ensure that we don't have any surprises with new calling conventions (e.g.
+        // native win-x86 ABI returns Vector2 in RAX/RDX but __vectorcall should use
+        // XMM0/XMM1 instead).
 
-        // We cannot tail call because control needs to return to fixup the calling
-        // convention for result return.
-        call->gtCallMoreFlags &= ~GTF_CALL_M_TAILCALL;
-        call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
-#endif
+        // We don't support varargs on ARM so just assert.
+        ARM_ONLY(noway_assert(!call->IsVarargs());)
+
+        return value;
     }
-    else if (varTypeIsSIMD(value->GetType()) || info.GetRetLayout()->IsHfa())
+
+    if (varTypeIsSIMD(value->GetType()) || info.GetRetLayout()->IsHfa())
     {
         return value;
     }
@@ -8050,20 +8051,6 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
             // we need a temp even if now they're LCL_VARs.
 
             lcl = nullptr;
-        }
-    }
-
-    if (lcl == nullptr)
-    {
-#ifdef TARGET_ARMARCH
-        if (value->IsCall())
-#endif
-        {
-            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
-            impAppendTempAssign(tempLclNum, value, retClass, CHECK_SPILL_ALL);
-
-            lcl   = lvaGetDesc(tempLclNum);
-            value = gtNewLclvNode(tempLclNum, lcl->GetType());
         }
     }
 
@@ -13376,7 +13363,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // that impAssignStructAddr could handle as well.
 
                 ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
-                StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed);
+                StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
 
                 if (retKind.kind == SPK_ByValue)
                 {

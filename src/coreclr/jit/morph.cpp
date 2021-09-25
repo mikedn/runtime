@@ -714,7 +714,7 @@ void CallArgInfo::Dump() const
     }
 
     printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
-    
+
     if (IsImplicitByRef())
     {
         printf(", implicit by-ref");

@@ -4084,7 +4084,7 @@ public:
     bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
     StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
-    StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv);
+    StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
 
 #ifdef DEBUG
     // Print a representation of "vnp" or "vn" on standard output.

@@ -626,7 +626,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
 #endif
 }
 
-StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv)
+StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarargs)
 {
 #if defined(WINDOWS_AMD64_ABI)
     if (!callConvIsInstanceMethodCallConv(callConv) || isNativePrimitiveStructType(layout))
@@ -687,7 +687,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
 #elif defined(TARGET_ARM)
     layout->EnsureHfaInfo(this);
 
-    if (layout->IsHfa())
+    if (layout->IsHfa() && !isVarargs)
     {
         return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValue, TYP_STRUCT)
                                                 : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());

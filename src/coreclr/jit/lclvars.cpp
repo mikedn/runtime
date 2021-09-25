@@ -94,7 +94,7 @@ void Compiler::lvaInitTypeRef()
     else
     {
         ClassLayout*  retLayout = typGetObjLayout(info.compMethodInfo->args.retTypeClass);
-        StructPassing retKind   = abiGetStructReturnType(retLayout, info.compCallConv);
+        StructPassing retKind   = abiGetStructReturnType(retLayout, info.compCallConv, info.compIsVarArgs);
 
         info.compRetType = typGetStructType(retLayout);
         info.retLayout   = retLayout;
