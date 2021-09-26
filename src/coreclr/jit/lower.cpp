@@ -2676,16 +2676,6 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
         }
         else if (!src->IsFieldList())
         {
-#if FEATURE_MULTIREG_RET
-            if (varTypeIsStruct(src->GetType()))
-            {
-                if (src->OperIs(GT_LCL_VAR) && (comp->info.retDesc.GetRegCount() > 1))
-                {
-                    MakeMultiRegLclVar(src->AsLclVar(), &comp->info.retDesc);
-                }
-            }
-#endif
-
             if (varTypeIsStruct(ret->GetType()))
             {
                 LowerRetStruct(ret);
