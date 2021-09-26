@@ -13296,7 +13296,12 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
                                            gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT),
                                            gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT));
 
+            var_types regType = varActualType(info.retDesc.GetRegType(0));
+            assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
+
+            val = gtNewSimdGetElementNode(TYP_SIMD16, regType, val, gtNewIconNode(0));
             ret->SetOp(0, val);
+            ret->SetType(regType);
         }
 #endif
     }
