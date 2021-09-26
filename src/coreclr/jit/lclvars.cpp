@@ -1745,6 +1745,16 @@ bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE 
         structPromotionInfo.containsHoles = true;
     }
 
+    if (structPromotionInfo.containsHoles && (fieldCnt == 1))
+    {
+        // Single field structs can only have holes due to explicit size/layout.
+        // Don't bother promoting, they're rare and a potential source of bugs
+        // (especially considering that the most commun occurence of such structs
+        // are "fixed buffer" structs created by the C# compiler and those must
+        // not be promoted).
+        return false;
+    }
+
     // Cool, this struct is promotable.
 
     structPromotionInfo.canPromote = true;
@@ -3561,10 +3571,7 @@ bool LclVarDsc::CanBeReplacedWithItsField(Compiler* comp) const
         return false;
     }
 
-    if (lvContainsHoles)
-    {
-        return false;
-    }
+    assert(!lvContainsHoles);
 
 #if defined(FEATURE_SIMD)
     // If we return `struct A { SIMD16 a; }` we split the struct into several fields.

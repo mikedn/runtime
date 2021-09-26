@@ -13268,7 +13268,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         GenTreeLclVar* lclVar = val->AsLclVar();
         LclVarDsc*     lcl    = lvaGetDesc(lclVar);
 
-        if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1) && !lcl->lvContainsHoles)
+        if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1))
         {
             // We can replace the struct with its only field and allow copy propagation to replace
             // return value that was written as a field.
