@@ -1235,9 +1235,6 @@ protected:
     void genEHFinallyOrFilterRet(BasicBlock* block);
 #endif // !FEATURE_EH_FUNCLETS
 
-#ifdef FEATURE_SIMD
-    void genMultiRegSIMDReturn(GenTree* src);
-#endif
 #ifndef WINDOWS_AMD64_ABI
     void genMultiRegStructReturn(GenTree* src);
 #endif

@@ -2657,37 +2657,9 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 
     JITDUMPTREE(ret, "Lowering RETURN:\n");
 
-    if (!ret->TypeIs(TYP_VOID))
+    if (ret->TypeIs(TYP_STRUCT) && !ret->GetOp(0)->IsFieldList())
     {
-        GenTree* src = ret->GetOp(0);
-
-        if (!varTypeIsStruct(ret->GetType()) && !varTypeIsStruct(src->GetType()))
-        {
-            if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
-            {
-                if (varTypeSize(src->GetType()) <= REGSIZE_BYTES)
-                {
-                    GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
-                    ret->SetOp(0, bitcast);
-                    BlockRange().InsertBefore(ret, bitcast);
-                    LowerBitCast(bitcast);
-                }
-            }
-        }
-        else if (!src->IsFieldList())
-        {
-            if (varTypeIsStruct(ret->GetType()))
-            {
-                LowerRetStruct(ret);
-            }
-            else if (varTypeIsStruct(src->GetType()))
-            {
-                // Return struct as a primitive using Unsafe cast.
-
-                assert(src->OperIs(GT_LCL_VAR));
-                LowerRetSingleRegStructLclVar(ret);
-            }
-        }
+        LowerRetStruct(ret);
     }
 
     // Method doing PInvokes has exactly one return block unless it has tail calls.
@@ -2940,29 +2912,14 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 {
     assert(ret->OperIs(GT_RETURN));
-    assert(varTypeIsStruct(ret->GetType()));
+    assert(ret->TypeIs(TYP_STRUCT));
+    assert(comp->info.retDesc.GetRegCount() == 1);
 
     GenTree* src = ret->GetOp(0);
-
-#ifdef TARGET_X86
-    if (comp->info.retDesc.GetRegCount() == 2)
-    {
-        if (src->TypeIs(TYP_DOUBLE, TYP_LONG))
-        {
-            // Native win-x86 ABI returns a struct with a single DOUBLE/LONG field in 2 INT registers.
-            assert((comp->info.retDesc.GetRegType(0) == TYP_INT) && (comp->info.retDesc.GetRegType(1) == TYP_INT));
-            ret->SetType(TYP_LONG);
-
-            return;
-        }
-    }
-#endif
 
 #ifdef DEBUG
     if (!varTypeIsStruct(src->GetType()))
     {
-        assert(comp->info.retDesc.GetRegCount() == 1);
-
         var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
         var_types srcActualType = varActualType(src->GetType());
 
@@ -2976,36 +2933,6 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
         assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
     }
 #endif // DEBUG
-
-#ifdef TARGET_ARM64
-    if (varTypeIsSIMD(ret->GetType()))
-    {
-        if (comp->info.retDesc.GetRegCount() > 1)
-        {
-            assert(varTypeIsSIMD(src->GetType()));
-
-            ret->SetType(TYP_STRUCT);
-        }
-        else
-        {
-            assert(comp->info.retDesc.GetRegType(0) == ret->GetType());
-
-            if (src->GetType() != ret->GetType())
-            {
-                assert(src->OperIs(GT_LCL_VAR));
-
-                LowerRetSingleRegStructLclVar(ret);
-            }
-        }
-
-        return;
-    }
-#endif
-
-    if (comp->info.retDesc.GetRegCount() > 1)
-    {
-        return;
-    }
 
     if (src->OperIs(GT_IND, GT_OBJ))
     {

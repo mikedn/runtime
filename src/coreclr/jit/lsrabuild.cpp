@@ -3397,18 +3397,18 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
 
     GenTree* src = ret->GetOp(0);
 
+#ifdef TARGET_X86
+    if (ret->TypeIs(TYP_DOUBLE, TYP_FLOAT) || (ret->TypeIs(TYP_LONG) && src->TypeIs(TYP_DOUBLE)))
+    {
+        BuildUse(src);
+
+        return 1;
+    }
+#endif
+
 #ifndef TARGET_64BIT
     if (ret->TypeIs(TYP_LONG))
     {
-#ifdef TARGET_X86
-        if (src->TypeIs(TYP_DOUBLE))
-        {
-            BuildUse(src);
-
-            return 1;
-        }
-#endif
-
         assert(src->OperIs(GT_LONG) && src->isContained());
 
         BuildUse(src->AsOp()->GetOp(0), RBM_LNGRET_LO);
@@ -3440,38 +3440,16 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
         return 0;
     }
 
-#ifdef TARGET_ARM64
-    if (varTypeIsSIMD(ret->GetType()) && !src->IsMultiRegLclVar())
-    {
-        regMaskTP useCandidates = allSIMDRegs();
-
-        if (src->OperIs(GT_LCL_VAR))
-        {
-            assert(!src->TypeIs(TYP_SIMD32));
-            useCandidates = RBM_V0;
-        }
-
-        BuildUse(src, useCandidates);
-
-        return 1;
-    }
-#endif
+    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
 
 #if FEATURE_MULTIREG_RET
-    if (varTypeIsStruct(ret->GetType()))
+    if (retDesc.GetRegCount() > 1)
     {
-        if (src->OperIs(GT_LCL_VAR) && !src->IsMultiRegLclVar())
-        {
-            BuildUse(src);
-
-            return 1;
-        }
-
-        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+        noway_assert(src->IsMultiRegCall());
+        assert(varTypeIsStruct(ret->GetType()));
 
         if (GenTreeCall* call = src->IsCall())
         {
-            noway_assert(call->IsMultiRegCall());
             assert(retDesc.GetRegCount() == call->GetRegCount());
 
             for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
@@ -3481,67 +3459,12 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
                 BuildUse(src, genRegMask(retDesc.GetRegNum(i)), i);
             }
         }
-        else
-        {
-            noway_assert(src->IsMultiRegLclVar());
-
-            GenTreeLclVar* lclVar = src->AsLclVar();
-
-            assert(compiler->lvaEnregMultiRegVars);
-            assert(compiler->lvaGetDesc(lclVar)->GetPromotedFieldCount() == retDesc.GetRegCount());
-
-            // For any source that's coming from a different register file, we need to ensure that
-            // we reserve the specific ABI register we need.
-            bool hasMismatchedRegTypes = false;
-
-            for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
-            {
-                var_types srcType = lclVar->GetFieldTypeByIndex(compiler, i);
-                var_types retType = retDesc.GetRegType(i);
-
-                if (varTypeUsesFloatReg(srcType) != varTypeUsesFloatReg(retType))
-                {
-                    hasMismatchedRegTypes = true;
-                    regMaskTP retRegMask  = genRegMask(retDesc.GetRegNum(i));
-
-                    if (varTypeUsesFloatReg(retType))
-                    {
-                        buildInternalFloatRegisterDefForNode(ret, retRegMask);
-                    }
-                    else
-                    {
-                        buildInternalIntRegisterDefForNode(ret, retRegMask);
-                    }
-                }
-            }
-
-            for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
-            {
-                // We will build uses of the type of the operand registers/fields, and the codegen
-                // for return will move as needed.
-
-                if (!hasMismatchedRegTypes || (varTypeUsesFloatReg(lclVar->GetFieldTypeByIndex(compiler, i)) ==
-                                               varTypeUsesFloatReg(retDesc.GetRegType(i))))
-                {
-                    BuildUse(lclVar, genRegMask(retDesc.GetRegNum(i)), i);
-                }
-                else
-                {
-                    BuildUse(lclVar, RBM_NONE, i);
-                }
-            }
-
-            if (hasMismatchedRegTypes)
-            {
-                buildInternalRegisterUses();
-            }
-        }
 
         return static_cast<int>(retDesc.GetRegCount());
     }
 #endif // FEATURE_MULTIREG_RET
 
-    BuildUse(src, varTypeUsesFloatReg(ret->GetType()) ? RBM_FLOATRET : RBM_INTRET);
+    BuildUse(src, genRegMask(retDesc.GetRegNum(0)));
 
     return 1;
 }

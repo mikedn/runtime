@@ -13277,9 +13277,12 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             {
                 ret->SetType(varActualType(fieldLcl->GetType()));
             }
+
+            return;
         }
+
 #ifdef TARGET_AMD64
-        else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
+        if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
         {
             // Only Vector2/3/4 are promoted.
             assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
@@ -13298,9 +13301,28 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
             ret->SetOp(0, val);
             ret->SetType(regType);
+
+            return;
         }
 #endif
     }
+
+#ifdef WINDOWS_AMD64_ABI
+    if (varTypeIsSIMD(val->GetType()) && (info.retDesc.GetRegType(0) == TYP_LONG))
+    {
+        if (val->TypeIs(TYP_SIMD8))
+        {
+            val = gtNewBitCastNode(TYP_LONG, val);
+        }
+        else
+        {
+            val = gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, val, gtNewIconNode(0));
+        }
+
+        ret->SetOp(0, val);
+        ret->SetType(TYP_LONG);
+    }
+#endif
 }
 
 #ifdef _PREFAST_

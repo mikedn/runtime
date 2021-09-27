@@ -8011,31 +8011,14 @@ inline GenTree* GenTree::gtSkipReloadOrCopy()
     return this;
 }
 
-//-----------------------------------------------------------------------------------
-// IsMultiRegCall: whether a call node returning its value in more than one register
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     Returns true if this GenTree is a multi register returning call
 inline bool GenTree::IsMultiRegCall() const
 {
-    if (this->IsCall())
-    {
-        return AsCall()->HasMultiRegRetVal();
-    }
-
-    return false;
+    return IsCall() && AsCall()->HasMultiRegRetVal();
 }
 
 inline bool GenTree::IsMultiRegLclVar() const
 {
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-    {
-        return AsLclVar()->IsMultiReg();
-    }
-    return false;
+    return OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && AsLclVar()->IsMultiReg();
 }
 
 //-----------------------------------------------------------------------------------
@@ -8136,7 +8119,7 @@ inline unsigned GenTree::GetMultiRegCount()
 #endif
     if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        assert((gtFlags & GTF_VAR_MULTIREG) != 0);
+        assert(AsLclVar()->IsMultiReg());
         // The register count for a multireg lclVar requires looking at the LclVarDsc,
         // which requires a Compiler instance. The caller must handle this separately.
         // The register count for a multireg lclVar requires looking at the LclVarDsc,
@@ -8262,14 +8245,16 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
         return gtGetOp1()->TypeGet();
     }
 #endif
+
     if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        if (TypeGet() == TYP_LONG)
+        if (TypeIs(TYP_LONG))
         {
             return TYP_INT;
         }
-        assert(TypeGet() == TYP_STRUCT);
-        assert((gtFlags & GTF_VAR_MULTIREG) != 0);
+
+        assert(TypeIs(TYP_STRUCT));
+        assert(AsLclVar()->IsMultiReg());
         // The register type for a multireg lclVar requires looking at the LclVarDsc,
         // which requires a Compiler instance. The caller must use the GetFieldTypeByIndex
         // on GenTreeLclVar.

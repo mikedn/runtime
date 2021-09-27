@@ -8498,21 +8498,22 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 }
                 goto DASH;
 
-            case GT_LCL_FLD:
             case GT_LCL_VAR:
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
-            case GT_STORE_LCL_FLD:
             case GT_STORE_LCL_VAR:
-                if (tree->gtFlags & GTF_VAR_USEASG)
+                if (tree->AsLclVar()->IsMultiReg())
                 {
-                    printf("U");
+                    printf((tree->gtFlags & GTF_VAR_DEF) ? "M" : "m");
                     --msgLength;
                     break;
                 }
-                if (tree->gtFlags & GTF_VAR_MULTIREG)
+                FALLTHROUGH;
+            case GT_LCL_FLD:
+            case GT_STORE_LCL_FLD:
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                if (tree->gtFlags & GTF_VAR_USEASG)
                 {
-                    printf((tree->gtFlags & GTF_VAR_DEF) ? "M" : "m");
+                    printf("U");
                     --msgLength;
                     break;
                 }

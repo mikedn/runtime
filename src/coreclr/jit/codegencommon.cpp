@@ -10641,6 +10641,10 @@ void CodeGen::genReturn(GenTree* ret)
 
 void CodeGen::genMultiRegStructReturn(GenTree* src)
 {
+    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+    assert(retDesc.GetRegCount() > 1);
+
     if (GenTreeFieldList* list = src->IsFieldList())
     {
         unsigned regIndex = 0;
@@ -10657,7 +10661,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
             // use FIELD_LIST.
 
             regNumber srcReg = genConsumeReg(use.GetNode());
-            regNumber retReg = compiler->info.retDesc.GetRegNum(regIndex++);
+            regNumber retReg = retDesc.GetRegNum(regIndex++);
 
             if (srcReg != retReg)
             {
@@ -10673,51 +10677,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
     GenTree* actualSrc = !src->IsCopyOrReload() ? src : src->AsUnOp()->GetOp(0);
 
-    if (genIsRegCandidateLclVar(actualSrc))
-    {
-        // Right now the only enregisterable structs supported are SIMD vector types.
-        assert(varTypeIsSIMD(src->GetType()));
-        assert(!actualSrc->AsLclVar()->IsMultiReg());
-
-#ifdef FEATURE_SIMD
-        genMultiRegSIMDReturn(src);
-#endif
-
-        return;
-    }
-
-    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-    if (actualSrc->OperIs(GT_LCL_VAR) && !actualSrc->AsLclVar()->IsMultiReg())
-    {
-        unsigned lclNum = actualSrc->AsLclVar()->GetLclNum();
-
-        assert(compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet || !compiler->lvaGetDesc(lclNum)->IsPromoted());
-
-        for (unsigned i = 0, offset = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            var_types retType = retDesc.GetRegType(i);
-            regNumber retReg  = retDesc.GetRegNum(i);
-
-            GetEmitter()->emitIns_R_S(ins_Load(retType), emitTypeSize(retType), retReg, lclNum, offset);
-
-            offset += varTypeSize(retType);
-        }
-
-        return;
-    }
-
-    LclVarDsc* lcl = nullptr;
-
-    if (actualSrc->OperIs(GT_LCL_VAR))
-    {
-        lcl = compiler->lvaGetDesc(actualSrc->AsLclVar()->GetLclNum());
-        assert(lcl->lvIsMultiRegRet && lcl->IsPromoted());
-    }
-    else
-    {
-        assert(actualSrc->AsCall()->GetRegCount() == retDesc.GetRegCount());
-    }
+    assert(actualSrc->AsCall()->GetRegCount() == retDesc.GetRegCount());
 
     for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
     {
@@ -10738,21 +10698,9 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
             srcReg = actualSrc->GetRegByIndex(i);
         }
 
-        if (srcReg == REG_NA)
-        {
-            // This is a spilled field of a multi-reg lclVar.
-            // We currently only mark a lclVar operand as RegOptional, since we don't have a way
-            // to mark a multi-reg tree node as used from spill (GTF_NOREG_AT_USE) on a per-reg basis.
+        assert(srcReg != REG_NA);
 
-            unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-            assert(compiler->lvaGetDesc(fieldLclNum)->lvOnFrame);
-
-            GetEmitter()->emitIns_R_S(ins_Load(retType), emitTypeSize(retType), retReg, fieldLclNum, 0);
-        }
-        else
-        {
-            inst_Mov(retType, retReg, srcReg, /* canSkip */ true);
-        }
+        inst_Mov(retType, retReg, srcReg, /* canSkip */ true);
     }
 }
 

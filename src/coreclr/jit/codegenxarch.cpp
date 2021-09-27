@@ -1077,49 +1077,6 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
     genProduceReg(treeNode);
 }
 
-#ifdef FEATURE_SIMD
-
-void CodeGen::genMultiRegSIMDReturn(GenTree* src)
-{
-    assert(varTypeIsSIMD(src->GetType()));
-    assert(src->isUsedFromReg());
-
-    regNumber srcReg  = src->GetRegNum();
-    regNumber retReg0 = compiler->info.retDesc.GetRegNum(0);
-    regNumber retReg1 = compiler->info.retDesc.GetRegNum(1);
-
-#ifdef TARGET_AMD64
-    GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, retReg0, srcReg, /*canSkip*/ true);
-
-    if (compiler->canUseVexEncoding())
-    {
-        GetEmitter()->emitIns_R_R_R(INS_unpckhpd, EA_16BYTE, retReg1, srcReg, srcReg);
-    }
-    else
-    {
-        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, retReg1, srcReg, /*canSkip*/ true);
-        GetEmitter()->emitIns_R_R(INS_unpckhpd, EA_16BYTE, retReg1, retReg1);
-    }
-#else
-    assert(src->TypeIs(TYP_SIMD8));
-    assert((retReg0 == REG_EAX) && (retReg1 == REG_EDX));
-
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, retReg0, srcReg, /* canSkip */ false);
-
-    if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-    {
-        GetEmitter()->emitIns_R_R_I(INS_pextrd, EA_4BYTE, retReg1, srcReg, 1);
-    }
-    else
-    {
-        GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, srcReg, 4);
-        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, retReg1, srcReg, /* canSkip */ false);
-    }
-#endif
-}
-
-#endif // FEATURE_SIMD
-
 #ifdef TARGET_X86
 
 void CodeGen::genFloatReturn(GenTree* src)
