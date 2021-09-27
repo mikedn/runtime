@@ -3193,12 +3193,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             GenTree* doubleValue =
                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
 
-#ifdef UNIX_AMD64_ABI
-            return doubleValue;
-#else
-            // TODO-MIKE-Cleanup: It might be better to use GetElement(0)
-            return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, doubleValue);
-#endif
+            return gtNewSimdGetElementNode(TYP_SIMD16, argRegType, doubleValue, gtNewIconNode(0));
         }
     }
 #endif // TARGET_AMD64
@@ -13300,6 +13295,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
 
             val = gtNewSimdGetElementNode(TYP_SIMD16, regType, val, gtNewIconNode(0));
+
             ret->SetOp(0, val);
             ret->SetType(regType);
         }
@@ -16436,19 +16432,24 @@ bool Compiler::fgCanTailCallViaJitHelper()
 GenTree* Compiler::fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 {
 #ifdef TARGET_AMD64
-    if (tree->GetIntrinsic() == NI_SSE2_X64_ConvertToInt64)
+    if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_Vector128_GetElement) &&
+        tree->GetOp(1)->IsIntegralConst(0))
     {
         if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
         {
             if ((create->GetIntrinsic() == NI_Vector128_Create) && (create->GetSimdBaseType() == TYP_FLOAT) &&
                 (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
             {
-                assert(tree->TypeIs(TYP_LONG));
-
                 uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
                 uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
+                uint64_t bits  = bits0 | (bits1 << 32);
 
-                return tree->ChangeToIntCon(bits0 | (bits1 << 32));
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    return tree->ChangeToIntCon(static_cast<ssize_t>(bits));
+                }
+
+                return tree->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(bits));
             }
         }
     }
