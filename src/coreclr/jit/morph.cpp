@@ -13224,6 +13224,41 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
     }
 #endif // FEATURE_MULTIREG_RET
 
+    if (val->IsIntegralConst(0))
+    {
+        var_types regType = varActualType(info.retDesc.GetRegType(0));
+
+        if (varTypeIsFloating(regType))
+        {
+            val->ChangeToDblCon(TYP_DOUBLE, 0);
+        }
+        else if (varTypeIsLong(regType))
+        {
+            val->SetType(TYP_LONG);
+        }
+        else if (varTypeIsGC(regType))
+        {
+            val->SetType(TYP_I_IMPL);
+        }
+#ifdef FEATURE_HW_INTRINSICS
+        else if (varTypeIsSIMD(regType))
+        {
+            // TODO-MIKE-Cleanup: Somehow we still generate INT(0) for SIMD types...
+            val->ChangeOper(GT_HWINTRINSIC);
+            val->SetType(regType);
+            val->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(regType), TYP_FLOAT, varTypeSize(regType), 0);
+        }
+#endif
+        else
+        {
+            assert(regType == TYP_INT);
+        }
+
+        ret->SetType(regType);
+
+        return;
+    }
+
     if (val->OperIs(GT_LCL_VAR))
     {
         GenTreeLclVar* lclVar = val->AsLclVar();
