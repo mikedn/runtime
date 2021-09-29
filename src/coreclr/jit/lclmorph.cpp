@@ -1777,7 +1777,7 @@ private:
                 // Access the promoted field as a field of a non-promoted struct with the same class handle.
             }
 #ifdef DEBUG
-            else if (node->TypeIs(TYP_STRUCT))
+            else
             {
                 // The field tree accesses it as a struct, but the promoted lcl var for the field
                 // says that it has another type. It can happen only if struct promotion faked
