@@ -1708,68 +1708,69 @@ private:
     //
     void MorphStructField(GenTree* node, GenTree* user)
     {
-        GenTreeField* field = node->AsField();
-
         if ((user != nullptr) && user->OperIs(GT_RETURN))
         {
             return;
         }
+
+        GenTreeField* field = node->AsField();
 
         if (!field->GetAddr()->OperIs(GT_ADDR))
         {
             return;
         }
 
-        GenTree* obj = field->gtFldObj->AsUnOp()->gtGetOp1();
+        GenTree* location = field->GetAddr()->AsUnOp()->GetOp(0);
 
-        if (!obj->OperIs(GT_LCL_VAR))
+        if (!location->OperIs(GT_LCL_VAR) || !varTypeIsStruct(location->GetType()))
         {
             return;
         }
 
-        unsigned   lclNum = obj->AsLclVar()->GetLclNum();
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(location->AsLclVar());
 
-        if (!varTypeIsStruct(obj->GetType()) || !varDsc->IsPromoted())
+        if (!lcl->IsPromoted())
         {
             return;
         }
 
-        unsigned fieldLclIndex = GetPromotedFieldLclNumByOffset(varDsc, field->GetOffset());
+        unsigned fieldLclNum = GetPromotedFieldLclNumByOffset(lcl, field->GetOffset());
 
-        if (fieldLclIndex == BAD_VAR_NUM)
+        if (fieldLclNum == BAD_VAR_NUM)
         {
             // Access a promoted struct's field with an offset that doesn't correspond to any field.
             // It can happen if the struct was cast to another struct with different offsets.
             return;
         }
 
-        const LclVarDsc* fieldDsc = m_compiler->lvaGetDesc(fieldLclIndex);
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
 
-        // promoted LCL_VAR can't have a struct type.
-        assert(fieldDsc->TypeGet() != TYP_STRUCT);
+        // Promoted LCL_VAR can't have a struct type.
+        assert(!fieldLcl->TypeIs(TYP_STRUCT));
 
-        if (node->TypeGet() != fieldDsc->TypeGet())
+        if (node->GetType() != fieldLcl->GetType())
         {
-            if (node->TypeGet() != TYP_STRUCT)
+            if (!node->TypeIs(TYP_STRUCT))
             {
                 // This is going to be an incorrect instruction promotion.
                 // For example when we try to read int as long.
                 return;
             }
 
-            if (field->gtFldHnd != fieldDsc->lvFieldHnd)
-            {
-                CORINFO_CLASS_HANDLE fieldClass = nullptr;
-                CorInfoType fieldType = m_compiler->info.compCompHnd->getFieldType(field->gtFldHnd, &fieldClass);
-                CORINFO_CLASS_HANDLE fieldDscClass = nullptr;
-                CorInfoType          fieldDscType =
-                    m_compiler->info.compCompHnd->getFieldType(fieldDsc->lvFieldHnd, &fieldDscClass);
+            CORINFO_FIELD_HANDLE fieldHandle    = field->GetFieldHandle();
+            CORINFO_FIELD_HANDLE fieldLclHandle = fieldLcl->GetPromotedFieldHandle();
 
-                if ((fieldType != fieldDscType) || (fieldClass != fieldDscClass))
+            if (fieldHandle != fieldLclHandle)
+            {
+                CORINFO_CLASS_HANDLE fieldClass    = nullptr;
+                CORINFO_CLASS_HANDLE fieldLclClass = nullptr;
+
+                CorInfoType fieldType    = m_compiler->info.compCompHnd->getFieldType(fieldHandle, &fieldClass);
+                CorInfoType fieldLclType = m_compiler->info.compCompHnd->getFieldType(fieldLclHandle, &fieldLclClass);
+
+                if ((fieldType != fieldLclType) || (fieldClass != fieldLclClass))
                 {
-                    // Access the promoted field with a different class handle, can't check that types
-                    // match.
+                    // Access the promoted field with a different class handle, can't check that types match.
                     return;
                 }
 
@@ -1782,25 +1783,25 @@ private:
                 // says that it has another type. It can happen only if struct promotion faked
                 // field type for a struct of single field of scalar type aligned at their natural boundary.
                 assert(m_compiler->structPromotionHelper != nullptr);
-                m_compiler->structPromotionHelper->CheckRetypedAsScalar(field->gtFldHnd, fieldDsc->TypeGet());
+                m_compiler->structPromotionHelper->CheckRetypedAsScalar(fieldHandle, fieldLcl->GetType());
             }
 #endif // DEBUG
         }
 
         node->SetOper(GT_LCL_VAR);
-        node->AsLclVar()->SetLclNum(fieldLclIndex);
-        node->gtType  = fieldDsc->TypeGet();
+        node->AsLclVar()->SetLclNum(fieldLclNum);
+        node->SetType(fieldLcl->GetType());
         node->gtFlags = GTF_EMPTY;
 
         if (user->OperIs(GT_ASG))
         {
-            if (user->AsOp()->gtGetOp1() == node)
+            if (user->AsOp()->GetOp(0) == node)
             {
                 node->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
             }
             else
             {
-                assert(user->AsOp()->gtGetOp2() == node);
+                assert(user->AsOp()->GetOp(1) == node);
 
                 // Promotion of struct containing struct fields where the field
                 // is a struct with a single pointer sized scalar type field: in
@@ -1814,14 +1815,14 @@ private:
                 //
                 // TODO - This can also be avoided if we implement recursive struct
                 // promotion, tracked by #10019.
-                if (varTypeIsStruct(user->TypeGet()) && !varTypeIsStruct(node->TypeGet()))
+                if (varTypeIsStruct(user->GetType()) && !varTypeIsStruct(node->GetType()))
                 {
                     node->gtFlags |= GTF_DONT_CSE;
                 }
             }
         }
 
-        JITDUMP("Replaced the field in promoted struct with local var V%02u\n", fieldLclIndex);
+        JITDUMP("Replaced the field in promoted struct with local var V%02u\n", fieldLclNum);
         INDEBUG(m_stmtModified = true;)
     }
 
