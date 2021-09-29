@@ -1762,6 +1762,13 @@ private:
 
             if (fieldHandle != fieldLclHandle)
             {
+                // In general, the accessed field and the promoted field are the same. However, we don't
+                // really care if they're the same, we only care if they have the same type or not.
+                // In fact, we don't even care if they have the same type, we only care if they have the
+                // same layout - a single field having the promoted field local type. But it's not worth
+                // bothering with that since such cases arise only due to reinterpretation in user code
+                // (and anyway MorphLocalIndir should handle this better).
+
                 CORINFO_CLASS_HANDLE fieldClass    = nullptr;
                 CORINFO_CLASS_HANDLE fieldLclClass = nullptr;
 
@@ -1770,22 +1777,9 @@ private:
 
                 if ((fieldType != fieldLclType) || (fieldClass != fieldLclClass))
                 {
-                    // Access the promoted field with a different class handle, can't check that types match.
                     return;
                 }
-
-                // Access the promoted field as a field of a non-promoted struct with the same class handle.
             }
-#ifdef DEBUG
-            else
-            {
-                // The field tree accesses it as a struct, but the promoted lcl var for the field
-                // says that it has another type. It can happen only if struct promotion faked
-                // field type for a struct of single field of scalar type aligned at their natural boundary.
-                assert(m_compiler->structPromotionHelper != nullptr);
-                m_compiler->structPromotionHelper->CheckRetypedAsScalar(fieldHandle, fieldLcl->GetType());
-            }
-#endif // DEBUG
         }
 
         node->SetOper(GT_LCL_VAR);

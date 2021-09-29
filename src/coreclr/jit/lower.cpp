@@ -2926,8 +2926,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
         bool constStructInit                  = src->IsConstInitVal();
         bool implicitCastFromSameOrBiggerSize = varTypeSize(retActualType) <= varTypeSize(srcActualType);
 
-        // This could happen if we have retyped op1 as a primitive type during struct promotion,
-        // check `retypedFieldsMap` for details.
+        // This could happen if we have retyped op1 as a primitive type during struct promotion.
         bool actualTypesMatch = (retActualType == srcActualType);
 
         assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
