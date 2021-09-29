@@ -497,6 +497,16 @@ public:
     unsigned char lvFieldCnt; //  Number of fields in the promoted VarDsc.
     unsigned char lvFldOffset;
 
+    void MakePromotedStructField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
+    {
+        assert(fieldOffset <= UINT8_MAX);
+
+        lvIsStructField = true;
+        lvParentLcl     = parentLclNum;
+        lvFldOffset     = static_cast<uint8_t>(fieldOffset);
+        m_fieldSeq      = fieldSeq;
+    }
+
     bool IsPromoted() const
     {
         return lvPromoted;
@@ -544,10 +554,16 @@ public:
         return lvFldOffset;
     }
 
+    FieldSeqNode* GetPromotedFieldSeq() const
+    {
+        assert(lvIsStructField);
+        return m_fieldSeq;
+    }
+
     CORINFO_FIELD_HANDLE GetPromotedFieldHandle() const
     {
         assert(lvIsStructField);
-        return lvFieldHnd;
+        return m_fieldSeq == nullptr ? nullptr : m_fieldSeq->GetFieldHandle();
     }
 
 #ifdef DEBUG
@@ -810,10 +826,9 @@ public:
     // for a struct handle use `GetStructHnd()`.
     CORINFO_CLASS_HANDLE lvClassHnd;
 
-    CORINFO_FIELD_HANDLE lvFieldHnd; // field handle for promoted struct fields
-
 private:
-    ClassLayout* m_layout; // layout info for structs
+    ClassLayout*  m_layout;   // layout info for structs
+    FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
 
 public:
 #if ASSERTION_PROP

@@ -2164,12 +2164,12 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
         varDsc = compiler->lvaGetDesc(lclNum);
 
-        LclVarDsc* fieldVarDsc       = compiler->lvaGetDesc(varNum);
-        fieldVarDsc->lvIsStructField = true;
-        fieldVarDsc->lvFieldHnd      = pFieldInfo->fldHnd;
-        fieldVarDsc->lvFldOffset     = static_cast<uint8_t>(pFieldInfo->fldOffset);
-        fieldVarDsc->lvParentLcl     = lclNum;
-        fieldVarDsc->lvIsParam       = varDsc->lvIsParam;
+        // TODO-MIKE-Fix: This field sequence isn't correct for recursive promotion, never been...
+        FieldSeqNode* fieldSeq = compiler->GetFieldSeqStore()->CreateSingleton(pFieldInfo->fldHnd);
+
+        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varNum);
+        fieldVarDsc->MakePromotedStructField(lclNum, pFieldInfo->fldOffset, fieldSeq);
+        fieldVarDsc->lvIsParam = varDsc->lvIsParam;
 
         if (varTypeIsSIMD(pFieldInfo->fldType))
         {
