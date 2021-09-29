@@ -3001,28 +3001,8 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
             break;
 
         case GT_CNS_INT:
-            // When we promote LCL_VAR single fields into return
-            // we could have all type of constans here.
-            if (varTypeUsesFloatReg(retRegType))
-            {
-                // Do not expect `initblk` for SIMD* types, only 'initobj'.
-                assert(src->AsIntCon()->GetValue() == 0);
-
-                src->ChangeOperConst(GT_CNS_DBL);
-                src->SetType(TYP_FLOAT);
-                src->AsDblCon()->SetValue(0.0);
-            }
-            break;
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
         case GT_CNS_DBL:
-            // Currently we are not promoting structs with a single float field,
-            // https://github.com/dotnet/runtime/issues/4323
-
-            // TODO-CQ: can improve `GT_CNS_DBL` handling for supported platforms, but
-            // because it is only x86 nowadays it is not worth it.
             unreached();
-#endif
 
         default:
             assert(varTypeIsEnregisterable(src->GetType()));

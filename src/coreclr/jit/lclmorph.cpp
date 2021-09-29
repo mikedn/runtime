@@ -674,15 +674,15 @@ private:
             // requires special handling. In fact, the LCL_VAR|FLD special casing should
             // probably be removed and left to a generalized MorphLocalIndir.
 
-            if (node->OperIs(GT_LCL_VAR) && lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1) && user->IsCall())
+            if (node->OperIs(GT_LCL_VAR) && lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
             {
-                unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-                LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
-
-                if (lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()))
+                if (user->IsCall())
                 {
-                    node->AsLclVar()->SetLclNum(fieldLclNum);
-                    node->SetType(fieldLcl->GetType());
+                    PromoteSingleFieldStructCallArg(lcl, node->AsLclVar());
+                }
+                else if (user->OperIs(GT_RETURN))
+                {
+                    PromoteSingleFieldStructReturn(user->AsUnOp(), lcl, node->AsLclVar());
                 }
             }
 
@@ -1033,13 +1033,13 @@ private:
             {
                 if (indir->OperIs(GT_OBJ) && user->IsCall())
                 {
-                    MorphStructCallArg(val, indir, indirSize);
+                    MorphStructCallArgLocalIndir(val, indir, indirSize);
                     return;
                 }
 
                 if (indir->OperIs(GT_OBJ, GT_FIELD) && user->OperIs(GT_RETURN))
                 {
-                    MorphStructReturn(val, user->AsUnOp(), indir, indirSize);
+                    MorphStructReturnLocalIndir(val, user->AsUnOp(), indir, indirSize);
                     return;
                 }
             }
@@ -1399,7 +1399,7 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void MorphStructCallArg(const Value& val, GenTree* indir, unsigned indirSize)
+    void MorphStructCallArgLocalIndir(const Value& val, GenTree* indir, unsigned indirSize)
     {
         LclVarDsc*   lcl                 = m_compiler->lvaGetDesc(val.LclNum());
         ClassLayout* indirLayout         = indir->AsObj()->GetLayout();
@@ -1464,7 +1464,23 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void MorphStructReturn(const Value& val, GenTreeUnOp* ret, GenTree* indir, unsigned indirSize)
+    void PromoteSingleFieldStructCallArg(LclVarDsc* lcl, GenTreeLclVar* node)
+    {
+        assert(lcl->GetPromotedFieldCount() == 1);
+
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+        if (lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()))
+        {
+            node->AsLclVar()->SetLclNum(fieldLclNum);
+            node->SetType(fieldLcl->GetType());
+        }
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void MorphStructReturnLocalIndir(const Value& val, GenTreeUnOp* ret, GenTree* indir, unsigned indirSize)
     {
         // The merged return temp should never be accessed indirectly
         // so we don't need to worry about it here.
@@ -1580,6 +1596,88 @@ private:
 
             m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
         }
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void PromoteSingleFieldStructReturn(GenTreeUnOp* ret, LclVarDsc* lcl, GenTreeLclVar* node)
+    {
+        assert(varTypeIsStruct(ret->GetType()));
+        assert(lcl->GetPromotedFieldCount() == 1);
+
+        if ((m_compiler->genReturnLocal != BAD_VAR_NUM) && (node->GetLclNum() != m_compiler->genReturnLocal))
+        {
+            // This is a merged return, it will be transformed into a struct
+            // assignment so leave it to fgMorphCopyBlock to promote it.
+            return;
+        }
+
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+        const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
+
+#ifdef WINDOWS_X86_ABI
+        if ((retDesc.GetRegCount() == 2) && fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE))
+        {
+            assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
+
+            node->AsLclVar()->SetLclNum(fieldLclNum);
+            node->SetType(fieldLcl->GetType());
+            ret->SetType(TYP_LONG);
+
+            INDEBUG(m_stmtModified = true;)
+
+            return;
+        }
+#endif
+
+        if (retDesc.GetRegCount() > 1)
+        {
+            // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
+            // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
+            // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
+            // Either way, leave it to morph to produce a FIELD_LIST in this case.
+            // We could probably do it here but it's not clear if it has any benefits.
+
+            node->AsLclVar()->SetLclNum(fieldLclNum);
+            node->SetType(fieldLcl->GetType());
+
+            // TODO-MIKE-Cleanup: This should be done at import time - RETURN should have SIMD
+            // type only if it uses a single register to return a SIMD value.
+            ret->SetType(TYP_STRUCT);
+
+            INDEBUG(m_stmtModified = true;)
+
+            return;
+        }
+
+        var_types retRegType = varActualType(retDesc.GetRegType(0));
+
+        bool useLcl     = varTypeUsesFloatReg(retRegType) == varTypeUsesFloatReg(fieldLcl->GetType());
+        bool useBitcast = !useLcl && (varTypeSize(retRegType) <= REGSIZE_BYTES) &&
+                          (varTypeSize(retRegType) == varTypeSize(varActualType(fieldLcl->GetType())));
+
+        if (useLcl || useBitcast)
+        {
+            node->AsLclVar()->SetLclNum(fieldLclNum);
+            node->SetType(fieldLcl->GetType());
+
+            if (useBitcast)
+            {
+                ret->SetOp(0, NewBitCastNode(retRegType, node));
+            }
+        }
+        else
+        {
+            node->ChangeOper(GT_LCL_FLD);
+            node->AsLclFld()->SetLclNum(fieldLclNum);
+            node->SetType(retRegType);
+
+            m_compiler->lvaSetVarDoNotEnregister(fieldLclNum DEBUGARG(Compiler::DNER_LocalField));
+        }
+
+        ret->SetType(retRegType);
 
         INDEBUG(m_stmtModified = true;)
     }
