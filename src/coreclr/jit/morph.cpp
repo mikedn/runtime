@@ -13293,7 +13293,12 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 #ifdef WINDOWS_AMD64_ABI
     if (varTypeIsSIMD(val->GetType()) && (info.retDesc.GetRegType(0) == TYP_LONG))
     {
-        if (val->TypeIs(TYP_SIMD8))
+        if (val->IsCall())
+        {
+            assert(val->TypeIs(TYP_SIMD8));
+            val->SetType(TYP_LONG);
+        }
+        else if (val->TypeIs(TYP_SIMD8))
         {
             val = gtNewBitCastNode(TYP_LONG, val);
         }
