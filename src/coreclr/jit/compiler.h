@@ -505,6 +505,8 @@ public:
         lvParentLcl     = parentLclNum;
         lvFldOffset     = static_cast<uint8_t>(fieldOffset);
         m_fieldSeq      = fieldSeq;
+
+        INDEBUG(lvKeepType = 1;)
     }
 
     bool IsPromoted() const

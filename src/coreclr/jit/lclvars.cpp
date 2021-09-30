@@ -2092,145 +2092,122 @@ void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructField
     fieldInfo.fldSize = size;
 }
 
-//--------------------------------------------------------------------------------------------
-// PromoteStructVar - promote struct variable.
-//
-// Arguments:
-//   lclNum - struct local number;
-//
 void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
 {
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
     // We should never see a reg-sized non-field-addressed struct here.
-    assert(!varDsc->lvRegStruct);
+    assert(!lcl->lvRegStruct);
 
-    assert(varDsc->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
+    assert(lcl->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
     assert(structPromotionInfo.canPromote);
 
-    varDsc->lvFieldCnt      = structPromotionInfo.fieldCnt;
-    varDsc->lvFieldLclStart = compiler->lvaCount;
-    varDsc->lvPromoted      = true;
-    varDsc->lvContainsHoles = structPromotionInfo.containsHoles;
-    varDsc->lvCustomLayout  = structPromotionInfo.customLayout;
+    lcl->lvFieldCnt      = structPromotionInfo.fieldCnt;
+    lcl->lvFieldLclStart = compiler->lvaCount;
+    lcl->lvPromoted      = true;
+    lcl->lvContainsHoles = structPromotionInfo.containsHoles;
+    lcl->lvCustomLayout  = structPromotionInfo.customLayout;
 
-#ifdef DEBUG
-    // Don't change the source to a TYP_BLK either.
-    varDsc->lvKeepType = 1;
-#endif
+    INDEBUG(lcl->lvKeepType = 1;)
 
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\nPromoting struct local V%02u (%s):", lclNum, varDsc->GetLayout()->GetClassName());
-    }
-#endif
+    JITDUMP("\nPromoting struct local V%02u (%s):", lclNum, lcl->GetLayout()->GetClassName());
 
     SortStructFields();
 
     for (unsigned index = 0; index < structPromotionInfo.fieldCnt; ++index)
     {
-        const lvaStructFieldInfo* pFieldInfo = &structPromotionInfo.fields[index];
+        const lvaStructFieldInfo& info = structPromotionInfo.fields[index];
+        assert((index == 0) || (info.fldOffset > structPromotionInfo.fields[index - 1].fldOffset));
 
-        if (varTypeUsesFloatReg(pFieldInfo->fldType))
+        if (varTypeUsesFloatReg(info.fldType))
         {
-            // Whenever we promote a struct that contains a floating point field
-            // it's possible we transition from a method that originally only had integer
-            // local vars to start having FP.  We have to communicate this through this flag
-            // since LSRA later on will use this flag to determine whether or not to track FP register sets.
             compiler->compFloatingPointUsed = true;
         }
-
-        // Now grab the temp for the field local.
-        // Lifetime of field locals might span multiple BBs, so they must be long lifetime temps.
-        const unsigned varNum = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
-
-        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
-        varDsc = compiler->lvaGetDesc(lclNum);
+        else if (info.fldType == TYP_LONG)
+        {
+            compiler->compLongUsed = true;
+        }
 
         // TODO-MIKE-Fix: This field sequence isn't correct for recursive promotion, never been...
-        FieldSeqNode* fieldSeq = compiler->GetFieldSeqStore()->CreateSingleton(pFieldInfo->fldHnd);
+        FieldSeqNode* fieldSeq = compiler->GetFieldSeqStore()->CreateSingleton(info.fldHnd);
 
-        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varNum);
-        fieldVarDsc->MakePromotedStructField(lclNum, pFieldInfo->fldOffset, fieldSeq);
-        fieldVarDsc->lvIsParam = varDsc->lvIsParam;
+        unsigned fieldLclNum = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
+        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
+        lcl = compiler->lvaGetDesc(lclNum);
 
-        if (varTypeIsSIMD(pFieldInfo->fldType))
+        LclVarDsc* fieldLcl = compiler->lvaGetDesc(fieldLclNum);
+        fieldLcl->MakePromotedStructField(lclNum, info.fldOffset, fieldSeq);
+
+        if (varTypeIsSIMD(info.fldType))
         {
-            compiler->lvaSetStruct(varNum, pFieldInfo->fldLayout, false);
+            compiler->lvaSetStruct(fieldLclNum, info.fldLayout, false);
             // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
             // be promoting this if we didn't think it could be enregistered.
-            fieldVarDsc->lvRegStruct = true;
+            fieldLcl->lvRegStruct = true;
         }
         else
         {
-            fieldVarDsc->SetType(pFieldInfo->fldType);
-
-            if (fieldVarDsc->TypeIs(TYP_LONG))
-            {
-                compiler->compLongUsed = true;
-            }
+            fieldLcl->SetType(info.fldType);
         }
 
-        // Do we have a parameter that can be enregistered?
-        if (varDsc->lvIsRegArg)
+        fieldLcl->lvIsParam = lcl->IsParam();
+
+        if (!lcl->IsRegParam())
         {
-            fieldVarDsc->lvIsRegArg = true;
-            regNumber parentArgReg  = varDsc->GetArgReg();
-#if FEATURE_MULTIREG_ARGS
-            if (!compiler->lvaIsImplicitByRefLocal(lclNum))
-            {
-#ifdef UNIX_AMD64_ABI
-                if (varTypeIsSIMD(fieldVarDsc) && (varDsc->lvFieldCnt == 1))
-                {
-                    // This SIMD typed field may be passed in multiple registers.
-                    fieldVarDsc->SetArgReg(parentArgReg);
-                    fieldVarDsc->SetOtherArgReg(varDsc->GetOtherArgReg());
-                }
-                else
-#endif // UNIX_AMD64_ABI
-                {
-                    regNumber fieldRegNum;
-                    if (index == 0)
-                    {
-                        fieldRegNum = parentArgReg;
-                    }
-                    else if (varDsc->lvIsHfaRegArg())
-                    {
-                        // TODO-MIKE-Review: Is this the correct index to use? Previously it was using
-                        // "lvFldOrdinal" but then the if above always used "index". Which is right?
-                        // Probably neither, normally the offset should be used to determine register
-                        // field mapping. Might not matter anyway, there should be no reason for the
-                        // VM to reorder the fields of a HFA.
-
-                        unsigned regIncrement = index;
-#ifdef TARGET_ARM
-                        // TODO: Need to determine if/how to handle split args.
-                        if (varDsc->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
-                        {
-                            regIncrement *= 2;
-                        }
-#endif // TARGET_ARM
-                        fieldRegNum = (regNumber)(parentArgReg + regIncrement);
-                    }
-                    else
-                    {
-                        assert(index == 1);
-                        fieldRegNum = varDsc->GetOtherArgReg();
-                    }
-                    fieldVarDsc->SetArgReg(fieldRegNum);
-                }
-            }
-            else
-#endif // FEATURE_MULTIREG_ARGS && defined(FEATURE_SIMD)
-            {
-                fieldVarDsc->SetArgReg(parentArgReg);
-            }
+            continue;
         }
 
-        // This temporary should not be converted to a double in stress mode,
-        // because we introduce assigns to it after the stress conversion
-        INDEBUG(fieldVarDsc->lvKeepType = 1;)
+        fieldLcl->lvIsRegArg = true;
+
+#if !FEATURE_MULTIREG_ARGS
+        fieldLcl->SetArgReg(lcl->GetArgReg());
+#else
+        if (lcl->IsImplicitByRefParam())
+        {
+            fieldLcl->SetArgReg(lcl->GetArgReg());
+            continue;
+        }
+
+#ifdef UNIX_AMD64_ABI
+        if (varTypeIsSIMD(fieldLcl->GetType()) && (lcl->GetPromotedFieldCount() == 1))
+        {
+            fieldLcl->SetArgReg(lcl->GetArgReg());
+            fieldLcl->SetOtherArgReg(lcl->GetOtherArgReg());
+            continue;
+        }
+#endif
+
+        if (lcl->lvIsHfa())
+        {
+            // TODO-MIKE-Review: Is this the correct index to use? Previously it was using
+            // "lvFldOrdinal" but then the if above always used "index". Which is right?
+            // Probably neither, normally the offset should be used to determine register
+            // field mapping. Might not matter anyway, there should be no reason for the
+            // VM to reorder the fields of a HFA.
+            unsigned regIncrement = index;
+
+#ifdef TARGET_ARM
+            // TODO: Need to determine if/how to handle split args.
+            if (lcl->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
+            {
+                regIncrement *= 2;
+            }
+#endif
+
+            fieldLcl->SetArgReg(static_cast<regNumber>(lcl->GetArgReg() + regIncrement));
+            continue;
+        }
+
+        if (index == 0)
+        {
+            fieldLcl->SetArgReg(lcl->GetArgReg());
+        }
+        else
+        {
+            assert(index == 1);
+            fieldLcl->SetArgReg(lcl->GetOtherArgReg());
+        }
+#endif // FEATURE_MULTIREG_ARGS
     }
 }
 
