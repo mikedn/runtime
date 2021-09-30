@@ -2141,25 +2141,9 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
             compiler->compFloatingPointUsed = true;
         }
 
-#ifdef DEBUG
-        char buf[200];
-        sprintf_s(buf, sizeof(buf), "%s V%02u.%s @%u", "field", lclNum, compiler->eeGetFieldName(pFieldInfo->fldHnd),
-                  pFieldInfo->fldOffset);
-
-        // We need to copy 'buf' as lvaGrabTemp() below caches a copy to its argument.
-        size_t len  = strlen(buf) + 1;
-        char*  bufp = compiler->getAllocator(CMK_DebugOnly).allocate<char>(len);
-        strcpy_s(bufp, len, buf);
-
-        if (index > 0)
-        {
-            noway_assert(pFieldInfo->fldOffset > (pFieldInfo - 1)->fldOffset);
-        }
-#endif
-
         // Now grab the temp for the field local.
         // Lifetime of field locals might span multiple BBs, so they must be long lifetime temps.
-        const unsigned varNum = compiler->lvaGrabTemp(false DEBUGARG(bufp));
+        const unsigned varNum = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
 
         // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
         varDsc = compiler->lvaGetDesc(lclNum);
@@ -2303,21 +2287,7 @@ void Compiler::lvaPromoteLongVars()
 
         for (unsigned index = 0; index < 2; ++index)
         {
-            // Grab the temp for the field local.
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-            char buf[200];
-            sprintf_s(buf, sizeof(buf), "%s V%02u.%s (fldOffset=0x%x)", "field", lclNum, index == 0 ? "lo" : "hi",
-                      index * 4);
-
-            // We need to copy 'buf' as lvaGrabTemp() below caches a copy to its argument.
-            size_t len  = strlen(buf) + 1;
-            char*  bufp = getAllocator(CMK_DebugOnly).allocate<char>(len);
-            strcpy_s(bufp, len, buf);
-#endif
-
-            unsigned varNum = lvaNewTemp(TYP_INT, false DEBUGARG(bufp));
+            unsigned varNum = lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
 
             LclVarDsc* fieldVarDsc       = lvaGetDesc(varNum);
             fieldVarDsc->lvIsStructField = true;
