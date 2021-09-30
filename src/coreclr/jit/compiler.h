@@ -2710,35 +2710,26 @@ public:
     // Info about struct type fields.
     struct lvaStructFieldInfo
     {
-        CORINFO_FIELD_HANDLE fldHnd;
-        unsigned             fldOffset;
-        unsigned             fldSize;
-        ClassLayout*         fldLayout;
-        var_types            fldType;
-
-        lvaStructFieldInfo() : fldHnd(nullptr), fldOffset(0), fldSize(0), fldLayout(nullptr), fldType(TYP_UNDEF)
-        {
-        }
+        CORINFO_FIELD_HANDLE fldSeq[2]    = {};
+        unsigned             fldSeqLength = 0;
+        unsigned             fldOffset    = 0;
+        unsigned             fldSize      = 0;
+        var_types            fldType      = TYP_UNDEF;
+        ClassLayout*         fldLayout    = nullptr;
     };
 
     // Info about a struct type, instances of which may be candidates for promotion.
     struct lvaStructPromotionInfo
     {
         CORINFO_CLASS_HANDLE typeHnd;
-        bool                 canPromote;
-        bool                 containsHoles;
-        bool                 customLayout;
-        bool                 fieldsSorted;
-        unsigned char        fieldCnt;
+        bool                 canPromote    = false;
+        bool                 containsHoles = false;
+        bool                 customLayout  = false;
+        bool                 fieldsSorted  = false;
+        unsigned char        fieldCnt      = 0;
         lvaStructFieldInfo   fields[MAX_NumOfFieldsInPromotableStruct];
 
-        lvaStructPromotionInfo(CORINFO_CLASS_HANDLE typeHnd = nullptr)
-            : typeHnd(typeHnd)
-            , canPromote(false)
-            , containsHoles(false)
-            , customLayout(false)
-            , fieldsSorted(false)
-            , fieldCnt(0)
+        lvaStructPromotionInfo(CORINFO_CLASS_HANDLE typeHnd = nullptr) : typeHnd(typeHnd)
         {
         }
     };

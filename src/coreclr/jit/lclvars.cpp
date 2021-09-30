@@ -2031,11 +2031,12 @@ void Compiler::StructPromotionHelper::GetFieldInfo(CORINFO_CLASS_HANDLE classHan
     CORINFO_CLASS_HANDLE fieldTypeHandle;
     var_types            fieldType = JITtype2varType(vm->getFieldType(fieldHandle, &fieldTypeHandle));
 
-    fieldInfo.fldHnd    = fieldHandle;
-    fieldInfo.fldOffset = vm->getFieldOffset(fieldHandle);
-    fieldInfo.fldType   = fieldType;
-    fieldInfo.fldLayout = nullptr;
-    fieldInfo.fldSize   = varTypeSize(fieldInfo.fldType);
+    fieldInfo.fldSeq[0]    = fieldHandle;
+    fieldInfo.fldSeqLength = 1;
+    fieldInfo.fldOffset    = vm->getFieldOffset(fieldHandle);
+    fieldInfo.fldType      = fieldType;
+    fieldInfo.fldLayout    = nullptr;
+    fieldInfo.fldSize      = varTypeSize(fieldInfo.fldType);
 
     if (fieldInfo.fldType == TYP_STRUCT)
     {
@@ -2088,8 +2089,10 @@ void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructField
         return;
     }
 
-    fieldInfo.fldType = type;
-    fieldInfo.fldSize = size;
+    fieldInfo.fldSeq[1]    = fieldHandle;
+    fieldInfo.fldSeqLength = 2;
+    fieldInfo.fldType      = type;
+    fieldInfo.fldSize      = size;
 }
 
 void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
@@ -2128,8 +2131,13 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
             compiler->compLongUsed = true;
         }
 
-        // TODO-MIKE-Fix: This field sequence isn't correct for recursive promotion, never been...
-        FieldSeqNode* fieldSeq = compiler->GetFieldSeqStore()->CreateSingleton(info.fldHnd);
+        FieldSeqNode* fieldSeq = nullptr;
+
+        for (unsigned i = 0; i < info.fldSeqLength; i++)
+        {
+            FieldSeqNode* fieldSeqNode = compiler->GetFieldSeqStore()->CreateSingleton(info.fldSeq[i]);
+            fieldSeq                   = compiler->GetFieldSeqStore()->Append(fieldSeq, fieldSeqNode);
+        }
 
         unsigned fieldLclNum = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
         // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
@@ -7069,22 +7077,24 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
 
     if (varDsc->IsPromotedField())
     {
-        LclVarDsc*  parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
-        const char* fieldName;
+        LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+        printf(" V%02u", varDsc->GetPromotedFieldParentLclNum(), varDsc->GetPromotedFieldOffset());
 
 #ifndef TARGET_64BIT
         if (varTypeIsLong(parentLcl->GetType()))
         {
-            fieldName = varDsc->GetPromotedFieldOffset() == 0 ? "lo" : "hi";
+            printf(".%s", varDsc->GetPromotedFieldOffset() == 0 ? "lo" : "hi");
         }
         else
 #endif
         {
-            fieldName = eeGetFieldName(varDsc->GetPromotedFieldHandle());
+            for (FieldSeqNode* f = varDsc->GetPromotedFieldSeq(); f != nullptr; f = f->GetNext())
+            {
+                printf(".%s", eeGetFieldName(f->GetFieldHandle()));
+            }
         }
 
-        printf(" V%02u.%s @%u ", varDsc->GetPromotedFieldParentLclNum(), fieldName, varDsc->GetPromotedFieldOffset());
-        printf(parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
+        printf(" @%u %s", varDsc->GetPromotedFieldOffset(), parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
     }
 
     if (varDsc->lvReason != nullptr)

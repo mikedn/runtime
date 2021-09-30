@@ -2170,7 +2170,7 @@ public:
             // This was a field reference to an implicit-by-reference struct parameter that was dependently
             // promoted and now it is being demoted; update it to reference the original parameter.
 
-            assert(lcl->GetPromotedFieldHandle() != nullptr);
+            assert(lcl->GetPromotedFieldSeq() != nullptr);
 
             unsigned      lclNum   = lcl->GetPromotedFieldParentLclNum();
             unsigned      lclOffs  = lcl->GetPromotedFieldOffset();
@@ -2307,7 +2307,7 @@ public:
             // off the original parameter.
 
             assert(lcl->GetType() != TYP_STRUCT);
-            assert(lcl->GetPromotedFieldHandle() != nullptr);
+            assert(lcl->GetPromotedFieldSeq() != nullptr);
 
             unsigned      lclNum   = lcl->GetPromotedFieldParentLclNum();
             unsigned      lclOffs  = lcl->GetPromotedFieldOffset();

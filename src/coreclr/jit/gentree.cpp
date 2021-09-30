@@ -9444,24 +9444,27 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
             {
                 for (unsigned i = 0; i < varDsc->GetPromotedFieldCount(); ++i)
                 {
-                    LclVarDsc*  fieldLcl = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
-                    const char* fieldName;
+                    LclVarDsc* fieldLcl = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
+
+                    printf("\n                                                  ");
+                    printIndent(indentStack);
+                    printf("    %-6s V%02u", varTypeName(fieldLcl->GetType()), varNum);
 
 #ifndef TARGET_64BIT
-                    if (varTypeIsLong(varDsc))
+                    if (varTypeIsLong(varDsc->GetType()))
                     {
-                        fieldName = (i == 0) ? "lo" : "hi";
+                        printf(".%s", i == 0 ? "lo" : "hi");
                     }
                     else
 #endif
                     {
-                        fieldName = eeGetFieldName(fieldLcl->GetPromotedFieldHandle());
+                        for (FieldSeqNode* f = fieldLcl->GetPromotedFieldSeq(); f != nullptr; f = f->GetNext())
+                        {
+                            printf(".%s", eeGetFieldName(f->GetFieldHandle()));
+                        }
                     }
 
-                    printf("\n                                                  ");
-                    printIndent(indentStack);
-                    printf("    %-6s V%02u.%s @%u -> V%02u", varTypeName(fieldLcl->GetType()), varNum, fieldName,
-                           fieldLcl->GetPromotedFieldOffset(), varDsc->GetPromotedFieldLclNum(i));
+                    printf(" @%u -> V%02u", fieldLcl->GetPromotedFieldOffset(), varDsc->GetPromotedFieldLclNum(i));
 
                     if (fieldLcl->lvRegister)
                     {
