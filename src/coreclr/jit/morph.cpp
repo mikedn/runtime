@@ -9569,8 +9569,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
                             if (destParentLcl->GetLayout() == srcLclVar->GetLayout())
                             {
-                                src->AsLclFld()->SetFieldSeq(
-                                    GetFieldSeqStore()->CreateSingleton(destLclVar->GetPromotedFieldHandle()));
+                                src->AsLclFld()->SetFieldSeq(destLclVar->GetPromotedFieldSeq());
                             }
                         }
                     }
@@ -9879,8 +9878,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             if ((destLclOffs == 0) && (destFieldSeq == nullptr) && varTypeIsStruct(destLclVar->GetType()) &&
                 (destLclVar->GetLayout() == srcLclVar->GetLayout()))
             {
-                destField->AsLclFld()->SetFieldSeq(
-                    GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle()));
+                destField->AsLclFld()->SetFieldSeq(srcFieldLclVar->GetPromotedFieldSeq());
             }
 
             lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_LocalField));
@@ -9922,11 +9920,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             // TODO-MIKE-Review: This looks fishy - it's only correct if the destination has the same type as the
             // source. If reinterpretation has ocurred then it would likely be wiser to use NotAField.
 
-            // TODO-MIKE-Fix: This is definitely bogus when pseudo-recursive struct promotion is involved. In the
-            // LclVarDsc we have the field handle of the inner struct field but here we need the field handle of
-            // the leaf primitive field.
-
-            FieldSeqNode* srcFieldSeq = GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle());
+            FieldSeqNode* srcFieldSeq = srcFieldLclVar->GetPromotedFieldSeq();
 
             if (srcFieldLclVar->GetPromotedFieldOffset() == 0)
             {
@@ -9975,8 +9969,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             if ((srcLclOffs == 0) && (srcFieldSeq == nullptr) && varTypeIsStruct(srcLclVar->GetType()) &&
                 (srcLclVar->GetLayout() == destLclVar->GetLayout()))
             {
-                srcField->AsLclFld()->SetFieldSeq(
-                    GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle()));
+                srcField->AsLclFld()->SetFieldSeq(destFieldLclVar->GetPromotedFieldSeq());
             }
 
             lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_LocalField));
@@ -9998,7 +9991,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             unsigned      destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
             LclVarDsc*    destFieldLclVar = lvaGetDesc(destFieldLclNum);
-            FieldSeqNode* destFieldSeq = GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle());
+            FieldSeqNode* destFieldSeq    = destFieldLclVar->GetPromotedFieldSeq();
 
             if (destFieldLclVar->GetPromotedFieldOffset() == 0)
             {

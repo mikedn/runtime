@@ -761,13 +761,16 @@ private:
                 unsigned      fieldOffset = val.Offset() - fieldLcl->GetPromotedFieldOffset();
                 FieldSeqNode* fieldSeq    = val.FieldSeq();
 
-                if ((fieldSeq != nullptr) && (fieldSeq->GetFieldHandle() == fieldLcl->GetPromotedFieldHandle()))
+                if ((fieldSeq != nullptr) && fieldSeq->IsField())
                 {
-                    fieldSeq = fieldSeq->GetNext();
-                }
-                else
-                {
-                    fieldSeq = nullptr;
+                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
+
+                    if (fieldSeq == val.FieldSeq())
+                    {
+                        // There was no prefix, this means that the field access sequence doesn't
+                        // match the promoted field sequence, ignore the field access sequence.
+                        fieldSeq = nullptr;
+                    }
                 }
 
                 Value fieldVal(val.Node());
@@ -1758,7 +1761,7 @@ private:
             }
 
             CORINFO_FIELD_HANDLE fieldHandle    = field->GetFieldHandle();
-            CORINFO_FIELD_HANDLE fieldLclHandle = fieldLcl->GetPromotedFieldHandle();
+            CORINFO_FIELD_HANDLE fieldLclHandle = fieldLcl->GetPromotedFieldSeq()->GetFieldHandle();
 
             if (fieldHandle != fieldLclHandle)
             {
@@ -2174,7 +2177,7 @@ public:
 
             unsigned      lclNum   = lcl->GetPromotedFieldParentLclNum();
             unsigned      lclOffs  = lcl->GetPromotedFieldOffset();
-            FieldSeqNode* fieldSeq = m_compiler->GetFieldSeqStore()->CreateSingleton(lcl->GetPromotedFieldHandle());
+            FieldSeqNode* fieldSeq = lcl->GetPromotedFieldSeq();
 
             if (lclAddrNode->OperIs(GT_LCL_FLD_ADDR))
             {
@@ -2311,7 +2314,7 @@ public:
 
             unsigned      lclNum   = lcl->GetPromotedFieldParentLclNum();
             unsigned      lclOffs  = lcl->GetPromotedFieldOffset();
-            FieldSeqNode* fieldSeq = m_compiler->GetFieldSeqStore()->CreateSingleton(lcl->GetPromotedFieldHandle());
+            FieldSeqNode* fieldSeq = lcl->GetPromotedFieldSeq();
 
             lcl = m_compiler->lvaGetDesc(lclNum);
 

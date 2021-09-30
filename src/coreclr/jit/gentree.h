@@ -289,6 +289,24 @@ public:
         return tail;
     }
 
+    FieldSeqNode* RemovePrefix(FieldSeqNode* prefix)
+    {
+        FieldSeqNode* tail = this;
+
+        // We can probably do this for array elements but we don't need it right now.
+        // At the same time, we should not do it for "not a field" so assert.
+        assert(tail->IsField());
+        assert(prefix->IsField());
+
+        while ((tail != nullptr) && (prefix != nullptr) && (tail->m_fieldHnd == prefix->m_fieldHnd))
+        {
+            tail   = tail->m_next;
+            prefix = prefix->m_next;
+        }
+
+        return tail;
+    }
+
     // Make sure this provides methods that allow it to be used as a KeyFuncs type in SimplerHash.
     static int GetHashCode(FieldSeqNode fsn)
     {

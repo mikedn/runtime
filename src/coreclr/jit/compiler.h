@@ -562,15 +562,7 @@ public:
         return m_fieldSeq;
     }
 
-    CORINFO_FIELD_HANDLE GetPromotedFieldHandle() const
-    {
-        assert(lvIsStructField);
-        return m_fieldSeq == nullptr ? nullptr : m_fieldSeq->GetFieldHandle();
-    }
-
-#ifdef DEBUG
-    unsigned char lvDisqualifyEHVarReason = 'H';
-#endif
+    INDEBUG(char lvDisqualifyEHVarReason = 'H';)
 
 #if FEATURE_MULTIREG_ARGS
     regNumber lvRegNumForSlot(unsigned slotNum)
