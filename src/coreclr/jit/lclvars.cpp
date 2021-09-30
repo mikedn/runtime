@@ -2179,24 +2179,26 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
 
         if (lcl->lvIsHfa())
         {
-            // TODO-MIKE-Review: Is this the correct index to use? Previously it was using
-            // "lvFldOrdinal" but then the if above always used "index". Which is right?
-            // Probably neither, normally the offset should be used to determine register
-            // field mapping. Might not matter anyway, there should be no reason for the
-            // VM to reorder the fields of a HFA.
-            unsigned regIncrement = index;
+            // We've sorted the field by offset so for HFA's we should have a 1:1 mapping
+            // between fields and registers. Also, ensure that we didn't promote a HFA
+            // with holes. Is that even a thing? The VM seems to think that it is...
+            assert(info.fldOffset == index * varTypeSize(lcl->GetLayout()->GetHfaElementType()));
+
+            unsigned regIndex = index;
 
 #ifdef TARGET_ARM
-            // TODO: Need to determine if/how to handle split args.
             if (lcl->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
             {
-                regIncrement *= 2;
+                // On ARM we count FLOAT rather than DOUBLE registers.
+                regIndex *= 2;
             }
 #endif
 
-            fieldLcl->SetArgReg(static_cast<regNumber>(lcl->GetArgReg() + regIncrement));
+            fieldLcl->SetArgReg(static_cast<regNumber>(lcl->GetArgReg() + regIndex));
             continue;
         }
+
+        // TODO-ARMARCH: Need to determine if/how to handle split args.
 
         if (index == 0)
         {
