@@ -5371,9 +5371,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     {
         GenTree* addr = tree->AsIndir()->GetAddr()->gtEffectiveVal();
 
-        JITDUMPTREE(tree, "\nBefore calling fgAddFieldSeqForZeroOffset:\n");
-
-        // Since we don't make a constant zero to attach the field sequence to, associate it with the "addr" node.
         FieldSeqNode* fieldSeq =
             fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(fldHandle);
         fgAddFieldSeqForZeroOffset(addr, fieldSeq);
@@ -16227,22 +16224,21 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
     assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL, TYP_REF));
     addr = addr->SkipComma();
     assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL, TYP_REF));
-
-    FieldSeqNode* fieldSeqUpdate   = fieldSeqZero;
-    GenTree*      fieldSeqNode     = addr;
-    bool          fieldSeqRecorded = false;
+    assert(fieldSeqZero != nullptr);
 
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nfgAddFieldSeqForZeroOffset for");
-        gtDispFieldSeq(fieldSeqZero);
-
-        printf("\naddr (Before)\n");
-        gtDispNode(addr, nullptr, nullptr, false);
-        gtDispCommonEndLine(addr);
+        printf("\nfgAddFieldSeqForZeroOffset ");
+        dmpFieldSeqFields(fieldSeqZero);
+        printf(" to address\n");
+        gtDispTree(addr, nullptr, nullptr, true, false);
     }
-#endif // DEBUG
+#endif
+
+    FieldSeqNode* fieldSeqUpdate   = fieldSeqZero;
+    GenTree*      fieldSeqNode     = addr;
+    bool          fieldSeqRecorded = false;
 
     switch (addr->OperGet())
     {
@@ -16300,17 +16296,15 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
         }
         // Overwrite the field sequence annotation for op1
         GetZeroOffsetFieldMap()->Set(addr, fieldSeqUpdate, NodeToFieldSeqMap::Overwrite);
-        fieldSeqRecorded = true;
     }
 
 #ifdef DEBUG
     if (verbose)
     {
         printf("     (After)\n");
-        gtDispNode(fieldSeqNode, nullptr, nullptr, false);
-        gtDispCommonEndLine(fieldSeqNode);
+        gtDispTree(fieldSeqNode, nullptr, nullptr, true, false);
     }
-#endif // DEBUG
+#endif
 }
 
 //------------------------------------------------------------------------

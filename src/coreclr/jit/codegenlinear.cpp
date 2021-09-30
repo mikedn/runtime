@@ -259,13 +259,13 @@ void CodeGen::genCodeForBBlist()
         {
             if (!VarSetOps::IsEmpty(compiler, addedGCVars))
             {
-                printf("\t\t\t\t\t\t\tAdded GCVars: ");
+                printf("Added GCVars: ");
                 dumpConvertedVarSet(compiler, addedGCVars);
                 printf("\n");
             }
             if (!VarSetOps::IsEmpty(compiler, removedGCVars))
             {
-                printf("\t\t\t\t\t\t\tRemoved GCVars: ");
+                printf("Removed GCVars: ");
                 dumpConvertedVarSet(compiler, removedGCVars);
                 printf("\n");
             }
@@ -882,11 +882,11 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
 #ifdef DEBUG
             if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
             {
-                JITDUMP("\t\t\t\t\t\t\tVar V%02u becoming live\n", varNum);
+                JITDUMP("Var V%02u becoming live\n", varNum);
             }
             else
             {
-                JITDUMP("\t\t\t\t\t\t\tVar V%02u continuing live\n", varNum);
+                JITDUMP("Var V%02u continuing live\n", varNum);
             }
 #endif
             VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
@@ -1047,7 +1047,7 @@ void CodeGen::genUnspillLocal(
 #ifdef DEBUG
             if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
             {
-                JITDUMP("\t\t\t\t\t\t\tRemoving V%02u from gcVarPtrSetCur\n", varNum);
+                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
             }
 #endif // DEBUG
             VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
@@ -1056,7 +1056,7 @@ void CodeGen::genUnspillLocal(
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("\t\t\t\t\t\t\tV%02u in reg ", varNum);
+            printf("V%02u in reg ", varNum);
             varDsc->PrintVarReg();
             printf(" is becoming live  ");
             compiler->printTreeID(lclNode);

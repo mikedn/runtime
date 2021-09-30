@@ -2263,6 +2263,7 @@ public:
 
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
+    void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
     void gtDispNodeName(GenTree* tree);
 #if FEATURE_MULTIREG_RET
     unsigned gtDispRegCount(GenTree* tree);
@@ -2294,6 +2295,7 @@ public:
                     bool                 isLIR       = false);
     void gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut);
     int gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining);
+    int dmpLclName(unsigned lclNum);
     char* gtGetLclVarName(unsigned lclNum);
     void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp = true);
     void gtDispLclVarStructType(unsigned lclNum);
@@ -2302,7 +2304,7 @@ public:
     void gtDispBlockStmts(BasicBlock* block);
     void gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum, char* buf, unsigned bufLength);
     void gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree* arg, char* buf, unsigned bufLength);
-    void gtDispFieldSeq(FieldSeqNode* pfsn);
+    void dmpFieldSeqFields(FieldSeqNode* fieldSeq);
 
     void gtDispRange(LIR::ReadOnlyRange const& range);
 
@@ -6679,6 +6681,7 @@ public:
 #endif
 
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
+    const char* eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd);
 
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);

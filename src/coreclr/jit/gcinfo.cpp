@@ -89,7 +89,7 @@ void GCInfo::gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool force
     {
         if (forceOutput || (gcRegGCrefSetCur != gcRegGCrefSetNew))
         {
-            printf("\t\t\t\t\t\t\tGC regs: ");
+            printf("GC regs: ");
             if (gcRegGCrefSetCur == gcRegGCrefSetNew)
             {
                 printf("(unchanged) ");
@@ -118,7 +118,7 @@ void GCInfo::gcDspByrefSetChanges(regMaskTP gcRegByrefSetNew DEBUGARG(bool force
     {
         if (forceOutput || (gcRegByrefSetCur != gcRegByrefSetNew))
         {
-            printf("\t\t\t\t\t\t\tByref regs: ");
+            printf("Byref regs: ");
             if (gcRegByrefSetCur == gcRegByrefSetNew)
             {
                 printf("(unchanged) ");

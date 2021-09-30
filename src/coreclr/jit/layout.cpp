@@ -681,7 +681,7 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     , m_gcPtrCount(0)
     , m_gcPtrs(nullptr)
 #ifdef DEBUG
-    , m_className(compiler->info.compCompHnd->getClassName(classHandle))
+    , m_className(compiler->eeGetSimpleClassName(classHandle))
 #endif
 {
     uint32_t attribs = compiler->info.compCompHnd->getClassAttribs(m_classHandle);

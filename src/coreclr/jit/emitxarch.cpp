@@ -7194,7 +7194,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
 #ifdef DEBUG
     if (EMIT_GC_VERBOSE)
     {
-        printf("\t\t\t\t\t\t\tCall: GCvars=%s ", VarSetOps::ToString(emitComp, ptrVars));
+        printf("Call: GCvars=%s ", VarSetOps::ToString(emitComp, ptrVars));
         dumpConvertedVarSet(emitComp, ptrVars);
         printf(", gcrefRegs=");
         printRegMaskInt(gcrefRegs);

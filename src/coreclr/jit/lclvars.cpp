@@ -7078,23 +7078,14 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
     if (varDsc->IsPromotedField())
     {
         LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
-        printf(" V%02u", varDsc->GetPromotedFieldParentLclNum(), varDsc->GetPromotedFieldOffset());
+        printf(" %s", parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
+        printf(" V%02u@%u", varDsc->GetPromotedFieldParentLclNum(), varDsc->GetPromotedFieldOffset());
 
-#ifndef TARGET_64BIT
-        if (varTypeIsLong(parentLcl->GetType()))
+        if (varDsc->GetPromotedFieldSeq() != nullptr)
         {
-            printf(".%s", varDsc->GetPromotedFieldOffset() == 0 ? "lo" : "hi");
+            printf(" ");
+            dmpFieldSeqFields(varDsc->GetPromotedFieldSeq());
         }
-        else
-#endif
-        {
-            for (FieldSeqNode* f = varDsc->GetPromotedFieldSeq(); f != nullptr; f = f->GetNext())
-            {
-                printf(".%s", eeGetFieldName(f->GetFieldHandle()));
-            }
-        }
-
-        printf(" @%u %s", varDsc->GetPromotedFieldOffset(), parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
     }
 
     if (varDsc->lvReason != nullptr)

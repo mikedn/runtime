@@ -4964,11 +4964,11 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef DEBUG
             if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
             {
-                JITDUMP("\t\t\t\t\t\t\tVar V%02u becoming live\n", varNum);
+                JITDUMP("V%02u becoming live\n", varNum);
             }
             else
             {
-                JITDUMP("\t\t\t\t\t\t\tVar V%02u continuing live\n", varNum);
+                JITDUMP("V%02u continuing live\n", varNum);
             }
 #endif // DEBUG
 
@@ -5081,11 +5081,11 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef DEBUG
                     if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
                     {
-                        JITDUMP("\t\t\t\t\t\t\tVar V%02u becoming dead\n", varNum);
+                        JITDUMP("V%02u becoming dead\n", varNum);
                     }
                     else
                     {
-                        JITDUMP("\t\t\t\t\t\t\tVar V%02u continuing dead\n", varNum);
+                        JITDUMP("V%02u continuing dead\n", varNum);
                     }
 #endif // DEBUG
 

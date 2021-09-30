@@ -533,7 +533,7 @@ void CodeGenInterface::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bo
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("\t\t\t\t\t\t\tV%02u in reg ", (varDsc - compiler->lvaTable));
+        printf("V%02u in reg ", (varDsc - compiler->lvaTable));
         varDsc->PrintVarReg();
         printf(" is becoming %s  ", (isDying) ? "dead" : "live");
         Compiler::printTreeID(tree);
@@ -756,7 +756,7 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
         if (isInMemory && (isGCRef || isByRef))
         {
             VarSetOps::RemoveElemD(this, codeGen->gcInfo.gcVarPtrSetCur, deadVarIndex);
-            JITDUMP("\t\t\t\t\t\t\tV%02u becoming dead\n", varNum);
+            JITDUMP("V%02u becoming dead\n", varNum);
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
@@ -782,7 +782,7 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
 #ifdef DEBUG
                 if (VarSetOps::IsMember(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex))
                 {
-                    JITDUMP("\t\t\t\t\t\t\tRemoving V%02u from gcVarPtrSetCur\n", varNum);
+                    JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
                 }
 #endif // DEBUG
                 VarSetOps::RemoveElemD(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
@@ -802,7 +802,7 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
         {
             // This isn't in a register, so update the gcVarPtrSetCur to show that it's live on the stack.
             VarSetOps::AddElemD(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
-            JITDUMP("\t\t\t\t\t\t\tV%02u becoming live\n", varNum);
+            JITDUMP("V%02u becoming live\n", varNum);
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
