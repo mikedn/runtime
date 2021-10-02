@@ -1711,7 +1711,7 @@ private:
     //
     void MorphStructField(GenTree* node, GenTree* user)
     {
-        if ((user != nullptr) && user->OperIs(GT_RETURN))
+        if ((user != nullptr) && user->OperIs(GT_RETURN, GT_CALL))
         {
             return;
         }
