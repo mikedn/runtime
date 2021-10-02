@@ -15844,12 +15844,13 @@ bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
     return true;
 }
 
-// Note that the value of the below field doesn't matter; it exists only to provide a distinguished address.
-//
-// static
-FieldSeqNode FieldSeqStore::s_notAField(nullptr);
+FieldSeqNode FieldSeqNode::s_notAField(nullptr);
 
-// FieldSeqStore methods.
+int FieldSeqNode::BoxedValuePseudoFieldStruct;
+
+const CORINFO_FIELD_HANDLE FieldSeqNode::BoxedValuePseudoFieldHandle =
+    reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqNode::BoxedValuePseudoFieldStruct);
+
 FieldSeqStore::FieldSeqStore(Compiler* compiler)
     : m_compiler(compiler)
     , m_alloc(compiler->getAllocator(CMK_FieldSeqStore))
@@ -16134,22 +16135,6 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
     }
 }
 #endif // DEBUG
-
-// Static vars.
-int FieldSeqStore::BoxedValuePseudoFieldStruct;
-
-const CORINFO_FIELD_HANDLE FieldSeqStore::BoxedValuePseudoFieldHandle =
-    reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqStore::BoxedValuePseudoFieldStruct);
-
-bool FieldSeqNode::IsBoxedValueField() const
-{
-    return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
-}
-
-bool FieldSeqNode::IsField() const
-{
-    return (this != FieldSeqStore::NotAField()) && !IsBoxedValueField() && !IsArrayElement();
-}
 
 #ifdef FEATURE_HW_INTRINSICS
 bool GenTree::isCommutativeHWIntrinsic() const

@@ -236,7 +236,21 @@ struct FieldSeqNode
 {
     friend class FieldSeqStore;
 
+    // The boxed value field identifies the value part of a boxed value object.
+    // Used with static struct fields which are implemented as static reference
+    // fields pointing to boxed structs allocated by the runtime.
+    static const CORINFO_FIELD_HANDLE BoxedValuePseudoFieldHandle;
+
 private:
+    // This is a special distinguished FieldSeqNode indicating that a constant does *not*
+    // represent a valid field sequence.  This is "infectious", in the sense that appending it
+    // (on either side) to any field sequence yields the "NotAField()" sequence.
+    static FieldSeqNode s_notAField;
+    // Dummy variable to provide an address for the "Boxed Value" pseudo field handle.
+    // Since field handles are really pointers this should guarantee that the boxed
+    // pseudo field handle doesn't conflict with any real field handles.
+    static int BoxedValuePseudoFieldStruct;
+
     CORINFO_FIELD_HANDLE m_fieldHnd;
     FieldSeqNode*        m_next;
 
@@ -253,18 +267,30 @@ private:
     }
 
 public:
-    bool IsBoxedValueField() const;
+    static FieldSeqNode* NotAField()
+    {
+        return &s_notAField;
+    }
 
-    bool IsField() const;
+    bool IsBoxedValueField() const
+    {
+        return m_fieldHnd == BoxedValuePseudoFieldHandle;
+    }
 
     bool IsArrayElement() const
     {
         return (reinterpret_cast<uintptr_t>(m_fieldHnd) & 1) != 0;
     }
 
+    bool IsField() const
+    {
+        return (this != &s_notAField) && !IsBoxedValueField() && !IsArrayElement();
+    }
+
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
         assert(IsField());
+
         return m_fieldHnd;
     }
 
@@ -337,25 +363,22 @@ class FieldSeqStore
     CompAllocator         m_alloc;
     FieldSeqNodeCanonMap* m_canonMap;
 
-    static FieldSeqNode s_notAField; // No value, just exists to provide an address.
-
-    // Dummy variable to provide an address for the "Boxed Value" pseudo field handle.
-    static int BoxedValuePseudoFieldStruct;
-
 public:
     FieldSeqStore(Compiler* compiler);
 
     // Returns the (canonical in the store) singleton field sequence for the given handle.
     FieldSeqNode* CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd);
 
+    FieldSeqNode* GetBoxedValuePseudoField()
+    {
+        return CreateSingleton(FieldSeqNode::BoxedValuePseudoFieldHandle);
+    }
+
     FieldSeqNode* GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs);
 
-    // This is a special distinguished FieldSeqNode indicating that a constant does *not*
-    // represent a valid field sequence.  This is "infectious", in the sense that appending it
-    // (on either side) to any field sequence yields the "NotAField()" sequence.
     static FieldSeqNode* NotAField()
     {
-        return &s_notAField;
+        return &FieldSeqNode::s_notAField;
     }
 
     // Returns the (canonical in the store) field sequence representing the concatenation of
@@ -367,13 +390,6 @@ public:
     FieldSeqNode* FoldAdd(const struct GenTreeIntCon* i1, const struct GenTreeIntCon* i2);
 
     INDEBUG(void DebugCheck(FieldSeqNode* f);)
-
-    // We have a few "pseudo" field handles:
-
-    // The boxed value field identifies the value part of a boxed value object.
-    // Used with static struct fields which are implemented as static reference
-    // fields pointing to boxed structs allocated by the runtime.
-    static const CORINFO_FIELD_HANDLE BoxedValuePseudoFieldHandle;
 };
 
 class GenTreeUseEdgeIterator;

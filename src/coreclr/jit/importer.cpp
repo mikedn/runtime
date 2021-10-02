@@ -6194,7 +6194,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   r
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         addr     = gtNewOperNode(GT_IND, TYP_REF, addr);
-        fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+        fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
     }
 
@@ -6324,7 +6324,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
             }
 #endif
 
-            fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+            fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
             addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
         }
 
@@ -6362,7 +6362,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
         indir->SetType(TYP_REF);
         addr = indir;
 
-        fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+        fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
 
         if (varTypeIsStruct(type))
