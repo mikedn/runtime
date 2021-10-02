@@ -15847,7 +15847,7 @@ bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
 // Note that the value of the below field doesn't matter; it exists only to provide a distinguished address.
 //
 // static
-FieldSeqNode FieldSeqStore::s_notAField(nullptr, nullptr);
+FieldSeqNode FieldSeqStore::s_notAField(nullptr);
 
 // FieldSeqStore methods.
 FieldSeqStore::FieldSeqStore(Compiler* compiler)
@@ -15859,16 +15859,15 @@ FieldSeqStore::FieldSeqStore(Compiler* compiler)
 
 FieldSeqNode* FieldSeqStore::CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd)
 {
-    FieldSeqNode  fsn(fieldHnd, nullptr);
-    FieldSeqNode* res = nullptr;
+    FieldSeqNode* seq = nullptr;
 
-    if (!m_canonMap->Lookup(fsn, &res))
+    if (!m_canonMap->Lookup(fieldHnd, &seq))
     {
-        res = new (m_alloc) FieldSeqNode(fsn);
-        m_canonMap->Set(fsn, res);
+        seq = new (m_alloc) FieldSeqNode(fieldHnd);
+        m_canonMap->Set(fieldHnd, seq);
     }
 
-    return res;
+    return seq;
 }
 
 FieldSeqNode* FieldSeqStore::GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs)
@@ -15906,21 +15905,78 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
         return NotAField();
     }
 
-    // We should never add a duplicate FieldSeqNode
-    assert(a != b);
+    FieldSeqNode* seq[8];
+    unsigned      len = 0;
 
-    FieldSeqNode  fsn(a->m_fieldHnd, Append(a->m_next, b));
-    FieldSeqNode* res = nullptr;
-
-    if (!m_canonMap->Lookup(fsn, &res))
+    for (FieldSeqNode* p = a; p != nullptr; p = p->GetNext())
     {
-        res = new (m_alloc) FieldSeqNode(fsn);
-        m_canonMap->Set(fsn, res);
+        seq[len++] = p;
 
-        INDEBUG(DebugCheck(res);)
+        if (len == _countof(seq))
+        {
+            return NotAField();
+        }
+
+        // TODO-MIKE-Cleanup: Recursive single field struct promotion implementation is messy,
+        // at least in connection to implicit byref param demotion. We may start with an access
+        // to field X of a param and recursive promotion changes it to X.Y, there's no X promoted
+        // field. Demotion would need to restore the original X.Y field sequence but it doesn't
+        // have a good way to know it was X.Y and not just X. In some case we may guess the field
+        // sequence based on the type of an indir (if there's one at all) but it doesn't seem
+        // very reliable. If we demote to X.Y instead of X we can later have issues when promoting
+        // struct copies - if there was an X = X assignment we need to make it X.Y = X.Y and now
+        // the field sequence coming from demotion is already X.Y and appending another Y is not
+        // correct.
+        //
+        // So for now tolerate appending field sequences with suffix/prefix overlapping:
+        //   - x.y.z + y.z = x.y.z
+        //   - x.y.z + z.w = x.y.z.w
+        //   - x.y.z + y = invalid (not a field)
+        //
+        // This isn't ideal - such cases may also arise from invalid IL and/or incorrect handling
+        // of reinterpretation in user code. In those case it would be better to treat all cases
+        // as invalid.
+
+        if (p->m_fieldHnd == b->m_fieldHnd)
+        {
+            do
+            {
+                p = p->GetNext();
+                b = b->GetNext();
+            } while ((p != nullptr) && (b != nullptr) && p->m_fieldHnd == b->m_fieldHnd);
+
+            // b is somewhere inside a, that's likely due to bad IL.
+            noway_assert(p == nullptr);
+
+            // b is a suffix of a, just return a.
+            if (b == nullptr)
+            {
+                return a;
+            }
+
+            // a prefix of b is a suffix of a, we still need to append the rest of b.
+            break;
+        }
     }
 
-    return res;
+    seq[len] = b;
+
+    // Skip prefix nodes that already exist.
+    for (FieldSeqNode* p; (len != 0) && m_canonMap->Lookup({seq[len - 1], seq[len]}, &p); len--)
+    {
+        seq[len - 1] = p;
+    }
+
+    // Create new prefix nodes.
+    for (; len != 0; len--)
+    {
+        FieldSeqNode* p = new (m_alloc) FieldSeqNode(seq[len - 1], seq[len]);
+        m_canonMap->Set(*p, p);
+        INDEBUG(DebugCheck(p);)
+        seq[len - 1] = p;
+    }
+
+    return seq[0];
 }
 
 FieldSeqNode* FieldSeqStore::FoldAdd(const GenTreeIntCon* i1, const GenTreeIntCon* i2)

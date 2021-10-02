@@ -240,11 +240,19 @@ private:
     CORINFO_FIELD_HANDLE m_fieldHnd;
     FieldSeqNode*        m_next;
 
-public:
+    FieldSeqNode(CORINFO_FIELD_HANDLE fieldHnd) : m_fieldHnd(fieldHnd), m_next(nullptr)
+    {
+    }
+
     FieldSeqNode(CORINFO_FIELD_HANDLE fieldHnd, FieldSeqNode* next) : m_fieldHnd(fieldHnd), m_next(next)
     {
     }
 
+    FieldSeqNode(FieldSeqNode* p, FieldSeqNode* n) : m_fieldHnd(p->m_fieldHnd), m_next(n)
+    {
+    }
+
+public:
     bool IsBoxedValueField() const;
 
     bool IsField() const;
