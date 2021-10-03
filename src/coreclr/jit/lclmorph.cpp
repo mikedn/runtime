@@ -342,10 +342,13 @@ public:
     void VisitStmt(Statement* stmt)
     {
 #ifdef DEBUG
+        char message[64];
+
         if (m_compiler->verbose)
         {
-            printf("LocalAddressVisitor visiting statement:\n");
-            m_compiler->gtDispStmt(stmt);
+            sprintf_s(message, sizeof(message), "LocalAddressVisitor visiting statement " FMT_BB,
+                      m_compiler->compCurBB->bbNum);
+            m_compiler->gtDispStmt(stmt, message);
             m_stmtModified = false;
         }
 #endif // DEBUG
@@ -372,8 +375,9 @@ public:
         {
             if (m_stmtModified)
             {
-                printf("LocalAddressVisitor modified statement:\n");
-                m_compiler->gtDispStmt(stmt);
+                sprintf_s(message, sizeof(message), "LocalAddressVisitor modified statement " FMT_BB,
+                          m_compiler->compCurBB->bbNum);
+                m_compiler->gtDispStmt(stmt, message);
             }
 
             printf("\n");
@@ -537,6 +541,13 @@ public:
                 }
                 break;
 
+            case GT_ASG:
+                if (node->TypeIs(TYP_STRUCT))
+                {
+                    PostOrderVisitStructAssignment(node->AsOp());
+                    break;
+                }
+                FALLTHROUGH;
             default:
                 while (TopValue(0).Node() != node)
                 {
@@ -548,6 +559,48 @@ public:
 
         assert(TopValue(0).Node() == node);
         return Compiler::WALK_CONTINUE;
+    }
+
+    void PostOrderVisitStructAssignment(GenTreeOp* asg)
+    {
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(TopValue(2).Node() == asg);
+        assert(TopValue(1).Node() == asg->GetOp(0));
+        assert(TopValue(0).Node() == asg->GetOp(1));
+
+        // TODO-MIKE-Cleanup: We can't assert here yet because MorphStructField already messed up the types.
+        // assert(op1->TypeIs(TYP_STRUCT));
+        // assert(op2->TypeIs(TYP_STRUCT) || op2->IsIntegralConst(0) || op2->OperIs(GT_INIT_VAL));
+
+        EscapeValue(TopValue(0), asg);
+        EscapeValue(TopValue(1), asg);
+
+        GenTree* op1 = asg->GetOp(0);
+        GenTree* op2 = asg->GetOp(1);
+
+        if (op2->IsIntegralConst(0))
+        {
+            if (!op1->TypeIs(TYP_STRUCT))
+            {
+                RetypeStructAssignmentZeroInit(asg, op1->GetType());
+            }
+        }
+        else if (op2->OperIs(GT_INIT_VAL))
+        {
+            // Currently MorphLocalIndir doesn't touch BLKs so we don't need to deal with INIT_VAL.
+            assert(op1->TypeIs(TYP_STRUCT));
+        }
+        else if (!op1->TypeIs(TYP_STRUCT) && !op2->TypeIs(TYP_STRUCT))
+        {
+            RetypeScalarAssignment(asg, op1, op2);
+        }
+        else if (op1->TypeIs(TYP_STRUCT) != op2->TypeIs(TYP_STRUCT))
+        {
+            RetypeStructAssignment(asg, op1, op2);
+        }
+
+        PopValue();
+        PopValue();
     }
 
 private:
@@ -574,7 +627,7 @@ private:
     //    val - the escaped address value
     //    user - the node that uses the escaped value
     //
-    void EscapeValue(Value& val, GenTree* user)
+    void EscapeValue(const Value& val, GenTree* user)
     {
         if (val.IsLocation())
         {
@@ -597,7 +650,7 @@ private:
     //    val - the escaped address value
     //    user - the node that uses the address value
     //
-    void EscapeAddress(Value& val, GenTree* user)
+    void EscapeAddress(const Value& val, GenTree* user)
     {
         assert(val.IsAddress());
 
@@ -670,19 +723,22 @@ private:
         {
             assert(node->AsLclVarCommon()->GetLclNum() == val.LclNum());
 
-            // TODO-MIKE-Cleanup: This shouldn't be restricted to call args but ASG LHS
-            // requires special handling. In fact, the LCL_VAR|FLD special casing should
-            // probably be removed and left to a generalized MorphLocalIndir.
-
             if (node->OperIs(GT_LCL_VAR) && lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
             {
-                if (user->IsCall())
+                switch (user->GetOper())
                 {
-                    PromoteSingleFieldStructCallArg(lcl, node->AsLclVar());
-                }
-                else if (user->OperIs(GT_RETURN))
-                {
-                    PromoteSingleFieldStructReturn(user->AsUnOp(), lcl, node->AsLclVar());
+                    case GT_ASG:
+                        PromoteSingleFieldStructLocalAssignment(lcl, node->AsLclVar(), user->AsOp());
+                        break;
+                    case GT_CALL:
+                        PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclVar());
+                        break;
+                    case GT_RETURN:
+                        PromoteSingleFieldStructLocalReturn(lcl, node->AsLclVar(), user->AsUnOp());
+                        break;
+                    default:
+                        // Let's hope the importer doesn't produce STRUCT COMMAs again.
+                        unreached();
                 }
             }
 
@@ -782,6 +838,107 @@ private:
         }
 
         MorphLocalIndir(val, user, indirSize);
+    }
+
+    void PromoteSingleFieldStructLocalAssignment(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTreeOp* asg)
+    {
+        assert(lcl->TypeIs(TYP_STRUCT));
+        assert(lcl->GetPromotedFieldCount() == 1);
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        lclVar->SetLclNum(fieldLclNum);
+        lclVar->SetType(fieldLcl->GetType());
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void PromoteSingleFieldStructLocalCallArg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
+    {
+        assert(lcl->TypeIs(TYP_STRUCT));
+        assert(lcl->GetPromotedFieldCount() == 1);
+
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        lclVar->SetLclNum(fieldLclNum);
+        lclVar->SetType(fieldLcl->GetType());
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void PromoteSingleFieldStructLocalReturn(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTreeUnOp* ret)
+    {
+        assert(lcl->TypeIs(TYP_STRUCT));
+        assert(lcl->GetPromotedFieldCount() == 1);
+        assert(ret->TypeIs(TYP_STRUCT));
+
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        lclVar->SetLclNum(fieldLclNum);
+        lclVar->SetType(fieldLcl->GetType());
+
+        INDEBUG(m_stmtModified = true;)
+
+        if ((m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0))
+        {
+            // This is a merged return, it will be transformed into a struct
+            // assignment so leave it to fgMorphCopyBlock to promote it.
+            return;
+        }
+
+        const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
+
+        if (retDesc.GetRegCount() == 1)
+        {
+            var_types retRegType = varActualType(retDesc.GetRegType(0));
+            ret->SetType(retRegType);
+
+            if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(fieldLcl->GetType()))
+            {
+                ret->SetOp(0, NewBitCastNode(retRegType, lclVar));
+            }
+
+            return;
+        }
+
+#ifdef WINDOWS_X86_ABI
+        if (retDesc.GetRegCount() == 2)
+        {
+            assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
+
+            ret->SetType(TYP_LONG);
+
+            if (fieldLcl->TypeIs(TYP_SIMD8))
+            {
+                // TODO-MIKE-CQ: This generates rather poor code. Vector2 should be handled
+                // like DOUBLE, in codegen.
+                ret->SetOp(0, NewExtractElement(TYP_LONG, lclVar, TYP_SIMD16, 0));
+            }
+            else
+            {
+                assert(fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE));
+            }
+
+            return;
+        }
+#endif
+
+        // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
+        // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
+        // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
+        // Either way, leave it to morph to produce a FIELD_LIST in this case.
+        // We could probably do it here but it's not clear if it has any benefits.
+        assert(varTypeIsSIMD(fieldLcl->GetType()));
     }
 
     //------------------------------------------------------------------------
@@ -896,11 +1053,7 @@ private:
 
         if (GenTreeField* field = indir->IsField())
         {
-            CORINFO_CLASS_HANDLE fieldClassHandle;
-            CorInfoType          corType =
-                m_compiler->info.compCompHnd->getFieldType(field->GetFieldHandle(), &fieldClassHandle);
-            assert(JITtype2varType(corType) == TYP_STRUCT);
-            return m_compiler->info.compCompHnd->getClassSize(fieldClassHandle);
+            return m_compiler->info.compCompHnd->getClassSize(GetStructFieldType(field));
         }
 
         return indir->AsBlk()->GetLayout()->GetSize();
@@ -979,6 +1132,17 @@ private:
             // transform the tree into IND(LCL_VAR|FLD_ADDR) instead of leaving this to
             // fgMorphField.
 
+            // TODO-MIKE-CQ: Can we use another mechanism to avoid dependent promotion of SpinLock?
+            // DNER would do half of the job, it keeps the local in memory but does not prevent other
+            // optimizations that may interfere with volatile. Strictly speaking, neither address
+            // exposed provided any such guarantees, it's just that the JIT is very conservative with
+            // address exposed locals. Maybe DNER + DONT_CSE + ORDER_SIDEEFF?
+            // It's unlikely to have SpinLock local variable in real world code but we do get local
+            // temps for SpinLock construction. And currently they are independent promoted because
+            // MorphStructField doesn't check for volatile access, which is basically a bug...
+            // At the same time, it's unlikely that SpinLock's constructor really needs volatile,
+            // only Enter/Exit do.
+
             // For now make the local address exposed to workaround a bug in fgMorphSmpOp's
             // IND morphing code. It completly ignores volatile indirs and in doing so it
             // fails to DNER the local which leads to asserts in the backend.
@@ -988,7 +1152,7 @@ private:
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
-        if (indir->OperIs(GT_BLK))
+        if (indir->OperIs(GT_BLK) || (indir->OperIs(GT_IND) && indir->TypeIs(TYP_STRUCT)))
         {
             // Keep BLKs and mark any involved locals address exposed for now.
             //
@@ -1014,41 +1178,59 @@ private:
 
         const bool isDef = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
 
-        if (!varTypeIsStruct(varDsc->GetType()))
+        var_types lclType   = varDsc->GetType();
+        var_types indirType = indir->GetType();
+
+        // A non-struct local may be accessed via a struct indir due to reinterpretation in user
+        // code or due to single field struct promotion. Reinterpretation isn't common (but it
+        // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
+        // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
+        // can simply replace it with the local variable because it doesn't really matter if it's
+        // a struct value or a primitive type value, we just need to put the value in the correct
+        // register or stack slot.
+
+        if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT))
         {
-            // TODO-MIKE-Cleanup: This likely makes a bunch of IND morphing code in fgMorphSmpOp redundant.
+            ClassLayout* indirLayout;
 
-            // A non-struct local may be accessed via a struct indir due to reinterpretation in user
-            // code or due to single field struct promotion. Reinterpretation isn't common (but it
-            // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
-            // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
-            // can simply replace it with the local variable because it doesn't really matter if it's
-            // a struct value or a primitive type value, we just need to put the value in the correct
-            // register or stack slot.
-
-            // TODO-ADDR: This also needs to be done for struct assignments.
-            //
-            // For assignments it can be easily done if the indir is the source, fgMorphCopyBlock
-            // handles the case of a struct assignment with a primitive typed source. But if the
-            // indir is the destination then we need to retype the entire assignment.
-
-            if (indir->TypeIs(TYP_STRUCT))
+            if (GenTreeField* field = indir->IsField())
             {
-                if (indir->OperIs(GT_OBJ) && user->IsCall())
-                {
-                    MorphStructCallArgLocalIndir(val, indir, indirSize);
-                    return;
-                }
-
-                if (indir->OperIs(GT_OBJ, GT_FIELD) && user->OperIs(GT_RETURN))
-                {
-                    MorphStructReturnLocalIndir(val, user->AsUnOp(), indir, indirSize);
-                    return;
-                }
+                indirLayout = m_compiler->typGetObjLayout(GetStructFieldType(field));
+            }
+            else
+            {
+                indirLayout = indir->AsObj()->GetLayout();
             }
 
-            var_types lclType   = varDsc->GetType();
-            var_types indirType = indir->GetType();
+            switch (user->GetOper())
+            {
+                case GT_ASG:
+                    if (MorphLocalStructIndirAssignment(val, indir, indirLayout, user->AsOp()))
+                    {
+                        return;
+                    }
+                    break;
+                case GT_CALL:
+                    if (MorphLocalStructIndirCallArg(val, indir, indirLayout))
+                    {
+                        return;
+                    }
+                    break;
+                case GT_RETURN:
+                    if (MorphLocalStructIndirReturn(val, indir, indirLayout, user->AsUnOp()))
+                    {
+                        return;
+                    }
+                    break;
+                default:
+                    // Let's hope the importer doesn't produce STRUCT COMMAs again.
+                    unreached();
+            }
+        }
+
+        if (!varTypeIsStruct(lclType))
+        {
+            // TODO-MIKE-Cleanup: This likely makes a bunch of IND morphing code in fgMorphSmpOp redundant.
 
             if ((val.Offset() == 0) && !varTypeIsStruct(indirType))
             {
@@ -1143,15 +1325,8 @@ private:
             }
 
             // If we haven't been able to get rid of the indir until now then just use a LCL_FLD.
-            //
-            // Except in the odd case when the indir has STRUCT type. One might expect this case
-            // to be very rare but thanks to pseudo-recursive struct promotion it is actually
-            // quite common to have OBJ(ADDR(LCL_VAR)) with a promoted struct field local.
-            // Using a LCL_FLD in this case would then lead to dependent struct promotion.
-            // Though perhaps the solution is to use LCL_FLD but defer DNERing the local to morph
-            // or lowering.
 
-            if (indir->OperIs(GT_IND, GT_OBJ, GT_FIELD) && (indirType != TYP_STRUCT))
+            if (indir->OperIs(GT_IND, GT_OBJ, GT_FIELD))
             {
                 indir->ChangeOper(GT_LCL_FLD);
                 indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1278,18 +1453,14 @@ private:
         }
         else if (indir->OperIs(GT_IND))
         {
-            // Can't have STRUCT typed IND nodes here, they should have been rejected earlier.
+            // Can't have STRUCT typed IND nodes here, they're only generated as BLK sources
+            // and we have been rejected BLKs earlier.
 
             assert(varTypeIsSIMD(indir->GetType()));
         }
-        else if (indir->OperIs(GT_FIELD))
+        else if (GenTreeField* field = indir->IsField())
         {
-            CORINFO_CLASS_HANDLE fieldClassHandle;
-            CorInfoType          corType =
-                m_compiler->info.compCompHnd->getFieldType(indir->AsField()->gtFldHnd, &fieldClassHandle);
-            assert(corType == CORINFO_TYPE_VALUECLASS);
-
-            indirLayout = m_compiler->typGetObjLayout(fieldClassHandle);
+            indirLayout = m_compiler->typGetObjLayout(GetStructFieldType(field));
         }
         else
         {
@@ -1297,66 +1468,35 @@ private:
 
             assert(!indirLayout->IsBlockLayout());
 
-            if (fieldSeq != nullptr)
+            if ((fieldSeq != nullptr) &&
+                (GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()) != indirLayout->GetClassHandle()))
             {
-                CORINFO_CLASS_HANDLE fieldClassHandle;
-                CorInfoType corType = m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle(),
-                                                                                 &fieldClassHandle);
-
-                if ((corType != CORINFO_TYPE_VALUECLASS) || (fieldClassHandle != indirLayout->GetClassHandle()))
-                {
-                    fieldSeq = nullptr;
-                }
+                fieldSeq = nullptr;
             }
         }
 
-        if ((val.Offset() == 0) && (indirLayout != nullptr))
-        {
-            if (varTypeIsSIMD(varDsc->GetType()) && (indirLayout->GetSize() == varTypeSize(varDsc->GetType())) &&
-                user->IsCall())
-            {
-                // A SIMD local may be accessed as a struct of the same size due to promoting
-                // single SIMD field structs - use the SIMD field directly and let call arg
-                // morphing figure out how to load it in registers if needed.
+        // For STRUCT locals, if the indir layout doesn't match and the local is promoted
+        // then ignore the indir layout to avoid having to make a LCL_FLD and dependent
+        // promote the local. The indir layout isn't really needed anymore, since call arg
+        // morphing uses the one from the call signature.
 
-                // TODO-MIKE-CQ: This should also be done for returns.
+        // The only thing other than the ABI the layout influences is GCness of stores
+        // to the local but in that case it really does make more sense to ignore the
+        // indir layout and use the local variable layout as that is the "real" one when
+        // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
+        // copies doesn't make a lot of sense.
 
-                indir->SetType(varDsc->GetType());
-            }
-            else if ((indirLayout != varDsc->GetLayout()) && varDsc->IsPromoted() &&
-                     (indir->GetType() == varDsc->GetType()) &&
-                     (indirLayout->GetSize() == varDsc->GetLayout()->GetSize()))
-            {
-                // If the indir layout doesn't match and the local is promoted then ignore the
-                // indir layout to avoid having to make a LCL_FLD and dependent promote the
-                // local. The indir layout isn't really needed anymore, since call arg morphing
-                // uses the one from the call signature.
-
-                // The only thing other than the ABI the layout influences is GCness of stores
-                // to the local but in that case it really does make more sense to ignore the
-                // indir layout and use the local variable layout as that is the "real" one when
-                // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
-                // copies doesn't make a lot of sense.
-
-                // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
-                // not clear if it's worth doing and safe.
-                // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
-                // this can create more assignments with different source and destination types
-                // and it's not clear how well VN maps handles those.
-                // Also, discarding type information is not that great in general and it may be
-                // better to instead teach assertion propagation to deal with LCL_FLDs.
-
-                indirLayout = varDsc->GetLayout();
-            }
-        }
-
-        // For SIMD locals/indirs we don't care about the layout, only that the types match.
-        // This could probably be relaxed to allow cases like Vector2 indir and Vector4 local
-        // since they all use the same registers. Might need to zero out the upper elements
-        // though.
+        // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
+        // not clear if it's worth doing and safe.
+        // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
+        // this can create more assignments with different source and destination types
+        // and it's not clear how well VN maps handles those.
+        // Also, discarding type information is not that great in general and it may be
+        // better to instead teach assertion propagation to deal with LCL_FLDs.
 
         if ((val.Offset() == 0) && (indir->GetType() == varDsc->GetType()) &&
-            (varTypeIsSIMD(indir->GetType()) || (indirLayout == varDsc->GetLayout())))
+            (!indir->TypeIs(TYP_STRUCT) || (indirLayout == varDsc->GetLayout()) ||
+             (varDsc->IsPromoted() && indirLayout->GetSize() == varDsc->GetLayout()->GetSize())))
         {
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
@@ -1402,15 +1542,46 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void MorphStructCallArgLocalIndir(const Value& val, GenTree* indir, unsigned indirSize)
+    bool MorphLocalStructIndirAssignment(const Value& val, GenTree* indir, ClassLayout* indirLayout, GenTreeOp* asg)
     {
-        LclVarDsc*   lcl                 = m_compiler->lvaGetDesc(val.LclNum());
-        ClassLayout* indirLayout         = indir->AsObj()->GetLayout();
-        var_types    lclType             = lcl->GetType();
-        bool         isSingleFieldStruct = false;
+        assert(val.Offset() == 0);
+        assert(indir->TypeIs(TYP_STRUCT));
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
 
-        if ((val.Offset() == 0) && (indirSize == varTypeSize(lclType)))
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(val.LclNum());
+        assert(!lcl->TypeIs(TYP_STRUCT));
+
+        if (indirLayout->GetSize() == varTypeSize(lcl->GetType()))
         {
+            indir->ChangeOper(GT_LCL_VAR);
+            indir->SetType(lcl->GetType());
+            indir->AsLclVar()->SetLclNum(val.LclNum());
+            indir->gtFlags = GTF_EMPTY;
+
+            INDEBUG(m_stmtModified = true;)
+
+            return true;
+        }
+
+        return false;
+    }
+
+    bool MorphLocalStructIndirCallArg(const Value& val, GenTree* indir, ClassLayout* indirLayout)
+    {
+        assert(indir->TypeIs(TYP_STRUCT));
+        assert(val.Offset() == 0);
+
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(val.LclNum());
+        assert(!lcl->TypeIs(TYP_STRUCT));
+
+        var_types lclType             = lcl->GetType();
+        bool      isSingleFieldStruct = false;
+
+        if (indirLayout->GetSize() == varTypeSize(lclType))
+        {
+            // TODO-MIKE-Cleanup: Just checking the size is likely enough. Though it would probably
+            // be better if we had call arg info available here to check how the arg is passed.
+
             // For now do this only if the struct has a single field since this is the common case
             // generated by struct promotion. Eventually this could also work for reinterpretation
             // cases like "struct with 3 byte fields, local variable of type int or long".
@@ -1441,7 +1612,7 @@ private:
                 if (vm->getClassNumInstanceFields(indirLayout->GetClassHandle()) == 1)
                 {
                     CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(indirLayout->GetClassHandle(), 0);
-                    isSingleFieldStruct = (lcl->GetType() == JITtype2varType(vm->getFieldType(fieldHandle)));
+                    isSingleFieldStruct = (lcl->GetType() == CorTypeToVarType(vm->getFieldType(fieldHandle)));
                 }
             }
         }
@@ -1452,115 +1623,114 @@ private:
             indir->SetType(lclType);
             indir->AsLclVar()->SetLclNum(val.LclNum());
             indir->gtFlags = GTF_EMPTY;
-        }
-        else
-        {
-            indir->ChangeOper(GT_LCL_FLD);
-            indir->AsLclFld()->SetLclNum(val.LclNum());
-            indir->AsLclFld()->SetLclOffs(val.Offset());
-            indir->AsLclFld()->SetLayoutNum(m_compiler->typGetLayoutNum(indirLayout));
-            indir->gtFlags = GTF_EMPTY;
 
-            m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
+            INDEBUG(m_stmtModified = true;)
+
+            return true;
         }
 
-        INDEBUG(m_stmtModified = true;)
+        return false;
     }
 
-    void PromoteSingleFieldStructCallArg(LclVarDsc* lcl, GenTreeLclVar* node)
+    bool MorphLocalStructIndirReturn(const Value& val, GenTree* indir, ClassLayout* indirLayout, GenTreeUnOp* ret)
     {
-        assert(lcl->GetPromotedFieldCount() == 1);
-
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
-
-        if (lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()))
-        {
-            node->AsLclVar()->SetLclNum(fieldLclNum);
-            node->SetType(fieldLcl->GetType());
-        }
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    void MorphStructReturnLocalIndir(const Value& val, GenTreeUnOp* ret, GenTree* indir, unsigned indirSize)
-    {
-        // The merged return temp should never be accessed indirectly
-        // so we don't need to worry about it here.
-        assert(val.LclNum() != m_compiler->genReturnLocal);
+        assert(val.Offset() == 0);
+        assert(indir->TypeIs(TYP_STRUCT));
+        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
+        assert(m_compiler->info.GetRetLayout()->GetSize() == indirLayout->GetSize());
 
         LclVarDsc* lcl = m_compiler->lvaGetDesc(val.LclNum());
-
-        assert(indir->TypeIs(TYP_STRUCT));
-        assert(!varTypeIsStruct(lcl->GetType()));
-
-        ClassLayout* indirLayout;
-
-        if (GenTreeField* field = indir->IsField())
-        {
-            CORINFO_CLASS_HANDLE fieldClassHandle;
-            CorInfoType          corType =
-                m_compiler->info.compCompHnd->getFieldType(field->GetFieldHandle(), &fieldClassHandle);
-            assert(corType == CORINFO_TYPE_VALUECLASS);
-
-            indirLayout = m_compiler->typGetObjLayout(fieldClassHandle);
-        }
-        else
-        {
-            indirLayout = indir->AsObj()->GetLayout();
-        }
+        assert(!lcl->TypeIs(TYP_STRUCT));
 
         var_types             lclType     = lcl->GetType();
         const ReturnTypeDesc& retDesc     = m_compiler->info.retDesc;
         bool                  useLcl      = false;
         var_types             bitcastType = TYP_UNDEF;
-        var_types             retType     = TYP_UNDEF;
 
-        if ((val.Offset() == 0) && (indirSize <= varTypeSize(lclType)))
+        if ((m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0))
+        {
+            // This is a merged return, it will be transformed into a struct
+            // assignment so leave it to fgMorphCopyBlock to handle it.
+
+            LclVarDsc* mergedLcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
+            assert(mergedLcl->TypeIs(TYP_STRUCT));
+
+            if (!mergedLcl->IsPromoted())
+            {
+                // The merged return temp is a struct and it's not promoted.
+                // In general we can use a LCL_FLD to store the return value.
+
+                useLcl = mergedLcl->GetLayout()->GetSize() == varTypeSize(lclType);
+            }
+            else
+            {
+                // Currently we only promote merged return temps with a single field.
+                assert(mergedLcl->GetPromotedFieldCount() == 1);
+
+                LclVarDsc* mergedFieldLcl = m_compiler->lvaGetDesc(mergedLcl->GetPromotedFieldLclNum(0));
+
+                // Normally the returned value and the merged return temp type should be
+                // the same so the promoted fields should also have the same type. We
+                // may get different types due to reinterpretation but don't bother for
+                // now, merged returns are already too messy.
+                if (varActualType(mergedFieldLcl->GetType()) == varActualType(lclType))
+                {
+                    useLcl = true;
+                }
+                else if ((varTypeSize(mergedFieldLcl->GetType()) == varTypeSize(varActualType(lclType)) &&
+                          (varTypeUsesFloatReg(mergedFieldLcl->GetType()) != varTypeUsesFloatReg(lclType)) &&
+                          (varTypeSize(varActualType(lclType)) <= REGSIZE_BYTES)))
+                {
+                    useLcl      = true;
+                    bitcastType = varActualType(mergedFieldLcl->GetType());
+                }
+            }
+        }
+        else if (retDesc.GetRegCount() == 1)
         {
             // Since the local isn't a struct we expect it to be returned in a single
-            // register, with the exception of the win-x86 native ABI, where we may
-            // need to return LONG/DOUBLE in 2 INT registers. We may need to bitcast
-            // between integer and floating point (e.g. a struct with a single FLOAT
-            // is returned in an integer register on win-x64) but we don't care about
-            // the precise size of the involved types. For example, reinterpretation
-            // in user code may result in a DOUBLE local returned as a struct with a
-            // single FLOAT field, in this case the caller only cares about the low 4
-            // bytes in XMM0, there is no need to attempt to zero out the rest of the
-            // bytes.
+            // register, with the exception of the win-x86 native ABI, where we need
+            // to return LONG/DOUBLE in 2 INT registers.
+            // We may need to bitcast between integer and floating point (e.g. a struct
+            // with a single FLOAT is returned in an integer register on win-x64) but
+            // we don't care about the precise size of the involved types. For example,
+            // reinterpretation in user code may result in a DOUBLE local returned as a
+            // struct with a single FLOAT field, in this case the caller only cares about
+            // the low 4 bytes in XMM0, there is no need to attempt to zero out the rest
+            // of the bytes.
 
             // This covers the needs of single field struct promotion and reasonable
             // reinterpretation in user code. Anything else (e.g. INT local returned
             // as a 16 byte struct that needs 2 registers on linux/arm-64 is handled
             // by creating a LCL_FLD matching the return type.
 
-            if (retDesc.GetRegCount() == 1)
-            {
-                var_types retRegType = varActualType(retDesc.GetRegType(0));
+            var_types retRegType = varActualType(retDesc.GetRegType(0));
 
-                if (varTypeUsesFloatReg(retRegType) == varTypeUsesFloatReg(lclType))
-                {
-                    useLcl  = true;
-                    retType = retRegType;
-                }
-                else if (varTypeSize(retRegType) == varTypeSize(varActualType(lclType)))
-                {
-                    useLcl      = true;
-                    bitcastType = retRegType;
-                    retType     = retRegType;
-                }
-            }
-#ifdef TARGET_X86
-            else if (retDesc.GetRegCount() == 2)
+            if (varTypeUsesFloatReg(retRegType) == varTypeUsesFloatReg(lclType))
             {
-                if ((lclType == TYP_LONG) || (lclType == TYP_DOUBLE))
-                {
-                    assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
-                    retType = TYP_LONG;
-                }
+                useLcl = true;
+
+                ret->SetType(retRegType);
             }
-#endif
+            else if (varTypeSize(retRegType) == varTypeSize(varActualType(lclType)))
+            {
+                useLcl      = true;
+                bitcastType = retRegType;
+
+                ret->SetType(retRegType);
+            }
         }
+#ifdef WINDOWS_X86_ABI
+        else if (retDesc.GetRegCount() == 2)
+        {
+            if ((lclType == TYP_LONG) || (lclType == TYP_DOUBLE))
+            {
+                assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
+
+                ret->SetType(TYP_LONG);
+            }
+        }
+#endif
 
         if (useLcl && (bitcastType != TYP_UNDEF))
         {
@@ -1578,111 +1748,350 @@ private:
             indir->AsUnOp()->SetOp(0, addr);
             indir->gtFlags = GTF_EMPTY;
 
-            ret->SetType(retType);
+            INDEBUG(m_stmtModified = true;)
+
+            return true;
         }
-        else if (useLcl)
+
+        if (useLcl)
         {
             indir->ChangeOper(GT_LCL_VAR);
             indir->SetType(lclType);
             indir->AsLclVar()->SetLclNum(val.LclNum());
             indir->gtFlags = GTF_EMPTY;
 
-            ret->SetType(retType);
+            INDEBUG(m_stmtModified = true;)
+
+            return true;
+        }
+
+        return false;
+    }
+
+    void RetypeStructAssignmentZeroInit(GenTreeOp* asg, var_types type)
+    {
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(type != TYP_STRUCT);
+
+        GenTree* op2 = asg->GetOp(1);
+
+        assert(op2->IsIntegralConst(0));
+
+        switch (varActualType(type))
+        {
+            case TYP_INT:
+                break;
+            case TYP_LONG:
+#ifdef TARGET_64BIT
+                op2->SetType(TYP_LONG);
+#else
+                op2->ChangeToLngCon(0);
+#endif
+                break;
+            case TYP_BYREF:
+            case TYP_REF:
+                op2->SetType(type);
+                break;
+            case TYP_FLOAT:
+            case TYP_DOUBLE:
+                op2->ChangeToDblCon(type, 0);
+                break;
+#ifdef FEATURE_SIMD
+            case TYP_SIMD8:
+            case TYP_SIMD12:
+            case TYP_SIMD16:
+            case TYP_SIMD32:
+                op2->ChangeOper(GT_HWINTRINSIC);
+                op2->SetType(type);
+                op2->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(type), TYP_FLOAT, varTypeSize(type), 0);
+                break;
+#endif
+            default:
+                unreached();
+        }
+
+        asg->SetType(type);
+    }
+
+    void RetypeScalarAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
+    {
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(!op1->TypeIs(TYP_STRUCT) && !op2->TypeIs(TYP_STRUCT));
+
+        // Both struct operands were changed to scalars, currently we only do this if the
+        // struct size matches the scalar type size and since both operands of a struct
+        // assignment are supposed to have the same struct type the resulting scalar types
+        // should also have the same size. It may be possible to tolerate size mismatches
+        // for small int types but it's unlikely to be worth the trouble.
+        //
+        // TODO-MIKE-Review: The importer doesn't do proper IL validation and we may get
+        // here with different struct types. Probably it doesn't matter, unless it results
+        // in JIT crashes...
+        assert(varTypeSize(op1->GetType()) == varTypeSize(op2->GetType()));
+
+        // We only change a struct operand to a scalar if we access scalar locals as structs
+        // (either due to promotion or reinterpretation). Otherwise we'd simply generate
+        // struct LCL_FLDs.
+        assert(op1->OperIs(GT_LCL_VAR));
+        assert(op2->OperIs(GT_LCL_VAR));
+
+        // We don't allow type size changes but we don't otherwise care about the scalar
+        // types so we could end up with INT/FLOAT and DOUBLE/LONG/SIMD8 mismatches.
+        if ((varTypeUsesFloatReg(op1->GetType()) != varTypeUsesFloatReg(op2->GetType())) &&
+            (varTypeSize(op1->GetType()) <= REGSIZE_BYTES))
+        {
+            asg->SetOp(1, NewBitCastNode(varActualType(op1->GetType()), op2));
+        }
+        else if (varActualType(op1->GetType()) != varActualType(op2->GetType()))
+        {
+            op2->ChangeOper(GT_LCL_FLD);
+            op2->SetType(op1->GetType());
+
+            m_compiler->lvaSetVarDoNotEnregister(op2->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+        }
+
+        asg->SetType(op1->GetType());
+    }
+
+    void RetypeStructAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
+    {
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(op1->TypeIs(TYP_STRUCT) != op2->TypeIs(TYP_STRUCT));
+
+        GenTree* structOp = op1->TypeIs(TYP_STRUCT) ? op1 : op2;
+        GenTree* scalarOp = op1->TypeIs(TYP_STRUCT) ? op2 : op1;
+
+        // We only change a struct operand to a scalar if we access scalar locals as structs
+        // (either due to promotion or reinterpretation). Otherwise we'd simply generate
+        // struct LCL_FLDs.
+        assert(scalarOp->OperIs(GT_LCL_VAR));
+
+        var_types type = scalarOp->GetType();
+
+        if (GenTreeCall* call = structOp->IsCall())
+        {
+            RetypeStructAssignmentCall(asg, call, type);
+        }
+        else if (structOp->OperIs(GT_LCL_FLD, GT_LCL_VAR))
+        {
+            RetypeStructAssignmentLocal(asg, structOp->AsLclVarCommon(), type);
         }
         else
         {
-            indir->ChangeOper(GT_LCL_FLD);
-            indir->AsLclFld()->SetLclNum(val.LclNum());
-            indir->AsLclFld()->SetLclOffs(val.Offset());
-            indir->AsLclFld()->SetLayoutNum(m_compiler->typGetLayoutNum(indirLayout));
-            indir->gtFlags = GTF_EMPTY;
-
-            m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
+            RetypeStructAssignmentIndir(asg, structOp, type);
         }
 
-        INDEBUG(m_stmtModified = true;)
+        asg->SetType(type);
     }
 
-    void PromoteSingleFieldStructReturn(GenTreeUnOp* ret, LclVarDsc* lcl, GenTreeLclVar* node)
+    void RetypeStructAssignmentCall(GenTreeOp* asg, GenTreeCall* call, var_types type)
     {
-        assert(varTypeIsStruct(ret->GetType()));
-        assert(lcl->GetPromotedFieldCount() == 1);
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(call->TypeIs(TYP_STRUCT));
+        assert(type != TYP_STRUCT);
 
-        if ((m_compiler->genReturnLocal != BAD_VAR_NUM) && (node->GetLclNum() != m_compiler->genReturnLocal))
+        const ReturnTypeDesc& retDesc = *call->GetRetDesc();
+
+        if (retDesc.GetRegCount() == 1)
         {
-            // This is a merged return, it will be transformed into a struct
-            // assignment so leave it to fgMorphCopyBlock to promote it.
+            var_types retRegType = varActualType(retDesc.GetRegType(0));
+            call->SetType(retRegType);
+
+            if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(type))
+            {
+                asg->SetOp(1, NewBitCastNode(type, call));
+            }
+
             return;
         }
 
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
-
-        const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
-
 #ifdef WINDOWS_X86_ABI
-        if ((retDesc.GetRegCount() == 2) && fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE))
+        if (retDesc.GetRegCount() == 2)
         {
             assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
+            call->SetType(TYP_LONG);
 
-            node->AsLclVar()->SetLclNum(fieldLclNum);
-            node->SetType(fieldLcl->GetType());
-            ret->SetType(TYP_LONG);
-
-            INDEBUG(m_stmtModified = true;)
+            if (type == TYP_SIMD8)
+            {
+                asg->SetOp(1, m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_CreateScalarUnsafe, TYP_LONG,
+                                                                   16, call));
+            }
+            else if (type == TYP_DOUBLE)
+            {
+                // TODO-MIKE-CQ: We could probably make BITCAST LONG to DOUBLE work on x86.
+                // But anyway decomposition manages to force the CALL return value into
+                // memory so it's all messed up anyway. Luckily this is a very rare case.
+                asg->SetOp(1, NewExtractElement(TYP_DOUBLE,
+                                                m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16,
+                                                                                     NI_Vector128_CreateScalarUnsafe,
+                                                                                     TYP_LONG, 16, call),
+                                                TYP_SIMD16, 0));
+            }
+            else
+            {
+                assert(type == TYP_LONG);
+            }
 
             return;
         }
 #endif
 
-        if (retDesc.GetRegCount() > 1)
+        // Otherwise we're on arm64 or unix-x64 and we have promoted a single
+        // SIMD field struct that will be transformed during global morph.
+        assert(varTypeIsSIMD(type));
+    }
+
+    void RetypeStructAssignmentLocal(GenTreeOp* asg, GenTreeLclVarCommon* structLcl, var_types type)
+    {
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(structLcl->TypeIs(TYP_STRUCT));
+        assert(type != TYP_STRUCT);
+
+        if (GenTreeLclFld* lclFld = structLcl->IsLclFld())
         {
-            // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
-            // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
-            // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
-            // Either way, leave it to morph to produce a FIELD_LIST in this case.
-            // We could probably do it here but it's not clear if it has any benefits.
-
-            node->AsLclVar()->SetLclNum(fieldLclNum);
-            node->SetType(fieldLcl->GetType());
-
-            // TODO-MIKE-Cleanup: This should be done at import time - RETURN should have SIMD
-            // type only if it uses a single register to return a SIMD value.
-            ret->SetType(TYP_STRUCT);
-
-            INDEBUG(m_stmtModified = true;)
-
-            return;
-        }
-
-        var_types retRegType = varActualType(retDesc.GetRegType(0));
-
-        bool useLcl     = varTypeUsesFloatReg(retRegType) == varTypeUsesFloatReg(fieldLcl->GetType());
-        bool useBitcast = !useLcl && (varTypeSize(retRegType) <= REGSIZE_BYTES) &&
-                          (varTypeSize(retRegType) == varTypeSize(varActualType(fieldLcl->GetType())));
-
-        if (useLcl || useBitcast)
-        {
-            node->AsLclVar()->SetLclNum(fieldLclNum);
-            node->SetType(fieldLcl->GetType());
-
-            if (useBitcast)
-            {
-                ret->SetOp(0, NewBitCastNode(retRegType, node));
-            }
+            lclFld->SetType(type);
+            lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type));
         }
         else
         {
-            node->ChangeOper(GT_LCL_FLD);
-            node->AsLclFld()->SetLclNum(fieldLclNum);
-            node->SetType(retRegType);
+            assert(structLcl->OperIs(GT_LCL_VAR));
 
-            m_compiler->lvaSetVarDoNotEnregister(fieldLclNum DEBUGARG(Compiler::DNER_LocalField));
+            LclVarDsc*    lcl      = m_compiler->lvaGetDesc(structLcl);
+            FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type);
+
+            structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
+        }
+    }
+
+    void RetypeStructAssignmentIndir(GenTreeOp* asg, GenTree* structIndir, var_types type)
+    {
+        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(structIndir->TypeIs(TYP_STRUCT));
+        assert(type != TYP_STRUCT);
+
+        GenTree*      addr     = nullptr;
+        FieldSeqNode* fieldSeq = FieldSeqNode::NotAField();
+
+        if (GenTreeField* field = structIndir->IsField())
+        {
+            addr     = m_compiler->gtNewAddrNode(field, varTypePointerAdd(field->GetAddr()->GetType()));
+            fieldSeq = GetFieldSequence(GetStructFieldType(field), type);
+        }
+        else if (GenTreeIndex* index = structIndir->IsIndex())
+        {
+            addr     = m_compiler->gtNewAddrNode(index, TYP_BYREF);
+            fieldSeq = GetFieldSequence(index->GetLayout()->GetClassHandle(), type);
+        }
+        else
+        {
+            addr = structIndir->AsObj()->GetAddr();
+
+            if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->TypeIs(TYP_STRUCT))
+            {
+                if (GenTreeField* field = addr->AsUnOp()->GetOp(0)->IsField())
+                {
+                    fieldSeq = GetFieldSequence(GetStructFieldType(field), type);
+                }
+                else if (GenTreeIndex* index = addr->AsUnOp()->GetOp(0)->IsIndex())
+                {
+                    fieldSeq = GetFieldSequence(index->GetLayout()->GetClassHandle(), type);
+                }
+            }
         }
 
-        ret->SetType(retRegType);
+        if (fieldSeq->IsField())
+        {
+            GenTree* field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+            asg->SetOp(asg->GetOp(0) == structIndir ? 0 : 1, field);
+        }
+        else if (!structIndir->IsObj())
+        {
+            GenTree* indir = m_compiler->gtNewOperNode(GT_IND, type, addr);
+            asg->SetOp(asg->GetOp(0) == structIndir ? 0 : 1, indir);
+        }
+        else
+        {
+            structIndir->ChangeOper(GT_IND);
+            structIndir->SetType(type);
+        }
+    }
 
-        INDEBUG(m_stmtModified = true;)
+    CORINFO_CLASS_HANDLE GetStructFieldType(GenTreeField* field)
+    {
+        assert(varTypeIsStruct(field->GetType()));
+
+        return GetStructFieldType(field->GetFieldHandle());
+    }
+
+    CORINFO_CLASS_HANDLE GetStructFieldType(CORINFO_FIELD_HANDLE fieldHandle)
+    {
+        CORINFO_CLASS_HANDLE fc;
+        var_types            ft = CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldHandle, &fc));
+        assert((fc != nullptr) || (ft != TYP_STRUCT));
+
+        return ft == TYP_STRUCT ? fc : nullptr;
+    }
+
+    FieldSeqNode* GetFieldSequence(CORINFO_CLASS_HANDLE classHandle, var_types fieldType)
+    {
+        assert(fieldType != TYP_STRUCT);
+
+        ICorJitInfo* vm = m_compiler->info.compCompHnd;
+
+        if (vm->getClassNumInstanceFields(classHandle) < 1)
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        // In theory we should look at all fields and find the one having offset 0
+        // and the requested type. But since this is needed for single field struct
+        // promotion there should be only one field anyway.
+
+        CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(classHandle, 0);
+
+        if (vm->getFieldOffset(fieldHandle) != 0)
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        CORINFO_CLASS_HANDLE fc;
+        var_types            ft = CorTypeToVarType(vm->getFieldType(fieldHandle, &fc));
+
+#ifdef FEATURE_SIMD
+        if ((ft == TYP_STRUCT) && varTypeIsSIMD(fieldType))
+        {
+            ClassLayout* fieldClassLayout = m_compiler->typGetObjLayout(fc);
+
+            if (fieldClassLayout->IsVector())
+            {
+                ft = fieldClassLayout->GetSIMDType();
+            }
+        }
+#endif
+
+        if (ft != fieldType)
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        return m_compiler->GetFieldSeqStore()->CreateSingleton(fieldHandle);
+    }
+
+    FieldSeqNode* ExtendFieldSequence(FieldSeqNode* fieldSeq, var_types fieldType)
+    {
+        if ((fieldSeq == nullptr) || !fieldSeq->IsField())
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        CORINFO_CLASS_HANDLE classHandle = GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle());
+
+        if (classHandle == nullptr)
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        return m_compiler->GetFieldSeqStore()->Append(fieldSeq, GetFieldSequence(classHandle, fieldType));
     }
 
     static bool CanBitCastTo(var_types type)
@@ -1964,6 +2373,8 @@ private:
 
     GenTreeUnOp* NewBitCastNode(var_types type, GenTree* op)
     {
+        assert(varTypeSize(type) <= REGSIZE_BYTES);
+
         return m_compiler->gtNewBitCastNode(type, op);
     }
 
@@ -1985,6 +2396,11 @@ private:
         var_types type, unsigned index, var_types elementType, GenTree* dest, GenTree* value)
     {
         return m_compiler->gtNewSimdWithElementNode(type, elementType, dest, m_compiler->gtNewIconNode(index), value);
+    }
+
+    GenTreeHWIntrinsic* NewExtractElement(var_types eltType, GenTree* vec, var_types vecType, unsigned index)
+    {
+        return m_compiler->gtNewSimdGetElementNode(vecType, eltType, vec, m_compiler->gtNewIconNode(index));
     }
 #endif
 };

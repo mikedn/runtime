@@ -11340,8 +11340,7 @@ DONE_MORPHING_CHILDREN:
                 // the merged return temp, the rest will be transformed into assignments to that
                 // temp when block morphing is complete.
 
-                if ((genReturnLocal == BAD_VAR_NUM) ||
-                    (op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLclNum() == genReturnLocal)))
+                if ((genReturnLocal == BAD_VAR_NUM) || ((tree->gtFlags & GTF_RET_MERGED) != 0))
                 {
                     abiMorphStructReturn(tree->AsUnOp(), op1);
                     op1 = tree->AsUnOp()->GetOp(0);
@@ -15297,7 +15296,28 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         // TypedReference is not a valid return type so don't bother with it.
         noway_assert(!value->OperIs(GT_MKREFANY));
 
-        GenTree* dst = gtNewLclvNode(genReturnLocal, lvaGetDesc(genReturnLocal)->GetType());
+        unsigned   lclNum = genReturnLocal;
+        LclVarDsc* lcl    = lvaGetDesc(lclNum);
+        GenTree*   dst;
+
+        if (lcl->IsPromoted() && !value->TypeIs(TYP_STRUCT))
+        {
+            assert(lcl->GetPromotedFieldCount() == 1);
+
+            lclNum = lcl->GetPromotedFieldLclNum(0);
+            lcl    = lvaGetDesc(lclNum);
+
+            dst = gtNewLclvNode(lclNum, lcl->GetType());
+        }
+        else if (lcl->TypeIs(TYP_STRUCT) && !value->TypeIs(TYP_STRUCT))
+        {
+            dst = gtNewLclFldNode(lclNum, value->GetType(), 0);
+        }
+        else
+        {
+            dst = gtNewLclvNode(lclNum, lcl->GetType());
+        }
+
         GenTree* asg = gtNewAssignNode(dst, value);
 
         if (varTypeIsStruct(asg->GetType()))

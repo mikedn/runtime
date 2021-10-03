@@ -1863,8 +1863,12 @@ public:
 
     void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
+#ifndef TARGET_64BIT
+    GenTreeLngCon* ChangeToLngCon(int64_t value);
+#endif
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
+    GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
     // set gtOper and only keep GTF_COMMON_MASK flags
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     void ChangeOperUnchecked(genTreeOps oper);
