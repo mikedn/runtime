@@ -1191,16 +1191,7 @@ private:
 
         if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT))
         {
-            ClassLayout* indirLayout;
-
-            if (GenTreeField* field = indir->IsField())
-            {
-                indirLayout = m_compiler->typGetObjLayout(GetStructFieldType(field));
-            }
-            else
-            {
-                indirLayout = indir->AsObj()->GetLayout();
-            }
+            ClassLayout* indirLayout = GetStructIndirLayout(indir);
 
             switch (user->GetOper())
             {
@@ -1328,9 +1319,12 @@ private:
 
             if (indir->OperIs(GT_IND, GT_OBJ, GT_FIELD))
             {
+                ClassLayout* layout = varTypeIsStruct(indir->GetType()) ? GetStructIndirLayout(indir) : nullptr;
+
                 indir->ChangeOper(GT_LCL_FLD);
                 indir->AsLclFld()->SetLclNum(val.LclNum());
                 indir->AsLclFld()->SetLclOffs(val.Offset());
+                indir->AsLclFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
                 indir->gtFlags = GTF_EMPTY;
 
                 if (isDef)
@@ -1444,8 +1438,8 @@ private:
                 // mismatches but there doesn't seem to be any good reason to generate a LCL_FLD
                 // with a mismatched field sequence only to have to ignore it later.
 
-                if (indir->TypeGet() !=
-                    JITtype2varType(m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle())))
+                if (indir->GetType() !=
+                    CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle())))
                 {
                     fieldSeq = nullptr;
                 }
@@ -1458,18 +1452,14 @@ private:
 
             assert(varTypeIsSIMD(indir->GetType()));
         }
-        else if (GenTreeField* field = indir->IsField())
-        {
-            indirLayout = m_compiler->typGetObjLayout(GetStructFieldType(field));
-        }
         else
         {
-            indirLayout = indir->AsObj()->GetLayout();
+            indirLayout = GetStructIndirLayout(indir);
 
             assert(!indirLayout->IsBlockLayout());
 
-            if ((fieldSeq != nullptr) &&
-                (GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()) != indirLayout->GetClassHandle()))
+            if ((fieldSeq != nullptr) && !indir->OperIs(GT_FIELD) &&
+                (indirLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle())))
             {
                 fieldSeq = nullptr;
             }
@@ -2014,6 +2004,16 @@ private:
             structIndir->ChangeOper(GT_IND);
             structIndir->SetType(type);
         }
+    }
+
+    ClassLayout* GetStructIndirLayout(GenTree* indir)
+    {
+        if (GenTreeField* field = indir->IsField())
+        {
+            return m_compiler->typGetObjLayout(GetStructFieldType(field));
+        }
+
+        return indir->AsObj()->GetLayout();
     }
 
     CORINFO_CLASS_HANDLE GetStructFieldType(GenTreeField* field)
