@@ -517,17 +517,18 @@ public:
                 {
                     assert(TopValue(1).Node() == node);
                     assert(TopValue(0).Node() == node->gtGetOp1());
-                    GenTreeUnOp* ret    = node->AsUnOp();
-                    GenTree*     retVal = ret->gtGetOp1();
-                    if (retVal->OperIs(GT_LCL_VAR))
+
+                    GenTreeUnOp* ret = node->AsUnOp();
+
+                    if (ret->GetOp(0)->OperIs(GT_LCL_VAR))
                     {
                         // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small,
                         // having `doNotEnreg` affect block init and copy transformations that affect many methods.
                         // I have a change that introduces more precise and effective solution for that, but it would
                         // be merged separatly.
-                        GenTreeLclVar* lclVar = retVal->AsLclVar();
-                        unsigned       lclNum = lclVar->GetLclNum();
-                        LclVarDsc*     lcl    = m_compiler->lvaGetDesc(lclNum);
+
+                        unsigned   lclNum = ret->GetOp(0)->AsLclVar()->GetLclNum();
+                        LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
                             lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
@@ -538,6 +539,17 @@ public:
 
                     EscapeValue(TopValue(0), node);
                     PopValue();
+
+                    if (ret->GetOp(0)->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret))
+                    {
+                        LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
+
+                        if (lcl->IsPromoted())
+                        {
+                            assert(lcl->GetPromotedFieldCount() == 1);
+                            RetypeMergedReturnStructAssignment(ret, lcl);
+                        }
+                    }
                 }
                 break;
 
@@ -889,7 +901,7 @@ private:
 
         INDEBUG(m_stmtModified = true;)
 
-        if ((m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0))
+        if (IsMergedReturnAssignment(ret))
         {
             // This is a merged return, it will be transformed into a struct
             // assignment so leave it to fgMorphCopyBlock to promote it.
@@ -1637,7 +1649,7 @@ private:
         bool                  useLcl      = false;
         var_types             bitcastType = TYP_UNDEF;
 
-        if ((m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0))
+        if (IsMergedReturnAssignment(ret))
         {
             // This is a merged return, it will be transformed into a struct
             // assignment so leave it to fgMorphCopyBlock to handle it.
@@ -2004,6 +2016,36 @@ private:
             structIndir->ChangeOper(GT_IND);
             structIndir->SetType(type);
         }
+    }
+
+    void RetypeMergedReturnStructAssignment(GenTreeUnOp* ret, LclVarDsc* lcl)
+    {
+        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret));
+        assert(lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1));
+
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+        ret->SetType(fieldLcl->GetType());
+
+        GenTree* val = ret->GetOp(0);
+        assert(val->TypeIs(TYP_STRUCT));
+
+        GenTree*   dst = NewLclVarNode(fieldLcl->GetType(), lcl->GetPromotedFieldLclNum(0));
+        GenTreeOp* asg = m_compiler->gtNewAssignNode(dst, val);
+        asg->SetType(TYP_STRUCT);
+
+        RetypeStructAssignment(asg, dst, val);
+
+        ret->SetOp(0, asg->GetOp(1));
+        ret->SetSideEffects(asg->GetOp(1)->GetSideEffects());
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    bool IsMergedReturnAssignment(GenTreeUnOp* ret)
+    {
+        assert(ret->OperIs(GT_RETURN));
+
+        return (m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0);
     }
 
     ClassLayout* GetStructIndirLayout(GenTree* indir)
