@@ -594,7 +594,8 @@ public:
         {
             if (!op1->TypeIs(TYP_STRUCT))
             {
-                RetypeStructAssignmentZeroInit(asg, op1->GetType());
+                asg->SetOp(1, RetypeStructZeroInit(op2, op1->GetType()));
+                asg->SetType(op1->GetType());
             }
         }
         else if (op2->OperIs(GT_INIT_VAL))
@@ -1770,51 +1771,6 @@ private:
         return false;
     }
 
-    void RetypeStructAssignmentZeroInit(GenTreeOp* asg, var_types type)
-    {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-        assert(type != TYP_STRUCT);
-
-        GenTree* op2 = asg->GetOp(1);
-
-        assert(op2->IsIntegralConst(0));
-
-        switch (varActualType(type))
-        {
-            case TYP_INT:
-                break;
-            case TYP_LONG:
-#ifdef TARGET_64BIT
-                op2->SetType(TYP_LONG);
-#else
-                op2->ChangeToLngCon(0);
-#endif
-                break;
-            case TYP_BYREF:
-            case TYP_REF:
-                op2->SetType(type);
-                break;
-            case TYP_FLOAT:
-            case TYP_DOUBLE:
-                op2->ChangeToDblCon(type, 0);
-                break;
-#ifdef FEATURE_SIMD
-            case TYP_SIMD8:
-            case TYP_SIMD12:
-            case TYP_SIMD16:
-            case TYP_SIMD32:
-                op2->ChangeOper(GT_HWINTRINSIC);
-                op2->SetType(type);
-                op2->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(type), TYP_FLOAT, varTypeSize(type), 0);
-                break;
-#endif
-            default:
-                unreached();
-        }
-
-        asg->SetType(type);
-    }
-
     void RetypeScalarAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
     {
         assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
@@ -1860,8 +1816,9 @@ private:
         assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
         assert(op1->TypeIs(TYP_STRUCT) != op2->TypeIs(TYP_STRUCT));
 
-        GenTree* structOp = op1->TypeIs(TYP_STRUCT) ? op1 : op2;
-        GenTree* scalarOp = op1->TypeIs(TYP_STRUCT) ? op2 : op1;
+        bool     isStructDef = op1->TypeIs(TYP_STRUCT);
+        GenTree* structOp    = isStructDef ? op1 : op2;
+        GenTree* scalarOp    = isStructDef ? op2 : op1;
 
         // We only change a struct operand to a scalar if we access scalar locals as structs
         // (either due to promotion or reinterpretation). Otherwise we'd simply generate
@@ -1872,23 +1829,99 @@ private:
 
         if (GenTreeCall* call = structOp->IsCall())
         {
-            RetypeStructAssignmentCall(asg, call, type);
+            structOp = RetypeStructCall(call, type);
         }
         else if (structOp->OperIs(GT_LCL_FLD, GT_LCL_VAR))
         {
-            RetypeStructAssignmentLocal(asg, structOp->AsLclVarCommon(), type);
+            structOp = RetypeStructLocal(structOp->AsLclVarCommon(), type);
         }
         else
         {
-            RetypeStructAssignmentIndir(asg, structOp, type);
+            structOp = RetypeStructIndir(structOp, type);
         }
 
+        asg->SetOp(isStructDef ? 0 : 1, structOp);
         asg->SetType(type);
+        asg->SetSideEffects(structOp->GetSideEffects() | scalarOp->GetSideEffects());
+
+        INDEBUG(m_stmtModified = true;)
     }
 
-    void RetypeStructAssignmentCall(GenTreeOp* asg, GenTreeCall* call, var_types type)
+    void RetypeMergedReturnStructAssignment(GenTreeUnOp* ret, LclVarDsc* lcl)
     {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret));
+        assert(lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1));
+
+        GenTree*  val  = ret->GetOp(0);
+        var_types type = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->GetType();
+
+        if (GenTreeCall* call = val->IsCall())
+        {
+            val = RetypeStructCall(call, type);
+        }
+        else if (val->IsIntegralConst(0))
+        {
+            val = RetypeStructZeroInit(val, type);
+        }
+        else if (val->OperIs(GT_LCL_FLD, GT_LCL_VAR))
+        {
+            val = RetypeStructLocal(val->AsLclVarCommon(), type);
+        }
+        else
+        {
+            val = RetypeStructIndir(val, type);
+        }
+
+        ret->SetOp(0, val);
+        ret->SetType(type);
+        ret->SetSideEffects(val->GetSideEffects());
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    GenTree* RetypeStructZeroInit(GenTree* zero, var_types type)
+    {
+        assert(zero->IsIntegralConst(0));
+        assert(type != TYP_STRUCT);
+
+        switch (varActualType(type))
+        {
+            case TYP_INT:
+                break;
+            case TYP_LONG:
+#ifdef TARGET_64BIT
+                zero->SetType(TYP_LONG);
+#else
+                zero->ChangeToLngCon(0);
+#endif
+                break;
+            case TYP_BYREF:
+            case TYP_REF:
+                zero->SetType(type);
+                break;
+            case TYP_FLOAT:
+            case TYP_DOUBLE:
+                zero->ChangeToDblCon(type, 0);
+                break;
+#ifdef FEATURE_SIMD
+            case TYP_SIMD8:
+            case TYP_SIMD12:
+            case TYP_SIMD16:
+            case TYP_SIMD32:
+                zero->ChangeOper(GT_HWINTRINSIC);
+                zero->SetType(type);
+                zero->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(type), TYP_FLOAT, varTypeSize(type), 0);
+                break;
+#endif
+            default:
+                unreached();
+        }
+
+        return zero;
+    }
+
+    GenTree* RetypeStructCall(GenTreeCall* call, var_types type)
+    {
         assert(call->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
@@ -1901,10 +1934,10 @@ private:
 
             if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(type))
             {
-                asg->SetOp(1, NewBitCastNode(type, call));
+                return NewBitCastNode(type, call);
             }
 
-            return;
+            return call;
         }
 
 #ifdef WINDOWS_X86_ABI
@@ -1915,37 +1948,35 @@ private:
 
             if (type == TYP_SIMD8)
             {
-                asg->SetOp(1, m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_CreateScalarUnsafe, TYP_LONG,
-                                                                   16, call));
+                return m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_CreateScalarUnsafe, TYP_LONG, 16,
+                                                            call);
             }
-            else if (type == TYP_DOUBLE)
+
+            if (type == TYP_DOUBLE)
             {
                 // TODO-MIKE-CQ: We could probably make BITCAST LONG to DOUBLE work on x86.
                 // But anyway decomposition manages to force the CALL return value into
                 // memory so it's all messed up anyway. Luckily this is a very rare case.
-                asg->SetOp(1, NewExtractElement(TYP_DOUBLE,
-                                                m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16,
-                                                                                     NI_Vector128_CreateScalarUnsafe,
-                                                                                     TYP_LONG, 16, call),
-                                                TYP_SIMD16, 0));
-            }
-            else
-            {
-                assert(type == TYP_LONG);
-            }
+                return NewExtractElement(TYP_DOUBLE,
+                                         m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16,
+                                                                              NI_Vector128_CreateScalarUnsafe, TYP_LONG,
+                                                                              16, call),
+                                         TYP_SIMD16, 0);
+            };
 
-            return;
+            assert(type == TYP_LONG);
+            return call;
         }
 #endif
 
         // Otherwise we're on arm64 or unix-x64 and we have promoted a single
         // SIMD field struct that will be transformed during global morph.
         assert(varTypeIsSIMD(type));
+        return call;
     }
 
-    void RetypeStructAssignmentLocal(GenTreeOp* asg, GenTreeLclVarCommon* structLcl, var_types type)
+    GenTree* RetypeStructLocal(GenTreeLclVarCommon* structLcl, var_types type)
     {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
         assert(structLcl->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
@@ -1963,11 +1994,12 @@ private:
 
             structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
         }
+
+        return structLcl;
     }
 
-    void RetypeStructAssignmentIndir(GenTreeOp* asg, GenTree* structIndir, var_types type)
+    GenTree* RetypeStructIndir(GenTree* structIndir, var_types type)
     {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
         assert(structIndir->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
@@ -2003,42 +2035,17 @@ private:
 
         if (fieldSeq->IsField())
         {
-            GenTree* field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
-            asg->SetOp(asg->GetOp(0) == structIndir ? 0 : 1, field);
+            return m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
         }
-        else if (!structIndir->IsObj())
+
+        if (!structIndir->IsObj())
         {
-            GenTree* indir = m_compiler->gtNewOperNode(GT_IND, type, addr);
-            asg->SetOp(asg->GetOp(0) == structIndir ? 0 : 1, indir);
+            return m_compiler->gtNewOperNode(GT_IND, type, addr);
         }
-        else
-        {
-            structIndir->ChangeOper(GT_IND);
-            structIndir->SetType(type);
-        }
-    }
 
-    void RetypeMergedReturnStructAssignment(GenTreeUnOp* ret, LclVarDsc* lcl)
-    {
-        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret));
-        assert(lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1));
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-        ret->SetType(fieldLcl->GetType());
-
-        GenTree* val = ret->GetOp(0);
-        assert(val->TypeIs(TYP_STRUCT));
-
-        GenTree*   dst = NewLclVarNode(fieldLcl->GetType(), lcl->GetPromotedFieldLclNum(0));
-        GenTreeOp* asg = m_compiler->gtNewAssignNode(dst, val);
-        asg->SetType(TYP_STRUCT);
-
-        RetypeStructAssignment(asg, dst, val);
-
-        ret->SetOp(0, asg->GetOp(1));
-        ret->SetSideEffects(asg->GetOp(1)->GetSideEffects());
-
-        INDEBUG(m_stmtModified = true;)
+        structIndir->ChangeOper(GT_IND);
+        structIndir->SetType(type);
+        return structIndir;
     }
 
     bool IsMergedReturnAssignment(GenTreeUnOp* ret)
