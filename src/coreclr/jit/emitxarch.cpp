@@ -11207,17 +11207,20 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     {
         addr = emitConsBlock + doff;
 
+#ifdef DEBUG
         int byteSize = EA_SIZE_IN_BYTES(size);
 
-        // this instruction has a fixed size (4) src.
         if (ins == INS_cvttss2si || ins == INS_cvtss2sd || ins == INS_vbroadcastss || ins == INS_insertps)
         {
             byteSize = 4;
         }
-        // This has a fixed size (8) source.
-        if (ins == INS_vbroadcastsd)
+        else if (ins == INS_vbroadcastsd)
         {
             byteSize = 8;
+        }
+        else if (ins == INS_vinsertf128 || ins == INS_vinserti128)
+        {
+            byteSize = 16;
         }
 
         // Check that the offset is properly aligned (i.e. the ddd in [ddd])
@@ -11227,6 +11230,7 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         assert((emitChkAlign == false) || (ins == INS_lea) ||
                ((emitComp->compCodeOpt() == Compiler::SMALL_CODE) && (((size_t)addr & 3) == 0)) ||
                (((size_t)addr & (byteSize - 1)) == 0));
+#endif // DEBUG
     }
     else
     {
