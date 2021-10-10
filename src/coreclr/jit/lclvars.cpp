@@ -3513,7 +3513,7 @@ bool LclVarDsc::CanBeReplacedWithItsField(Compiler* comp) const
     }
 #endif // FEATURE_SIMD
 
-    return true;
+    unreached();
 }
 
 //------------------------------------------------------------------------
