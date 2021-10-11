@@ -2052,18 +2052,20 @@ void Compiler::StructPromotionHelper::GetFieldInfo(CORINFO_CLASS_HANDLE classHan
         else
 #endif
         {
-            TryPromoteSingleFieldStruct(fieldInfo, fieldTypeHandle);
+            GetSingleFieldStructInfo(fieldInfo, fieldTypeHandle);
         }
     }
 }
 
-void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructFieldInfo&  fieldInfo,
-                                                                  CORINFO_CLASS_HANDLE structHandle)
+void Compiler::StructPromotionHelper::GetSingleFieldStructInfo(lvaStructFieldInfo&  fieldInfo,
+                                                               CORINFO_CLASS_HANDLE structHandle)
 {
     assert(fieldInfo.fldType == TYP_STRUCT);
     assert(structHandle != NO_CLASS_HANDLE);
 
     ICorJitInfo* vm = compiler->info.compCompHnd;
+
+    // TODO-MIKE-Review: Should this also check for CORINFO_FLG_DONT_PROMOTE?
 
     if (vm->getClassNumInstanceFields(structHandle) != 1)
     {
@@ -2071,16 +2073,27 @@ void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructField
     }
 
     CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(structHandle, 0);
+    CORINFO_CLASS_HANDLE fieldTypeHandle;
+    var_types            fieldType = CorTypeToVarType(vm->getFieldType(fieldHandle, &fieldTypeHandle));
 
-    // TODO-CQ: FLOAT/DOUBLE/SIMD fields should also be promoted.
+    unsigned     size   = varTypeSize(fieldType);
+    ClassLayout* layout = nullptr;
 
-    var_types type = JITtype2varType(vm->getFieldType(fieldHandle));
-    unsigned  size = varTypeSize(type);
-
-    if (!varTypeIsIntegralOrI(type) || (size > REGSIZE_BYTES))
+    if (fieldType == TYP_STRUCT)
     {
-        JITDUMP("Promotion blocked: %s struct single field cannot be promoted\n", varTypeName(type));
-        return;
+#ifdef FEATURE_SIMD
+        layout = compiler->supportSIMDTypes() ? compiler->typGetObjLayout(fieldTypeHandle) : nullptr;
+
+        if ((layout != nullptr) && layout->IsVector())
+        {
+            fieldType = layout->GetSIMDType();
+            size      = layout->GetSize();
+        }
+        else
+#endif
+        {
+            return;
+        }
     }
 
     if ((vm->getFieldOffset(fieldHandle) != 0) || (vm->getClassSize(structHandle) != size))
@@ -2091,7 +2104,8 @@ void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructField
 
     fieldInfo.fldSeq[1]    = fieldHandle;
     fieldInfo.fldSeqLength = 2;
-    fieldInfo.fldType      = type;
+    fieldInfo.fldType      = fieldType;
+    fieldInfo.fldLayout    = layout;
     fieldInfo.fldSize      = size;
 }
 

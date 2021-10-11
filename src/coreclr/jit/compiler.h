@@ -2750,7 +2750,7 @@ public:
         void SortStructFields();
 
         void GetFieldInfo(CORINFO_CLASS_HANDLE classHandle, unsigned index);
-        void TryPromoteSingleFieldStruct(lvaStructFieldInfo& outerFieldInfo, CORINFO_CLASS_HANDLE structHandle);
+        void GetSingleFieldStructInfo(lvaStructFieldInfo& outerFieldInfo, CORINFO_CLASS_HANDLE structHandle);
 
     private:
         Compiler*              compiler;
