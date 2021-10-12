@@ -1638,8 +1638,7 @@ bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE 
 
     unsigned totalFieldSize = 0;
 
-    // Analyze this type from scratch.
-    structPromotionInfo = lvaStructPromotionInfo(typeHnd, fieldCnt);
+    new (&structPromotionInfo) lvaStructPromotionInfo(typeHnd, fieldCnt);
 
     for (unsigned index = 0; index < fieldCnt; ++index)
     {
