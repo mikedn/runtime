@@ -1471,6 +1471,7 @@ class Compiler
     friend struct GenTree;
     friend class ClassLayout;
     friend class VNConstPropVisitor;
+    friend class StructPromotionHelper;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -2698,62 +2699,6 @@ public:
     void lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
     void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-
-#define MAX_NumOfFieldsInPromotableStruct 4 // Maximum number of fields in promotable struct
-
-    // Info about struct type fields.
-    struct lvaStructFieldInfo
-    {
-        CORINFO_FIELD_HANDLE fldSeq[FieldSeqNode::MaxLength];
-        unsigned             fldSeqLength;
-        unsigned             fldOffset;
-        unsigned             fldSize;
-        var_types            fldType;
-        ClassLayout*         fldLayout;
-    };
-
-    // Info about a struct type, instances of which may be candidates for promotion.
-    struct lvaStructPromotionInfo
-    {
-        CORINFO_CLASS_HANDLE typeHnd;
-        uint8_t              fieldCnt;
-        bool                 canPromote    = false;
-        bool                 containsHoles = false;
-        bool                 customLayout  = false;
-        bool                 fieldsSorted  = false;
-        lvaStructFieldInfo   fields[MAX_NumOfFieldsInPromotableStruct];
-
-        lvaStructPromotionInfo(CORINFO_CLASS_HANDLE typeHnd, unsigned fieldCount)
-            : typeHnd(typeHnd), fieldCnt(static_cast<uint8_t>(fieldCount))
-        {
-            assert(fieldCount < MAX_NumOfFieldsInPromotableStruct);
-        }
-    };
-
-    // This class is responsible for checking validity and profitability of struct promotion.
-    // If it is both legal and profitable, then TryPromoteStructVar promotes the struct and initializes
-    // nessesary information for fgMorphStructField to use.
-    class StructPromotionHelper
-    {
-    public:
-        StructPromotionHelper(Compiler* compiler);
-
-        bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd);
-        bool TryPromoteStructVar(unsigned lclNum);
-
-    private:
-        bool CanPromoteStructVar(unsigned lclNum);
-        bool ShouldPromoteStructVar(unsigned lclNum);
-        void PromoteStructVar(unsigned lclNum);
-        void SortStructFields();
-
-        void GetFieldInfo(CORINFO_CLASS_HANDLE classHandle, unsigned index);
-        void GetSingleFieldStructInfo(lvaStructFieldInfo& outerFieldInfo, CORINFO_CLASS_HANDLE structHandle);
-
-    private:
-        Compiler*              compiler;
-        lvaStructPromotionInfo structPromotionInfo;
-    };
 
 #if !defined(TARGET_64BIT)
     void lvaPromoteLongVars();
@@ -8443,6 +8388,68 @@ public:
 
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
+
+// This class is responsible for checking validity and profitability of struct promotion.
+// If it is both legal and profitable, then TryPromoteStructVar promotes the struct and initializes
+// nessesary information for fgMorphStructField to use.
+class StructPromotionHelper
+{
+    static constexpr unsigned MaxFieldCount = 4;
+#ifndef FEATURE_SIMD
+    static constexpr unsigned MaxStructSize = MaxFieldCount * 8;
+#elif defined(TARGET_XARCH)
+    static constexpr unsigned MaxStructSize = MaxFieldCount * YMM_REGSIZE_BYTES;
+#elif defined(TARGET_ARM64)
+    static constexpr unsigned MaxStructSize = MaxFieldCount * FP_REGSIZE_BYTES;
+#endif
+    static constexpr unsigned MaxDepth = min(FieldSeqNode::MaxLength, 4);
+
+    struct FieldInfo
+    {
+        CORINFO_FIELD_HANDLE fieldSeq[MaxDepth];
+        uint8_t              fieldSeqLength;
+        var_types            type;
+        unsigned             offset;
+        ClassLayout*         layout;
+    };
+
+    struct StructInfo
+    {
+        CORINFO_CLASS_HANDLE typeHandle;
+        uint8_t              fieldCount;
+        bool                 canPromote    = false;
+        bool                 containsHoles = false;
+        bool                 customLayout  = false;
+        bool                 fieldsSorted  = false;
+        FieldInfo            fields[MaxFieldCount];
+
+        StructInfo(CORINFO_CLASS_HANDLE typeHandle, unsigned fieldCount)
+            : typeHandle(typeHandle), fieldCount(static_cast<uint8_t>(fieldCount))
+        {
+            assert(fieldCount <= MaxFieldCount);
+        }
+    };
+
+    Compiler*  compiler;
+    StructInfo info;
+
+public:
+    StructPromotionHelper(Compiler* compiler) : compiler(compiler), info(nullptr, 0)
+    {
+    }
+
+    bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle);
+    bool TryPromoteStructVar(unsigned lclNum);
+
+private:
+    bool CanPromoteStructVar(unsigned lclNum);
+    bool ShouldPromoteStructVar(unsigned lclNum);
+    void PromoteStructVar(unsigned lclNum);
+    void SortStructFields();
+
+    void GetFieldInfo(unsigned index);
+    void GetSingleFieldStructInfo(FieldInfo& field, CORINFO_CLASS_HANDLE structHandle);
+};
 
 #ifdef TARGET_ARM64
 // TODO-MIKE-Cleanup: It's not clear if storing immediates directly inside GenTreeInstr
