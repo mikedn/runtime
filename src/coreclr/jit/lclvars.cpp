@@ -76,7 +76,8 @@ void Compiler::lvaInit()
 #endif
     lvaCurEpoch = 0;
 
-    structPromotionHelper = new (this, CMK_Generic) StructPromotionHelper(this);
+    impPromotableStructTypeCache[0] = nullptr;
+    impPromotableStructTypeCache[1] = nullptr;
 }
 
 /*****************************************************************************/

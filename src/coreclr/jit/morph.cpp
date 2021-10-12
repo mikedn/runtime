@@ -16144,15 +16144,10 @@ void Compiler::fgPromoteStructs()
     }
 #endif // DEBUG
 
-    assert(structPromotionHelper != nullptr);
-
-    // Clear the structPromotionHelper, since it is used during inlining, at which point it
-    // may be conservative about looking up SIMD info.
-    // We don't want to preserve those conservative decisions for the actual struct promotion.
-    structPromotionHelper->Clear();
-
     // The lvaTable might grow as we grab temps. Make a local copy here.
     unsigned startLvaCount = lvaCount;
+
+    StructPromotionHelper helper(this);
 
     for (unsigned lclNum = 0; lclNum < startLvaCount; lclNum++)
     {
@@ -16184,7 +16179,7 @@ void Compiler::fgPromoteStructs()
             continue;
         }
 
-        bool promoted = structPromotionHelper->TryPromoteStructVar(lclNum);
+        bool promoted = helper.TryPromoteStructVar(lclNum);
 
         if (!promoted)
         {

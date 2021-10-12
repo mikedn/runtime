@@ -14921,8 +14921,31 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     // Note if the callee's class is a promotable struct
     if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
-        assert(structPromotionHelper != nullptr);
-        if (structPromotionHelper->CanPromoteStructType(info.compClassHnd))
+        CORINFO_CLASS_HANDLE* cache = impPromotableStructTypeCache;
+
+        if (pInlineInfo != nullptr)
+        {
+            cache = pInlineInfo->InlinerCompiler->impPromotableStructTypeCache;
+        }
+
+        bool promotable;
+
+        if (info.compClassHnd == cache[0])
+        {
+            promotable = false;
+        }
+        else if (info.compClassHnd == cache[1])
+        {
+            promotable = true;
+        }
+        else
+        {
+            StructPromotionHelper helper(this);
+            promotable        = helper.CanPromoteStructType(info.compClassHnd);
+            cache[promotable] = info.compClassHnd;
+        }
+
+        if (promotable)
         {
             inlineResult->Note(InlineObservation::CALLEE_CLASS_PROMOTABLE);
         }

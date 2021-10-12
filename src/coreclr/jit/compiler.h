@@ -2738,10 +2738,6 @@ public:
 
         bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd);
         bool TryPromoteStructVar(unsigned lclNum);
-        void Clear()
-        {
-            structPromotionInfo.typeHnd = NO_CLASS_HANDLE;
-        }
 
     private:
         bool CanPromoteStructVar(unsigned lclNum);
@@ -2756,8 +2752,6 @@ public:
         Compiler*              compiler;
         lvaStructPromotionInfo structPromotionInfo;
     };
-
-    StructPromotionHelper* structPromotionHelper;
 
 #if !defined(TARGET_64BIT)
     void lvaPromoteLongVars();
@@ -2809,8 +2803,9 @@ public:
     unsigned lvaPSPSym; // variable representing the PSPSym
 #endif
 
-    InlineInfo*     impInlineInfo;
-    InlineStrategy* m_inlineStrategy;
+    InlineInfo*          impInlineInfo;
+    InlineStrategy*      m_inlineStrategy;
+    CORINFO_CLASS_HANDLE impPromotableStructTypeCache[2];
 
     // The Compiler* that is the root of the inlining tree of which "this" is a member.
     Compiler* impInlineRoot();
