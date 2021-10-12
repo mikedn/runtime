@@ -1523,87 +1523,88 @@ bool StructPromotionHelper::TryPromoteStructVar(unsigned lclNum)
     return false;
 }
 
-//--------------------------------------------------------------------------------------------
-// CanPromoteStructType - checks if the struct type can be promoted.
-//
-// Arguments:
-//   typeHnd - struct handle to check.
-//
-// Return value:
-//   true if the struct type can be promoted.
-//
-// Notes:
-//   The last analyzed type is memorized to skip the check if we ask about the same time again next.
-//   However, it was not found profitable to memorize all analyzed types in a map.
-//
-//   The check initializes only nessasary fields in StructInfo,
-//   so if the promotion is rejected early than most fields will be uninitialized.
-//
-bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd)
+bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle)
 {
     // TODO-ObjectStackAllocation: Enable promotion of fields of stack-allocated objects.
-    assert(compiler->info.compCompHnd->isValueClass(typeHnd));
+    assert(compiler->info.compCompHnd->isValueClass(typeHandle));
 
-    if (info.typeHandle == typeHnd)
+    if (info.typeHandle == typeHandle)
     {
         // Asking for the same type of struct as the last time.
         // Nothing need to be done.
         return info.canPromote;
     }
 
-    bool containsGCpointers = false;
+    ICorJitInfo* vm = compiler->info.compCompHnd;
 
-    COMP_HANDLE compHandle = compiler->info.compCompHnd;
+    unsigned structSize = vm->getClassSize(typeHandle);
 
-    unsigned structSize = compHandle->getClassSize(typeHnd);
     if (structSize > MaxStructSize)
     {
         return false;
     }
 
-    unsigned fieldCnt = compHandle->getClassNumInstanceFields(typeHnd);
-    if (fieldCnt == 0 || fieldCnt > MaxFieldCount)
+    unsigned fieldCount = vm->getClassNumInstanceFields(typeHandle);
+
+    if ((fieldCount < 1) || (fieldCount > MaxFieldCount))
     {
-        return false; // struct must have between 1 and MaxFieldCount fields
+        return false;
     }
 
-    DWORD typeFlags = compHandle->getClassAttribs(typeHnd);
+    uint32_t typeFlags = vm->getClassAttribs(typeHandle);
 
-    if (StructHasNoPromotionFlagSet(typeFlags))
+    if ((typeFlags & CORINFO_FLG_DONT_PROMOTE) != 0)
     {
         // In AOT ReadyToRun compilation, don't try to promote fields of types
         // outside of the current version bubble.
         return false;
     }
 
-    bool overlappingFields = StructHasOverlappingFields(typeFlags);
-    if (overlappingFields)
+    if ((typeFlags & CORINFO_FLG_OVERLAPPING_FIELDS) != 0)
     {
         return false;
     }
 
-    // Don't struct promote if we have an CUSTOMLAYOUT flag on an HFA type
-    if (StructHasCustomLayout(typeFlags))
+    if ((typeFlags & CORINFO_FLG_CUSTOMLAYOUT) != 0)
     {
-        ClassLayout* layout = compiler->typGetObjLayout(typeHnd);
+        // Don't promote HFAs with custom layout.
+        // TODO-MIKE-Review: How exactly a HFA can have custom layout?!?
+
+        ClassLayout* layout = compiler->typGetObjLayout(typeHandle);
         layout->EnsureHfaInfo(compiler);
 
         if (layout->IsHfa())
         {
             return false;
         }
+
+        // If we have "Custom Layout" then we might have an explicit Size attribute
+        // Managed C++ uses this for its structs, such C++ types will not contain GC pointers.
+        //
+        // The current VM implementation also incorrectly sets the CORINFO_FLG_CUSTOMLAYOUT
+        // whenever a managed value class contains any GC pointers.
+        // (See the comment for VMFLAG_NOT_TIGHTLY_PACKED in class.h)
+        //
+        // It is important to struct promote managed value classes that have GC pointers
+        // So we compute the correct value for "CustomLayout" here
+
+        if ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) == 0)
+        {
+            info.customLayout = true;
+        }
     }
 
 #ifdef TARGET_ARM
     // On ARM, we have a requirement on the struct alignment; see below.
-    unsigned structAlignment = roundUp(compHandle->getClassAlignmentRequirement(typeHnd), TARGET_POINTER_SIZE);
-#endif // TARGET_ARM
+    unsigned structAlignment = roundUp(vm->getClassAlignmentRequirement(typeHandle), TARGET_POINTER_SIZE);
+#endif
 
-    unsigned totalFieldSize = 0;
+    unsigned totalFieldSize     = 0;
+    bool     containsGCpointers = false;
 
-    new (&info) StructInfo(typeHnd, fieldCnt);
+    new (&info) StructInfo(typeHandle, fieldCount);
 
-    for (unsigned index = 0; index < fieldCnt; ++index)
+    for (unsigned index = 0; index < fieldCount; ++index)
     {
         GetFieldInfo(index);
 
@@ -1655,36 +1656,14 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd)
         totalFieldSize += size;
     }
 
-    // If we saw any GC pointer or by-ref fields above then CORINFO_FLG_CONTAINS_GC_PTR or
-    // CORINFO_FLG_CONTAINS_STACK_PTR has to be set!
     noway_assert(!containsGCpointers ||
                  ((typeFlags & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) != 0));
 
-    // If we have "Custom Layout" then we might have an explicit Size attribute
-    // Managed C++ uses this for its structs, such C++ types will not contain GC pointers.
-    //
-    // The current VM implementation also incorrectly sets the CORINFO_FLG_CUSTOMLAYOUT
-    // whenever a managed value class contains any GC pointers.
-    // (See the comment for VMFLAG_NOT_TIGHTLY_PACKED in class.h)
-    //
-    // It is important to struct promote managed value classes that have GC pointers
-    // So we compute the correct value for "CustomLayout" here
-    //
-    if (StructHasCustomLayout(typeFlags) && ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) == 0))
-    {
-        info.customLayout = true;
-    }
+    // If sizes do not match it means we have an overlapping fields or holes.
+    // Overlapping fields were rejected early, so here it can mean only holes.
+    info.containsHoles = totalFieldSize != structSize;
 
-    // Check if this promoted struct contains any holes.
-    assert(!overlappingFields);
-    if (totalFieldSize != structSize)
-    {
-        // If sizes do not match it means we have an overlapping fields or holes.
-        // Overlapping fields were rejected early, so here it can mean only holes.
-        info.containsHoles = true;
-    }
-
-    if (info.containsHoles && (fieldCnt == 1))
+    if (info.containsHoles && (fieldCount == 1))
     {
         // Single field structs can only have holes due to explicit size/layout.
         // Don't bother promoting, they're rare and a potential source of bugs
@@ -1693,8 +1672,6 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd)
         // not be promoted).
         return false;
     }
-
-    // Cool, this struct is promotable.
 
     info.canPromote = true;
     return true;

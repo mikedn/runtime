@@ -8476,10 +8476,10 @@ private:
     static constexpr unsigned SIZE_BITS    = 9;
     static constexpr unsigned OPT_BITS     = 4;
 #elif defined(TARGET_ARM)
-    static constexpr unsigned NUM_OPS_BITS = 2;
-    static constexpr unsigned INS_BITS     = 9;
-    static constexpr unsigned SIZE_BITS    = 9;
-    static constexpr unsigned OPT_BITS     = 3;
+    static constexpr unsigned NUM_OPS_BITS  = 2;
+    static constexpr unsigned INS_BITS      = 9;
+    static constexpr unsigned SIZE_BITS     = 9;
+    static constexpr unsigned OPT_BITS      = 3;
 #elif defined(TARGET_XARCH)
     // TODO-MIKE-Cleanup: Wishful thinking... it may be nice to use GenTreeInstr on x86/64
     // but compared to ARM there aren't many interesting use cases and x86/64 instructions
