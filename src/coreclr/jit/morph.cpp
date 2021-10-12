@@ -16074,18 +16074,9 @@ void Compiler::fgPostExpandQmarkChecks()
 }
 #endif
 
-/*****************************************************************************
- *
- *  Promoting struct locals
- */
 void Compiler::fgPromoteStructs()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgPromoteStructs()\n");
-    }
-#endif // DEBUG
+    JITDUMP("*************** In fgPromoteStructs()\n");
 
     if (!opts.OptEnabled(CLFLG_STRUCTPROMOTE))
     {
@@ -16099,37 +16090,6 @@ void Compiler::fgPromoteStructs()
         return;
     }
 
-#if 0
-    // The code in this #if has been useful in debugging struct promotion issues, by
-    // enabling selective enablement of the struct promotion optimization according to
-    // method hash.
-#ifdef DEBUG
-    unsigned methHash = info.compMethodHash();
-    char* lostr = getenv("structpromohashlo");
-    unsigned methHashLo = 0;
-    if (lostr != NULL)
-    {
-        sscanf_s(lostr, "%x", &methHashLo);
-    }
-    char* histr = getenv("structpromohashhi");
-    unsigned methHashHi = UINT32_MAX;
-    if (histr != NULL)
-    {
-        sscanf_s(histr, "%x", &methHashHi);
-    }
-    if (methHash < methHashLo || methHash > methHashHi)
-    {
-        return;
-    }
-    else
-    {
-        printf("Promoting structs for method %s, hash = 0x%x.\n",
-               info.compFullName, info.compMethodHash());
-        printf("");         // in our logic this causes a flush
-    }
-#endif // DEBUG
-#endif // 0
-
     if (info.compIsVarArgs)
     {
         JITDUMP("  promotion disabled because of varargs\n");
@@ -16142,14 +16102,11 @@ void Compiler::fgPromoteStructs()
         printf("\nlvaTable before fgPromoteStructs\n");
         lvaTableDump();
     }
-#endif // DEBUG
-
-    // The lvaTable might grow as we grab temps. Make a local copy here.
-    unsigned startLvaCount = lvaCount;
+#endif
 
     StructPromotionHelper helper(this);
 
-    for (unsigned lclNum = 0; lclNum < startLvaCount; lclNum++)
+    for (unsigned lclNum = 0, lclCount = lvaCount; lclNum < lclCount; lclNum++)
     {
         if (lvaHaveManyLocals())
         {
@@ -16179,9 +16136,7 @@ void Compiler::fgPromoteStructs()
             continue;
         }
 
-        bool promoted = helper.TryPromoteStructLocal(lclNum);
-
-        if (!promoted)
+        if (!helper.TryPromoteStructLocal(lclNum))
         {
             // If we don't promote then lvIsMultiRegRet is meaningless.
             lcl->lvIsMultiRegRet = false;
@@ -16201,7 +16156,7 @@ void Compiler::fgPromoteStructs()
         printf("\nlvaTable after fgPromoteStructs\n");
         lvaTableDump();
     }
-#endif // DEBUG
+#endif
 }
 
 //------------------------------------------------------------------------
