@@ -1500,7 +1500,8 @@ bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
 // Arguments:
 //   compiler - pointer to a compiler to get access to an allocator, compHandle etc.
 //
-Compiler::StructPromotionHelper::StructPromotionHelper(Compiler* compiler) : compiler(compiler), structPromotionInfo()
+Compiler::StructPromotionHelper::StructPromotionHelper(Compiler* compiler)
+    : compiler(compiler), structPromotionInfo(nullptr, 0)
 {
 }
 
@@ -1565,9 +1566,6 @@ bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE 
         // Fall through ...
         return structPromotionInfo.canPromote;
     }
-
-    // Analyze this type from scratch.
-    structPromotionInfo = lvaStructPromotionInfo(typeHnd);
 
     // sizeof(double) represents the size of the largest primitive type that we can struct promote.
     // In the future this may be changing to XMM_REGSIZE_BYTES.
@@ -1639,6 +1637,9 @@ bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE 
 #endif // TARGET_ARM
 
     unsigned totalFieldSize = 0;
+
+    // Analyze this type from scratch.
+    structPromotionInfo = lvaStructPromotionInfo(typeHnd, fieldCnt);
 
     for (unsigned index = 0; index < fieldCnt; ++index)
     {
@@ -2035,9 +2036,9 @@ void Compiler::StructPromotionHelper::GetFieldInfo(CORINFO_CLASS_HANDLE classHan
     fieldInfo.fldSeq[0]    = fieldHandle;
     fieldInfo.fldSeqLength = 1;
     fieldInfo.fldOffset    = vm->getFieldOffset(fieldHandle);
+    fieldInfo.fldSize      = varTypeSize(fieldInfo.fldType);
     fieldInfo.fldType      = fieldType;
     fieldInfo.fldLayout    = nullptr;
-    fieldInfo.fldSize      = varTypeSize(fieldInfo.fldType);
 
     if (fieldInfo.fldType == TYP_STRUCT)
     {

@@ -2704,27 +2704,29 @@ public:
     // Info about struct type fields.
     struct lvaStructFieldInfo
     {
-        CORINFO_FIELD_HANDLE fldSeq[FieldSeqNode::MaxLength] = {};
-        unsigned             fldSeqLength                    = 0;
-        unsigned             fldOffset                       = 0;
-        unsigned             fldSize                         = 0;
-        var_types            fldType                         = TYP_UNDEF;
-        ClassLayout*         fldLayout                       = nullptr;
+        CORINFO_FIELD_HANDLE fldSeq[FieldSeqNode::MaxLength];
+        unsigned             fldSeqLength;
+        unsigned             fldOffset;
+        unsigned             fldSize;
+        var_types            fldType;
+        ClassLayout*         fldLayout;
     };
 
     // Info about a struct type, instances of which may be candidates for promotion.
     struct lvaStructPromotionInfo
     {
         CORINFO_CLASS_HANDLE typeHnd;
+        uint8_t              fieldCnt;
         bool                 canPromote    = false;
         bool                 containsHoles = false;
         bool                 customLayout  = false;
         bool                 fieldsSorted  = false;
-        unsigned char        fieldCnt      = 0;
         lvaStructFieldInfo   fields[MAX_NumOfFieldsInPromotableStruct];
 
-        lvaStructPromotionInfo(CORINFO_CLASS_HANDLE typeHnd = nullptr) : typeHnd(typeHnd)
+        lvaStructPromotionInfo(CORINFO_CLASS_HANDLE typeHnd, unsigned fieldCount)
+            : typeHnd(typeHnd), fieldCnt(static_cast<uint8_t>(fieldCount))
         {
+            assert(fieldCount < MAX_NumOfFieldsInPromotableStruct);
         }
     };
 
