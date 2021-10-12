@@ -2539,21 +2539,6 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
         {
             return false;
         }
-
-        // If we have "Custom Layout" then we might have an explicit Size attribute
-        // Managed C++ uses this for its structs, such C++ types will not contain GC pointers.
-        //
-        // The current VM implementation also incorrectly sets the CORINFO_FLG_CUSTOMLAYOUT
-        // whenever a managed value class contains any GC pointers.
-        // (See the comment for VMFLAG_NOT_TIGHTLY_PACKED in class.h)
-        //
-        // It is important to struct promote managed value classes that have GC pointers
-        // So we compute the correct value for "CustomLayout" here
-
-        if ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) == 0)
-        {
-            info.customLayout = true;
-        }
     }
 
 #ifdef TARGET_ARM
@@ -2620,6 +2605,18 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
 
     noway_assert(!containsGCpointers ||
                  ((typeFlags & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) != 0));
+
+    // If we have "Custom Layout" then we might have an explicit Size attribute
+    // Managed C++ uses this for its structs, such C++ types will not contain GC pointers.
+    //
+    // The current VM implementation also incorrectly sets the CORINFO_FLG_CUSTOMLAYOUT
+    // whenever a managed value class contains any GC pointers.
+    // (See the comment for VMFLAG_NOT_TIGHTLY_PACKED in class.h)
+    //
+    // It is important to struct promote managed value classes that have GC pointers
+    // So we compute the correct value for "CustomLayout" here
+    info.customLayout =
+        (typeFlags & (CORINFO_FLG_CUSTOMLAYOUT | CORINFO_FLG_CONTAINS_GC_PTR)) == CORINFO_FLG_CUSTOMLAYOUT;
 
     // If sizes do not match it means we have an overlapping fields or holes.
     // Overlapping fields were rejected early, so here it can mean only holes.
