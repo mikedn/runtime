@@ -241,6 +241,8 @@ struct FieldSeqNode
     // fields pointing to boxed structs allocated by the runtime.
     static const CORINFO_FIELD_HANDLE BoxedValuePseudoFieldHandle;
 
+    static constexpr unsigned MaxLength = 8;
+
 private:
     // This is a special distinguished FieldSeqNode indicating that a constant does *not*
     // represent a valid field sequence.  This is "infectious", in the sense that appending it
@@ -386,6 +388,7 @@ public:
     // they are the results of CreateSingleton, NotAField, or Append calls.  If either of the arguments
     // are the "NotAField" value, so is the result.
     FieldSeqNode* Append(FieldSeqNode* a, FieldSeqNode* b);
+    FieldSeqNode* Append(FieldSeqNode* a, CORINFO_FIELD_HANDLE b);
 
     FieldSeqNode* FoldAdd(const struct GenTreeIntCon* i1, const struct GenTreeIntCon* i2);
 

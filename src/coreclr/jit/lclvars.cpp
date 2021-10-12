@@ -2065,48 +2065,54 @@ void Compiler::StructPromotionHelper::GetSingleFieldStructInfo(lvaStructFieldInf
 
     ICorJitInfo* vm = compiler->info.compCompHnd;
 
-    // TODO-MIKE-Review: Should this also check for CORINFO_FLG_DONT_PROMOTE?
+    unsigned     depth     = 1;
+    var_types    fieldType = TYP_STRUCT;
+    ClassLayout* layout    = nullptr;
+    unsigned     size      = 0;
 
-    if (vm->getClassNumInstanceFields(structHandle) != 1)
+    while ((depth < _countof(fieldInfo.fldSeq)) && (fieldType == TYP_STRUCT))
     {
-        return;
-    }
+        // TODO-MIKE-Review: Should we check for CORINFO_FLG_DONT_PROMOTE?
 
-    CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(structHandle, 0);
-    CORINFO_CLASS_HANDLE fieldTypeHandle;
-    var_types            fieldType = CorTypeToVarType(vm->getFieldType(fieldHandle, &fieldTypeHandle));
-
-    unsigned     size   = varTypeSize(fieldType);
-    ClassLayout* layout = nullptr;
-
-    if (fieldType == TYP_STRUCT)
-    {
-#ifdef FEATURE_SIMD
-        layout = compiler->supportSIMDTypes() ? compiler->typGetObjLayout(fieldTypeHandle) : nullptr;
-
-        if ((layout != nullptr) && layout->IsVector())
-        {
-            fieldType = layout->GetSIMDType();
-            size      = layout->GetSize();
-        }
-        else
-#endif
+        if (vm->getClassNumInstanceFields(structHandle) != 1)
         {
             return;
         }
+
+        CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(structHandle, 0);
+        CORINFO_CLASS_HANDLE fieldTypeHandle;
+        fieldType = CorTypeToVarType(vm->getFieldType(fieldHandle, &fieldTypeHandle));
+        size      = varTypeSize(fieldType);
+        layout    = nullptr;
+
+        if (fieldType == TYP_STRUCT)
+        {
+            layout = compiler->typGetObjLayout(fieldTypeHandle);
+            size   = layout->GetSize();
+
+            if (layout->IsVector())
+            {
+                fieldType = layout->GetSIMDType();
+            }
+        }
+
+        if ((vm->getFieldOffset(fieldHandle) != 0) || (vm->getClassSize(structHandle) != size))
+        {
+            JITDUMP("Promotion blocked: single field struct contains padding\n");
+            return;
+        }
+
+        fieldInfo.fldSeq[depth++] = fieldHandle;
+        structHandle              = fieldTypeHandle;
     }
 
-    if ((vm->getFieldOffset(fieldHandle) != 0) || (vm->getClassSize(structHandle) != size))
+    if (fieldType != TYP_STRUCT)
     {
-        JITDUMP("Promotion blocked: single field struct contains padding\n");
-        return;
+        fieldInfo.fldSeqLength = depth;
+        fieldInfo.fldType      = fieldType;
+        fieldInfo.fldLayout    = layout;
+        fieldInfo.fldSize      = size;
     }
-
-    fieldInfo.fldSeq[1]    = fieldHandle;
-    fieldInfo.fldSeqLength = 2;
-    fieldInfo.fldType      = fieldType;
-    fieldInfo.fldLayout    = layout;
-    fieldInfo.fldSize      = size;
 }
 
 void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)

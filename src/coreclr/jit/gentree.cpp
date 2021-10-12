@@ -15906,7 +15906,7 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
         return NotAField();
     }
 
-    FieldSeqNode* seq[8];
+    FieldSeqNode* seq[FieldSeqNode::MaxLength];
     unsigned      len = 0;
 
     for (FieldSeqNode* p = a; p != nullptr; p = p->GetNext())
@@ -15978,6 +15978,11 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     }
 
     return seq[0];
+}
+
+FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, CORINFO_FIELD_HANDLE b)
+{
+    return Append(a, CreateSingleton(b));
 }
 
 FieldSeqNode* FieldSeqStore::FoldAdd(const GenTreeIntCon* i1, const GenTreeIntCon* i2)

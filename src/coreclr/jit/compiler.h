@@ -2704,12 +2704,12 @@ public:
     // Info about struct type fields.
     struct lvaStructFieldInfo
     {
-        CORINFO_FIELD_HANDLE fldSeq[2]    = {};
-        unsigned             fldSeqLength = 0;
-        unsigned             fldOffset    = 0;
-        unsigned             fldSize      = 0;
-        var_types            fldType      = TYP_UNDEF;
-        ClassLayout*         fldLayout    = nullptr;
+        CORINFO_FIELD_HANDLE fldSeq[FieldSeqNode::MaxLength] = {};
+        unsigned             fldSeqLength                    = 0;
+        unsigned             fldOffset                       = 0;
+        unsigned             fldSize                         = 0;
+        var_types            fldType                         = TYP_UNDEF;
+        ClassLayout*         fldLayout                       = nullptr;
     };
 
     // Info about a struct type, instances of which may be candidates for promotion.

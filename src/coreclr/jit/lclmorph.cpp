@@ -2035,7 +2035,15 @@ private:
 
         if (fieldSeq->IsField())
         {
-            return m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+            GenTree* field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+
+            for (fieldSeq = fieldSeq->GetNext(); fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+            {
+                addr  = m_compiler->gtNewAddrNode(field, addr->GetType());
+                field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+            }
+
+            return field;
         }
 
         if (!structIndir->IsObj())
@@ -2085,45 +2093,56 @@ private:
     {
         assert(fieldType != TYP_STRUCT);
 
-        ICorJitInfo* vm = m_compiler->info.compCompHnd;
+        ICorJitInfo*         vm       = m_compiler->info.compCompHnd;
+        FieldSeqNode*        fieldSeq = nullptr;
+        CORINFO_FIELD_HANDLE fieldHandle;
 
-        if (vm->getClassNumInstanceFields(classHandle) < 1)
+        for (var_types classType = TYP_STRUCT; classType == TYP_STRUCT;)
         {
-            return FieldSeqNode::NotAField();
-        }
+            if (vm->getClassNumInstanceFields(classHandle) < 1)
+            {
+                return FieldSeqNode::NotAField();
+            }
 
-        // In theory we should look at all fields and find the one having offset 0
-        // and the requested type. But since this is needed for single field struct
-        // promotion there should be only one field anyway.
+            // In theory we should look at all fields and find the one having offset 0
+            // and the requested type. But since this is needed for single field struct
+            // promotion there should be only one field anyway.
 
-        CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(classHandle, 0);
+            fieldHandle = vm->getFieldInClass(classHandle, 0);
 
-        if (vm->getFieldOffset(fieldHandle) != 0)
-        {
-            return FieldSeqNode::NotAField();
-        }
+            if (vm->getFieldOffset(fieldHandle) != 0)
+            {
+                return FieldSeqNode::NotAField();
+            }
 
-        CORINFO_CLASS_HANDLE fc;
-        var_types            ft = CorTypeToVarType(vm->getFieldType(fieldHandle, &fc));
+            classType = CorTypeToVarType(vm->getFieldType(fieldHandle, &classHandle));
 
 #ifdef FEATURE_SIMD
-        if ((ft == TYP_STRUCT) && varTypeIsSIMD(fieldType))
-        {
-            ClassLayout* fieldClassLayout = m_compiler->typGetObjLayout(fc);
-
-            if (fieldClassLayout->IsVector())
+            if (classType == TYP_STRUCT)
             {
-                ft = fieldClassLayout->GetSIMDType();
+                ClassLayout* layout = m_compiler->typGetObjLayout(classHandle);
+
+                if (layout->IsVector())
+                {
+                    classType = layout->GetSIMDType();
+                }
             }
-        }
 #endif
 
-        if (ft != fieldType)
-        {
-            return FieldSeqNode::NotAField();
+            if ((classType != fieldType) && (classType != TYP_STRUCT))
+            {
+                return FieldSeqNode::NotAField();
+            }
+
+            fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, fieldHandle);
+
+            if (!fieldSeq->IsField())
+            {
+                return FieldSeqNode::NotAField();
+            }
         }
 
-        return m_compiler->GetFieldSeqStore()->CreateSingleton(fieldHandle);
+        return fieldSeq;
     }
 
     FieldSeqNode* ExtendFieldSequence(FieldSeqNode* fieldSeq, var_types fieldType)
