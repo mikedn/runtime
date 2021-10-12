@@ -1541,18 +1541,13 @@ bool StructPromotionHelper::TryPromoteStructVar(unsigned lclNum)
 //
 bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd)
 {
-    assert(typeHnd != nullptr);
-    if (!compiler->eeIsValueClass(typeHnd))
-    {
-        // TODO-ObjectStackAllocation: Enable promotion of fields of stack-allocated objects.
-        return false;
-    }
+    // TODO-ObjectStackAllocation: Enable promotion of fields of stack-allocated objects.
+    assert(compiler->info.compCompHnd->isValueClass(typeHnd));
 
     if (info.typeHandle == typeHnd)
     {
         // Asking for the same type of struct as the last time.
         // Nothing need to be done.
-        // Fall through ...
         return info.canPromote;
     }
 
@@ -1718,7 +1713,7 @@ bool StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
 {
     LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
 
-    assert(varTypeIsStruct(varDsc));
+    assert(varTypeIsStruct(varDsc->GetType()));
     assert(!varDsc->lvPromoted); // Don't ask again :)
 
     // If this lclVar is used in a SIMD intrinsic, then we don't want to struct promote it.
