@@ -8390,7 +8390,7 @@ public:
 }; // end of class Compiler
 
 // This class is responsible for checking validity and profitability of struct promotion.
-// If it is both legal and profitable, then TryPromoteStructVar promotes the struct and initializes
+// If it is both legal and profitable, then TryPromoteStructLocal promotes the struct and initializes
 // nessesary information for fgMorphStructField to use.
 class StructPromotionHelper
 {
@@ -8417,10 +8417,10 @@ class StructPromotionHelper
     {
         CORINFO_CLASS_HANDLE typeHandle;
         uint8_t              fieldCount;
-        bool                 canPromote    = false;
-        bool                 containsHoles = false;
-        bool                 customLayout  = false;
-        bool                 fieldsSorted  = false;
+        bool                 canPromoteStructType = false;
+        bool                 containsHoles        = false;
+        bool                 customLayout         = false;
+        bool                 fieldsSorted         = false;
         FieldInfo            fields[MaxFieldCount];
 
         StructInfo(CORINFO_CLASS_HANDLE typeHandle, unsigned fieldCount)
@@ -8439,13 +8439,13 @@ public:
     }
 
     bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle);
-    bool TryPromoteStructVar(unsigned lclNum);
+    bool TryPromoteStructLocal(unsigned lclNum);
 
 private:
-    bool CanPromoteStructVar(unsigned lclNum);
-    bool ShouldPromoteStructVar(unsigned lclNum);
-    void PromoteStructVar(unsigned lclNum);
-    void SortStructFields();
+    bool CanPromoteStructLocal(unsigned lclNum);
+    bool ShouldPromoteStructLocal(unsigned lclNum);
+    void PromoteStructLocal(unsigned lclNum);
+    void SortFields();
 
     void GetFieldInfo(unsigned index);
     void GetSingleFieldStructInfo(FieldInfo& field, CORINFO_CLASS_HANDLE structHandle);

@@ -1494,32 +1494,14 @@ bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
     return lvIsStructField && !compiler->lvaGetDesc(lvParentLcl)->IsIndependentPromoted();
 }
 
-//--------------------------------------------------------------------------------------------
-// TryPromoteStructVar - promote struct var if it is possible and profitable.
-//
-// Arguments:
-//   lclNum - struct number to try.
-//
-// Return value:
-//   true if the struct var was promoted.
-//
-bool StructPromotionHelper::TryPromoteStructVar(unsigned lclNum)
+bool StructPromotionHelper::TryPromoteStructLocal(unsigned lclNum)
 {
-    if (CanPromoteStructVar(lclNum))
+    if (CanPromoteStructLocal(lclNum) && ShouldPromoteStructLocal(lclNum))
     {
-#if 0
-            // Often-useful debugging code: if you've narrowed down a struct-promotion problem to a single
-            // method, this allows you to select a subset of the vars to promote (by 1-based ordinal number).
-            static int structPromoVarNum = 0;
-            structPromoVarNum++;
-            if (atoi(getenv("structpromovarnumlo")) <= structPromoVarNum && structPromoVarNum <= atoi(getenv("structpromovarnumhi")))
-#endif // 0
-        if (ShouldPromoteStructVar(lclNum))
-        {
-            PromoteStructVar(lclNum);
-            return true;
-        }
+        PromoteStructLocal(lclNum);
+        return true;
     }
+
     return false;
 }
 
@@ -1532,7 +1514,7 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
     {
         // Asking for the same type of struct as the last time.
         // Nothing need to be done.
-        return info.canPromote;
+        return info.canPromoteStructType;
     }
 
     ICorJitInfo* vm = compiler->info.compCompHnd;
@@ -1673,54 +1655,52 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
         return false;
     }
 
-    info.canPromote = true;
+    info.canPromoteStructType = true;
     return true;
 }
 
-//--------------------------------------------------------------------------------------------
-// CanPromoteStructVar - checks if the struct can be promoted.
-//
-// Arguments:
-//   lclNum - struct number to check.
-//
-// Return value:
-//   true if the struct var can be promoted.
-//
-bool StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
+bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
 {
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-    assert(varTypeIsStruct(varDsc->GetType()));
-    assert(!varDsc->lvPromoted); // Don't ask again :)
+    assert(varTypeIsStruct(lcl->GetType()));
+    assert(!lcl->IsPromoted());
 
-    // If this lclVar is used in a SIMD intrinsic, then we don't want to struct promote it.
-    // Note, however, that SIMD lclVars that are NOT used in a SIMD intrinsic may be
-    // profitably promoted.
-    if (varDsc->lvIsUsedInSIMDIntrinsic())
+    // If this local is used by SIMD intrinsics, then we don't want to promote it.
+    // Note, however, that Vector2/3/4 local that are NOT used by SIMD intrinsics
+    // may be profitably promoted.
+    if (lcl->lvIsUsedInSIMDIntrinsic())
     {
-        JITDUMP("  struct promotion of V%02u is disabled because lvIsUsedInSIMDIntrinsic()\n", lclNum);
+        JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lclNum);
         return false;
     }
 
-    // Reject struct promotion of parameters when -GS stack reordering is enabled
-    // as we could introduce shadow copies of them.
-    if (varDsc->lvIsParam && compiler->compGSReorderStackLayout)
+#ifdef TARGET_ARM
+    if (lcl->IsParam())
     {
-        JITDUMP("  struct promotion of V%02u is disabled because lvIsParam and compGSReorderStackLayout\n", lclNum);
+        // TODO-MIKE-CQ: Promote ARM struct params.
+        return false;
+    }
+#endif
+
+    // If GS stack reordering is enabled we may introduce shadow copies of parameters.
+    if (lcl->IsParam() && compiler->compGSReorderStackLayout)
+    {
+        JITDUMP("  promotion of param V%02u is disabled due to GS stack layout reordering\n", lclNum);
         return false;
     }
 
     if (!compiler->lvaEnregMultiRegVars)
     {
-        if (varDsc->lvIsMultiRegArg)
+        if (lcl->lvIsMultiRegArg)
         {
-            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg arg\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg arg\n", lclNum);
             return false;
         }
 
-        if (varDsc->lvIsMultiRegRet)
+        if (lcl->lvIsMultiRegRet)
         {
-            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg return\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg return\n", lclNum);
             return false;
         }
     }
@@ -1728,109 +1708,117 @@ bool StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
     // TODO-CQ: enable promotion for OSR locals
     if (compiler->lvaIsOSRLocal(lclNum))
     {
-        JITDUMP("  struct promotion of V%02u is disabled because it is an OSR local\n", lclNum);
+        JITDUMP("  promotion of V%02u is disabled because it is an OSR local\n", lclNum);
         return false;
     }
 
-    CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
+    CORINFO_CLASS_HANDLE typeHandle = lcl->GetLayout()->GetClassHandle();
 
-    bool canPromote = CanPromoteStructType(typeHnd);
-    if (canPromote && (varDsc->lvIsMultiRegArg || varDsc->lvIsMultiRegRet))
+    if (!CanPromoteStructType(typeHandle))
     {
-        unsigned fieldCnt = info.fieldCount;
-        if (fieldCnt > MAX_MULTIREG_COUNT)
-        {
-            canPromote = false;
-        }
-#if defined(TARGET_ARMARCH)
-        else
-        {
-            for (unsigned i = 0; canPromote && (i < fieldCnt); i++)
-            {
-                var_types fieldType = info.fields[i].type;
-                // Non-HFA structs are always passed in general purpose registers.
-                // If there are any floating point fields, don't promote for now.
-                // TODO-1stClassStructs: add support in Lowering and prolog generation
-                // to enable promoting these types.
-                if (varDsc->lvIsParam && !varDsc->lvIsHfa() && varTypeUsesFloatReg(fieldType))
-                {
-                    canPromote = false;
-                }
-#if defined(FEATURE_SIMD)
-                // If we have a register-passed struct with mixed non-opaque SIMD types (i.e. with defined fields)
-                // and non-SIMD types, we don't currently handle that case in the prolog, so we can't promote.
-                else if ((fieldCnt > 1) && varTypeIsStruct(fieldType) && !info.fields[i].layout->IsOpaqueVector())
-                {
-                    canPromote = false;
-                }
-#endif // FEATURE_SIMD
-            }
-        }
-#elif defined(UNIX_AMD64_ABI)
-        else
-        {
-            SortStructFields();
-            // Only promote if the field types match the registers, unless we have a single SIMD field.
-            ClassLayout* layout = varDsc->GetLayout();
-            layout->EnsureSysVAmd64AbiInfo(compiler);
-            unsigned regCount = layout->GetSysVAmd64AbiRegCount();
-            if ((info.fieldCount == 1) && varTypeIsSIMD(info.fields[0].type))
-            {
-                // Allow the case of promoting a single SIMD field, even if there are multiple registers.
-                // We will fix this up in the prolog.
-            }
-            else if (info.fieldCount != regCount)
-            {
-                canPromote = false;
-            }
-            else
-            {
-                for (unsigned i = 0; canPromote && (i < regCount); i++)
-                {
-                    const FieldInfo& field = info.fields[i];
-
-                    // We don't currently support passing SIMD types in registers.
-                    if (varTypeIsSIMD(field.type))
-                    {
-                        canPromote = false;
-                    }
-                    else if (varTypeUsesFloatReg(field.type) != varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        canPromote = false;
-                    }
-                }
-            }
-        }
-#endif // UNIX_AMD64_ABI
+        return false;
     }
-    return canPromote;
+
+#ifdef WINDOWS_AMD64_ABI
+    // TODO-MIKE-CQ: Promoting single FP field structs almost works on x64, the main
+    // problem is the handling of method parameters and unfortunately the code that
+    // does that is a pile of garbage...
+    if (lcl->IsParam() && (info.fieldCount == 1) && varTypeIsFloating(info.fields[0].type))
+    {
+        JITDUMP("Not promoting param V%02u: struct has a single float/double field.\n", lclNum, info.fieldCount);
+        return false;
+    }
+#endif
+
+    if (!lcl->lvIsMultiRegArg && !lcl->lvIsMultiRegRet)
+    {
+        return true;
+    }
+
+    if (info.fieldCount > MAX_MULTIREG_COUNT)
+    {
+        return false;
+    }
+
+#if defined(TARGET_ARMARCH)
+    for (unsigned i = 0; i < info.fieldCount; i++)
+    {
+        const FieldInfo& field = info.fields[i];
+
+        // Non-HFA structs are always passed in general purpose registers.
+        // If there are any floating point fields, don't promote for now.
+        // TODO-1stClassStructs: add support in Lowering and prolog generation
+        // to enable promoting these types.
+        if (lcl->IsParam() && !lcl->lvIsHfa() && varTypeUsesFloatReg(field.type))
+        {
+            return false;
+        }
+
+#ifdef FEATURE_SIMD
+        // If we have a register-passed struct with mixed non-opaque SIMD types (i.e. with defined fields)
+        // and non-SIMD types, we don't currently handle that case in the prolog, so we can't promote.
+        if ((info.fieldCount > 1) && varTypeIsStruct(field.type) && !field.layout->IsOpaqueVector())
+        {
+            return false;
+        }
+#endif
+    }
+#elif defined(UNIX_AMD64_ABI)
+    // Only promote if the field types match the registers, unless we have a single SIMD field
+    // that we can handle in prolog.
+
+    if ((info.fieldCount == 1) && varTypeIsSIMD(info.fields[0].type))
+    {
+        return true;
+    }
+
+    ClassLayout* layout = lcl->GetLayout();
+    layout->EnsureSysVAmd64AbiInfo(compiler);
+
+    if (info.fieldCount != layout->GetSysVAmd64AbiRegCount())
+    {
+        return false;
+    }
+
+    SortFields();
+
+    for (unsigned i = 0; i < info.fieldCount; i++)
+    {
+        const FieldInfo& field = info.fields[i];
+
+        // We don't currently support passing SIMD types in registers.
+        if (varTypeIsSIMD(field.type))
+        {
+            return false;
+        }
+
+        if (varTypeUsesFloatReg(field.type) != varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
+        {
+            return false;
+        }
+    }
+#endif // UNIX_AMD64_ABI
+
+    return true;
 }
 
-//--------------------------------------------------------------------------------------------
-// ShouldPromoteStructVar - Should a struct var be promoted if it can be promoted?
-// This routine mainly performs profitability checks.  Right now it also has
-// some correctness checks due to limitations of down-stream phases.
-//
-// Arguments:
-//   lclNum - struct local number;
-//
-// Return value:
-//   true if the struct should be promoted.
-//
-bool StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
+bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
 {
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
     assert(varTypeIsStruct(lcl->GetType()));
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
-    assert(info.canPromote);
+    assert(info.canPromoteStructType);
 
     // We *can* promote; *should* we promote?
-    // We should only do so if promotion has potential savings.  One source of savings
+    //
+    // We should only do so if promotion has potential savings. One source of savings
     // is if a field of the struct is accessed, since this access will be turned into
-    // an access of the corresponding promoted field variable.  Even if there are no
+    // an access of the corresponding promoted field variable. Even if there are no
     // field accesses, but only block-level operations on the whole struct, if the struct
-    // has only one or two fields, then doing those block operations field-wise is probably faster
-    // than doing a whole-variable block operation (e.g., a hardware "copy loop" on x86).
+    // has only one or two fields, then doing those block operations field-wise is probably
+    // faster than doing a whole-variable block operation (e.g., REP MOVSB).
+    //
     // Struct promotion also provides the following benefits: reduce stack frame size,
     // reduce the need for zero init of stack frame and fine grained constant/copy prop.
     // Asm diffs indicate that promoting structs up to 3 fields is a net size win.
@@ -1864,47 +1852,25 @@ bool StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
 
     if (!lcl->lvFieldAccessed && (info.fieldCount > 3 || varTypeIsSIMD(lcl->GetType())))
     {
-        JITDUMP("Not promoting struct local V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lclNum,
+        JITDUMP("Not promoting V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lclNum,
                 varTypeName(lcl->GetType()), info.fieldCount, lcl->lvFieldAccessed);
         return false;
     }
 
     if (lcl->lvIsMultiRegRet && info.containsHoles && info.customLayout)
     {
-        JITDUMP("Not promoting multi-reg returned struct local V%02u with holes.\n", lclNum);
+        JITDUMP("Not promoting multi-reg returned V%02u with holes.\n", lclNum);
         return false;
     }
-
-#ifdef WINDOWS_AMD64_ABI
-    // TODO-MIKE-CQ: Promoting single FP field structs almost works on x64, the main
-    // problem is the handling of method parameters and unfortunately the code that
-    // does that is a pile of garbage...
-
-    if ((info.fieldCount == 1) && varTypeIsFloating(info.fields[0].type) && lcl->IsParam())
-    {
-        JITDUMP("Not promoting struct local V%02u: struct has a single float/double field.\n", lclNum, info.fieldCount);
-        return false;
-    }
-#endif // WINDOWS_AMD64_ABI
-
-#ifdef TARGET_ARM
-    if (lcl->IsParam())
-    {
-        // TODO-MIKE-CQ: Promote ARM struct params.
-        return false;
-    }
-#endif
 
     if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->lvIsHfa())
     {
 #if FEATURE_MULTIREG_STRUCT_PROMOTE
-        // Is this a variable holding a value with exactly two fields passed in
-        // multiple registers?
         if (compiler->lvaIsMultiRegStructParam(lcl))
         {
             if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsSIMD(info.fields[0].type)))
             {
-                JITDUMP("Not promoting multireg struct param V%02u, #fields != 2 and it's not SIMD.\n", lclNum);
+                JITDUMP("Not promoting multireg param V%02u, #fields != 2 and it's not SIMD.\n", lclNum);
                 return false;
             }
         }
@@ -1918,7 +1884,7 @@ bool StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
             //             overwrite other fields.
             if (info.fieldCount != 1)
         {
-            JITDUMP("Not promoting struct param V%02u, #fields = %u.\n", lclNum, info.fieldCount);
+            JITDUMP("Not promoting param V%02u, #fields = %u.\n", lclNum, info.fieldCount);
             return false;
         }
     }
@@ -1929,11 +1895,10 @@ bool StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
         return false;
     }
 
-#if defined(DEBUG)
+#ifdef DEBUG
     if (compiler->compPromoteFewerStructs(lclNum))
     {
-        // Do not promote some structs, that can be promoted, to stress promoted/unpromoted moves.
-        JITDUMP("Not promoting promotable struct local V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lclNum);
+        JITDUMP("Not promoting promotable V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lclNum);
         return false;
     }
 #endif
@@ -1941,13 +1906,7 @@ bool StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
     return true;
 }
 
-//--------------------------------------------------------------------------------------------
-// SortStructFields - sort the fields according to the increasing order of the field offset.
-//
-// Notes:
-//   This is needed because the fields need to be pushed on stack (when referenced as a struct) in offset order.
-//
-void StructPromotionHelper::SortStructFields()
+void StructPromotionHelper::SortFields()
 {
     if (!info.fieldsSorted)
     {
@@ -2048,7 +2007,7 @@ void StructPromotionHelper::GetSingleFieldStructInfo(FieldInfo& field, CORINFO_C
     }
 }
 
-void StructPromotionHelper::PromoteStructVar(unsigned lclNum)
+void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 {
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
@@ -2056,7 +2015,7 @@ void StructPromotionHelper::PromoteStructVar(unsigned lclNum)
     assert(!lcl->lvRegStruct);
 
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
-    assert(info.canPromote);
+    assert(info.canPromoteStructType);
 
     lcl->lvFieldCnt      = info.fieldCount;
     lcl->lvFieldLclStart = compiler->lvaCount;
@@ -2068,7 +2027,7 @@ void StructPromotionHelper::PromoteStructVar(unsigned lclNum)
 
     JITDUMP("\nPromoting struct local V%02u (%s):", lclNum, lcl->GetLayout()->GetClassName());
 
-    SortStructFields();
+    SortFields();
 
     for (unsigned index = 0; index < info.fieldCount; ++index)
     {

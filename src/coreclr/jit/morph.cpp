@@ -16179,7 +16179,7 @@ void Compiler::fgPromoteStructs()
             continue;
         }
 
-        bool promoted = helper.TryPromoteStructVar(lclNum);
+        bool promoted = helper.TryPromoteStructLocal(lclNum);
 
         if (!promoted)
         {
