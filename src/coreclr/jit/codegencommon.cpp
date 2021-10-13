@@ -4209,9 +4209,24 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 int       nextArgNum = argNum + 1;
                 regNumber nextRegNum = genMapRegArgNumToRegNum(nextArgNum, regArgTab[nextArgNum].getRegType(compiler));
                 noway_assert(regArgTab[nextArgNum].varNum == varNum);
-                // Emit a shufpd with a 0 immediate, which preserves the 0th element of the dest reg
-                // and moves the 0th element of the src reg into the 1st element of the dest reg.
-                GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, destRegNum, nextRegNum);
+
+                if (varDsc->TypeIs(TYP_SIMD12) && compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+                {
+                    GetEmitter()->emitIns_R_R_I(INS_insertps, EA_16BYTE, destRegNum, nextRegNum, 0x28);
+                }
+                else
+                {
+                    if (varDsc->TypeIs(TYP_SIMD12))
+                    {
+                        // Zero out the upper element of Vector3 since unmanaged callers
+                        // don't do it (the native ABI doesn't require it).
+                        GetEmitter()->emitIns_R_I(INS_pslldq, EA_16BYTE, nextRegNum, 12);
+                        GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, nextRegNum, 12);
+                    }
+
+                    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, destRegNum, nextRegNum);
+                }
+
                 // Set destRegNum to regNum so that we skip the setting of the register below,
                 // but mark argNum as processed and clear regNum from the live mask.
                 destRegNum = regNum;

@@ -2911,44 +2911,20 @@ void CodeGen::genStructStoreUnrollCopyWB(GenTreeObj* store)
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 void CodeGen::genClearStackVec3ArgUpperBits()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genClearStackVec3ArgUpperBits()\n");
-    }
-#endif
+    JITDUMP("*************** In genClearStackVec3ArgUpperBits()\n");
 
     assert(compiler->compGeneratingProlog);
 
-    unsigned varNum = 0;
-
-    for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
-        LclVarDsc* varDsc = &(compiler->lvaTable[varNum]);
-        assert(varDsc->lvIsParam);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+        assert(lcl->IsParam());
 
-        // Does var has simd12 type?
-        if (varDsc->lvType != TYP_SIMD12)
+        // This is needed only for stack params, zeroing reg params is
+        // done when the 2 param registers are packed together.
+        if (lcl->TypeIs(TYP_SIMD12) && !lcl->IsRegParam())
         {
-            continue;
-        }
-
-        if (!varDsc->lvIsRegArg)
-        {
-            // Clear the upper 32 bits by mov dword ptr [V_ARG_BASE+0xC], 0
-            GetEmitter()->emitIns_S_I(ins_Store(TYP_INT), EA_4BYTE, varNum, genTypeSize(TYP_FLOAT) * 3, 0);
-        }
-        else
-        {
-            // Assume that for x64 linux, an argument is fully in registers
-            // or fully on stack.
-            regNumber argReg = varDsc->GetOtherArgReg();
-
-            // Clear the upper 32 bits by two shift instructions.
-            // argReg = argReg << 96
-            GetEmitter()->emitIns_R_I(INS_pslldq, emitActualTypeSize(TYP_SIMD12), argReg, 12);
-            // argReg = argReg >> 96
-            GetEmitter()->emitIns_R_I(INS_psrldq, emitActualTypeSize(TYP_SIMD12), argReg, 12);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_4BYTE, lclNum, 12, 0);
         }
     }
 }
