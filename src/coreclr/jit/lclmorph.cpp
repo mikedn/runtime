@@ -668,19 +668,40 @@ private:
     {
         assert(val.IsAddress());
 
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(val.LclNum());
 
         // In general we don't know how an exposed struct field address will be used - it may be used to
         // access only that specific field or it may be used to access other fields in the same struct
-        // be using pointer/ref arithmetic. It seems reasonable to make an exception for the "this" arg
-        // of calls - it would be highly unsual for a struct member method to attempt to access memory
-        // beyond "this" instance. And calling struct member methods is common enough that attempting to
-        // mark the entire struct as address exposed results in CQ regressions.
-        bool isThisArg = user->IsCall() && (user->AsCall()->gtCallThisArg != nullptr) &&
-                         (val.Node() == user->AsCall()->gtCallThisArg->GetNode());
-        bool exposeParentLcl = varDsc->lvIsStructField && !isThisArg;
+        // be using pointer/ref arithmetic.
+        bool exposeParentLcl = lcl->IsPromotedField();
 
-        m_compiler->lvaSetVarAddrExposed(exposeParentLcl ? varDsc->lvParentLcl : val.LclNum());
+        if (exposeParentLcl)
+        {
+            if (GenTreeCall* call = user->IsCall())
+            {
+                // It seems reasonable to make an exception for the "this" arg
+                // of calls - it would be highly unsual for a struct member method to attempt to access memory
+                // beyond "this" instance. And calling struct member methods is common enough that attempting to
+                // mark the entire struct as address exposed results in CQ regressions.
+
+                if ((call->gtCallThisArg != nullptr) && (val.Node() == call->gtCallThisArg->GetNode()))
+                {
+                    exposeParentLcl = false;
+                }
+            }
+            else if (user->OperIsAtomicOp())
+            {
+                assert(!user->TypeIs(TYP_STRUCT) && !lcl->TypeIs(TYP_STRUCT));
+
+                if ((varTypeSize(user->GetType()) <= varTypeSize(lcl->GetType())) &&
+                    (val.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->gtOpLocation : user->AsOp()->GetOp(0))))
+                {
+                    exposeParentLcl = false;
+                }
+            }
+        }
+
+        m_compiler->lvaSetVarAddrExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : val.LclNum());
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -688,23 +709,23 @@ private:
         // a ByRef to an INT32 when they actually write a SIZE_T or INT64. There are cases where
         // overwriting these extra 4 bytes corrupts some data (such as a saved register) that leads
         // to A/V. Wheras previously the JIT64 codegen did not lead to an A/V.
-        if (!varDsc->lvIsParam && !varDsc->lvIsStructField && (genActualType(varDsc->TypeGet()) == TYP_INT))
+        if (!lcl->IsParam() && !lcl->IsPromotedField() && (varActualType(lcl->GetType()) == TYP_INT))
         {
             // TODO-Cleanup: This should simply check if the user is a call node, not if a call ancestor exists.
             if (Compiler::gtHasCallOnStack(&m_ancestors))
             {
-                varDsc->lvQuirkToLong = true;
+                lcl->lvQuirkToLong = true;
                 JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", val.LclNum(),
-                        varTypeName(varDsc->TypeGet()));
+                        varTypeName(lcl->GetType()));
             }
         }
 #endif // TARGET_64BIT
 
-        // TODO-ADDR: For now use LCL_VAR_ADDR and LCL_FLD_ADDR only as call arguments and assignment sources.
+        // TODO-ADDR: For now use LCL_VAR_ADDR and LCL_FLD_ADDR only in certain cases.
         // Other usages require more changes. For example, a tree like OBJ(ADD(ADDR(LCL_VAR), 4))
         // could be changed to OBJ(LCL_FLD_ADDR) but then DefinesLocalAddr does not recognize
         // LCL_FLD_ADDR (even though it does recognize LCL_VAR_ADDR).
-        if (user->OperIs(GT_CALL, GT_ASG))
+        if (user->OperIs(GT_CALL, GT_ASG, GT_CMPXCHG))
         {
             MorphLocalAddress(val);
         }
