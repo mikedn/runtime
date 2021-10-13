@@ -3152,7 +3152,8 @@ void Compiler::fgPromoteStructs()
 
         LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (!varTypeIsStruct(lcl->GetType()))
+        // TODO-ObjectStackAllocation: Enable promotion of fields of stack-allocated objects.
+        if (!varTypeIsStruct(lcl->GetType()) || !lcl->GetLayout()->IsValueClass())
         {
             continue;
         }
