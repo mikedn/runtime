@@ -2657,7 +2657,7 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 
     JITDUMPTREE(ret, "Lowering RETURN:\n");
 
-    if (ret->TypeIs(TYP_STRUCT) && !ret->GetOp(0)->IsFieldList())
+    if (ret->TypeIs(TYP_STRUCT))
     {
         LowerRetStruct(ret);
     }
@@ -2911,11 +2911,42 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 
 void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 {
-    assert(ret->OperIs(GT_RETURN));
-    assert(ret->TypeIs(TYP_STRUCT));
-    assert(comp->info.retDesc.GetRegCount() == 1);
+    assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
 
     GenTree* src = ret->GetOp(0);
+
+    if (GenTreeFieldList* fieldList = src->IsFieldList())
+    {
+#ifdef FEATURE_HW_INTRINSICS
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
+        {
+            // Workaround poor register allocation on linux-x64 - if the returned value is already in XMM0
+            // then attempting to extract its elements to XMM0 and XMM1 results in a spill to temp because
+            // the first extract kills the value in XMM0, which is then needed again to extract to XMM1.
+            // At this point we don't really care about the precise type - FLOAT/DOUBLE/SIMDn - we only care
+            // that the value is in an XMM registers so we can get rid of the extract to XMM0.
+            // This doesn't appear to be a problem on arm64 but that may simply be due to more registers
+            // being available, otherwise there's nothing to suggest that arm64 doesn't have the same issue.
+
+            if (GenTreeHWIntrinsic* extract = use.GetNode()->IsHWIntrinsic())
+            {
+                if ((extract->GetIntrinsic() == NI_Vector128_GetElement) && extract->GetOp(1)->IsIntegralConst(0) &&
+                    varTypeUsesFloatReg(extract->GetType()) && varTypeUsesFloatReg(extract->GetOp(0)->GetType()))
+                {
+                    GenTree* vec = extract->GetOp(0);
+                    vec->ClearContained();
+                    use.SetNode(vec);
+                    BlockRange().Remove(extract->GetOp(1));
+                    BlockRange().Remove(extract);
+                }
+            }
+        }
+#endif // FEATURE_HW_INTRINSICS
+
+        return;
+    }
+
+    assert(comp->info.retDesc.GetRegCount() == 1);
 
 #ifdef DEBUG
     if (!varTypeIsStruct(src->GetType()))
