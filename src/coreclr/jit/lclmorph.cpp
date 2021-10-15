@@ -2541,9 +2541,9 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
 
             if (field.offset % alignment != 0)
             {
-                // The code in Compiler::genPushArgList that reconstitutes
-                // struct values on the stack from promoted fields expects
-                // those fields to be at their natural alignment.
+                // Call arg and return transformations depend on natural alignment
+                // so that they don't have to deal with primitive types that need
+                // to be split between multiple registers.
                 return false;
             }
         }

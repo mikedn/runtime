@@ -1958,6 +1958,7 @@ public:
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
 
+    GenTreeHWIntrinsic* NewExtractVectorElement(var_types vecType, var_types eltType, GenTree* vec, unsigned index);
     GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types simdType,
                                                 var_types elementType,
                                                 GenTree*  value,
@@ -8366,8 +8367,7 @@ public:
 #endif
 #if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
     GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
-    bool abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
-    GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
+    GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const struct AbiRegFieldMap& map);
     GenTree* abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg);
 #ifdef FEATURE_SIMD
     GenTree* abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg);
@@ -8436,6 +8436,11 @@ class StructPromotionHelper
 public:
     StructPromotionHelper(Compiler* compiler) : compiler(compiler), info(nullptr, 0)
     {
+    }
+
+    static constexpr unsigned GetMaxFieldCount()
+    {
+        return MaxFieldCount;
     }
 
     bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle);

@@ -16338,6 +16338,14 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     return node;
 }
 
+GenTreeHWIntrinsic* Compiler::NewExtractVectorElement(var_types vecType,
+                                                      var_types eltType,
+                                                      GenTree*  vec,
+                                                      unsigned  index)
+{
+    return gtNewSimdGetElementNode(vecType, eltType, vec, gtNewIconNode(index));
+}
+
 GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
                                                       var_types elementType,
                                                       GenTree*  value,

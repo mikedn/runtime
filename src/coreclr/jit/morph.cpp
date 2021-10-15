@@ -3441,369 +3441,309 @@ GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTr
     return list;
 }
 
-bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
+struct AbiRegFieldMap
 {
-    assert(!argInfo->IsHfaArg());
-
-    // Keep in sync with the logic in abiMorphMultiRegLclArgPromoted. It's unfortunate
-    // that this logic needs to be duplicated. Perhaps abiMorphMultiRegLclArgPromoted
-    // could be used during the initial argument morphing instead of being deferred to the
-    // multireg argument morphing. Probably the main issue is that arg sorting doesn't have
-    // special handling for FIELD_LIST like it does for LCL_VAR and this may have a negative
-    // impact on CQ if the arg ordering ends up being worse. It's not that good to begin with.
-
-    // Note that the number of slots can be very high, if a smaller struct is passed as a very
-    // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
-    // fields which is very low (currently limited to 4).
-
-    unsigned fieldCount = lcl->GetPromotedFieldCount();
-    unsigned field      = 0;
-    unsigned regCount   = argInfo->GetRegCount();
-    unsigned reg        = 0;
-
-    while (field < fieldCount)
+    struct
     {
-        LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(field));
-        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        uint8_t   reg;
+        var_types type;
+        uint16_t  offset;
+        unsigned  lclNum;
+    } fields[12];
 
-        if (fieldOffset >= regCount * REGSIZE_BYTES)
+    unsigned count = 0;
+    unsigned firstStackField;
+
+    AbiRegFieldMap(Compiler* compiler, LclVarDsc* lcl, CallArgInfo* argInfo)
+    {
+        assert(!argInfo->IsHfaArg());
+
+        unsigned regCount = argInfo->GetRegCount();
+        unsigned field    = 0;
+        unsigned reg      = 0;
+
+        while (reg < regCount && field < lcl->GetPromotedFieldCount())
         {
-            break;
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+
+            if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+            {
+                if ((count == 0) || (fields[count - 1].reg != reg))
+                {
+                    // This register doesn't overlap any promoted field. Must be padding
+                    // so we can just load 0. We have to add the register to the list
+                    // otherwise the backend may not allocate the register correctly.
+                    auto& f  = fields[count++];
+                    f.reg    = static_cast<uint8_t>(reg);
+                    f.lclNum = BAD_VAR_NUM;
+                }
+
+                reg++;
+                continue;
+            }
+
+            assert(count < _countof(fields));
+
+            auto& f  = fields[count++];
+            f.reg    = static_cast<uint8_t>(reg);
+            f.type   = fieldLcl->GetType();
+            f.offset = static_cast<uint16_t>(fieldOffset);
+            f.lclNum = fieldLclNum;
+
+            if (fieldOffset + varTypeSize(f.type) <= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+            {
+                field++;
+            }
+            else
+            {
+                reg++;
+            }
         }
 
-        if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+        firstStackField = count;
+
+        if (argInfo->GetSlotCount() > 0)
         {
-            // This register/slot doesn't overlap any promoted field. Must be padding
-            // so we can just load 0 if it's a register or skip it if it's a slot.
-            reg++;
-            continue;
+            unsigned argSize = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+
+            while (field < lcl->GetPromotedFieldCount())
+            {
+                unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+                LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
+                unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+
+                if (fieldOffset >= argSize)
+                {
+                    break;
+                }
+
+                auto& f  = fields[count++];
+                f.reg    = static_cast<uint8_t>(reg++);
+                f.type   = fieldLcl->GetType();
+                f.offset = static_cast<uint16_t>(fieldOffset);
+                f.lclNum = fieldLclNum;
+
+                field++;
+            }
+        }
+    }
+
+    bool IsSupported(CallArgInfo* argInfo) const
+    {
+        for (unsigned i = 0; i < count && fields[i].reg < argInfo->GetRegCount(); i++)
+        {
+            // For now we allow only integral fields that have matching register/field
+            // offsets. This implies that only a single integral field can be passed
+            // in a register. abiMorphSingleRegLclArgPromoted can be used to pack
+            // multiple integral fields in a single register but the the CQ results are
+            // currently a bit hit and miss.
+
+            if ((fields[i].lclNum != BAD_VAR_NUM) && !varTypeUsesFloatReg(fields[i].type) &&
+                (fields[i].offset != fields[i].reg * REGSIZE_BYTES))
+            {
+                return false;
+            }
+
+            if ((i > 0) && (fields[i - 1].reg == fields[i].reg) &&
+                !(varTypeUsesFloatReg(fields[i - 1].type) && varTypeUsesFloatReg(fields[i].type)))
+            {
+                return false;
+            }
         }
 
-        if (reg * REGSIZE_BYTES != fieldOffset)
+        // Make sure we don't have a field that crosses the arg boundary, codegen does
+        // not handle it properly. This can only happen due to struct reinterpretation in
+        // user code. In some cases we could narrow down the field but it's not worth it.
+
+        unsigned fieldSize = fields[count - 1].offset + varTypeSize(fields[count - 1].type);
+        unsigned argSize   = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+
+        if (fieldSize > argSize)
         {
-            // TODO-MIKE-CQ: Use abiMorphSingleRegLclArgPromoted to handle the case of multiple
-            // small int, INT or FLOAT fields being passed in a single register.
             return false;
         }
 
-        var_types fieldType = fieldLcl->GetType();
-
-#ifdef FEATURE_SIMD
-        if ((fieldType == TYP_DOUBLE) || (fieldType == TYP_SIMD8))
-#else
-        if (fieldType == TYP_DOUBLE)
-#endif
+        if (firstStackField < count)
         {
-#ifdef TARGET_64BIT
-            reg++;
-#else
-            reg += 2;
+            // The first stack field must not straddle the reg-stack boundary, codegen does
+            // not handle this well or at all. Alignment requirements normally prevent this
+            // from happening, at least for primitive types. Vector2/3/4 can cross this
+            // boundary easily, due to their 4 byte alignment, but they're not supported on
+            // ARM and on ARM64 split args are very rare (win-arm64 varargs only).
+            //
+            // Alignment requirements can be circumvented by reinterpretation (e.g. struct
+            // with 2 DOUBLE/LONG fields passed as struct with 4 INT fields, the later has
+            // alignment 4 and thus can be passed in r1,r2,r3 and a stack slot,
+            // see split-arg-double-reg-and-stack.cs). It's somewhat difficult to handle this
+            // kind of splitting for DOUBLE and it's too unusual to even bother trying.
+            //
+            // We'll make an exception for LONG on ARM though, it gets decomposed to 2 INTs
+            // so it works just fine in codegen. Besides, VM messed up the alignment of
+            // Vector128 on ARM so this happens "naturally", without any reinterpretation...
 
-            if (reg > argInfo->GetRegCount())
-            {
-                // We need to have at least 2 regs left to load a DOUBLE field.
-                // Note that it is difficult, but not impossible, to have a DOUBLE field
-                // spilt between registers and stack due to reinterpretation in user code
-                // (e.g. struct containing properly aligned DOUBLE field, so that it gets
-                // promoted, passed as a struct of same size containing only INT fields,
-                // so that the argument isn't 8 byte aligned). It's somewhat difficult to
-                // handle this kind of splitting in codegen and it's too unusual to even
-                // bother trying. See split-arg-double-reg-and-stack.cs.
-                return false;
-            }
-#endif
-        }
-        else if (fieldType == TYP_FLOAT)
-        {
-#ifdef TARGET_64BIT
-            // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
-            // While at it, also handle 2 consecutive FLOAT fields in a non HFA struct for ARM64.
-            if ((field + 1 < fieldCount) && (reg < argInfo->GetRegCount())
-#ifdef UNIX_AMD64_ABI
-                && genIsValidFloatReg(argInfo->GetRegNum(reg))
-#endif
-                // TODO-MIKE-Cleanup: The JIT wrongly asserts in various places if it sees SSE intrinsics
-                // because it conflates ISA/intrinsics/feature availability...
-                && supportSIMDTypes())
-            {
-                unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field + 1);
-                LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-                unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-                var_types  nextFieldType   = nextFieldLcl->GetType();
-
-                if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
-                {
-                    field++;
-                }
-            }
-#endif // TARGET_64BIT
-
-            reg++;
-        }
-        else if (fieldType == TYP_LONG)
-        {
-#ifdef TARGET_64BIT
-            reg++;
-#else
-            reg += 2;
-#endif
-        }
-        else
-        {
-            if (varTypeIsSIMD(fieldType))
-            {
-                // TODO-MIKE-CQ: Handle promoted SIMD fields.
-                // On Linux-x64 a Vector2 can be easily passed in an SSE eightbyte but the rest need to be
-                // split across multiple eightbytes. Also, the VM doesn't yet handle SSEUP so Vector128<T>
-                // and Vector256<T> aren't passed correctly as far as the ABI is concerned.
-                // On ARM64 Vector2/3/4 are HFAs and they are handled by the HFA specific logic. But if
-                // you put a Vector3 and an Int32 in a struct the result is not a HFA and would need to
-                // be handled here by passing the Vector3 and Int32 in 2 LONG registers.
-                return false;
-            }
-
-            assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
-
-            reg++;
-        }
-
-        field++;
-    }
-
-    if (argInfo->GetSlotCount() > 0)
-    {
-        unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-
-        while (field < fieldCount)
-        {
-            LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(field));
-            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-
-            if (fieldOffset > regAndSlotCount * REGSIZE_BYTES)
-            {
-                break;
-            }
-
-            assert(fieldOffset >= regCount * REGSIZE_BYTES);
-
-            // Make sure we don't have a field that straddles the stack area boundary
-            // because codegen doesn't handle it properly. This can only happen due to
-            // struct reinterpretation/slicing in user code.
-            if (fieldOffset + varTypeSize(fieldLcl->GetType()) > regAndSlotCount * REGSIZE_BYTES)
-            {
-                return false;
-            }
-
-            field++;
-        }
-    }
-
-    return true;
-}
-
-GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
-{
-    assert(!argInfo->IsHfaArg());
-
-    GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-    // Keep in sync with the logic in abiCanMorphMultiRegLclArgPromoted.
-
-    unsigned fieldCount      = lcl->GetPromotedFieldCount();
-    unsigned field           = 0;
-    unsigned regCount        = argInfo->GetRegCount();
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-    unsigned reg             = 0;
-
-    while (field < fieldCount)
-    {
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-        var_types  fieldType   = fieldLcl->GetType();
-
-        if (fieldOffset >= regCount * REGSIZE_BYTES)
-        {
-            break;
-        }
-
-        var_types regType;
-#ifdef UNIX_AMD64_ABI
-        regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
-#else
-        regType = TYP_I_IMPL;
-#endif
-
-        if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
-        {
-            // This register doesn't overlap any promoted field. Must be padding
-            // so we can just load 0. We have to add the register to the list
-            // otherwise the backend may not allocate the register correctly.
-            list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
-            reg++;
-            continue;
-        }
-
-        // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
-        assert(fieldOffset == reg * REGSIZE_BYTES);
-
-        GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
-
-#ifdef WINDOWS_X86_ABI
-        if (fieldType == TYP_SIMD8)
-        {
-            // Handle win-x86 multireg return of a struct with a single SIMD8 field.
-            // This would also work for ARM multireg args but ARM doesn't have SIMD.
-            assert((regType == TYP_INT) && (reg == 0) && (regCount == 2));
-
-            fieldNode = gtNewSimdGetElementNode(TYP_SIMD16, TYP_INT, fieldNode, gtNewIconNode(0));
-            list->AddField(this, fieldNode, fieldOffset, fieldType);
-            fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
-            fieldNode = gtNewSimdGetElementNode(TYP_SIMD16, TYP_INT, fieldNode, gtNewIconNode(1));
-            reg += 2;
-        }
-        else
-#endif
-#ifdef FEATURE_SIMD
-            if ((fieldType == TYP_DOUBLE) || (fieldType == TYP_SIMD8))
-#else
-        if (fieldType == TYP_DOUBLE)
-#endif
-        {
-#ifdef TARGET_64BIT
-            if (regType == TYP_LONG)
-            {
-                fieldNode = gtNewBitCastNode(TYP_LONG, fieldNode);
-                fieldType = TYP_LONG;
-            }
-
-            reg++;
-#else
-            // Ideally we'd bitcast the DOUBLE to LONG but decomposition doesn't currently support
-            // LONG BITCAST nodes so we'll leave it as is and defer it to lowering.
-
-            reg += 2;
-
-            // We need to have at least 2 slots left to load a DOUBLE field.
-            assert(reg <= argInfo->GetRegCount());
-#endif
-        }
-        else if (fieldType == TYP_FLOAT)
-        {
-#ifdef TARGET_64BIT
-            // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
-            // While at it, also handle 2 consecutive FLOAT fields in a non HFA struct for ARM64.
-            if ((field + 1 < fieldCount) && (reg < argInfo->GetRegCount())
-#ifdef UNIX_AMD64_ABI
-                && (regType == TYP_DOUBLE)
+            if ((fields[firstStackField].offset < argInfo->GetRegCount() * REGSIZE_BYTES)
+#ifdef TARGET_ARM
+                && (fields[firstStackField].type != TYP_LONG)
 #endif
                     )
             {
-                unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field + 1);
-                LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-                unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-                var_types  nextFieldType   = nextFieldLcl->GetType();
-
-                if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
-                {
-                    GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
-#ifdef UNIX_AMD64_ABI
-                    fieldNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, fieldNode,
-                                                         nextFieldNode);
-#else
-                    fieldNode =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT, 8, fieldNode, nextFieldNode);
-                    fieldNode = gtNewBitCastNode(regType, fieldNode);
-#endif
-                    field++;
-                }
+                return false;
             }
-            else
-#endif // TARGET_64BIT
-                if (regType == TYP_I_IMPL)
-            {
-                fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
-                fieldType = TYP_INT;
-            }
-
-            reg++;
         }
-        else if (fieldType == TYP_LONG)
-        {
-#ifdef TARGET_64BIT
-            if (regType == TYP_DOUBLE)
-            {
-                fieldNode = gtNewBitCastNode(TYP_DOUBLE, fieldNode);
-                fieldType = TYP_DOUBLE;
-            }
 
-            reg++;
-#else
-            // We need to have at least 2 registers/slots left to load a LONG field.
-            // If not, we can narrow it down to INT to load it.
-            if (reg == regAndSlotCount - 1)
-            {
-                fieldNode = gtNewCastNode(TYP_INT, fieldNode, false, TYP_INT);
-                fieldType = TYP_INT;
-                reg++;
-            }
-            else
-            {
-                reg += 2;
-            }
-#endif
+        return true;
+    }
+};
+
+GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const AbiRegFieldMap& map)
+{
+    GenTreeFieldList* list     = new (this, GT_FIELD_LIST) GenTreeFieldList();
+    GenTree*          regValue = nullptr;
+
+    for (unsigned i = 0; i < map.count; i++)
+    {
+        unsigned regIndex  = map.fields[i].reg;
+        unsigned regOffset = regIndex * REGSIZE_BYTES;
+
+        if (map.fields[i].lclNum == BAD_VAR_NUM)
+        {
+            var_types regType = argInfo->GetRegType(regIndex);
+            list->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
+            continue;
+        }
+
+        GenTree*  fieldValue  = gtNewLclvNode(map.fields[i].lclNum, map.fields[i].type);
+        var_types fieldType   = map.fields[i].type;
+        unsigned  fieldOffset = map.fields[i].offset;
+
+        if (regIndex >= argInfo->GetRegCount())
+        {
+            list->AddField(this, fieldValue, fieldOffset, fieldType);
+            continue;
+        }
+
+#ifdef WINDOWS_X86_ABI
+        // Handle win-x86 multireg return of a struct with a single vector field
+        // (in principle the field should be SIMD8 but this is the only multireg
+        // case on x86 so we don't care what exact SIMD type it is, we just need
+        // to get INT values out of it).
+
+        if (varTypeIsSIMD(fieldType))
+        {
+            assert(argInfo->GetRegType(regIndex) == TYP_INT);
+
+            unsigned extractOffset = regOffset - fieldOffset;
+            assert(extractOffset % 4 == 0);
+
+            regValue = NewExtractVectorElement(fieldType, TYP_INT, fieldValue, extractOffset / 4);
         }
         else
+#elif defined(TARGET_64BIT)
+        // On 64 bit targets we may need to pack 2 FLOAT fields into a LONG/DOUBLE
+        // and we also have to deal with vector fields that span multiple registers
+        // (x86 doesn't have multireg args and ARM doesn't have vector support).
+
+        if (fieldOffset < regOffset)
         {
-            assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
+            // A vector overlaps the previous register, extract a FLOAT or a DOUBLE,
+            // depending on the remaining size. We might have to extract 2 FLOATS if
+            // the current vector offset isn't properly aligned to extract a DOUBLE.
 
-            // Note that small type promoted fields are "normalize on load" but
-            // normalization isn't done here because struct padding bits aren't
-            // supposed to be accessed by normal code. Might be nice to insert
-            // a cast to zero extend small types if it doesn't hurt CQ too much.
+            assert(varTypeIsSIMD(fieldType));
 
-            reg++;
+            unsigned extractOffset = regOffset - fieldOffset;
+            unsigned extractSize   = min(REGSIZE_BYTES, varTypeSize(fieldType) - extractOffset);
+
+            if (extractSize == 4)
+            {
+                assert((extractOffset % 4) == 0);
+
+                fieldValue  = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                fieldOffset = regOffset;
+            }
+            else if ((extractOffset % 8 == 0))
+            {
+                fieldValue  = NewExtractVectorElement(fieldType, TYP_DOUBLE, fieldValue, extractOffset / 8);
+                fieldOffset = regOffset;
+            }
+            else
+            {
+                assert(extractSize == 8);
+                assert(extractOffset % 4 == 0);
+
+                regValue   = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                fieldValue = gtNewLclvNode(fieldValue->AsLclVar()->GetLclNum(), fieldType);
+                fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4 + 1);
+
+                fieldOffset = regOffset + 4;
+                fieldType   = TYP_FLOAT;
+            }
+        }
+        else if (varTypeIsSIMD(fieldType) && (fieldOffset == regOffset + 4))
+        {
+            // The vector overlaps the second half of an eightbyte, extract a FLOAT
+            // and continue as if this was a FLOAT field.
+
+            fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, 0);
+            fieldType  = TYP_FLOAT;
         }
 
-        list->AddField(this, fieldNode, fieldOffset, fieldType);
-        field++;
-    }
-
-    // Zero out any remaining registers. Perhaps zeroing isn't strictly needed as these
-    // are basically padding bits but the backend won't allocate a register if a is not
-    // not added to the list.
-    while (reg < regCount)
-    {
-        var_types regType;
-#ifdef UNIX_AMD64_ABI
-        regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
-#else
-        regType               = TYP_I_IMPL;
-#endif
-        list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
-        reg++;
-    }
-
-    if (argInfo->GetSlotCount() > 0)
-    {
-        while (field < fieldCount)
+        if ((fieldType == TYP_FLOAT) && (fieldOffset == regOffset + 4))
         {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+            assert(regValue->TypeIs(TYP_FLOAT));
 
-            if (fieldOffset >= regAndSlotCount * REGSIZE_BYTES)
+            regValue = gtNewSimdHWIntrinsicNode(
+#ifdef UNIX_AMD64_ABI
+                TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+#elif defined(TARGET_ARM64)
+                TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT, 8,
+#else
+#error Unknown target
+#endif
+                regValue, fieldValue);
+        }
+        else
+#endif // TARGET_64BIT
+        {
+            assert(fieldOffset == regOffset);
+            regValue = fieldValue;
+        }
+
+        if ((i == map.count - 1) || (map.fields[i + 1].reg != regIndex))
+        {
+            var_types regType = argInfo->GetRegType(regIndex);
+
+#ifdef TARGET_64BIT
+            if (regValue->TypeIs(TYP_FLOAT, TYP_DOUBLE, TYP_SIMD8) && !varTypeUsesFloatReg(regType))
             {
-                break;
+                regValue = gtNewBitCastNode(regValue->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, regValue);
             }
+            else if (varTypeIsSIMD(regValue->GetType()) && !varTypeUsesFloatReg(regType))
+            {
+                regValue = NewExtractVectorElement(regValue->GetType(), TYP_LONG, regValue, 0);
+            }
+            else if (varTypeIsIntegral(regValue->GetType()) && varTypeUsesFloatReg(regType))
+            {
+                regValue = gtNewBitCastNode(varTypeSize(regValue->GetType()) <= 4 ? TYP_FLOAT : TYP_DOUBLE, regValue);
+            }
+#else
+            assert(!varTypeUsesFloatReg(regType));
 
-            var_types fieldType = fieldLcl->GetType();
+            if (regValue->TypeIs(TYP_FLOAT))
+            {
+                regValue = gtNewBitCastNode(TYP_INT, regValue);
+            }
+            else if (regValue->TypeIs(TYP_LONG, TYP_DOUBLE))
+            {
+                // Skip the next register, decomposition will split the LONG
+                // field into 2 INT fields, DOUBLE will be handled in codegen.
+                i++;
+            }
+#endif
 
-            assert(fieldOffset >= regCount * REGSIZE_BYTES);
-            assert(fieldOffset + varTypeSize(fieldType) <= regAndSlotCount * REGSIZE_BYTES);
-
-            list->AddField(this, gtNewLclvNode(fieldLclNum, fieldType), fieldOffset, fieldType);
-            field++;
+            list->AddField(this, regValue, regIndex * REGSIZE_BYTES, regType);
         }
     }
 
@@ -3876,9 +3816,11 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                 return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclVar());
             }
 
-            if (abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
+            AbiRegFieldMap map(this, lvaGetDesc(arg->AsLclVar()), argInfo);
+
+            if (map.IsSupported(argInfo))
             {
-                return abiMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar()));
+                return abiMorphMultiRegLclArgPromoted(argInfo, map);
             }
         }
 
