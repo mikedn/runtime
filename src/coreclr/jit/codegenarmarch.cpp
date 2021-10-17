@@ -2278,7 +2278,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                     GetEmitter()->emitIns_R_R(ins_Move_Extend(node->GetType(), true), EA_PTRSIZE, argReg, srcReg);
                 }
 
+#ifndef TARGET_64BIT
+                regIndex += node->TypeIs(TYP_LONG) ? 2 : 1;
+#else
                 regIndex++;
+#endif
             }
 
             continue;
