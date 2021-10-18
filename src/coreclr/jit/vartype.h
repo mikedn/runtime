@@ -387,7 +387,7 @@ inline var_types varTypeToSigned(var_types type)
     }
 }
 
-inline var_types varTypePointerAdd(var_types type)
+inline var_types varTypeAddrAdd(var_types type)
 {
     return (type == TYP_REF) ? TYP_BYREF : type;
 }

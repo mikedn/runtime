@@ -3711,7 +3711,7 @@ struct GenTreeField : public GenTree
 {
     GenTree*             gtFldObj;
     CORINFO_FIELD_HANDLE gtFldHnd;
-    DWORD                gtFldOffset;
+    unsigned             gtFldOffset;
     bool                 gtFldMayOverlap;
 
 private:
@@ -3720,7 +3720,7 @@ private:
 #endif
 
 public:
-    GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
+    GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE fldHnd, unsigned offs)
         : GenTree(GT_FIELD, type)
         , gtFldObj(addr)
         , gtFldHnd(fldHnd)

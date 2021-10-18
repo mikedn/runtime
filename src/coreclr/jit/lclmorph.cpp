@@ -2189,7 +2189,7 @@ private:
 
         if (GenTreeField* field = structIndir->IsField())
         {
-            addr     = m_compiler->gtNewAddrNode(field, varTypePointerAdd(field->GetAddr()->GetType()));
+            addr     = m_compiler->gtNewAddrNode(field, varTypeAddrAdd(field->GetAddr()->GetType()));
             fieldSeq = GetFieldSequence(GetStructFieldType(field), type);
         }
         else if (GenTreeIndex* index = structIndir->IsIndex())
