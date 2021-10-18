@@ -5042,24 +5042,21 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
     if (fgAddrCouldBeNull(addr))
     {
-        if ((mac->m_kind == MACK_Addr) || (mac->m_kind == MACK_Ind))
+        if (!mac->m_allConstantOffsets || fgIsBigOffset(mac->m_totalOffset + offset))
         {
-            if (!mac->m_allConstantOffsets || fgIsBigOffset(mac->m_totalOffset + offset))
-            {
-                explicitNullCheckRequired = true;
-            }
-            else if (mac->m_kind == MACK_Addr)
-            {
-                // In R2R mode the field offset for some fields may change when the code
-                // is loaded. So we can't rely on a zero offset here to suppress the null check.
-                // See GitHub issue #16454.
+            explicitNullCheckRequired = true;
+        }
+        else if (mac->m_kind == MACK_Addr)
+        {
+            // In R2R mode the field offset for some fields may change when the code
+            // is loaded. So we can't rely on a zero offset here to suppress the null check.
+            // See GitHub issue #16454.
 
-                bool fieldHasChangeableOffset = false;
+            bool fieldHasChangeableOffset = false;
 #ifdef FEATURE_READYTORUN_COMPILER
-                fieldHasChangeableOffset = (field->GetR2RFieldLookupAddr() != nullptr);
+            fieldHasChangeableOffset = (field->GetR2RFieldLookupAddr() != nullptr);
 #endif
-                explicitNullCheckRequired = (mac->m_totalOffset + offset != 0) || fieldHasChangeableOffset;
-            }
+            explicitNullCheckRequired = (mac->m_totalOffset + offset != 0) || fieldHasChangeableOffset;
         }
     }
 
@@ -10201,7 +10198,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         // all offsets added to the address are constant, and their sum.
         if (tree->gtOper == GT_ADD && subMac1 != nullptr)
         {
-            assert(subMac1->m_kind == MACK_Ind || subMac1->m_kind == MACK_Addr); // Can't be a CopyBlock.
             GenTree* otherOp = tree->AsOp()->gtOp2;
             // Is the other operator a constant?
             if (otherOp->IsCnsIntOrI())
