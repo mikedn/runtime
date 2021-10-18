@@ -5042,12 +5042,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
     if (fgAddrCouldBeNull(addr))
     {
-        // If the address is a ADDR node, it, itself, never requires null checking. The location
-        // whose address is being taken is either a local or static variable, whose address is
-        // necessarily non-null, or else it is a field dereference, which will do its own null
-        // checking if necessary.
-
-        if (!addr->OperIs(GT_ADDR) && (mac->m_kind == MACK_Addr || mac->m_kind == MACK_Ind))
+        if ((mac->m_kind == MACK_Addr) || (mac->m_kind == MACK_Ind))
         {
             if (!mac->m_allConstantOffsets || fgIsBigOffset(mac->m_totalOffset + offset))
             {
