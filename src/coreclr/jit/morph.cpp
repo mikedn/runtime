@@ -11241,8 +11241,11 @@ DONE_MORPHING_CHILDREN:
                 tree->AsOp()->gtOp1 = op1;
             }
 
-            /* If we are storing a small type, we might be able to omit a cast */
-            if (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) && varTypeIsSmall(effectiveOp1->TypeGet()))
+            // If we are storing a small type, we might be able to omit a cast.
+            // We may also omit a cast when storing to a "normalize on load"
+            // local since we know that a load from that local has to cast anyway.
+            if (varTypeIsSmall(effectiveOp1->TypeGet()) && (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) ||
+                 (effectiveOp1->OperIs(GT_LCL_VAR) && lvaGetDesc(effectiveOp1->AsLclVar())->lvNormalizeOnLoad())))
             {
                 if (!gtIsActiveCSE_Candidate(op2) && (op2->gtOper == GT_CAST) && !op2->gtOverflow())
                 {
