@@ -1077,49 +1077,6 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
     genProduceReg(treeNode);
 }
 
-#ifdef FEATURE_SIMD
-
-void CodeGen::genMultiRegSIMDReturn(GenTree* src)
-{
-    assert(varTypeIsSIMD(src->GetType()));
-    assert(src->isUsedFromReg());
-
-    regNumber srcReg  = src->GetRegNum();
-    regNumber retReg0 = compiler->info.retDesc.GetRegNum(0);
-    regNumber retReg1 = compiler->info.retDesc.GetRegNum(1);
-
-#ifdef TARGET_AMD64
-    GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, retReg0, srcReg, /*canSkip*/ true);
-
-    if (compiler->canUseVexEncoding())
-    {
-        GetEmitter()->emitIns_R_R_R(INS_unpckhpd, EA_16BYTE, retReg1, srcReg, srcReg);
-    }
-    else
-    {
-        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, retReg1, srcReg, /*canSkip*/ true);
-        GetEmitter()->emitIns_R_R(INS_unpckhpd, EA_16BYTE, retReg1, retReg1);
-    }
-#else
-    assert(src->TypeIs(TYP_SIMD8));
-    assert((retReg0 == REG_EAX) && (retReg1 == REG_EDX));
-
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, retReg0, srcReg, /* canSkip */ false);
-
-    if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-    {
-        GetEmitter()->emitIns_R_R_I(INS_pextrd, EA_4BYTE, retReg1, srcReg, 1);
-    }
-    else
-    {
-        GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, srcReg, 4);
-        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, retReg1, srcReg, /* canSkip */ false);
-    }
-#endif
-}
-
-#endif // FEATURE_SIMD
-
 #ifdef TARGET_X86
 
 void CodeGen::genFloatReturn(GenTree* src)
@@ -2954,44 +2911,20 @@ void CodeGen::genStructStoreUnrollCopyWB(GenTreeObj* store)
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 void CodeGen::genClearStackVec3ArgUpperBits()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genClearStackVec3ArgUpperBits()\n");
-    }
-#endif
+    JITDUMP("*************** In genClearStackVec3ArgUpperBits()\n");
 
     assert(compiler->compGeneratingProlog);
 
-    unsigned varNum = 0;
-
-    for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
-        LclVarDsc* varDsc = &(compiler->lvaTable[varNum]);
-        assert(varDsc->lvIsParam);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+        assert(lcl->IsParam());
 
-        // Does var has simd12 type?
-        if (varDsc->lvType != TYP_SIMD12)
+        // This is needed only for stack params, zeroing reg params is
+        // done when the 2 param registers are packed together.
+        if (lcl->TypeIs(TYP_SIMD12) && !lcl->IsRegParam())
         {
-            continue;
-        }
-
-        if (!varDsc->lvIsRegArg)
-        {
-            // Clear the upper 32 bits by mov dword ptr [V_ARG_BASE+0xC], 0
-            GetEmitter()->emitIns_S_I(ins_Store(TYP_INT), EA_4BYTE, varNum, genTypeSize(TYP_FLOAT) * 3, 0);
-        }
-        else
-        {
-            // Assume that for x64 linux, an argument is fully in registers
-            // or fully on stack.
-            regNumber argReg = varDsc->GetOtherArgReg();
-
-            // Clear the upper 32 bits by two shift instructions.
-            // argReg = argReg << 96
-            GetEmitter()->emitIns_R_I(INS_pslldq, emitActualTypeSize(TYP_SIMD12), argReg, 12);
-            // argReg = argReg >> 96
-            GetEmitter()->emitIns_R_I(INS_psrldq, emitActualTypeSize(TYP_SIMD12), argReg, 12);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_4BYTE, lclNum, 12, 0);
         }
     }
 }
@@ -5007,11 +4940,11 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef DEBUG
             if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
             {
-                JITDUMP("\t\t\t\t\t\t\tVar V%02u becoming live\n", varNum);
+                JITDUMP("V%02u becoming live\n", varNum);
             }
             else
             {
-                JITDUMP("\t\t\t\t\t\t\tVar V%02u continuing live\n", varNum);
+                JITDUMP("V%02u continuing live\n", varNum);
             }
 #endif // DEBUG
 
@@ -5124,11 +5057,11 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef DEBUG
                     if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
                     {
-                        JITDUMP("\t\t\t\t\t\t\tVar V%02u becoming dead\n", varNum);
+                        JITDUMP("V%02u becoming dead\n", varNum);
                     }
                     else
                     {
-                        JITDUMP("\t\t\t\t\t\t\tVar V%02u continuing dead\n", varNum);
+                        JITDUMP("V%02u continuing dead\n", varNum);
                     }
 #endif // DEBUG
 

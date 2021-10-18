@@ -533,7 +533,7 @@ void CodeGenInterface::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bo
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("\t\t\t\t\t\t\tV%02u in reg ", (varDsc - compiler->lvaTable));
+        printf("V%02u in reg ", (varDsc - compiler->lvaTable));
         varDsc->PrintVarReg();
         printf(" is becoming %s  ", (isDying) ? "dead" : "live");
         Compiler::printTreeID(tree);
@@ -756,7 +756,7 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
         if (isInMemory && (isGCRef || isByRef))
         {
             VarSetOps::RemoveElemD(this, codeGen->gcInfo.gcVarPtrSetCur, deadVarIndex);
-            JITDUMP("\t\t\t\t\t\t\tV%02u becoming dead\n", varNum);
+            JITDUMP("V%02u becoming dead\n", varNum);
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
@@ -782,7 +782,7 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
 #ifdef DEBUG
                 if (VarSetOps::IsMember(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex))
                 {
-                    JITDUMP("\t\t\t\t\t\t\tRemoving V%02u from gcVarPtrSetCur\n", varNum);
+                    JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
                 }
 #endif // DEBUG
                 VarSetOps::RemoveElemD(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
@@ -802,7 +802,7 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
         {
             // This isn't in a register, so update the gcVarPtrSetCur to show that it's live on the stack.
             VarSetOps::AddElemD(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
-            JITDUMP("\t\t\t\t\t\t\tV%02u becoming live\n", varNum);
+            JITDUMP("V%02u becoming live\n", varNum);
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
@@ -3134,23 +3134,21 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         // in the regArgTab[], either the original TYP_STRUCT argument or the introduced lvStructField.
         // We will use the lvStructField if we have a TYPE_INDEPENDENT promoted struct field otherwise
         // use the the original TYP_STRUCT argument.
-        //
-        if (varDsc->lvPromoted || varDsc->lvIsStructField)
+        if (varDsc->IsPromoted() || varDsc->IsPromotedField())
         {
             LclVarDsc* parentVarDsc = varDsc;
-            if (varDsc->lvIsStructField)
+
+            if (varDsc->IsPromotedField())
             {
-                assert(!varDsc->lvPromoted);
-                parentVarDsc = &compiler->lvaTable[varDsc->lvParentLcl];
+                assert(!varDsc->IsPromoted());
+                parentVarDsc = compiler->lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
             }
 
-            Compiler::lvaPromotionType promotionType = compiler->lvaGetPromotionType(parentVarDsc);
-
-            if (promotionType == Compiler::PROMOTION_TYPE_INDEPENDENT)
+            if (parentVarDsc->IsIndependentPromoted())
             {
                 // For register arguments that are independent promoted structs we put the promoted field varNum in the
                 // regArgTab[]
-                if (varDsc->lvPromoted)
+                if (varDsc->IsPromoted())
                 {
                     continue;
                 }
@@ -3159,7 +3157,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 // For register arguments that are not independent promoted structs we put the parent struct varNum in
                 // the regArgTab[]
-                if (varDsc->lvIsStructField)
+                if (varDsc->IsPromotedField())
                 {
                     continue;
                 }
@@ -3494,8 +3492,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 regNumber regNum  = genMapRegArgNumToRegNum(argNum, regType);
 
                 regNumber destRegNum = REG_NA;
-                if (varTypeIsStruct(varDsc) &&
-                    (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT))
+                if (varTypeIsStruct(varDsc->GetType()) && varDsc->IsIndependentPromoted())
                 {
                     assert(regArgTab[argNum].slot <= varDsc->lvFieldCnt);
                     LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + regArgTab[argNum].slot - 1);
@@ -4212,9 +4209,24 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 int       nextArgNum = argNum + 1;
                 regNumber nextRegNum = genMapRegArgNumToRegNum(nextArgNum, regArgTab[nextArgNum].getRegType(compiler));
                 noway_assert(regArgTab[nextArgNum].varNum == varNum);
-                // Emit a shufpd with a 0 immediate, which preserves the 0th element of the dest reg
-                // and moves the 0th element of the src reg into the 1st element of the dest reg.
-                GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, destRegNum, nextRegNum);
+
+                if (varDsc->TypeIs(TYP_SIMD12) && compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+                {
+                    GetEmitter()->emitIns_R_R_I(INS_insertps, EA_16BYTE, destRegNum, nextRegNum, 0x28);
+                }
+                else
+                {
+                    if (varDsc->TypeIs(TYP_SIMD12))
+                    {
+                        // Zero out the upper element of Vector3 since unmanaged callers
+                        // don't do it (the native ABI doesn't require it).
+                        GetEmitter()->emitIns_R_I(INS_pslldq, EA_16BYTE, nextRegNum, 12);
+                        GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, nextRegNum, 12);
+                    }
+
+                    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, destRegNum, nextRegNum);
+                }
+
                 // Set destRegNum to regNum so that we skip the setting of the register below,
                 // but mark argNum as processed and clear regNum from the live mask.
                 destRegNum = regNum;
@@ -4229,7 +4241,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 
                 if (argNum < (argMax - argRegCount + 1))
                 {
-                    if (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT)
+                    if (varDsc->IsIndependentPromoted())
                     {
                         // For an HFA type that is passed in multiple registers and promoted, we copy each field to its
                         // destination register.
@@ -4419,11 +4431,10 @@ void CodeGen::genCheckUseBlockInit()
             continue;
         }
 
-        if (compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+        if (varDsc->IsDependentPromotedField(compiler))
         {
-            // For Compiler::PROMOTION_TYPE_DEPENDENT type of promotion, the whole struct should have been
-            // initialized by the parent struct. No need to set the lvMustInit bit in the
-            // field locals.
+            // For dependent promotion, the whole struct should have been initialized
+            // by the parent struct. No need to set the lvMustInit bit in the fields.
             continue;
         }
 
@@ -6768,9 +6779,8 @@ void CodeGen::genFnProlog()
 
         if (varDsc->HasGCPtr() && varDsc->lvTrackedNonStruct() && varDsc->lvOnFrame)
         {
-            // For fields of PROMOTION_TYPE_DEPENDENT type of promotion, they should have been
-            // taken care of by the parent struct.
-            if (!compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+            // Dependent promoted fields should have been taken care of by the parent struct.
+            if (!varDsc->IsDependentPromotedField(compiler))
             {
                 hasGCRef = true;
 
@@ -10501,6 +10511,26 @@ void CodeGen::genRetFilt(GenTree* retfilt)
 
 void CodeGen::genLongReturn(GenTree* src)
 {
+#ifdef TARGET_X86
+    if (src->TypeIs(TYP_DOUBLE))
+    {
+        regNumber srcReg = genConsumeReg(src);
+
+        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, REG_RAX, srcReg, /* canSkip */ false);
+        // TODO-MIKE-Review: This is cheating, the source register is modified without
+        // LSRA knowing about it. Shouldn't matter since this is "last use" but you never
+        // known...
+        // Also, there's a good chance that the value is spilled and we could load the INT
+        // registers straight from memory (this happens in UnmanagedCallersOnly methods and
+        // there's normally a reverse PInvoke helper call just before return that may result
+        // in spilling).
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, srcReg, srcReg, 0x55);
+        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, REG_RDX, srcReg, /* canSkip */ false);
+
+        return;
+    }
+#endif
+
     assert(src->OperIs(GT_LONG));
 
     regNumber srcReg0 = genConsumeReg(src->AsOp()->GetOp(0));
@@ -10626,6 +10656,10 @@ void CodeGen::genReturn(GenTree* ret)
 
 void CodeGen::genMultiRegStructReturn(GenTree* src)
 {
+    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+    assert(retDesc.GetRegCount() > 1);
+
     if (GenTreeFieldList* list = src->IsFieldList())
     {
         unsigned regIndex = 0;
@@ -10642,7 +10676,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
             // use FIELD_LIST.
 
             regNumber srcReg = genConsumeReg(use.GetNode());
-            regNumber retReg = compiler->info.retDesc.GetRegNum(regIndex++);
+            regNumber retReg = retDesc.GetRegNum(regIndex++);
 
             if (srcReg != retReg)
             {
@@ -10658,51 +10692,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
     GenTree* actualSrc = !src->IsCopyOrReload() ? src : src->AsUnOp()->GetOp(0);
 
-    if (genIsRegCandidateLclVar(actualSrc))
-    {
-        // Right now the only enregisterable structs supported are SIMD vector types.
-        assert(varTypeIsSIMD(src->GetType()));
-        assert(!actualSrc->AsLclVar()->IsMultiReg());
-
-#ifdef FEATURE_SIMD
-        genMultiRegSIMDReturn(src);
-#endif
-
-        return;
-    }
-
-    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-    if (actualSrc->OperIs(GT_LCL_VAR) && !actualSrc->AsLclVar()->IsMultiReg())
-    {
-        unsigned lclNum = actualSrc->AsLclVar()->GetLclNum();
-
-        assert(compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet || !compiler->lvaGetDesc(lclNum)->IsPromoted());
-
-        for (unsigned i = 0, offset = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            var_types retType = retDesc.GetRegType(i);
-            regNumber retReg  = retDesc.GetRegNum(i);
-
-            GetEmitter()->emitIns_R_S(ins_Load(retType), emitTypeSize(retType), retReg, lclNum, offset);
-
-            offset += varTypeSize(retType);
-        }
-
-        return;
-    }
-
-    LclVarDsc* lcl = nullptr;
-
-    if (actualSrc->OperIs(GT_LCL_VAR))
-    {
-        lcl = compiler->lvaGetDesc(actualSrc->AsLclVar()->GetLclNum());
-        assert(lcl->lvIsMultiRegRet && lcl->IsPromoted());
-    }
-    else
-    {
-        assert(actualSrc->AsCall()->GetRegCount() == retDesc.GetRegCount());
-    }
+    assert(actualSrc->AsCall()->GetRegCount() == retDesc.GetRegCount());
 
     for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
     {
@@ -10723,21 +10713,9 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
             srcReg = actualSrc->GetRegByIndex(i);
         }
 
-        if (srcReg == REG_NA)
-        {
-            // This is a spilled field of a multi-reg lclVar.
-            // We currently only mark a lclVar operand as RegOptional, since we don't have a way
-            // to mark a multi-reg tree node as used from spill (GTF_NOREG_AT_USE) on a per-reg basis.
+        assert(srcReg != REG_NA);
 
-            unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-            assert(compiler->lvaGetDesc(fieldLclNum)->lvOnFrame);
-
-            GetEmitter()->emitIns_R_S(ins_Load(retType), emitTypeSize(retType), retReg, fieldLclNum, 0);
-        }
-        else
-        {
-            inst_Mov(retType, retReg, srcReg, /* canSkip */ true);
-        }
+        inst_Mov(retType, retReg, srcReg, /* canSkip */ true);
     }
 }
 

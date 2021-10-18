@@ -89,35 +89,32 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* tree)
             }
         }
 
-        if (varTypeIsStruct(varDsc))
+        if (varTypeIsStruct(varDsc->GetType()) && varDsc->IsPromoted())
         {
-            lvaPromotionType promotionType = lvaGetPromotionType(varDsc);
+            VARSET_TP bitMask(VarSetOps::MakeEmpty(this));
 
-            if (promotionType != PROMOTION_TYPE_NONE)
+            for (unsigned i = 0; i < varDsc->GetPromotedFieldCount(); ++i)
             {
-                VARSET_TP bitMask(VarSetOps::MakeEmpty(this));
+                LclVarDsc* fieldLcl = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
+                noway_assert(fieldLcl->IsPromotedField());
 
-                for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
+                if (fieldLcl->lvTracked)
                 {
-                    noway_assert(lvaTable[i].lvIsStructField);
-                    if (lvaTable[i].lvTracked)
-                    {
-                        noway_assert(lvaTable[i].lvVarIndex < lvaTrackedCount);
-                        VarSetOps::AddElemD(this, bitMask, lvaTable[i].lvVarIndex);
-                    }
+                    noway_assert(fieldLcl->lvVarIndex < lvaTrackedCount);
+                    VarSetOps::AddElemD(this, bitMask, fieldLcl->lvVarIndex);
                 }
+            }
 
-                // For pure defs (i.e. not an "update" def which is also a use), add to the (all) def set.
-                if (!isUse)
-                {
-                    assert(isDef);
-                    VarSetOps::UnionD(this, fgCurDefSet, bitMask);
-                }
-                else if (!VarSetOps::IsSubset(this, bitMask, fgCurDefSet))
-                {
-                    // Mark as used any struct fields that are not yet defined.
-                    VarSetOps::UnionD(this, fgCurUseSet, bitMask);
-                }
+            // For pure defs (i.e. not an "update" def which is also a use), add to the (all) def set.
+            if (!isUse)
+            {
+                assert(isDef);
+                VarSetOps::UnionD(this, fgCurDefSet, bitMask);
+            }
+            else if (!VarSetOps::IsSubset(this, bitMask, fgCurDefSet))
+            {
+                // Mark as used any struct fields that are not yet defined.
+                VarSetOps::UnionD(this, fgCurUseSet, bitMask);
             }
         }
     }
@@ -857,20 +854,16 @@ void Compiler::fgExtendDbgLifetimes()
 
     for (unsigned argNum = 0; argNum < info.compArgsCount; argNum++)
     {
-        LclVarDsc* argDsc = lvaTable + argNum;
-        if (argDsc->lvPromoted)
+        LclVarDsc* argDsc = lvaGetDesc(argNum);
+
+        if (argDsc->IsIndependentPromoted())
         {
-            lvaPromotionType promotionType = lvaGetPromotionType(argDsc);
-
-            if (promotionType == PROMOTION_TYPE_INDEPENDENT)
-            {
-                noway_assert(argDsc->lvFieldCnt == 1); // We only handle one field here
-
-                unsigned fieldVarNum = argDsc->lvFieldLclStart;
-                argDsc               = lvaTable + fieldVarNum;
-            }
+            noway_assert(argDsc->GetPromotedFieldCount() == 1); // We only handle one field here
+            argDsc = lvaGetDesc(argDsc->GetPromotedFieldLclNum(0));
         }
+
         noway_assert(argDsc->lvIsParam);
+
         if (argDsc->lvTracked)
         {
             noway_assert(!VarSetOps::IsMember(this, trackedArgs, argDsc->lvVarIndex)); // Each arg should define a
@@ -1648,17 +1641,18 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           life,
     // some stores if the lhs local has a ref count of 1.
     if (isDef && compRationalIRForm && (varDsc.lvRefCnt() == 1) && !varDsc.lvPinned)
     {
-        if (varDsc.lvIsStructField)
+        if (varDsc.IsPromotedField())
         {
-            if ((lvaGetDesc(varDsc.lvParentLcl)->lvRefCnt() == 1) &&
-                (lvaGetParentPromotionType(&varDsc) == PROMOTION_TYPE_DEPENDENT))
+            LclVarDsc* parentLcl = lvaGetDesc(varDsc.GetPromotedFieldParentLclNum());
+
+            if ((parentLcl->lvRefCnt() == 1) && parentLcl->IsDependentPromoted())
             {
                 return true;
             }
         }
-        else if (varTypeIsStruct(varDsc.lvType))
+        else if (varTypeIsStruct(varDsc.GetType()))
         {
-            if (lvaGetPromotionType(&varDsc) != PROMOTION_TYPE_INDEPENDENT)
+            if (!varDsc.IsIndependentPromoted())
             {
                 return true;
             }
@@ -1669,7 +1663,7 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           life,
         }
     }
 
-    if (!varTypeIsStruct(varDsc.lvType) || (lvaGetPromotionType(&varDsc) == PROMOTION_TYPE_NONE))
+    if (!varTypeIsStruct(varDsc.lvType) || !varDsc.IsPromoted())
     {
         return false;
     }
@@ -1681,10 +1675,10 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           life,
     {
         LclVarDsc* fieldVarDsc = lvaGetDesc(i);
 #if !defined(TARGET_64BIT)
-        if (!varTypeIsLong(fieldVarDsc->lvType) || !fieldVarDsc->lvPromoted)
+        if (!varTypeIsLong(fieldVarDsc->lvType) || !fieldVarDsc->IsPromoted())
 #endif // !defined(TARGET_64BIT)
         {
-            noway_assert(fieldVarDsc->lvIsStructField);
+            noway_assert(fieldVarDsc->IsPromotedField());
         }
         if (fieldVarDsc->lvTracked)
         {
@@ -2571,18 +2565,16 @@ void Compiler::fgInterBlockLocalVarLiveness()
             continue;
         }
 
-        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit on them since
-        // the whole parent struct will be initialized; however, lvLiveInOutOfHndlr should be set on them
-        // as appropriate.
-
-        bool fieldOfDependentlyPromotedStruct = lvaIsFieldOfDependentlyPromotedStruct(varDsc);
-
         // Un-init locals may need auto-initialization. Note that the
         // liveness of such locals will bubble to the top (fgFirstBB)
         // in fgInterBlockLocalVarLiveness()
 
-        if (!varDsc->lvIsParam && VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex) &&
-            (info.compInitMem || varTypeIsGC(varDsc->TypeGet())) && !fieldOfDependentlyPromotedStruct)
+        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit on them since
+        // the whole parent struct will be initialized; however, lvLiveInOutOfHndlr should be set on them
+        // as appropriate.
+
+        if (!varDsc->IsParam() && VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex) &&
+            (info.compInitMem || varTypeIsGC(varDsc->GetType())) && !varDsc->IsDependentPromotedField(this))
         {
             varDsc->lvMustInit = true;
         }

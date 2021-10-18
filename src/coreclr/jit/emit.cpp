@@ -6864,23 +6864,21 @@ void emitter::emitDispDataSec(dataSecDsc* section)
                 }
             }
 
-            unsigned i = 0;
-            unsigned j;
-            while (i < data->dsSize)
+            for (unsigned i = 0; i < data->dsSize;)
             {
                 switch (data->dsDataType)
                 {
                     case TYP_FLOAT:
                         assert(data->dsSize >= 4);
-                        printf("\tdd\t%08llXh\t", *reinterpret_cast<uint32_t*>(&data->dsCont[i]));
-                        printf("\t; %9.6g", *reinterpret_cast<float*>(&data->dsCont[i]));
+                        printf("\tdd\t%08Xh\t", *reinterpret_cast<uint32_t*>(&data->dsCont[i]));
+                        printf("\t; %.9gf", *reinterpret_cast<float*>(&data->dsCont[i]));
                         i += 4;
                         break;
 
                     case TYP_DOUBLE:
                         assert(data->dsSize >= 8);
                         printf("\tdq\t%016llXh", *reinterpret_cast<uint64_t*>(&data->dsCont[i]));
-                        printf("\t; %12.9g", *reinterpret_cast<double*>(&data->dsCont[i]));
+                        printf("\t; %.17g", *reinterpret_cast<double*>(&data->dsCont[i]));
                         i += 8;
                         break;
 
@@ -6888,55 +6886,39 @@ void emitter::emitDispDataSec(dataSecDsc* section)
                         switch (elemSize)
                         {
                             case 1:
-                                printf("\tdb\t%02Xh", *reinterpret_cast<uint8_t*>(&data->dsCont[i]));
-                                for (j = 1; j < 16; j++)
+                                printf("\tdb\t");
+                                for (unsigned j = 0; j < 16 && i < data->dsSize; j++, i++)
                                 {
-                                    if (i + j >= data->dsSize)
-                                        break;
-                                    printf(", %02Xh", *reinterpret_cast<uint8_t*>(&data->dsCont[i + j]));
+                                    printf("%s%02Xh", j ? ", " : "", *reinterpret_cast<uint8_t*>(&data->dsCont[i]));
                                 }
-                                i += j;
                                 break;
-
                             case 2:
                                 assert((data->dsSize % 2) == 0);
-                                printf("\tdw\t%04Xh", *reinterpret_cast<uint16_t*>(&data->dsCont[i]));
-                                for (j = 2; j < 24; j += 2)
+                                printf("\tdw\t");
+                                for (unsigned j = 0; j < 12 && i < data->dsSize; j++, i += 2)
                                 {
-                                    if (i + j >= data->dsSize)
-                                        break;
-                                    printf(", %04Xh", *reinterpret_cast<uint16_t*>(&data->dsCont[i + j]));
+                                    printf("%s%04Xh", j ? ", " : "", *reinterpret_cast<uint16_t*>(&data->dsCont[i]));
                                 }
-                                i += j;
                                 break;
-
                             case 12:
                             case 4:
                                 assert((data->dsSize % 4) == 0);
-                                printf("\tdd\t%08Xh", *reinterpret_cast<uint32_t*>(&data->dsCont[i]));
-                                for (j = 4; j < 24; j += 4)
+                                printf("\tdd\t");
+                                for (unsigned j = 0; j < 6 && i < data->dsSize; j++, i += 4)
                                 {
-                                    if (i + j >= data->dsSize)
-                                        break;
-                                    printf(", %08Xh", *reinterpret_cast<uint32_t*>(&data->dsCont[i + j]));
+                                    printf("%s%08Xh", j ? ", " : "", *reinterpret_cast<uint32_t*>(&data->dsCont[i]));
                                 }
-                                i += j;
                                 break;
-
                             case 32:
                             case 16:
                             case 8:
                                 assert((data->dsSize % 8) == 0);
-                                printf("\tdq\t%016llXh", *reinterpret_cast<uint64_t*>(&data->dsCont[i]));
-                                for (j = 8; j < 32; j += 8)
+                                printf("\tdq\t");
+                                for (unsigned j = 0; j < 4 && i < data->dsSize; j++, i += 8)
                                 {
-                                    if (i + j >= data->dsSize)
-                                        break;
-                                    printf(", %016llXh", *reinterpret_cast<uint64_t*>(&data->dsCont[i + j]));
+                                    printf("%s%016llXh", j ? ", " : "", *reinterpret_cast<uint64_t*>(&data->dsCont[i]));
                                 }
-                                i += j;
                                 break;
-
                             default:
                                 assert(!"unexpected elemSize");
                                 break;

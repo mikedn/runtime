@@ -1478,7 +1478,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     }
 
     // Don't allocate registers for dependently promoted struct fields
-    if (compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+    if (varDsc->IsDependentPromotedField(compiler))
     {
         return false;
     }
@@ -1714,9 +1714,8 @@ void LinearScan::identifyCandidates()
             else if (!isRegCandidate(varDsc) || varDsc->lvDoNotEnregister)
             {
                 refCntStk += varDsc->lvRefCnt();
-                if ((varDsc->lvType == TYP_DOUBLE) ||
-                    ((varTypeIsStruct(varDsc) && varDsc->lvStructDoubleAlign &&
-                      (compiler->lvaGetPromotionType(varDsc) != Compiler::PROMOTION_TYPE_INDEPENDENT))))
+                if (varDsc->TypeIs(TYP_DOUBLE) || ((varTypeIsStruct(varDsc->GetType()) && varDsc->lvStructDoubleAlign &&
+                                                    !varDsc->IsIndependentPromoted())))
                 {
                     refCntWtdStkDbl += varDsc->lvRefCntWtd();
                 }
@@ -6991,7 +6990,7 @@ void LinearScan::resolveRegisters()
 
                     // Stack args that are part of dependently-promoted structs should never be register candidates (see
                     // LinearScan::isRegCandidate).
-                    assert(varDsc->lvIsRegArg || !compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc));
+                    assert(varDsc->IsRegParam() || !varDsc->IsDependentPromotedField(compiler));
                 }
 
                 // If lvRegNum is REG_STK, that means that either no register

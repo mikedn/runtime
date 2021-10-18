@@ -1630,7 +1630,6 @@ EEClass::CheckForHFA()
         {
         case ELEMENT_TYPE_VALUETYPE:
             {
-#ifdef TARGET_ARM64
                 MethodTable* pMT;
 #if defined(FEATURE_HFA)
                 pMT = pByValueClassCache[i];
@@ -1643,7 +1642,6 @@ EEClass::CheckForHFA()
                     fieldHFAType = (thisElemSize == 8) ? CORINFO_HFA_ELEM_VECTOR64 : CORINFO_HFA_ELEM_VECTOR128;
                 }
                 else
-#endif // TARGET_ARM64
                 {
 #if defined(FEATURE_HFA)
                     fieldHFAType = pByValueClassCache[i]->GetHFAType();
@@ -1707,11 +1705,9 @@ EEClass::CheckForHFA()
     case CORINFO_HFA_ELEM_VECTOR64:
         elemSize = 8;
         break;
-#ifdef TARGET_ARM64
     case CORINFO_HFA_ELEM_VECTOR128:
         elemSize = 16;
         break;
-#endif
     default:
         // ELEMENT_TYPE_END
         return false;

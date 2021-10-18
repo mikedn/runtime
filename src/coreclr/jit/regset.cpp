@@ -192,7 +192,7 @@ void RegSet::SetMaskVars(regMaskTP newMaskVars)
 #ifdef DEBUG
     if (m_rsCompiler->verbose)
     {
-        printf("\t\t\t\t\t\t\tLive regs: ");
+        printf("Live regs: ");
         if (_rsMaskVars == newMaskVars)
         {
             printf("(unchanged) ");
@@ -407,7 +407,7 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
 #ifdef DEBUG
     if (m_rsCompiler->verbose)
     {
-        printf("\t\t\t\t\t\t\tThe register %s spilled with    ", m_rsCompiler->compRegVarName(reg));
+        printf("The register %s spilled with    ", m_rsCompiler->compRegVarName(reg));
         Compiler::printTreeID(spill->spillTree);
     }
 #endif
@@ -593,7 +593,7 @@ TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regI
 #ifdef DEBUG
     if (m_rsCompiler->verbose)
     {
-        printf("\t\t\t\t\t\t\tTree-Node marked unspilled from  ");
+        printf("Tree-Node marked unspilled from  ");
         Compiler::printTreeID(tree);
         printf("\n");
     }

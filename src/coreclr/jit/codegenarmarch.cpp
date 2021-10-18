@@ -2278,7 +2278,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                     GetEmitter()->emitIns_R_R(ins_Move_Extend(node->GetType(), true), EA_PTRSIZE, argReg, srcReg);
                 }
 
+#ifndef TARGET_64BIT
+                regIndex += node->TypeIs(TYP_LONG) ? 2 : 1;
+#else
                 regIndex++;
+#endif
             }
 
             continue;
@@ -3543,35 +3547,6 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
 
     genProduceReg(lea);
 }
-
-#ifdef FEATURE_SIMD
-
-void CodeGen::genMultiRegSIMDReturn(GenTree* src)
-{
-    assert(varTypeIsSIMD(src->GetType()));
-    assert(src->isUsedFromReg());
-
-    regNumber srcReg = src->GetRegNum();
-
-    for (unsigned i = 0; i < compiler->info.retDesc.GetRegCount(); ++i)
-    {
-        var_types retType = compiler->info.retDesc.GetRegType(i);
-        regNumber retReg  = compiler->info.retDesc.GetRegNum(i);
-
-        if (varTypeIsFloating(retType))
-        {
-            // mov reg[0], src[i]
-            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(retType), retReg, srcReg, 0, i);
-        }
-        else
-        {
-            // mov reg, src[i]
-            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(retType), retReg, srcReg, i);
-        }
-    }
-}
-
-#endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
 // genPushCalleeSavedRegisters: Push any callee-saved registers we have used.

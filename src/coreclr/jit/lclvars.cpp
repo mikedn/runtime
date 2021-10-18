@@ -76,7 +76,8 @@ void Compiler::lvaInit()
 #endif
     lvaCurEpoch = 0;
 
-    structPromotionHelper = new (this, CMK_Generic) StructPromotionHelper(this);
+    impPromotableStructTypeCache[0] = nullptr;
+    impPromotableStructTypeCache[1] = nullptr;
 }
 
 /*****************************************************************************/
@@ -94,7 +95,7 @@ void Compiler::lvaInitTypeRef()
     else
     {
         ClassLayout*  retLayout = typGetObjLayout(info.compMethodInfo->args.retTypeClass);
-        StructPassing retKind   = abiGetStructReturnType(retLayout, info.compCallConv);
+        StructPassing retKind   = abiGetStructReturnType(retLayout, info.compCallConv, info.compIsVarArgs);
 
         info.compRetType = typGetStructType(retLayout);
         info.retLayout   = retLayout;
@@ -113,9 +114,11 @@ void Compiler::lvaInitTypeRef()
             }
         }
 #if FEATURE_MULTIREG_RET
-        else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
+        else if (retKind.kind == SPK_ByValue)
         {
-            info.retDesc.InitializeStruct(this, retLayout, retKind);
+            assert(retKind.type == TYP_STRUCT);
+
+            info.retDesc.InitializeStruct(this, retLayout);
         }
 #endif
         else
@@ -1486,757 +1489,9 @@ bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
     return varDsc->lvDoNotEnregister;
 }
 
-//------------------------------------------------------------------------
-// StructPromotionHelper constructor.
-//
-// Arguments:
-//   compiler - pointer to a compiler to get access to an allocator, compHandle etc.
-//
-Compiler::StructPromotionHelper::StructPromotionHelper(Compiler* compiler)
-    : compiler(compiler)
-    , structPromotionInfo()
-#ifdef DEBUG
-    , retypedFieldsMap(compiler->getAllocator(CMK_DebugOnly))
-#endif // DEBUG
+bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
 {
-}
-
-//--------------------------------------------------------------------------------------------
-// TryPromoteStructVar - promote struct var if it is possible and profitable.
-//
-// Arguments:
-//   lclNum - struct number to try.
-//
-// Return value:
-//   true if the struct var was promoted.
-//
-bool Compiler::StructPromotionHelper::TryPromoteStructVar(unsigned lclNum)
-{
-    if (CanPromoteStructVar(lclNum))
-    {
-#if 0
-            // Often-useful debugging code: if you've narrowed down a struct-promotion problem to a single
-            // method, this allows you to select a subset of the vars to promote (by 1-based ordinal number).
-            static int structPromoVarNum = 0;
-            structPromoVarNum++;
-            if (atoi(getenv("structpromovarnumlo")) <= structPromoVarNum && structPromoVarNum <= atoi(getenv("structpromovarnumhi")))
-#endif // 0
-        if (ShouldPromoteStructVar(lclNum))
-        {
-            PromoteStructVar(lclNum);
-            return true;
-        }
-    }
-    return false;
-}
-
-#ifdef DEBUG
-//--------------------------------------------------------------------------------------------
-// CheckRetypedAsScalar - check that the fldType for this fieldHnd was retyped as requested type.
-//
-// Arguments:
-//   fieldHnd      - the field handle;
-//   requestedType - as which type the field was accessed;
-//
-// Notes:
-//   For example it can happen when such struct A { struct B { long c } } is compiled and we access A.B.c,
-//   it could look like "GT_FIELD struct B.c -> ADDR -> GT_FIELD struct A.B -> ADDR -> LCL_VAR A" , but
-//   "GT_FIELD struct A.B -> ADDR -> LCL_VAR A" can be promoted to "LCL_VAR long A.B" and then
-//   there is type mistmatch between "GT_FIELD struct B.c" and  "LCL_VAR long A.B".
-//
-void Compiler::StructPromotionHelper::CheckRetypedAsScalar(CORINFO_FIELD_HANDLE fieldHnd, var_types requestedType)
-{
-    assert(retypedFieldsMap.Lookup(fieldHnd));
-    assert(retypedFieldsMap[fieldHnd] == requestedType);
-}
-#endif // DEBUG
-
-//--------------------------------------------------------------------------------------------
-// CanPromoteStructType - checks if the struct type can be promoted.
-//
-// Arguments:
-//   typeHnd - struct handle to check.
-//
-// Return value:
-//   true if the struct type can be promoted.
-//
-// Notes:
-//   The last analyzed type is memorized to skip the check if we ask about the same time again next.
-//   However, it was not found profitable to memorize all analyzed types in a map.
-//
-//   The check initializes only nessasary fields in lvaStructPromotionInfo,
-//   so if the promotion is rejected early than most fields will be uninitialized.
-//
-bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd)
-{
-    assert(typeHnd != nullptr);
-    if (!compiler->eeIsValueClass(typeHnd))
-    {
-        // TODO-ObjectStackAllocation: Enable promotion of fields of stack-allocated objects.
-        return false;
-    }
-
-    if (structPromotionInfo.typeHnd == typeHnd)
-    {
-        // Asking for the same type of struct as the last time.
-        // Nothing need to be done.
-        // Fall through ...
-        return structPromotionInfo.canPromote;
-    }
-
-    // Analyze this type from scratch.
-    structPromotionInfo = lvaStructPromotionInfo(typeHnd);
-
-    // sizeof(double) represents the size of the largest primitive type that we can struct promote.
-    // In the future this may be changing to XMM_REGSIZE_BYTES.
-    // Note: MaxOffset is used below to declare a local array, and therefore must be a compile-time constant.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-#if defined(FEATURE_SIMD)
-#if defined(TARGET_XARCH)
-    // This will allow promotion of 4 Vector<T> fields on AVX2 or Vector256<T> on AVX,
-    // or 8 Vector<T>/Vector128<T> fields on SSE2.
-    const int MaxOffset = MAX_NumOfFieldsInPromotableStruct * YMM_REGSIZE_BYTES;
-#elif defined(TARGET_ARM64)
-    const int MaxOffset = MAX_NumOfFieldsInPromotableStruct * FP_REGSIZE_BYTES;
-#endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
-#else  // !FEATURE_SIMD
-    const int MaxOffset = MAX_NumOfFieldsInPromotableStruct * sizeof(double);
-#endif // !FEATURE_SIMD
-
-    assert((BYTE)MaxOffset == MaxOffset); // because lvaStructFieldInfo.fldOffset is byte-sized
-    assert((BYTE)MAX_NumOfFieldsInPromotableStruct ==
-           MAX_NumOfFieldsInPromotableStruct); // because lvaStructFieldInfo.fieldCnt is byte-sized
-
-    bool containsGCpointers = false;
-
-    COMP_HANDLE compHandle = compiler->info.compCompHnd;
-
-    unsigned structSize = compHandle->getClassSize(typeHnd);
-    if (structSize > MaxOffset)
-    {
-        return false; // struct is too large
-    }
-
-    unsigned fieldCnt = compHandle->getClassNumInstanceFields(typeHnd);
-    if (fieldCnt == 0 || fieldCnt > MAX_NumOfFieldsInPromotableStruct)
-    {
-        return false; // struct must have between 1 and MAX_NumOfFieldsInPromotableStruct fields
-    }
-
-    structPromotionInfo.fieldCnt = (unsigned char)fieldCnt;
-    DWORD typeFlags              = compHandle->getClassAttribs(typeHnd);
-
-    if (StructHasNoPromotionFlagSet(typeFlags))
-    {
-        // In AOT ReadyToRun compilation, don't try to promote fields of types
-        // outside of the current version bubble.
-        return false;
-    }
-
-    bool overlappingFields = StructHasOverlappingFields(typeFlags);
-    if (overlappingFields)
-    {
-        return false;
-    }
-
-    // Don't struct promote if we have an CUSTOMLAYOUT flag on an HFA type
-    if (StructHasCustomLayout(typeFlags))
-    {
-        ClassLayout* layout = compiler->typGetObjLayout(typeHnd);
-        layout->EnsureHfaInfo(compiler);
-
-        if (layout->IsHfa())
-        {
-            return false;
-        }
-    }
-
-#ifdef TARGET_ARM
-    // On ARM, we have a requirement on the struct alignment; see below.
-    unsigned structAlignment = roundUp(compHandle->getClassAlignmentRequirement(typeHnd), TARGET_POINTER_SIZE);
-#endif // TARGET_ARM
-
-    unsigned totalFieldSize = 0;
-
-    for (unsigned index = 0; index < fieldCnt; ++index)
-    {
-        GetFieldInfo(typeHnd, index);
-
-        const lvaStructFieldInfo& fieldInfo = structPromotionInfo.fields[index];
-
-        // The end offset for this field should never be larger than our structSize.
-        noway_assert(fieldInfo.fldOffset + fieldInfo.fldSize <= structSize);
-
-        if (fieldInfo.fldSize == 0)
-        {
-            // Not a scalar type.
-            return false;
-        }
-
-        if ((fieldInfo.fldSize != 1) && (fieldInfo.fldOffset % fieldInfo.fldSize) != 0)
-        {
-            // The code in Compiler::genPushArgList that reconstitutes
-            // struct values on the stack from promoted fields expects
-            // those fields to be at their natural alignment.
-            return false;
-        }
-
-#ifdef TARGET_ARM
-        // On ARM, for struct types that don't use explicit layout, the alignment of the struct is
-        // at least the max alignment of its fields.  We take advantage of this invariant in struct
-        // promotion, so verify it here.
-        if (fieldInfo.fldSize > structAlignment)
-        {
-            return false;
-        }
-#endif
-
-        containsGCpointers |= varTypeIsGC(fieldInfo.fldType);
-        totalFieldSize += fieldInfo.fldSize;
-    }
-
-    // If we saw any GC pointer or by-ref fields above then CORINFO_FLG_CONTAINS_GC_PTR or
-    // CORINFO_FLG_CONTAINS_STACK_PTR has to be set!
-    noway_assert(!containsGCpointers ||
-                 ((typeFlags & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) != 0));
-
-    // If we have "Custom Layout" then we might have an explicit Size attribute
-    // Managed C++ uses this for its structs, such C++ types will not contain GC pointers.
-    //
-    // The current VM implementation also incorrectly sets the CORINFO_FLG_CUSTOMLAYOUT
-    // whenever a managed value class contains any GC pointers.
-    // (See the comment for VMFLAG_NOT_TIGHTLY_PACKED in class.h)
-    //
-    // It is important to struct promote managed value classes that have GC pointers
-    // So we compute the correct value for "CustomLayout" here
-    //
-    if (StructHasCustomLayout(typeFlags) && ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) == 0))
-    {
-        structPromotionInfo.customLayout = true;
-    }
-
-    // Check if this promoted struct contains any holes.
-    assert(!overlappingFields);
-    if (totalFieldSize != structSize)
-    {
-        // If sizes do not match it means we have an overlapping fields or holes.
-        // Overlapping fields were rejected early, so here it can mean only holes.
-        structPromotionInfo.containsHoles = true;
-    }
-
-    // Cool, this struct is promotable.
-
-    structPromotionInfo.canPromote = true;
-    return true;
-}
-
-//--------------------------------------------------------------------------------------------
-// CanPromoteStructVar - checks if the struct can be promoted.
-//
-// Arguments:
-//   lclNum - struct number to check.
-//
-// Return value:
-//   true if the struct var can be promoted.
-//
-bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
-{
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-
-    assert(varTypeIsStruct(varDsc));
-    assert(!varDsc->lvPromoted); // Don't ask again :)
-
-    // If this lclVar is used in a SIMD intrinsic, then we don't want to struct promote it.
-    // Note, however, that SIMD lclVars that are NOT used in a SIMD intrinsic may be
-    // profitably promoted.
-    if (varDsc->lvIsUsedInSIMDIntrinsic())
-    {
-        JITDUMP("  struct promotion of V%02u is disabled because lvIsUsedInSIMDIntrinsic()\n", lclNum);
-        return false;
-    }
-
-    // Reject struct promotion of parameters when -GS stack reordering is enabled
-    // as we could introduce shadow copies of them.
-    if (varDsc->lvIsParam && compiler->compGSReorderStackLayout)
-    {
-        JITDUMP("  struct promotion of V%02u is disabled because lvIsParam and compGSReorderStackLayout\n", lclNum);
-        return false;
-    }
-
-    if (!compiler->lvaEnregMultiRegVars)
-    {
-        if (varDsc->lvIsMultiRegArg)
-        {
-            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg arg\n", lclNum);
-            return false;
-        }
-
-        if (varDsc->lvIsMultiRegRet)
-        {
-            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg return\n", lclNum);
-            return false;
-        }
-    }
-
-    // TODO-CQ: enable promotion for OSR locals
-    if (compiler->lvaIsOSRLocal(lclNum))
-    {
-        JITDUMP("  struct promotion of V%02u is disabled because it is an OSR local\n", lclNum);
-        return false;
-    }
-
-    CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
-
-    bool canPromote = CanPromoteStructType(typeHnd);
-    if (canPromote && (varDsc->lvIsMultiRegArg || varDsc->lvIsMultiRegRet))
-    {
-        unsigned fieldCnt = structPromotionInfo.fieldCnt;
-        if (fieldCnt > MAX_MULTIREG_COUNT)
-        {
-            canPromote = false;
-        }
-#if defined(TARGET_ARMARCH)
-        else
-        {
-            for (unsigned i = 0; canPromote && (i < fieldCnt); i++)
-            {
-                var_types fieldType = structPromotionInfo.fields[i].fldType;
-                // Non-HFA structs are always passed in general purpose registers.
-                // If there are any floating point fields, don't promote for now.
-                // TODO-1stClassStructs: add support in Lowering and prolog generation
-                // to enable promoting these types.
-                if (varDsc->lvIsParam && !varDsc->lvIsHfa() && varTypeUsesFloatReg(fieldType))
-                {
-                    canPromote = false;
-                }
-#if defined(FEATURE_SIMD)
-                // If we have a register-passed struct with mixed non-opaque SIMD types (i.e. with defined fields)
-                // and non-SIMD types, we don't currently handle that case in the prolog, so we can't promote.
-                else if ((fieldCnt > 1) && varTypeIsStruct(fieldType) &&
-                         !compiler->typGetObjLayout(structPromotionInfo.fields[i].fldTypeHnd)->IsOpaqueVector())
-                {
-                    canPromote = false;
-                }
-#endif // FEATURE_SIMD
-            }
-        }
-#elif defined(UNIX_AMD64_ABI)
-        else
-        {
-            SortStructFields();
-            // Only promote if the field types match the registers, unless we have a single SIMD field.
-            ClassLayout* layout = varDsc->GetLayout();
-            layout->EnsureSysVAmd64AbiInfo(compiler);
-            unsigned regCount = layout->GetSysVAmd64AbiRegCount();
-            if ((structPromotionInfo.fieldCnt == 1) && varTypeIsSIMD(structPromotionInfo.fields[0].fldType))
-            {
-                // Allow the case of promoting a single SIMD field, even if there are multiple registers.
-                // We will fix this up in the prolog.
-            }
-            else if (structPromotionInfo.fieldCnt != regCount)
-            {
-                canPromote = false;
-            }
-            else
-            {
-                for (unsigned i = 0; canPromote && (i < regCount); i++)
-                {
-                    lvaStructFieldInfo* fieldInfo = &(structPromotionInfo.fields[i]);
-                    var_types           fieldType = fieldInfo->fldType;
-                    // We don't currently support passing SIMD types in registers.
-                    if (varTypeIsSIMD(fieldType))
-                    {
-                        canPromote = false;
-                    }
-                    else if (varTypeUsesFloatReg(fieldType) != varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        canPromote = false;
-                    }
-                }
-            }
-        }
-#endif // UNIX_AMD64_ABI
-    }
-    return canPromote;
-}
-
-//--------------------------------------------------------------------------------------------
-// ShouldPromoteStructVar - Should a struct var be promoted if it can be promoted?
-// This routine mainly performs profitability checks.  Right now it also has
-// some correctness checks due to limitations of down-stream phases.
-//
-// Arguments:
-//   lclNum - struct local number;
-//
-// Return value:
-//   true if the struct should be promoted.
-//
-bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
-{
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-    assert(varTypeIsStruct(lcl->GetType()));
-    assert(lcl->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
-    assert(structPromotionInfo.canPromote);
-
-    // We *can* promote; *should* we promote?
-    // We should only do so if promotion has potential savings.  One source of savings
-    // is if a field of the struct is accessed, since this access will be turned into
-    // an access of the corresponding promoted field variable.  Even if there are no
-    // field accesses, but only block-level operations on the whole struct, if the struct
-    // has only one or two fields, then doing those block operations field-wise is probably faster
-    // than doing a whole-variable block operation (e.g., a hardware "copy loop" on x86).
-    // Struct promotion also provides the following benefits: reduce stack frame size,
-    // reduce the need for zero init of stack frame and fine grained constant/copy prop.
-    // Asm diffs indicate that promoting structs up to 3 fields is a net size win.
-    // So if no fields are accessed independently, and there are four or more fields,
-    // then do not promote.
-
-    // TODO: Ideally we would want to consider the impact of whether the struct is
-    // passed as a parameter or assigned the return value of a call. Because once promoted,
-    // struct copying is done by field by field assignment instead of a more efficient
-    // rep.stos or xmm reg based copy.
-
-    // TODO: If the lvRefCnt is zero and we have a struct promoted parameter we can end up
-    // with an extra store of the the incoming register into the stack frame slot.
-    // In that case, we would like to avoid promortion.
-    // However we haven't yet computed the lvRefCnt values so we can't do that.
-
-    // TODO-MIKE-CQ: SIMD promotion is still messy as lvFieldAccessed is way too limited.
-    // A few "get"/"set"s may be better expressed as "get element"/"with element". Repeated
-    // "get"s may be best handled by CSE. Only repeated "set"s are likely to benefit from
-    // promotion, especially when we don't have SSE41.
-    //
-    // On ARM64 it may be useful to treat Vector2/3/4 params and locals that are used by
-    // a RETURN as "field accessed" (if they don't have intrinsic uses). Otherwise we end
-    // up with pretty stupid codegen in some rather trivial cases (e.g. Vector3 param that
-    // is immediately passed as an arg to another call - currently we pack all the param regs
-    // into a single one in the prolog and then unpack the single reg to multiple regs before
-    // the call). But if the param is passed as an argument to multiple calls then things
-    // are more complicated, it may better to not promote to avoid unnecessary register
-    // pressure. The current struct promotion is way too limited to be able to do the right
-    // thing in this case.
-
-    if (!lcl->lvFieldAccessed && (structPromotionInfo.fieldCnt > 3 || varTypeIsSIMD(lcl->GetType())))
-    {
-        JITDUMP("Not promoting struct local V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lclNum,
-                varTypeName(lcl->GetType()), structPromotionInfo.fieldCnt, lcl->lvFieldAccessed);
-        return false;
-    }
-
-    if (lcl->lvIsMultiRegRet && structPromotionInfo.containsHoles && structPromotionInfo.customLayout)
-    {
-        JITDUMP("Not promoting multi-reg returned struct local V%02u with holes.\n", lclNum);
-        return false;
-    }
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-    // TODO-PERF - Only do this when the LclVar is used in an argument context
-    // TODO-ARM64 - HFA support should also eliminate the need for this.
-    // TODO-ARM32 - HFA support should also eliminate the need for this.
-    // TODO-LSRA - Currently doesn't support the passing of floating point LCL_VARS in the integer registers
-    //
-    // For now we currently don't promote structs with a single float field
-    // Promoting it can cause us to shuffle it back and forth between the int and
-    //  the float regs when it is used as a argument, which is very expensive for XARCH
-    if ((structPromotionInfo.fieldCnt == 1) && varTypeIsFloating(structPromotionInfo.fields[0].fldType))
-    {
-        JITDUMP("Not promoting struct local V%02u: struct has a single float/double field.\n", lclNum,
-                structPromotionInfo.fieldCnt);
-        return false;
-    }
-#endif // TARGET_AMD64 || TARGET_ARM64 || TARGET_ARM
-
-    if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->lvIsHfa())
-    {
-#if FEATURE_MULTIREG_STRUCT_PROMOTE
-        // Is this a variable holding a value with exactly two fields passed in
-        // multiple registers?
-        if (compiler->lvaIsMultiRegStructParam(lcl))
-        {
-            if ((structPromotionInfo.fieldCnt != 2) &&
-                ((structPromotionInfo.fieldCnt != 1) || !varTypeIsSIMD(structPromotionInfo.fields[0].fldType)))
-            {
-                JITDUMP("Not promoting multireg struct param V%02u, #fields != 2 and it's not SIMD.\n", lclNum);
-                return false;
-            }
-        }
-        else
-#endif // !FEATURE_MULTIREG_STRUCT_PROMOTE
-
-            // TODO-PERF - Implement struct promotion for incoming single-register structs.
-            //             Also the implementation of jmp uses the 4 byte move to store
-            //             byte parameters to the stack, so that if we have a byte field
-            //             with something else occupying the same 4-byte slot, it will
-            //             overwrite other fields.
-            if (structPromotionInfo.fieldCnt != 1)
-        {
-            JITDUMP("Not promoting struct param V%02u, #fields = %u.\n", lclNum, structPromotionInfo.fieldCnt);
-            return false;
-        }
-    }
-
-    if ((lclNum == compiler->genReturnLocal) && (structPromotionInfo.fieldCnt > 1))
-    {
-        // TODO-1stClassStructs: a temporary solution to keep diffs small, it will be fixed later.
-        return false;
-    }
-
-#if defined(DEBUG)
-    if (compiler->compPromoteFewerStructs(lclNum))
-    {
-        // Do not promote some structs, that can be promoted, to stress promoted/unpromoted moves.
-        JITDUMP("Not promoting promotable struct local V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lclNum);
-        return false;
-    }
-#endif
-
-    return true;
-}
-
-//--------------------------------------------------------------------------------------------
-// SortStructFields - sort the fields according to the increasing order of the field offset.
-//
-// Notes:
-//   This is needed because the fields need to be pushed on stack (when referenced as a struct) in offset order.
-//
-void Compiler::StructPromotionHelper::SortStructFields()
-{
-    if (!structPromotionInfo.fieldsSorted)
-    {
-        structPromotionInfo.fieldsSorted = true;
-
-        jitstd::sort(structPromotionInfo.fields, structPromotionInfo.fields + structPromotionInfo.fieldCnt,
-                     [](const lvaStructFieldInfo& f1, const lvaStructFieldInfo& f2) {
-                         return f1.fldOffset < f2.fldOffset;
-                     });
-    }
-}
-
-void Compiler::StructPromotionHelper::GetFieldInfo(CORINFO_CLASS_HANDLE classHandle, unsigned index)
-{
-    ICorJitInfo* vm = compiler->info.compCompHnd;
-
-    lvaStructFieldInfo&  fieldInfo   = structPromotionInfo.fields[index];
-    CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(classHandle, index);
-
-    fieldInfo.fldHnd    = fieldHandle;
-    fieldInfo.fldOffset = vm->getFieldOffset(fieldHandle);
-    fieldInfo.fldType   = JITtype2varType(vm->getFieldType(fieldHandle, &fieldInfo.fldTypeHnd));
-    fieldInfo.fldSize   = varTypeSize(fieldInfo.fldType);
-
-    if (fieldInfo.fldType == TYP_STRUCT)
-    {
-#ifdef FEATURE_SIMD
-        var_types simdType = compiler->typGetStructType(fieldInfo.fldTypeHnd);
-
-        if (simdType != TYP_STRUCT)
-        {
-            fieldInfo.fldType = simdType;
-            fieldInfo.fldSize = varTypeSize(simdType);
-        }
-        else
-#endif
-        {
-            TryPromoteSingleFieldStruct(fieldInfo);
-        }
-    }
-}
-
-void Compiler::StructPromotionHelper::TryPromoteSingleFieldStruct(lvaStructFieldInfo& fieldInfo)
-{
-    assert(fieldInfo.fldType == TYP_STRUCT);
-    assert(fieldInfo.fldTypeHnd != NO_CLASS_HANDLE);
-
-    ICorJitInfo* vm = compiler->info.compCompHnd;
-
-    CORINFO_CLASS_HANDLE structHandle = fieldInfo.fldTypeHnd;
-
-    if (vm->getClassNumInstanceFields(structHandle) != 1)
-    {
-        return;
-    }
-
-    CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(structHandle, 0);
-
-    // TODO-CQ: FLOAT/DOUBLE/SIMD fields should also be promoted.
-
-    var_types type = JITtype2varType(vm->getFieldType(fieldHandle));
-    unsigned  size = varTypeSize(type);
-
-    if (!varTypeIsIntegralOrI(type) || (size > REGSIZE_BYTES))
-    {
-        JITDUMP("Promotion blocked: %s struct single field cannot be promoted\n", varTypeName(type));
-        return;
-    }
-
-    if ((vm->getFieldOffset(fieldHandle) != 0) || (vm->getClassSize(structHandle) != size))
-    {
-        JITDUMP("Promotion blocked: single field struct contains padding\n");
-        return;
-    }
-
-    fieldInfo.fldType = type;
-    fieldInfo.fldSize = size;
-
-    INDEBUG(retypedFieldsMap.Set(fieldInfo.fldHnd, fieldInfo.fldType, RetypedAsScalarFieldsMap::Overwrite);)
-}
-
-//--------------------------------------------------------------------------------------------
-// PromoteStructVar - promote struct variable.
-//
-// Arguments:
-//   lclNum - struct local number;
-//
-void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
-{
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-
-    // We should never see a reg-sized non-field-addressed struct here.
-    assert(!varDsc->lvRegStruct);
-
-    assert(varDsc->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
-    assert(structPromotionInfo.canPromote);
-
-    varDsc->lvFieldCnt      = structPromotionInfo.fieldCnt;
-    varDsc->lvFieldLclStart = compiler->lvaCount;
-    varDsc->lvPromoted      = true;
-    varDsc->lvContainsHoles = structPromotionInfo.containsHoles;
-    varDsc->lvCustomLayout  = structPromotionInfo.customLayout;
-
-#ifdef DEBUG
-    // Don't change the source to a TYP_BLK either.
-    varDsc->lvKeepType = 1;
-#endif
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\nPromoting struct local V%02u (%s):", lclNum, varDsc->GetLayout()->GetClassName());
-    }
-#endif
-
-    SortStructFields();
-
-    for (unsigned index = 0; index < structPromotionInfo.fieldCnt; ++index)
-    {
-        const lvaStructFieldInfo* pFieldInfo = &structPromotionInfo.fields[index];
-
-        if (varTypeUsesFloatReg(pFieldInfo->fldType))
-        {
-            // Whenever we promote a struct that contains a floating point field
-            // it's possible we transition from a method that originally only had integer
-            // local vars to start having FP.  We have to communicate this through this flag
-            // since LSRA later on will use this flag to determine whether or not to track FP register sets.
-            compiler->compFloatingPointUsed = true;
-        }
-
-#ifdef DEBUG
-        char buf[200];
-        sprintf_s(buf, sizeof(buf), "%s V%02u.%s @%u", "field", lclNum, compiler->eeGetFieldName(pFieldInfo->fldHnd),
-                  pFieldInfo->fldOffset);
-
-        // We need to copy 'buf' as lvaGrabTemp() below caches a copy to its argument.
-        size_t len  = strlen(buf) + 1;
-        char*  bufp = compiler->getAllocator(CMK_DebugOnly).allocate<char>(len);
-        strcpy_s(bufp, len, buf);
-
-        if (index > 0)
-        {
-            noway_assert(pFieldInfo->fldOffset > (pFieldInfo - 1)->fldOffset);
-        }
-#endif
-
-        // Now grab the temp for the field local.
-        // Lifetime of field locals might span multiple BBs, so they must be long lifetime temps.
-        const unsigned varNum = compiler->lvaGrabTemp(false DEBUGARG(bufp));
-
-        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
-        varDsc = compiler->lvaGetDesc(lclNum);
-
-        LclVarDsc* fieldVarDsc       = compiler->lvaGetDesc(varNum);
-        fieldVarDsc->lvIsStructField = true;
-        fieldVarDsc->lvFieldHnd      = pFieldInfo->fldHnd;
-        fieldVarDsc->lvFldOffset     = static_cast<uint8_t>(pFieldInfo->fldOffset);
-        fieldVarDsc->lvParentLcl     = lclNum;
-        fieldVarDsc->lvIsParam       = varDsc->lvIsParam;
-
-        if (varTypeIsSIMD(pFieldInfo->fldType))
-        {
-            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false);
-            // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
-            // be promoting this if we didn't think it could be enregistered.
-            fieldVarDsc->lvRegStruct = true;
-        }
-        else
-        {
-            fieldVarDsc->SetType(pFieldInfo->fldType);
-
-            if (fieldVarDsc->TypeIs(TYP_LONG))
-            {
-                compiler->compLongUsed = true;
-            }
-        }
-
-        // Do we have a parameter that can be enregistered?
-        if (varDsc->lvIsRegArg)
-        {
-            fieldVarDsc->lvIsRegArg = true;
-            regNumber parentArgReg  = varDsc->GetArgReg();
-#if FEATURE_MULTIREG_ARGS
-            if (!compiler->lvaIsImplicitByRefLocal(lclNum))
-            {
-#ifdef UNIX_AMD64_ABI
-                if (varTypeIsSIMD(fieldVarDsc) && (varDsc->lvFieldCnt == 1))
-                {
-                    // This SIMD typed field may be passed in multiple registers.
-                    fieldVarDsc->SetArgReg(parentArgReg);
-                    fieldVarDsc->SetOtherArgReg(varDsc->GetOtherArgReg());
-                }
-                else
-#endif // UNIX_AMD64_ABI
-                {
-                    regNumber fieldRegNum;
-                    if (index == 0)
-                    {
-                        fieldRegNum = parentArgReg;
-                    }
-                    else if (varDsc->lvIsHfaRegArg())
-                    {
-                        // TODO-MIKE-Review: Is this the correct index to use? Previously it was using
-                        // "lvFldOrdinal" but then the if above always used "index". Which is right?
-                        // Probably neither, normally the offset should be used to determine register
-                        // field mapping. Might not matter anyway, there should be no reason for the
-                        // VM to reorder the fields of a HFA.
-
-                        unsigned regIncrement = index;
-#ifdef TARGET_ARM
-                        // TODO: Need to determine if/how to handle split args.
-                        if (varDsc->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
-                        {
-                            regIncrement *= 2;
-                        }
-#endif // TARGET_ARM
-                        fieldRegNum = (regNumber)(parentArgReg + regIncrement);
-                    }
-                    else
-                    {
-                        assert(index == 1);
-                        fieldRegNum = varDsc->GetOtherArgReg();
-                    }
-                    fieldVarDsc->SetArgReg(fieldRegNum);
-                }
-            }
-            else
-#endif // FEATURE_MULTIREG_ARGS && defined(FEATURE_SIMD)
-            {
-                fieldVarDsc->SetArgReg(parentArgReg);
-            }
-        }
-
-        // This temporary should not be converted to a double in stress mode,
-        // because we introduce assigns to it after the stress conversion
-        INDEBUG(fieldVarDsc->lvKeepType = 1;)
-    }
+    return lvIsStructField && !compiler->lvaGetDesc(lvParentLcl)->IsIndependentPromoted();
 }
 
 #if !defined(TARGET_64BIT)
@@ -2267,6 +1522,14 @@ void Compiler::lvaPromoteLongVars()
             continue;
         }
 
+#ifdef TARGET_ARM
+        if (varDsc->IsParam())
+        {
+            // TODO-MIKE-CQ: Promote ARM long params.
+            continue;
+        }
+#endif
+
         assert(!varDsc->lvIsMultiRegArg && !varDsc->lvIsMultiRegRet);
         varDsc->lvFieldCnt      = 2;
         varDsc->lvFieldLclStart = lvaCount;
@@ -2284,21 +1547,7 @@ void Compiler::lvaPromoteLongVars()
 
         for (unsigned index = 0; index < 2; ++index)
         {
-            // Grab the temp for the field local.
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-            char buf[200];
-            sprintf_s(buf, sizeof(buf), "%s V%02u.%s (fldOffset=0x%x)", "field", lclNum, index == 0 ? "lo" : "hi",
-                      index * 4);
-
-            // We need to copy 'buf' as lvaGrabTemp() below caches a copy to its argument.
-            size_t len  = strlen(buf) + 1;
-            char*  bufp = getAllocator(CMK_DebugOnly).allocate<char>(len);
-            strcpy_s(bufp, len, buf);
-#endif
-
-            unsigned varNum = lvaNewTemp(TYP_INT, false DEBUGARG(bufp));
+            unsigned varNum = lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
 
             LclVarDsc* fieldVarDsc       = lvaGetDesc(varNum);
             fieldVarDsc->lvIsStructField = true;
@@ -2323,35 +1572,6 @@ void Compiler::lvaPromoteLongVars()
 #endif // DEBUG
 }
 #endif // !defined(TARGET_64BIT)
-
-//--------------------------------------------------------------------------------------------
-// lvaGetFieldLocal - returns the local var index for a promoted field in a promoted struct var.
-//
-// Arguments:
-//   lcl    - the promoted struct var descriptor;
-//   fldOffset - field offset in the struct.
-//
-// Return value:
-//   the index of the local that represents this field.
-//
-unsigned Compiler::lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset)
-{
-    noway_assert(varTypeIsStruct(varDsc));
-    noway_assert(varDsc->lvPromoted);
-
-    for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
-    {
-        noway_assert(lvaTable[i].lvIsStructField);
-        noway_assert(lvaTable[i].lvParentLcl == (unsigned)(varDsc - lvaTable));
-        if (lvaTable[i].lvFldOffset == fldOffset)
-        {
-            return i;
-        }
-    }
-
-    // This is the not-found error return path, the caller should check for BAD_VAR_NUM
-    return BAD_VAR_NUM;
-}
 
 /*****************************************************************************
  *
@@ -2476,7 +1696,7 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
             break;
         case DNER_DepField:
             JITDUMP("field of a dependently promoted struct\n");
-            assert(varDsc->lvIsStructField && (lvaGetParentPromotionType(varNum) != PROMOTION_TYPE_INDEPENDENT));
+            assert(varDsc->IsDependentPromotedField(this));
             break;
         case DNER_NoRegVars:
             JITDUMP("opts.compFlags & CLFLG_REGVAR is not set\n");
@@ -3242,7 +2462,7 @@ void Compiler::lvaSortByRefCount()
                 lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
             }
         }
-        else if (varDsc->lvIsStructField && (lvaGetParentPromotionType(lclNum) != PROMOTION_TYPE_INDEPENDENT))
+        else if (varDsc->IsDependentPromotedField(this))
         {
             lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_DepField));
         }
@@ -3548,23 +2768,12 @@ var_types LclVarDsc::GetActualRegisterType() const
 //
 bool LclVarDsc::CanBeReplacedWithItsField(Compiler* comp) const
 {
-    if (!lvPromoted)
+    if (!IsIndependentPromoted() || (lvFieldCnt != 1))
     {
         return false;
     }
 
-    if (comp->lvaGetPromotionType(this) != Compiler::PROMOTION_TYPE_INDEPENDENT)
-    {
-        return false;
-    }
-    if (lvFieldCnt != 1)
-    {
-        return false;
-    }
-    if (lvContainsHoles)
-    {
-        return false;
-    }
+    assert(!lvContainsHoles);
 
 #if defined(FEATURE_SIMD)
     // If we return `struct A { SIMD16 a; }` we split the struct into several fields.
@@ -3577,7 +2786,7 @@ bool LclVarDsc::CanBeReplacedWithItsField(Compiler* comp) const
     }
 #endif // FEATURE_SIMD
 
-    return true;
+    unreached();
 }
 
 //------------------------------------------------------------------------
@@ -4928,21 +4137,22 @@ void Compiler::lvaFixVirtualFrameOffsets()
 
         // Is this a non-param promoted struct field?
         //   if so then set doAssignStkOffs to false.
-        //
-        if (varDsc->lvIsStructField)
+        if (varDsc->IsPromotedField())
         {
-            LclVarDsc*       parentvarDsc  = &lvaTable[varDsc->lvParentLcl];
-            lvaPromotionType promotionType = lvaGetPromotionType(parentvarDsc);
+            LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
 
-#if defined(TARGET_X86)
-            // On x86, we set the stack offset for a promoted field
-            // to match a struct parameter in lvAssignFrameOffsetsToPromotedStructs.
-            if ((!varDsc->lvIsParam || parentvarDsc->lvIsParam) && promotionType == PROMOTION_TYPE_DEPENDENT)
-#else
-            if (!varDsc->lvIsParam && promotionType == PROMOTION_TYPE_DEPENDENT)
-#endif
+            if (parentLcl->IsDependentPromoted())
             {
-                doAssignStkOffs = false; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs()
+                if (!varDsc->IsParam()
+#ifdef TARGET_X86
+                    // On x86, we set the stack offset for a promoted field
+                    // to match a struct parameter in lvAssignFrameOffsetsToPromotedStructs.
+                    || parentLcl->IsParam()
+#endif
+                        )
+                {
+                    doAssignStkOffs = false; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs()
+                }
             }
         }
 
@@ -6089,11 +5299,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
         for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
         {
-            /* Ignore field locals of the promotion type PROMOTION_TYPE_FIELD_DEPENDENT.
-               In other words, we will not calculate the "base" address of the struct local if
-               the promotion type is PROMOTION_TYPE_FIELD_DEPENDENT.
-            */
-            if (!opts.IsOSR() && lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+            // Ignore dependent promoted fields.
+            if (!opts.IsOSR() && varDsc->IsDependentPromotedField(this))
             {
                 continue;
             }
@@ -6767,15 +5974,15 @@ void Compiler::lvaAlignFrame()
  */
 void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
 {
-    LclVarDsc* varDsc = lvaTable;
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
         // For promoted struct fields that are params, we will
         // assign their offsets in lvaAssignVirtualFrameOffsetToArg().
         // This is not true for the System V systems since there is no
         // outgoing args space. Assign the dependently promoted fields properly.
-        //
-        if (varDsc->lvIsStructField
+        if (lcl->IsPromotedField()
 #if !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM) && !defined(TARGET_X86)
             // ARM: lo/hi parts of a promoted long arg need to be updated.
 
@@ -6784,32 +5991,29 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
             // For System V and x86, a register passed struct arg is homed on the stack in a separate local var.
             // The offset of these structs is already calculated in lvaAssignVirtualFrameOffsetToArg methos.
             // Make sure the code below is not executed for these structs and the offset is not changed.
-            && !varDsc->lvIsParam
+            && !lcl->IsParam()
 #endif // !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM) && !defined(TARGET_X86)
-            )
+                )
         {
-            LclVarDsc*       parentvarDsc  = &lvaTable[varDsc->lvParentLcl];
-            lvaPromotionType promotionType = lvaGetPromotionType(parentvarDsc);
+            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-            if (promotionType == PROMOTION_TYPE_INDEPENDENT)
+            if (parentLcl->IsIndependentPromoted())
             {
                 // The stack offset for these field locals must have been calculated
                 // by the normal frame offset assignment.
                 continue;
             }
+
+            noway_assert(lcl->lvOnFrame);
+
+            if (parentLcl->lvOnFrame)
+            {
+                lcl->SetStackOffset(parentLcl->GetStackOffset() + lcl->GetPromotedFieldOffset());
+            }
             else
             {
-                noway_assert(promotionType == PROMOTION_TYPE_DEPENDENT);
-                noway_assert(varDsc->lvOnFrame);
-                if (parentvarDsc->lvOnFrame)
-                {
-                    varDsc->SetStackOffset(parentvarDsc->GetStackOffset() + varDsc->lvFldOffset);
-                }
-                else
-                {
-                    varDsc->lvOnFrame = false;
-                    noway_assert(varDsc->lvRefCnt() == 0);
-                }
+                lcl->lvOnFrame = false;
+                noway_assert(lcl->lvRefCnt() == 0);
             }
         }
     }
@@ -7036,11 +6240,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         }
     }
 
-    if (varDsc->lvIsHfa())
-    {
-        printf(" HFA(%s) ", varTypeName(varDsc->GetLayout()->GetHfaElementType()));
-    }
-
     if (varDsc->lvLiveInOutOfHndlr)
     {
         printf(" EH");
@@ -7151,32 +6350,14 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
 
     if (varDsc->IsPromotedField())
     {
-        LclVarDsc*  parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
-        const char* fieldName;
+        LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+        printf(" %s", parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
+        printf(" V%02u@%u", varDsc->GetPromotedFieldParentLclNum(), varDsc->GetPromotedFieldOffset());
 
-#ifndef TARGET_64BIT
-        if (varTypeIsLong(parentLcl->GetType()))
+        if (varDsc->GetPromotedFieldSeq() != nullptr)
         {
-            fieldName = varDsc->GetPromotedFieldOffset() == 0 ? "lo" : "hi";
-        }
-        else
-#endif
-        {
-            fieldName = eeGetFieldName(varDsc->GetPromotedFieldHandle());
-        }
-
-        printf(" V%02u.%s @%u", varDsc->GetPromotedFieldParentLclNum(), fieldName, varDsc->GetPromotedFieldOffset());
-
-        switch (lvaGetPromotionType(parentLcl))
-        {
-            case PROMOTION_TYPE_DEPENDENT:
-                printf(" P-DEP");
-                break;
-            case PROMOTION_TYPE_INDEPENDENT:
-                printf(" P-INDEP");
-                break;
-            default:
-                break;
+            printf(" ");
+            dmpFieldSeqFields(varDsc->GetPromotedFieldSeq());
         }
     }
 

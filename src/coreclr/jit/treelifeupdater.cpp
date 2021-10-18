@@ -86,7 +86,7 @@ bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, uns
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("\t\t\t\t\t\t\tLive vars: ");
+            printf("Live vars: ");
             dumpConvertedVarSet(compiler, compiler->compCurLife);
             printf(" => ");
             dumpConvertedVarSet(compiler, newLife);
@@ -107,7 +107,7 @@ bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, uns
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    printf("\t\t\t\t\t\t\tGCvars: ");
+                    printf("GCvars: ");
                     dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
                     printf(" => ");
                 }
@@ -153,7 +153,7 @@ bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, uns
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    printf("\t\t\t\t\t\t\tVar V%02u becoming live\n", fieldVarNum);
+                    printf("Var V%02u becoming live\n", fieldVarNum);
                 }
 #endif // DEBUG
             }
@@ -382,7 +382,7 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("\t\t\t\t\t\t\tLive vars: ");
+            printf("Live vars: ");
             dumpConvertedVarSet(compiler, compiler->compCurLife);
             printf(" => ");
             dumpConvertedVarSet(compiler, newLife);
@@ -404,7 +404,7 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    printf("\t\t\t\t\t\t\tGCvars: ");
+                    printf("GCvars: ");
                     dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
                     printf(" => ");
                 }
@@ -451,7 +451,7 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    printf("\t\t\t\t\t\t\tVar V%02u becoming live\n", varDsc - compiler->lvaTable);
+                    printf("Var V%02u becoming live\n", varDsc - compiler->lvaTable);
                 }
 #endif // DEBUG
             }

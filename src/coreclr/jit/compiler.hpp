@@ -1354,6 +1354,21 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
     return intCon;
 }
 
+#ifndef TARGET_64BIT
+inline GenTreeLngCon* GenTree::ChangeToLngCon(int64_t value)
+{
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_CNS_LNG);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+
+    GenTreeLngCon* lngCon = AsLngCon();
+    lngCon->SetType(TYP_LONG);
+    lngCon->SetValue(value);
+    return lngCon;
+}
+#endif
+
 inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
 {
     // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
@@ -1379,6 +1394,24 @@ inline GenTreeFieldList* GenTree::ChangeToFieldList()
     fieldList->ClearFields();
     fieldList->SetContained();
     return fieldList;
+}
+
+inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq)
+{
+    assert(offset <= UINT16_MAX);
+    assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
+
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_LCL_FLD);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+
+    GenTreeLclFld* lclFld = AsLclFld();
+    lclFld->SetType(type);
+    lclFld->SetLclNum(lclNum);
+    lclFld->SetLclOffs(offset);
+    lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
+    return lclFld;
 }
 
 inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
@@ -1653,16 +1686,8 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
         return;
     }
 
-    Compiler::lvaPromotionType promotionType = DUMMY_INIT(Compiler::PROMOTION_TYPE_NONE);
-    if (varTypeIsStruct(lvType))
-    {
-        promotionType = comp->lvaGetPromotionType(this);
-    }
-
-    //
     // Increment counts on the local itself.
-    //
-    if ((lvType != TYP_STRUCT) || (promotionType != Compiler::PROMOTION_TYPE_INDEPENDENT))
+    if ((lvType != TYP_STRUCT) || !IsIndependentPromoted())
     {
         // We increment ref counts of this local for primitive types, including structs that have been retyped as their
         // only field, as well as for structs whose fields are not independently promoted.
@@ -1704,8 +1729,7 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
     if (varTypeIsStruct(lvType) && propagate)
     {
         // For promoted struct locals, increment lvRefCnt on its field locals as well.
-        if (promotionType == Compiler::PROMOTION_TYPE_INDEPENDENT ||
-            promotionType == Compiler::PROMOTION_TYPE_DEPENDENT)
+        if (lvPromoted)
         {
             for (unsigned i = lvFieldLclStart; i < lvFieldLclStart + lvFieldCnt; ++i)
             {
@@ -1716,13 +1740,13 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
 
     if (lvIsStructField && propagate)
     {
+        LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
+        assert(!parentLcl->lvRegStruct);
+
         // Depending on the promotion type, increment the ref count for the parent struct as well.
-        promotionType           = comp->lvaGetParentPromotionType(this);
-        LclVarDsc* parentvarDsc = &comp->lvaTable[lvParentLcl];
-        assert(!parentvarDsc->lvRegStruct);
-        if (promotionType == Compiler::PROMOTION_TYPE_DEPENDENT)
+        if (parentLcl->IsDependentPromoted())
         {
-            parentvarDsc->incRefCnts(weight, comp, state, false); // Don't propagate
+            parentLcl->incRefCnts(weight, comp, state, false); // Don't propagate
         }
     }
 
@@ -3740,107 +3764,6 @@ inline bool Compiler::impIsPrimitive(CorInfoType jitType)
     return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
 }
 
-/*****************************************************************************
- *
- *  Get the promotion type of a struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc* varDsc)
-{
-    assert(!varDsc->lvPromoted || varTypeIsPromotable(varDsc->GetType()));
-
-    if (!varDsc->lvPromoted)
-    {
-        // no struct promotion for this LclVar
-        return PROMOTION_TYPE_NONE;
-    }
-    if (varDsc->lvDoNotEnregister)
-    {
-        // The struct is not enregistered
-        return PROMOTION_TYPE_DEPENDENT;
-    }
-    if (!varDsc->lvIsParam)
-    {
-        // The struct is a register candidate
-        return PROMOTION_TYPE_INDEPENDENT;
-    }
-
-    // Has struct promotion for arguments been disabled using COMPlus_JitNoStructPromotion=2
-    if (fgNoStructParamPromotion)
-    {
-        // The struct parameter is not enregistered
-        return PROMOTION_TYPE_DEPENDENT;
-    }
-
-// We have a parameter that could be enregistered
-#if defined(TARGET_ARM)
-    // TODO-Cleanup: return INDEPENDENT for arm32.
-    return PROMOTION_TYPE_DEPENDENT;
-#else  // !TARGET_ARM
-    return PROMOTION_TYPE_INDEPENDENT;
-#endif // !TARGET_ARM
-}
-
-/*****************************************************************************
- *
- *  Get the promotion type of a struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(unsigned varNum)
-{
-    assert(varNum < lvaCount);
-    return lvaGetPromotionType(&lvaTable[varNum]);
-}
-
-/*****************************************************************************
- *
- *  Given a field local, get the promotion type of its parent struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(const LclVarDsc* varDsc)
-{
-    assert(varDsc->lvIsStructField);
-    assert(varDsc->lvParentLcl < lvaCount);
-
-    lvaPromotionType promotionType = lvaGetPromotionType(varDsc->lvParentLcl);
-    assert(promotionType != PROMOTION_TYPE_NONE);
-    return promotionType;
-}
-
-/*****************************************************************************
- *
- *  Given a field local, get the promotion type of its parent struct local.
- */
-
-inline Compiler::lvaPromotionType Compiler::lvaGetParentPromotionType(unsigned varNum)
-{
-    assert(varNum < lvaCount);
-    return lvaGetParentPromotionType(&lvaTable[varNum]);
-}
-
-/*****************************************************************************
- *
- *  Return true if the local is a field local of a promoted struct of type PROMOTION_TYPE_DEPENDENT.
- *  Return false otherwise.
- */
-
-inline bool Compiler::lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* varDsc)
-{
-    if (!varDsc->lvIsStructField)
-    {
-        return false;
-    }
-
-    lvaPromotionType promotionType = lvaGetParentPromotionType(varDsc);
-    if (promotionType == PROMOTION_TYPE_DEPENDENT)
-    {
-        return true;
-    }
-
-    assert(promotionType == PROMOTION_TYPE_INDEPENDENT);
-    return false;
-}
-
 //------------------------------------------------------------------------
 // lvaIsGCTracked: Determine whether this var should be reported
 //    as tracked for GC purposes.
@@ -3865,20 +3788,22 @@ inline bool Compiler::lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* var
 
 inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
 {
-    if (varDsc->lvTracked && (varDsc->lvType == TYP_REF || varDsc->lvType == TYP_BYREF))
-    {
-        // Stack parameters are always untracked w.r.t. GC reportings
-        const bool isStackParam = varDsc->lvIsParam && !varDsc->lvIsRegArg;
-#ifdef TARGET_AMD64
-        return !isStackParam && !lvaIsFieldOfDependentlyPromotedStruct(varDsc);
-#else  // !TARGET_AMD64
-        return !isStackParam;
-#endif // !TARGET_AMD64
-    }
-    else
+    if (!varDsc->lvTracked || !varTypeIsGC(varDsc->GetType()))
     {
         return false;
     }
+
+    // Stack parameters are always untracked w.r.t. GC reportings
+    if (varDsc->IsParam() && !varDsc->IsRegParam())
+    {
+        return false;
+    }
+
+#ifdef TARGET_AMD64
+    return !varDsc->IsDependentPromotedField(this);
+#else
+    return true;
+#endif
 }
 
 /*****************************************************************************/
@@ -3963,10 +3888,10 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
 {
     LclVarDsc* varDsc = lvaGetDesc(varNum);
 
-    if (lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+    if (varDsc->IsDependentPromotedField(this))
     {
-        // Fields of dependently promoted structs may only be initialized in the prolog when the whole
-        // struct is initialized in the prolog.
+        // Fields of dependently promoted structs may only be initialized in the prolog
+        // when the whole struct is initialized in the prolog.
         return fgVarNeedsExplicitZeroInit(varDsc->lvParentLcl, bbInALoop, bbIsReturn);
     }
 
@@ -4406,11 +4331,6 @@ inline char* regMaskIntToString(regMaskTP mask, Compiler* context)
 inline static bool StructHasOverlappingFields(DWORD attribs)
 {
     return ((attribs & CORINFO_FLG_OVERLAPPING_FIELDS) != 0);
-}
-
-inline static bool StructHasCustomLayout(DWORD attribs)
-{
-    return ((attribs & CORINFO_FLG_CUSTOMLAYOUT) != 0);
 }
 
 inline static bool StructHasNoPromotionFlagSet(DWORD attribs)

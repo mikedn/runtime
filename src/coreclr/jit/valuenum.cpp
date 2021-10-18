@@ -3793,7 +3793,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
     else
     {
         ssize_t fieldHndVal = reinterpret_cast<ssize_t>(
-            fieldSeq->IsBoxedValueField() ? FieldSeqStore::BoxedValuePseudoFieldHandle : fieldSeq->GetFieldHandle());
+            fieldSeq->IsBoxedValueField() ? FieldSeqNode::BoxedValuePseudoFieldHandle : fieldSeq->GetFieldHandle());
         ValueNum fieldHndVN = VNForHandle(fieldHndVal, GTF_ICON_FIELD_HDL);
         ValueNum seqNextVN  = VNForFieldSeq(fieldSeq->GetNext());
         ValueNum fieldSeqVN = VNForFunc(TYP_REF, VNF_FieldSeq, fieldHndVN, seqNextVN);
@@ -5704,7 +5704,7 @@ void ValueNumStore::vnDumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isH
     }
 
     CORINFO_FIELD_HANDLE fldHnd = CORINFO_FIELD_HANDLE(fieldHndVal);
-    if (fldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle)
+    if (fldHnd == FieldSeqNode::BoxedValuePseudoFieldHandle)
     {
         printf("#BoxedValue");
     }

@@ -355,18 +355,8 @@ bool hashBvNode::sameAs(hashBvNode* other)
 // --------------------------------------------------------------------
 
 hashBv::hashBv(Compiler* comp)
+    : nodeArr{initialVector}, initialVector{nullptr}, compiler{comp}, log2_hashSize{0}, numNodes{0}
 {
-    this->compiler      = comp;
-    this->log2_hashSize = 0;
-
-    int hts = hashtable_size();
-    nodeArr = getNewVector(hts);
-
-    for (int i = 0; i < hts; i++)
-    {
-        nodeArr[i] = nullptr;
-    }
-    this->numNodes = 0;
 }
 
 hashBv* hashBv::Create(Compiler* compiler)
@@ -378,18 +368,16 @@ hashBv* hashBv::Create(Compiler* compiler)
     {
         result          = hbvFreeList(gd);
         hbvFreeList(gd) = result->next;
-        assert(result->nodeArr);
+        assert(result->nodeArr != nullptr);
+
+        result->compiler      = compiler;
+        result->log2_hashSize = 0;
+        result->numNodes      = 0;
     }
     else
     {
         result = new (compiler, CMK_hashBv) hashBv(compiler);
-        memset(result, 0, sizeof(hashBv));
-        result->nodeArr = result->initialVector;
     }
-
-    result->compiler      = compiler;
-    result->log2_hashSize = 0;
-    result->numNodes      = 0;
 
     return result;
 }
@@ -611,36 +599,31 @@ void hashBv::Resize(int newSize)
 #ifdef DEBUG
 void hashBv::dump()
 {
-    bool      first = true;
-    indexType index;
-
     // uncomment to print internal implementation details
     // DBEXEC(TRUE, printf("[%d(%d)(nodes:%d)]{ ", hashtable_size(), countBits(), this->numNodes));
 
     printf("{");
-    FOREACH_HBV_BIT_SET(index, this)
-    {
+    bool first = true;
+    Traverse([&first](indexType index) {
         if (!first)
         {
             printf(" ");
         }
         printf("%d", index);
         first = false;
-    }
-    NEXT_HBV_BIT_SET;
+        return true;
+    });
     printf("}\n");
 }
 
 void hashBv::dumpFancy()
 {
-    indexType index;
     indexType last_1 = -1;
     indexType last_0 = -1;
 
     printf("{");
     printf("count:%d", this->countBits());
-    FOREACH_HBV_BIT_SET(index, this)
-    {
+    Traverse([&last_0, &last_1](indexType index) {
         if (last_1 != index - 1)
         {
             if (last_0 + 1 != last_1)
@@ -654,8 +637,8 @@ void hashBv::dumpFancy()
             last_0 = index - 1;
         }
         last_1 = index;
-    }
-    NEXT_HBV_BIT_SET;
+        return true;
+    });
 
     // Print the last one
     if (last_0 + 1 != last_1)

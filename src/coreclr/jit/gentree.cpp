@@ -8043,15 +8043,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     char  buf[32];
     char* bufp = &buf[0];
 
-    if ((tree->gtOper == GT_CNS_INT) && tree->IsIconHandle())
-    {
-        sprintf_s(bufp, sizeof(buf), " %s(h)%c", name, 0);
-    }
-    else if (tree->gtOper == GT_PUTARG_STK)
-    {
-        sprintf_s(bufp, sizeof(buf), " %s [+0x%02x]%c", name, tree->AsPutArgStk()->GetSlotOffset(), 0);
-    }
-    else if (tree->gtOper == GT_CALL)
+    if (tree->gtOper == GT_CALL)
     {
         const char* callType = "CALL";
         const char* gtfType  = "";
@@ -8217,23 +8209,13 @@ void Compiler::gtDispNodeName(GenTree* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// gtDispZeroFieldSeq: If this node has a zero fieldSeq annotation
-//                      then print this Field Sequence
-//
 void Compiler::gtDispZeroFieldSeq(GenTree* tree)
 {
-    NodeToFieldSeqMap* map = GetZeroOffsetFieldMap();
-
-    // THe most common case is having no entries in this map
-    if (map->GetCount() > 0)
+    if (FieldSeqNode** fieldSeq = GetZeroOffsetFieldMap()->LookupPointer(tree))
     {
-        FieldSeqNode* fldSeq = nullptr;
-        if (map->Lookup(tree, &fldSeq))
-        {
-            printf(" Zero");
-            gtDispFieldSeq(fldSeq);
-        }
+        printf(" ZeroFseq(");
+        dmpFieldSeqFields(*fieldSeq);
+        printf(")");
     }
 }
 
@@ -8498,21 +8480,22 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 }
                 goto DASH;
 
-            case GT_LCL_FLD:
             case GT_LCL_VAR:
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
-            case GT_STORE_LCL_FLD:
             case GT_STORE_LCL_VAR:
-                if (tree->gtFlags & GTF_VAR_USEASG)
+                if (tree->AsLclVar()->IsMultiReg())
                 {
-                    printf("U");
+                    printf((tree->gtFlags & GTF_VAR_DEF) ? "M" : "m");
                     --msgLength;
                     break;
                 }
-                if (tree->gtFlags & GTF_VAR_MULTIREG)
+                FALLTHROUGH;
+            case GT_LCL_FLD:
+            case GT_STORE_LCL_FLD:
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                if (tree->gtFlags & GTF_VAR_USEASG)
                 {
-                    printf((tree->gtFlags & GTF_VAR_DEF) ? "M" : "m");
+                    printf("U");
                     --msgLength;
                     break;
                 }
@@ -8755,30 +8738,6 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             }
         }
 
-        if (tree->gtOper == GT_LCL_VAR || tree->gtOper == GT_STORE_LCL_VAR)
-        {
-            LclVarDsc* varDsc = &lvaTable[tree->AsLclVarCommon()->GetLclNum()];
-            if (varDsc->lvAddrExposed)
-            {
-                printf("(AX)"); // Variable has address exposed.
-            }
-
-            if (varDsc->lvPromoted)
-            {
-                if (varTypeIsPromotable(varDsc))
-                {
-                    printf("(P)"); // Promoted struct
-                }
-                else
-                {
-                    // Promoted implicit by-refs can have this state during
-                    // global morph while they are being rewritten
-                    assert(fgGlobalMorph);
-                    printf("(P?!)"); // Promoted struct
-                }
-            }
-        }
-
         if (tree->gtOper == GT_RUNTIMELOOKUP)
         {
 #ifdef TARGET_64BIT
@@ -8953,6 +8912,10 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
             {
                 ilName = "PInvokeFrame";
             }
+            else if (lclNum == lvaReversePInvokeFrameVar)
+            {
+                ilName = "ReversePInvokeFrame";
+            }
             else if (lclNum == lvaGSSecurityCookie)
             {
                 ilName = "GsCookie";
@@ -8960,6 +8923,10 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
             else if (lclNum == lvaRetAddrVar)
             {
                 ilName = "ReturnAddress";
+            }
+            else if (lclNum == genReturnLocal)
+            {
+                ilName = "MergedReturn";
             }
 #if FEATURE_FIXED_OUT_ARGS
             else if (lclNum == lvaPInvokeFrameRegSaveVar)
@@ -9088,6 +9055,27 @@ int Compiler::gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining
     return (int)charsPrinted;
 }
 
+int Compiler::dmpLclName(unsigned lclNum)
+{
+    const char* kind = nullptr;
+    const char* name = nullptr;
+    unsigned    num  = 0;
+
+    gtGetLclVarNameInfo(lclNum, &kind, &name, &num);
+
+    if (name != nullptr)
+    {
+        return printf("\"%s\"", name);
+    }
+
+    if ((kind != nullptr) && (strcmp(kind, "tmp") != 0))
+    {
+        return printf("\"%s%d\"", kind, num);
+    }
+
+    return 0;
+}
+
 /*****************************************************************************
  * Get the local var name, and create a copy of the string that can be used in debug output.
  */
@@ -9189,127 +9177,149 @@ void Compiler::gtDispConst(GenTree* tree)
         case GT_CNS_INT:
             if (tree->IsIconHandle(GTF_ICON_STR_HDL))
             {
-                const WCHAR* str = eeGetCPString(tree->AsIntCon()->gtIconVal);
+                const WCHAR* str = eeGetCPString(tree->AsIntCon()->GetValue());
                 // If *str points to a '\0' then don't print the string's values
                 if ((str != nullptr) && (*str != '\0'))
                 {
-                    printf(" 0x%X \"%S\"", dspPtr(tree->AsIntCon()->gtIconVal), str);
+                    printf(" 0x%X \"%S\"", dspPtr(tree->AsIntCon()->GetValue()), str);
                 }
                 else // We can't print the value of the string
                 {
                     // Note that eeGetCPString isn't currently implemented on Linux/ARM
                     // and instead always returns nullptr
-                    printf(" 0x%X [ICON_STR_HDL]", dspPtr(tree->AsIntCon()->gtIconVal));
+                    printf(" 0x%X [ICON_STR_HDL]", dspPtr(tree->AsIntCon()->GetValue()));
                 }
             }
             else
             {
-                ssize_t dspIconVal =
-                    tree->IsIconHandle() ? dspPtr(tree->AsIntCon()->gtIconVal) : tree->AsIntCon()->gtIconVal;
+                ssize_t value = tree->AsIntCon()->GetValue();
 
-                if (tree->TypeGet() == TYP_REF)
+                if (tree->IsIconHandle())
                 {
-                    assert(tree->AsIntCon()->gtIconVal == 0);
+                    value = dspPtr(value);
+                }
+
+                if (tree->TypeIs(TYP_REF) && (value == 0))
+                {
                     printf(" null");
                 }
-                else if ((tree->AsIntCon()->gtIconVal > -1000) && (tree->AsIntCon()->gtIconVal < 1000))
+                else if ((value > -1000) && (value < 1000))
                 {
-                    printf(" %ld", dspIconVal);
+                    printf(" %ld", value);
                 }
 #ifdef TARGET_64BIT
-                else if ((tree->AsIntCon()->gtIconVal & 0xFFFFFFFF00000000LL) != 0)
+                else if ((value & 0xFFFFFFFF00000000LL) != 0)
                 {
-                    if (dspIconVal >= 0)
+                    if (value >= 0)
                     {
-                        printf(" 0x%llx", dspIconVal);
+                        printf(" 0x%llx", value);
                     }
                     else
                     {
-                        printf(" -0x%llx", -dspIconVal);
+                        printf(" -0x%llx", -value);
                     }
                 }
 #endif
                 else
                 {
-                    if (dspIconVal >= 0)
+                    if (value >= 0)
                     {
-                        printf(" 0x%X", dspIconVal);
+                        printf(" 0x%X", value);
                     }
                     else
                     {
-                        printf(" -0x%X", -dspIconVal);
+                        printf(" -0x%X", -value);
                     }
                 }
 
+                const char* prefix = " (";
+
                 if (tree->IsIconHandle())
                 {
+                    printf(prefix);
+
                     switch (tree->GetIconHandleFlag())
                     {
                         case GTF_ICON_SCOPE_HDL:
-                            printf(" scope");
+                            printf("scope");
                             break;
                         case GTF_ICON_CLASS_HDL:
-                            printf(" class");
+                            printf("class");
                             break;
                         case GTF_ICON_METHOD_HDL:
-                            printf(" method");
+                            printf("method");
                             break;
                         case GTF_ICON_FIELD_HDL:
-                            printf(" field");
+                            printf("field");
                             break;
                         case GTF_ICON_STATIC_HDL:
-                            printf(" static");
+                            printf("static");
                             break;
                         case GTF_ICON_STR_HDL:
-                            unreached(); // This case is handled above
+                            printf("string");
                             break;
                         case GTF_ICON_CONST_PTR:
-                            printf(" const ptr");
+                            printf("const ptr");
                             break;
                         case GTF_ICON_GLOBAL_PTR:
-                            printf(" global ptr");
+                            printf("global ptr");
                             break;
                         case GTF_ICON_VARG_HDL:
-                            printf(" vararg");
+                            printf("vararg");
                             break;
                         case GTF_ICON_PINVKI_HDL:
-                            printf(" pinvoke");
+                            printf("pinvoke");
                             break;
                         case GTF_ICON_TOKEN_HDL:
-                            printf(" token");
+                            printf("token");
                             break;
                         case GTF_ICON_TLS_HDL:
-                            printf(" tls");
+                            printf("tls");
                             break;
                         case GTF_ICON_FTN_ADDR:
-                            printf(" ftn");
+                            printf("ftn");
                             break;
                         case GTF_ICON_CIDMID_HDL:
-                            printf(" cid/mid");
+                            printf("cid/mid");
                             break;
                         case GTF_ICON_BBC_PTR:
-                            printf(" bbc");
+                            printf("bbc");
                             break;
                         default:
-                            printf(" UNKNOWN");
+                            printf("handle");
                             break;
                     }
+
+                    prefix = ", ";
+                }
+
+                if ((tree->AsIntCon()->GetFieldSeq() != nullptr) &&
+                    (tree->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
+                {
+                    printf(prefix);
+                    dmpFieldSeqFields(tree->AsIntCon()->GetFieldSeq());
+                    prefix = ", ";
                 }
 
 #ifdef FEATURE_SIMD
                 if ((tree->gtFlags & GTF_ICON_SIMD_COUNT) != 0)
                 {
-                    printf(" vector element count");
+                    printf("%svector-length", prefix);
+                    prefix = ", ";
                 }
 #endif
 
                 if ((tree->IsReuseRegVal()) != 0)
                 {
-                    printf(" reuse reg val");
+                    printf("%sreuse-reg-val", prefix);
+                    prefix = ", ";
+                }
+
+                if (prefix[0] == ',')
+                {
+                    printf(")");
                 }
             }
-
-            gtDispFieldSeq(tree->AsIntCon()->GetFieldSeq());
             break;
 
         case GT_CNS_LNG:
@@ -9334,14 +9344,33 @@ void Compiler::gtDispConst(GenTree* tree)
     }
 }
 
-void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
+void Compiler::dmpFieldSeqFields(FieldSeqNode* fieldSeq)
 {
-    if (fieldSeq == nullptr)
+    if (fieldSeq->IsField())
     {
-        return;
+        printf("%s::", eeGetSimpleClassName(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+    }
+    else if (fieldSeq->IsBoxedValueField())
+    {
+        FieldSeqNode* next = fieldSeq->GetNext();
+
+        if ((next != nullptr) && next->IsField())
+        {
+            printf("box<%s>::", eeGetSimpleClassName(info.compCompHnd->getFieldClass(next->GetFieldHandle())));
+            fieldSeq = next;
+        }
+    }
+    else if (fieldSeq->IsArrayElement())
+    {
+        FieldSeqNode* next = fieldSeq->GetNext();
+
+        if ((next != nullptr) && next->IsField())
+        {
+            printf("%s[]::", eeGetSimpleClassName(info.compCompHnd->getFieldClass(next->GetFieldHandle())));
+            fieldSeq = next;
+        }
     }
 
-    printf(" Fseq(");
     for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
         if (fieldSeq == FieldSeqStore::NotAField())
@@ -9366,7 +9395,6 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
             printf(".");
         }
     }
-    printf(")");
 }
 
 //------------------------------------------------------------------------
@@ -9394,96 +9422,15 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
 
     switch (tree->gtOper)
     {
-
         case GT_LCL_FLD:
         case GT_LCL_FLD_ADDR:
         case GT_STORE_LCL_FLD:
-            isLclFld = true;
-            FALLTHROUGH;
-
         case GT_PHI_ARG:
         case GT_LCL_VAR:
         case GT_LCL_VAR_ADDR:
         case GT_STORE_LCL_VAR:
-        {
-            printf(" ");
-            const unsigned   varNum = tree->AsLclVarCommon()->GetLclNum();
-            const LclVarDsc* varDsc = lvaGetDesc(varNum);
-            gtDispLclVar(varNum);
-            if (tree->AsLclVarCommon()->HasSsaName())
-            {
-                if (tree->gtFlags & GTF_VAR_USEASG)
-                {
-                    assert(tree->gtFlags & GTF_VAR_DEF);
-                    printf("ud:%d->%d", tree->AsLclVarCommon()->GetSsaNum(), GetSsaNumForLocalVarDef(tree));
-                }
-                else
-                {
-                    printf("%s:%d", (tree->gtFlags & GTF_VAR_DEF) ? "d" : "u", tree->AsLclVarCommon()->GetSsaNum());
-                }
-            }
-
-            if (isLclFld)
-            {
-                printf("[+%u]", tree->AsLclFld()->GetLclOffs());
-                gtDispFieldSeq(tree->AsLclFld()->GetFieldSeq());
-            }
-
-            if (varDsc->lvRegister)
-            {
-                printf(" ");
-                varDsc->PrintVarReg();
-            }
-            else if (tree->InReg())
-            {
-                printf(" %s", compRegVarName(tree->GetRegNum()));
-            }
-
-            if (varDsc->IsPromoted())
-            {
-                for (unsigned i = 0; i < varDsc->GetPromotedFieldCount(); ++i)
-                {
-                    LclVarDsc*  fieldLcl = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
-                    const char* fieldName;
-
-#ifndef TARGET_64BIT
-                    if (varTypeIsLong(varDsc))
-                    {
-                        fieldName = (i == 0) ? "lo" : "hi";
-                    }
-                    else
-#endif
-                    {
-                        fieldName = eeGetFieldName(fieldLcl->GetPromotedFieldHandle());
-                    }
-
-                    printf("\n                                                  ");
-                    printIndent(indentStack);
-                    printf("    %-6s V%02u.%s @%u -> V%02u", varTypeName(fieldLcl->GetType()), varNum, fieldName,
-                           fieldLcl->GetPromotedFieldOffset(), varDsc->GetPromotedFieldLclNum(i));
-
-                    if (fieldLcl->lvRegister)
-                    {
-                        printf(" ");
-                        fieldLcl->PrintVarReg();
-                    }
-
-                    if (fieldLcl->lvTracked && fgLocalVarLivenessDone && tree->IsMultiRegLclVar() &&
-                        tree->AsLclVar()->IsLastUse(i))
-                    {
-                        printf(" (last use)");
-                    }
-                }
-            }
-            else // a normal not-promoted lclvar
-            {
-                if (varDsc->lvTracked && fgLocalVarLivenessDone && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
-                {
-                    printf(" (last use)");
-                }
-            }
-        }
-        break;
+            dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
+            break;
 
         case GT_JMP:
         {
@@ -9496,12 +9443,15 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
         break;
 
         case GT_CLS_VAR:
-            printf(" Hnd=%#x", dspPtr(tree->AsClsVar()->GetFieldHandle()));
-            gtDispFieldSeq(tree->AsClsVar()->GetFieldSeq());
-            break;
-
         case GT_CLS_VAR_ADDR:
-            printf(" Hnd=%#x", dspPtr(tree->AsClsVar()->gtClsVarHnd));
+            printf(" %#x", dspPtr(tree->AsClsVar()->GetFieldHandle()));
+
+            if (tree->AsClsVar()->GetFieldSeq() != nullptr)
+            {
+                printf(" (");
+                dmpFieldSeqFields(tree->AsClsVar()->GetFieldSeq());
+                printf(")");
+            }
             break;
 
         case GT_LABEL:
@@ -9567,6 +9517,137 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
 
         default:
             assert(!"don't know how to display tree leaf node");
+    }
+}
+
+void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack)
+{
+    const unsigned   lclNum = node->GetLclNum();
+    const LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    printf(" V%02u", lclNum);
+
+    if (GenTreeLclFld* lclFld = node->IsLclFld())
+    {
+        printf("@%u", lclFld->GetLclOffs());
+    }
+
+    printf(" ");
+
+    int         nameLength = dmpLclName(lclNum);
+    const char* prefix     = nameLength > 0 ? " (" : "(";
+
+    if (lcl->lvAddrExposed)
+    {
+        printf("%sAX", prefix);
+        prefix = ", ";
+    }
+    else if (lcl->lvDoNotEnregister)
+    {
+        printf("%sDNER", prefix);
+        prefix = ", ";
+    }
+
+    if (node->HasSsaName())
+    {
+        printf("%s", prefix);
+
+        if ((node->gtFlags & GTF_VAR_USEASG) != 0)
+        {
+            printf("u:%d, d:%d", node->GetSsaNum(), GetSsaNumForLocalVarDef(node));
+        }
+        else
+        {
+            printf("%s:%d", ((node->gtFlags & GTF_VAR_DEF) != 0) ? "d" : "u", node->GetSsaNum());
+        }
+
+        prefix = ", ";
+    }
+
+    if (lcl->IsPromoted())
+    {
+        printf("%s%s", prefix, lcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
+        prefix = ", ";
+    }
+    else if (lcl->IsPromotedField())
+    {
+        printf("%s%s V%02u@%u", prefix, lcl->IsDependentPromotedField(this) ? "P-DEP" : "P-INDEP",
+               lcl->GetPromotedFieldParentLclNum(), lcl->GetPromotedFieldOffset());
+
+        if (lcl->GetPromotedFieldSeq() != nullptr)
+        {
+            printf(" ");
+            dmpFieldSeqFields(lcl->GetPromotedFieldSeq());
+        }
+
+        prefix = ", ";
+    }
+
+    if (GenTreeLclFld* lclFld = node->IsLclFld())
+    {
+        if (lclFld->GetFieldSeq() != nullptr)
+        {
+            printf(prefix);
+            dmpFieldSeqFields(lclFld->GetFieldSeq());
+            prefix = ", ";
+        }
+    }
+
+    if (!lcl->IsPromoted() && lcl->lvTracked && fgLocalVarLivenessDone && ((node->gtFlags & GTF_VAR_DEATH) != 0))
+    {
+        printf("%slast-use", prefix);
+    }
+
+    if (lcl->lvRegister)
+    {
+        printf("%s%%%s", prefix, getRegName(lcl->GetRegNum()));
+        prefix = ", ";
+    }
+
+    if (prefix[0] == ',')
+    {
+        printf(")");
+    }
+
+    if (!lcl->IsPromoted())
+    {
+        return;
+    }
+
+    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+    {
+        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+        printf("\n                                                  ");
+        printIndent(indentStack);
+        printf("     V%02u %-6s V%02u@%u", lcl->GetPromotedFieldLclNum(i), varTypeName(fieldLcl->GetType()), lclNum,
+               fieldLcl->GetPromotedFieldOffset());
+
+        prefix = " (";
+
+        if (fieldLcl->GetPromotedFieldSeq() != nullptr)
+        {
+            printf(prefix);
+            dmpFieldSeqFields(fieldLcl->GetPromotedFieldSeq());
+            prefix = ", ";
+        }
+
+        if (fieldLcl->lvTracked && fgLocalVarLivenessDone && node->IsMultiRegLclVar() && node->AsLclVar()->IsLastUse(i))
+        {
+            printf("%slast-use", prefix);
+            prefix = ", ";
+        }
+
+        if (fieldLcl->lvRegister)
+        {
+            printf("%s%%%s", prefix, getRegName(fieldLcl->GetRegNum()));
+            prefix = ", ";
+        }
+
+        if (prefix[0] == ',')
+        {
+            printf(")");
+        }
     }
 }
 
@@ -9708,7 +9789,7 @@ void Compiler::gtDispTree(GenTree*     tree,
 
         case GT_PUTARG_STK:
         {
-            printf(" (%d slots", tree->AsPutArgStk()->GetSlotCount());
+            printf(" (@%u, %d slots", tree->AsPutArgStk()->GetSlotOffset(), tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
             const char* kindName;
             switch (tree->AsPutArgStk()->GetKind())
@@ -9921,8 +10002,9 @@ void Compiler::gtDispTree(GenTree*     tree,
             break;
 
         case GT_FIELD:
-            printf("[+%u]", tree->AsField()->GetOffset());
-            printf(" %s", eeGetFieldName(tree->AsField()->GetFieldHandle()), 0);
+            printf(" @%u %s::%s", tree->AsField()->GetOffset(),
+                   eeGetSimpleClassName(info.compCompHnd->getFieldClass(tree->AsField()->GetFieldHandle())),
+                   eeGetFieldName(tree->AsField()->GetFieldHandle()));
 
             gtDispCommonEndLine(tree);
 
@@ -15762,12 +15844,13 @@ bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
     return true;
 }
 
-// Note that the value of the below field doesn't matter; it exists only to provide a distinguished address.
-//
-// static
-FieldSeqNode FieldSeqStore::s_notAField(nullptr, nullptr);
+FieldSeqNode FieldSeqNode::s_notAField(nullptr);
 
-// FieldSeqStore methods.
+int FieldSeqNode::BoxedValuePseudoFieldStruct;
+
+const CORINFO_FIELD_HANDLE FieldSeqNode::BoxedValuePseudoFieldHandle =
+    reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqNode::BoxedValuePseudoFieldStruct);
+
 FieldSeqStore::FieldSeqStore(Compiler* compiler)
     : m_compiler(compiler)
     , m_alloc(compiler->getAllocator(CMK_FieldSeqStore))
@@ -15777,16 +15860,15 @@ FieldSeqStore::FieldSeqStore(Compiler* compiler)
 
 FieldSeqNode* FieldSeqStore::CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd)
 {
-    FieldSeqNode  fsn(fieldHnd, nullptr);
-    FieldSeqNode* res = nullptr;
+    FieldSeqNode* seq = nullptr;
 
-    if (!m_canonMap->Lookup(fsn, &res))
+    if (!m_canonMap->Lookup(fieldHnd, &seq))
     {
-        res = new (m_alloc) FieldSeqNode(fsn);
-        m_canonMap->Set(fsn, res);
+        seq = new (m_alloc) FieldSeqNode(fieldHnd);
+        m_canonMap->Set(fieldHnd, seq);
     }
 
-    return res;
+    return seq;
 }
 
 FieldSeqNode* FieldSeqStore::GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs)
@@ -15824,21 +15906,83 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
         return NotAField();
     }
 
-    // We should never add a duplicate FieldSeqNode
-    assert(a != b);
+    FieldSeqNode* seq[FieldSeqNode::MaxLength];
+    unsigned      len = 0;
 
-    FieldSeqNode  fsn(a->m_fieldHnd, Append(a->m_next, b));
-    FieldSeqNode* res = nullptr;
-
-    if (!m_canonMap->Lookup(fsn, &res))
+    for (FieldSeqNode* p = a; p != nullptr; p = p->GetNext())
     {
-        res = new (m_alloc) FieldSeqNode(fsn);
-        m_canonMap->Set(fsn, res);
+        seq[len++] = p;
 
-        INDEBUG(DebugCheck(res);)
+        if (len == _countof(seq))
+        {
+            return NotAField();
+        }
+
+        // TODO-MIKE-Cleanup: Recursive single field struct promotion implementation is messy,
+        // at least in connection to implicit byref param demotion. We may start with an access
+        // to field X of a param and recursive promotion changes it to X.Y, there's no X promoted
+        // field. Demotion would need to restore the original X.Y field sequence but it doesn't
+        // have a good way to know it was X.Y and not just X. In some case we may guess the field
+        // sequence based on the type of an indir (if there's one at all) but it doesn't seem
+        // very reliable. If we demote to X.Y instead of X we can later have issues when promoting
+        // struct copies - if there was an X = X assignment we need to make it X.Y = X.Y and now
+        // the field sequence coming from demotion is already X.Y and appending another Y is not
+        // correct.
+        //
+        // So for now tolerate appending field sequences with suffix/prefix overlapping:
+        //   - x.y.z + y.z = x.y.z
+        //   - x.y.z + z.w = x.y.z.w
+        //   - x.y.z + y = invalid (not a field)
+        //
+        // This isn't ideal - such cases may also arise from invalid IL and/or incorrect handling
+        // of reinterpretation in user code. In those case it would be better to treat all cases
+        // as invalid.
+
+        if (p->m_fieldHnd == b->m_fieldHnd)
+        {
+            do
+            {
+                p = p->GetNext();
+                b = b->GetNext();
+            } while ((p != nullptr) && (b != nullptr) && p->m_fieldHnd == b->m_fieldHnd);
+
+            // b is somewhere inside a, that's likely due to bad IL.
+            noway_assert(p == nullptr);
+
+            // b is a suffix of a, just return a.
+            if (b == nullptr)
+            {
+                return a;
+            }
+
+            // a prefix of b is a suffix of a, we still need to append the rest of b.
+            break;
+        }
     }
 
-    return res;
+    seq[len] = b;
+
+    // Skip prefix nodes that already exist.
+    for (FieldSeqNode* p; (len != 0) && m_canonMap->Lookup({seq[len - 1], seq[len]}, &p); len--)
+    {
+        seq[len - 1] = p;
+    }
+
+    // Create new prefix nodes.
+    for (; len != 0; len--)
+    {
+        FieldSeqNode* p = new (m_alloc) FieldSeqNode(seq[len - 1], seq[len]);
+        m_canonMap->Set(*p, p);
+        INDEBUG(DebugCheck(p);)
+        seq[len - 1] = p;
+    }
+
+    return seq[0];
+}
+
+FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, CORINFO_FIELD_HANDLE b)
+{
+    return Append(a, CreateSingleton(b));
 }
 
 FieldSeqNode* FieldSeqStore::FoldAdd(const GenTreeIntCon* i1, const GenTreeIntCon* i2)
@@ -15996,22 +16140,6 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
     }
 }
 #endif // DEBUG
-
-// Static vars.
-int FieldSeqStore::BoxedValuePseudoFieldStruct;
-
-const CORINFO_FIELD_HANDLE FieldSeqStore::BoxedValuePseudoFieldHandle =
-    reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqStore::BoxedValuePseudoFieldStruct);
-
-bool FieldSeqNode::IsBoxedValueField() const
-{
-    return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
-}
-
-bool FieldSeqNode::IsField() const
-{
-    return (this != FieldSeqStore::NotAField()) && !IsBoxedValueField();
-}
 
 #ifdef FEATURE_HW_INTRINSICS
 bool GenTree::isCommutativeHWIntrinsic() const
@@ -16210,6 +16338,14 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     return node;
 }
 
+GenTreeHWIntrinsic* Compiler::NewExtractVectorElement(var_types vecType,
+                                                      var_types eltType,
+                                                      GenTree*  vec,
+                                                      unsigned  index)
+{
+    return gtNewSimdGetElementNode(vecType, eltType, vec, gtNewIconNode(index));
+}
+
 GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
                                                       var_types elementType,
                                                       GenTree*  value,
@@ -16390,62 +16526,49 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore() const
 
 #endif // FEATURE_HW_INTRINSICS
 
-void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind)
-{
-    switch (retKind.kind)
-    {
 #if FEATURE_MULTIREG_RET
-        case SPK_ByValueAsHfa:
+void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout)
+{
+    if (retLayout->IsHfa())
+    {
+        m_regCount = retLayout->GetHfaElementCount();
+        assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
+
+        var_types regType = retLayout->GetHfaElementType();
+
+        for (unsigned i = 0; i < m_regCount; ++i)
         {
-            assert(retKind.type == TYP_STRUCT);
-
-            m_regCount = retLayout->GetHfaElementCount();
-            assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
-
-            var_types regType = retLayout->GetHfaElementType();
-
-            for (unsigned i = 0; i < m_regCount; ++i)
-            {
-                m_regType[i] = regType;
-            }
-
-            comp->compFloatingPointUsed |= true;
-            break;
+            m_regType[i] = regType;
         }
 
-        case SPK_ByValue:
-        {
-            assert(retKind.type == TYP_STRUCT);
+        comp->compFloatingPointUsed |= true;
+
+        return;
+    }
 
 #ifdef UNIX_AMD64_ABI
-            assert(retLayout->GetSysVAmd64AbiRegCount() == 2);
+    assert(retLayout->GetSysVAmd64AbiRegCount() == 2);
 
-            m_regCount = 2;
+    m_regCount = 2;
 
-            for (int i = 0; i < 2; i++)
-            {
-                m_regType[i] = varActualType(retLayout->GetSysVAmd64AbiRegType(i));
-            }
-#elif defined(TARGET_ARM64) || defined(TARGET_X86)
-            assert(retLayout->GetSlotCount() == 2);
-
-            m_regCount = 2;
-
-            for (unsigned i = 0; i < 2; i++)
-            {
-                m_regType[i] = retLayout->GetGCPtrType(i);
-            }
-#else
-            unreached();
-#endif
-            break;
-        }
-#endif //  FEATURE_MULTIREG_RET
-
-        default:
-            unreached();
+    for (int i = 0; i < 2; i++)
+    {
+        m_regType[i] = varActualType(retLayout->GetSysVAmd64AbiRegType(i));
     }
+#elif defined(TARGET_ARM64) || defined(TARGET_X86)
+    assert(retLayout->GetSlotCount() == 2);
+
+    m_regCount = 2;
+
+    for (unsigned i = 0; i < 2; i++)
+    {
+        m_regType[i] = retLayout->GetGCPtrType(i);
+    }
+#else
+    unreached();
+#endif
 }
+#endif //  FEATURE_MULTIREG_RET
 
 void ReturnTypeDesc::InitializePrimitive(var_types regType)
 {

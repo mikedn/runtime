@@ -2657,63 +2657,9 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 
     JITDUMPTREE(ret, "Lowering RETURN:\n");
 
-    if (!ret->TypeIs(TYP_VOID))
+    if (ret->TypeIs(TYP_STRUCT))
     {
-        GenTree* src = ret->GetOp(0);
-
-        if (!varTypeIsStruct(ret->GetType()) && !varTypeIsStruct(src->GetType()))
-        {
-            if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
-            {
-                GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
-                ret->SetOp(0, bitcast);
-                BlockRange().InsertBefore(ret, bitcast);
-                LowerBitCast(bitcast);
-            }
-        }
-        else
-        {
-#if FEATURE_MULTIREG_RET
-            if (varTypeIsStruct(src->GetType()))
-            {
-                if (src->OperIs(GT_LCL_VAR) && (comp->info.retDesc.GetRegCount() > 1))
-                {
-                    MakeMultiRegLclVar(src->AsLclVar(), &comp->info.retDesc);
-                }
-            }
-#endif
-
-            if (varTypeIsStruct(ret->GetType()))
-            {
-#ifdef DEBUG
-                if (!varTypeIsStruct(src->GetType()))
-                {
-                    assert(comp->info.retDesc.GetRegCount() == 1);
-
-                    var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
-                    var_types srcActualType = varActualType(src->GetType());
-
-                    bool constStructInit                  = src->IsConstInitVal();
-                    bool implicitCastFromSameOrBiggerSize = varTypeSize(retActualType) <= varTypeSize(srcActualType);
-
-                    // This could happen if we have retyped op1 as a primitive type during struct promotion,
-                    // check `retypedFieldsMap` for details.
-                    bool actualTypesMatch = (retActualType == srcActualType);
-
-                    assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
-                }
-#endif // DEBUG
-
-                LowerRetStruct(ret);
-            }
-            else if (varTypeIsStruct(src->GetType()))
-            {
-                // Return struct as a primitive using Unsafe cast.
-
-                assert(src->OperIs(GT_LCL_VAR));
-                LowerRetSingleRegStructLclVar(ret);
-            }
-        }
+        LowerRetStruct(ret);
     }
 
     // Method doing PInvokes has exactly one return block unless it has tail calls.
@@ -2736,7 +2682,7 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 #ifdef DEBUG
     LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
 
-    if (lcl->IsPromoted() && (comp->lvaGetPromotionType(lclVar->GetLclNum()) == Compiler::PROMOTION_TYPE_INDEPENDENT))
+    if (lcl->IsIndependentPromoted())
     {
         LIR::Use use;
         assert(BlockRange().TryGetUse(lclVar, &use) && use.User()->OperIs(GT_RETURN));
@@ -2965,40 +2911,58 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 
 void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 {
-    assert(ret->OperIs(GT_RETURN));
-    assert(varTypeIsStruct(ret->GetType()));
+    assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
 
     GenTree* src = ret->GetOp(0);
 
-#ifdef TARGET_ARM64
-    if (varTypeIsSIMD(ret->GetType()))
+    if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
-        if (comp->info.retDesc.GetRegCount() > 1)
+#ifdef FEATURE_HW_INTRINSICS
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
-            assert(varTypeIsSIMD(src->GetType()));
+            // Workaround poor register allocation on linux-x64 - if the returned value is already in XMM0
+            // then attempting to extract its elements to XMM0 and XMM1 results in a spill to temp because
+            // the first extract kills the value in XMM0, which is then needed again to extract to XMM1.
+            // At this point we don't really care about the precise type - FLOAT/DOUBLE/SIMDn - we only care
+            // that the value is in an XMM registers so we can get rid of the extract to XMM0.
+            // This doesn't appear to be a problem on arm64 but that may simply be due to more registers
+            // being available, otherwise there's nothing to suggest that arm64 doesn't have the same issue.
 
-            ret->SetType(TYP_STRUCT);
-        }
-        else
-        {
-            assert(comp->info.retDesc.GetRegType(0) == ret->GetType());
-
-            if (src->GetType() != ret->GetType())
+            if (GenTreeHWIntrinsic* extract = use.GetNode()->IsHWIntrinsic())
             {
-                assert(src->OperIs(GT_LCL_VAR));
-
-                LowerRetSingleRegStructLclVar(ret);
+                if ((extract->GetIntrinsic() == NI_Vector128_GetElement) && extract->GetOp(1)->IsIntegralConst(0) &&
+                    varTypeUsesFloatReg(extract->GetType()) && varTypeUsesFloatReg(extract->GetOp(0)->GetType()))
+                {
+                    GenTree* vec = extract->GetOp(0);
+                    vec->ClearContained();
+                    use.SetNode(vec);
+                    BlockRange().Remove(extract->GetOp(1));
+                    BlockRange().Remove(extract);
+                }
             }
         }
+#endif // FEATURE_HW_INTRINSICS
 
         return;
     }
-#endif
 
-    if (comp->info.retDesc.GetRegCount() > 1)
+    assert(comp->info.retDesc.GetRegCount() == 1);
+
+#ifdef DEBUG
+    if (!varTypeIsStruct(src->GetType()))
     {
-        return;
+        var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
+        var_types srcActualType = varActualType(src->GetType());
+
+        bool constStructInit                  = src->IsConstInitVal();
+        bool implicitCastFromSameOrBiggerSize = varTypeSize(retActualType) <= varTypeSize(srcActualType);
+
+        // This could happen if we have retyped op1 as a primitive type during struct promotion.
+        bool actualTypesMatch = (retActualType == srcActualType);
+
+        assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
     }
+#endif // DEBUG
 
     if (src->OperIs(GT_IND, GT_OBJ))
     {
@@ -3067,28 +3031,8 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
             break;
 
         case GT_CNS_INT:
-            // When we promote LCL_VAR single fields into return
-            // we could have all type of constans here.
-            if (varTypeUsesFloatReg(retRegType))
-            {
-                // Do not expect `initblk` for SIMD* types, only 'initobj'.
-                assert(src->AsIntCon()->GetValue() == 0);
-
-                src->ChangeOperConst(GT_CNS_DBL);
-                src->SetType(TYP_FLOAT);
-                src->AsDblCon()->SetValue(0.0);
-            }
-            break;
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
         case GT_CNS_DBL:
-            // Currently we are not promoting structs with a single float field,
-            // https://github.com/dotnet/runtime/issues/4323
-
-            // TODO-CQ: can improve `GT_CNS_DBL` handling for supported platforms, but
-            // because it is only x86 nowadays it is not worth it.
             unreached();
-#endif
 
         default:
             assert(varTypeIsEnregisterable(src->GetType()));
@@ -5810,20 +5754,17 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
 #ifdef FEATURE_SIMD
         case GT_HWINTRINSIC:
-            assert(node->TypeGet() != TYP_SIMD12);
+            assert(!node->TypeIs(TYP_SIMD12));
             break;
 #ifdef TARGET_64BIT
         case GT_LCL_VAR:
         case GT_STORE_LCL_VAR:
-        {
-            unsigned   lclNum = node->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* lclVar = &compiler->lvaTable[lclNum];
             if (node->TypeIs(TYP_SIMD12))
             {
-                assert(compiler->lvaIsFieldOfDependentlyPromotedStruct(lclVar) || (lclVar->lvSize() == 12));
+                LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
+                assert(lcl->IsDependentPromotedField(compiler) || (lcl->lvSize() == 12));
             }
-        }
-        break;
+            break;
 #endif // TARGET_64BIT
 #endif // SIMD
 
@@ -6033,23 +5974,21 @@ void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* r
 
     LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
 
-    if (comp->lvaEnregMultiRegVars && lcl->IsPromoted())
+    if (comp->lvaEnregMultiRegVars && lcl->IsIndependentPromoted())
     {
         // We can enregister if we have a promoted struct and all the fields' types match the ABI requirements.
         // Note that we don't promote structs with explicit layout, so we don't need to check field offsets, and
         // if we have multiple types packed into a single register, we won't have matching reg and field counts,
         // so we can tolerate mismatches of integer size.
-        if (comp->lvaGetPromotionType(lcl) == Compiler::PROMOTION_TYPE_INDEPENDENT)
+
+        // If we have no retTypeDesc, we only care that it is independently promoted.
+        if (retDesc == nullptr)
         {
-            // If we have no retTypeDesc, we only care that it is independently promoted.
-            if (retDesc == nullptr)
-            {
-                canEnregister = true;
-            }
-            else if (retDesc->GetRegCount() == lcl->GetPromotedFieldCount())
-            {
-                canEnregister = true;
-            }
+            canEnregister = true;
+        }
+        else if (retDesc->GetRegCount() == lcl->GetPromotedFieldCount())
+        {
+            canEnregister = true;
         }
     }
 
@@ -6247,6 +6186,11 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
 #ifndef TARGET_64BIT
     if (ret->TypeIs(TYP_LONG))
     {
+        if (src->TypeIs(TYP_DOUBLE))
+        {
+            return;
+        }
+
         noway_assert(src->OperIs(GT_LONG));
         src->SetContained();
 

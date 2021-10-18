@@ -2173,10 +2173,9 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
         {
-            if (compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+            if (varDsc->IsDependentPromotedField(compiler))
             {
-                // Field local of a PROMOTION_TYPE_DEPENDENT struct must have been
-                // reported through its parent local
+                // A dependent promoted struct field must be reported through its parent local.
                 continue;
             }
 
@@ -4084,10 +4083,9 @@ void GCInfo::gcMakeRegPtrTable(
     LclVarDsc* varDsc;
     for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
     {
-        if (compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+        if (varDsc->IsDependentPromotedField(compiler))
         {
-            // Field local of a PROMOTION_TYPE_DEPENDENT struct must have been
-            // reported through its parent local.
+            // A dependent promoted struct field must be reported through its parent local.
             continue;
         }
 

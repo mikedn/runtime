@@ -188,7 +188,11 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             break;
 
         case GT_RETURN:
-            assert(tree->AsOp()->gtOp1->OperGet() == GT_LONG);
+#ifdef TARGET_X86
+            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG) || tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
+#else
+            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG));
+#endif
             break;
 
         case GT_STOREIND:

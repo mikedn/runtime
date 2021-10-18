@@ -285,7 +285,7 @@ void Compiler::raMarkStkVars()
     {
         // lvOnFrame is set by LSRA, except in the case of zero-ref, which is set below.
 
-        if (lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+        if (varDsc->IsDependentPromotedField(this))
         {
             noway_assert(!varDsc->lvRegister);
             goto ON_STK;

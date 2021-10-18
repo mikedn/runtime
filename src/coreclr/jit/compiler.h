@@ -497,15 +497,40 @@ public:
     unsigned char lvFieldCnt; //  Number of fields in the promoted VarDsc.
     unsigned char lvFldOffset;
 
+    void MakePromotedStructField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
+    {
+        assert(fieldOffset <= UINT8_MAX);
+
+        lvIsStructField = true;
+        lvParentLcl     = parentLclNum;
+        lvFldOffset     = static_cast<uint8_t>(fieldOffset);
+        m_fieldSeq      = fieldSeq;
+
+        INDEBUG(lvKeepType = 1;)
+    }
+
     bool IsPromoted() const
     {
         return lvPromoted;
+    }
+
+    bool IsIndependentPromoted() const
+    {
+        // TODO-Cleanup: return true for arm32.
+        return lvPromoted && !lvDoNotEnregister;
+    }
+
+    bool IsDependentPromoted() const
+    {
+        return lvPromoted && !IsIndependentPromoted();
     }
 
     bool IsPromotedField() const
     {
         return lvIsStructField;
     }
+
+    bool IsDependentPromotedField(Compiler* compiler) const;
 
     unsigned GetPromotedFieldCount() const
     {
@@ -531,15 +556,13 @@ public:
         return lvFldOffset;
     }
 
-    CORINFO_FIELD_HANDLE GetPromotedFieldHandle() const
+    FieldSeqNode* GetPromotedFieldSeq() const
     {
         assert(lvIsStructField);
-        return lvFieldHnd;
+        return m_fieldSeq;
     }
 
-#ifdef DEBUG
-    unsigned char lvDisqualifyEHVarReason = 'H';
-#endif
+    INDEBUG(char lvDisqualifyEHVarReason = 'H';)
 
 #if FEATURE_MULTIREG_ARGS
     regNumber lvRegNumForSlot(unsigned slotNum)
@@ -797,10 +820,9 @@ public:
     // for a struct handle use `GetStructHnd()`.
     CORINFO_CLASS_HANDLE lvClassHnd;
 
-    CORINFO_FIELD_HANDLE lvFieldHnd; // field handle for promoted struct fields
-
 private:
-    ClassLayout* m_layout; // layout info for structs
+    ClassLayout*  m_layout;   // layout info for structs
+    FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
 
 public:
 #if ASSERTION_PROP
@@ -1449,6 +1471,7 @@ class Compiler
     friend struct GenTree;
     friend class ClassLayout;
     friend class VNConstPropVisitor;
+    friend class StructPromotionHelper;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -1935,6 +1958,7 @@ public:
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
 
+    GenTreeHWIntrinsic* NewExtractVectorElement(var_types vecType, var_types eltType, GenTree* vec, unsigned index);
     GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types simdType,
                                                 var_types elementType,
                                                 GenTree*  value,
@@ -2233,6 +2257,7 @@ public:
 
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
+    void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
     void gtDispNodeName(GenTree* tree);
 #if FEATURE_MULTIREG_RET
     unsigned gtDispRegCount(GenTree* tree);
@@ -2264,6 +2289,7 @@ public:
                     bool                 isLIR       = false);
     void gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut);
     int gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining);
+    int dmpLclName(unsigned lclNum);
     char* gtGetLclVarName(unsigned lclNum);
     void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp = true);
     void gtDispLclVarStructType(unsigned lclNum);
@@ -2272,7 +2298,7 @@ public:
     void gtDispBlockStmts(BasicBlock* block);
     void gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum, char* buf, unsigned bufLength);
     void gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree* arg, char* buf, unsigned bufLength);
-    void gtDispFieldSeq(FieldSeqNode* pfsn);
+    void dmpFieldSeqFields(FieldSeqNode* fieldSeq);
 
     void gtDispRange(LIR::ReadOnlyRange const& range);
 
@@ -2335,25 +2361,6 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
-
-    //
-    // For both PROMOTION_TYPE_NONE and PROMOTION_TYPE_DEPENDENT the struct will
-    // be placed in the stack frame and it's fields must be laid out sequentially.
-    //
-    // For PROMOTION_TYPE_INDEPENDENT each of the struct's fields is replaced by
-    //  a local variable that can be enregistered or placed in the stack frame.
-    //  The fields do not need to be laid out sequentially
-    //
-    enum lvaPromotionType
-    {
-        PROMOTION_TYPE_NONE,        // The struct local is not promoted
-        PROMOTION_TYPE_INDEPENDENT, // The struct local is promoted,
-                                    //   and its field locals are independent of its parent struct local.
-        PROMOTION_TYPE_DEPENDENT    // The struct local is promoted,
-                                    //   but its field locals depend on its parent struct local.
-    };
-
-    /*****************************************************************************/
 
     enum FrameLayoutState
     {
@@ -2694,109 +2701,19 @@ public:
     void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
 
-#define MAX_NumOfFieldsInPromotableStruct 4 // Maximum number of fields in promotable struct
-
-    // Info about struct type fields.
-    struct lvaStructFieldInfo
-    {
-        CORINFO_FIELD_HANDLE fldHnd;
-        unsigned             fldOffset;
-        unsigned             fldSize;
-        CORINFO_CLASS_HANDLE fldTypeHnd;
-        var_types            fldType;
-
-        lvaStructFieldInfo() : fldHnd(nullptr), fldOffset(0), fldSize(0), fldTypeHnd(nullptr), fldType(TYP_UNDEF)
-        {
-        }
-    };
-
-    // Info about a struct type, instances of which may be candidates for promotion.
-    struct lvaStructPromotionInfo
-    {
-        CORINFO_CLASS_HANDLE typeHnd;
-        bool                 canPromote;
-        bool                 containsHoles;
-        bool                 customLayout;
-        bool                 fieldsSorted;
-        unsigned char        fieldCnt;
-        lvaStructFieldInfo   fields[MAX_NumOfFieldsInPromotableStruct];
-
-        lvaStructPromotionInfo(CORINFO_CLASS_HANDLE typeHnd = nullptr)
-            : typeHnd(typeHnd)
-            , canPromote(false)
-            , containsHoles(false)
-            , customLayout(false)
-            , fieldsSorted(false)
-            , fieldCnt(0)
-        {
-        }
-    };
-
-    // This class is responsible for checking validity and profitability of struct promotion.
-    // If it is both legal and profitable, then TryPromoteStructVar promotes the struct and initializes
-    // nessesary information for fgMorphStructField to use.
-    class StructPromotionHelper
-    {
-    public:
-        StructPromotionHelper(Compiler* compiler);
-
-        bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHnd);
-        bool TryPromoteStructVar(unsigned lclNum);
-        void Clear()
-        {
-            structPromotionInfo.typeHnd = NO_CLASS_HANDLE;
-        }
-
-#ifdef DEBUG
-        void CheckRetypedAsScalar(CORINFO_FIELD_HANDLE fieldHnd, var_types requestedType);
-#endif // DEBUG
-
-#ifdef TARGET_ARM
-        bool GetRequiresScratchVar();
-#endif // TARGET_ARM
-
-    private:
-        bool CanPromoteStructVar(unsigned lclNum);
-        bool ShouldPromoteStructVar(unsigned lclNum);
-        void PromoteStructVar(unsigned lclNum);
-        void SortStructFields();
-
-        void GetFieldInfo(CORINFO_CLASS_HANDLE classHandle, unsigned index);
-        void TryPromoteSingleFieldStruct(lvaStructFieldInfo& outerFieldInfo);
-
-    private:
-        Compiler*              compiler;
-        lvaStructPromotionInfo structPromotionInfo;
-
-#ifdef DEBUG
-        typedef JitHashTable<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<CORINFO_FIELD_STRUCT_>, var_types>
-                                 RetypedAsScalarFieldsMap;
-        RetypedAsScalarFieldsMap retypedFieldsMap;
-#endif // DEBUG
-    };
-
-    StructPromotionHelper* structPromotionHelper;
-
 #if !defined(TARGET_64BIT)
     void lvaPromoteLongVars();
 #endif // !defined(TARGET_64BIT)
-    unsigned lvaGetFieldLocal(const LclVarDsc* varDsc, unsigned int fldOffset);
-    lvaPromotionType lvaGetPromotionType(const LclVarDsc* varDsc);
-    lvaPromotionType lvaGetPromotionType(unsigned varNum);
-    lvaPromotionType lvaGetParentPromotionType(const LclVarDsc* varDsc);
-    lvaPromotionType lvaGetParentPromotionType(unsigned varNum);
-    bool lvaIsFieldOfDependentlyPromotedStruct(const LclVarDsc* varDsc);
     bool lvaIsGCTracked(const LclVarDsc* varDsc);
 
 #if defined(FEATURE_SIMD)
     bool lvaMapSimd12ToSimd16(const LclVarDsc* varDsc)
     {
-        assert(varDsc->lvType == TYP_SIMD12);
+        assert(varDsc->TypeIs(TYP_SIMD12));
         assert(varDsc->GetSize() == 12);
-
 #if defined(TARGET_64BIT) && !defined(OSX_ARM64_ABI)
         assert(varDsc->lvSize() == 16);
-#endif // defined(TARGET_64BIT)
+#endif
 
         // We make local variable SIMD12 types 16 bytes instead of just 12.
         // lvSize() will return 16 bytes for SIMD12, even for fields.
@@ -2807,11 +2724,13 @@ public:
         {
             return false;
         }
-        if (lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+
+        if (varDsc->IsDependentPromotedField(this))
         {
-            LclVarDsc* parentVarDsc = lvaGetDesc(varDsc->lvParentLcl);
-            return (parentVarDsc->lvFieldCnt == 1) && (parentVarDsc->lvSize() == 16);
+            LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+            return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->lvSize() == 16);
         }
+
         return true;
     }
 #endif // defined(FEATURE_SIMD)
@@ -2832,8 +2751,9 @@ public:
     unsigned lvaPSPSym; // variable representing the PSPSym
 #endif
 
-    InlineInfo*     impInlineInfo;
-    InlineStrategy* m_inlineStrategy;
+    InlineInfo*          impInlineInfo;
+    InlineStrategy*      m_inlineStrategy;
+    CORINFO_CLASS_HANDLE impPromotableStructTypeCache[2];
 
     // The Compiler* that is the root of the inlining tree of which "this" is a member.
     Compiler* impInlineRoot();
@@ -2845,8 +2765,8 @@ public:
     }
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-    bool fgNoStructPromotion;      // Set to TRUE to turn off struct promotion for this method.
-    bool fgNoStructParamPromotion; // Set to TRUE to turn off struct promotion for parameters this method.
+    bool fgNoStructPromotion;               // Set to true to turn off struct promotion for this method.
+    INDEBUG(bool fgNoStructParamPromotion;) // Set to true to turn off struct promotion of this method's parameters.
 
     //=========================================================================
     //                          PROTECTED
@@ -4095,7 +4015,7 @@ public:
     bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
     StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
-    StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv);
+    StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
 
 #ifdef DEBUG
     // Print a representation of "vnp" or "vn" on standard output.
@@ -4823,7 +4743,6 @@ private:
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
-    GenTree* fgMorphRetInd(GenTreeUnOp* ret);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
     GenTree* fgMorphConst(GenTree* tree);
@@ -6697,6 +6616,7 @@ public:
 #endif
 
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
+    const char* eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd);
 
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);
@@ -8444,9 +8364,10 @@ public:
 #ifndef TARGET_X86
     void abiMorphArgs2ndPass(GenTreeCall* call);
     GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
-#if FEATURE_MULTIREG_ARGS
-    bool abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
-    GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
+#endif
+#if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
+    GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
+    GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const struct AbiRegFieldMap& map);
     GenTree* abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg);
 #ifdef FEATURE_SIMD
     GenTree* abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg);
@@ -8456,18 +8377,84 @@ public:
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
 #endif
+#ifndef TARGET_X86
     unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);
     void abiFreeAllStructArgTemps();
 #if TARGET_64BIT
     void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #endif // !TARGET_X86
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-    void abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val);
-#endif
+    void abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val);
 
     bool killGCRefs(GenTree* tree);
 }; // end of class Compiler
+
+// This class is responsible for checking validity and profitability of struct promotion.
+// If it is both legal and profitable, then TryPromoteStructLocal promotes the struct and initializes
+// nessesary information for fgMorphStructField to use.
+class StructPromotionHelper
+{
+    static constexpr unsigned MaxFieldCount = 4;
+#ifndef FEATURE_SIMD
+    static constexpr unsigned MaxStructSize = MaxFieldCount * 8;
+#elif defined(TARGET_XARCH)
+    static constexpr unsigned MaxStructSize = MaxFieldCount * YMM_REGSIZE_BYTES;
+#elif defined(TARGET_ARM64)
+    static constexpr unsigned MaxStructSize = MaxFieldCount * FP_REGSIZE_BYTES;
+#endif
+    static constexpr unsigned MaxDepth = min(FieldSeqNode::MaxLength, 4);
+
+    struct FieldInfo
+    {
+        CORINFO_FIELD_HANDLE fieldSeq[MaxDepth];
+        uint8_t              fieldSeqLength;
+        var_types            type;
+        unsigned             offset;
+        ClassLayout*         layout;
+    };
+
+    struct StructInfo
+    {
+        CORINFO_CLASS_HANDLE typeHandle;
+        uint8_t              fieldCount;
+        bool                 canPromoteStructType = false;
+        bool                 containsHoles        = false;
+        bool                 customLayout         = false;
+        bool                 fieldsSorted         = false;
+        FieldInfo            fields[MaxFieldCount];
+
+        StructInfo(CORINFO_CLASS_HANDLE typeHandle, unsigned fieldCount)
+            : typeHandle(typeHandle), fieldCount(static_cast<uint8_t>(fieldCount))
+        {
+            assert(fieldCount <= MaxFieldCount);
+        }
+    };
+
+    Compiler*  compiler;
+    StructInfo info;
+
+public:
+    StructPromotionHelper(Compiler* compiler) : compiler(compiler), info(nullptr, 0)
+    {
+    }
+
+    static constexpr unsigned GetMaxFieldCount()
+    {
+        return MaxFieldCount;
+    }
+
+    bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle);
+    bool TryPromoteStructLocal(unsigned lclNum);
+
+private:
+    bool CanPromoteStructLocal(unsigned lclNum);
+    bool ShouldPromoteStructLocal(unsigned lclNum);
+    void PromoteStructLocal(unsigned lclNum);
+    void SortFields();
+
+    void GetFieldInfo(unsigned index);
+    void GetSingleFieldStructInfo(FieldInfo& field, CORINFO_CLASS_HANDLE structHandle);
+};
 
 #ifdef TARGET_ARM64
 // TODO-MIKE-Cleanup: It's not clear if storing immediates directly inside GenTreeInstr
@@ -8494,10 +8481,10 @@ private:
     static constexpr unsigned SIZE_BITS    = 9;
     static constexpr unsigned OPT_BITS     = 4;
 #elif defined(TARGET_ARM)
-    static constexpr unsigned NUM_OPS_BITS = 2;
-    static constexpr unsigned INS_BITS     = 9;
-    static constexpr unsigned SIZE_BITS    = 9;
-    static constexpr unsigned OPT_BITS     = 3;
+    static constexpr unsigned NUM_OPS_BITS  = 2;
+    static constexpr unsigned INS_BITS      = 9;
+    static constexpr unsigned SIZE_BITS     = 9;
+    static constexpr unsigned OPT_BITS      = 3;
 #elif defined(TARGET_XARCH)
     // TODO-MIKE-Cleanup: Wishful thinking... it may be nice to use GenTreeInstr on x86/64
     // but compared to ARM there aren't many interesting use cases and x86/64 instructions

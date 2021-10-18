@@ -1317,6 +1317,34 @@ const char* Compiler::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
     return param.fieldOrMethodOrClassNamePtr;
 }
 
+const char* Compiler::eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd)
+{
+    FilterSuperPMIExceptionsParam_ee_il param;
+
+    param.pThis    = this;
+    param.pJitInfo = &info;
+    param.clazz    = clsHnd;
+
+    PAL_TRY(FilterSuperPMIExceptionsParam_ee_il*, pParam, &param)
+    {
+        if (pParam->pJitInfo->compCompHnd->getTypeInstantiationArgument(pParam->clazz, 0) == NO_CLASS_HANDLE)
+        {
+            pParam->fieldOrMethodOrClassNamePtr =
+                pParam->pJitInfo->compCompHnd->getClassNameFromMetadata(pParam->clazz, nullptr);
+        }
+        else
+        {
+            pParam->fieldOrMethodOrClassNamePtr = pParam->pJitInfo->compCompHnd->getClassName(pParam->clazz);
+        }
+    }
+    PAL_EXCEPT_FILTER(FilterSuperPMIExceptions_ee_il)
+    {
+        param.fieldOrMethodOrClassNamePtr = "hackishClassName";
+    }
+    PAL_ENDTRY
+    return param.fieldOrMethodOrClassNamePtr;
+}
+
 #endif // DEBUG || FEATURE_JIT_METHOD_PERF
 
 #ifdef DEBUG

@@ -89,7 +89,7 @@ void GCInfo::gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool force
     {
         if (forceOutput || (gcRegGCrefSetCur != gcRegGCrefSetNew))
         {
-            printf("\t\t\t\t\t\t\tGC regs: ");
+            printf("GC regs: ");
             if (gcRegGCrefSetCur == gcRegGCrefSetNew)
             {
                 printf("(unchanged) ");
@@ -118,7 +118,7 @@ void GCInfo::gcDspByrefSetChanges(regMaskTP gcRegByrefSetNew DEBUGARG(bool force
     {
         if (forceOutput || (gcRegByrefSetCur != gcRegByrefSetNew))
         {
-            printf("\t\t\t\t\t\t\tByref regs: ");
+            printf("Byref regs: ");
             if (gcRegByrefSetCur == gcRegByrefSetNew)
             {
                 printf("(unchanged) ");
@@ -334,10 +334,9 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 
     for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
     {
-        if (compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc))
+        if (varDsc->IsDependentPromotedField(compiler))
         {
-            // Field local of a PROMOTION_TYPE_DEPENDENT struct must have been
-            // reported through its parent local
+            // A dependent promoted struct field must be reported through its parent local.
             continue;
         }
 
@@ -473,11 +472,10 @@ bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeep
 {
     LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
-    assert(!compiler->lvaIsFieldOfDependentlyPromotedStruct(varDsc));
-    assert(varTypeIsGC(varDsc->TypeGet()));
+    assert(!varDsc->IsDependentPromotedField(compiler));
+    assert(varTypeIsGC(varDsc->GetType()));
 
-    // Do we have an argument or local variable?
-    if (!varDsc->lvIsParam)
+    if (!varDsc->IsParam())
     {
         // If is pinned, it must be an untracked local.
         assert(!varDsc->lvPinned || !varDsc->lvTracked);

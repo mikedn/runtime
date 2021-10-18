@@ -8207,21 +8207,23 @@ void Compiler::optRemoveRedundantZeroInits()
                             }
                         }
                         else if (varTypeIsStruct(lclDsc) && ((tree->gtFlags & GTF_VAR_USEASG) == 0) &&
-                                 lvaGetPromotionType(lclDsc) != PROMOTION_TYPE_NONE)
+                                 lclDsc->IsPromoted())
                         {
-                            for (unsigned i = lclDsc->lvFieldLclStart; i < lclDsc->lvFieldLclStart + lclDsc->lvFieldCnt;
-                                 ++i)
+                            for (unsigned i = 0; i < lclDsc->GetPromotedFieldCount(); ++i)
                             {
-                                if (lvaGetDesc(i)->lvTracked)
+                                unsigned fieldLclNum = lclDsc->GetPromotedFieldLclNum(i);
+
+                                if (lvaGetDesc(fieldLclNum)->lvTracked)
                                 {
-                                    unsigned* pDefsCount = defsInBlock.LookupPointer(i);
+                                    unsigned* pDefsCount = defsInBlock.LookupPointer(fieldLclNum);
+
                                     if (pDefsCount != nullptr)
                                     {
-                                        *pDefsCount = (*pDefsCount) + 1;
+                                        (*pDefsCount)++;
                                     }
                                     else
                                     {
-                                        defsInBlock.Set(i, 1);
+                                        defsInBlock.Set(fieldLclNum, 1);
                                     }
                                 }
                             }

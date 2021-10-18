@@ -236,27 +236,63 @@ struct FieldSeqNode
 {
     friend class FieldSeqStore;
 
+    // The boxed value field identifies the value part of a boxed value object.
+    // Used with static struct fields which are implemented as static reference
+    // fields pointing to boxed structs allocated by the runtime.
+    static const CORINFO_FIELD_HANDLE BoxedValuePseudoFieldHandle;
+
+    static constexpr unsigned MaxLength = 8;
+
 private:
+    // This is a special distinguished FieldSeqNode indicating that a constant does *not*
+    // represent a valid field sequence.  This is "infectious", in the sense that appending it
+    // (on either side) to any field sequence yields the "NotAField()" sequence.
+    static FieldSeqNode s_notAField;
+    // Dummy variable to provide an address for the "Boxed Value" pseudo field handle.
+    // Since field handles are really pointers this should guarantee that the boxed
+    // pseudo field handle doesn't conflict with any real field handles.
+    static int BoxedValuePseudoFieldStruct;
+
     CORINFO_FIELD_HANDLE m_fieldHnd;
     FieldSeqNode*        m_next;
 
-public:
+    FieldSeqNode(CORINFO_FIELD_HANDLE fieldHnd) : m_fieldHnd(fieldHnd), m_next(nullptr)
+    {
+    }
+
     FieldSeqNode(CORINFO_FIELD_HANDLE fieldHnd, FieldSeqNode* next) : m_fieldHnd(fieldHnd), m_next(next)
     {
     }
 
-    bool IsBoxedValueField() const;
+    FieldSeqNode(FieldSeqNode* p, FieldSeqNode* n) : m_fieldHnd(p->m_fieldHnd), m_next(n)
+    {
+    }
 
-    bool IsField() const;
+public:
+    static FieldSeqNode* NotAField()
+    {
+        return &s_notAField;
+    }
+
+    bool IsBoxedValueField() const
+    {
+        return m_fieldHnd == BoxedValuePseudoFieldHandle;
+    }
 
     bool IsArrayElement() const
     {
         return (reinterpret_cast<uintptr_t>(m_fieldHnd) & 1) != 0;
     }
 
+    bool IsField() const
+    {
+        return (this != &s_notAField) && !IsBoxedValueField() && !IsArrayElement();
+    }
+
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
         assert(IsField());
+
         return m_fieldHnd;
     }
 
@@ -289,6 +325,24 @@ public:
         return tail;
     }
 
+    FieldSeqNode* RemovePrefix(FieldSeqNode* prefix)
+    {
+        FieldSeqNode* tail = this;
+
+        // We can probably do this for array elements but we don't need it right now.
+        // At the same time, we should not do it for "not a field" so assert.
+        assert(tail->IsField());
+        assert(prefix->IsField());
+
+        while ((tail != nullptr) && (prefix != nullptr) && (tail->m_fieldHnd == prefix->m_fieldHnd))
+        {
+            tail   = tail->m_next;
+            prefix = prefix->m_next;
+        }
+
+        return tail;
+    }
+
     // Make sure this provides methods that allow it to be used as a KeyFuncs type in SimplerHash.
     static int GetHashCode(FieldSeqNode fsn)
     {
@@ -311,25 +365,22 @@ class FieldSeqStore
     CompAllocator         m_alloc;
     FieldSeqNodeCanonMap* m_canonMap;
 
-    static FieldSeqNode s_notAField; // No value, just exists to provide an address.
-
-    // Dummy variable to provide an address for the "Boxed Value" pseudo field handle.
-    static int BoxedValuePseudoFieldStruct;
-
 public:
     FieldSeqStore(Compiler* compiler);
 
     // Returns the (canonical in the store) singleton field sequence for the given handle.
     FieldSeqNode* CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd);
 
+    FieldSeqNode* GetBoxedValuePseudoField()
+    {
+        return CreateSingleton(FieldSeqNode::BoxedValuePseudoFieldHandle);
+    }
+
     FieldSeqNode* GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs);
 
-    // This is a special distinguished FieldSeqNode indicating that a constant does *not*
-    // represent a valid field sequence.  This is "infectious", in the sense that appending it
-    // (on either side) to any field sequence yields the "NotAField()" sequence.
     static FieldSeqNode* NotAField()
     {
-        return &s_notAField;
+        return &FieldSeqNode::s_notAField;
     }
 
     // Returns the (canonical in the store) field sequence representing the concatenation of
@@ -337,17 +388,11 @@ public:
     // they are the results of CreateSingleton, NotAField, or Append calls.  If either of the arguments
     // are the "NotAField" value, so is the result.
     FieldSeqNode* Append(FieldSeqNode* a, FieldSeqNode* b);
+    FieldSeqNode* Append(FieldSeqNode* a, CORINFO_FIELD_HANDLE b);
 
     FieldSeqNode* FoldAdd(const struct GenTreeIntCon* i1, const struct GenTreeIntCon* i2);
 
     INDEBUG(void DebugCheck(FieldSeqNode* f);)
-
-    // We have a few "pseudo" field handles:
-
-    // The boxed value field identifies the value part of a boxed value object.
-    // Used with static struct fields which are implemented as static reference
-    // fields pointing to boxed structs allocated by the runtime.
-    static const CORINFO_FIELD_HANDLE BoxedValuePseudoFieldHandle;
 };
 
 class GenTreeUseEdgeIterator;
@@ -1821,8 +1866,12 @@ public:
 
     void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
+#ifndef TARGET_64BIT
+    GenTreeLngCon* ChangeToLngCon(int64_t value);
+#endif
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
+    GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
     // set gtOper and only keep GTF_COMMON_MASK flags
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     void ChangeOperUnchecked(genTreeOps oper);
@@ -3935,7 +3984,9 @@ public:
     {
     }
 
-    void InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind);
+#if FEATURE_MULTIREG_RET
+    void InitializeStruct(Compiler* comp, ClassLayout* retLayout);
+#endif
 
     void InitializePrimitive(var_types regType);
 
@@ -4771,6 +4822,7 @@ private:
 #ifdef TARGET_64BIT
     bool m_isImplicitByRef : 1;
 #endif
+    bool m_isReturn : 1;
 
     // Count of registers used by this argument.
     // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
@@ -4790,7 +4842,7 @@ private:
 #endif
 
 public:
-    CallArgInfo(unsigned argNum, GenTreeCall::Use* use, unsigned regCount)
+    CallArgInfo(unsigned argNum, GenTreeCall::Use* use, unsigned regCount, bool isReturn = false)
         : use(use)
         , m_lateUse(nullptr)
         , m_argNum(argNum)
@@ -4806,12 +4858,13 @@ public:
 #ifdef TARGET_64BIT
         , m_isImplicitByRef(false)
 #endif
+        , m_isReturn(isReturn)
         , m_regCount(static_cast<uint8_t>(regCount))
 #ifdef FEATURE_HFA_FIELDS_PRESENT
         , m_regType(TYP_I_IMPL)
 #endif
     {
-        assert(regCount <= MAX_ARG_REG_COUNT);
+        assert(regCount <= static_cast<unsigned>(isReturn ? MAX_RET_REG_COUNT : MAX_ARG_REG_COUNT));
     }
 
     // Get the use that coresponds to this argument.
@@ -4965,6 +5018,12 @@ public:
             return static_cast<regNumber>(m_regNum + i * 2);
         }
 #endif
+#ifdef WINDOWS_X86_ABI
+        if (m_isReturn)
+        {
+            return i == 0 ? REG_RAX : REG_RDX;
+        }
+#endif
 #ifdef UNIX_AMD64_ABI
         return static_cast<regNumber>(m_regNums[i]);
 #else
@@ -4978,7 +5037,6 @@ public:
         assert(i < m_regCount);
         m_regNums[i] = static_cast<regNumberSmall>(regNum);
 #else
-        assert(i == 0);
         m_regNum = static_cast<regNumberSmall>(regNum);
 #endif
     }
@@ -8002,31 +8060,14 @@ inline GenTree* GenTree::gtSkipReloadOrCopy()
     return this;
 }
 
-//-----------------------------------------------------------------------------------
-// IsMultiRegCall: whether a call node returning its value in more than one register
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     Returns true if this GenTree is a multi register returning call
 inline bool GenTree::IsMultiRegCall() const
 {
-    if (this->IsCall())
-    {
-        return AsCall()->HasMultiRegRetVal();
-    }
-
-    return false;
+    return IsCall() && AsCall()->HasMultiRegRetVal();
 }
 
 inline bool GenTree::IsMultiRegLclVar() const
 {
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-    {
-        return AsLclVar()->IsMultiReg();
-    }
-    return false;
+    return OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && AsLclVar()->IsMultiReg();
 }
 
 //-----------------------------------------------------------------------------------
@@ -8127,7 +8168,7 @@ inline unsigned GenTree::GetMultiRegCount()
 #endif
     if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        assert((gtFlags & GTF_VAR_MULTIREG) != 0);
+        assert(AsLclVar()->IsMultiReg());
         // The register count for a multireg lclVar requires looking at the LclVarDsc,
         // which requires a Compiler instance. The caller must handle this separately.
         // The register count for a multireg lclVar requires looking at the LclVarDsc,
@@ -8253,14 +8294,16 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
         return gtGetOp1()->TypeGet();
     }
 #endif
+
     if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        if (TypeGet() == TYP_LONG)
+        if (TypeIs(TYP_LONG))
         {
             return TYP_INT;
         }
-        assert(TypeGet() == TYP_STRUCT);
-        assert((gtFlags & GTF_VAR_MULTIREG) != 0);
+
+        assert(TypeIs(TYP_STRUCT));
+        assert(AsLclVar()->IsMultiReg());
         // The register type for a multireg lclVar requires looking at the LclVarDsc,
         // which requires a Compiler instance. The caller must use the GetFieldTypeByIndex
         // on GenTreeLclVar.

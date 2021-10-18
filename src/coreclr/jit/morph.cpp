@@ -704,8 +704,16 @@ REMOVE_CAST:
 #ifdef DEBUG
 void CallArgInfo::Dump() const
 {
-    printf("arg %u:", m_argNum);
-    printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
+    if (m_isReturn)
+    {
+        printf("return:");
+    }
+    else
+    {
+        printf("arg %u:", m_argNum);
+    }
+
+    printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
 
     if (IsImplicitByRef())
     {
@@ -1929,24 +1937,23 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             structSize = layout->GetSize();
             sigType    = TYP_STRUCT;
 
+            layout->EnsureHfaInfo(this);
+
+            if (layout->IsHfa()
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            if (!callIsVararg)
+                && !callIsVararg
 #endif
+                )
             {
-                layout->EnsureHfaInfo(this);
+                hfaType  = layout->GetHfaElementType();
+                hfaSlots = layout->GetHfaRegCount();
 
-                if (layout->IsHfa())
-                {
-                    hfaType  = layout->GetHfaElementType();
-                    hfaSlots = layout->GetHfaRegCount();
-
-                    // If we have a HFA struct it's possible we transition from a method that originally
-                    // only had integer types to now start having FP types.  We have to communicate this
-                    // through this flag since LSRA later on will use this flag to determine whether
-                    // or not to track the FP register set.
-                    //
-                    compFloatingPointUsed = true;
-                }
+                // If we have a HFA struct it's possible we transition from a method that originally
+                // only had integer types to now start having FP types.  We have to communicate this
+                // through this flag since LSRA later on will use this flag to determine whether
+                // or not to track the FP register set.
+                //
+                compFloatingPointUsed = true;
             }
 
 #ifdef TARGET_ARM
@@ -2738,7 +2745,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 
     if (arg->OperIs(GT_LCL_VAR) && varTypeIsStruct(arg->GetType()) &&
-        (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+        lvaGetDesc(arg->AsLclVar())->IsIndependentPromoted())
     {
         LclVarDsc* lcl = lvaGetDesc(arg->AsLclVar());
 
@@ -2840,7 +2847,7 @@ void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* 
 {
     assert(argInfo->GetRegCount() == 0);
 
-    if (lvaGetPromotionType(arg->GetLclNum()) != PROMOTION_TYPE_INDEPENDENT)
+    if (!lvaGetDesc(arg)->IsIndependentPromoted())
     {
         return;
     }
@@ -3186,12 +3193,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             GenTree* doubleValue =
                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
 
-#ifdef UNIX_AMD64_ABI
-            return doubleValue;
-#else
-            // TODO-MIKE-Cleanup: It might be better to use GetElement(0)
-            return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, doubleValue);
-#endif
+            return gtNewSimdGetElementNode(TYP_SIMD16, argRegType, doubleValue, gtNewIconNode(0));
         }
     }
 #endif // TARGET_AMD64
@@ -3350,383 +3352,399 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
     return gtNewCommaNode(asgPtrField, asgTypeField);
 }
 
-#if FEATURE_MULTIREG_ARGS
+#endif
 
-bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
+#if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
+
+GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
 {
-    // Keep in sync with the logic in abiMorphMultiRegLclArgPromoted. It's unfortunate
-    // that this logic needs to be duplicated. Perhaps abiMorphMultiRegLclArgPromoted
-    // could be used during the initial argument morphing instead of being deferred to the
-    // multireg argument morphing. Probably the main issue is that arg sorting doesn't have
-    // special handling for FIELD_LIST like it does for LCL_VAR and this may have a negative
-    // impact on CQ if the arg ordering ends up being worse. It's not that good to begin with.
+    assert(argInfo->IsHfaArg());
+    assert(varTypeUsesFloatReg(argInfo->GetRegType(0)));
+    assert(argInfo->GetSlotCount() == 0);
 
-    unsigned fieldCount      = lcl->GetPromotedFieldCount();
-    unsigned field           = 0;
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-    unsigned reg             = 0;
+    LclVarDsc* lcl       = lvaGetDesc(arg);
+    var_types  regType   = argInfo->GetRegType(0);
+    unsigned   regCount  = argInfo->GetRegCount();
+    unsigned   regSize   = varTypeSize(regType);
+    unsigned   regOffset = 0;
 
-    if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
+    for (unsigned field = 0; field < lcl->GetPromotedFieldCount(); field++)
     {
-        if (regAndSlotCount > fieldCount)
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        var_types  fieldType   = fieldLcl->GetType();
+
+        if (regOffset != fieldLcl->GetPromotedFieldOffset())
+        {
+            break;
+        }
+
+        if (regType == fieldType)
+        {
+            regOffset += regSize;
+        }
+        else if (varTypeIsSIMD(fieldType) && (regType == TYP_FLOAT))
+        {
+            regOffset += varTypeSize(fieldType);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (regOffset != regCount * regSize)
+    {
+        return abiMorphMultiRegLclArg(argInfo, arg);
+    }
+
+    GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    for (unsigned reg = 0, field = 0; reg < regCount; reg++)
+    {
+        unsigned regOffset = reg * regSize;
+
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        var_types  fieldType   = fieldLcl->GetType();
+
+        GenTree* fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
+
+#ifdef FEATURE_SIMD
+        if (fieldType != regType)
+        {
+            assert(regType == TYP_FLOAT);
+            assert((regOffset >= fieldOffset) && (regOffset < fieldOffset + varTypeSize(fieldType)));
+            assert((regOffset - fieldOffset) % 4 == 0);
+
+            fieldNode =
+                gtNewSimdGetElementNode(fieldType, regType, fieldNode, gtNewIconNode((regOffset - fieldOffset) / 4));
+
+            if (regOffset + regSize >= fieldOffset + varTypeSize(fieldType))
+            {
+                field++;
+            }
+        }
+        else
+#endif
+        {
+            assert(fieldType == regType);
+            assert(regOffset == fieldOffset);
+
+            field++;
+        }
+
+        list->AddField(this, fieldNode, regOffset, regType);
+    }
+
+    return list;
+}
+
+struct AbiRegFieldMap
+{
+    struct
+    {
+        uint8_t   reg;
+        var_types type;
+        uint16_t  offset;
+        unsigned  lclNum;
+    } fields[12];
+
+    unsigned count = 0;
+    unsigned firstStackField;
+
+    AbiRegFieldMap(Compiler* compiler, LclVarDsc* lcl, CallArgInfo* argInfo)
+    {
+        assert(!argInfo->IsHfaArg());
+
+        unsigned regCount = argInfo->GetRegCount();
+        unsigned field    = 0;
+        unsigned reg      = 0;
+
+        while (reg < regCount && field < lcl->GetPromotedFieldCount())
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+
+            if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+            {
+                if ((count == 0) || (fields[count - 1].reg != reg))
+                {
+                    // This register doesn't overlap any promoted field. Must be padding
+                    // so we can just load 0. We have to add the register to the list
+                    // otherwise the backend may not allocate the register correctly.
+                    auto& f  = fields[count++];
+                    f.reg    = static_cast<uint8_t>(reg);
+                    f.lclNum = BAD_VAR_NUM;
+                }
+
+                reg++;
+                continue;
+            }
+
+            assert(count < _countof(fields));
+
+            auto& f  = fields[count++];
+            f.reg    = static_cast<uint8_t>(reg);
+            f.type   = fieldLcl->GetType();
+            f.offset = static_cast<uint16_t>(fieldOffset);
+            f.lclNum = fieldLclNum;
+
+            if (fieldOffset + varTypeSize(f.type) <= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+            {
+                field++;
+            }
+            else
+            {
+                reg++;
+            }
+        }
+
+        firstStackField = count;
+
+        if (argInfo->GetSlotCount() > 0)
+        {
+            unsigned argSize = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+
+            while (field < lcl->GetPromotedFieldCount())
+            {
+                unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+                LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
+                unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+
+                if (fieldOffset >= argSize)
+                {
+                    break;
+                }
+
+                auto& f  = fields[count++];
+                f.reg    = static_cast<uint8_t>(reg++);
+                f.type   = fieldLcl->GetType();
+                f.offset = static_cast<uint16_t>(fieldOffset);
+                f.lclNum = fieldLclNum;
+
+                field++;
+            }
+        }
+    }
+
+    bool IsSupported(CallArgInfo* argInfo) const
+    {
+        for (unsigned i = 0; i < count && fields[i].reg < argInfo->GetRegCount(); i++)
+        {
+            // For now we allow only integral fields that have matching register/field
+            // offsets. This implies that only a single integral field can be passed
+            // in a register. abiMorphSingleRegLclArgPromoted can be used to pack
+            // multiple integral fields in a single register but the the CQ results are
+            // currently a bit hit and miss.
+
+            if ((fields[i].lclNum != BAD_VAR_NUM) && !varTypeUsesFloatReg(fields[i].type) &&
+                (fields[i].offset != fields[i].reg * REGSIZE_BYTES))
+            {
+                return false;
+            }
+
+            if ((i > 0) && (fields[i - 1].reg == fields[i].reg) &&
+                !(varTypeUsesFloatReg(fields[i - 1].type) && varTypeUsesFloatReg(fields[i].type)))
+            {
+                return false;
+            }
+        }
+
+        // Make sure we don't have a field that crosses the arg boundary, codegen does
+        // not handle it properly. This can only happen due to struct reinterpretation in
+        // user code. In some cases we could narrow down the field but it's not worth it.
+
+        unsigned fieldSize = fields[count - 1].offset + varTypeSize(fields[count - 1].type);
+        unsigned argSize   = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+
+        if (fieldSize > argSize)
         {
             return false;
         }
 
-        var_types regType = argInfo->GetRegType(0);
-        unsigned  regSize = varTypeSize(regType);
-
-        while (reg < regAndSlotCount)
+        if (firstStackField < count)
         {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-            var_types  fieldType   = fieldLcl->GetType();
+            // The first stack field must not straddle the reg-stack boundary, codegen does
+            // not handle this well or at all. Alignment requirements normally prevent this
+            // from happening, at least for primitive types. Vector2/3/4 can cross this
+            // boundary easily, due to their 4 byte alignment, but they're not supported on
+            // ARM and on ARM64 split args are very rare (win-arm64 varargs only).
+            //
+            // Alignment requirements can be circumvented by reinterpretation (e.g. struct
+            // with 2 DOUBLE/LONG fields passed as struct with 4 INT fields, the later has
+            // alignment 4 and thus can be passed in r1,r2,r3 and a stack slot,
+            // see split-arg-double-reg-and-stack.cs). It's somewhat difficult to handle this
+            // kind of splitting for DOUBLE and it's too unusual to even bother trying.
+            //
+            // We'll make an exception for LONG on ARM though, it gets decomposed to 2 INTs
+            // so it works just fine in codegen. Besides, VM messed up the alignment of
+            // Vector128 on ARM so this happens "naturally", without any reinterpretation...
 
-            if (reg * regSize != fieldLcl->GetPromotedFieldOffset())
+            if ((fields[firstStackField].offset < argInfo->GetRegCount() * REGSIZE_BYTES)
+#ifdef TARGET_ARM
+                && (fields[firstStackField].type != TYP_LONG)
+#endif
+                    )
             {
                 return false;
             }
-
-            if (regType != fieldType)
-            {
-                return false;
-            }
-
-            field++;
-            reg++;
         }
 
         return true;
     }
+};
 
-    // Note that the number of slots can be very high, if a smaller struct is passed as a very
-    // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
-    // fields which is very low (currently limited to 4).
+GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const AbiRegFieldMap& map)
+{
+    GenTreeFieldList* list     = new (this, GT_FIELD_LIST) GenTreeFieldList();
+    GenTree*          regValue = nullptr;
 
-    while ((field < fieldCount) && (reg < regAndSlotCount))
+    for (unsigned i = 0; i < map.count; i++)
     {
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        unsigned regIndex  = map.fields[i].reg;
+        unsigned regOffset = regIndex * REGSIZE_BYTES;
 
-        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldOffset)
+        if (map.fields[i].lclNum == BAD_VAR_NUM)
         {
-            // This register/slot doesn't overlap any promoted field. Must be padding
-            // so we can just load 0 if it's a register or skip it if it's a slot.
-            reg++;
+            var_types regType = argInfo->GetRegType(regIndex);
+            list->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
             continue;
         }
 
-        if (reg * REGSIZE_BYTES != fieldOffset)
+        GenTree*  fieldValue  = gtNewLclvNode(map.fields[i].lclNum, map.fields[i].type);
+        var_types fieldType   = map.fields[i].type;
+        unsigned  fieldOffset = map.fields[i].offset;
+
+        if (regIndex >= argInfo->GetRegCount())
         {
-            // TODO-MIKE-CQ: Use abiMorphSingleRegLclArgPromoted to handle the case of multiple
-            // small int, INT or FLOAT fields being passed in a single register.
-            return false;
+            list->AddField(this, fieldValue, fieldOffset, fieldType);
+            continue;
         }
 
-        var_types fieldType = fieldLcl->GetType();
+#ifdef WINDOWS_X86_ABI
+        // Handle win-x86 multireg return of a struct with a single vector field
+        // (in principle the field should be SIMD8 but this is the only multireg
+        // case on x86 so we don't care what exact SIMD type it is, we just need
+        // to get INT values out of it).
 
-        if (fieldType == TYP_DOUBLE)
+        if (varTypeIsSIMD(fieldType))
         {
-#ifdef TARGET_64BIT
-            reg++;
-#else
-            if (reg == regAndSlotCount - 1)
-            {
-                // We need to have at least 2 slots left to load a DOUBLE field.
-                return false;
-            }
+            assert(argInfo->GetRegType(regIndex) == TYP_INT);
 
-            reg += 2;
-#endif
-        }
-        else if (fieldType == TYP_FLOAT)
-        {
-#ifdef UNIX_AMD64_ABI
-            // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
-            if ((field + 1 < fieldCount) && (reg < argInfo->GetRegCount()) &&
-                genIsValidFloatReg(argInfo->GetRegNum(reg))
-                // TODO-MIKE-Cleanup: The JIT wrongly asserts in various places if it sees SSE intrinsics
-                // because it conflates ISA/intrinsics/feature availability...
-                && supportSIMDTypes())
-            {
-                unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field + 1);
-                LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-                unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-                var_types  nextFieldType   = nextFieldLcl->GetType();
+            unsigned extractOffset = regOffset - fieldOffset;
+            assert(extractOffset % 4 == 0);
 
-                if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
-                {
-                    field++;
-                }
-            }
-#endif // UNIX_AMD64_ABI
-
-            reg++;
-        }
-        else if (fieldType == TYP_LONG)
-        {
-#ifdef TARGET_64BIT
-            reg++;
-#else
-            reg += 2;
-#endif
+            regValue = NewExtractVectorElement(fieldType, TYP_INT, fieldValue, extractOffset / 4);
         }
         else
+#elif defined(TARGET_64BIT)
+        // On 64 bit targets we may need to pack 2 FLOAT fields into a LONG/DOUBLE
+        // and we also have to deal with vector fields that span multiple registers
+        // (x86 doesn't have multireg args and ARM doesn't have vector support).
+
+        if (fieldOffset < regOffset)
         {
-            if (varTypeIsSIMD(fieldType))
+            // A vector overlaps the previous register, extract a FLOAT or a DOUBLE,
+            // depending on the remaining size. We might have to extract 2 FLOATS if
+            // the current vector offset isn't properly aligned to extract a DOUBLE.
+
+            assert(varTypeIsSIMD(fieldType));
+
+            unsigned extractOffset = regOffset - fieldOffset;
+            unsigned extractSize   = min(REGSIZE_BYTES, varTypeSize(fieldType) - extractOffset);
+
+            if (extractSize == 4)
             {
-                // TODO-MIKE-CQ: Handle promoted SIMD fields.
-                // On Linux-x64 a Vector2 can be easily passed in an SSE eightbyte but the rest need to be
-                // split across multiple eightbytes. Also, the VM doesn't yet handle SSEUP so Vector128<T>
-                // and Vector256<T> aren't passed correctly as far as the ABI is concerned.
-                // On ARM64 Vector2/3/4 are HFAs so they need to be handled by the HFA specific logic. But
-                // if you put a Vector3 and an Int32 in a struct the result is not a HFA and would need to
-                // be handled here by passing the Vector3 and Int32 in 4 integer registers.
-                return false;
+                assert((extractOffset % 4) == 0);
+
+                fieldValue  = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                fieldOffset = regOffset;
             }
-
-            assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
-
-            reg++;
-        }
-
-        field++;
-
-        // Check if subsequent fields overlap this slot.
-        for (; field < fieldCount; field++)
-        {
-            unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-            unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-            var_types  nextFieldType   = nextFieldLcl->GetType();
-
-            if (nextFieldOffset >= fieldOffset + REGSIZE_BYTES)
+            else if ((extractOffset % 8 == 0))
             {
-                // The next field doesn't overlap this slot.
-                break;
-            }
-
-            // Promoted fields are supposed to be aligned so a field should not straddle 2 slots.
-            assert(nextFieldOffset + varTypeSize(nextFieldType) <= fieldOffset + REGSIZE_BYTES);
-
-            if (reg <= argInfo->GetRegCount())
-            {
-                // The next field needs to be loaded in the same register, this isn't supported now.
-                return false;
-            }
-        }
-    }
-
-    return true;
-}
-
-GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
-{
-    GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-    // Keep in sync with the logic in abiCanMorphMultiRegLclArgPromoted.
-
-    unsigned fieldCount      = lcl->GetPromotedFieldCount();
-    unsigned field           = 0;
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-    unsigned reg             = 0;
-
-    if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
-    {
-        assert(regAndSlotCount <= fieldCount);
-
-        var_types regType = argInfo->GetRegType(0);
-        unsigned  regSize = varTypeSize(regType);
-
-        while (reg < regAndSlotCount)
-        {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-
-            // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
-            assert(reg * regSize == fieldLcl->GetPromotedFieldOffset());
-            assert(regType == fieldLcl->GetType());
-
-            var_types fieldType = fieldLcl->GetType();
-            GenTree*  fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
-
-            reg++;
-
-            list->AddField(this, fieldNode, fieldLcl->GetPromotedFieldOffset(), fieldType);
-            field++;
-        }
-
-        return list;
-    }
-
-    while ((field < fieldCount) && (reg < regAndSlotCount))
-    {
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-
-        var_types regType = TYP_UNDEF;
-
-        if (reg < argInfo->GetRegCount())
-        {
-#ifdef UNIX_AMD64_ABI
-            regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
-#else
-            regType = TYP_I_IMPL;
-#endif
-        }
-
-        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldOffset)
-        {
-            // This register/slot doesn't overlap any promoted field. Must be padding
-            // so we can just load 0 if it's a register or skip it if it's a slot.
-            if (regType != TYP_UNDEF)
-            {
-                list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
-            }
-
-            reg++;
-            continue;
-        }
-
-        // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
-        assert(reg * REGSIZE_BYTES == fieldOffset);
-
-        var_types fieldType = fieldLcl->GetType();
-        GenTree*  fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
-
-        if (fieldType == TYP_DOUBLE)
-        {
-#ifdef TARGET_64BIT
-            if (regType == TYP_LONG)
-            {
-                fieldNode = gtNewBitCastNode(TYP_LONG, fieldNode);
-                fieldType = TYP_LONG;
-            }
-
-            reg++;
-#else
-            // We need to have at least 2 slots left to load a DOUBLE field.
-            assert(reg != regAndSlotCount - 1);
-
-            // Ideally we'd bitcast the DOUBLE to LONG but decomposition doesn't currently support
-            // LONG BITCAST nodes so we'll leave it as is and defer it to lowering.
-
-            reg += 2;
-#endif
-        }
-        else if (fieldType == TYP_FLOAT)
-        {
-            if (regType == TYP_I_IMPL)
-            {
-                fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
-                fieldType = TYP_INT;
-            }
-
-#ifdef UNIX_AMD64_ABI
-            // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
-            if ((field + 1 < fieldCount) && (regType == TYP_DOUBLE))
-            {
-                unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field + 1);
-                LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-                unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-                var_types  nextFieldType   = nextFieldLcl->GetType();
-
-                if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
-                {
-                    GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
-                    fieldNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, fieldNode,
-                                                         nextFieldNode);
-                    field++;
-                }
-            }
-#endif // UNIX_AMD64_ABI
-
-            reg++;
-        }
-        else if (fieldType == TYP_LONG)
-        {
-#ifdef TARGET_64BIT
-            if (regType == TYP_DOUBLE)
-            {
-                fieldNode = gtNewBitCastNode(TYP_DOUBLE, fieldNode);
-                fieldType = TYP_DOUBLE;
-            }
-
-            reg++;
-#else
-            // We need to have at least 2 registers/slots left to load a LONG field.
-            // If not, we can narrow it down to INT to load it.
-            if (reg == regAndSlotCount - 1)
-            {
-                fieldNode = gtNewCastNode(TYP_INT, fieldNode, false, TYP_INT);
-                fieldType = TYP_INT;
-                reg++;
+                fieldValue  = NewExtractVectorElement(fieldType, TYP_DOUBLE, fieldValue, extractOffset / 8);
+                fieldOffset = regOffset;
             }
             else
             {
-                reg += 2;
+                assert(extractSize == 8);
+                assert(extractOffset % 4 == 0);
+
+                regValue   = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                fieldValue = gtNewLclvNode(fieldValue->AsLclVar()->GetLclNum(), fieldType);
+                fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4 + 1);
+
+                fieldOffset = regOffset + 4;
+                fieldType   = TYP_FLOAT;
             }
+        }
+        else if (varTypeIsSIMD(fieldType) && (fieldOffset == regOffset + 4))
+        {
+            // The vector overlaps the second half of an eightbyte, extract a FLOAT
+            // and continue as if this was a FLOAT field.
+
+            fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, 0);
+            fieldType  = TYP_FLOAT;
+        }
+
+        if ((fieldType == TYP_FLOAT) && (fieldOffset == regOffset + 4))
+        {
+            assert(regValue->TypeIs(TYP_FLOAT));
+
+            regValue = gtNewSimdHWIntrinsicNode(
+#ifdef UNIX_AMD64_ABI
+                TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+#elif defined(TARGET_ARM64)
+                TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT, 8,
+#else
+#error Unknown target
 #endif
+                regValue, fieldValue);
         }
         else
+#endif // TARGET_64BIT
         {
-            assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
-
-            // Note that small type promoted fields are "normalize on load" but
-            // normalization isn't done here because struct padding bits aren't
-            // supposed to be accessed by normal code. Might be nice to insert
-            // a cast to zero extend small types if it doesn't hurt CQ too much.
-
-            reg++;
+            assert(fieldOffset == regOffset);
+            regValue = fieldValue;
         }
 
-        list->AddField(this, fieldNode, fieldOffset, fieldType);
-        field++;
-
-        // Add subsequent fields that overlap this slot.
-        for (; field < fieldCount; field++)
+        if ((i == map.count - 1) || (map.fields[i + 1].reg != regIndex))
         {
-            unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
-            unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
-            var_types  nextFieldType   = nextFieldLcl->GetType();
+            var_types regType = argInfo->GetRegType(regIndex);
 
-            if (nextFieldOffset >= fieldOffset + REGSIZE_BYTES)
-            {
-                // The next field doesn't overlap this slot.
-                break;
-            }
-
-            // Promoted fields are supposed to be aligned so a field should not straddle 2 slots.
-            assert(nextFieldOffset + varTypeSize(nextFieldType) <= fieldOffset + REGSIZE_BYTES);
-            // The next field needs to be loaded in the same register, this isn't supported now.
-            assert(regType == TYP_UNDEF);
 #ifdef TARGET_64BIT
-            assert(varTypeIsSmall(nextFieldType) || (nextFieldType == TYP_INT) || (nextFieldType == TYP_FLOAT));
+            if (regValue->TypeIs(TYP_FLOAT, TYP_DOUBLE, TYP_SIMD8) && !varTypeUsesFloatReg(regType))
+            {
+                regValue = gtNewBitCastNode(regValue->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, regValue);
+            }
+            else if (varTypeIsSIMD(regValue->GetType()) && !varTypeUsesFloatReg(regType))
+            {
+                regValue = NewExtractVectorElement(regValue->GetType(), TYP_LONG, regValue, 0);
+            }
+            else if (varTypeIsIntegral(regValue->GetType()) && varTypeUsesFloatReg(regType))
+            {
+                regValue = gtNewBitCastNode(varTypeSize(regValue->GetType()) <= 4 ? TYP_FLOAT : TYP_DOUBLE, regValue);
+            }
 #else
-            assert(varTypeIsSmall(nextFieldType));
+            assert(!varTypeUsesFloatReg(regType));
+
+            if (regValue->TypeIs(TYP_FLOAT))
+            {
+                regValue = gtNewBitCastNode(TYP_INT, regValue);
+            }
+            else if (regValue->TypeIs(TYP_LONG, TYP_DOUBLE))
+            {
+                // Skip the next register, decomposition will split the LONG
+                // field into 2 INT fields, DOUBLE will be handled in codegen.
+                i++;
+            }
 #endif
 
-            GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
-            list->AddField(this, nextFieldNode, nextFieldOffset, nextFieldType);
+            list->AddField(this, regValue, regIndex * REGSIZE_BYTES, regType);
         }
-    }
-
-    // Zero out any remaining registers. Perhaps zeroing isn't strictly needed as these
-    // are basically padding bits but the backend won't allocate the arg register if a
-    // field is not added to the list.
-    while (reg < argInfo->GetRegCount())
-    {
-#ifdef UNIX_AMD64_ABI
-        var_types regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_LONG;
-#else
-        var_types     regType = TYP_I_IMPL;
-#endif
-
-        list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
-        reg++;
     }
 
     return list;
@@ -3737,7 +3755,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Morphing multireg struct argument: ");
+        printf("Morphing multireg struct ");
         argInfo->Dump();
     }
 #endif
@@ -3780,39 +3798,6 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(varTypeIsStruct(arg->GetType()));
 
-    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-        abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
-    {
-        return abiMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar()));
-    }
-
-#ifdef TARGET_ARM
-    // If an argument is passed in registers we'd like to build a FIELD_LIST with
-    // one field for each register. But split args are problematic - they are also
-    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
-    // with one field per slot isn't an option because there may be too many and
-    // having one field for all slots doesn't work either because we don't have a
-    // layout to describe such a partial "view" of a struct.
-    // So we give up if there are too many slots.
-    //
-    // For promoted struct locals this means that we'll end up with dependent promotion.
-    // This isn't very common (because it means the struct has long or double fields,
-    // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
-    // the number of reg and slots that is also 4).
-
-    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
-    {
-        if (arg->OperIs(GT_LCL_VAR))
-        {
-            lvaSetVarDoNotEnregister(arg->AsLclVar()->GetLclNum() DEBUGARG(DNER_IsStructArg));
-        }
-
-        return arg;
-    }
-#endif
-
-    assert(varTypeIsStruct(arg->GetType()));
-
     // TODO-MIKE-CQ: It may make more sense to alway use abiMorphMultiRegSimdArg for
     // SIMD args that are memory loads. abiMorphMultiRegObjArg will just generate
     // multiple loads and those loads may have associated optimization issues in VN
@@ -3824,6 +3809,21 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
+        if (arg->OperIs(GT_LCL_VAR) && lvaGetDesc(arg->AsLclVar())->IsPromoted())
+        {
+            if (argInfo->IsHfaArg())
+            {
+                return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclVar());
+            }
+
+            AbiRegFieldMap map(this, lvaGetDesc(arg->AsLclVar()), argInfo);
+
+            if (map.IsSupported(argInfo))
+            {
+                return abiMorphMultiRegLclArgPromoted(argInfo, map);
+            }
+        }
+
         return abiMorphMultiRegLclArg(argInfo, arg->AsLclVarCommon());
     }
 
@@ -3862,33 +3862,152 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
     assert(regCount == 2);
     assert(argInfo->GetRegType(0) == TYP_DOUBLE);
     assert((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE));
+#elif defined(WINDOWS_X86_ABI)
+    assert(regCount == 2);
+    assert((argInfo->GetRegType(0) == TYP_INT) && (argInfo->GetRegType(1) == TYP_INT));
 #else
 #error Unknown target.
 #endif
 
-    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
+    bool argIsZero      = false;
+    bool argIsCreate    = false;
+    bool argIsBroadcast = false;
 
-    unsigned tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
-    GenTree* tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
+    if (GenTreeHWIntrinsic* hwi = arg->IsHWIntrinsic())
+    {
+        switch (hwi->GetIntrinsic())
+        {
+            case NI_Vector128_get_Zero:
+#ifdef TARGET_ARM64
+            case NI_Vector64_get_Zero:
+#endif
+                argIsZero = true;
+                break;
+
+            case NI_Vector128_Create:
+#ifdef TARGET_ARM64
+            case NI_Vector64_Create:
+#endif
+                if ((hwi->GetSimdBaseType() == TYP_FLOAT)
+#ifdef TARGET_ARM64
+                    && (argInfo->GetRegType() == TYP_FLOAT)
+#endif
+                        )
+                {
+                    if (hwi->IsUnary())
+                    {
+                        argIsBroadcast = true;
+                    }
+                    else
+                    {
+                        argIsCreate = true;
+                    }
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    unsigned tempLclNum = BAD_VAR_NUM;
+    GenTree* tempAssign = nullptr;
+
+    if (argIsBroadcast)
+    {
+        arg = arg->AsHWIntrinsic()->GetOp(0);
+
+        assert(arg->TypeIs(TYP_FLOAT));
+
+        if (!arg->IsDblCon() && !arg->OperIs(GT_LCL_VAR))
+        {
+            tempLclNum = lvaNewTemp(TYP_FLOAT, true DEBUGARG("multi-reg SIMD arg temp"));
+            tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, TYP_FLOAT), arg);
+
+            arg = gtNewLclvNode(tempLclNum, TYP_FLOAT);
+        }
+
+#ifdef UNIX_AMD64_ABI
+        if (arg->IsDblCon())
+        {
+            // CSE is dumb - it CSEs FP constants and that prevents us from recognizing
+            // constant vector creation in lowering. Well, recognizing constant vector
+            // creation is lowering is just as dumb...
+            arg->SetDoNotCSE();
+        }
+
+        arg = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, arg, gtCloneExpr(arg));
+        // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
+        // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
+        arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
+
+        unsigned dblTempLclNum = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"));
+        GenTree* dblTempAssign = gtNewAssignNode(gtNewLclvNode(dblTempLclNum, TYP_DOUBLE), arg);
+
+        if (tempAssign != nullptr)
+        {
+            tempAssign = gtNewCommaNode(tempAssign, dblTempAssign);
+        }
+        else
+        {
+            tempAssign = dblTempAssign;
+        }
+
+        arg = gtNewLclvNode(dblTempLclNum, TYP_DOUBLE);
+#endif // UNIX_AMD64_ABI
+    }
+    else if (!argIsZero && !argIsCreate)
+    {
+        ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
+
+        tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
+        tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
+    }
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+    for (unsigned i = 0, regOffset = 0, createOpIndex = 0; i < regCount; i++)
     {
 #if FEATURE_ARG_SPLIT
         var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
 #else
         var_types regType = argInfo->GetRegType(i);
 #endif
-        unsigned regSize  = varTypeSize(regType);
-        GenTree* regValue = gtNewLclvNode(tempLclNum, arg->GetType());
+        unsigned regSize = varTypeSize(regType);
+        GenTree* regValue;
 
-        // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
-        // in a SIMD register and at the proper position.
+        if (argIsBroadcast)
+        {
+            regValue = i == 0 ? arg : gtCloneExpr(arg);
+        }
+        else if (argIsCreate && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
+        {
+            regValue = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
+            assert(regValue->TypeIs(TYP_FLOAT));
+#ifdef TARGET_ARM64
+            assert(regType == TYP_FLOAT);
+#endif
 
-        regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
+#ifdef UNIX_AMD64_ABI
+            if ((regType == TYP_DOUBLE) && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
+            {
+                GenTree* regValue2 = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
+                assert(regValue2->TypeIs(TYP_FLOAT));
+                regValue = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_Create, TYP_FLOAT, 16, regValue, regValue2);
+            }
+#endif
+        }
+        else if (argIsCreate || argIsZero)
+        {
+            regValue = gtNewZeroConNode(regType);
+        }
+        else
+        {
+            regValue = gtNewLclvNode(tempLclNum, arg->GetType());
+            regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
+        }
 
-        if (i == 0)
+        if ((i == 0) && (tempAssign != nullptr))
         {
             regValue = gtNewCommaNode(tempAssign, regValue);
         }
@@ -3908,6 +4027,29 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
 
 #ifdef TARGET_ARM
+    // If an argument is passed in registers we'd like to build a FIELD_LIST with
+    // one field for each register. But split args are problematic - they are also
+    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
+    // with one field per slot isn't an option because there may be too many and
+    // having one field for all slots doesn't work either because we don't have a
+    // layout to describe such a partial "view" of a struct.
+    // So we give up if there are too many slots.
+    //
+    // For promoted struct locals this means that we'll end up with dependent promotion.
+    // This isn't very common (because it means the struct has long or double fields,
+    // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
+    // the number of reg and slots that is also 4).
+
+    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
+    {
+        if (arg->OperIs(GT_LCL_VAR))
+        {
+            lvaSetVarDoNotEnregister(arg->GetLclNum() DEBUGARG(DNER_IsStructArg));
+        }
+
+        return arg;
+    }
+
     // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
     // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
     //
@@ -3931,7 +4073,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     GenTree* tempAssign = nullptr;
 
-    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+    if (arg->OperIs(GT_LCL_VAR) && lvaGetDesc(arg)->IsIndependentPromoted())
     {
         unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
         lcl                 = lvaGetDesc(tempLclNum);
@@ -3949,48 +4091,6 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 #endif
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-    if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 2) && (regCount == 2))
-    {
-        // If we have 2 promoted fields that start at offset 0 and 8 then we can pass them using FIELD_LIST.
-        // If there are more fields it means that 2 or more fields go into the same register, currently this
-        // isn't handled and LCL_FLDs will be used instead, making the struct var dependent promoted.
-
-        // TODO-MIKE-Cleanup: This is a very primitive version of abiMorphPromotedStructArgToFieldList. The
-        // difference is that abiMorphPromotedStructArgToFieldList is currently used only with independent
-        // promoted structs while this is used, mostly as a fallback, in the dependent case. It would likely
-        // be better to get rid of this and use abiMorphPromotedStructArgToFieldList in all cases.
-        //
-        // It may seem pointless to attempt to use the promoted fields in the dependent case, since they're
-        // in memory anyway we could just use the non-promoted code path which creates LCL_FLDs. But:
-        //   - The generated LCL_FLDs do not have field sequences so we lose CSE, const prop and whatever else
-        //     relies on value numbering.
-        //   - The generated LCL_FLDs have type TYP_LONG even when perhaps the type was a smaller int, this
-        //     makes the code larger due to extra REX prefixes.
-
-        unsigned loVarNum = lvaGetFieldLocal(lcl, 0);
-        unsigned hiVarNum = lvaGetFieldLocal(lcl, 8);
-
-        if ((loVarNum != BAD_VAR_NUM) && (hiVarNum != BAD_VAR_NUM))
-        {
-            LclVarDsc* loVarDsc = lvaGetDesc(loVarNum);
-            LclVarDsc* hiVarDsc = lvaGetDesc(hiVarNum);
-
-            var_types loType = loVarDsc->GetType();
-            var_types hiType = hiVarDsc->GetType();
-
-            if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(argInfo->GetRegType(0))) &&
-                (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(argInfo->GetRegType(1))))
-            {
-                fieldList->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
-                fieldList->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
-
-                return fieldList;
-            }
-        }
-    }
-#endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
 
     unsigned lclNum    = arg->GetLclNum();
     unsigned lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
@@ -4034,10 +4134,11 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
             regValue = gtNewZeroConNode(regType);
         }
 #ifdef FEATURE_SIMD
-        else if (lclIsSIMD && varTypeIsFloating(regType) && (lclOffset % regSize == 0))
+        else if (lclIsSIMD && (lclOffset % regSize == 0))
         {
-            // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
-            // in a SIMD register and at the proper position.
+            // Note that the VM ARM64 ABI doesn't recognize HVAs so a struct with a single
+            // Vector128 field will be passed in 2 GPRs instead of a single SIMD reg.
+            assert(varTypeIsFloating(regType) || (regType == TYP_I_IMPL));
 
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
             GenTree* simdValue    = gtNewLclvNode(lclNum, lcl->GetType());
@@ -4070,6 +4171,21 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
 GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
 {
+#ifdef TARGET_ARM
+    // If an argument is passed in registers we'd like to build a FIELD_LIST with
+    // one field for each register. But split args are problematic - they are also
+    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
+    // with one field per slot isn't an option because there may be too many and
+    // having one field for all slots doesn't work either because we don't have a
+    // layout to describe such a partial "view" of a struct.
+    // So we give up if there are too many slots.
+
+    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
+    {
+        return arg;
+    }
+#endif
+
     ClassLayout* argLayout = arg->GetLayout();
     unsigned     argSize   = argLayout->GetSize();
 
@@ -4158,6 +4274,8 @@ GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOf
 
 #if defined(TARGET_AMD64)
         if ((offset >= INT32_MIN) && (offset <= INT32_MAX - indirSize))
+#elif defined(WINDOWS_X86_ABI)
+        if (static_cast<unsigned>(offset) <= UINT32_MAX - indirSize)
 #elif defined(TARGET_ARMARCH)
         // For simplicity, limit the offset to values that are valid address mode
         // offsets, no matter what the indirection type is.
@@ -4260,7 +4378,9 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 #endif
 }
 
-#endif // FEATURE_MULTIREG_ARGS
+#endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
+
+#ifndef TARGET_X86
 
 unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
 {
@@ -4277,18 +4397,16 @@ unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
         }
         else
         {
-            indexType lclNum;
-            FOREACH_HBV_BIT_SET(lclNum, m_abiStructArgTemps)
+            indexType index = m_abiStructArgTemps->FindFirstBit([this, argLayout](indexType i) {
+                return (lvaGetDesc(static_cast<unsigned>(i))->GetLayout() == argLayout) &&
+                       !m_abiStructArgTempsInUse->testBit(i);
+            });
+
+            if (index != -1)
             {
-                if ((lvaGetDesc(static_cast<unsigned>(lclNum))->GetLayout() == argLayout) &&
-                    !m_abiStructArgTempsInUse->testBit(lclNum))
-                {
-                    tempLclNum = static_cast<unsigned>(lclNum);
-                    JITDUMP("Reusing struct arg temp V%02u\n", tempLclNum);
-                    break;
-                }
+                tempLclNum = static_cast<unsigned>(index);
+                JITDUMP("Reusing struct arg temp V%02u\n", tempLclNum);
             }
-            NEXT_HBV_BIT_SET;
         }
     }
 
@@ -4396,14 +4514,39 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
 
-    // TODO-MIKE-CQ: This should probably be removed, it's here only because
-    // a previous implementation (gtNewBlkOpNode) was setting it. And it
-    // probably blocks SIMD tree CSEing.
-    arg->gtFlags |= GTF_DONT_CSE;
+    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
+    GenTree*   dest;
 
-    GenTree* dest = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
-    GenTree* asg  = gtNewAssignNode(dest, arg);
-    asg           = fgMorphStructAssignment(asg->AsOp());
+    // Due to single field struct promotion it is possible that the argument has SIMD
+    // type while the temp has STRUCT type. Store the arg to the temp using LCL_FLD
+    // because fgMorphCopyBlock has problems with this kind of type mismatches.
+
+    // TODO-MIKE-Cleanup: This should probably be extended to other type mismatches
+    // that arise from single field struct promotion. fgMorphCopyBlock shouldn't have
+    // to deal with fall out from poorly designed struct promotion. Small int types
+    // may need some extra care. Since we're dealing with structs, widening isn't
+    // required but we need to be sure that the correct type is used to store the arg
+    // value - it may be that the struct has 2 bytes (a SHORT field) and the arg may
+    // have type UBYTE (e.g. an IND) - we do need to store 2 bytes, not 1, so using
+    // the arg type isn't correct.
+
+    // TODO-MIKE-CQ: SIMD12 stores should be widened to SIMD16 on 64 bit targets.
+
+    if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
+    {
+        dest = gtNewLclFldNode(tempLclNum, arg->GetType(), 0);
+    }
+    else
+    {
+        dest = gtNewLclvNode(tempLclNum, tempLcl->GetType());
+    }
+
+    GenTree* asg = gtNewAssignNode(dest, arg);
+
+    if (varTypeIsStruct(dest->GetType()))
+    {
+        asg = fgMorphStructAssignment(asg->AsOp());
+    }
 
     argInfo->SetNode(asg);
     argInfo->SetTempLclNum(tempLclNum);
@@ -5170,9 +5313,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     {
         GenTree* addr = tree->AsIndir()->GetAddr()->gtEffectiveVal();
 
-        JITDUMPTREE(tree, "\nBefore calling fgAddFieldSeqForZeroOffset:\n");
-
-        // Since we don't make a constant zero to attach the field sequence to, associate it with the "addr" node.
         FieldSeqNode* fieldSeq =
             fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(fldHandle);
         fgAddFieldSeqForZeroOffset(addr, fieldSeq);
@@ -8717,8 +8857,8 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned sr
     NamedIntrinsic create = NI_Vector128_Create;
     unsigned       numOps = 4;
 #elif defined(TARGET_ARM64)
-    NamedIntrinsic create = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
-    unsigned       numOps = dstType == TYP_SIMD8 ? 2 : 4;
+    NamedIntrinsic create  = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
+    unsigned       numOps  = dstType == TYP_SIMD8 ? 2 : 4;
 #else
 #error Unsupported platform
 #endif
@@ -9371,8 +9511,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
                             if (destParentLcl->GetLayout() == srcLclVar->GetLayout())
                             {
-                                src->AsLclFld()->SetFieldSeq(
-                                    GetFieldSeqStore()->CreateSingleton(destLclVar->GetPromotedFieldHandle()));
+                                src->AsLclFld()->SetFieldSeq(destLclVar->GetPromotedFieldSeq());
                             }
                         }
                     }
@@ -9681,8 +9820,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             if ((destLclOffs == 0) && (destFieldSeq == nullptr) && varTypeIsStruct(destLclVar->GetType()) &&
                 (destLclVar->GetLayout() == srcLclVar->GetLayout()))
             {
-                destField->AsLclFld()->SetFieldSeq(
-                    GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle()));
+                destField->AsLclFld()->SetFieldSeq(srcFieldLclVar->GetPromotedFieldSeq());
             }
 
             lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_LocalField));
@@ -9724,11 +9862,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             // TODO-MIKE-Review: This looks fishy - it's only correct if the destination has the same type as the
             // source. If reinterpretation has ocurred then it would likely be wiser to use NotAField.
 
-            // TODO-MIKE-Fix: This is definitely bogus when pseudo-recursive struct promotion is involved. In the
-            // LclVarDsc we have the field handle of the inner struct field but here we need the field handle of
-            // the leaf primitive field.
-
-            FieldSeqNode* srcFieldSeq = GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle());
+            FieldSeqNode* srcFieldSeq = srcFieldLclVar->GetPromotedFieldSeq();
 
             if (srcFieldLclVar->GetPromotedFieldOffset() == 0)
             {
@@ -9777,8 +9911,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             if ((srcLclOffs == 0) && (srcFieldSeq == nullptr) && varTypeIsStruct(srcLclVar->GetType()) &&
                 (srcLclVar->GetLayout() == destLclVar->GetLayout()))
             {
-                srcField->AsLclFld()->SetFieldSeq(
-                    GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle()));
+                srcField->AsLclFld()->SetFieldSeq(destFieldLclVar->GetPromotedFieldSeq());
             }
 
             lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_LocalField));
@@ -9800,7 +9933,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             unsigned      destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
             LclVarDsc*    destFieldLclVar = lvaGetDesc(destFieldLclNum);
-            FieldSeqNode* destFieldSeq = GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle());
+            FieldSeqNode* destFieldSeq    = destFieldLclVar->GetPromotedFieldSeq();
 
             if (destFieldLclVar->GetPromotedFieldOffset() == 0)
             {
@@ -10580,58 +10713,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 return tree;
             }
-
-            if (!tree->TypeIs(TYP_VOID))
-            {
-                if (op1->OperIs(GT_OBJ, GT_IND))
-                {
-                    op1 = fgMorphRetInd(tree->AsUnOp());
-                }
-
-                if (op1->OperIs(GT_LCL_VAR))
-                {
-                    // With merged returns, RETURN trees are replaced by assignments to the merged return temp.
-                    // Such assignments may be promoted to prevent dependent promotion of involved locals.
-
-                    GenTreeLclVar* lclVar = op1->AsLclVar();
-                    unsigned       lclNum = lclVar->GetLclNum();
-
-                    if ((genReturnLocal == BAD_VAR_NUM) || (genReturnLocal == lclNum))
-                    {
-                        LclVarDsc* lcl = lvaGetDesc(lclVar);
-
-                        if (lcl->CanBeReplacedWithItsField(this))
-                        {
-                            // We can replace the struct with its only field and allow copy propagation to replace
-                            // return value that was written as a field.
-                            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-                            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-
-                            if (!varTypeIsSmallInt(fieldLcl->GetType()))
-                            {
-                                // TODO-CQ: support that substitution for small types without creating `CAST` node.
-                                // When a small struct is returned in a register higher bits could be left in undefined
-                                // state.
-
-                                JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
-                                        "V%02u for "
-                                        "the return [%06u]\n",
-                                        lclNum, fieldLclNum, dspTreeID(tree));
-
-                                lclVar->SetLclNum(fieldLclNum);
-                                lclVar->SetType(fieldLcl->GetType());
-                            }
-                        }
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-                        else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
-                        {
-                            abiMorphReturnSimdLclPromoted(tree->AsUnOp(), op1);
-                            op1 = tree->AsUnOp()->GetOp(0);
-                        }
-#endif
-                    }
-                }
-            }
             break;
 
         case GT_EQ:
@@ -11160,8 +11241,11 @@ DONE_MORPHING_CHILDREN:
                 tree->AsOp()->gtOp1 = op1;
             }
 
-            /* If we are storing a small type, we might be able to omit a cast */
-            if (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) && varTypeIsSmall(effectiveOp1->TypeGet()))
+            // If we are storing a small type, we might be able to omit a cast.
+            // We may also omit a cast when storing to a "normalize on load"
+            // local since we know that a load from that local has to cast anyway.
+            if (varTypeIsSmall(effectiveOp1->TypeGet()) && (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) ||
+                 (effectiveOp1->OperIs(GT_LCL_VAR) && lvaGetDesc(effectiveOp1->AsLclVar())->lvNormalizeOnLoad())))
             {
                 if (!gtIsActiveCSE_Candidate(op2) && (op2->gtOper == GT_CAST) && !op2->gtOverflow())
                 {
@@ -11192,6 +11276,21 @@ DONE_MORPHING_CHILDREN:
                 return fgMorphStructAssignment(tree->AsOp());
             }
 
+            break;
+
+        case GT_RETURN:
+            if (varTypeIsStruct(tree->GetType()))
+            {
+                // If we have merged returns then we only need to transform the one that returns
+                // the merged return temp, the rest will be transformed into assignments to that
+                // temp when block morphing is complete.
+
+                if ((genReturnLocal == BAD_VAR_NUM) || ((tree->gtFlags & GTF_RET_MERGED) != 0))
+                {
+                    abiMorphStructReturn(tree->AsUnOp(), op1);
+                    op1 = tree->AsUnOp()->GetOp(0);
+                }
+            }
             break;
 
         case GT_EQ:
@@ -12954,177 +13053,199 @@ DONE_MORPHING_CHILDREN:
     return tree;
 }
 
-//----------------------------------------------------------------------------------------------
-// fgMorphRetInd: Try to get rid of extra IND(ADDR()) pairs in a return tree.
-//
-// Arguments:
-//    node - The return node that uses an indirection.
-//
-// Return Value:
-//    the original op1 of the ret if there was no optimization or an optimized new op1.
-//
-GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
+void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 {
-    assert(ret->OperIs(GT_RETURN));
-    assert(ret->GetOp(0)->OperIs(GT_IND, GT_OBJ));
+    assert(varTypeIsStruct(ret->GetType()));
 
-    GenTreeIndir* indir = ret->GetOp(0)->AsIndir();
-    GenTree*      addr  = indir->GetAddr();
-
-    if (!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+#if FEATURE_MULTIREG_RET
+    if (info.retDesc.GetRegCount() > 1)
     {
-        return indir;
-    }
+        assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
 
-    assert(!gtIsActiveCSE_Candidate(addr) && !gtIsActiveCSE_Candidate(indir));
+        ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
 
-    unsigned indirSize;
-
-    if (indir->OperIs(GT_IND))
-    {
-        indirSize = varTypeSize(indir->GetType());
-    }
-    else
-    {
-        indirSize = indir->AsBlk()->GetLayout()->GetSize();
-    }
-
-    GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
-    LclVarDsc*     lcl    = lvaGetDesc(lclVar);
-
-    assert(!lcl->IsImplicitByRefParam());
-
-    unsigned lclSize;
-
-    if (lcl->TypeIs(TYP_STRUCT))
-    {
-        lclSize = lcl->GetLayout()->GetSize();
-    }
-    else
-    {
-        assert(!lcl->TypeIs(TYP_BLK));
-        lclSize = varTypeSize(lcl->GetType());
-    }
-
-    // If `return` retypes LCL_VAR as a smaller struct it should not set `doNotEnregister` on that LclVar.
-    // Example: in `Vector128:AsVector2` we have RETURN SIMD8(OBJ SIMD8(ADDR byref(LCL_VAR SIMD16))).
-
-    // TODO: change conditions in `canFold` to `indSize <= lclVarSize`, but currently do not support `BITCAST
-    // int<-SIMD16` etc.
-    assert((indirSize <= lclSize) || lcl->lvDoNotEnregister);
-
-#ifdef TARGET_64BIT
-    bool canFold = (indirSize == lclSize);
-#else
-    // TODO: improve 32 bit targets handling for LONG returns if necessary, nowadays we do not support `BITCAST
-    // long<->double` there.
-    bool canFold = (indirSize == lclSize) && (lclSize <= REGSIZE_BYTES);
-#endif
-
-    // TODO: support `genReturnBB != nullptr`, it requires #11413 to avoid `Incompatible types for
-    // gtNewTempAssign`.
-
-    if (canFold && (genReturnBB == nullptr))
-    {
-        // Fold (TYPE1)*(&(TYPE2)x) even if types do not match, lowering will handle it.
-        // Getting rid of this IND(ADDR()) pair allows to keep lclVar as not address taken
-        // and enregister it.
-
-        ret->SetOp(0, lclVar);
-
-        return lclVar;
-    }
-
-    if (!lcl->lvDoNotEnregister)
-    {
-        lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(DNER_BlockOp));
-    }
-
-    return indir;
-}
-
-#ifdef TARGET_ARM64
-void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
-{
-    LclVarDsc* lcl = lvaGetDesc(val->AsLclVar());
-    assert(varTypeIsSIMD(lcl->GetType()));
-    // Only Vector2/3/4 are promoted.
-    assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
-
-    INDEBUG(val->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
-    GenTreeFieldList* fieldList = val->ChangeToFieldList();
-
-    for (unsigned i = 0; i < info.retDesc.GetRegCount(); i++)
-    {
-        assert(info.retDesc.GetRegType(i) == TYP_FLOAT);
-
-        GenTree* field;
-
-        if (i < lcl->GetPromotedFieldCount())
+        while (val->OperIs(GT_COMMA))
         {
-            field = gtNewLclvNode(lcl->GetPromotedFieldLclNum(i), TYP_FLOAT);
-        }
-        else
-        {
-            field = gtNewDconNode(0, TYP_FLOAT);
+            commas.Push(val->AsOp());
+            val = val->AsOp()->GetOp(1);
         }
 
-        fieldList->AddField(this, field, i * 4, TYP_FLOAT);
-    }
+        if (val->IsFieldList())
+        {
+            return;
+        }
 
-    ret->SetType(TYP_STRUCT);
-    ret->SetOp(0, fieldList);
-}
-#endif // TARGET_ARM64
+        if (val->TypeIs(TYP_STRUCT) && val->OperIs(GT_IND))
+        {
+            val->ChangeOper(GT_OBJ);
+            val->AsObj()->SetLayout(info.GetRetLayout());
+            val->AsObj()->SetKind(StructStoreKind::Invalid);
+        }
+        else if (varTypeIsSIMD(val->GetType()) && val->OperIs(GT_LCL_FLD))
+        {
+            val->AsLclFld()->SetLayout(info.GetRetLayout(), this);
+        }
 
-#ifdef TARGET_AMD64
-void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
-{
-    LclVarDsc* lcl = lvaGetDesc(val->AsLclVar());
-    assert(varTypeIsSIMD(lcl->GetType()));
-    // Only Vector2/3/4 are promoted.
-    assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
-
-    GenTree* fields[2];
-
-    fields[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
-                                         gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT),
-                                         gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT));
+        GenTreeCall::Use use(val);
+        use.SetSigTypeNum(typGetLayoutNum(info.GetRetLayout()));
+        CallArgInfo argInfo(0, &use, info.retDesc.GetRegCount(), true);
+        argInfo.SetArgType(val->GetType());
 
 #ifdef UNIX_AMD64_ABI
-    if (info.retDesc.GetRegCount() == 2)
-    {
-        assert(varTypeUsesFloatReg(info.retDesc.GetRegType(0)));
-        assert(varTypeUsesFloatReg(info.retDesc.GetRegType(1)));
-
-        if (lcl->GetPromotedFieldCount() == 3)
+        for (unsigned i = 0; i < info.retDesc.GetRegCount(); i++)
         {
-            fields[1] = gtNewLclvNode(lcl->GetPromotedFieldLclNum(2), TYP_FLOAT);
+            argInfo.SetRegNum(i, info.retDesc.GetRegNum(i));
+            argInfo.SetRegType(i, info.retDesc.GetRegType(i));
+        }
+#else
+        var_types  regType = info.retDesc.GetRegType(0);
+
+        if (varTypeIsGC(regType))
+        {
+            regType = TYP_I_IMPL;
+        }
+
+        argInfo.SetRegType(regType);
+#endif
+
+        val = abiMorphMultiRegStructArg(&argInfo, val);
+
+        var_types retType = varActualType(val->GetType());
+
+#ifdef WINDOWS_X86_ABI
+        // TODO-MIKE-Cleanup: abiMorphMultiRegStructArg manages to generate a FIELD_LIST
+        // with a single LONG/DOUBLE field, this doesn't seem right and it certainly doesn't
+        // work correctly on x86. ARM32 multireg args may also be affected.
+        if (GenTreeFieldList* fieldList = val->IsFieldList())
+        {
+            GenTreeFieldList::Use* field = fieldList->Uses().GetHead();
+
+            if (field->GetNext() == nullptr)
+            {
+                val = field->GetNode();
+                assert(val->TypeIs(TYP_LONG, TYP_DOUBLE));
+
+                if (val->TypeIs(TYP_DOUBLE))
+                {
+                    retType = TYP_LONG;
+                }
+            }
+        }
+#endif
+
+        if (!commas.Empty())
+        {
+            commas.Top()->SetOp(1, val);
+
+            for (int i = 0; i < commas.Height(); i++)
+            {
+                GenTreeOp* comma = commas.Top(i);
+                comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
+                comma->SetType(retType);
+            }
+
+            ret->SetSideEffects(commas.Bottom()->GetSideEffects());
         }
         else
         {
-            fields[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
-                                                 gtNewLclvNode(lcl->GetPromotedFieldLclNum(2), TYP_FLOAT),
-                                                 gtNewLclvNode(lcl->GetPromotedFieldLclNum(3), TYP_FLOAT));
+            ret->SetOp(0, val);
+            ret->SetSideEffects(val->GetSideEffects());
         }
 
-        INDEBUG(val->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
-        GenTreeFieldList* fieldList = val->ChangeToFieldList();
-        fieldList->AddField(this, fields[0], 0, info.retDesc.GetRegType(0));
-        fieldList->AddField(this, fields[1], 8, info.retDesc.GetRegType(0));
-
-        ret->SetType(TYP_STRUCT);
-        ret->SetOp(0, fieldList);
+        ret->SetType(retType);
 
         return;
     }
-#endif // UNIX_AMD64_ABI
+#endif // FEATURE_MULTIREG_RET
 
-    assert(info.retDesc.GetRegCount() == 1);
+    if (val->IsIntegralConst(0))
+    {
+        var_types regType = varActualType(info.retDesc.GetRegType(0));
 
-    ret->SetOp(0, fields[0]);
+        if (varTypeIsFloating(regType))
+        {
+            val->ChangeToDblCon(TYP_DOUBLE, 0);
+        }
+        else if (varTypeIsLong(regType))
+        {
+            val->SetType(TYP_LONG);
+        }
+        else if (varTypeIsGC(regType))
+        {
+            val->SetType(TYP_I_IMPL);
+        }
+#ifdef FEATURE_HW_INTRINSICS
+        else if (varTypeIsSIMD(regType))
+        {
+            // TODO-MIKE-Cleanup: Somehow we still generate INT(0) for SIMD types...
+            val->ChangeOper(GT_HWINTRINSIC);
+            val->SetType(regType);
+            val->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(regType), TYP_FLOAT, varTypeSize(regType), 0);
+        }
+#endif
+        else
+        {
+            assert(regType == TYP_INT);
+        }
+
+        ret->SetType(regType);
+
+        return;
+    }
+
+    if (val->OperIs(GT_LCL_VAR))
+    {
+        GenTreeLclVar* lclVar = val->AsLclVar();
+        LclVarDsc*     lcl    = lvaGetDesc(lclVar);
+
+#ifdef TARGET_AMD64
+        if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
+        {
+            // Only Vector2/3/4 are promoted.
+            assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+            // TODO-MIKE-Review: Could we get here on ARM64 due to Vector2/Vector64
+            // reinterpretation?
+
+            val = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+                                           gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT),
+                                           gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT));
+
+            var_types regType = varActualType(info.retDesc.GetRegType(0));
+            assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
+
+            val = gtNewSimdGetElementNode(TYP_SIMD16, regType, val, gtNewIconNode(0));
+
+            ret->SetOp(0, val);
+            ret->SetType(regType);
+
+            return;
+        }
+#endif
+    }
+
+#ifdef WINDOWS_AMD64_ABI
+    if (varTypeIsSIMD(val->GetType()) && (info.retDesc.GetRegType(0) == TYP_LONG))
+    {
+        if (val->IsCall())
+        {
+            assert(val->TypeIs(TYP_SIMD8));
+            val->SetType(TYP_LONG);
+        }
+        else if (val->TypeIs(TYP_SIMD8))
+        {
+            val = gtNewBitCastNode(TYP_LONG, val);
+        }
+        else
+        {
+            val = gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, val, gtNewIconNode(0));
+        }
+
+        ret->SetOp(0, val);
+        ret->SetType(TYP_LONG);
+    }
+#endif
 }
-#endif // TARGET_AMD64
 
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -15120,7 +15241,28 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         // TypedReference is not a valid return type so don't bother with it.
         noway_assert(!value->OperIs(GT_MKREFANY));
 
-        GenTree* dst = gtNewLclvNode(genReturnLocal, lvaGetDesc(genReturnLocal)->GetType());
+        unsigned   lclNum = genReturnLocal;
+        LclVarDsc* lcl    = lvaGetDesc(lclNum);
+        GenTree*   dst;
+
+        if (lcl->IsPromoted() && !value->TypeIs(TYP_STRUCT))
+        {
+            assert(lcl->GetPromotedFieldCount() == 1);
+
+            lclNum = lcl->GetPromotedFieldLclNum(0);
+            lcl    = lvaGetDesc(lclNum);
+
+            dst = gtNewLclvNode(lclNum, lcl->GetType());
+        }
+        else if (lcl->TypeIs(TYP_STRUCT) && !value->TypeIs(TYP_STRUCT))
+        {
+            dst = gtNewLclFldNode(lclNum, value->GetType(), 0);
+        }
+        else
+        {
+            dst = gtNewLclvNode(lclNum, lcl->GetType());
+        }
+
         GenTree* asg = gtNewAssignNode(dst, value);
 
         if (varTypeIsStruct(asg->GetType()))
@@ -15877,134 +16019,6 @@ void Compiler::fgPostExpandQmarkChecks()
 }
 #endif
 
-/*****************************************************************************
- *
- *  Promoting struct locals
- */
-void Compiler::fgPromoteStructs()
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgPromoteStructs()\n");
-    }
-#endif // DEBUG
-
-    if (!opts.OptEnabled(CLFLG_STRUCTPROMOTE))
-    {
-        JITDUMP("  promotion opt flag not enabled\n");
-        return;
-    }
-
-    if (fgNoStructPromotion)
-    {
-        JITDUMP("  promotion disabled by JitNoStructPromotion\n");
-        return;
-    }
-
-#if 0
-    // The code in this #if has been useful in debugging struct promotion issues, by
-    // enabling selective enablement of the struct promotion optimization according to
-    // method hash.
-#ifdef DEBUG
-    unsigned methHash = info.compMethodHash();
-    char* lostr = getenv("structpromohashlo");
-    unsigned methHashLo = 0;
-    if (lostr != NULL)
-    {
-        sscanf_s(lostr, "%x", &methHashLo);
-    }
-    char* histr = getenv("structpromohashhi");
-    unsigned methHashHi = UINT32_MAX;
-    if (histr != NULL)
-    {
-        sscanf_s(histr, "%x", &methHashHi);
-    }
-    if (methHash < methHashLo || methHash > methHashHi)
-    {
-        return;
-    }
-    else
-    {
-        printf("Promoting structs for method %s, hash = 0x%x.\n",
-               info.compFullName, info.compMethodHash());
-        printf("");         // in our logic this causes a flush
-    }
-#endif // DEBUG
-#endif // 0
-
-    if (info.compIsVarArgs)
-    {
-        JITDUMP("  promotion disabled because of varargs\n");
-        return;
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nlvaTable before fgPromoteStructs\n");
-        lvaTableDump();
-    }
-#endif // DEBUG
-
-    assert(structPromotionHelper != nullptr);
-
-    // Clear the structPromotionHelper, since it is used during inlining, at which point it
-    // may be conservative about looking up SIMD info.
-    // We don't want to preserve those conservative decisions for the actual struct promotion.
-    structPromotionHelper->Clear();
-
-    // The lvaTable might grow as we grab temps. Make a local copy here.
-    unsigned startLvaCount = lvaCount;
-
-    for (unsigned lclNum = 0; lclNum < startLvaCount; lclNum++)
-    {
-        if (lvaHaveManyLocals())
-        {
-            JITDUMP("Stopped promoting struct fields, due to too many locals.\n");
-            break;
-        }
-
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-        if (!varTypeIsStruct(lcl->GetType()))
-        {
-            continue;
-        }
-
-        if (varTypeIsSIMD(lcl->GetType()) && (lcl->lvIsUsedInSIMDIntrinsic() || lcl->GetLayout()->IsOpaqueVector()))
-        {
-            // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote
-            // its fields. Instead, we will attempt to enregister the entire struct.
-            lcl->lvRegStruct = true;
-            continue;
-        }
-
-        bool promoted = structPromotionHelper->TryPromoteStructVar(lclNum);
-
-        if (!promoted)
-        {
-            // If we don't promote then lvIsMultiRegRet is meaningless.
-            lcl->lvIsMultiRegRet = false;
-
-            if (varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
-            {
-                // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
-                // we will treat it as a reg struct.
-                lcl->lvRegStruct = true;
-            }
-        }
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nlvaTable after fgPromoteStructs\n");
-        lvaTableDump();
-    }
-#endif // DEBUG
-}
-
 //------------------------------------------------------------------------
 // fgAddFieldSeqForZeroOffset:
 //    Associate a fieldSeq (with a zero offset) with the GenTree node 'addr'
@@ -16033,22 +16047,21 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
     assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL, TYP_REF));
     addr = addr->SkipComma();
     assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL, TYP_REF));
-
-    FieldSeqNode* fieldSeqUpdate   = fieldSeqZero;
-    GenTree*      fieldSeqNode     = addr;
-    bool          fieldSeqRecorded = false;
+    assert(fieldSeqZero != nullptr);
 
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nfgAddFieldSeqForZeroOffset for");
-        gtDispFieldSeq(fieldSeqZero);
-
-        printf("\naddr (Before)\n");
-        gtDispNode(addr, nullptr, nullptr, false);
-        gtDispCommonEndLine(addr);
+        printf("\nfgAddFieldSeqForZeroOffset ");
+        dmpFieldSeqFields(fieldSeqZero);
+        printf(" to address\n");
+        gtDispTree(addr, nullptr, nullptr, true, false);
     }
-#endif // DEBUG
+#endif
+
+    FieldSeqNode* fieldSeqUpdate   = fieldSeqZero;
+    GenTree*      fieldSeqNode     = addr;
+    bool          fieldSeqRecorded = false;
 
     switch (addr->OperGet())
     {
@@ -16106,17 +16119,15 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
         }
         // Overwrite the field sequence annotation for op1
         GetZeroOffsetFieldMap()->Set(addr, fieldSeqUpdate, NodeToFieldSeqMap::Overwrite);
-        fieldSeqRecorded = true;
     }
 
 #ifdef DEBUG
     if (verbose)
     {
         printf("     (After)\n");
-        gtDispNode(fieldSeqNode, nullptr, nullptr, false);
-        gtDispCommonEndLine(fieldSeqNode);
+        gtDispTree(fieldSeqNode, nullptr, nullptr, true, false);
     }
-#endif // DEBUG
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -16248,19 +16259,24 @@ bool Compiler::fgCanTailCallViaJitHelper()
 GenTree* Compiler::fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 {
 #ifdef TARGET_AMD64
-    if (tree->GetIntrinsic() == NI_SSE2_X64_ConvertToInt64)
+    if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_Vector128_GetElement) &&
+        tree->GetOp(1)->IsIntegralConst(0))
     {
         if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
         {
             if ((create->GetIntrinsic() == NI_Vector128_Create) && (create->GetSimdBaseType() == TYP_FLOAT) &&
                 (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
             {
-                assert(tree->TypeIs(TYP_LONG));
-
                 uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
                 uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
+                uint64_t bits  = bits0 | (bits1 << 32);
 
-                return tree->ChangeToIntCon(bits0 | (bits1 << 32));
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    return tree->ChangeToIntCon(static_cast<ssize_t>(bits));
+                }
+
+                return tree->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(bits));
             }
         }
     }

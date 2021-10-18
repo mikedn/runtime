@@ -1628,39 +1628,40 @@ void SsaBuilder::SetupBBRoot()
 //
 bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 {
-    LclVarDsc* varDsc = &m_pCompiler->lvaTable[lclNum];
+    LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
 
-    if (varDsc->lvAddrExposed)
+    if (lcl->lvAddrExposed)
     {
-        return false; // We exclude address-exposed variables.
-    }
-    if (!varDsc->lvTracked)
-    {
-        return false; // SSA is only done for tracked variables
-    }
-    // lvPromoted structs are never tracked...
-    assert(!varDsc->lvPromoted);
-
-    if (varDsc->lvOverlappingFields)
-    {
-        return false; // Don't use SSA on structs that have overlapping fields
+        return false;
     }
 
-    if (varDsc->lvIsStructField &&
-        (m_pCompiler->lvaGetParentPromotionType(lclNum) != Compiler::PROMOTION_TYPE_INDEPENDENT))
+    if (!lcl->lvTracked)
     {
-        // SSA must exclude struct fields that are not independent
-        // - because we don't model the struct assignment properly when multiple fields can be assigned by one struct
-        //   assignment.
+        return false;
+    }
+
+    // Promoted structs are never tracked.
+    assert(!lcl->IsPromoted());
+
+    if (lcl->lvOverlappingFields)
+    {
+        return false;
+    }
+
+    if (lcl->IsDependentPromotedField(m_pCompiler))
+    {
+        // SSA must exclude struct fields that are not independent:
+        // - we don't model the struct assignment properly when multiple fields
+        //   can be assigned by one struct assignment.
         // - SSA doesn't allow a single node to contain multiple SSA definitions.
-        // - and PROMOTION_TYPE_DEPENDEDNT fields  are never candidates for a register.
-        //
+        // - dependent promoted fields are never candidates for a register.
         return false;
     }
-    else if (varDsc->lvIsStructField && m_pCompiler->lvaGetDesc(varDsc->lvParentLcl)->lvIsMultiRegRet)
+
+    if (lcl->IsPromotedField() && m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->lvIsMultiRegRet)
     {
         return false;
     }
-    // otherwise this variable is included in SSA
+
     return true;
 }

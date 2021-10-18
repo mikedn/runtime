@@ -349,6 +349,17 @@ public:
                 tree->ChangeToNothingNode();
             }
         }
+        else if (tree->OperIs(GT_RETURN) && !tree->TypeIs(TYP_VOID) && tree->AsUnOp()->GetOp(0)->OperIs(GT_COMMA))
+        {
+            // RETURN(COMMA(...)) is pointless and complicates things, especially for
+            // struct returns. We can always use a separate statement.
+            GenTreeOp* comma   = tree->AsUnOp()->GetOp(0)->AsOp();
+            Statement* newStmt = m_compiler->gtNewStmt(comma->GetOp(0), m_stmt->GetILOffsetX());
+            m_compiler->fgInsertStmtBefore(m_compiler->compCurBB, m_stmt, newStmt);
+            GenTree* value = comma->GetOp(1);
+            tree->AsUnOp()->SetOp(0, value);
+            tree->SetSideEffects(value->GetSideEffects());
+        }
         else if (!tree->OperIs(GT_JTRUE))
         {
             *use = m_compiler->gtFoldExpr(tree);

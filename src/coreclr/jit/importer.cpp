@@ -6194,7 +6194,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   r
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         addr     = gtNewOperNode(GT_IND, TYP_REF, addr);
-        fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+        fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
     }
 
@@ -6324,7 +6324,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
             }
 #endif
 
-            fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+            fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
             addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
         }
 
@@ -6362,7 +6362,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
         indir->SetType(TYP_REF);
         addr = indir;
 
-        fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+        fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
 
         if (varTypeIsStruct(type))
@@ -7952,7 +7952,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     call->SetRetSigType(type);
     call->SetRetLayout(layout);
 
-    StructPassing   retKind = abiGetStructReturnType(layout, call->GetUnmanagedCallConv());
+    StructPassing   retKind = abiGetStructReturnType(layout, call->GetUnmanagedCallConv(), call->IsVarargs());
     ReturnTypeDesc* retDesc = call->GetRetDesc();
 
     if (retKind.kind == SPK_PrimitiveType)
@@ -7960,9 +7960,11 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
         retDesc->InitializePrimitive(retKind.type);
     }
 #if FEATURE_MULTIREG_RET
-    else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
+    else if (retKind.kind == SPK_ByValue)
     {
-        retDesc->InitializeStruct(this, layout, retKind);
+        assert(retKind.type == TYP_STRUCT);
+
+        retDesc->InitializeStruct(this, layout);
     }
 #endif
     else
@@ -8017,19 +8019,24 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     if (GenTreeCall* call = value->IsCall())
     {
-#ifndef TARGET_ARMARCH
-        return value;
-#else
-        if (!call->IsVarargs())
-        {
-            return value;
-        }
+        // TODO-MIKE-Cleanup: This is dubious. Existing code probably tried to ensure
+        // that the callee returns the value in the same registers as the caller and
+        // it happens so that on ARM varargs affects the return ABI (no HFA for either
+        // parameters or returns, unlike win-arm64 ABI where varargs only blocks HFA
+        // parameters). It may be better to explicitly check the return registers to
+        // ensure that we don't have any surprises with new calling conventions (e.g.
+        // native win-x86 ABI returns Vector2 in RAX/RDX but __vectorcall should use
+        // XMM0/XMM1 instead).
 
-        // We cannot tail call because control needs to return to fixup the calling
-        // convention for result return.
-        call->gtCallMoreFlags &= ~GTF_CALL_M_TAILCALL;
-        call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
-#endif
+        // We don't support varargs on ARM so just assert.
+        ARM_ONLY(noway_assert(!call->IsVarargs());)
+
+        return value;
+    }
+
+    if (varTypeIsSIMD(value->GetType()) || info.GetRetLayout()->IsHfa())
+    {
+        return value;
     }
 
     LclVarDsc* lcl = nullptr;
@@ -8047,23 +8054,11 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
         }
     }
 
-    if (lcl == nullptr)
-    {
-        unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
-        impAppendTempAssign(tempLclNum, value, retClass, CHECK_SPILL_ALL);
-
-        lcl   = lvaGetDesc(tempLclNum);
-        value = gtNewLclvNode(tempLclNum, lcl->GetType());
-    }
-
-    if (info.GetRetSigType() == TYP_STRUCT)
+    if ((lcl != nullptr) && (info.GetRetSigType() == TYP_STRUCT))
     {
         // Make sure that this struct stays in memory and doesn't get promoted.
         lcl->lvIsMultiRegRet = true;
     }
-
-    // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-    value->gtFlags |= GTF_DONT_CSE;
 
     return value;
 #endif
@@ -13362,9 +13357,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // that impAssignStructAddr could handle as well.
 
                 ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
-                StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed);
+                StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
 
-                if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
+                if (retKind.kind == SPK_ByValue)
                 {
                     // Unbox nullable helper returns a TYP_STRUCT.
                     // For the multi-reg case we need to spill it to a temp so that
@@ -14926,8 +14921,31 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     // Note if the callee's class is a promotable struct
     if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
-        assert(structPromotionHelper != nullptr);
-        if (structPromotionHelper->CanPromoteStructType(info.compClassHnd))
+        CORINFO_CLASS_HANDLE* cache = impPromotableStructTypeCache;
+
+        if (pInlineInfo != nullptr)
+        {
+            cache = pInlineInfo->InlinerCompiler->impPromotableStructTypeCache;
+        }
+
+        bool promotable;
+
+        if (info.compClassHnd == cache[0])
+        {
+            promotable = false;
+        }
+        else if (info.compClassHnd == cache[1])
+        {
+            promotable = true;
+        }
+        else
+        {
+            StructPromotionHelper helper(this);
+            promotable        = helper.CanPromoteStructType(info.compClassHnd);
+            cache[promotable] = info.compClassHnd;
+        }
+
+        if (promotable)
         {
             inlineResult->Note(InlineObservation::CALLEE_CLASS_PROMOTABLE);
         }
