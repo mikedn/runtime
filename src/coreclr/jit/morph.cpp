@@ -5121,15 +5121,33 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, gtNewIconNode(offset, fieldSeq));
     }
 
+    if (nullCheck != nullptr)
+    {
+        addr = gtNewCommaNode(nullCheck, addr);
+    }
+
     GenTree* indir = field;
     indir->SetOper(GT_IND);
     indir->AsIndir()->SetAddr(addr);
-    indir->SetIndirExceptionFlags(this);
 
+    // TODO-MIKE-CQ: We can't rely on fgAddrCouldBeNull here to set GTF_IND_NONFAULTING due
+    // to the way a sequence of fields is morphed - we'd be setting GTF_IND_NONFAULTING on
+    // the top level indir, assuming that the next field in the sequence does a null check.
+    // But then the next field in the sequence doesn't do a null check because it assumes
+    // that the top indirection will fault anyway.
+    // There is at least one case where the address is guaranteed to be non-null, when it
+    // is the address of an array element.
     if (nullCheck != nullptr)
     {
-        indir->AsIndir()->SetAddr(gtNewCommaNode(nullCheck, addr));
+        indir->gtFlags &= ~GTF_EXCEPT;
+        indir->gtFlags |= GTF_IND_NONFAULTING;
     }
+    else
+    {
+        indir->gtFlags |= GTF_EXCEPT;
+    }
+
+    indir->AddSideEffects(addr->GetSideEffects());
 
     if (offset == 0)
     {
