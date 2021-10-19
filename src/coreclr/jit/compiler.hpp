@@ -3900,6 +3900,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_ADDR:
+        case GT_FIELD:
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
@@ -3992,10 +3993,6 @@ void GenTree::VisitOperands(TVisitor visitor)
                 return;
             }
             visitor(AsBoundsChk()->gtArrLen);
-            return;
-
-        case GT_FIELD:
-            visitor(AsField()->gtFldObj);
             return;
 
         case GT_ARR_ELEM:

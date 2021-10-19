@@ -8915,6 +8915,7 @@ public:
             case GT_CKFINITE:
             case GT_LCLHEAP:
             case GT_ADDR:
+            case GT_FIELD:
             case GT_IND:
             case GT_OBJ:
             case GT_BLK:
@@ -9045,14 +9046,6 @@ public:
                     return result;
                 }
                 result = WalkTree(&node->AsBoundsChk()->gtArrLen, node);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                break;
-
-            case GT_FIELD:
-                result = WalkTree(&node->AsField()->gtFldObj, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;

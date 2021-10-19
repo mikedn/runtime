@@ -547,7 +547,7 @@ public:
 
             case GT_FIELD:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsField()->gtFldObj);
+                assert(TopValue(0).Node() == node->AsField()->GetAddr());
 
                 if (!TopValue(1).Field(TopValue(0), node->AsField(), m_compiler->GetFieldSeqStore()))
                 {

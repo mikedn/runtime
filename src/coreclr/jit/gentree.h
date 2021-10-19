@@ -3705,11 +3705,8 @@ struct GenTreeBox : public GenTreeUnOp
 #endif
 };
 
-/* gtField  -- data member ref  (GT_FIELD) */
-
-struct GenTreeField : public GenTree
+struct GenTreeField : public GenTreeUnOp
 {
-    GenTree*             gtFldObj;
     CORINFO_FIELD_HANDLE gtFldHnd;
     unsigned             gtFldOffset;
     bool                 gtFldMayOverlap;
@@ -3721,8 +3718,7 @@ private:
 
 public:
     GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE fldHnd, unsigned offs)
-        : GenTree(GT_FIELD, type)
-        , gtFldObj(addr)
+        : GenTreeUnOp(GT_FIELD, type, addr)
         , gtFldHnd(fldHnd)
         , gtFldOffset(offs)
         , gtFldMayOverlap(false)
@@ -3735,8 +3731,7 @@ public:
     }
 
     GenTreeField(const GenTreeField* copyFrom)
-        : GenTree(GT_FIELD, copyFrom->GetType())
-        , gtFldObj(copyFrom->gtFldObj)
+        : GenTreeUnOp(GT_FIELD, copyFrom->GetType(), copyFrom->GetAddr())
         , gtFldHnd(copyFrom->gtFldHnd)
         , gtFldOffset(copyFrom->gtFldOffset)
         , gtFldMayOverlap(copyFrom->gtFldMayOverlap)
@@ -3748,13 +3743,13 @@ public:
 
     GenTree* GetAddr() const
     {
-        return gtFldObj;
+        return gtOp1;
     }
 
     void SetAddr(GenTree* addr)
     {
-        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
-        gtFldObj = addr;
+        assert(varTypeIsI(addr->GetType()));
+        gtOp1 = addr;
     }
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
@@ -3790,7 +3785,7 @@ public:
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeField() : GenTree()
+    GenTreeField() : GenTreeUnOp()
     {
     }
 #endif

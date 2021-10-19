@@ -5146,9 +5146,8 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         fgAddFieldSeqForZeroOffset(indir->AsIndir()->GetAddr()->gtEffectiveVal(), fieldSeq);
     }
 
-    // Pass down the current mac; if non null we are computing an address
-    indir = fgMorphSmpOp(indir, mac);
     JITDUMPTREE(indir, "\nMorphed FIELD:\n");
+
     return indir;
 }
 
@@ -10115,6 +10114,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 #endif
 
+        case GT_FIELD:
+            tree = fgMorphField(tree->AsField(), mac);
+            op1  = tree->AsIndir()->GetAddr();
+            break;
+
         default:
             break;
     }
@@ -13036,10 +13040,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     switch (tree->OperGet())
     {
-        case GT_FIELD:
-            tree = fgMorphField(tree->AsField(), mac);
-            break;
-
         case GT_CALL:
             if (tree->OperMayThrow(this))
             {
