@@ -42,15 +42,6 @@ inline bool getInlinePInvokeEnabled()
 #endif
 }
 
-inline bool getInlinePInvokeCheckEnabled()
-{
-#ifdef DEBUG
-    return JitConfig.JitPInvokeCheckEnabled() != 0;
-#else
-    return false;
-#endif
-}
-
 // Enforce float narrowing for buggy compilers (notably preWhidbey VC)
 inline float forceCastToFloat(double d)
 {
@@ -2290,41 +2281,6 @@ inline regNumber Compiler::getCallArgFloatRegister(regNumber intReg)
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                     Register Allocator                                    XX
-XX                      Inline functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-
-inline bool rpCanAsgOperWithoutReg(GenTree* op, bool lclvar)
-{
-    var_types type;
-
-    switch (op->OperGet())
-    {
-        case GT_CNS_LNG:
-        case GT_CNS_INT:
-            return true;
-        case GT_LCL_VAR:
-            type = genActualType(op->TypeGet());
-            if (lclvar && ((type == TYP_INT) || (type == TYP_REF) || (type == TYP_BYREF)))
-            {
-                return true;
-            }
-            break;
-        default:
-            break;
-    }
-
-    return false;
-}
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XX                                                                           XX
 XX                       FlowGraph                                           XX
 XX                      Inline functions                                     XX
@@ -3431,17 +3387,6 @@ inline CorInfoHelpFunc Compiler::eeGetHelperNum(CORINFO_METHOD_HANDLE method)
     return ((CorInfoHelpFunc)(((size_t)method) >> 2));
 }
 
-inline Compiler::fgWalkResult Compiler::CountSharedStaticHelper(GenTree** pTree, fgWalkData* data)
-{
-    if (Compiler::IsSharedStaticHelper(*pTree))
-    {
-        int* pCount = (int*)data->pCallbackData;
-        (*pCount)++;
-    }
-
-    return WALK_CONTINUE;
-}
-
 //  TODO-Cleanup: Replace calls to IsSharedStaticHelper with new HelperCallProperties
 //
 
@@ -3486,18 +3431,6 @@ inline bool Compiler::IsSharedStaticHelper(GenTree* tree)
     assert (result1 == result2);
 #endif
     return result1;
-}
-
-inline bool Compiler::IsTreeAlwaysHoistable(GenTree* tree)
-{
-    if (IsSharedStaticHelper(tree))
-    {
-        return (GTF_CALL_HOISTABLE & tree->gtFlags) ? true : false;
-    }
-    else
-    {
-        return false;
-    }
 }
 
 inline bool Compiler::IsGcSafePoint(GenTree* tree)
@@ -3558,19 +3491,6 @@ inline CORINFO_METHOD_HANDLE Compiler::eeGetMethodHandleForNative(CORINFO_METHOD
     return (CORINFO_METHOD_HANDLE)(((size_t)method) & ~0x3);
 }
 #endif
-
-inline CORINFO_METHOD_HANDLE Compiler::eeMarkNativeTarget(CORINFO_METHOD_HANDLE method)
-{
-    assert((((size_t)method) & 0x3) == 0);
-    if (method == nullptr)
-    {
-        return method;
-    }
-    else
-    {
-        return (CORINFO_METHOD_HANDLE)(((size_t)method) | 0x2);
-    }
-}
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3675,31 +3595,6 @@ inline bool Compiler::impIsThis(GenTree* obj)
         return ((obj != nullptr) && (obj->gtOper == GT_LCL_VAR) &&
                 lvaIsOriginalThisArg(obj->AsLclVarCommon()->GetLclNum()));
     }
-}
-
-/*****************************************************************************
- *
- *  Check to see if the delegate is created using "LDFTN <TOK>" or not.
- */
-
-inline bool Compiler::impIsLDFTN_TOKEN(const BYTE* delegateCreateStart, const BYTE* newobjCodeAddr)
-{
-    assert(newobjCodeAddr[0] == CEE_NEWOBJ);
-    return (newobjCodeAddr - delegateCreateStart == 6 && // LDFTN <TOK> takes 6 bytes
-            delegateCreateStart[0] == CEE_PREFIX1 && delegateCreateStart[1] == (CEE_LDFTN & 0xFF));
-}
-
-/*****************************************************************************
- *
- *  Check to see if the delegate is created using "DUP LDVIRTFTN <TOK>" or not.
- */
-
-inline bool Compiler::impIsDUP_LDVIRTFTN_TOKEN(const BYTE* delegateCreateStart, const BYTE* newobjCodeAddr)
-{
-    assert(newobjCodeAddr[0] == CEE_NEWOBJ);
-    return (newobjCodeAddr - delegateCreateStart == 7 && // DUP LDVIRTFTN <TOK> takes 6 bytes
-            delegateCreateStart[0] == CEE_DUP && delegateCreateStart[1] == CEE_PREFIX1 &&
-            delegateCreateStart[2] == (CEE_LDVIRTFTN & 0xFF));
 }
 
 /*****************************************************************************
@@ -4250,34 +4145,9 @@ inline void* __cdecl operator new[](size_t sz, Compiler* compiler, CompMemKind c
 
 #ifdef DEBUG
 
-inline void printRegMask(regMaskTP mask)
-{
-    printf(REG_MASK_ALL_FMT, mask);
-}
-
-inline char* regMaskToString(regMaskTP mask, Compiler* context)
-{
-    const size_t cchRegMask = 24;
-    char*        regmask    = new (context, CMK_Unknown) char[cchRegMask];
-
-    sprintf_s(regmask, cchRegMask, REG_MASK_ALL_FMT, mask);
-
-    return regmask;
-}
-
 inline void printRegMaskInt(regMaskTP mask)
 {
     printf(REG_MASK_INT_FMT, (mask & RBM_ALLINT));
-}
-
-inline char* regMaskIntToString(regMaskTP mask, Compiler* context)
-{
-    const size_t cchRegMask = 24;
-    char*        regmask    = new (context, CMK_Unknown) char[cchRegMask];
-
-    sprintf_s(regmask, cchRegMask, REG_MASK_INT_FMT, (mask & RBM_ALLINT));
-
-    return regmask;
 }
 
 #endif // DEBUG

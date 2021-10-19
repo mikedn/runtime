@@ -3240,8 +3240,6 @@ private:
 
     GenTree* impCheckForNullPointer(GenTree* obj);
     bool impIsThis(GenTree* obj);
-    bool impIsLDFTN_TOKEN(const BYTE* delegateCreateStart, const BYTE* newobjCodeAddr);
-    bool impIsDUP_LDVIRTFTN_TOKEN(const BYTE* delegateCreateStart, const BYTE* newobjCodeAddr);
     bool impIsAnySTLOC(OPCODE opcode)
     {
         return ((opcode == CEE_STLOC) || (opcode == CEE_STLOC_S) ||
@@ -4935,17 +4933,9 @@ private:
 public:
     void optInit();
 
-    GenTree* Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt);
-    GenTree* Compiler::optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt);
-    void Compiler::optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt);
-    bool optIsRangeCheckRemovable(GenTree* tree);
-
-protected:
-    static fgWalkPreFn optValidRangeCheckIndex;
-
-    /**************************************************************************
-     *
-     *************************************************************************/
+    GenTree* optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt);
+    GenTree* optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt);
+    void optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt);
 
 protected:
     // Do hoisting for all loops.
@@ -6435,8 +6425,6 @@ public:
 
     // Method entry-points, instrs
 
-    CORINFO_METHOD_HANDLE eeMarkNativeTarget(CORINFO_METHOD_HANDLE method);
-
     CORINFO_EE_INFO eeInfo;
     bool            eeInfoInitialized;
 
@@ -6628,9 +6616,7 @@ public:
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);
 
-    static fgWalkPreFn CountSharedStaticHelper;
     static bool IsSharedStaticHelper(GenTree* tree);
-    static bool IsTreeAlwaysHoistable(GenTree* tree);
     static bool IsGcSafePoint(GenTree* tree);
 
     static CORINFO_FIELD_HANDLE eeFindJitDataOffs(unsigned jitDataOffs);
