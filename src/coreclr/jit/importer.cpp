@@ -12263,7 +12263,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
-                            op1->AsField()->gtFldMayOverlap = true;
+                            op1->AsField()->SetMayOverlap();
                         }
 
                         // wrap it in a address of operator if necessary
@@ -12523,7 +12523,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
-                            op1->AsField()->gtFldMayOverlap = true;
+                            op1->AsField()->SetMayOverlap();
                         }
 
 #ifdef FEATURE_READYTORUN_COMPILER

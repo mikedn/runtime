@@ -14869,7 +14869,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
             return tree->AsIndex()->GetLayout()->GetClassHandle();
         case GT_FIELD:
             CORINFO_CLASS_HANDLE structHnd;
-            info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
+            info.compCompHnd->getFieldType(tree->AsField()->GetFieldHandle(), &structHnd);
             return structHnd;
         case GT_LCL_VAR:
             return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
@@ -14923,7 +14923,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         case GT_FIELD:
         {
             // For fields, get the type from the field handle.
-            CORINFO_FIELD_HANDLE fieldHnd = obj->AsField()->gtFldHnd;
+            CORINFO_FIELD_HANDLE fieldHnd = obj->AsField()->GetFieldHandle();
 
             if (fieldHnd != nullptr)
             {

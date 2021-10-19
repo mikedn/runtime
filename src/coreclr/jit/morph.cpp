@@ -5095,8 +5095,8 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
     }
 #endif
 
-    FieldSeqNode* fieldSeq = field->gtFldMayOverlap ? FieldSeqStore::NotAField()
-                                                    : GetFieldSeqStore()->CreateSingleton(field->GetFieldHandle());
+    FieldSeqNode* fieldSeq =
+        field->MayOverlap() ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(field->GetFieldHandle());
 
     if (offset != 0)
     {

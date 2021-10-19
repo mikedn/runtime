@@ -314,7 +314,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             if (val.IsAddress())
             {
                 ClrSafeInt<unsigned> newOffset =
-                    ClrSafeInt<unsigned>(val.m_offset) + ClrSafeInt<unsigned>(field->gtFldOffset);
+                    ClrSafeInt<unsigned>(val.m_offset) + ClrSafeInt<unsigned>(field->GetOffset());
 
                 if (newOffset.IsOverflow())
                 {
@@ -324,13 +324,13 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
                 m_lclNum = val.m_lclNum;
                 m_offset = newOffset.Value();
 
-                if (field->gtFldMayOverlap)
+                if (field->MayOverlap())
                 {
                     m_fieldSeq = FieldSeqStore::NotAField();
                 }
                 else
                 {
-                    m_fieldSeq = fieldSeqStore->Append(val.m_fieldSeq, fieldSeqStore->CreateSingleton(field->gtFldHnd));
+                    m_fieldSeq = fieldSeqStore->Append(val.m_fieldSeq, field->GetFieldHandle());
                 }
             }
 
