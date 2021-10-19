@@ -4804,23 +4804,13 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
     {
         // The array and index will have multiple uses so we need to assign them to temps, unless they're
         // simple, side effect free expressions.
-        //
-        // Note that if the expression is a GT_FIELD, it has not yet been morphed so its true complexity is
-        // not exposed. Without that condition there are cases of local struct fields that were previously,
-        // needlessly, marked as GTF_GLOB_REF, and when that was fixed, there were some regressions that
-        // were mostly ameliorated by adding this condition.
-        //
-        // Likewise, allocate a temporary if the expression is a GT_LCL_FLD node. These used to be created
-        // after fgMorphArrayIndex from GT_FIELD trees so this preserves the existing behavior. This is
-        // perhaps a decision that should be left to CSE but FX diffs show that it is slightly better to
-        // do this here.
 
         constexpr int MAX_ARR_COMPLEXITY   = 4;
         constexpr int MAX_INDEX_COMPLEXITY = 4;
 
         GenTree* array2 = nullptr;
 
-        if (((array->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || array->OperIs(GT_FIELD, GT_LCL_FLD) ||
+        if (((array->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || array->OperIs(GT_LCL_FLD) ||
             gtComplexityExceeds(array, MAX_ARR_COMPLEXITY))
         {
             unsigned arrayTmpNum = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"));
@@ -4850,7 +4840,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
         GenTree* index2 = nullptr;
 
-        if (((index->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || index->OperIs(GT_FIELD, GT_LCL_FLD) ||
+        if (((index->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || index->OperIs(GT_LCL_FLD) ||
             gtComplexityExceeds(index, MAX_INDEX_COMPLEXITY))
         {
             var_types indexTmpType = varActualType(index->GetType());
