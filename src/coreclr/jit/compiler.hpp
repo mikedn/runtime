@@ -1062,21 +1062,19 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
     return node;
 }
 
-/*****************************************************************************
- *
- *  A little helper to create a data member reference node.
- */
-
-inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* addr, DWORD offset)
+inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
+                                             CORINFO_FIELD_HANDLE handle,
+                                             GenTree*             addr,
+                                             unsigned             offset)
 {
-    if (typ == TYP_STRUCT)
+    if (type == TYP_STRUCT)
     {
         CORINFO_CLASS_HANDLE fieldClass;
-        (void)info.compCompHnd->getFieldType(fldHnd, &fieldClass);
-        typ = typGetStructType(fieldClass);
+        (void)info.compCompHnd->getFieldType(handle, &fieldClass);
+        type = typGetStructType(fieldClass);
     }
 
-    GenTreeField* tree = new (this, GT_FIELD) GenTreeField(typ, addr, fldHnd, offset);
+    GenTreeField* tree = new (this, GT_FIELD) GenTreeField(type, addr, handle, offset);
 
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
     if (addr->OperIs(GT_LCL_VAR_ADDR))

@@ -14921,17 +14921,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         }
 
         case GT_FIELD:
-        {
-            // For fields, get the type from the field handle.
-            CORINFO_FIELD_HANDLE fieldHnd = obj->AsField()->GetFieldHandle();
-
-            if (fieldHnd != nullptr)
-            {
-                objClass = gtGetFieldClassHandle(fieldHnd, pIsExact, pIsNonNull);
-            }
-
+            objClass = gtGetFieldClassHandle(obj->AsField()->GetFieldHandle(), pIsExact, pIsNonNull);
             break;
-        }
 
         case GT_RET_EXPR:
             objClass = gtGetClassHandle(tree->AsRetExpr()->GetRetExpr(), pIsExact, pIsNonNull);

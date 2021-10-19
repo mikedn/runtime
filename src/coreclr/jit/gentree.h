@@ -3725,6 +3725,7 @@ public:
 #endif
     {
         assert(varTypeIsI(addr->GetType()));
+        assert(handle != nullptr);
         gtFlags |= addr->GetSideEffects();
     }
 

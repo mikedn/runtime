@@ -2051,7 +2051,7 @@ public:
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
-    GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
+    GenTreeField* gtNewFieldRef(var_types type, CORINFO_FIELD_HANDLE handle, GenTree* addr, unsigned offset);
 
     GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
     GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
