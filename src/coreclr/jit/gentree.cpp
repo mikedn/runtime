@@ -1558,7 +1558,7 @@ AGAIN:
 
     if (kind & GTK_SMPOP)
     {
-        if (tree->gtGetOp2IfPresent())
+        if (tree->gtGetOp2IfPresent() != nullptr)
         {
             if (gtHasRef(tree->AsOp()->gtOp1, lclNum))
             {
@@ -1566,34 +1566,18 @@ AGAIN:
             }
 
             tree = tree->AsOp()->gtOp2;
-            goto AGAIN;
         }
         else
         {
             tree = tree->AsOp()->gtOp1;
 
-            if (!tree)
+            if (tree == nullptr)
             {
                 return false;
             }
-
-            if (oper == GT_ASG)
-            {
-                // 'tree' is the gtOp1 of an assignment node. So we can handle
-                // the case where defOnly is either true or false.
-
-                if (tree->gtOper == GT_LCL_VAR && tree->AsLclVarCommon()->GetLclNum() == (unsigned)lclNum)
-                {
-                    return true;
-                }
-                else if (tree->gtOper == GT_FIELD && lclNum == (ssize_t)tree->AsField()->gtFldHnd)
-                {
-                    return true;
-                }
-            }
-
-            goto AGAIN;
         }
+
+        goto AGAIN;
     }
 
     /* See what kind of a special operator we have here */
