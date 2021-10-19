@@ -113,8 +113,6 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         case GT_ARR_ELEM:
         case GT_ARR_INDEX:
         case GT_ARR_OFFSET:
-        case GT_FIELD:
-
             newState.isUnderIndir = true;
             {
                 newState.skipNextNode = true; // Don't have to worry about which kind of node we're dealing with
