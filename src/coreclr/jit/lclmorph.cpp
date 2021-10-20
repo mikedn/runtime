@@ -395,11 +395,7 @@ public:
     {
         GenTree* node = *use;
 
-        if (node->OperIs(GT_FIELD))
-        {
-            MorphStructField(node, user);
-        }
-        else if (node->OperIs(GT_LCL_FLD))
+        if (node->OperIs(GT_LCL_FLD))
         {
             MorphLocalField(node, user);
         }
@@ -2132,132 +2128,6 @@ private:
         // Currently long/double BITCAST isn't supported by decomposition on 32 bit targets.
         return varTypeSize(type) <= REGSIZE_BYTES;
 #endif
-    }
-
-    //------------------------------------------------------------------------
-    // MorphStructField: Replaces a GT_FIELD based promoted/normed struct field access
-    //    (e.g. FIELD(ADDR(LCL_VAR))) with a GT_LCL_VAR that references the struct field.
-    //
-    // Arguments:
-    //    node - the GT_FIELD node
-    //    user - the node that uses the field
-    //
-    // Notes:
-    //    This does not do anything if the field access does not denote
-    //    a promoted/normed struct field.
-    //
-    void MorphStructField(GenTree* node, GenTree* user)
-    {
-        if ((user != nullptr) && user->OperIs(GT_RETURN, GT_CALL))
-        {
-            return;
-        }
-
-        GenTreeField* field = node->AsField();
-
-        if (!field->GetAddr()->OperIs(GT_ADDR))
-        {
-            return;
-        }
-
-        GenTree* location = field->GetAddr()->AsUnOp()->GetOp(0);
-
-        if (!location->OperIs(GT_LCL_VAR) || !varTypeIsStruct(location->GetType()))
-        {
-            return;
-        }
-
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(location->AsLclVar());
-
-        if (!lcl->IsPromoted())
-        {
-            return;
-        }
-
-        unsigned fieldLclNum = GetPromotedFieldLclNumByOffset(lcl, field->GetOffset());
-
-        if (fieldLclNum == BAD_VAR_NUM)
-        {
-            // Access a promoted struct's field with an offset that doesn't correspond to any field.
-            // It can happen if the struct was cast to another struct with different offsets.
-            return;
-        }
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
-
-        // Promoted LCL_VAR can't have a struct type.
-        assert(!fieldLcl->TypeIs(TYP_STRUCT));
-
-        if (node->GetType() != fieldLcl->GetType())
-        {
-            if (!node->TypeIs(TYP_STRUCT))
-            {
-                // This is going to be an incorrect instruction promotion.
-                // For example when we try to read int as long.
-                return;
-            }
-
-            CORINFO_FIELD_HANDLE fieldHandle    = field->GetFieldHandle();
-            CORINFO_FIELD_HANDLE fieldLclHandle = fieldLcl->GetPromotedFieldSeq()->GetFieldHandle();
-
-            if (fieldHandle != fieldLclHandle)
-            {
-                // In general, the accessed field and the promoted field are the same. However, we don't
-                // really care if they're the same, we only care if they have the same type or not.
-                // In fact, we don't even care if they have the same type, we only care if they have the
-                // same layout - a single field having the promoted field local type. But it's not worth
-                // bothering with that since such cases arise only due to reinterpretation in user code
-                // (and anyway MorphLocalIndir should handle this better).
-
-                CORINFO_CLASS_HANDLE fieldClass    = nullptr;
-                CORINFO_CLASS_HANDLE fieldLclClass = nullptr;
-
-                CorInfoType fieldType    = m_compiler->info.compCompHnd->getFieldType(fieldHandle, &fieldClass);
-                CorInfoType fieldLclType = m_compiler->info.compCompHnd->getFieldType(fieldLclHandle, &fieldLclClass);
-
-                if ((fieldType != fieldLclType) || (fieldClass != fieldLclClass))
-                {
-                    return;
-                }
-            }
-        }
-
-        node->SetOper(GT_LCL_VAR);
-        node->AsLclVar()->SetLclNum(fieldLclNum);
-        node->SetType(fieldLcl->GetType());
-        node->gtFlags = GTF_EMPTY;
-
-        if (user->OperIs(GT_ASG))
-        {
-            if (user->AsOp()->GetOp(0) == node)
-            {
-                node->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-            }
-            else
-            {
-                assert(user->AsOp()->GetOp(1) == node);
-
-                // Promotion of struct containing struct fields where the field
-                // is a struct with a single pointer sized scalar type field: in
-                // this case struct promotion uses the type  of the underlying
-                // scalar field as the type of struct field instead of recursively
-                // promoting. This can lead to a case where we have a block-asgn
-                // with its RHS replaced with a scalar type.  Mark RHS value as
-                // DONT_CSE so that assertion prop will not do const propagation.
-                // The reason this is required is that if RHS of a block-asg is a
-                // constant, then it is interpreted as init-block incorrectly.
-                //
-                // TODO - This can also be avoided if we implement recursive struct
-                // promotion, tracked by #10019.
-                if (varTypeIsStruct(user->GetType()) && !varTypeIsStruct(node->GetType()))
-                {
-                    node->gtFlags |= GTF_DONT_CSE;
-                }
-            }
-        }
-
-        JITDUMP("Replaced the field in promoted struct with local var V%02u\n", fieldLclNum);
-        INDEBUG(m_stmtModified = true;)
     }
 
     //------------------------------------------------------------------------
