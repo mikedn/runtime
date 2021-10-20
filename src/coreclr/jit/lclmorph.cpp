@@ -214,6 +214,16 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             INDEBUG(val.Consume();)
         }
 
+        void Address(unsigned lclNum, unsigned lclOffs, FieldSeqNode* fieldSeq)
+        {
+            assert(!IsLocation() && !IsAddress());
+
+            m_address  = true;
+            m_lclNum   = lclNum;
+            m_offset   = lclOffs;
+            m_fieldSeq = fieldSeq;
+        }
+
         //------------------------------------------------------------------------
         // Field: Produce a location value from an address value.
         //
@@ -663,8 +673,43 @@ private:
     void EscapeAddress(const Value& val, GenTree* user)
     {
         assert(val.IsAddress());
+        INDEBUG(val.Consume();)
+        assert(user != nullptr);
 
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(val.LclNum());
+        unsigned   lclNum      = val.LclNum();
+        LclVarDsc* lcl         = m_compiler->lvaGetDesc(val.LclNum());
+        unsigned   fieldLclNum = BAD_VAR_NUM;
+        LclVarDsc* fieldLcl    = nullptr;
+
+        // Try to use the address of a promoted field, if any. We'll have to mark the local
+        // address exposed anyway but if we can restrict this to just a promoted field we
+        // can avoid dependent promotion of the entire struct local. This is somewhat dodgy
+        // in the call case - we assume that if this address is passed as the "this" arg of
+        // a call then only the promoted field will be accessed. But due to reinterpretation
+        // we could end up with a call to a method that accesses other promoted fields, that
+        // may not be P-DEP/DNER.
+
+        // TODO-MIKE-Review: Perhaps we should use the promoted field only if we can avoid
+        // P-DEP? If we can't avoid P-DEP and the local is anyway address exposed there's
+        // no point in using promoted fields. Actually we shouldn't promote to begin with,
+        // but the JIT's struct promotion is upside down...
+        // This is done in part to avoid diffs due to old promotion code doing it.
+
+        if (lcl->IsPromoted() && (val.FieldSeq() != nullptr) && val.FieldSeq()->IsField())
+        {
+            fieldLclNum = FindPromotedField(lcl, val.Offset(), 1);
+
+            if (fieldLclNum != BAD_VAR_NUM)
+            {
+                fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
+
+                if (fieldLcl->GetPromotedFieldOffset() == val.Offset())
+                {
+                    lcl    = fieldLcl;
+                    lclNum = fieldLclNum;
+                }
+            }
+        }
 
         // In general we don't know how an exposed struct field address will be used - it may be used to
         // access only that specific field or it may be used to access other fields in the same struct
@@ -697,7 +742,7 @@ private:
             }
         }
 
-        m_compiler->lvaSetVarAddrExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : val.LclNum());
+        m_compiler->lvaSetVarAddrExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : lclNum);
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -723,10 +768,17 @@ private:
         // LCL_FLD_ADDR (even though it does recognize LCL_VAR_ADDR).
         if (user->OperIs(GT_CALL, GT_ASG, GT_CMPXCHG))
         {
-            MorphLocalAddress(val);
+            if (lcl == fieldLcl)
+            {
+                Value fieldVal(val.Node());
+                fieldVal.Address(lclNum, 0, nullptr);
+                MorphLocalAddress(fieldVal);
+            }
+            else
+            {
+                MorphLocalAddress(val);
+            }
         }
-
-        INDEBUG(val.Consume();)
     }
 
     //------------------------------------------------------------------------
