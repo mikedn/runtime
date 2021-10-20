@@ -1157,11 +1157,16 @@ private:
             return;
         }
 
+        LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
+
         if (indir->OperIs(GT_FIELD) ? indir->AsField()->IsVolatile() : indir->AsIndir()->IsVolatile())
         {
             // TODO-ADDR: We shouldn't remove the indir because it's volatile but we should
             // transform the tree into IND(LCL_VAR|FLD_ADDR) instead of leaving this to
             // fgMorphField.
+
+            // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
+            // to avoid diffs due to old promotion code ignoring volatile as well.
 
             // TODO-MIKE-CQ: Can we use another mechanism to avoid dependent promotion of SpinLock?
             // DNER would do half of the job, it keeps the local in memory but does not prevent other
@@ -1174,14 +1179,15 @@ private:
             // At the same time, it's unlikely that SpinLock's constructor really needs volatile,
             // only Enter/Exit do.
 
-            // For now make the local address exposed to workaround a bug in fgMorphSmpOp's
-            // IND morphing code. It completly ignores volatile indirs and in doing so it
-            // fails to DNER the local which leads to asserts in the backend.
-            m_compiler->lvaSetVarAddrExposed(val.LclNum());
-            return;
+            if (!indir->OperIs(GT_FIELD) || !varDsc->IsPromotedField())
+            {
+                // For now make the local address exposed to workaround a bug in fgMorphSmpOp's
+                // IND morphing code. It completly ignores volatile indirs and in doing so it
+                // fails to DNER the local which leads to asserts in the backend.
+                m_compiler->lvaSetVarAddrExposed(val.LclNum());
+                return;
+            }
         }
-
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
         if (indir->OperIs(GT_BLK) || (indir->OperIs(GT_IND) && indir->TypeIs(TYP_STRUCT)))
         {
