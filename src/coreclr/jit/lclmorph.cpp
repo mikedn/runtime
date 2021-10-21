@@ -157,6 +157,46 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return true;
         }
 
+        bool Add(const Value& op1, const Value& op2)
+        {
+            assert(!IsLocation() && !IsAddress());
+
+            GenTreeIntCon* offset;
+            const Value*   op;
+
+            if (op1.IsAddress() && op2.Node()->IsIntCon())
+            {
+                op     = &op1;
+                offset = op2.Node()->AsIntCon();
+            }
+            else if (op2.IsAddress() && op1.Node()->IsIntCon())
+            {
+                op     = &op2;
+                offset = op1.Node()->AsIntCon();
+            }
+            else
+            {
+                return false;
+            }
+
+            ClrSafeInt<unsigned> newOffset =
+                ClrSafeInt<unsigned>(op->m_offset) + ClrSafeInt<unsigned>(offset->GetValue());
+
+            if (newOffset.IsOverflow())
+            {
+                return false;
+            }
+
+            m_address  = true;
+            m_lclNum   = op->m_lclNum;
+            m_offset   = newOffset.Value();
+            m_fieldSeq = FieldSeqNode::NotAField();
+
+            INDEBUG(op1.Consume();)
+            INDEBUG(op2.Consume();)
+            return true;
+        }
+
         //------------------------------------------------------------------------
         // Location: Produce a location value.
         //
@@ -490,6 +530,21 @@ public:
                     EscapeValue(TopValue(0), node);
                 }
 
+                PopValue();
+                break;
+
+            case GT_ADD:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
+                assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
+
+                if (node->gtOverflow() || !TopValue(2).Add(TopValue(1), TopValue(0)))
+                {
+                    EscapeValue(TopValue(1), node);
+                    EscapeValue(TopValue(0), node);
+                }
+
+                PopValue();
                 PopValue();
                 break;
 
