@@ -1301,17 +1301,6 @@ private:
             // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
             // to avoid diffs due to old promotion code ignoring volatile as well.
 
-            // TODO-MIKE-CQ: Can we use another mechanism to avoid dependent promotion of SpinLock?
-            // DNER would do half of the job, it keeps the local in memory but does not prevent other
-            // optimizations that may interfere with volatile. Strictly speaking, neither address
-            // exposed provided any such guarantees, it's just that the JIT is very conservative with
-            // address exposed locals. Maybe DNER + DONT_CSE + ORDER_SIDEEFF?
-            // It's unlikely to have SpinLock local variable in real world code but we do get local
-            // temps for SpinLock construction. And currently they are independent promoted because
-            // MorphStructField doesn't check for volatile access, which is basically a bug...
-            // At the same time, it's unlikely that SpinLock's constructor really needs volatile,
-            // only Enter/Exit do.
-
             if (!indir->OperIs(GT_FIELD) || !varDsc->IsPromotedField())
             {
                 CanonicalizeLocalIndir(val);
