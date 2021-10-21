@@ -1200,6 +1200,7 @@ private:
 
         GenTree* indir = val.Node();
         assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD));
+        assert(!indir->OperIs(GT_IND) || !indir->TypeIs(TYP_STRUCT));
 
         if (val.Offset() > UINT16_MAX)
         {
@@ -1241,7 +1242,7 @@ private:
             }
         }
 
-        if (indir->OperIs(GT_BLK) || (indir->OperIs(GT_IND) && indir->TypeIs(TYP_STRUCT)))
+        if (indir->OperIs(GT_BLK))
         {
             // Keep BLKs and mark any involved locals address exposed for now.
             //
