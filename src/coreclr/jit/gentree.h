@@ -3807,10 +3807,14 @@ public:
     }
 #endif
 
-    // True if this field is a volatile memory operation.
     bool IsVolatile() const
     {
         return (gtFlags & GTF_FLD_VOLATILE) != 0;
+    }
+
+    bool IsUnaligned() const
+    {
+        return (gtFlags & GTF_IND_UNALIGNED) != 0;
     }
 
 #if DEBUGGABLE_GENTREE

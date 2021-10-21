@@ -881,7 +881,11 @@ private:
 
         if (isWide)
         {
-            m_compiler->lvaSetVarAddrExposed(lcl->lvIsStructField ? lcl->lvParentLcl : val.LclNum());
+            // We should not encounter a promoted field here, we only switch to a promoted
+            // field below, after we verify that the field totally overlaps the indirection.
+            assert(!lcl->IsPromotedField());
+
+            CanonicalizeLocalIndir(val);
             return;
         }
 
@@ -1186,6 +1190,88 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
+    GenTree* CanonicalizeLocalAddress(const Value& val)
+    {
+        assert(val.IsAddress());
+
+        LclVarDsc* lcl  = m_compiler->lvaGetDesc(val.LclNum());
+        GenTree*   node = val.Node();
+
+        // TODO-ADDR: Use LCL_VAR/FLD_ADDR instead of ADDR(LCL_VAR)
+
+        node->ChangeOper(GT_LCL_VAR);
+        node->AsLclVar()->SetLclNum(val.LclNum());
+        node->SetType(lcl->GetType());
+        node->gtFlags = GTF_EMPTY;
+
+        GenTree* addr = m_compiler->gtNewAddrNode(node, TYP_I_IMPL);
+
+        if (val.Offset() != 0)
+        {
+            GenTree* offset = m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq());
+            addr            = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, offset);
+        }
+
+        m_compiler->lvaSetVarAddrExposed(val.LclNum());
+
+        INDEBUG(m_stmtModified = true;)
+
+        return addr;
+    }
+
+    void CanonicalizeLocalIndir(const Value& val)
+    {
+        assert(val.IsLocation());
+
+        GenTree* node = val.Node();
+        GenTree* addr;
+
+        if (GenTreeField* field = node->IsField())
+        {
+            addr = field->GetAddr();
+
+            bool isVolatile  = field->IsVolatile();
+            bool isUnaligned = field->IsUnaligned();
+
+            if (field->TypeIs(TYP_STRUCT))
+            {
+                ClassLayout* layout = m_compiler->typGetObjLayout(GetStructFieldType(field->GetFieldHandle()));
+
+                node->ChangeOper(GT_OBJ);
+                node->AsObj()->SetLayout(layout);
+                node->AsObj()->SetKind(StructStoreKind::Invalid);
+            }
+            else
+            {
+                node->ChangeOper(GT_IND);
+            }
+
+            if (isVolatile)
+            {
+                node->AsIndir()->SetVolatile();
+            }
+
+            if (isUnaligned)
+            {
+                node->AsIndir()->SetUnaligned();
+            }
+        }
+        else
+        {
+            addr = node->AsIndir()->GetAddr();
+        }
+
+        Value addrVal(addr);
+        addrVal.Address(val.LclNum(), val.Offset(), val.FieldSeq());
+        addr = CanonicalizeLocalAddress(addrVal);
+
+        node->AsIndir()->SetAddr(addr);
+        node->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
+        node->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
     //------------------------------------------------------------------------
     // MorphLocalIndir: Change a tree that represents an indirect access to a struct
     //    variable to a single LCL_VAR or LCL_FLD node.
@@ -1204,9 +1290,7 @@ private:
 
         if (val.Offset() > UINT16_MAX)
         {
-            // TODO-ADDR: We can't use LCL_FLD because the offset is too large but we should
-            // transform the tree into IND(ADD(LCL_VAR_ADDR, offset)) instead of leaving this
-            // this to fgMorphField.
+            CanonicalizeLocalIndir(val);
             return;
         }
 
@@ -1214,10 +1298,6 @@ private:
 
         if (indir->OperIs(GT_FIELD) ? indir->AsField()->IsVolatile() : indir->AsIndir()->IsVolatile())
         {
-            // TODO-ADDR: We shouldn't remove the indir because it's volatile but we should
-            // transform the tree into IND(LCL_VAR|FLD_ADDR) instead of leaving this to
-            // fgMorphField.
-
             // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
             // to avoid diffs due to old promotion code ignoring volatile as well.
 
@@ -1234,10 +1314,7 @@ private:
 
             if (!indir->OperIs(GT_FIELD) || !varDsc->IsPromotedField())
             {
-                // For now make the local address exposed to workaround a bug in fgMorphSmpOp's
-                // IND morphing code. It completly ignores volatile indirs and in doing so it
-                // fails to DNER the local which leads to asserts in the backend.
-                m_compiler->lvaSetVarAddrExposed(val.LclNum());
+                CanonicalizeLocalIndir(val);
                 return;
             }
         }
@@ -1256,13 +1333,7 @@ private:
             // to a STRUCT local and one way or another this results in DNER/P-DEP locals.
             // This can be avoided but it's unlikely that it's worth the effort for x86...
 
-            m_compiler->lvaSetVarAddrExposed(val.LclNum());
-
-            if (varDsc->IsPromotedField())
-            {
-                m_compiler->lvaSetVarAddrExposed(varDsc->GetPromotedFieldParentLclNum());
-            }
-
+            CanonicalizeLocalIndir(val);
             return;
         }
 
