@@ -3820,8 +3820,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     if (comp->opts.ShouldUsePInvokeHelpers())
     {
         // First argument is the address of the frame variable.
-        GenTree* frameAddr =
-            new (comp, GT_LCL_VAR_ADDR) GenTreeLclVar(GT_LCL_VAR_ADDR, TYP_BYREF, comp->lvaInlinedPInvokeFrameVar);
+        GenTree* frameAddr = comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar);
 
 #if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
         // On x86 targets, PInvoke calls need the size of the stack args in InlinedCallFrame.m_Datum.
@@ -3985,9 +3984,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
         noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
 
         // First argument is the address of the frame variable.
-        GenTree* frameAddr =
-            new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_BYREF, comp->lvaInlinedPInvokeFrameVar);
-        frameAddr->SetOperRaw(GT_LCL_VAR_ADDR);
+        GenTree* frameAddr = comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar);
 
         // Insert call to CORINFO_HELP_JIT_PINVOKE_END
         GenTreeCall* helperCall =

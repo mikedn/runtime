@@ -857,11 +857,11 @@ private:
             {
                 Value fieldVal(val.Node());
                 fieldVal.Address(lclNum, 0, nullptr);
-                MorphLocalAddress(fieldVal);
+                MorphLocalAddress(fieldVal, user);
             }
             else
             {
-                MorphLocalAddress(val);
+                MorphLocalAddress(val, user);
             }
         }
     }
@@ -1238,7 +1238,7 @@ private:
     // Arguments:
     //    val - a value that represents the local address
     //
-    void MorphLocalAddress(const Value& val)
+    void MorphLocalAddress(const Value& val, GenTree* user)
     {
         assert(val.IsAddress());
         assert(val.Node()->TypeIs(TYP_BYREF, TYP_I_IMPL));
@@ -1253,8 +1253,8 @@ private:
             // The offset is too large to store in a LCL_FLD_ADDR node,
             // use ADD(LCL_VAR_ADDR, offset) instead.
             addr->ChangeOper(GT_ADD);
-            addr->AsOp()->gtOp1 = m_compiler->gtNewLclVarAddrNode(val.LclNum());
-            addr->AsOp()->gtOp2 = m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq());
+            addr->AsOp()->SetOp(0, m_compiler->gtNewLclVarAddrNode(val.LclNum()));
+            addr->AsOp()->SetOp(1, m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq()));
         }
         else if ((val.Offset() != 0) || ((val.FieldSeq() != nullptr) && (val.FieldSeq() != FieldSeqStore::NotAField())))
         {
@@ -1271,6 +1271,11 @@ private:
 
         // Local address nodes never have side effects (nor any other flags, at least at this point).
         addr->gtFlags = GTF_EMPTY;
+
+        if (!user->OperIs(GT_ASG))
+        {
+            addr->SetType(TYP_I_IMPL);
+        }
 
         INDEBUG(m_stmtModified = true;)
     }
