@@ -14580,19 +14580,20 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
             return false;
         }
 
-        // TODO-MIKE-Review: This is inconsistent with the IsLocalAddrExpr() overload above and
-        // DefinesLocalAddr, they both ignore the field sequence (or the lack of it). Though it
-        // probably doesn't matter since IntCon nodes get NotAField by default. And eventually
-        // all this should go away...
-        if (op2->AsIntCon()->GetFieldSeq() == nullptr)
-        {
-            return false;
-        }
-
         *outLclOffs += static_cast<int>(op2->AsIntCon()->GetValue());
-        // TODO-MIKE-Review: Is there anything the prevents the JIT from reordering an ADD(ADD(ADD...))
-        // sequence such that the field sequence no longer reflects the original field access sequence?
-        *outFieldSeq = comp->GetFieldSeqStore()->Append(op2->AsIntCon()->GetFieldSeq(), *outFieldSeq);
+
+        FieldSeqNode* fieldSeq = op2->AsIntCon()->GetFieldSeq();
+
+        if (fieldSeq == nullptr)
+        {
+            *outFieldSeq = FieldSeqNode::NotAField();
+        }
+        else
+        {
+            // TODO-MIKE-Review: Is there anything the prevents the JIT from reordering an ADD(ADD(ADD...))
+            // sequence such that the field sequence no longer reflects the original field access sequence?
+            *outFieldSeq = comp->GetFieldSeqStore()->Append(fieldSeq, *outFieldSeq);
+        }
 
         return op1->IsLocalAddrExpr(comp, outLclNode, outLclOffs, outFieldSeq);
     }
