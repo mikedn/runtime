@@ -14348,32 +14348,28 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
 
 bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire)
 {
+    assert(OperIs(GT_ASG));
+
     GenTreeBlk* blkNode = nullptr;
-    if (OperIs(GT_ASG))
+
+    if (AsOp()->gtOp1->IsLocal())
     {
-        if (AsOp()->gtOp1->IsLocal())
+        GenTreeLclVarCommon* lclVarTree = AsOp()->gtOp1->AsLclVarCommon();
+        *pLclVarTree                    = lclVarTree;
+        if (pIsEntire != nullptr)
         {
-            GenTreeLclVarCommon* lclVarTree = AsOp()->gtOp1->AsLclVarCommon();
-            *pLclVarTree                    = lclVarTree;
-            if (pIsEntire != nullptr)
-            {
-                *pIsEntire = !lclVarTree->IsPartialLclFld(comp);
-            }
-            return true;
+            *pIsEntire = !lclVarTree->IsPartialLclFld(comp);
         }
-        else if (AsOp()->gtOp1->OperGet() == GT_IND)
-        {
-            GenTree* indArg = AsOp()->gtOp1->AsOp()->gtOp1;
-            return indArg->DefinesLocalAddr(comp, genTypeSize(AsOp()->gtOp1->TypeGet()), pLclVarTree, pIsEntire);
-        }
-        else if (AsOp()->gtOp1->OperIsBlk())
-        {
-            blkNode = AsOp()->gtOp1->AsBlk();
-        }
+        return true;
     }
-    else if (OperIsBlk())
+    else if (AsOp()->gtOp1->OperGet() == GT_IND)
     {
-        blkNode = AsBlk();
+        GenTree* indArg = AsOp()->gtOp1->AsOp()->gtOp1;
+        return indArg->DefinesLocalAddr(comp, genTypeSize(AsOp()->gtOp1->TypeGet()), pLclVarTree, pIsEntire);
+    }
+    else if (AsOp()->gtOp1->OperIsBlk())
+    {
+        blkNode = AsOp()->gtOp1->AsBlk();
     }
 
     if (blkNode == nullptr)
