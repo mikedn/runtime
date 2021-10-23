@@ -14512,39 +14512,6 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, GenTreeLclVarCommo
     return true;
 }
 
-//------------------------------------------------------------------------
-// IsLocalExpr: Determine if this is a LclVarCommon node and return some
-//              additional info about it in the two out parameters.
-//
-// Arguments:
-//    comp        - The Compiler instance
-//    pLclVarTree - An "out" argument that returns the local tree as a
-//                  LclVarCommon, if it is indeed local.
-//    pFldSeq     - An "out" argument that returns the value numbering field
-//                  sequence for the node, if any.
-//
-// Return Value:
-//    Returns true, and sets the out arguments accordingly, if this is
-//    a LclVarCommon node.
-
-bool GenTree::IsLocalExpr(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, FieldSeqNode** pFldSeq)
-{
-    if (IsLocal()) // Note that this covers "GT_LCL_FLD."
-    {
-        *pLclVarTree = AsLclVarCommon();
-        if (OperGet() == GT_LCL_FLD)
-        {
-            // Otherwise, prepend this field to whatever we've already accumulated outside in.
-            *pFldSeq = comp->GetFieldSeqStore()->Append(AsLclFld()->GetFieldSeq(), *pFldSeq);
-        }
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
 GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
 {
     GenTree* node = this;

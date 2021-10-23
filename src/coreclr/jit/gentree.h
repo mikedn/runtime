@@ -1937,10 +1937,6 @@ public:
     // and if so return the tree for the parameter.
     GenTreeLclVar* IsImplicitByrefIndir(Compiler* compiler);
 
-    // Determine if this is a LclVarCommon node and return some additional info about it in the
-    // two out parameters.
-    bool IsLocalExpr(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, FieldSeqNode** pFldSeq);
-
     // Determine whether this is an assignment tree of the form X = X (op) Y,
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);

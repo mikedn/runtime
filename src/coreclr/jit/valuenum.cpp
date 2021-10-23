@@ -7041,8 +7041,10 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
 
                 unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclVarTree);
 
-                if (lhs->IsLocalExpr(this, &lclVarTree, &lhsFldSeq))
+                if (lhs->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
+                    lclVarTree = lhs->AsLclVarCommon();
+                    lhsFldSeq  = lhs->IsLclFld() ? lhs->AsLclFld()->GetFieldSeq() : nullptr;
                     noway_assert(lclVarTree->GetLclNum() == lhsLclNum);
                 }
                 else
@@ -7083,8 +7085,11 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
                 if (!rhs->OperIsIndir())
                 {
                     FieldSeqNode* rhsFldSeq = nullptr;
-                    if (rhs->IsLocalExpr(this, &rhsLclVarTree, &rhsFldSeq))
+
+                    if (rhs->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                     {
+                        rhsLclVarTree      = rhs->AsLclVarCommon();
+                        rhsFldSeq          = rhs->IsLclFld() ? rhs->AsLclFld()->GetFieldSeq() : nullptr;
                         unsigned rhsLclNum = rhsLclVarTree->GetLclNum();
                         rhsVarDsc          = &lvaTable[rhsLclNum];
                         if (!lvaInSsa(rhsLclNum) || rhsFldSeq == FieldSeqStore::NotAField())
