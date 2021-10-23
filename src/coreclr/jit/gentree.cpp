@@ -14532,32 +14532,46 @@ bool GenTree::IsLocalExpr(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, Fie
     }
 }
 
-// If this tree evaluates some sum of a local address and some constants,
-// return the node for the local being addressed
-
 GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
 {
-    if (OperGet() == GT_ADDR)
+    GenTree* node = this;
+
+    while (node->OperIs(GT_ADD))
     {
-        return AsOp()->gtOp1->IsLocal() ? AsOp()->gtOp1->AsLclVarCommon() : nullptr;
-    }
-    else if (OperIsLocalAddr())
-    {
-        return this->AsLclVarCommon();
-    }
-    else if (OperGet() == GT_ADD)
-    {
-        if (AsOp()->gtOp1->OperGet() == GT_CNS_INT)
+        GenTree* op1 = node->AsOp()->GetOp(0);
+        GenTree* op2 = node->AsOp()->GetOp(1);
+
+        if (op1->OperIs(GT_CNS_INT))
         {
-            return AsOp()->gtOp2->IsLocalAddrExpr();
+            std::swap(op1, op2);
         }
-        else if (AsOp()->gtOp2->OperGet() == GT_CNS_INT)
+
+        if (!op2->OperIs(GT_CNS_INT))
         {
-            return AsOp()->gtOp1->IsLocalAddrExpr();
+            return false;
         }
+
+        node = op1;
     }
-    // Otherwise...
-    return nullptr;
+
+    if (node->OperIs(GT_ADDR))
+    {
+        GenTree* location = node->AsUnOp()->GetOp(0);
+
+        if (!location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            return false;
+        }
+
+        return location->AsLclVarCommon();
+    }
+
+    if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        return node->AsLclVarCommon();
+    }
+
+    return false;
 }
 
 bool GenTree::IsLocalAddrExpr(Compiler*             comp,
