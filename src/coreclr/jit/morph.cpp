@@ -8691,7 +8691,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* 
 
 GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 {
-    if (tree->OperIs(GT_COMMA))
+    if (tree->OperIs(GT_COMMA) && (isDest || tree->TypeIs(TYP_STRUCT)))
     {
         // In order to CSE and value number array index expressions and bounds checks,
         // the commas in which they are contained need to match.
