@@ -316,28 +316,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
                 fgCurMemoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
             }
 
-            // If this is a p/invoke unmanaged call or if this is a tail-call via helper,
-            // and we have an unmanaged p/invoke call in the method,
-            // then we're going to run the p/invoke epilog.
-            // So we mark the FrameRoot as used by this instruction.
-            // This ensures that the block->bbVarUse will contain
-            // the FrameRoot local var if is it a tracked variable.
-
-            if ((call->IsUnmanaged() || call->IsTailCallViaJitHelper()) && compMethodRequiresPInvokeFrame())
-            {
-                assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-
-                if (!opts.ShouldUsePInvokeHelpers() && !call->IsSuppressGCTransition())
-                {
-                    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
-
-                    if (lcl->lvTracked && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
-                    {
-                        VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
-                    }
-                }
-            }
-
+            fgPInvokeFrameLiveness(call);
             break;
         }
 
@@ -409,35 +388,45 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
             break;
 
         case GT_CALL:
-        {
-            GenTreeCall* call = tree->AsCall();
-
-            // If this is a p/invoke unmanaged call or if this is a tail-call via helper,
-            // and we have an unmanaged p/invoke call in the method,
-            // then we're going to run the p/invoke epilog.
-            // So we mark the FrameRoot as used by this instruction.
-            // This ensures that the block->bbVarUse will contain
-            // the FrameRoot local var if is it a tracked variable.
-
-            if ((call->IsUnmanaged() || call->IsTailCallViaJitHelper()) && compMethodRequiresPInvokeFrame())
-            {
-                assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-
-                if (!opts.ShouldUsePInvokeHelpers() && !call->IsSuppressGCTransition())
-                {
-                    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
-
-                    if (lcl->lvTracked && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
-                    {
-                        VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
-                    }
-                }
-            }
+            fgPInvokeFrameLiveness(tree->AsCall());
             break;
-        }
 
         default:
             break;
+    }
+}
+
+void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
+{
+    // If this is a p/invoke unmanaged call or if this is a tail-call via helper,
+    // and we have an unmanaged p/invoke call in the method,
+    // then we're going to run the p/invoke epilog.
+    // So we mark the FrameRoot as used by this instruction.
+    // This ensures that the block->bbVarUse will contain
+    // the FrameRoot local var if is it a tracked variable.
+
+    if (!compMethodRequiresPInvokeFrame())
+    {
+        return;
+    }
+
+    if (!call->IsUnmanaged() && !call->IsTailCallViaJitHelper())
+    {
+        return;
+    }
+
+    assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
+
+    if (opts.ShouldUsePInvokeHelpers() || call->IsSuppressGCTransition())
+    {
+        return;
+    }
+
+    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
+
+    if (lcl->lvTracked && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
+    {
+        VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
     }
 }
 
