@@ -160,6 +160,8 @@ class LclSsaVarDsc
     GenTreeOp* m_asg;
 
 public:
+    ValueNumPair m_vnPair;
+
     LclSsaVarDsc() : m_block(nullptr), m_asg(nullptr)
     {
     }
@@ -190,7 +192,15 @@ public:
         m_asg = asg;
     }
 
-    ValueNumPair m_vnPair;
+    ValueNumPair GetVNP() const
+    {
+        return m_vnPair;
+    }
+
+    void SetVNP(ValueNumPair vnp)
+    {
+        m_vnPair = vnp;
+    }
 };
 
 // This class stores information associated with a memory SSA definition.
@@ -3958,7 +3968,7 @@ public:
     void fgValueNumberTree(GenTree* tree);
 
     // Does value-numbering for a block assignment.
-    void fgValueNumberBlockAssignment(GenTree* tree);
+    void vnStructAssignment(GenTreeOp* asg);
 
     // Does value-numbering for a cast tree.
     void fgValueNumberCastTree(GenTree* tree);
