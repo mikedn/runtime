@@ -7078,11 +7078,11 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
                 // Now we need to get the proper RHS.
                 GenTreeLclVarCommon* rhsLclVarTree = nullptr;
                 LclVarDsc*           rhsVarDsc     = nullptr;
-                FieldSeqNode*        rhsFldSeq     = nullptr;
                 ValueNumPair         rhsVNPair;
                 bool                 isNewUniq = false;
                 if (!rhs->OperIsIndir())
                 {
+                    FieldSeqNode* rhsFldSeq = nullptr;
                     if (rhs->IsLocalExpr(this, &rhsLclVarTree, &rhsFldSeq))
                     {
                         unsigned rhsLclNum = rhsLclVarTree->GetLclNum();
@@ -7110,9 +7110,10 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
                 }
                 else
                 {
-                    GenTree*  srcAddr = rhs->AsIndir()->Addr();
-                    VNFuncApp srcAddrFuncApp;
-                    unsigned  rhsLclOffs = 0;
+                    GenTree*      srcAddr = rhs->AsIndir()->Addr();
+                    VNFuncApp     srcAddrFuncApp;
+                    unsigned      rhsLclOffs = 0;
+                    FieldSeqNode* rhsFldSeq  = nullptr;
                     if (srcAddr->IsLocalAddrExpr(this, &rhsLclVarTree, &rhsLclOffs, &rhsFldSeq))
                     {
                         unsigned rhsLclNum = rhsLclVarTree->GetLclNum();

@@ -14565,10 +14565,14 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
                               unsigned*             outLclOffs,
                               FieldSeqNode**        outFieldSeq)
 {
-    if (OperIs(GT_ADD))
+    GenTree*      node     = this;
+    unsigned      offset   = 0;
+    FieldSeqNode* fieldSeq = nullptr;
+
+    while (node->OperIs(GT_ADD))
     {
-        GenTree* op1 = AsOp()->GetOp(0);
-        GenTree* op2 = AsOp()->GetOp(1);
+        GenTree* op1 = node->AsOp()->GetOp(0);
+        GenTree* op2 = node->AsOp()->GetOp(1);
 
         if (op1->OperIs(GT_CNS_INT))
         {
@@ -14580,29 +14584,28 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
             return false;
         }
 
-        *outLclOffs += static_cast<int>(op2->AsIntCon()->GetValue());
+        // TODO-MIKE-Review: Cast to int?!?
+        offset += static_cast<int>(op2->AsIntCon()->GetValue());
 
-        FieldSeqNode* fieldSeq = op2->AsIntCon()->GetFieldSeq();
-
-        if (fieldSeq == nullptr)
+        if (op2->AsIntCon()->GetFieldSeq() == nullptr)
         {
-            *outFieldSeq = FieldSeqNode::NotAField();
+            fieldSeq = FieldSeqNode::NotAField();
         }
         else
         {
             // TODO-MIKE-Review: Is there anything the prevents the JIT from reordering an ADD(ADD(ADD...))
             // sequence such that the field sequence no longer reflects the original field access sequence?
-            *outFieldSeq = comp->GetFieldSeqStore()->Append(fieldSeq, *outFieldSeq);
+            fieldSeq = comp->GetFieldSeqStore()->Append(op2->AsIntCon()->GetFieldSeq(), fieldSeq);
         }
 
-        return op1->IsLocalAddrExpr(comp, outLclNode, outLclOffs, outFieldSeq);
+        node = op1;
     }
 
-    if (OperIs(GT_ADDR))
+    if (node->OperIs(GT_ADDR))
     {
         assert(!comp->compRationalIRForm);
 
-        GenTree* location = AsUnOp()->GetOp(0);
+        GenTree* location = node->AsUnOp()->GetOp(0);
 
         if (!location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
@@ -14613,23 +14616,27 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
 
         if (location->OperIs(GT_LCL_FLD))
         {
-            *outLclOffs += location->AsLclFld()->GetLclOffs();
-            *outFieldSeq = comp->GetFieldSeqStore()->Append(location->AsLclFld()->GetFieldSeq(), *outFieldSeq);
+            offset += location->AsLclFld()->GetLclOffs();
+            fieldSeq = comp->GetFieldSeqStore()->Append(location->AsLclFld()->GetFieldSeq(), fieldSeq);
         }
 
+        *outLclOffs  = offset;
+        *outFieldSeq = fieldSeq;
         return true;
     }
 
-    if (OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
-        *outLclNode = AsLclVarCommon();
+        *outLclNode = node->AsLclVarCommon();
 
-        if (OperIs(GT_LCL_FLD_ADDR))
+        if (node->OperIs(GT_LCL_FLD_ADDR))
         {
-            *outLclOffs += AsLclFld()->GetLclOffs();
-            *outFieldSeq = comp->GetFieldSeqStore()->Append(AsLclFld()->GetFieldSeq(), *outFieldSeq);
+            offset += node->AsLclFld()->GetLclOffs();
+            fieldSeq = comp->GetFieldSeqStore()->Append(node->AsLclFld()->GetFieldSeq(), fieldSeq);
         }
 
+        *outLclOffs  = offset;
+        *outFieldSeq = fieldSeq;
         return true;
     }
 
