@@ -6950,317 +6950,273 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
 
     assert(lhs->TypeIs(TYP_STRUCT));
 
-    if (rhs->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    GenTreeLclVarCommon* lclVarTree = nullptr;
+    bool                 isEntire   = false;
+
+    if (!tree->DefinesLocal(this, &lclVarTree, &isEntire))
     {
-        GenTreeLclVarCommon* lclVarTree;
-        bool                 isEntire;
+        // For now, arbitrary side effect on GcHeap/ByrefExposed.
+        // TODO-CQ: Why not be complete, and get this case right?
+        fgMutateGcHeap(tree DEBUGARG("non local struct store"));
+    }
+    else if (lvaVarAddrExposed(lclVarTree->GetLclNum()))
+    {
+        fgMutateAddressExposedLocal(tree DEBUGARG("address-exposed local struct store"));
+    }
+    else if (!lvaInSsa(lclVarTree->GetLclNum()))
+    {
+        // Ignore vars that we excluded from SSA. They don't have SSA names in which
+        // to store VN's on defs. We'll yield unique VN's when we read from them.
+    }
+    else if (rhs->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    {
+        assert((lclVarTree->gtFlags & GTF_VAR_DEF) != 0);
+        assert(!GetMemorySsaMap(GcHeap)->Lookup(tree));
+        assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree));
 
-        if (tree->DefinesLocal(this, &lclVarTree, &isEntire))
+        unsigned lclNum       = lclVarTree->GetLclNum();
+        unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclVarTree);
+
+        ValueNum initBlkVN = ValueNumStore::NoVN;
+        GenTree* initConst = rhs;
+        if (isEntire && initConst->OperGet() == GT_CNS_INT)
         {
-            assert(lclVarTree->gtFlags & GTF_VAR_DEF);
-            // Should not have been recorded as updating the GC heap.
-            assert(!GetMemorySsaMap(GcHeap)->Lookup(tree));
-
-            unsigned lclNum = lclVarTree->GetLclNum();
-
-            // Ignore vars that we excluded from SSA (for example, because they're address-exposed). They don't have
-            // SSA names in which to store VN's on defs.  We'll yield unique VN's when we read from them.
-            if (lvaInSsa(lclNum))
+            unsigned initVal = 0xFF & (unsigned)initConst->AsIntConCommon()->IconValue();
+            if (initVal == 0)
             {
-                // Should not have been recorded as updating ByrefExposed.
-                assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree));
+                initBlkVN = vnStore->VNZeroForType(lclVarTree->TypeGet());
+            }
+        }
+        ValueNum lclVarVN = (initBlkVN != ValueNumStore::NoVN)
+                                ? initBlkVN
+                                : vnStore->VNForExpr(compCurBB, var_types(lvaTable[lclNum].lvType));
 
-                unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclVarTree);
+        lvaTable[lclNum].GetPerSsaData(lclDefSsaNum)->m_vnPair.SetBoth(lclVarVN);
 
-                ValueNum initBlkVN = ValueNumStore::NoVN;
-                GenTree* initConst = rhs;
-                if (isEntire && initConst->OperGet() == GT_CNS_INT)
-                {
-                    unsigned initVal = 0xFF & (unsigned)initConst->AsIntConCommon()->IconValue();
-                    if (initVal == 0)
-                    {
-                        initBlkVN = vnStore->VNZeroForType(lclVarTree->TypeGet());
-                    }
-                }
-                ValueNum lclVarVN = (initBlkVN != ValueNumStore::NoVN)
-                                        ? initBlkVN
-                                        : vnStore->VNForExpr(compCurBB, var_types(lvaTable[lclNum].lvType));
-
-                lvaTable[lclNum].GetPerSsaData(lclDefSsaNum)->m_vnPair.SetBoth(lclVarVN);
 #ifdef DEBUG
-                if (verbose)
-                {
-                    printf("N%03u ", tree->gtSeqNum);
-                    Compiler::printTreeID(tree);
-                    printf(" ");
-                    gtDispNodeName(tree);
-                    printf(" V%02u/%d => ", lclNum, lclDefSsaNum);
-                    vnPrint(lclVarVN, 1);
-                    printf("\n");
-                }
-#endif // DEBUG
-            }
-            else if (lvaVarAddrExposed(lclVarTree->GetLclNum()))
-            {
-                fgMutateAddressExposedLocal(tree DEBUGARG("INITBLK - address-exposed local"));
-            }
-        }
-        else
+        if (verbose)
         {
-            // For now, arbitrary side effect on GcHeap/ByrefExposed.
-            // TODO-CQ: Why not be complete, and get this case right?
-            fgMutateGcHeap(tree DEBUGARG("INITBLK - non local"));
+            printf("N%03u ", tree->gtSeqNum);
+            Compiler::printTreeID(tree);
+            printf(" ");
+            gtDispNodeName(tree);
+            printf(" V%02u/%d => ", lclNum, lclDefSsaNum);
+            vnPrint(lclVarVN, 1);
+            printf("\n");
         }
-        // Initblock's are of type void.  Give them the void "value" -- they may occur in argument lists, which we
-        // want to be able to give VN's to.
-        tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+#endif // DEBUG
     }
     else
     {
         assert(varTypeIsStruct(rhs->GetType()));
+        assert(!GetMemorySsaMap(GcHeap)->Lookup(tree));
+        assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree));
 
-        // TODO-Cleanup: We should factor things so that we uniformly rely on "PtrTo" VN's, and
-        // the memory cases can be shared with assignments.
-        GenTreeLclVarCommon* lclVarTree = nullptr;
-        bool                 isEntire   = false;
         // Note that we don't care about exceptions here, since we're only using the values
         // to perform an assignment (which happens after any exceptions are raised...)
 
-        if (tree->DefinesLocal(this, &lclVarTree, &isEntire))
+        unsigned      lhsLclNum    = lclVarTree->GetLclNum();
+        FieldSeqNode* lhsFldSeq    = nullptr;
+        unsigned      lclDefSsaNum = GetSsaNumForLocalVarDef(lclVarTree);
+
+        if (lhs->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            // Should not have been recorded as updating the GC heap.
-            assert(!GetMemorySsaMap(GcHeap)->Lookup(tree));
-
-            unsigned      lhsLclNum = lclVarTree->GetLclNum();
-            FieldSeqNode* lhsFldSeq = nullptr;
-            // If it's excluded from SSA, don't need to do anything.
-            if (lvaInSsa(lhsLclNum))
+            lclVarTree = lhs->AsLclVarCommon();
+            lhsFldSeq  = lhs->IsLclFld() ? lhs->AsLclFld()->GetFieldSeq() : nullptr;
+            noway_assert(lclVarTree->GetLclNum() == lhsLclNum);
+        }
+        else
+        {
+            GenTree* lhsAddr;
+            if (lhs->OperIsBlk())
             {
-                // Should not have been recorded as updating ByrefExposed.
-                assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree));
-
-                unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclVarTree);
-
-                if (lhs->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-                {
-                    lclVarTree = lhs->AsLclVarCommon();
-                    lhsFldSeq  = lhs->IsLclFld() ? lhs->AsLclFld()->GetFieldSeq() : nullptr;
-                    noway_assert(lclVarTree->GetLclNum() == lhsLclNum);
-                }
-                else
-                {
-                    GenTree* lhsAddr;
-                    if (lhs->OperIsBlk())
-                    {
-                        lhsAddr = lhs->AsBlk()->Addr();
-                    }
-                    else
-                    {
-                        assert(lhs->OperGet() == GT_IND);
-                        lhsAddr = lhs->AsOp()->gtOp1;
-                    }
-
-                    // For addr-of-local expressions, lib/cons shouldn't matter.
-                    assert(lhsAddr->gtVNPair.BothEqual());
-                    ValueNum lhsAddrVN = lhsAddr->GetVN(VNK_Liberal);
-
-                    // Unpack the PtrToLoc value number of the address.
-                    assert(vnStore->IsVNFunc(lhsAddrVN));
-
-                    VNFuncApp lhsAddrFuncApp;
-                    vnStore->GetVNFunc(lhsAddrVN, &lhsAddrFuncApp);
-
-                    assert(lhsAddrFuncApp.m_func == VNF_PtrToLoc);
-                    assert(vnStore->IsVNConstant(lhsAddrFuncApp.m_args[0]) &&
-                           vnStore->ConstantValue<unsigned>(lhsAddrFuncApp.m_args[0]) == lhsLclNum);
-
-                    lhsFldSeq = vnStore->FieldSeqVNToFieldSeq(lhsAddrFuncApp.m_args[1]);
-                }
-
-                // Now we need to get the proper RHS.
-                GenTreeLclVarCommon* rhsLclVarTree = nullptr;
-                LclVarDsc*           rhsVarDsc     = nullptr;
-                ValueNumPair         rhsVNPair;
-                bool                 isNewUniq = false;
-                if (!rhs->OperIsIndir())
-                {
-                    FieldSeqNode* rhsFldSeq = nullptr;
-
-                    if (rhs->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-                    {
-                        rhsLclVarTree      = rhs->AsLclVarCommon();
-                        rhsFldSeq          = rhs->IsLclFld() ? rhs->AsLclFld()->GetFieldSeq() : nullptr;
-                        unsigned rhsLclNum = rhsLclVarTree->GetLclNum();
-                        rhsVarDsc          = &lvaTable[rhsLclNum];
-                        if (!lvaInSsa(rhsLclNum) || rhsFldSeq == FieldSeqStore::NotAField())
-                        {
-                            rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, rhsLclVarTree->TypeGet()));
-                            isNewUniq = true;
-                        }
-                        else
-                        {
-                            rhsVNPair = lvaTable[rhsLclVarTree->GetLclNum()]
-                                            .GetPerSsaData(rhsLclVarTree->GetSsaNum())
-                                            ->m_vnPair;
-                            var_types indType = rhsLclVarTree->TypeGet();
-
-                            rhsVNPair = vnStore->VNPairApplySelectors(rhsVNPair, rhsFldSeq, indType);
-                        }
-                    }
-                    else
-                    {
-                        rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, rhs->TypeGet()));
-                        isNewUniq = true;
-                    }
-                }
-                else
-                {
-                    GenTree*      srcAddr = rhs->AsIndir()->Addr();
-                    VNFuncApp     srcAddrFuncApp;
-                    unsigned      rhsLclOffs = 0;
-                    FieldSeqNode* rhsFldSeq  = nullptr;
-                    if (srcAddr->IsLocalAddrExpr(this, &rhsLclVarTree, &rhsLclOffs, &rhsFldSeq))
-                    {
-                        unsigned rhsLclNum = rhsLclVarTree->GetLclNum();
-                        rhsVarDsc          = &lvaTable[rhsLclNum];
-                        if (!lvaInSsa(rhsLclNum) || rhsFldSeq == FieldSeqStore::NotAField())
-                        {
-                            isNewUniq = true;
-                        }
-                        else
-                        {
-                            rhsVNPair = lvaTable[rhsLclVarTree->GetLclNum()]
-                                            .GetPerSsaData(rhsLclVarTree->GetSsaNum())
-                                            ->m_vnPair;
-                            var_types indType = rhsLclVarTree->TypeGet();
-
-                            rhsVNPair = vnStore->VNPairApplySelectors(rhsVNPair, rhsFldSeq, indType);
-                        }
-                    }
-                    else if (vnStore->GetVNFunc(vnStore->VNLiberalNormalValue(srcAddr->gtVNPair), &srcAddrFuncApp))
-                    {
-                        if (srcAddrFuncApp.m_func == VNF_PtrToStatic)
-                        {
-                            var_types     indType            = lclVarTree->TypeGet();
-                            ValueNum      fieldSeqVN         = srcAddrFuncApp.m_args[0];
-                            FieldSeqNode* fldSeqForStaticVar = vnStore->FieldSeqVNToFieldSeq(fieldSeqVN);
-#ifdef DEBUG
-                            FieldSeqNode* zeroOffsetFldSeq = nullptr;
-                            if (GetZeroOffsetFieldMap()->Lookup(srcAddr, &zeroOffsetFldSeq))
-                            {
-                                // Check that the zero offset field seq was attached for `srcAddr`.
-                                assert(fldSeqForStaticVar->GetTail() == zeroOffsetFldSeq);
-                            }
-#endif
-                            if (fldSeqForStaticVar != FieldSeqStore::NotAField())
-                            {
-                                // We model statics as indices into GcHeap (which is a subset of ByrefExposed).
-                                ValueNum selectedStaticVar;
-                                size_t   structSize = 0;
-                                selectedStaticVar   = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
-                                                                              fldSeqForStaticVar, &structSize);
-                                selectedStaticVar =
-                                    vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, indType, structSize);
-
-                                rhsVNPair.SetLiberal(selectedStaticVar);
-                                rhsVNPair.SetConservative(vnStore->VNForExpr(compCurBB, indType));
-                            }
-                            else
-                            {
-                                JITDUMP("    *** Missing field sequence info for Src/RHS of COPYBLK\n");
-                                isNewUniq = true;
-                            }
-                        }
-                        else if (srcAddrFuncApp.m_func == VNF_PtrToArrElem)
-                        {
-                            ValueNum vn =
-                                fgValueNumberArrIndexVal(srcAddrFuncApp, vnStore->VNForEmptyExcSet(), TYP_STRUCT);
-
-                            rhsVNPair.SetLiberal(vn);
-                            rhsVNPair.SetConservative(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
-                        }
-                        else
-                        {
-                            isNewUniq = true;
-                        }
-                    }
-                    else
-                    {
-                        isNewUniq = true;
-                    }
-                }
-
-                if (lhsFldSeq == FieldSeqStore::NotAField())
-                {
-                    // We don't have proper field sequence information for the lhs
-                    //
-                    JITDUMP("    *** Missing field sequence info for Dst/LHS of COPYBLK\n");
-                    isNewUniq = true;
-                }
-
-                if (isNewUniq)
-                {
-                    rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
-                }
-                else // We will assign rhsVNPair into a map[lhsFldSeq]
-                {
-                    if (lhsFldSeq != nullptr && isEntire)
-                    {
-                        // This can occur for structs with one field, itself of a struct type.
-                        // We are assigning the one field and it is also the entire enclosing struct.
-                        //
-                        // Use an unique value number for the old map, as this is an an entire assignment
-                        // and we won't have any other values in the map
-                        ValueNumPair uniqueMap;
-                        uniqueMap.SetBoth(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
-                        rhsVNPair = vnStore->VNPairApplySelectorsAssign(uniqueMap, lhsFldSeq, rhsVNPair,
-                                                                        lclVarTree->TypeGet(), compCurBB);
-                    }
-                    else
-                    {
-                        ValueNumPair oldLhsVNPair =
-                            lvaTable[lhsLclNum].GetPerSsaData(lclVarTree->GetSsaNum())->m_vnPair;
-                        rhsVNPair = vnStore->VNPairApplySelectorsAssign(oldLhsVNPair, lhsFldSeq, rhsVNPair,
-                                                                        lclVarTree->TypeGet(), compCurBB);
-                    }
-                }
-
-                lvaTable[lhsLclNum].GetPerSsaData(lclDefSsaNum)->m_vnPair = vnStore->VNPNormalPair(rhsVNPair);
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Tree ");
-                    Compiler::printTreeID(tree);
-                    printf(" assigned VN to local var V%02u/%d: ", lhsLclNum, lclDefSsaNum);
-                    if (isNewUniq)
-                    {
-                        printf("new uniq ");
-                    }
-                    vnpPrint(rhsVNPair, 1);
-                    printf("\n");
-                }
-#endif // DEBUG
-            }
-            else if (lvaVarAddrExposed(lhsLclNum))
-            {
-                fgMutateAddressExposedLocal(tree DEBUGARG("COPYBLK - address-exposed local"));
+                lhsAddr = lhs->AsBlk()->Addr();
             }
             else
             {
-                JITDUMP("LHS V%02u not in ssa at [%06u], so no VN assigned\n", lhsLclNum, dspTreeID(lclVarTree));
+                assert(lhs->OperGet() == GT_IND);
+                lhsAddr = lhs->AsOp()->gtOp1;
+            }
+
+            // For addr-of-local expressions, lib/cons shouldn't matter.
+            assert(lhsAddr->gtVNPair.BothEqual());
+            ValueNum lhsAddrVN = lhsAddr->GetVN(VNK_Liberal);
+
+            // Unpack the PtrToLoc value number of the address.
+            assert(vnStore->IsVNFunc(lhsAddrVN));
+
+            VNFuncApp lhsAddrFuncApp;
+            vnStore->GetVNFunc(lhsAddrVN, &lhsAddrFuncApp);
+
+            assert(lhsAddrFuncApp.m_func == VNF_PtrToLoc);
+            assert(vnStore->IsVNConstant(lhsAddrFuncApp.m_args[0]) &&
+                   vnStore->ConstantValue<unsigned>(lhsAddrFuncApp.m_args[0]) == lhsLclNum);
+
+            lhsFldSeq = vnStore->FieldSeqVNToFieldSeq(lhsAddrFuncApp.m_args[1]);
+        }
+
+        // Now we need to get the proper RHS.
+        GenTreeLclVarCommon* rhsLclVarTree = nullptr;
+        LclVarDsc*           rhsVarDsc     = nullptr;
+        ValueNumPair         rhsVNPair;
+        bool                 isNewUniq = false;
+        if (!rhs->OperIsIndir())
+        {
+            FieldSeqNode* rhsFldSeq = nullptr;
+
+            if (rhs->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            {
+                rhsLclVarTree      = rhs->AsLclVarCommon();
+                rhsFldSeq          = rhs->IsLclFld() ? rhs->AsLclFld()->GetFieldSeq() : nullptr;
+                unsigned rhsLclNum = rhsLclVarTree->GetLclNum();
+                rhsVarDsc          = &lvaTable[rhsLclNum];
+                if (!lvaInSsa(rhsLclNum) || rhsFldSeq == FieldSeqStore::NotAField())
+                {
+                    rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, rhsLclVarTree->TypeGet()));
+                    isNewUniq = true;
+                }
+                else
+                {
+                    rhsVNPair =
+                        lvaTable[rhsLclVarTree->GetLclNum()].GetPerSsaData(rhsLclVarTree->GetSsaNum())->m_vnPair;
+                    var_types indType = rhsLclVarTree->TypeGet();
+
+                    rhsVNPair = vnStore->VNPairApplySelectors(rhsVNPair, rhsFldSeq, indType);
+                }
+            }
+            else
+            {
+                rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, rhs->TypeGet()));
+                isNewUniq = true;
             }
         }
         else
         {
-            // For now, arbitrary side effect on GcHeap/ByrefExposed.
-            // TODO-CQ: Why not be complete, and get this case right?
-            fgMutateGcHeap(tree DEBUGARG("COPYBLK - non local"));
+            GenTree*      srcAddr = rhs->AsIndir()->Addr();
+            VNFuncApp     srcAddrFuncApp;
+            unsigned      rhsLclOffs = 0;
+            FieldSeqNode* rhsFldSeq  = nullptr;
+            if (srcAddr->IsLocalAddrExpr(this, &rhsLclVarTree, &rhsLclOffs, &rhsFldSeq))
+            {
+                unsigned rhsLclNum = rhsLclVarTree->GetLclNum();
+                rhsVarDsc          = &lvaTable[rhsLclNum];
+                if (!lvaInSsa(rhsLclNum) || rhsFldSeq == FieldSeqStore::NotAField())
+                {
+                    isNewUniq = true;
+                }
+                else
+                {
+                    rhsVNPair =
+                        lvaTable[rhsLclVarTree->GetLclNum()].GetPerSsaData(rhsLclVarTree->GetSsaNum())->m_vnPair;
+                    var_types indType = rhsLclVarTree->TypeGet();
+
+                    rhsVNPair = vnStore->VNPairApplySelectors(rhsVNPair, rhsFldSeq, indType);
+                }
+            }
+            else if (vnStore->GetVNFunc(vnStore->VNLiberalNormalValue(srcAddr->gtVNPair), &srcAddrFuncApp))
+            {
+                if (srcAddrFuncApp.m_func == VNF_PtrToStatic)
+                {
+                    var_types     indType            = lclVarTree->TypeGet();
+                    ValueNum      fieldSeqVN         = srcAddrFuncApp.m_args[0];
+                    FieldSeqNode* fldSeqForStaticVar = vnStore->FieldSeqVNToFieldSeq(fieldSeqVN);
+#ifdef DEBUG
+                    FieldSeqNode* zeroOffsetFldSeq = nullptr;
+                    if (GetZeroOffsetFieldMap()->Lookup(srcAddr, &zeroOffsetFldSeq))
+                    {
+                        // Check that the zero offset field seq was attached for `srcAddr`.
+                        assert(fldSeqForStaticVar->GetTail() == zeroOffsetFldSeq);
+                    }
+#endif
+                    if (fldSeqForStaticVar != FieldSeqStore::NotAField())
+                    {
+                        // We model statics as indices into GcHeap (which is a subset of ByrefExposed).
+                        ValueNum selectedStaticVar;
+                        size_t   structSize = 0;
+                        selectedStaticVar   = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
+                                                                      fldSeqForStaticVar, &structSize);
+                        selectedStaticVar = vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, indType, structSize);
+
+                        rhsVNPair.SetLiberal(selectedStaticVar);
+                        rhsVNPair.SetConservative(vnStore->VNForExpr(compCurBB, indType));
+                    }
+                    else
+                    {
+                        JITDUMP("    *** Missing field sequence info for Src/RHS of COPYBLK\n");
+                        isNewUniq = true;
+                    }
+                }
+                else if (srcAddrFuncApp.m_func == VNF_PtrToArrElem)
+                {
+                    ValueNum vn = fgValueNumberArrIndexVal(srcAddrFuncApp, vnStore->VNForEmptyExcSet(), TYP_STRUCT);
+
+                    rhsVNPair.SetLiberal(vn);
+                    rhsVNPair.SetConservative(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
+                }
+                else
+                {
+                    isNewUniq = true;
+                }
+            }
+            else
+            {
+                isNewUniq = true;
+            }
         }
-        // Copyblock's are of type void.  Give them the void "value" -- they may occur in argument lists, which we want
-        // to be able to give VN's to.
-        tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+
+        if (lhsFldSeq == FieldSeqStore::NotAField())
+        {
+            // We don't have proper field sequence information for the lhs
+            //
+            JITDUMP("    *** Missing field sequence info for Dst/LHS of COPYBLK\n");
+            isNewUniq = true;
+        }
+
+        if (isNewUniq)
+        {
+            rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
+        }
+        else // We will assign rhsVNPair into a map[lhsFldSeq]
+        {
+            if (lhsFldSeq != nullptr && isEntire)
+            {
+                // This can occur for structs with one field, itself of a struct type.
+                // We are assigning the one field and it is also the entire enclosing struct.
+                //
+                // Use an unique value number for the old map, as this is an an entire assignment
+                // and we won't have any other values in the map
+                ValueNumPair uniqueMap;
+                uniqueMap.SetBoth(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
+                rhsVNPair = vnStore->VNPairApplySelectorsAssign(uniqueMap, lhsFldSeq, rhsVNPair, lclVarTree->TypeGet(),
+                                                                compCurBB);
+            }
+            else
+            {
+                ValueNumPair oldLhsVNPair = lvaTable[lhsLclNum].GetPerSsaData(lclVarTree->GetSsaNum())->m_vnPair;
+                rhsVNPair                 = vnStore->VNPairApplySelectorsAssign(oldLhsVNPair, lhsFldSeq, rhsVNPair,
+                                                                lclVarTree->TypeGet(), compCurBB);
+            }
+        }
+
+        lvaTable[lhsLclNum].GetPerSsaData(lclDefSsaNum)->m_vnPair = vnStore->VNPNormalPair(rhsVNPair);
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("Tree ");
+            Compiler::printTreeID(tree);
+            printf(" assigned VN to local var V%02u/%d: ", lhsLclNum, lclDefSsaNum);
+            if (isNewUniq)
+            {
+                printf("new uniq ");
+            }
+            vnpPrint(rhsVNPair, 1);
+            printf("\n");
+        }
+#endif // DEBUG
     }
+
+    tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
 }
 
 void Compiler::fgValueNumberTree(GenTree* tree)
