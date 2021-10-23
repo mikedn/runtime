@@ -245,8 +245,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
                 GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
 
                 GenTreeLclVarCommon* lclVarNode = nullptr;
-                bool                 isEntire   = false;
-                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, &isEntire))
+                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, nullptr))
                 {
                     fgMarkUseDef(lclVarNode->AsLclVarCommon());
                 }
@@ -379,8 +378,7 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
                 GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
 
                 GenTreeLclVarCommon* lclVarNode = nullptr;
-                bool                 isEntire   = false;
-                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, &isEntire))
+                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, nullptr))
                 {
                     fgMarkUseDef(lclVarNode);
                 }

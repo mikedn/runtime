@@ -14410,98 +14410,106 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** lclVarNode, boo
     return false;
 }
 
-// Returns true if this GenTree defines a result which is based on the address of a local.
-bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire)
+bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, GenTreeLclVarCommon** lclVarNode, bool* isEntire)
 {
-    if (OperGet() == GT_ADDR || OperGet() == GT_LCL_VAR_ADDR)
-    {
-        GenTree* addrArg = this;
-        if (OperGet() == GT_ADDR)
-        {
-            addrArg = AsOp()->gtOp1;
-        }
+    GenTree* node      = this;
+    bool     hasOffset = true;
 
-        if (addrArg->IsLocal() || addrArg->OperIsLocalAddr())
+    while (true)
+    {
+        if (node->OperIs(GT_ADDR))
         {
-            GenTreeLclVarCommon* addrArgLcl = addrArg->AsLclVarCommon();
-            *pLclVarTree                    = addrArgLcl;
-            if (pIsEntire != nullptr)
+            GenTree* location = node->AsUnOp()->GetOp(0);
+
+            if (location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                if (addrArgLcl->GetLclOffs() != 0)
-                {
-                    // We aren't updating the bytes at [0..lclOffset-1] so *pIsEntire should be set to false
-                    *pIsEntire = false;
-                }
-                else
-                {
-                    LclVarDsc* lcl = comp->lvaGetDesc(addrArgLcl);
-                    unsigned   lclSize;
-
-                    if (lcl->lvNormalizeOnStore())
-                    {
-                        // It's normalize on store, so use the full storage width -- writing to low bytes won't
-                        // necessarily yield a normalized value.
-                        lclSize = varTypeSize(TYP_INT);
-                    }
-                    else
-                    {
-                        lclSize = lcl->GetSize();
-                    }
-
-                    *pIsEntire = (lclSize == width);
-                }
+                node = location;
+                break;
             }
-            return true;
-        }
-        else if (addrArg->OperGet() == GT_IND)
-        {
-            // A GT_ADDR of a GT_IND can both be optimized away, recurse using the child of the GT_IND
-            return addrArg->AsOp()->gtOp1->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire);
-        }
-    }
-    else if (OperGet() == GT_ADD)
-    {
-        if (AsOp()->gtOp1->IsCnsIntOrI())
-        {
-            // If we just adding a zero then we allow an IsEntire match against width
-            //  otherwise we change width to zero to disallow an IsEntire Match
-            return AsOp()->gtOp2->DefinesLocalAddr(comp, AsOp()->gtOp1->IsIntegralConst(0) ? width : 0, pLclVarTree,
-                                                   pIsEntire);
-        }
-        else if (AsOp()->gtOp2->IsCnsIntOrI())
-        {
-            // If we just adding a zero then we allow an IsEntire match against width
-            //  otherwise we change width to zero to disallow an IsEntire Match
-            return AsOp()->gtOp1->DefinesLocalAddr(comp, AsOp()->gtOp2->IsIntegralConst(0) ? width : 0, pLclVarTree,
-                                                   pIsEntire);
-        }
-    }
-    // Post rationalization we could have GT_IND(GT_LEA(..)) trees.
-    else if (GenTreeAddrMode* addrMode = IsAddrMode())
-    {
-        // This method gets invoked during liveness computation and therefore it is critical
-        // that we don't miss 'use' of any local.  The below logic is making the assumption
-        // that in case of LEA(base, index, offset) - only base can be a GT_LCL_VAR_ADDR
-        // and index is not.
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-        GenTree* index = addrMode->GetIndex();
-        if (index != nullptr)
-        {
-            assert(!index->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire));
+            if (location->OperIs(GT_IND))
+            {
+                node = location->AsIndir()->GetAddr();
+                continue;
+            }
         }
-#endif // DEBUG
-
-        // base
-        GenTree* base = addrMode->GetBase();
-        if (base != nullptr)
+        else if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
-            return base->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire);
+            break;
+        }
+        else if (node->OperIs(GT_ADD))
+        {
+            GenTree* op1 = node->AsOp()->GetOp(0);
+            GenTree* op2 = node->AsOp()->GetOp(1);
+
+            if (op1->OperIs(GT_CNS_INT))
+            {
+                std::swap(op1, op2);
+            }
+
+            if (GenTreeIntCon* intCon = op2->IsIntCon())
+            {
+                if (intCon->GetValue() != 0)
+                {
+                    hasOffset = false;
+                }
+
+                node = op1;
+                continue;
+            }
+        }
+        else if (GenTreeAddrMode* addrMode = node->IsAddrMode())
+        {
+            GenTree* base  = addrMode->GetBase();
+            GenTree* index = addrMode->GetIndex();
+
+            INDEBUG(GenTreeLclVarCommon * temp;)
+            assert((index == nullptr) || !index->DefinesLocalAddr(comp, 0, &temp, nullptr));
+
+            if (base != nullptr)
+            {
+                if ((index != nullptr) || (addrMode->GetOffset() != 0))
+                {
+                    hasOffset = false;
+                }
+
+                node = base;
+                continue;
+            }
+        }
+
+        return false;
+    }
+
+    *lclVarNode = node->AsLclVarCommon();
+
+    if (isEntire != nullptr)
+    {
+        if (hasOffset || (node->AsLclVarCommon()->GetLclOffs() != 0))
+        {
+            *isEntire = false;
+        }
+        else
+        {
+            LclVarDsc* lcl = comp->lvaGetDesc(node->AsLclVarCommon());
+            unsigned   lclSize;
+
+            if (lcl->lvNormalizeOnStore())
+            {
+                // If it's "normalize on store" we're supposed to write an INT value,
+                // if we write a small int value then that's really a partial def.
+                lclSize = varTypeSize(TYP_INT);
+            }
+            else
+            {
+                lclSize = lcl->GetSize();
+            }
+
+            *isEntire = (lclSize == size);
         }
     }
-    // Otherwise...
-    return false;
+
+    return true;
 }
 
 //------------------------------------------------------------------------
