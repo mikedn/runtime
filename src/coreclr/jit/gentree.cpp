@@ -14497,11 +14497,6 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarComm
         GenTree* base = addrMode->GetBase();
         if (base != nullptr)
         {
-            // Lea could have an Indir as its base.
-            if (base->OperIs(GT_IND))
-            {
-                base = base->AsIndir()->GetAddr()->SkipComma();
-            }
             return base->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire);
         }
     }
