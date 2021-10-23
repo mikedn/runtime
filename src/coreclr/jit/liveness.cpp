@@ -373,17 +373,16 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
             break;
 
         case GT_IND:
-            if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
-            {
-                GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
+        {
+            GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
 
-                GenTreeLclVarCommon* lclVarNode = nullptr;
-                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, nullptr))
-                {
-                    fgMarkUseDef(lclVarNode);
-                }
+            GenTreeLclVarCommon* lclVarNode = nullptr;
+            if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, nullptr))
+            {
+                fgMarkUseDef(lclVarNode);
             }
-            break;
+        }
+        break;
 
         case GT_CALL:
             fgPInvokeFrameLiveness(tree->AsCall());
