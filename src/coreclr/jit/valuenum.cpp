@@ -8084,7 +8084,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 else if (arg->OperIs(GT_LCL_FLD))
                 {
                     fieldSeq = arg->AsLclFld()->GetFieldSeq();
-                    if (fieldSeq == nullptr)
+
+                    if ((fieldSeq == nullptr) || !fieldSeq->IsField())
                     {
                         // Local field with unknown field seq -- not a precise pointer.
                         newVN = vnStore->VNForExpr(compCurBB, TYP_BYREF);
