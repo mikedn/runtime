@@ -14608,10 +14608,18 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
 
         *outLclNode = location->AsLclVarCommon();
 
-        if (location->OperIs(GT_LCL_FLD))
+        if (GenTreeLclFld* lclFld = location->IsLclFld())
         {
-            offset += location->AsLclFld()->GetLclOffs();
-            fieldSeq = comp->GetFieldSeqStore()->Append(location->AsLclFld()->GetFieldSeq(), fieldSeq);
+            offset += lclFld->GetLclOffs();
+
+            if (lclFld->GetFieldSeq() == nullptr)
+            {
+                fieldSeq = FieldSeqNode::NotAField();
+            }
+            else
+            {
+                fieldSeq = comp->GetFieldSeqStore()->Append(lclFld->GetFieldSeq(), fieldSeq);
+            }
         }
 
         *outLclOffs  = offset;
@@ -14623,10 +14631,18 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
     {
         *outLclNode = node->AsLclVarCommon();
 
-        if (node->OperIs(GT_LCL_FLD_ADDR))
+        if (GenTreeLclFld* lclFld = node->IsLclFld())
         {
-            offset += node->AsLclFld()->GetLclOffs();
-            fieldSeq = comp->GetFieldSeqStore()->Append(node->AsLclFld()->GetFieldSeq(), fieldSeq);
+            offset += lclFld->GetLclOffs();
+
+            if (lclFld->GetFieldSeq() == nullptr)
+            {
+                fieldSeq = FieldSeqNode::NotAField();
+            }
+            else
+            {
+                fieldSeq = comp->GetFieldSeqStore()->Append(lclFld->GetFieldSeq(), fieldSeq);
+            }
         }
 
         *outLclOffs  = offset;

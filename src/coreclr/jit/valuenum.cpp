@@ -7008,7 +7008,16 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             assert(dstLclNode == dst);
-            dstFieldSeq = dst->IsLclFld() ? dst->AsLclFld()->GetFieldSeq() : nullptr;
+
+            if (GenTreeLclFld* lclFld = dst->IsLclFld())
+            {
+                dstFieldSeq = lclFld->GetFieldSeq();
+
+                if (dstFieldSeq == nullptr)
+                {
+                    dstFieldSeq = FieldSeqNode::NotAField();
+                }
+            }
         }
         else
         {
@@ -7038,8 +7047,17 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
         if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            srcLclNode  = src->AsLclVarCommon();
-            srcFieldSeq = src->IsLclFld() ? src->AsLclFld()->GetFieldSeq() : nullptr;
+            srcLclNode = src->AsLclVarCommon();
+
+            if (GenTreeLclFld* lclFld = src->IsLclFld())
+            {
+                srcFieldSeq = lclFld->GetFieldSeq();
+
+                if (srcFieldSeq == nullptr)
+                {
+                    srcFieldSeq = FieldSeqNode::NotAField();
+                }
+            }
 
             if (!lvaInSsa(srcLclNode->GetLclNum()) || (srcFieldSeq == FieldSeqStore::NotAField()))
             {
@@ -7048,7 +7066,11 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
             else
             {
                 vnp = lvaGetDesc(srcLclNode)->GetPerSsaData(srcLclNode->GetSsaNum())->GetVNP();
-                vnp = vnStore->VNPairApplySelectors(vnp, srcFieldSeq, srcLclNode->GetType());
+
+                if (srcFieldSeq != nullptr)
+                {
+                    vnp = vnStore->VNPairApplySelectors(vnp, srcFieldSeq, srcLclNode->GetType());
+                }
             }
         }
         else if (src->IsIndir() &&
@@ -7061,7 +7083,11 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
             else
             {
                 vnp = lvaGetDesc(srcLclNode)->GetPerSsaData(srcLclNode->GetSsaNum())->GetVNP();
-                vnp = vnStore->VNPairApplySelectors(vnp, srcFieldSeq, srcLclNode->GetType());
+
+                if (srcFieldSeq != nullptr)
+                {
+                    vnp = vnStore->VNPairApplySelectors(vnp, srcFieldSeq, srcLclNode->GetType());
+                }
             }
         }
         else if (src->IsIndir() &&
@@ -7116,20 +7142,24 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         {
             vnp.SetBoth(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
         }
-        else if ((dstFieldSeq != nullptr) && isFullDef)
+        else if (dstFieldSeq != nullptr)
         {
-            // This can occur for structs with one field, itself of a struct type.
-            // We are assigning the one field and it is also the entire enclosing struct.
-            // Use an unique value number for the old map, as this is an an entire assignment
-            // and we won't have any other values in the map.
+            ValueNumPair map;
 
-            ValueNumPair uniqueMap(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
-            vnp = vnStore->VNPairApplySelectorsAssign(uniqueMap, dstFieldSeq, vnp, dstLcl->GetType(), compCurBB);
-        }
-        else
-        {
-            vnp = vnStore->VNPairApplySelectorsAssign(dstSsaUse->GetVNP(), dstFieldSeq, vnp, dstLcl->GetType(),
-                                                      compCurBB);
+            if (isFullDef)
+            {
+                // This can occur for structs with one field, itself of a struct type.
+                // We are assigning the one field and it is also the entire enclosing struct.
+                // Use an unique value number for the old map, as this is an an entire assignment
+                // and we won't have any other values in the map.
+                map = ValueNumPair(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
+            }
+            else
+            {
+                map = dstSsaUse->GetVNP();
+            }
+
+            vnp = vnStore->VNPairApplySelectorsAssign(map, dstFieldSeq, vnp, dstLcl->GetType(), compCurBB);
         }
 
         dstSsaDef->SetVNP(vnStore->VNPNormalPair(vnp));
