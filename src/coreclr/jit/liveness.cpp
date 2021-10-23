@@ -194,32 +194,14 @@ void Compiler::fgLocalVarLivenessInit()
     }
 }
 
-//------------------------------------------------------------------------
-// fgPerNodeLocalVarLiveness:
-//   Set fgCurMemoryUse and fgCurMemoryDef when memory is read or updated
-//   Call fgMarkUseDef for any Local variables encountered
-//
-// Arguments:
-//    tree       - The current node.
-//
 void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
 {
-    assert(tree != nullptr);
-
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
-        case GT_QMARK:
-        case GT_COLON:
-            // We never should encounter a GT_QMARK or GT_COLON node
-            noway_assert(!"unexpected GT_QMARK/GT_COLON");
-            break;
-
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
             fgMarkUseDef(tree->AsLclVarCommon());
             break;
 
@@ -260,26 +242,19 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             // Otherwise, we treat it as a use here.
             if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
-                GenTreeLclVarCommon* dummyLclVarTree = nullptr;
-                bool                 dummyIsEntire   = false;
-                GenTree*             addrArg         = tree->AsIndir()->GetAddr()->SkipComma();
-                if (!addrArg->DefinesLocalAddr(this, /*width doesn't matter*/ 0, &dummyLclVarTree, &dummyIsEntire))
+                GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
+
+                GenTreeLclVarCommon* lclVarNode = nullptr;
+                bool                 isEntire   = false;
+                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, &isEntire))
                 {
-                    fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
+                    fgMarkUseDef(lclVarNode->AsLclVarCommon());
                 }
                 else
                 {
-                    // Defines a local addr
-                    assert(dummyLclVarTree != nullptr);
-                    fgMarkUseDef(dummyLclVarTree->AsLclVarCommon());
+                    fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
                 }
             }
-            break;
-
-        // These should have been morphed away to become GT_INDs:
-        case GT_FIELD:
-        case GT_INDEX:
-            unreached();
             break;
 
         // We'll assume these are use-then-defs of memory.
@@ -351,20 +326,14 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             if ((call->IsUnmanaged() || call->IsTailCallViaJitHelper()) && compMethodRequiresPInvokeFrame())
             {
                 assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
+
                 if (!opts.ShouldUsePInvokeHelpers() && !call->IsSuppressGCTransition())
                 {
-                    // Get the FrameRoot local and mark it as used.
+                    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
 
-                    noway_assert(info.compLvFrameListRoot < lvaCount);
-
-                    LclVarDsc* varDsc = &lvaTable[info.compLvFrameListRoot];
-
-                    if (varDsc->lvTracked)
+                    if (lcl->lvTracked && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
                     {
-                        if (!VarSetOps::IsMember(this, fgCurDefSet, varDsc->lvVarIndex))
-                        {
-                            VarSetOps::AddElemD(this, fgCurUseSet, varDsc->lvVarIndex);
-                        }
+                        VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
                     }
                 }
             }
@@ -372,29 +341,102 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             break;
         }
 
-        default:
-            // Determine what memory locations it defines.
-            if (tree->OperIs(GT_ASG, GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK))
+        case GT_ASG:
+        {
+            GenTreeLclVarCommon* lclVarNode = nullptr;
+            if (tree->DefinesLocal(this, &lclVarNode))
             {
-                GenTreeLclVarCommon* dummyLclVarTree = nullptr;
-                if (tree->DefinesLocal(this, &dummyLclVarTree))
+                if (lvaVarAddrExposed(lclVarNode->GetLclNum()))
                 {
-                    if (lvaVarAddrExposed(dummyLclVarTree->GetLclNum()))
-                    {
-                        fgCurMemoryDef |= memoryKindSet(ByrefExposed);
+                    fgCurMemoryDef |= memoryKindSet(ByrefExposed);
 
-                        // We've found a store that modifies ByrefExposed
-                        // memory but not GcHeap memory, so track their
-                        // states separately.
-                        byrefStatesMatchGcHeapStates = false;
-                    }
-                }
-                else
-                {
-                    // If it doesn't define a local, then it might update GcHeap/ByrefExposed.
-                    fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
+                    // We've found a store that modifies ByrefExposed
+                    // memory but not GcHeap memory, so track their
+                    // states separately.
+                    byrefStatesMatchGcHeapStates = false;
                 }
             }
+            else
+            {
+                // If it doesn't define a local, then it might update GcHeap/ByrefExposed.
+                fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
+            }
+        }
+        break;
+
+        case GT_QMARK:
+        case GT_COLON:
+        case GT_FIELD:
+        case GT_INDEX:
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
+        case GT_STORE_DYN_BLK:
+        case GT_STOREIND:
+            unreached();
+
+        default:
+            break;
+    }
+}
+
+void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
+{
+    switch (tree->GetOper())
+    {
+        case GT_LCL_VAR:
+        case GT_LCL_FLD:
+        case GT_LCL_VAR_ADDR:
+        case GT_LCL_FLD_ADDR:
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+            fgMarkUseDef(tree->AsLclVarCommon());
+            break;
+
+        case GT_IND:
+            if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
+            {
+                GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
+
+                GenTreeLclVarCommon* lclVarNode = nullptr;
+                bool                 isEntire   = false;
+                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, &isEntire))
+                {
+                    fgMarkUseDef(lclVarNode);
+                }
+            }
+            break;
+
+        case GT_CALL:
+        {
+            GenTreeCall* call = tree->AsCall();
+
+            // If this is a p/invoke unmanaged call or if this is a tail-call via helper,
+            // and we have an unmanaged p/invoke call in the method,
+            // then we're going to run the p/invoke epilog.
+            // So we mark the FrameRoot as used by this instruction.
+            // This ensures that the block->bbVarUse will contain
+            // the FrameRoot local var if is it a tracked variable.
+
+            if ((call->IsUnmanaged() || call->IsTailCallViaJitHelper()) && compMethodRequiresPInvokeFrame())
+            {
+                assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
+
+                if (!opts.ShouldUsePInvokeHelpers() && !call->IsSuppressGCTransition())
+                {
+                    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
+
+                    if (lcl->lvTracked && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
+                    {
+                        VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
+                    }
+                }
+            }
+            break;
+        }
+
+        default:
             break;
     }
 }
@@ -486,7 +528,7 @@ void Compiler::fgPerBlockLocalVarLiveness()
         {
             for (GenTree* node : LIR::AsRange(block).NonPhiNodes())
             {
-                fgPerNodeLocalVarLiveness(node);
+                fgPerNodeLocalVarLivenessLIR(node);
             }
         }
         else

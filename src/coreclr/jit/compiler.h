@@ -3797,6 +3797,7 @@ public:
     void fgLocalVarLivenessInit();
 
     void fgPerNodeLocalVarLiveness(GenTree* node);
+    void fgPerNodeLocalVarLivenessLIR(GenTree* node);
     void fgPerBlockLocalVarLiveness();
 
     VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
