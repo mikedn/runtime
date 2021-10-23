@@ -14346,54 +14346,68 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
     return lclFldSize < lclSize;
 }
 
-bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire)
+bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** lclVarNode, bool* isEntire)
 {
     assert(OperIs(GT_ASG));
 
-    GenTreeBlk* blkNode = nullptr;
+    GenTree* dest = AsOp()->GetOp(0);
 
-    if (AsOp()->gtOp1->IsLocal())
+    if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        GenTreeLclVarCommon* lclVarTree = AsOp()->gtOp1->AsLclVarCommon();
-        *pLclVarTree                    = lclVarTree;
-        if (pIsEntire != nullptr)
+        *lclVarNode = dest->AsLclVarCommon();
+
+        if (isEntire != nullptr)
         {
-            *pIsEntire = !lclVarTree->IsPartialLclFld(comp);
+            *isEntire = !dest->IsPartialLclFld(comp);
         }
+
         return true;
     }
-    else if (AsOp()->gtOp1->OperGet() == GT_IND)
-    {
-        GenTree* indArg = AsOp()->gtOp1->AsOp()->gtOp1;
-        return indArg->DefinesLocalAddr(comp, genTypeSize(AsOp()->gtOp1->TypeGet()), pLclVarTree, pIsEntire);
-    }
-    else if (AsOp()->gtOp1->OperIsBlk())
-    {
-        blkNode = AsOp()->gtOp1->AsBlk();
-    }
 
-    if (blkNode == nullptr)
+    if (dest->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
     {
-        return false;
-    }
+        unsigned size;
 
-    unsigned size = blkNode->Size();
-
-    if (GenTreeDynBlk* dynBlk = blkNode->IsDynBlk())
-    {
-        if (GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon())
+        if (dest->OperIs(GT_IND))
         {
-            size = constSize->GetUInt32Value();
+            size = varTypeSize(dest->GetType());
+        }
+        else if (GenTreeDynBlk* dynBlk = dest->AsBlk()->IsDynBlk())
+        {
+            if (GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon())
+            {
+                size = constSize->GetUInt32Value();
 
-            // cpblk of size zero exists in the wild (in yacc-generated code in SQL) and is valid IL.
+                if (size == 0)
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                // We don't know the size so we'll use 0, to DefinesLocalAddr this will
+                // appear like a partial access of the local.
+                // TODO-MIKE-Review: This is dubious pre-existing garbage. You can't do
+                // SSA/VN with a local that has an access of unknown size, such locals
+                // should be address exposed and there's no such thing as SSA def of an
+                // address exposed variable.
+                size = 0;
+            }
+        }
+        else
+        {
+            size = dest->AsBlk()->Size();
+
             if (size == 0)
             {
                 return false;
             }
         }
+
+        return dest->AsIndir()->GetAddr()->DefinesLocalAddr(comp, size, lclVarNode, isEntire);
     }
 
-    return blkNode->GetAddr()->DefinesLocalAddr(comp, size, pLclVarTree, pIsEntire);
+    return false;
 }
 
 // Returns true if this GenTree defines a result which is based on the address of a local.
