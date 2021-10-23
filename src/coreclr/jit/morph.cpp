@@ -1913,14 +1913,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // We should never have any ArgPlaceHolder nodes at this point.
         assert(!argx->IsArgPlaceHolderNode());
 
-        // Change the node to TYP_I_IMPL so we don't report GC info
-        // NOTE: We deferred this from the importer because of the inliner.
-
-        if (argx->IsLocalAddrExpr() != nullptr)
-        {
-            argx->gtType = TYP_I_IMPL;
-        }
-
         unsigned     size            = 0;
         var_types    sigType         = TYP_UNDEF;
         unsigned     argAlign        = 1;
@@ -2580,11 +2572,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
                 arg = arg->AsCast()->GetOp(0);
                 argUse->SetNode(arg);
-            }
-
-            if (arg->TypeIs(TYP_BYREF) && arg->IsLocalAddrExpr() != nullptr)
-            {
-                arg->SetType(TYP_I_IMPL);
             }
 
 #if defined(TARGET_WINDOWS) || defined(TARGET_ARM)
