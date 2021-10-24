@@ -24,6 +24,6 @@ private:
     VARSET_TP varDeltaSet;      // a set of variables that changed their liveness.
     VARSET_TP gcTrkStkDeltaSet; // // a set of gc tracked stack variables that changed their liveness..
 #ifdef DEBUG
-    unsigned  epoch;          // VarSets epoch when the class was created, must stay the same during its using.
-#endif                        // DEBUG
+    unsigned epoch; // VarSets epoch when the class was created, must stay the same during its using.
+#endif              // DEBUG
 };

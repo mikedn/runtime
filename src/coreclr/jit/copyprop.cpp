@@ -363,23 +363,19 @@ public:
             return;
         }
 
-        UpdateLifeVar(tree);
-    }
-
-private:
-    void UpdateLifeVar(GenTree* tree)
-    {
         GenTree* indirAddrLocal = compiler->fgIsIndirOfAddrOfLocal(tree);
         assert(tree->OperIsNonPhiLocal() || indirAddrLocal != nullptr);
 
         // Get the local var tree -- if "tree" is "Ldobj(addr(x))", or "ind(addr(x))" this is "x", else it's "tree".
         GenTree* lclVarTree = indirAddrLocal;
+
         if (lclVarTree == nullptr)
         {
             lclVarTree = tree;
         }
-        unsigned int lclNum = lclVarTree->AsLclVarCommon()->GetLclNum();
-        LclVarDsc*   varDsc = compiler->lvaTable + lclNum;
+
+        unsigned   lclNum = lclVarTree->AsLclVarCommon()->GetLclNum();
+        LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
 
         VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
 
@@ -394,10 +390,8 @@ private:
         // if it's a partial definition then variable "x" must have had a previous, original, site to be born.
         bool isBorn;
         bool isDying;
-        // GTF_SPILL will be set on a MultiRegLclVar if any registers need to be spilled.
-        bool spill           = ((lclVarTree->gtFlags & GTF_SPILL) != 0);
-        bool isMultiRegLocal = lclVarTree->IsMultiRegLclVar();
-        if (isMultiRegLocal)
+
+        if (lclVarTree->IsMultiRegLclVar())
         {
             // We should never have an 'IndirOfAddrOfLocal' for a multi-reg.
             assert(lclVarTree == tree);
