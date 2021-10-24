@@ -381,8 +381,6 @@ public:
 
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
-        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
-
         if (!lcl->lvTracked && !lcl->lvPromoted)
         {
             return;
@@ -392,72 +390,75 @@ public:
         bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0 && (lclNode->gtFlags & GTF_VAR_USEASG) == 0);
         bool isDying = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0);
 
-        if (isBorn || isDying)
+        if (!isBorn && !isDying)
         {
-            VarSetOps::ClearD(compiler, varDeltaSet);
+            return;
+        }
 
-            if (lcl->lvTracked)
+        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
+        VarSetOps::ClearD(compiler, varDeltaSet);
+
+        if (lcl->lvTracked)
+        {
+            VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
+        }
+        else if (lcl->lvPromoted)
+        {
+            // If hasDeadTrackedFieldVars is true, then, for a LDOBJ(ADDR(<promoted struct local>)),
+            // *deadTrackedFieldVars indicates which tracked field vars are dying.
+            bool hasDeadTrackedFieldVars = false;
+
+            if ((lclNode != tree) && isDying)
             {
-                VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
-            }
-            else if (lcl->lvPromoted)
-            {
-                // If hasDeadTrackedFieldVars is true, then, for a LDOBJ(ADDR(<promoted struct local>)),
-                // *deadTrackedFieldVars indicates which tracked field vars are dying.
-                bool hasDeadTrackedFieldVars = false;
-
-                if ((lclNode != tree) && isDying)
+                assert(!isBorn); // GTF_VAR_DEATH only set for LDOBJ last use.
+                VARSET_TP* deadTrackedFieldVars = nullptr;
+                hasDeadTrackedFieldVars = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFieldVars);
+                if (hasDeadTrackedFieldVars)
                 {
-                    assert(!isBorn); // GTF_VAR_DEATH only set for LDOBJ last use.
-                    VARSET_TP* deadTrackedFieldVars = nullptr;
-                    hasDeadTrackedFieldVars = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFieldVars);
-                    if (hasDeadTrackedFieldVars)
-                    {
-                        VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFieldVars);
-                    }
-                }
-
-                unsigned firstFieldVarNum = lcl->lvFieldLclStart;
-                for (unsigned i = 0; i < lcl->lvFieldCnt; ++i)
-                {
-                    LclVarDsc* fldVarDsc = compiler->lvaGetDesc(firstFieldVarNum + i);
-                    noway_assert(fldVarDsc->lvIsStructField);
-                    if (fldVarDsc->lvTracked)
-                    {
-                        unsigned fldVarIndex = fldVarDsc->lvVarIndex;
-                        // We should never see enregistered fields in a struct local unless
-                        // IsMultiRegLclVar() returns true, in which case we've handled this above.
-                        assert(!fldVarDsc->lvIsInReg());
-                        noway_assert(fldVarIndex < compiler->lvaTrackedCount);
-                        if (!hasDeadTrackedFieldVars)
-                        {
-                            VarSetOps::AddElemD(compiler, varDeltaSet, fldVarIndex);
-                        }
-                    }
+                    VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFieldVars);
                 }
             }
 
-            // First, update the live set
-            if (isDying)
+            unsigned firstFieldVarNum = lcl->lvFieldLclStart;
+            for (unsigned i = 0; i < lcl->lvFieldCnt; ++i)
             {
-                // We'd like to be able to assert the following, however if we are walking
-                // through a qmark/colon tree, we may encounter multiple last-use nodes.
-                // assert (VarSetOps::IsSubset(compiler, regVarDeltaSet, newLife));
-                VarSetOps::DiffD(compiler, newLife, varDeltaSet);
+                LclVarDsc* fldVarDsc = compiler->lvaGetDesc(firstFieldVarNum + i);
+                noway_assert(fldVarDsc->lvIsStructField);
+                if (fldVarDsc->lvTracked)
+                {
+                    unsigned fldVarIndex = fldVarDsc->lvVarIndex;
+                    // We should never see enregistered fields in a struct local unless
+                    // IsMultiRegLclVar() returns true, in which case we've handled this above.
+                    assert(!fldVarDsc->lvIsInReg());
+                    noway_assert(fldVarIndex < compiler->lvaTrackedCount);
+                    if (!hasDeadTrackedFieldVars)
+                    {
+                        VarSetOps::AddElemD(compiler, varDeltaSet, fldVarIndex);
+                    }
+                }
             }
-            else
-            {
-                // This shouldn't be in newLife, unless this is debug code, in which
-                // case we keep vars live everywhere, OR the variable is address-exposed,
-                // OR this block is part of a try block, in which case it may be live at the handler
-                // Could add a check that, if it's in newLife, that it's also in
-                // fgGetHandlerLiveVars(compCurBB), but seems excessive
-                //
-                // For a dead store, it can be the case that we set both isBorn and isDying to true.
-                // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
-                // eliminated.)  If it's both, we handled it above.
-                VarSetOps::UnionD(compiler, newLife, varDeltaSet);
-            }
+        }
+
+        // First, update the live set
+        if (isDying)
+        {
+            // We'd like to be able to assert the following, however if we are walking
+            // through a qmark/colon tree, we may encounter multiple last-use nodes.
+            // assert (VarSetOps::IsSubset(compiler, regVarDeltaSet, newLife));
+            VarSetOps::DiffD(compiler, newLife, varDeltaSet);
+        }
+        else
+        {
+            // This shouldn't be in newLife, unless this is debug code, in which
+            // case we keep vars live everywhere, OR the variable is address-exposed,
+            // OR this block is part of a try block, in which case it may be live at the handler
+            // Could add a check that, if it's in newLife, that it's also in
+            // fgGetHandlerLiveVars(compCurBB), but seems excessive
+            //
+            // For a dead store, it can be the case that we set both isBorn and isDying to true.
+            // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
+            // eliminated.)  If it's both, we handled it above.
+            VarSetOps::UnionD(compiler, newLife, varDeltaSet);
         }
 
         if (!VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
