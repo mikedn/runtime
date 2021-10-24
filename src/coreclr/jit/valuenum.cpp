@@ -7037,108 +7037,13 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
             dstFieldSeq = vnStore->FieldSeqVNToFieldSeq(dstAddrFunc.m_args[1]);
         }
 
-        GenTreeLclVarCommon* srcLclNode  = nullptr;
-        LclVarDsc*           srcLcl      = nullptr;
-        FieldSeqNode*        srcFieldSeq = nullptr;
-        unsigned             srcLclOffs  = 0;
-        bool                 allocNewVN  = false;
-        VNFuncApp            srcAddrFunc;
-        ValueNumPair         vnp;
+        ValueNumPair vnp;
 
-        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (dstFieldSeq == nullptr)
         {
-            srcLclNode = src->AsLclVarCommon();
-
-            if (GenTreeLclFld* lclFld = src->IsLclFld())
-            {
-                srcFieldSeq = lclFld->GetFieldSeq();
-
-                if (srcFieldSeq == nullptr)
-                {
-                    srcFieldSeq = FieldSeqNode::NotAField();
-                }
-            }
-
-            if (!lvaInSsa(srcLclNode->GetLclNum()) || (srcFieldSeq == FieldSeqStore::NotAField()))
-            {
-                allocNewVN = true;
-            }
-            else
-            {
-                vnp = lvaGetDesc(srcLclNode)->GetPerSsaData(srcLclNode->GetSsaNum())->GetVNP();
-
-                if (srcFieldSeq != nullptr)
-                {
-                    vnp = vnStore->VNPairApplySelectors(vnp, srcFieldSeq, srcLclNode->GetType());
-                }
-            }
+            vnp = vnStore->VNPNormalPair(src->gtVNPair);
         }
-        else if (src->IsIndir() &&
-                 src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcLclOffs, &srcFieldSeq))
-        {
-            if (!lvaInSsa(srcLclNode->GetLclNum()) || (srcFieldSeq == FieldSeqStore::NotAField()))
-            {
-                allocNewVN = true;
-            }
-            else
-            {
-                vnp = lvaGetDesc(srcLclNode)->GetPerSsaData(srcLclNode->GetSsaNum())->GetVNP();
-
-                if (srcFieldSeq != nullptr)
-                {
-                    vnp = vnStore->VNPairApplySelectors(vnp, srcFieldSeq, srcLclNode->GetType());
-                }
-            }
-        }
-        else if (src->IsIndir() &&
-                 vnStore->GetVNFunc(vnStore->VNLiberalNormalValue(src->AsIndir()->GetAddr()->gtVNPair), &srcAddrFunc))
-        {
-            if (srcAddrFunc.m_func == VNF_PtrToStatic)
-            {
-                FieldSeqNode* staticFieldSeq = vnStore->FieldSeqVNToFieldSeq(srcAddrFunc.m_args[0]);
-
-                // Check that the zero offset field seq was attached for `srcAddr`.
-                INDEBUG(FieldSeqNode* zeroOffsetFldSeq = nullptr;)
-                assert(!GetZeroOffsetFieldMap()->Lookup(src->AsIndir()->GetAddr(), &zeroOffsetFldSeq) ||
-                       (staticFieldSeq->GetTail() == zeroOffsetFldSeq));
-
-                if (staticFieldSeq != FieldSeqStore::NotAField())
-                {
-                    ValueNum memVN      = fgCurMemoryVN[GcHeap];
-                    size_t   structSize = 0;
-                    ValueNum staticVN   = vnStore->VNApplySelectors(VNK_Liberal, memVN, staticFieldSeq, &structSize);
-
-                    vnp.SetLiberal(vnStore->VNApplySelectorsTypeCheck(staticVN, dstLcl->GetType(), structSize));
-                    vnp.SetConservative(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
-                }
-                else
-                {
-                    JITDUMP("    *** Missing static field sequence info for struct assignment source\n");
-                    allocNewVN = true;
-                }
-            }
-            else if (srcAddrFunc.m_func == VNF_PtrToArrElem)
-            {
-                vnp.SetLiberal(fgValueNumberArrIndexVal(srcAddrFunc, vnStore->VNForEmptyExcSet(), TYP_STRUCT));
-                vnp.SetConservative(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
-            }
-            else
-            {
-                allocNewVN = true;
-            }
-        }
-        else
-        {
-            allocNewVN = true;
-        }
-
-        if (dstFieldSeq == FieldSeqStore::NotAField())
-        {
-            JITDUMP("    *** Missing field sequence info struct assignment destination\n");
-            allocNewVN = true;
-        }
-
-        if (allocNewVN)
+        else if (dstFieldSeq == FieldSeqStore::NotAField())
         {
             vnp.SetBoth(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
         }
@@ -7159,10 +7064,11 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
                 map = dstSsaUse->GetVNP();
             }
 
+            vnp = vnStore->VNPNormalPair(src->gtVNPair);
             vnp = vnStore->VNPairApplySelectorsAssign(map, dstFieldSeq, vnp, dstLcl->GetType(), compCurBB);
         }
 
-        dstSsaDef->SetVNP(vnStore->VNPNormalPair(vnp));
+        dstSsaDef->SetVNP(vnp);
     }
 
 #ifdef DEBUG
