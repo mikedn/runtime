@@ -134,7 +134,7 @@ protected:
     void genUpdateLife(GenTree* tree);
     void genUpdateLife(VARSET_VALARG_TP newLife);
 
-    TreeLifeUpdater<true>* treeLifeUpdater;
+    CodeGenLivenessUpdater* treeLifeUpdater;
 
 public:
     bool            genUseOptimizedWriteBarriers();

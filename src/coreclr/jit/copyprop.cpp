@@ -344,6 +344,170 @@ unsigned Compiler::optIsSsaLocal(GenTree* tree)
     return lclNum;
 }
 
+class CopyPropLivenessUpdater
+{
+    Compiler* compiler;
+    VARSET_TP newLife;     // a live set after processing an argument tree.
+    VARSET_TP varDeltaSet; // a set of variables that changed their liveness.
+
+public:
+    CopyPropLivenessUpdater::CopyPropLivenessUpdater(Compiler* compiler)
+        : compiler(compiler), newLife(VarSetOps::MakeEmpty(compiler)), varDeltaSet(VarSetOps::MakeEmpty(compiler))
+    {
+    }
+
+    void Update(GenTree* tree)
+    {
+        // TODO-Cleanup: We shouldn't really be calling this more than once
+        if (tree == compiler->compCurLifeTree)
+        {
+            return;
+        }
+
+        if (!tree->OperIsNonPhiLocal() && (compiler->fgIsIndirOfAddrOfLocal(tree) == nullptr))
+        {
+            return;
+        }
+
+        UpdateLifeVar(tree);
+    }
+
+private:
+    void UpdateLifeVar(GenTree* tree)
+    {
+        GenTree* indirAddrLocal = compiler->fgIsIndirOfAddrOfLocal(tree);
+        assert(tree->OperIsNonPhiLocal() || indirAddrLocal != nullptr);
+
+        // Get the local var tree -- if "tree" is "Ldobj(addr(x))", or "ind(addr(x))" this is "x", else it's "tree".
+        GenTree* lclVarTree = indirAddrLocal;
+        if (lclVarTree == nullptr)
+        {
+            lclVarTree = tree;
+        }
+        unsigned int lclNum = lclVarTree->AsLclVarCommon()->GetLclNum();
+        LclVarDsc*   varDsc = compiler->lvaTable + lclNum;
+
+        compiler->compCurLifeTree = tree;
+        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
+
+        // By codegen, a struct may not be TYP_STRUCT, so we have to
+        // check lvPromoted, for the case where the fields are being
+        // tracked.
+        if (!varDsc->lvTracked && !varDsc->lvPromoted)
+        {
+            return;
+        }
+
+        // if it's a partial definition then variable "x" must have had a previous, original, site to be born.
+        bool isBorn;
+        bool isDying;
+        // GTF_SPILL will be set on a MultiRegLclVar if any registers need to be spilled.
+        bool spill           = ((lclVarTree->gtFlags & GTF_SPILL) != 0);
+        bool isMultiRegLocal = lclVarTree->IsMultiRegLclVar();
+        if (isMultiRegLocal)
+        {
+            // We should never have an 'IndirOfAddrOfLocal' for a multi-reg.
+            assert(lclVarTree == tree);
+            assert((lclVarTree->gtFlags & GTF_VAR_USEASG) == 0);
+            isBorn = ((lclVarTree->gtFlags & GTF_VAR_DEF) != 0);
+            // Note that for multireg locals we can have definitions for which some of those are last uses.
+            // We don't want to add those to the varDeltaSet because otherwise they will be added as newly
+            // live.
+            isDying = !isBorn && lclVarTree->HasLastUse();
+        }
+        else
+        {
+            isBorn  = ((lclVarTree->gtFlags & GTF_VAR_DEF) != 0 && (lclVarTree->gtFlags & GTF_VAR_USEASG) == 0);
+            isDying = ((lclVarTree->gtFlags & GTF_VAR_DEATH) != 0);
+        }
+
+        if (isBorn || isDying)
+        {
+            VarSetOps::ClearD(compiler, varDeltaSet);
+
+            if (varDsc->lvTracked)
+            {
+                VarSetOps::AddElemD(compiler, varDeltaSet, varDsc->lvVarIndex);
+            }
+            else if (varDsc->lvPromoted)
+            {
+                // If hasDeadTrackedFieldVars is true, then, for a LDOBJ(ADDR(<promoted struct local>)),
+                // *deadTrackedFieldVars indicates which tracked field vars are dying.
+                bool hasDeadTrackedFieldVars = false;
+
+                if (indirAddrLocal != nullptr && isDying)
+                {
+                    assert(!isBorn); // GTF_VAR_DEATH only set for LDOBJ last use.
+                    VARSET_TP* deadTrackedFieldVars = nullptr;
+                    hasDeadTrackedFieldVars =
+                        compiler->LookupPromotedStructDeathVars(indirAddrLocal, &deadTrackedFieldVars);
+                    if (hasDeadTrackedFieldVars)
+                    {
+                        VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFieldVars);
+                    }
+                }
+
+                unsigned firstFieldVarNum = varDsc->lvFieldLclStart;
+                for (unsigned i = 0; i < varDsc->lvFieldCnt; ++i)
+                {
+                    LclVarDsc* fldVarDsc = compiler->lvaGetDesc(firstFieldVarNum + i);
+                    noway_assert(fldVarDsc->lvIsStructField);
+                    if (fldVarDsc->lvTracked)
+                    {
+                        unsigned fldVarIndex = fldVarDsc->lvVarIndex;
+                        // We should never see enregistered fields in a struct local unless
+                        // IsMultiRegLclVar() returns true, in which case we've handled this above.
+                        assert(!fldVarDsc->lvIsInReg());
+                        noway_assert(fldVarIndex < compiler->lvaTrackedCount);
+                        if (!hasDeadTrackedFieldVars)
+                        {
+                            VarSetOps::AddElemD(compiler, varDeltaSet, fldVarIndex);
+                        }
+                    }
+                }
+            }
+
+            // First, update the live set
+            if (isDying)
+            {
+                // We'd like to be able to assert the following, however if we are walking
+                // through a qmark/colon tree, we may encounter multiple last-use nodes.
+                // assert (VarSetOps::IsSubset(compiler, regVarDeltaSet, newLife));
+                VarSetOps::DiffD(compiler, newLife, varDeltaSet);
+            }
+            else
+            {
+                // This shouldn't be in newLife, unless this is debug code, in which
+                // case we keep vars live everywhere, OR the variable is address-exposed,
+                // OR this block is part of a try block, in which case it may be live at the handler
+                // Could add a check that, if it's in newLife, that it's also in
+                // fgGetHandlerLiveVars(compCurBB), but seems excessive
+                //
+                // For a dead store, it can be the case that we set both isBorn and isDying to true.
+                // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
+                // eliminated.)  If it's both, we handled it above.
+                VarSetOps::UnionD(compiler, newLife, varDeltaSet);
+            }
+        }
+
+        if (!VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
+        {
+#ifdef DEBUG
+            if (compiler->verbose)
+            {
+                printf("Live vars: ");
+                dumpConvertedVarSet(compiler, compiler->compCurLife);
+                printf(" => ");
+                dumpConvertedVarSet(compiler, newLife);
+                printf("\n");
+            }
+#endif // DEBUG
+
+            VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
+        }
+    }
+};
+
 //------------------------------------------------------------------------------
 // optBlockCopyProp : Perform copy propagation using currently live definitions on the current block's
 //                    variables. Also as new definitions are encountered update the "curSsaName" which
@@ -365,7 +529,8 @@ void Compiler::optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curS
 #endif
 
     // We are not generating code so we don't need to deal with liveness change
-    TreeLifeUpdater<false> treeLifeUpdater(this);
+
+    CopyPropLivenessUpdater liveness(this);
 
     // There are no definitions at the start of the block. So clear it.
     compCurLifeTree = nullptr;
@@ -377,7 +542,7 @@ void Compiler::optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curS
         // Walk the tree to find if any local variable can be replaced with current live definitions.
         for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
         {
-            treeLifeUpdater.UpdateLife(tree);
+            liveness.Update(tree);
 
             optCopyProp(block, stmt, tree, curSsaName);
 

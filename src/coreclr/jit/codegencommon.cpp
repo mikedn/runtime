@@ -277,7 +277,7 @@ bool CodeGen::genShouldRoundFP()
 
 void CodeGen::genPrepForCompiler()
 {
-    treeLifeUpdater = new (compiler, CMK_bitset) TreeLifeUpdater<true>(compiler);
+    treeLifeUpdater = new (compiler, CMK_bitset) CodeGenLivenessUpdater(compiler);
 
     /* Figure out which non-register variables hold pointers */
 

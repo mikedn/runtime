@@ -5,8 +5,7 @@
 
 #include "treelifeupdater.h"
 
-template <bool ForCodeGen>
-TreeLifeUpdater<ForCodeGen>::TreeLifeUpdater(Compiler* compiler)
+CodeGenLivenessUpdater::CodeGenLivenessUpdater(Compiler* compiler)
     : compiler(compiler)
     , newLife(VarSetOps::MakeEmpty(compiler))
     , stackVarDeltaSet(VarSetOps::MakeEmpty(compiler))
@@ -34,8 +33,7 @@ TreeLifeUpdater<ForCodeGen>::TreeLifeUpdater(Compiler* compiler)
 //    e.g. when I ready the 0th field/reg of one node and define the 0th field/reg of another
 //    before reading the subsequent fields/regs.
 //
-template <bool ForCodeGen>
-bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned multiRegIndex)
+bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned multiRegIndex)
 {
     LclVarDsc* parentVarDsc = compiler->lvaGetDesc(lclNode);
     assert(parentVarDsc->lvPromoted && (multiRegIndex < parentVarDsc->lvFieldCnt) && lclNode->IsMultiReg() &&
@@ -56,20 +54,18 @@ bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, uns
 
     if (isBorn || isDying)
     {
-        if (ForCodeGen)
+        regNumber reg     = lclNode->GetRegNumByIdx(multiRegIndex);
+        bool      isInReg = fldVarDsc->lvIsInReg() && reg != REG_NA;
+        isInMemory        = !isInReg || fldVarDsc->lvLiveInOutOfHndlr;
+        if (isInReg)
         {
-            regNumber reg     = lclNode->GetRegNumByIdx(multiRegIndex);
-            bool      isInReg = fldVarDsc->lvIsInReg() && reg != REG_NA;
-            isInMemory        = !isInReg || fldVarDsc->lvLiveInOutOfHndlr;
-            if (isInReg)
+            if (isBorn)
             {
-                if (isBorn)
-                {
-                    compiler->codeGen->genUpdateVarReg(fldVarDsc, lclNode, multiRegIndex);
-                }
-                compiler->codeGen->genUpdateRegLife(fldVarDsc, isBorn, isDying DEBUGARG(lclNode));
+                compiler->codeGen->genUpdateVarReg(fldVarDsc, lclNode, multiRegIndex);
             }
+            compiler->codeGen->genUpdateRegLife(fldVarDsc, isBorn, isDying DEBUGARG(lclNode));
         }
+
         // First, update the live set
         if (isDying)
         {
@@ -96,40 +92,37 @@ bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, uns
 
         VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
 
-        if (ForCodeGen)
+        // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack, since the
+        // gcInfo.gcTrkStkPtrLcls
+        // includes all TRACKED vars that EVER live on the stack (i.e. are not always in a register).
+        VarSetOps::Assign(compiler, gcTrkStkDeltaSet, compiler->codeGen->gcInfo.gcTrkStkPtrLcls);
+        if (isInMemory && VarSetOps::IsMember(compiler, gcTrkStkDeltaSet, fldVarIndex))
         {
-            // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack, since the
-            // gcInfo.gcTrkStkPtrLcls
-            // includes all TRACKED vars that EVER live on the stack (i.e. are not always in a register).
-            VarSetOps::Assign(compiler, gcTrkStkDeltaSet, compiler->codeGen->gcInfo.gcTrkStkPtrLcls);
-            if (isInMemory && VarSetOps::IsMember(compiler, gcTrkStkDeltaSet, fldVarIndex))
+#ifdef DEBUG
+            if (compiler->verbose)
             {
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    printf("GCvars: ");
-                    dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
-                    printf(" => ");
-                }
-#endif // DEBUG
-
-                if (isBorn)
-                {
-                    VarSetOps::AddElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, fldVarIndex);
-                }
-                else
-                {
-                    VarSetOps::RemoveElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, fldVarIndex);
-                }
-
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
-                    printf("\n");
-                }
-#endif // DEBUG
+                printf("GCvars: ");
+                dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                printf(" => ");
             }
+#endif // DEBUG
+
+            if (isBorn)
+            {
+                VarSetOps::AddElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, fldVarIndex);
+            }
+            else
+            {
+                VarSetOps::RemoveElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, fldVarIndex);
+            }
+
+#ifdef DEBUG
+            if (compiler->verbose)
+            {
+                dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                printf("\n");
+            }
+#endif // DEBUG
 
 #ifdef USING_VARIABLE_LIVE_RANGE
             // For each of the LclVarDsc that are reporting change, variable or fields
@@ -143,7 +136,7 @@ bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, uns
         }
     }
 
-    if (ForCodeGen && spill)
+    if (spill)
     {
         if (VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcTrkStkPtrLcls, fldVarIndex))
         {
@@ -169,8 +162,7 @@ bool TreeLifeUpdater<ForCodeGen>::UpdateLifeFieldVar(GenTreeLclVar* lclNode, uns
 // Arguments:
 //    tree - the tree which affects liveness.
 //
-template <bool ForCodeGen>
-void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
+void CodeGenLivenessUpdater::UpdateLifeVar(GenTree* tree)
 {
     GenTree* indirAddrLocal = compiler->fgIsIndirOfAddrOfLocal(tree);
     assert(tree->OperIsNonPhiLocal() || indirAddrLocal != nullptr);
@@ -189,19 +181,16 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
     // There are no addr nodes on ARM and we are experimenting with encountering vars in 'random' order.
     // Struct fields are not traversed in a consistent order, so ignore them when
     // verifying that we see the var nodes in execution order
-    if (ForCodeGen)
+    if (tree->OperIsIndir())
     {
-        if (tree->OperIsIndir())
-        {
-            assert(indirAddrLocal != NULL);
-        }
-        else if (tree->gtNext != NULL && tree->gtNext->gtOper == GT_ADDR &&
-                 ((tree->gtNext->gtNext == NULL || !tree->gtNext->gtNext->OperIsIndir())))
-        {
-            assert(tree->IsLocal()); // Can only take the address of a local.
-            // The ADDR might occur in a context where the address it contributes is eventually
-            // dereferenced, so we can't say that this is not a use or def.
-        }
+        assert(indirAddrLocal != NULL);
+    }
+    else if (tree->gtNext != NULL && tree->gtNext->gtOper == GT_ADDR &&
+             ((tree->gtNext->gtNext == NULL || !tree->gtNext->gtNext->OperIsIndir())))
+    {
+        assert(tree->IsLocal()); // Can only take the address of a local.
+        // The ADDR might occur in a context where the address it contributes is eventually
+        // dereferenced, so we can't say that this is not a use or def.
     }
 #endif // !TARGET_AMD64
 #endif // DEBUG
@@ -252,25 +241,23 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
         if (varDsc->lvTracked)
         {
             VarSetOps::AddElemD(compiler, varDeltaSet, varDsc->lvVarIndex);
-            if (ForCodeGen)
+
+            if (isBorn && varDsc->lvIsRegCandidate() && tree->gtHasReg())
             {
-                if (isBorn && varDsc->lvIsRegCandidate() && tree->gtHasReg())
-                {
-                    compiler->codeGen->genUpdateVarReg(varDsc, tree);
-                }
-                bool isInReg    = varDsc->lvIsInReg() && tree->GetRegNum() != REG_NA;
-                bool isInMemory = !isInReg || varDsc->lvLiveInOutOfHndlr;
-                if (isInReg)
-                {
-                    compiler->codeGen->genUpdateRegLife(varDsc, isBorn, isDying DEBUGARG(tree));
-                }
-                if (isInMemory)
-                {
-                    VarSetOps::AddElemD(compiler, stackVarDeltaSet, varDsc->lvVarIndex);
-                }
+                compiler->codeGen->genUpdateVarReg(varDsc, tree);
+            }
+            bool isInReg    = varDsc->lvIsInReg() && tree->GetRegNum() != REG_NA;
+            bool isInMemory = !isInReg || varDsc->lvLiveInOutOfHndlr;
+            if (isInReg)
+            {
+                compiler->codeGen->genUpdateRegLife(varDsc, isBorn, isDying DEBUGARG(tree));
+            }
+            if (isInMemory)
+            {
+                VarSetOps::AddElemD(compiler, stackVarDeltaSet, varDsc->lvVarIndex);
             }
         }
-        else if (ForCodeGen && lclVarTree->IsMultiRegLclVar())
+        else if (lclVarTree->IsMultiRegLclVar())
         {
             assert(varDsc->lvPromoted && compiler->lvaEnregMultiRegVars);
             unsigned firstFieldVarNum = varDsc->lvFieldLclStart;
@@ -339,14 +326,12 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
                     if (!hasDeadTrackedFieldVars)
                     {
                         VarSetOps::AddElemD(compiler, varDeltaSet, fldVarIndex);
-                        if (ForCodeGen)
-                        {
-                            // We repeat this call here and below to avoid the VarSetOps::IsMember
-                            // test in this, the common case, where we have no deadTrackedFieldVars.
-                            VarSetOps::AddElemD(compiler, stackVarDeltaSet, fldVarIndex);
-                        }
+
+                        // We repeat this call here and below to avoid the VarSetOps::IsMember
+                        // test in this, the common case, where we have no deadTrackedFieldVars.
+                        VarSetOps::AddElemD(compiler, stackVarDeltaSet, fldVarIndex);
                     }
-                    else if (ForCodeGen && VarSetOps::IsMember(compiler, varDeltaSet, fldVarIndex))
+                    else if (VarSetOps::IsMember(compiler, varDeltaSet, fldVarIndex))
                     {
                         VarSetOps::AddElemD(compiler, stackVarDeltaSet, fldVarIndex);
                     }
@@ -392,54 +377,51 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
 
         VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
 
-        if (ForCodeGen)
+        // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack, since the
+        // gcInfo.gcTrkStkPtrLcls
+        // includes all TRACKED vars that EVER live on the stack (i.e. are not always in a register).
+        VarSetOps::Assign(compiler, gcTrkStkDeltaSet, compiler->codeGen->gcInfo.gcTrkStkPtrLcls);
+        VarSetOps::IntersectionD(compiler, gcTrkStkDeltaSet, stackVarDeltaSet);
+        if (!VarSetOps::IsEmpty(compiler, gcTrkStkDeltaSet))
         {
-            // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack, since the
-            // gcInfo.gcTrkStkPtrLcls
-            // includes all TRACKED vars that EVER live on the stack (i.e. are not always in a register).
-            VarSetOps::Assign(compiler, gcTrkStkDeltaSet, compiler->codeGen->gcInfo.gcTrkStkPtrLcls);
-            VarSetOps::IntersectionD(compiler, gcTrkStkDeltaSet, stackVarDeltaSet);
-            if (!VarSetOps::IsEmpty(compiler, gcTrkStkDeltaSet))
+#ifdef DEBUG
+            if (compiler->verbose)
             {
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    printf("GCvars: ");
-                    dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
-                    printf(" => ");
-                }
+                printf("GCvars: ");
+                dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                printf(" => ");
+            }
 #endif // DEBUG
 
-                if (isBorn)
-                {
-                    VarSetOps::UnionD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
-                }
-                else
-                {
-                    VarSetOps::DiffD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
-                }
-
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
-                    printf("\n");
-                }
-#endif // DEBUG
+            if (isBorn)
+            {
+                VarSetOps::UnionD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
+            }
+            else
+            {
+                VarSetOps::DiffD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
             }
 
+#ifdef DEBUG
+            if (compiler->verbose)
+            {
+                dumpConvertedVarSet(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                printf("\n");
+            }
+#endif // DEBUG
+        }
+
 #ifdef USING_VARIABLE_LIVE_RANGE
-            // For each of the LclVarDsc that are reporting change, variable or fields
-            compiler->codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRanges(varDeltaSet, isBorn, isDying);
+        // For each of the LclVarDsc that are reporting change, variable or fields
+        compiler->codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRanges(varDeltaSet, isBorn, isDying);
 #endif // USING_VARIABLE_LIVE_RANGE
 
 #ifdef USING_SCOPE_INFO
-            compiler->codeGen->siUpdate();
+        compiler->codeGen->siUpdate();
 #endif // USING_SCOPE_INFO
-        }
     }
 
-    if (ForCodeGen && spill)
+    if (spill)
     {
         assert(!varDsc->lvPromoted);
         compiler->codeGen->genSpillVar(tree->AsLclVar());
@@ -465,8 +447,7 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
 // Arguments:
 //    tree - the tree which effect on liveness is processed.
 //
-template <bool ForCodeGen>
-void TreeLifeUpdater<ForCodeGen>::UpdateLife(GenTree* tree)
+void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
 {
     assert(compiler->GetCurLVEpoch() == epoch);
     // TODO-Cleanup: We shouldn't really be calling this more than once
@@ -482,6 +463,3 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLife(GenTree* tree)
 
     UpdateLifeVar(tree);
 }
-
-template class TreeLifeUpdater<true>;
-template class TreeLifeUpdater<false>;

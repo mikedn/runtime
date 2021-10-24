@@ -5,14 +5,12 @@
 
 #include "compiler.h"
 
-//------------------------------------------------------------------------
-// TreeLifeUpdater: class that handles changes in variable liveness from a given tree.
+// Handles changes in variable liveness from a given node.
 // Keeps set of temporary VARSET_TP during its lifetime to avoid unnecessary memory allocations.
-template <bool ForCodeGen>
-class TreeLifeUpdater
+class CodeGenLivenessUpdater
 {
 public:
-    TreeLifeUpdater(Compiler* compiler);
+    CodeGenLivenessUpdater(Compiler* compiler);
     void UpdateLife(GenTree* tree);
     bool UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned multiRegIndex);
 
