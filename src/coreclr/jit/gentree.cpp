@@ -14674,11 +14674,6 @@ GenTreeLclVar* Compiler::fgIsIndirOfAddrOfLocal(GenTree* tree)
 
             if (base != nullptr)
             {
-                if (base->OperGet() == GT_IND)
-                {
-                    return fgIsIndirOfAddrOfLocal(base);
-                }
-                // else use base as addr
                 addr = base;
             }
         }
