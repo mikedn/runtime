@@ -178,9 +178,12 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
+            fgMarkUseDef(tree->AsLclVarCommon());
+            break;
+
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
-            fgMarkUseDef(tree->AsLclVarCommon());
+            assert(lvaGetDesc(tree->AsLclVarCommon())->lvAddrExposed);
             break;
 
         case GT_CLS_VAR:
@@ -347,11 +350,18 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
             fgMarkUseDef(tree->AsLclVarCommon());
+            break;
+
+        case GT_LCL_VAR_ADDR:
+        case GT_LCL_FLD_ADDR:
+            // In general these should be used only with address exposed locals
+            // but LIR does not currently support struct STORE_LCL_VAR|FLD so it
+            // uses STORE_OBJ(LCL_VAR|FLD_ADDR) without making the local address
+            // exposed.
+            // assert(lvaGetDesc(tree->AsLclVarCommon())->lvAddrExposed);
             break;
 
         case GT_IND:
