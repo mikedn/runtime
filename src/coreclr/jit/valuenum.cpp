@@ -7236,10 +7236,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     varDsc = &lvaTable[lclNum];
                 }
 
-                // Do we have a Use (read) of the LclVar?
-                //
-                if ((lcl->gtFlags & GTF_VAR_DEF) == 0 ||
-                    (lcl->gtFlags & GTF_VAR_USEASG)) // If it is a "pure" def, will handled as part of the assignment.
+                if ((lcl->gtFlags & GTF_VAR_DEF) == 0)
                 {
                     bool          generateUniqueVN = false;
                     FieldSeqNode* zeroOffsetFldSeq = nullptr;
@@ -7349,24 +7346,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         lcl->gtVNPair.SetBoth(uniqVN);
                     }
                 }
-                else if ((lcl->gtFlags & GTF_VAR_DEF) != 0)
-                {
-                    // We have a Def (write) of the LclVar
-
-                    // TODO-Review: For the short term, we have a workaround for copyblk/initblk.  Those that use
-                    // addrSpillTemp will have a statement like "addrSpillTemp = addr(local)."  If we previously decided
-                    // that this block operation defines the local, we will have labeled the "local" node as a DEF
-                    // This flag propagates to the "local" on the RHS.  So we'll assume that this is correct,
-                    // and treat it as a def (to a new, unique VN).
-                    //
-                    if (lcl->GetSsaNum() != SsaConfig::RESERVED_SSA_NUM)
-                    {
-                        ValueNum uniqVN = vnStore->VNForExpr(compCurBB, lcl->TypeGet());
-                        varDsc->GetPerSsaData(lcl->GetSsaNum())->m_vnPair.SetBoth(uniqVN);
-                    }
-
-                    lcl->gtVNPair = ValueNumPair(); // Avoid confusion -- we don't set the VN of a lcl being defined.
-                }
             }
             break;
 
@@ -7383,7 +7362,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 // If this is a (full) def, then the variable will be labeled with the new SSA number,
                 // which will not have a value.  We skip; it will be handled by one of the assignment-like
                 // forms (assignment, or initBlk or copyBlk).
-                if (((lclFld->gtFlags & GTF_VAR_DEF) == 0) || (lclFld->gtFlags & GTF_VAR_USEASG))
+                if ((lclFld->gtFlags & GTF_VAR_DEF) == 0)
                 {
                     unsigned   lclNum = lclFld->GetLclNum();
                     unsigned   ssaNum = lclFld->GetSsaNum();
