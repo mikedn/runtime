@@ -388,25 +388,8 @@ public:
         }
 
         // if it's a partial definition then variable "x" must have had a previous, original, site to be born.
-        bool isBorn;
-        bool isDying;
-
-        if (lclVarTree->IsMultiRegLclVar())
-        {
-            // We should never have an 'IndirOfAddrOfLocal' for a multi-reg.
-            assert(lclVarTree == tree);
-            assert((lclVarTree->gtFlags & GTF_VAR_USEASG) == 0);
-            isBorn = ((lclVarTree->gtFlags & GTF_VAR_DEF) != 0);
-            // Note that for multireg locals we can have definitions for which some of those are last uses.
-            // We don't want to add those to the varDeltaSet because otherwise they will be added as newly
-            // live.
-            isDying = !isBorn && lclVarTree->HasLastUse();
-        }
-        else
-        {
-            isBorn  = ((lclVarTree->gtFlags & GTF_VAR_DEF) != 0 && (lclVarTree->gtFlags & GTF_VAR_USEASG) == 0);
-            isDying = ((lclVarTree->gtFlags & GTF_VAR_DEATH) != 0);
-        }
+        bool isBorn  = ((lclVarTree->gtFlags & GTF_VAR_DEF) != 0 && (lclVarTree->gtFlags & GTF_VAR_USEASG) == 0);
+        bool isDying = ((lclVarTree->gtFlags & GTF_VAR_DEATH) != 0);
 
         if (isBorn || isDying)
         {
