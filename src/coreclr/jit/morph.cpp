@@ -11227,6 +11227,14 @@ DONE_MORPHING_CHILDREN:
                 op1                 = gtNewOperNode(GT_IND, tree->TypeGet(), op1);
                 tree->AsOp()->gtOp1 = op1;
             }
+            else if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
+            {
+                effectiveOp1->gtFlags |= GTF_IND_ASG_LHS;
+            }
+            else if (effectiveOp1->OperIs(GT_CLS_VAR))
+            {
+                effectiveOp1->gtFlags |= GTF_CLS_VAR_ASG_LHS;
+            }
 
             // If we are storing a small type, we might be able to omit a cast.
             // We may also omit a cast when storing to a "normalize on load"
