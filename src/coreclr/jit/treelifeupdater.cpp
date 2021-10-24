@@ -155,34 +155,42 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned
     return false;
 }
 
-//------------------------------------------------------------------------
-// UpdateLifeVar: Update live sets for a given tree.
-//
-// Arguments:
-//    tree - the tree which affects liveness.
-//
-void CodeGenLivenessUpdater::UpdateLifeVar(GenTree* tree)
+void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
 {
-    GenTree* indirAddrLocal = compiler->fgIsIndirOfAddrOfLocal(tree);
-    assert(tree->OperIsNonPhiLocal() || indirAddrLocal != nullptr);
+    assert(!tree->OperIs(GT_PHI_ARG));
+    assert(compiler->GetCurLVEpoch() == epoch);
 
-    // Get the local var tree -- if "tree" is "Ldobj(addr(x))", or "ind(addr(x))" this is "x", else it's "tree".
-    GenTree* lclVarTree = indirAddrLocal;
+    // TODO-Cleanup: We shouldn't really be calling this more than once
+    if (tree == compiler->compCurLifeTree)
+    {
+        return;
+    }
+
+    GenTreeLclVarCommon* lclVarTree;
+
+    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        lclVarTree = tree->AsLclVarCommon();
+    }
+    else
+    {
+        lclVarTree = compiler->fgIsIndirOfAddrOfLocal(tree);
+    }
+
     if (lclVarTree == nullptr)
     {
-        lclVarTree = tree;
+        return;
     }
-    unsigned int lclNum = lclVarTree->AsLclVarCommon()->GetLclNum();
-    LclVarDsc*   varDsc = compiler->lvaTable + lclNum;
+
+    LclVarDsc* varDsc = compiler->lvaGetDesc(lclVarTree);
 
 #ifdef DEBUG
 #if !defined(TARGET_AMD64)
     // There are no addr nodes on ARM and we are experimenting with encountering vars in 'random' order.
     // Struct fields are not traversed in a consistent order, so ignore them when
     // verifying that we see the var nodes in execution order
-    if (tree->OperIsIndir())
+    if (tree != lclVarTree)
     {
-        assert(indirAddrLocal != NULL);
     }
     else if (tree->gtNext != NULL && tree->gtNext->gtOper == GT_ADDR &&
              ((tree->gtNext->gtNext == NULL || !tree->gtNext->gtNext->OperIsIndir())))
@@ -298,12 +306,11 @@ void CodeGenLivenessUpdater::UpdateLifeVar(GenTree* tree)
             // *deadTrackedFieldVars indicates which tracked field vars are dying.
             bool hasDeadTrackedFieldVars = false;
 
-            if (indirAddrLocal != nullptr && isDying)
+            if ((tree != lclVarTree) && isDying)
             {
                 assert(!isBorn); // GTF_VAR_DEATH only set for LDOBJ last use.
                 VARSET_TP* deadTrackedFieldVars = nullptr;
-                hasDeadTrackedFieldVars =
-                    compiler->LookupPromotedStructDeathVars(indirAddrLocal, &deadTrackedFieldVars);
+                hasDeadTrackedFieldVars = compiler->LookupPromotedStructDeathVars(lclVarTree, &deadTrackedFieldVars);
                 if (hasDeadTrackedFieldVars)
                 {
                     VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFieldVars);
@@ -438,27 +445,4 @@ void CodeGenLivenessUpdater::UpdateLifeVar(GenTree* tree)
             }
         }
     }
-}
-
-//------------------------------------------------------------------------
-// UpdateLife: Determine whether the tree affects liveness, and update liveness sets accordingly.
-//
-// Arguments:
-//    tree - the tree which effect on liveness is processed.
-//
-void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
-{
-    assert(compiler->GetCurLVEpoch() == epoch);
-    // TODO-Cleanup: We shouldn't really be calling this more than once
-    if (tree == compiler->compCurLifeTree)
-    {
-        return;
-    }
-
-    if (!tree->OperIsNonPhiLocal() && compiler->fgIsIndirOfAddrOfLocal(tree) == nullptr)
-    {
-        return;
-    }
-
-    UpdateLifeVar(tree);
 }
