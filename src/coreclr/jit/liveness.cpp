@@ -32,6 +32,8 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
     const bool isDef = (node->gtFlags & GTF_VAR_DEF) != 0;
     const bool isUse = !isDef || ((node->gtFlags & GTF_VAR_USEASG) != 0);
 
+    assert(isDef || isUse);
+
     if (lcl->lvTracked)
     {
         assert(!lcl->lvAddrExposed);
@@ -73,8 +75,6 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
     if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
     {
-        VARSET_TP bitMask(VarSetOps::MakeEmpty(this));
-
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
             LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
@@ -82,18 +82,16 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
             if (fieldLcl->lvTracked)
             {
                 assert(fieldLcl->lvVarIndex < lvaTrackedCount);
-                VarSetOps::AddElemD(this, bitMask, fieldLcl->lvVarIndex);
-            }
-        }
 
-        if (!isUse)
-        {
-            assert(isDef);
-            VarSetOps::UnionD(this, fgCurDefSet, bitMask);
-        }
-        else if (!VarSetOps::IsSubset(this, bitMask, fgCurDefSet))
-        {
-            VarSetOps::UnionD(this, fgCurUseSet, bitMask);
+                if (isDef)
+                {
+                    VarSetOps::AddElemD(this, fgCurDefSet, fieldLcl->lvVarIndex);
+                }
+                else if (!VarSetOps::IsMember(this, fgCurDefSet, fieldLcl->lvVarIndex))
+                {
+                    VarSetOps::AddElemD(this, fgCurUseSet, fieldLcl->lvVarIndex);
+                }
+            }
         }
     }
 }
