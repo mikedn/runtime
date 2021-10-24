@@ -11201,7 +11201,6 @@ DONE_MORPHING_CHILDREN:
     GenTree*      cns1;
     GenTree*      cns2;
     size_t        ival1, ival2;
-    GenTree*      lclVarTree;
     GenTree*      effectiveOp1;
     FieldSeqNode* fieldSeq = nullptr;
 
@@ -11212,12 +11211,6 @@ DONE_MORPHING_CHILDREN:
             {
                 op1->gtFlags &= ~GTF_VAR_FOLDED_IND;
                 op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
-            }
-
-            lclVarTree = fgIsIndirOfAddrOfLocal(op1);
-            if (lclVarTree != nullptr)
-            {
-                lclVarTree->gtFlags |= GTF_VAR_DEF;
             }
 
             effectiveOp1 = op1->gtEffectiveVal();
@@ -11234,6 +11227,8 @@ DONE_MORPHING_CHILDREN:
             {
                 assert(effectiveOp1->OperIs(GT_LCL_VAR, GT_LCL_FLD));
             }
+
+            fgAssignSetVarDef(tree);
 
             // If we are storing a small type, we might be able to omit a cast.
             // We may also omit a cast when storing to a "normalize on load"
@@ -11256,8 +11251,6 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
             }
-
-            fgAssignSetVarDef(tree);
 
             /* We can't CSE the LHS of an assignment */
             /* We also must set in the pre-morphing phase, otherwise assertionProp doesn't see it */
