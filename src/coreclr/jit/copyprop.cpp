@@ -358,67 +358,67 @@ public:
 
     void Update(GenTree* tree)
     {
-        if (!tree->OperIsNonPhiLocal() && (compiler->fgIsIndirOfAddrOfLocal(tree) == nullptr))
+        if (tree->OperIs(GT_PHI_ARG))
         {
             return;
         }
 
-        GenTree* indirAddrLocal = compiler->fgIsIndirOfAddrOfLocal(tree);
-        assert(tree->OperIsNonPhiLocal() || indirAddrLocal != nullptr);
+        GenTreeLclVarCommon* lclNode;
 
-        // Get the local var tree -- if "tree" is "Ldobj(addr(x))", or "ind(addr(x))" this is "x", else it's "tree".
-        GenTree* lclVarTree = indirAddrLocal;
-
-        if (lclVarTree == nullptr)
+        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            lclVarTree = tree;
+            lclNode = tree->AsLclVarCommon();
+        }
+        else
+        {
+            lclNode = compiler->fgIsIndirOfAddrOfLocal(tree);
         }
 
-        unsigned   lclNum = lclVarTree->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+        if (lclNode == nullptr)
+        {
+            return;
+        }
+
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
         VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
 
-        // By codegen, a struct may not be TYP_STRUCT, so we have to
-        // check lvPromoted, for the case where the fields are being
-        // tracked.
-        if (!varDsc->lvTracked && !varDsc->lvPromoted)
+        if (!lcl->lvTracked && !lcl->lvPromoted)
         {
             return;
         }
 
         // if it's a partial definition then variable "x" must have had a previous, original, site to be born.
-        bool isBorn  = ((lclVarTree->gtFlags & GTF_VAR_DEF) != 0 && (lclVarTree->gtFlags & GTF_VAR_USEASG) == 0);
-        bool isDying = ((lclVarTree->gtFlags & GTF_VAR_DEATH) != 0);
+        bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0 && (lclNode->gtFlags & GTF_VAR_USEASG) == 0);
+        bool isDying = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0);
 
         if (isBorn || isDying)
         {
             VarSetOps::ClearD(compiler, varDeltaSet);
 
-            if (varDsc->lvTracked)
+            if (lcl->lvTracked)
             {
-                VarSetOps::AddElemD(compiler, varDeltaSet, varDsc->lvVarIndex);
+                VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
             }
-            else if (varDsc->lvPromoted)
+            else if (lcl->lvPromoted)
             {
                 // If hasDeadTrackedFieldVars is true, then, for a LDOBJ(ADDR(<promoted struct local>)),
                 // *deadTrackedFieldVars indicates which tracked field vars are dying.
                 bool hasDeadTrackedFieldVars = false;
 
-                if (indirAddrLocal != nullptr && isDying)
+                if ((lclNode != tree) && isDying)
                 {
                     assert(!isBorn); // GTF_VAR_DEATH only set for LDOBJ last use.
                     VARSET_TP* deadTrackedFieldVars = nullptr;
-                    hasDeadTrackedFieldVars =
-                        compiler->LookupPromotedStructDeathVars(indirAddrLocal, &deadTrackedFieldVars);
+                    hasDeadTrackedFieldVars = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFieldVars);
                     if (hasDeadTrackedFieldVars)
                     {
                         VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFieldVars);
                     }
                 }
 
-                unsigned firstFieldVarNum = varDsc->lvFieldLclStart;
-                for (unsigned i = 0; i < varDsc->lvFieldCnt; ++i)
+                unsigned firstFieldVarNum = lcl->lvFieldLclStart;
+                for (unsigned i = 0; i < lcl->lvFieldCnt; ++i)
                 {
                     LclVarDsc* fldVarDsc = compiler->lvaGetDesc(firstFieldVarNum + i);
                     noway_assert(fldVarDsc->lvIsStructField);
