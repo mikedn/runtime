@@ -381,7 +381,7 @@ public:
 
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
-        if (!lcl->lvTracked && !lcl->lvPromoted)
+        if (!lcl->lvTracked && !lcl->IsPromoted())
         {
             return;
         }
@@ -395,49 +395,46 @@ public:
             return;
         }
 
-        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
         VarSetOps::ClearD(compiler, varDeltaSet);
 
         if (lcl->lvTracked)
         {
             VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
         }
-        else if (lcl->lvPromoted)
+        else
         {
-            // If hasDeadTrackedFieldVars is true, then, for a LDOBJ(ADDR(<promoted struct local>)),
-            // *deadTrackedFieldVars indicates which tracked field vars are dying.
-            bool hasDeadTrackedFieldVars = false;
+            assert(lcl->IsPromoted());
+
+            bool hasDeadTrackedFields = false;
 
             if ((lclNode != tree) && isDying)
             {
-                assert(!isBorn); // GTF_VAR_DEATH only set for LDOBJ last use.
-                VARSET_TP* deadTrackedFieldVars = nullptr;
-                hasDeadTrackedFieldVars = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFieldVars);
-                if (hasDeadTrackedFieldVars)
+                assert(!isBorn); // GTF_VAR_DEATH only set for OBJ last use.
+
+                VARSET_TP* deadTrackedFields;
+                hasDeadTrackedFields = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFields);
+
+                if (hasDeadTrackedFields)
                 {
-                    VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFieldVars);
+                    VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFields);
                 }
             }
 
-            unsigned firstFieldVarNum = lcl->lvFieldLclStart;
-            for (unsigned i = 0; i < lcl->lvFieldCnt; ++i)
+            if (!hasDeadTrackedFields)
             {
-                LclVarDsc* fldVarDsc = compiler->lvaGetDesc(firstFieldVarNum + i);
-                noway_assert(fldVarDsc->lvIsStructField);
-                if (fldVarDsc->lvTracked)
+                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
                 {
-                    unsigned fldVarIndex = fldVarDsc->lvVarIndex;
-                    // We should never see enregistered fields in a struct local unless
-                    // IsMultiRegLclVar() returns true, in which case we've handled this above.
-                    assert(!fldVarDsc->lvIsInReg());
-                    noway_assert(fldVarIndex < compiler->lvaTrackedCount);
-                    if (!hasDeadTrackedFieldVars)
+                    LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+                    if (fieldLcl->lvTracked)
                     {
-                        VarSetOps::AddElemD(compiler, varDeltaSet, fldVarIndex);
+                        VarSetOps::AddElemD(compiler, varDeltaSet, fieldLcl->lvVarIndex);
                     }
                 }
             }
         }
+
+        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
 
         if (isDying)
         {
@@ -460,24 +457,27 @@ public:
             // For a dead store, it can be the case that we set both isBorn and isDying to true.
             // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
             // eliminated.)  If it's both, we handled it above.
+
             VarSetOps::UnionD(compiler, newLife, varDeltaSet);
         }
 
-        if (!VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
+        if (VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
         {
-#ifdef DEBUG
-            if (compiler->verbose)
-            {
-                printf("Live vars: ");
-                dumpConvertedVarSet(compiler, compiler->compCurLife);
-                printf(" => ");
-                dumpConvertedVarSet(compiler, newLife);
-                printf("\n");
-            }
-#endif // DEBUG
-
-            VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
+            return;
         }
+
+#ifdef DEBUG
+        if (compiler->verbose)
+        {
+            printf("Live vars: ");
+            dumpConvertedVarSet(compiler, compiler->compCurLife);
+            printf(" => ");
+            dumpConvertedVarSet(compiler, newLife);
+            printf("\n");
+        }
+#endif
+
+        VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
     }
 };
 
