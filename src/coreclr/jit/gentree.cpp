@@ -14655,43 +14655,43 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
 
 GenTreeLclVar* Compiler::fgIsIndirOfAddrOfLocal(GenTree* tree)
 {
-    GenTreeLclVar* res = nullptr;
-    if (tree->OperIsIndir())
+    if (!tree->OperIsIndir())
     {
-        GenTree* addr = tree->AsIndir()->Addr();
+        return nullptr;
+    }
 
-        // Post rationalization, we can have Indir(Lea(..) trees. Therefore to recognize
-        // Indir of addr of a local, skip over Lea in Indir(Lea(base, index, scale, offset))
-        // to get to base variable.
-        if (addr->OperGet() == GT_LEA)
-        {
-            // We use this method in backward dataflow after liveness computation - fgInterBlockLocalVarLiveness().
-            // Therefore it is critical that we don't miss 'uses' of any local.  It may seem this method overlooks
-            // if the index part of the LEA has indir( someAddrOperator ( lclVar ) ) to search for a use but it's
-            // covered by the fact we're traversing the expression in execution order and we also visit the index.
-            GenTreeAddrMode* lea  = addr->AsAddrMode();
-            GenTree*         base = lea->Base();
+    GenTree* addr = tree->AsIndir()->GetAddr();
 
-            if (base != nullptr)
-            {
-                addr = base;
-            }
-        }
+    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+    {
+        // We use this method in backward dataflow after liveness computation - fgInterBlockLocalVarLiveness().
+        // Therefore it is critical that we don't miss 'uses' of any local.  It may seem this method overlooks
+        // if the index part of the LEA has indir( someAddrOperator ( lclVar ) ) to search for a use but it's
+        // covered by the fact we're traversing the expression in execution order and we also visit the index.
 
-        if (addr->OperGet() == GT_ADDR)
+        // TODO-MIKE-Review: And if the index is visted what? Complete nonsense.
+
+        GenTree* base = addrMode->GetBase();
+
+        if (base != nullptr)
         {
-            GenTree* lclvar = addr->AsOp()->gtOp1;
-            if (lclvar->OperGet() == GT_LCL_VAR)
-            {
-                res = lclvar->AsLclVar();
-            }
-        }
-        else if (addr->OperGet() == GT_LCL_VAR_ADDR)
-        {
-            res = addr->AsLclVar();
+            addr = base;
         }
     }
-    return res;
+
+    // TODO-MIKE-Review: Why doesn't the code below check for LCL_FLD/LCL_FLD_ADDR?
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR))
+    {
+        return addr->AsLclVar();
+    }
+
+    if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+    {
+        return addr->AsUnOp()->GetOp(0)->AsLclVar();
+    }
+
+    return nullptr;
 }
 
 GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
