@@ -3029,36 +3029,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-//------------------------------------------------------------------------
-// compUpdateLife: Update the GC's masks, register's masks and reports change on variable's homes given a set of
-//    current live variables if changes have happened since "compCurLife".
-//
-// Arguments:
-//    newLife - the set of variables that are alive.
-//
-// Assumptions:
-//    The set of live variables reflects the result of only emitted code, it should not be considering the becoming
-//    live/dead of instructions that has not been emitted yet. This is requires by "compChangeLife".
-template <bool ForCodeGen>
-inline void Compiler::compUpdateLife(VARSET_VALARG_TP newLife)
-{
-    if (!VarSetOps::Equal(this, compCurLife, newLife))
-    {
-        compChangeLife<ForCodeGen>(newLife);
-    }
-#ifdef DEBUG
-    else
-    {
-        if (verbose)
-        {
-            printf("Liveness not changing: %s ", VarSetOps::ToString(this, compCurLife));
-            dumpConvertedVarSet(this, compCurLife);
-            printf("\n");
-        }
-    }
-#endif // DEBUG
-}
-
 /*****************************************************************************
  *
  *  We stash cookies in basic blocks for the code emitter; this call retrieves

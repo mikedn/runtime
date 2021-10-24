@@ -6792,13 +6792,7 @@ public:
 
     // Compare the given "newLife" with last set of live variables and update
     // codeGen "gcInfo", siScopes, "regSet" with the new variable's homes/liveness.
-    template <bool ForCodeGen>
     void compChangeLife(VARSET_VALARG_TP newLife);
-
-    // Update the GC's masks, register's masks and reports change on variable's homes given a set of
-    // current live variables if changes have happened since "compCurLife".
-    template <bool ForCodeGen>
-    inline void compUpdateLife(VARSET_VALARG_TP newLife);
 
     // Gets a register mask that represent the kill set for a helper call since
     // not all JIT Helper calls follow the standard ABI on the target architecture.

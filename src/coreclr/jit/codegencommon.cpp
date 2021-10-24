@@ -474,7 +474,20 @@ void CodeGenInterface::genUpdateLife(GenTree* tree)
 
 void CodeGenInterface::genUpdateLife(VARSET_VALARG_TP newLife)
 {
-    compiler->compUpdateLife</*ForCodeGen*/ true>(newLife);
+    if (VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
+    {
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("Liveness not changing: %s ", VarSetOps::ToString(compiler, compiler->compCurLife));
+            dumpConvertedVarSet(compiler, compiler->compCurLife);
+            printf("\n");
+        }
+#endif
+        return;
+    }
+
+    compiler->compChangeLife(newLife);
 }
 
 // Return the register mask for the given register variable
@@ -682,7 +695,6 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
 // Notes:
 //    If "ForCodeGen" is false, only "compCurLife" set (and no mask) will be setted.
 //
-template <bool ForCodeGen>
 void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
 {
 #ifdef DEBUG
@@ -699,12 +711,6 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
     /* We should only be called when the live set has actually changed */
 
     noway_assert(!VarSetOps::Equal(this, compCurLife, newLife));
-
-    if (!ForCodeGen)
-    {
-        VarSetOps::Assign(this, compCurLife, newLife);
-        return;
-    }
 
     /* Figure out which variables are becoming live/dead at this point */
 
@@ -814,9 +820,6 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
     codeGen->siUpdate();
 #endif // USING_SCOPE_INFO
 }
-
-// Need an explicit instantiation.
-template void Compiler::compChangeLife<true>(VARSET_VALARG_TP newLife);
 
 /*****************************************************************************
  *
