@@ -14653,6 +14653,52 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
     return false;
 }
 
+GenTreeLclVar* Compiler::fgIsIndirOfAddrOfLocal(GenTree* tree)
+{
+    GenTreeLclVar* res = nullptr;
+    if (tree->OperIsIndir())
+    {
+        GenTree* addr = tree->AsIndir()->Addr();
+
+        // Post rationalization, we can have Indir(Lea(..) trees. Therefore to recognize
+        // Indir of addr of a local, skip over Lea in Indir(Lea(base, index, scale, offset))
+        // to get to base variable.
+        if (addr->OperGet() == GT_LEA)
+        {
+            // We use this method in backward dataflow after liveness computation - fgInterBlockLocalVarLiveness().
+            // Therefore it is critical that we don't miss 'uses' of any local.  It may seem this method overlooks
+            // if the index part of the LEA has indir( someAddrOperator ( lclVar ) ) to search for a use but it's
+            // covered by the fact we're traversing the expression in execution order and we also visit the index.
+            GenTreeAddrMode* lea  = addr->AsAddrMode();
+            GenTree*         base = lea->Base();
+
+            if (base != nullptr)
+            {
+                if (base->OperGet() == GT_IND)
+                {
+                    return fgIsIndirOfAddrOfLocal(base);
+                }
+                // else use base as addr
+                addr = base;
+            }
+        }
+
+        if (addr->OperGet() == GT_ADDR)
+        {
+            GenTree* lclvar = addr->AsOp()->gtOp1;
+            if (lclvar->OperGet() == GT_LCL_VAR)
+            {
+                res = lclvar->AsLclVar();
+            }
+        }
+        else if (addr->OperGet() == GT_LCL_VAR_ADDR)
+        {
+            res = addr->AsLclVar();
+        }
+    }
+    return res;
+}
+
 GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
 {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
