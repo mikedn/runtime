@@ -11222,18 +11222,17 @@ DONE_MORPHING_CHILDREN:
 
             effectiveOp1 = op1->gtEffectiveVal();
 
-            if (effectiveOp1->OperIsConst())
-            {
-                op1                 = gtNewOperNode(GT_IND, tree->TypeGet(), op1);
-                tree->AsOp()->gtOp1 = op1;
-            }
-            else if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
+            if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
             {
                 effectiveOp1->gtFlags |= GTF_IND_ASG_LHS;
             }
             else if (effectiveOp1->OperIs(GT_CLS_VAR))
             {
                 effectiveOp1->gtFlags |= GTF_CLS_VAR_ASG_LHS;
+            }
+            else
+            {
+                assert(effectiveOp1->OperIs(GT_LCL_VAR, GT_LCL_FLD));
             }
 
             // If we are storing a small type, we might be able to omit a cast.
