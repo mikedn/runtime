@@ -439,12 +439,14 @@ public:
             }
         }
 
-        // First, update the live set
         if (isDying)
         {
-            // We'd like to be able to assert the following, however if we are walking
-            // through a qmark/colon tree, we may encounter multiple last-use nodes.
+            // TODO-MIKE-Review: The assert below fires for unknown reasons. An old comment
+            // claimed that it's due to QMARKs but there are not QMARKS after global morph.
+            // (e.g. crossgen System.Formats.Asn1.dll).
+
             // assert (VarSetOps::IsSubset(compiler, regVarDeltaSet, newLife));
+
             VarSetOps::DiffD(compiler, newLife, varDeltaSet);
         }
         else
