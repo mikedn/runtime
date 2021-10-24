@@ -71,6 +71,8 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
             fgCurMemoryDef |= memoryKindSet(ByrefExposed);
             byrefStatesMatchGcHeapStates = false;
         }
+
+        return;
     }
 
     if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
