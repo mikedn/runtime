@@ -12,7 +12,6 @@ CodeGenLivenessUpdater::CodeGenLivenessUpdater(Compiler* compiler)
     , varDeltaSet(VarSetOps::MakeEmpty(compiler))
     , gcTrkStkDeltaSet(VarSetOps::MakeEmpty(compiler))
 #ifdef DEBUG
-    , gcVarPtrSetNew(VarSetOps::MakeEmpty(compiler))
     , epoch(compiler->GetCurLVEpoch())
 #endif // DEBUG
 {
