@@ -13,109 +13,87 @@
 #if !defined(TARGET_64BIT)
 #include "decomposelongs.h"
 #endif
-#include "lower.h" // for LowerRange()
+#include "lower.h"
 
-/*****************************************************************************
- *
- *  Helper for Compiler::fgPerBlockLocalVarLiveness().
- *  The goal is to compute the USE and DEF sets for a basic block.
- */
-void Compiler::fgMarkUseDef(GenTreeLclVarCommon* tree)
+void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 {
-    assert((tree->OperIsLocal() && (tree->OperGet() != GT_PHI_ARG)) || tree->OperIsLocalAddr());
+    assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
 
-    const unsigned lclNum = tree->GetLclNum();
-    assert(lclNum < lvaCount);
+    LclVarDsc* lcl = lvaGetDesc(node);
 
-    LclVarDsc* const varDsc = &lvaTable[lclNum];
-
-    // We should never encounter a reference to a lclVar that has a zero refCnt.
-    if (varDsc->lvRefCnt() == 0 && (!varTypeIsPromotable(varDsc) || !varDsc->lvPromoted))
+    // We should never encounter a reference to a local that has a zero ref count.
+    if ((lcl->lvRefCnt() == 0) && (!varTypeIsPromotable(lcl->GetType()) || !lcl->IsPromoted()))
     {
-        JITDUMP("Found reference to V%02u with zero refCnt.\n", lclNum);
+        JITDUMP("Found reference to V%02u with zero refCnt.\n", node->GetLclNum());
         assert(!"We should never encounter a reference to a lclVar that has a zero refCnt.");
-        varDsc->setLvRefCnt(1);
+        lcl->setLvRefCnt(1);
     }
 
-    const bool isDef = (tree->gtFlags & GTF_VAR_DEF) != 0;
-    const bool isUse = !isDef || ((tree->gtFlags & GTF_VAR_USEASG) != 0);
+    const bool isDef = (node->gtFlags & GTF_VAR_DEF) != 0;
+    const bool isUse = !isDef || ((node->gtFlags & GTF_VAR_USEASG) != 0);
 
-    if (varDsc->lvTracked)
+    if (lcl->lvTracked)
     {
-        assert(varDsc->lvVarIndex < lvaTrackedCount);
+        assert(!lcl->lvAddrExposed);
+        assert(lcl->lvVarIndex < lvaTrackedCount);
 
-        // We don't treat stores to tracked locals as modifications of ByrefExposed memory;
-        // Make sure no tracked local is addr-exposed, to make sure we don't incorrectly CSE byref
-        // loads aliasing it across a store to it.
-        assert(!varDsc->lvAddrExposed);
-
-        if (compRationalIRForm && (varDsc->lvType != TYP_STRUCT) && !varTypeIsMultiReg(varDsc))
+        if (compRationalIRForm && !lcl->TypeIs(TYP_STRUCT) && !varTypeIsMultiReg(lcl->GetType()))
         {
             // If this is an enregisterable variable that is not marked doNotEnregister,
             // we should only see direct references (not ADDRs).
-            assert(varDsc->lvDoNotEnregister || tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+            assert(lcl->lvDoNotEnregister || node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
         }
 
-        if (isUse && !VarSetOps::IsMember(this, fgCurDefSet, varDsc->lvVarIndex))
+        if (isUse && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
         {
-            // This is an exposed use; add it to the set of uses.
-            VarSetOps::AddElemD(this, fgCurUseSet, varDsc->lvVarIndex);
+            VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
         }
 
         if (isDef)
         {
-            // This is a def, add it to the set of defs.
-            VarSetOps::AddElemD(this, fgCurDefSet, varDsc->lvVarIndex);
+            VarSetOps::AddElemD(this, fgCurDefSet, lcl->lvVarIndex);
+        }
+
+        return;
+    }
+
+    if (lcl->lvAddrExposed)
+    {
+        if (isUse)
+        {
+            fgCurMemoryUse |= memoryKindSet(ByrefExposed);
+        }
+
+        if (isDef)
+        {
+            fgCurMemoryDef |= memoryKindSet(ByrefExposed);
+            byrefStatesMatchGcHeapStates = false;
         }
     }
-    else
+
+    if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
     {
-        if (varDsc->lvAddrExposed)
+        VARSET_TP bitMask(VarSetOps::MakeEmpty(this));
+
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            // Reflect the effect on ByrefExposed memory
+            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-            if (isUse)
+            if (fieldLcl->lvTracked)
             {
-                fgCurMemoryUse |= memoryKindSet(ByrefExposed);
-            }
-            if (isDef)
-            {
-                fgCurMemoryDef |= memoryKindSet(ByrefExposed);
-
-                // We've found a store that modifies ByrefExposed
-                // memory but not GcHeap memory, so track their
-                // states separately.
-                byrefStatesMatchGcHeapStates = false;
+                assert(fieldLcl->lvVarIndex < lvaTrackedCount);
+                VarSetOps::AddElemD(this, bitMask, fieldLcl->lvVarIndex);
             }
         }
 
-        if (varTypeIsStruct(varDsc->GetType()) && varDsc->IsPromoted())
+        if (!isUse)
         {
-            VARSET_TP bitMask(VarSetOps::MakeEmpty(this));
-
-            for (unsigned i = 0; i < varDsc->GetPromotedFieldCount(); ++i)
-            {
-                LclVarDsc* fieldLcl = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
-                noway_assert(fieldLcl->IsPromotedField());
-
-                if (fieldLcl->lvTracked)
-                {
-                    noway_assert(fieldLcl->lvVarIndex < lvaTrackedCount);
-                    VarSetOps::AddElemD(this, bitMask, fieldLcl->lvVarIndex);
-                }
-            }
-
-            // For pure defs (i.e. not an "update" def which is also a use), add to the (all) def set.
-            if (!isUse)
-            {
-                assert(isDef);
-                VarSetOps::UnionD(this, fgCurDefSet, bitMask);
-            }
-            else if (!VarSetOps::IsSubset(this, bitMask, fgCurDefSet))
-            {
-                // Mark as used any struct fields that are not yet defined.
-                VarSetOps::UnionD(this, fgCurUseSet, bitMask);
-            }
+            assert(isDef);
+            VarSetOps::UnionD(this, fgCurDefSet, bitMask);
+        }
+        else if (!VarSetOps::IsSubset(this, bitMask, fgCurDefSet))
+        {
+            VarSetOps::UnionD(this, fgCurUseSet, bitMask);
         }
     }
 }
