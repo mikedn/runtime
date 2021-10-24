@@ -358,12 +358,6 @@ public:
 
     void Update(GenTree* tree)
     {
-        // TODO-Cleanup: We shouldn't really be calling this more than once
-        if (tree == compiler->compCurLifeTree)
-        {
-            return;
-        }
-
         if (!tree->OperIsNonPhiLocal() && (compiler->fgIsIndirOfAddrOfLocal(tree) == nullptr))
         {
             return;
@@ -387,7 +381,6 @@ private:
         unsigned int lclNum = lclVarTree->AsLclVarCommon()->GetLclNum();
         LclVarDsc*   varDsc = compiler->lvaTable + lclNum;
 
-        compiler->compCurLifeTree = tree;
         VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
 
         // By codegen, a struct may not be TYP_STRUCT, so we have to
@@ -533,7 +526,6 @@ void Compiler::optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curS
     CopyPropLivenessUpdater liveness(this);
 
     // There are no definitions at the start of the block. So clear it.
-    compCurLifeTree = nullptr;
     VarSetOps::Assign(this, compCurLife, block->bbLiveIn);
     for (Statement* stmt : block->Statements())
     {
