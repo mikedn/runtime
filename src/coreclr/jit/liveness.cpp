@@ -352,7 +352,7 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
 
         case GT_IND:
         {
-            GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
+            GenTree* addr = tree->AsIndir()->GetAddr();
 
             GenTreeLclVarCommon* lclVarNode = nullptr;
             if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclVarNode, nullptr))
