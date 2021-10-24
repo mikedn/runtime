@@ -407,7 +407,7 @@ public:
 
             bool hasDeadTrackedFields = false;
 
-            if ((lclNode != tree) && isDying)
+            if (isDying)
             {
                 assert(!isBorn); // GTF_VAR_DEATH only set for OBJ last use.
 
@@ -438,12 +438,7 @@ public:
 
         if (isDying)
         {
-            // TODO-MIKE-Review: The assert below fires for unknown reasons. An old comment
-            // claimed that it's due to QMARKs but there are not QMARKS after global morph.
-            // (e.g. crossgen System.Formats.Asn1.dll).
-
-            // assert (VarSetOps::IsSubset(compiler, regVarDeltaSet, newLife));
-
+            assert(VarSetOps::IsSubset(compiler, varDeltaSet, newLife));
             VarSetOps::DiffD(compiler, newLife, varDeltaSet);
         }
         else
