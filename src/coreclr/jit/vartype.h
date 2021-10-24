@@ -300,11 +300,11 @@ inline bool varTypeIsComposite(T vt)
 template <class T>
 inline bool varTypeIsPromotable(T vt)
 {
-    return (varTypeIsStruct(vt) || (TypeGet(vt) == TYP_BLK)
-#if !defined(TARGET_64BIT)
-            || varTypeIsLong(vt)
-#endif // !defined(TARGET_64BIT)
-                );
+    return varTypeIsStruct(vt)
+#ifndef TARGET_64BIT
+           || varTypeIsLong(vt)
+#endif
+        ;
 }
 
 template <class T>
