@@ -34,6 +34,8 @@ CodeGenLivenessUpdater::CodeGenLivenessUpdater(Compiler* compiler)
 //
 bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned multiRegIndex)
 {
+    assert(lclNode->OperIs(GT_LCL_VAR));
+
     LclVarDsc* parentVarDsc = compiler->lvaGetDesc(lclNode);
     assert(parentVarDsc->lvPromoted && (multiRegIndex < parentVarDsc->lvFieldCnt) && lclNode->IsMultiReg() &&
            compiler->lvaEnregMultiRegVars);
@@ -155,6 +157,30 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned
     return false;
 }
 
+GenTreeLclVar* CodeGenLivenessUpdater::IsLocalAddr(GenTree* addr)
+{
+    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+    {
+        // We use this method in backward dataflow after liveness computation - fgInterBlockLocalVarLiveness().
+        // Therefore it is critical that we don't miss 'uses' of any local.  It may seem this method overlooks
+        // if the index part of the LEA has indir( someAddrOperator ( lclVar ) ) to search for a use but it's
+        // covered by the fact we're traversing the expression in execution order and we also visit the index.
+
+        // TODO-MIKE-Review: And if the index is visted what? Complete nonsense.
+
+        GenTree* base = addrMode->GetBase();
+
+        if (base != nullptr)
+        {
+            addr = base;
+        }
+    }
+
+    // TODO-MIKE-Review: Why doesn't this check for LCL_FLD_ADDR?
+
+    return addr->OperIs(GT_LCL_VAR_ADDR) ? addr->AsLclVar() : nullptr;
+}
+
 void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
 {
     assert(!tree->OperIs(GT_PHI_ARG));
@@ -166,15 +192,15 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
         return;
     }
 
-    GenTreeLclVarCommon* lclVarTree;
+    GenTreeLclVarCommon* lclVarTree = nullptr;
 
     if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
         lclVarTree = tree->AsLclVarCommon();
     }
-    else
+    else if (GenTreeIndir* indir = tree->IsIndir())
     {
-        lclVarTree = compiler->fgIsIndirOfAddrOfLocal(tree);
+        lclVarTree = IsLocalAddr(indir->GetAddr());
     }
 
     if (lclVarTree == nullptr)

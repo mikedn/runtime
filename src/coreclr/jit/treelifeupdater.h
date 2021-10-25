@@ -23,4 +23,7 @@ public:
 
     void UpdateLife(GenTree* tree);
     bool UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned multiRegIndex);
+
+private:
+    GenTreeLclVar* IsLocalAddr(GenTree* addr);
 };

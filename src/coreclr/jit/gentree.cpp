@@ -14653,47 +14653,6 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
     return false;
 }
 
-GenTreeLclVar* Compiler::fgIsIndirOfAddrOfLocal(GenTree* tree)
-{
-    if (!tree->OperIsIndir())
-    {
-        return nullptr;
-    }
-
-    GenTree* addr = tree->AsIndir()->GetAddr();
-
-    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
-    {
-        // We use this method in backward dataflow after liveness computation - fgInterBlockLocalVarLiveness().
-        // Therefore it is critical that we don't miss 'uses' of any local.  It may seem this method overlooks
-        // if the index part of the LEA has indir( someAddrOperator ( lclVar ) ) to search for a use but it's
-        // covered by the fact we're traversing the expression in execution order and we also visit the index.
-
-        // TODO-MIKE-Review: And if the index is visted what? Complete nonsense.
-
-        GenTree* base = addrMode->GetBase();
-
-        if (base != nullptr)
-        {
-            addr = base;
-        }
-    }
-
-    // TODO-MIKE-Review: Why doesn't the code below check for LCL_FLD/LCL_FLD_ADDR?
-
-    if (addr->OperIs(GT_LCL_VAR_ADDR))
-    {
-        return addr->AsLclVar();
-    }
-
-    if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
-    {
-        return addr->AsUnOp()->GetOp(0)->AsLclVar();
-    }
-
-    return nullptr;
-}
-
 GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
 {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
