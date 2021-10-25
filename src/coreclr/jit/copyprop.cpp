@@ -371,7 +371,7 @@ public:
         }
         else if (GenTreeIndir* indir = tree->IsIndir())
         {
-            lclNode = IsLocalAddr(indir->GetAddr());
+            indir->GetAddr()->DefinesLocalAddr(compiler, 0, &lclNode, nullptr);
         }
 
         if (lclNode == nullptr)
@@ -473,45 +473,6 @@ public:
 #endif
 
         VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
-    }
-
-private:
-    GenTreeLclVar* IsLocalAddr(GenTree* addr)
-    {
-        // TODO-MIKE-Review: This "IsLocalAddr" is far more limited than IsLocalAddrExpr and DefinesLocalAddr.
-        // It doesn't check for ADDR(LCL_FLD), LCL_FLD_ADDR, ADD, ADDR(IND). It does check for LEA though,
-        // which is practically non-existent in frontend...
-        // Considering that this is related to liveness, it should really use DefinesLocalAddr, like liveness
-        // does.
-
-        if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
-        {
-            // We use this method in backward dataflow after liveness computation - fgInterBlockLocalVarLiveness().
-            // Therefore it is critical that we don't miss 'uses' of any local.  It may seem this method overlooks
-            // if the index part of the LEA has indir( someAddrOperator ( lclVar ) ) to search for a use but it's
-            // covered by the fact we're traversing the expression in execution order and we also visit the index.
-
-            // TODO-MIKE-Review: And if the index is visted what? Complete nonsense.
-
-            GenTree* base = addrMode->GetBase();
-
-            if (base != nullptr)
-            {
-                addr = base;
-            }
-        }
-
-        if (addr->OperIs(GT_LCL_VAR_ADDR))
-        {
-            return addr->AsLclVar();
-        }
-
-        if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
-        {
-            return addr->AsUnOp()->GetOp(0)->AsLclVar();
-        }
-
-        return nullptr;
     }
 };
 
