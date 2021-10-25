@@ -6760,10 +6760,14 @@ void Compiler::fgMutateGcHeap(GenTree* tree DEBUGARG(const char* msg))
     recordGcHeapStore(tree, vnStore->VNForExpr(compCurBB, TYP_REF) DEBUGARG(msg));
 }
 
-void Compiler::fgMutateAddressExposedLocal(GenTree* tree DEBUGARG(const char* msg))
+void Compiler::fgMutateAddressExposedLocal(GenTree* tree)
 {
+    // For stores to address exposed locals we could probably be more precise
+    // and use a map store with the local number as the "index".
+    // For now, just use a new opaque VN.
+
     // Update the current ByrefExposed VN, and if we're tracking the heap SSA # caused by this node, record it.
-    recordAddressExposedLocalStore(tree, vnStore->VNForExpr(compCurBB, TYP_UNKNOWN) DEBUGARG(msg));
+    recordAddressExposedLocalStore(tree, vnStore->VNForExpr(compCurBB, TYP_UNKNOWN) DEBUGARG("address-exposed local store"));
 }
 
 void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(const char* msg))
@@ -6964,7 +6968,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
     if (lvaVarAddrExposed(dstLclNode->GetLclNum()))
     {
-        fgMutateAddressExposedLocal(asg DEBUGARG("address-exposed local struct store"));
+        fgMutateAddressExposedLocal(asg);
         return;
     }
 
@@ -7508,13 +7512,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
                     else if (lvaVarAddrExposed(lcl->GetLclNum()))
                     {
-                        // We could use MapStore here and MapSelect on reads of address-exposed locals
-                        // (using the local nums as selectors) to get e.g. propagation of values
-                        // through address-taken locals in regions of code with no calls or byref
-                        // writes.
-                        // For now, just use a new opaque VN.
-                        ValueNum heapVN = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
-                        recordAddressExposedLocalStore(tree, heapVN DEBUGARG("local assign"));
+                        fgMutateAddressExposedLocal(tree);
                     }
 #ifdef DEBUG
                     else
@@ -7594,12 +7592,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
                     else if (lvaVarAddrExposed(lclFld->GetLclNum()))
                     {
-                        // This side-effects ByrefExposed.  Just use a new opaque VN.
-                        // As with GT_LCL_VAR, we could probably use MapStore here and MapSelect at corresponding
-                        // loads, but to do so would have to identify the subset of address-exposed locals
-                        // whose fields can be disambiguated.
-                        ValueNum heapVN = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
-                        recordAddressExposedLocalStore(tree, heapVN DEBUGARG("local field assign"));
+                        fgMutateAddressExposedLocal(tree);
                     }
                 }
                 break;
@@ -7809,14 +7802,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                             if (isLocal && lvaVarAddrExposed(lclVarTree->GetLclNum()))
                             {
-                                // Store to address-exposed local; need to record the effect on ByrefExposed.
-                                // We could use MapStore here and MapSelect on reads of address-exposed locals
-                                // (using the local nums as selectors) to get e.g. propagation of values
-                                // through address-taken locals in regions of code with no calls or byref
-                                // writes.
-                                // For now, just use a new opaque VN.
-                                ValueNum memoryVN = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
-                                recordAddressExposedLocalStore(tree, memoryVN DEBUGARG("PtrToLoc indir"));
+                                fgMutateAddressExposedLocal(tree);
                             }
                             else if (!isLocal)
                             {

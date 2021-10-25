@@ -3945,7 +3945,7 @@ public:
 
     // Called when an operation (performed by "tree", described by "msg") may cause an address-exposed local to be
     // mutated.
-    void fgMutateAddressExposedLocal(GenTree* tree DEBUGARG(const char* msg));
+    void fgMutateAddressExposedLocal(GenTree* tree);
 
     // For a GC heap store at curTree, record the new curMemoryVN's and update curTree's MemorySsaMap.
     // As GcHeap is a subset of ByrefExposed, this will also record the ByrefExposed store.
