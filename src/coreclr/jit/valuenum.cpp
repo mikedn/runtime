@@ -6302,7 +6302,7 @@ void Compiler::fgValueNumber()
                     break;
             }
 #ifdef TARGET_X86
-            bool isVarargParam = (dstLclNum == lvaVarargsBaseOfStkArgs || dstLclNum == lvaVarargsHandleArg);
+            bool isVarargParam = (lclNum == lvaVarargsBaseOfStkArgs || lclNum == lvaVarargsHandleArg);
             if (isVarargParam)
             {
                 initVal = vnStore->VNForExpr(fgFirstBB, TYP_UNKNOWN);
@@ -6767,7 +6767,8 @@ void Compiler::fgMutateAddressExposedLocal(GenTree* tree)
     // For now, just use a new opaque VN.
 
     // Update the current ByrefExposed VN, and if we're tracking the heap SSA # caused by this node, record it.
-    recordAddressExposedLocalStore(tree, vnStore->VNForExpr(compCurBB, TYP_UNKNOWN) DEBUGARG("address-exposed local store"));
+    recordAddressExposedLocalStore(tree,
+                                   vnStore->VNForExpr(compCurBB, TYP_UNKNOWN) DEBUGARG("address-exposed local store"));
 }
 
 void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(const char* msg))
@@ -6893,8 +6894,8 @@ void Compiler::fgValueNumberTreeConst(GenTree* tree)
             assert(tree->AsIntConCommon()->LngValue() == 0);
             tree->gtVNPair.SetBoth(vnStore->VNForLongCon(tree->AsIntConCommon()->LngValue()));
 #else // 32BIT
-            assert(asg->AsIntConCommon()->IconValue() == 0);
-            asg->gtVNPair.SetBoth(vnStore->VNForIntCon(int(asg->AsIntConCommon()->IconValue())));
+            assert(tree->AsIntConCommon()->IconValue() == 0);
+            tree->gtVNPair.SetBoth(vnStore->VNForIntCon(int(tree->AsIntConCommon()->IconValue())));
 #endif
             break;
 #endif // FEATURE_SIMD
