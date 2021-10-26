@@ -415,6 +415,11 @@ public:
 #endif
     }
 
+    bool IsAddressExposed() const
+    {
+        return lvAddrExposed;
+    }
+
 #if OPT_BOOL_OPS
     unsigned char lvIsBoolean : 1; // set if variable is boolean
 #endif
@@ -760,7 +765,13 @@ public:
         return regMask;
     }
 
-    unsigned short lvVarIndex; // variable tracking index
+    uint16_t lvVarIndex;
+
+    unsigned GetLivenessBitIndex() const
+    {
+        assert(lvTracked);
+        return lvVarIndex;
+    }
 
 private:
     unsigned short m_lvRefCnt; // unweighted (real) reference count.  For implicit by reference
@@ -3824,9 +3835,9 @@ public:
     void fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call);
 
     void fgComputeLifeTrackedLocalUse(VARSET_TP& life, LclVarDsc& varDsc, GenTreeLclVarCommon* node);
-    bool fgComputeLifeTrackedLocalDef(VARSET_TP&           life,
-                                      VARSET_VALARG_TP     keepAliveVars,
-                                      LclVarDsc&           varDsc,
+    bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
+                                      VARSET_VALARG_TP     keepAlive,
+                                      LclVarDsc*           lcl,
                                       GenTreeLclVarCommon* node);
     bool fgComputeLifeUntrackedLocal(VARSET_TP&           life,
                                      VARSET_VALARG_TP     keepAliveVars,

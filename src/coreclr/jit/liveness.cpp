@@ -1553,68 +1553,43 @@ void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& life, LclVarDsc& varDsc, 
     VarSetOps::AddElemD(this, life, varIndex);
 }
 
-//------------------------------------------------------------------------
-// Compiler::fgComputeLifeTrackedLocalDef:
-//    Compute the changes to local var liveness due to a def of a tracked local var and return `true` if the def is a
-//    dead store.
-//
-// Arguments:
-//    life          - The live set that is being computed.
-//    keepAliveVars - The current set of variables to keep alive regardless of their actual lifetime.
-//    varDsc        - The LclVar descriptor for the variable being used or defined.
-//    node          - The node that is defining the lclVar.
-//
-// Returns:
-//    `true` if the def is a dead store; `false` otherwise.
-bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           life,
-                                            VARSET_VALARG_TP     keepAliveVars,
-                                            LclVarDsc&           varDsc,
+bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
+                                            VARSET_VALARG_TP     keepAlive,
+                                            LclVarDsc*           lcl,
                                             GenTreeLclVarCommon* node)
 {
-    assert(node != nullptr);
     assert((node->gtFlags & GTF_VAR_DEF) != 0);
-    assert(varDsc.lvTracked);
 
-    const unsigned varIndex = varDsc.lvVarIndex;
-    if (VarSetOps::IsMember(this, life, varIndex))
+    const unsigned index = lcl->GetLivenessBitIndex();
+
+    if (VarSetOps::IsMember(this, liveOut, index))
     {
-        // The variable is live
         if ((node->gtFlags & GTF_VAR_USEASG) == 0)
         {
-            // Remove the variable from the live set if it is not in the keepalive set.
-            if (!VarSetOps::IsMember(this, keepAliveVars, varIndex))
+            if (!VarSetOps::IsMember(this, keepAlive, index))
             {
-                VarSetOps::RemoveElemD(this, life, varIndex);
+                VarSetOps::RemoveElemD(this, liveOut, index);
             }
-#ifdef DEBUG
-            if (verbose && 0)
-            {
-                printf("Def V%02u,T%02u at ", node->GetLclNum(), varIndex);
-                printTreeID(node);
-                printf(" life %s -> %s\n",
-                       VarSetOps::ToString(this,
-                                           VarSetOps::Union(this, life, VarSetOps::MakeSingleton(this, varIndex))),
-                       VarSetOps::ToString(this, life));
-            }
-#endif // DEBUG
         }
     }
     else
     {
-        // Dead store
         node->gtFlags |= GTF_VAR_DEATH;
 
         if (!opts.MinOpts())
         {
-            // keepAliveVars always stay alive
-            noway_assert(!VarSetOps::IsMember(this, keepAliveVars, varIndex));
+            noway_assert(!VarSetOps::IsMember(this, keepAlive, index));
 
             // Do not consider this store dead if the target local variable represents
             // a promoted struct field of an address exposed local or if the address
             // of the variable has been exposed. Improved alias analysis could allow
             // stores to these sorts of variables to be removed at the cost of compile
             // time.
-            return !varDsc.lvAddrExposed && !(varDsc.lvIsStructField && lvaTable[varDsc.lvParentLcl].lvAddrExposed);
+
+            // TODO-MIKE-Review: How the crap could it be address exposed if it's tracked?!?
+
+            return !lcl->IsAddressExposed() &&
+                   (!lcl->IsPromotedField() || !lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsAddressExposed());
         }
     }
 
@@ -1777,7 +1752,7 @@ bool Compiler::fgComputeLifeLocal(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive
 
     if ((node->gtFlags & GTF_VAR_DEF) != 0)
     {
-        return fgComputeLifeTrackedLocalDef(liveOut, keepAlive, *lcl, node);
+        return fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, node);
     }
 
     fgComputeLifeTrackedLocalUse(liveOut, *lcl, node);
@@ -1985,25 +1960,25 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
             case GT_STORE_LCL_VAR:
             case GT_STORE_LCL_FLD:
             {
-                GenTreeLclVarCommon* const lclVarNode = node->AsLclVarCommon();
+                GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
+                LclVarDsc*           lcl     = lvaGetDesc(lclNode);
 
-                LclVarDsc& varDsc = lvaTable[lclVarNode->GetLclNum()];
-                if (varDsc.lvTracked)
+                if (lcl->lvTracked)
                 {
-                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, varDsc, lclVarNode);
+                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
                 }
                 else
                 {
-                    isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, varDsc, lclVarNode);
+                    isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, *lcl, lclNode);
                 }
 
                 if (isDeadStore)
                 {
                     JITDUMP("Removing dead store:\n");
-                    DISPNODE(lclVarNode);
+                    DISPNODE(lclNode);
 
                     // Remove the store. DCE will iteratively clean up any ununsed operands.
-                    lclVarNode->gtOp1->SetUnusedValue();
+                    lclNode->gtOp1->SetUnusedValue();
 
                     fgRemoveDeadStoreLIR(node, block);
                 }
