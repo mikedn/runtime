@@ -1553,17 +1553,9 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
         if (!opts.MinOpts())
         {
             noway_assert(!VarSetOps::IsMember(this, keepAlive, index));
+            assert(!lcl->IsAddressExposed());
 
-            // Do not consider this store dead if the target local variable represents
-            // a promoted struct field of an address exposed local or if the address
-            // of the variable has been exposed. Improved alias analysis could allow
-            // stores to these sorts of variables to be removed at the cost of compile
-            // time.
-
-            // TODO-MIKE-Review: How the crap could it be address exposed if it's tracked?!?
-
-            return !lcl->IsAddressExposed() &&
-                   (!lcl->IsPromotedField() || !lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsAddressExposed());
+            return true;
         }
     }
 
@@ -1654,10 +1646,9 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
             {
                 VARSET_TP keepAliveFields(VarSetOps::Intersection(this, fieldSet, keepAlive));
                 noway_assert(VarSetOps::IsEmpty(this, keepAliveFields));
+                assert(!lcl->IsAddressExposed());
 
-                // Do not consider this store dead if the parent local variable is an
-                // address exposed local or if the struct has a custom layout and holes.
-                return !(lcl->lvAddrExposed || (lcl->lvCustomLayout && lcl->lvContainsHoles));
+                return !(lcl->lvCustomLayout && lcl->lvContainsHoles);
             }
         }
     }
