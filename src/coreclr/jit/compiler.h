@@ -3832,7 +3832,7 @@ public:
                                      VARSET_VALARG_TP     keepAliveVars,
                                      LclVarDsc&           varDsc,
                                      GenTreeLclVarCommon* lclVarNode);
-    bool fgComputeLifeLocal(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, GenTree* lclVarNode);
+    bool fgComputeLifeLocal(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, GenTreeLclVarCommon* node);
 
     void fgComputeLife(VARSET_TP&       life,
                        GenTree*         startNode,
