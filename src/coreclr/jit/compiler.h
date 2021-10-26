@@ -2627,6 +2627,11 @@ public:
         return &lvaTable[lclVar->GetLclNum()];
     }
 
+    LclSsaVarDsc* lvaGetSsaDesc(const GenTreeLclVarCommon* lclNode)
+    {
+        return lvaGetDesc(lclNode)->GetPerSsaData(lclNode->GetSsaNum());
+    }
+
     unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
     {
         assert(trackedIndex < lvaTrackedCount);
@@ -4739,7 +4744,7 @@ private:
                                            CORINFO_CONTEXT_HANDLE* ExactContextHnd,
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
-    void fgAssignSetVarDef(GenTree* tree);
+    void fgAssignSetVarDef(GenTreeOp* asg);
     GenTree* fgMorphInitBlock(GenTreeOp* asg);
     GenTree* fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitBlockConstant(GenTreeIntCon* initVal,

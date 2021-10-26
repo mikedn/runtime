@@ -6956,10 +6956,10 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
     assert(dst->TypeIs(TYP_STRUCT));
 
-    GenTreeLclVarCommon* dstLclNode = nullptr;
-    bool                 isFullDef  = false;
+    bool                 totalOverlap;
+    GenTreeLclVarCommon* dstLclNode = asg->DefinesLocal(this, &totalOverlap);
 
-    if (!asg->DefinesLocal(this, &dstLclNode, &isFullDef))
+    if (dstLclNode == nullptr)
     {
         // For now, arbitrary side effect on GcHeap/ByrefExposed.
         // TODO-CQ: Why not be complete, and get this case right?
@@ -6995,7 +6995,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
     {
         ValueNum vn;
 
-        if (isFullDef && src->IsIntCon() && (src->AsIntCon()->GetUInt8Value() == 0))
+        if (totalOverlap && src->IsIntCon() && (src->AsIntCon()->GetUInt8Value() == 0))
         {
             vn = vnStore->VNZeroForType(dstLcl->GetType());
         }
@@ -7056,7 +7056,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         {
             ValueNumPair map;
 
-            if (isFullDef)
+            if (totalOverlap)
             {
                 // This can occur for structs with one field, itself of a struct type.
                 // We are assigning the one field and it is also the entire enclosing struct.
@@ -7639,39 +7639,35 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             // Either "arg" is the address of (part of) a local itself, or else we have
                             // a "rogue" PtrToLoc, one that should have made the local in question
                             // address-exposed.  Assert on that.
-                            GenTreeLclVarCommon* lclVarTree   = nullptr;
-                            bool                 isEntire     = false;
-                            unsigned             lclDefSsaNum = SsaConfig::RESERVED_SSA_NUM;
-                            ValueNumPair         newLhsVNPair;
-
-                            if (!arg->DefinesLocalAddr(this, genTypeSize(lhs->TypeGet()), &lclVarTree, &isEntire))
-                            {
-                                unreached();
-                            }
-
-                            // The local #'s should agree.
-                            assert(lclNum == lclVarTree->GetLclNum());
+                            bool                 totalOverlap;
+                            GenTreeLclVarCommon* lclNode =
+                                arg->DefinesLocalAddr(this, varTypeSize(lhs->GetType()), &totalOverlap);
+                            noway_assert(lclNode != nullptr);
+                            assert(lclNum == lclNode->GetLclNum());
 
                             if (fieldSeq == FieldSeqStore::NotAField())
                             {
                                 // We don't know where we're storing, so give the local a new, unique VN.
                                 // Do this by considering it an "entire" assignment, with an unknown RHS.
-                                isEntire = true;
-                                rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
+                                totalOverlap = true;
+                                rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lclNode->TypeGet()));
                             }
 
-                            if (isEntire)
+                            ValueNumPair newLhsVNPair;
+                            unsigned     lclDefSsaNum = SsaConfig::RESERVED_SSA_NUM;
+
+                            if (totalOverlap)
                             {
                                 newLhsVNPair = rhsVNPair;
-                                lclDefSsaNum = lclVarTree->GetSsaNum();
+                                lclDefSsaNum = lclNode->GetSsaNum();
                             }
                             else
                             {
                                 // Don't use the lclVarTree's VN: if it's a local field, it will
                                 // already be dereferenced by it's field sequence.
                                 ValueNumPair oldLhsVNPair =
-                                    lvaTable[lclVarTree->GetLclNum()].GetPerSsaData(lclVarTree->GetSsaNum())->m_vnPair;
-                                lclDefSsaNum = GetSsaNumForLocalVarDef(lclVarTree);
+                                    lvaTable[lclNode->GetLclNum()].GetPerSsaData(lclNode->GetSsaNum())->m_vnPair;
+                                lclDefSsaNum = GetSsaNumForLocalVarDef(lclNode);
                                 newLhsVNPair = vnStore->VNPairApplySelectorsAssign(oldLhsVNPair, fieldSeq, rhsVNPair,
                                                                                    lhs->TypeGet(), compCurBB);
                             }
@@ -7798,24 +7794,15 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         }
                         else
                         {
-                            GenTreeLclVarCommon* lclVarTree = nullptr;
-                            bool                 isLocal    = tree->DefinesLocal(this, &lclVarTree);
+                            GenTreeLclVarCommon* dstLclNode = tree->DefinesLocal(this);
 
-                            if (isLocal && lvaVarAddrExposed(lclVarTree->GetLclNum()))
+                            if (dstLclNode == nullptr)
+                            {
+                                fgMutateGcHeap(tree DEBUGARG("assign-of-IND"));
+                            }
+                            else if (lvaVarAddrExposed(dstLclNode->GetLclNum()))
                             {
                                 fgMutateAddressExposedLocal(tree);
-                            }
-                            else if (!isLocal)
-                            {
-                                // If it doesn't define a local, then it might update GcHeap/ByrefExposed.
-                                // For the new ByrefExposed VN, we could use an operator here like
-                                // VNF_ByrefExposedStore that carries the VNs of the pointer and RHS, then
-                                // at byref loads if the current ByrefExposed VN happens to be
-                                // VNF_ByrefExposedStore with the same pointer VN, we could propagate the
-                                // VN from the RHS to the VN for the load.  This would e.g. allow tracking
-                                // values through assignments to out params.  For now, just model this
-                                // as an opaque GcHeap/ByrefExposed mutation.
-                                fgMutateGcHeap(tree DEBUGARG("assign-of-IND"));
                             }
                         }
                     }
@@ -7937,12 +7924,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // a pointer to an object field or array element.  Other cases become uses of
             // the current ByrefExposed value and the pointer value, so that at least we
             // can recognize redundant loads with no stores between them.
-            GenTree*             addr         = tree->AsIndir()->Addr();
-            GenTreeLclVarCommon* lclVarTree   = nullptr;
-            FieldSeqNode*        fldSeq2      = nullptr;
-            GenTree*             obj          = nullptr;
-            GenTree*             staticOffset = nullptr;
-            bool                 isVolatile   = (tree->gtFlags & GTF_IND_VOLATILE) != 0;
+            GenTree*      addr         = tree->AsIndir()->GetAddr();
+            FieldSeqNode* fldSeq2      = nullptr;
+            GenTree*      obj          = nullptr;
+            GenTree*      staticOffset = nullptr;
+            bool          isVolatile   = tree->AsIndir()->IsVolatile();
 
             // See if the addr has any exceptional part.
             ValueNumPair addrNvnp;
@@ -8013,29 +7999,36 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // We will "evaluate" this as part of the assignment.
             else if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
-                FieldSeqNode* localFldSeq  = nullptr;
-                unsigned      localLclOffs = 0;
-                VNFuncApp     funcApp;
+                unsigned             localLclOffs;
+                FieldSeqNode*        localFldSeq;
+                GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr(this, &localLclOffs, &localFldSeq);
+                VNFuncApp            funcApp;
 
-                // Is it a local or a heap address?
-                if (addr->IsLocalAddrExpr(this, &lclVarTree, &localLclOffs, &localFldSeq) &&
-                    lvaInSsa(lclVarTree->GetLclNum()))
+                if ((lclNode != nullptr) && lvaInSsa(lclNode->GetLclNum()))
                 {
-                    unsigned   lclNum = lclVarTree->GetLclNum();
-                    unsigned   ssaNum = lclVarTree->GetSsaNum();
-                    LclVarDsc* varDsc = &lvaTable[lclNum];
+                    ValueNumPair vnp;
+
+                    // TODO-MIKE-Review: null field sequence check is dubious. null means that
+                    // it's the address of the local itself and then if the indir type matches
+                    // the local type then we should get the proper VN from the SSA def, not
+                    // pull out a new one from the hat.
+                    // But then it's very unlikely that we'll ever hit this code path, we should
+                    // have already transformed IND(ADDR(LCL_VAR)) in LocalAddressVisitor and if
+                    // we didn't we should have made the local address exposed. So all this is
+                    // probably dead code...
 
                     if ((localFldSeq == FieldSeqStore::NotAField()) || (localFldSeq == nullptr))
                     {
-                        tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+                        vnp.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
                     }
                     else
                     {
-                        var_types    indType   = tree->TypeGet();
-                        ValueNumPair lclVNPair = varDsc->GetPerSsaData(ssaNum)->m_vnPair;
-                        tree->gtVNPair         = vnStore->VNPairApplySelectors(lclVNPair, localFldSeq, indType);
+                        vnp = lvaGetSsaDesc(lclNode)->GetVNP();
+                        vnp = vnStore->VNPairApplySelectors(vnp, localFldSeq, tree->GetType());
                     }
-                    tree->gtVNPair = vnStore->VNPWithExc(tree->gtVNPair, addrXvnp);
+
+                    // TODO-MIKE-Review: There should be no exceptions on a local address...
+                    tree->gtVNPair = vnStore->VNPWithExc(vnp, addrXvnp);
                 }
                 else if (vnStore->GetVNFunc(addrNvnp.GetLiberal(), &funcApp) && funcApp.m_func == VNF_PtrToStatic)
                 {

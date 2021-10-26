@@ -729,11 +729,10 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
     assert(asgNode->OperIs(GT_ASG));
 
-    GenTreeLclVarCommon* lclNode;
-    bool                 isFullDef;
-    bool                 isLocal = asgNode->DefinesLocal(m_pCompiler, &lclNode, &isFullDef);
+    bool                 totalOverlap;
+    GenTreeLclVarCommon* lclNode = asgNode->DefinesLocal(m_pCompiler, &totalOverlap);
 
-    if (isLocal)
+    if (lclNode != nullptr)
     {
         unsigned   lclNum = lclNode->GetLclNum();
         LclVarDsc* varDsc = m_pCompiler->lvaGetDesc(lclNum);
@@ -742,7 +741,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
         {
             lclNum = varDsc->lvFieldLclStart;
             varDsc = m_pCompiler->lvaGetDesc(lclNum);
-            assert(isFullDef);
+            assert(totalOverlap);
         }
 
         if (m_pCompiler->lvaInSsa(lclNum))
@@ -754,7 +753,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
             unsigned ssaNum = varDsc->lvPerSsaData.AllocSsaNum(m_allocator, block, asgNode);
 
-            if (!isFullDef)
+            if (!totalOverlap)
             {
                 assert((lclNode->gtFlags & GTF_VAR_USEASG) != 0);
 
@@ -791,9 +790,9 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     if (((block->bbMemoryHavoc & memoryKindSet(GcHeap)) == 0) && m_pCompiler->ehBlockHasExnFlowDsc(block))
     {
-        bool isAddrExposedLocal = isLocal && m_pCompiler->lvaVarAddrExposed(lclNode->GetLclNum());
+        bool isAddrExposedLocal = (lclNode != nullptr) && m_pCompiler->lvaVarAddrExposed(lclNode->GetLclNum());
         bool hasByrefHavoc      = ((block->bbMemoryHavoc & memoryKindSet(ByrefExposed)) != 0);
-        if (!isLocal || (isAddrExposedLocal && !hasByrefHavoc))
+        if ((lclNode == nullptr) || (isAddrExposedLocal && !hasByrefHavoc))
         {
             // It *may* define byref memory in a non-havoc way.  Make a new SSA # -- associate with this node.
             unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
@@ -814,7 +813,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                 AddMemoryDefToHandlerPhis(ByrefExposed, block, ssaNum);
             }
 
-            if (!isLocal)
+            if (lclNode == nullptr)
             {
                 // Add a new def for GcHeap as well
                 if (m_pCompiler->byrefStatesMatchGcHeapStates)

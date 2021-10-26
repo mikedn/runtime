@@ -1910,27 +1910,10 @@ public:
         return OperIsLocal(OperGet());
     }
 
-    // Returns "true" iff 'this' is a GT_LCL_FLD or GT_STORE_LCL_FLD on which the type
-    // is not the same size as the type of the GT_LCL_VAR.
     bool IsPartialLclFld(Compiler* comp);
-
-    // Returns "true" iff "this" defines a local variable.  Requires "comp" to be the
-    // current compilation.  If returns "true", sets "*pLclVarTree" to the
-    // tree for the local that is defined, and, if "pIsEntire" is non-null, sets "*pIsEntire" to
-    // true or false, depending on whether the assignment writes to the entirety of the local
-    // variable, or just a portion of it.
-    bool DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire = nullptr);
-
-    // Returns true if "this" represents the address of a local, or a field of a local.  If returns true, sets
-    // "*outLclNode" to the node indicating the local variable.  If the address is that of a field of this node,
-    // sets "*outLclOffs" and "*outFieldSeq" to the field offset and field sequence representing that field, else null.
-    bool IsLocalAddrExpr(Compiler*             comp,
-                         GenTreeLclVarCommon** outLclNode,
-                         unsigned*             outLclOffs,
-                         FieldSeqNode**        outFieldSeq);
-
-    // Simpler variant of the above which just returns the local node if this is an expression that
-    // yields an address into a local
+    GenTreeLclVarCommon* DefinesLocal(Compiler* comp, bool* totalOverlap = nullptr);
+    GenTreeLclVarCommon* DefinesLocalAddr(Compiler* comp, unsigned size = 0, bool* totalOverlap = nullptr);
+    GenTreeLclVarCommon* IsLocalAddrExpr(Compiler* comp, unsigned* outLclOffs, FieldSeqNode** outFieldSeq);
     GenTreeLclVarCommon* IsLocalAddrExpr();
 
     // Determine if this tree represents an indirection for an implict byref parameter,
@@ -1940,13 +1923,6 @@ public:
     // Determine whether this is an assignment tree of the form X = X (op) Y,
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
-
-    // Assumes that "this" occurs in a context where it is being dereferenced as the LHS of an assignment-like
-    // statement (assignment, initblk, or copyblk).  The "width" should be the number of bytes copied by the
-    // operation.  Returns "true" if "this" is an address of (or within)
-    // a local variable; sets "*pLclVarTree" to that local variable instance; and, if "pIsEntire" is non-null,
-    // sets "*pIsEntire" to true if this assignment writes the full width of the local.
-    bool DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire);
 
     // These are only used for dumping.
     // The GetRegNum() is only valid in LIR, but the dumping methods are not easily

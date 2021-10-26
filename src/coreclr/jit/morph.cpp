@@ -8116,22 +8116,18 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
     return tree;
 }
 
-void Compiler::fgAssignSetVarDef(GenTree* tree)
+void Compiler::fgAssignSetVarDef(GenTreeOp* asg)
 {
-    GenTreeLclVarCommon* lclVarCmnTree;
-    bool                 isEntire = false;
-    if (tree->DefinesLocal(this, &lclVarCmnTree, &isEntire))
+    assert(asg->OperIs(GT_ASG));
+
+    bool totalOverlap;
+    if (GenTreeLclVarCommon* lclNode = asg->DefinesLocal(this, &totalOverlap))
     {
-        if (isEntire)
+        lclNode->gtFlags |= GTF_VAR_DEF;
+
+        if (!totalOverlap)
         {
-            lclVarCmnTree->gtFlags |= GTF_VAR_DEF;
-        }
-        else
-        {
-            // We consider partial definitions to be modeled as uses followed by definitions.
-            // This captures the idea that precedings defs are not necessarily made redundant
-            // by this definition.
-            lclVarCmnTree->gtFlags |= (GTF_VAR_DEF | GTF_VAR_USEASG);
+            lclNode->gtFlags |= GTF_VAR_USEASG;
         }
     }
 }
@@ -8220,7 +8216,9 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             destSize = dest->AsBlk()->Size();
         }
 
-        if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
+        destLclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclOffs, &destFieldSeq);
+
+        if (destLclNode != nullptr)
         {
             destLclNum = destLclNode->GetLclNum();
             destLclVar = lvaGetDesc(destLclNum);
@@ -9179,11 +9177,15 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-        if (dest->OperIs(GT_IND, GT_OBJ) &&
-            dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
+        if (dest->OperIs(GT_IND, GT_OBJ))
         {
-            destLclNum = destLclNode->GetLclNum();
-            destLclVar = lvaGetDesc(destLclNum);
+            destLclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclOffs, &destFieldSeq);
+
+            if (destLclNode != nullptr)
+            {
+                destLclNum = destLclNode->GetLclNum();
+                destLclVar = lvaGetDesc(destLclNum);
+            }
         }
     }
 
@@ -9215,11 +9217,15 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
     else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
     {
-        if (destHasSize && src->OperIs(GT_IND, GT_OBJ) &&
-            src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcLclOffs, &srcFieldSeq))
+        if (destHasSize && src->OperIs(GT_IND, GT_OBJ))
         {
-            srcLclNum = srcLclNode->GetLclNum();
-            srcLclVar = lvaGetDesc(srcLclNum);
+            srcLclNode = src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclOffs, &srcFieldSeq);
+
+            if (srcLclNode != nullptr)
+            {
+                srcLclNum = srcLclNode->GetLclNum();
+                srcLclVar = lvaGetDesc(srcLclNum);
+            }
         }
     }
     else
@@ -9830,15 +9836,15 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 // and indirect access to a local and then we'd be in the destLclVar != nullptr case above.
                 // Except that IsLocalAddrExpr may fail to recognize some trees that DefinesLocalAddr does...
 
-                // Is the address of a local?
-                GenTreeLclVarCommon* lclVarTree = nullptr;
-                bool                 isEntire   = false;
-                if (destFieldAddr->DefinesLocalAddr(this, destSize, &lclVarTree, destHasSize ? &isEntire : nullptr))
+                bool totalOverlap = false;
+                if (GenTreeLclVarCommon* lclNode =
+                        destFieldAddr->DefinesLocalAddr(this, destSize, destHasSize ? &totalOverlap : nullptr))
                 {
-                    lclVarTree->gtFlags |= GTF_VAR_DEF;
-                    if (!isEntire)
+                    lclNode->gtFlags |= GTF_VAR_DEF;
+
+                    if (!totalOverlap)
                     {
-                        lclVarTree->gtFlags |= GTF_VAR_USEASG;
+                        lclNode->gtFlags |= GTF_VAR_USEASG;
                     }
                 }
             }
@@ -11228,7 +11234,7 @@ DONE_MORPHING_CHILDREN:
                 assert(effectiveOp1->OperIs(GT_LCL_VAR, GT_LCL_FLD));
             }
 
-            fgAssignSetVarDef(tree);
+            fgAssignSetVarDef(tree->AsOp());
 
             // If we are storing a small type, we might be able to omit a cast.
             // We may also omit a cast when storing to a "normalize on load"
@@ -14300,30 +14306,24 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         goto DONE;
     }
 
-    /* Do we have any active assertions? */
-
     if (optAssertionCount > 0)
     {
-        /* Is this an assignment to a local variable */
-        GenTreeLclVarCommon* lclVarTree = nullptr;
-
-        // The check below will miss LIR-style assignments.
-        //
-        // But we shouldn't be running local assertion prop on these,
-        // as local prop gets disabled when we run global prop.
-        assert(!tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-
-        // DefinesLocal can return true for some BLK op uses, so
-        // check what gets assigned only when we're at an assignment.
-        if (tree->OperIs(GT_ASG) && tree->DefinesLocal(this, &lclVarTree))
+        if (tree->OperIs(GT_ASG))
         {
-            unsigned lclNum = lclVarTree->GetLclNum();
-            noway_assert(lclNum < lvaCount);
-            fgKillDependentAssertions(lclNum DEBUGARG(tree));
+            if (GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this))
+            {
+                unsigned lclNum = lclNode->GetLclNum();
+                noway_assert(lclNum < lvaCount);
+                fgKillDependentAssertions(lclNum DEBUGARG(tree));
+            }
+        }
+        else
+        {
+            // We should not have LIR stores during global morph.
+            assert(!tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
         }
     }
 
-    /* If this tree makes a new assertion - make it available */
     optAssertionGen(tree);
 
 #endif // LOCAL_ASSERTION_PROP

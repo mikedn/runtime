@@ -7125,28 +7125,27 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         }
                     }
                 }
-                else if (lhs->OperIsBlk())
+                else if (lhs->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
                 {
-                    GenTreeLclVarCommon* lclVarTree;
-                    bool                 isEntire;
-                    if (!tree->DefinesLocal(this, &lclVarTree, &isEntire))
+                    GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this);
+
+                    if (lclNode == nullptr)
                     {
-                        // For now, assume arbitrary side effects on GcHeap/ByrefExposed...
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
                     }
-                    else if (lvaVarAddrExposed(lclVarTree->GetLclNum()))
+                    else if (lvaVarAddrExposed(lclNode->GetLclNum()))
                     {
                         memoryHavoc |= memoryKindSet(ByrefExposed);
                     }
                 }
-                else if (lhs->OperGet() == GT_CLS_VAR)
+                else if (lhs->OperIs(GT_CLS_VAR))
                 {
                     AddModifiedFieldAllContainingLoops(mostNestedLoop, lhs->AsClsVar()->gtClsVarHnd);
                     // Conservatively assume byrefs may alias this static field
                     memoryHavoc |= memoryKindSet(ByrefExposed);
                 }
                 // Otherwise, must be local lhs form.  I should assert that.
-                else if (lhs->OperGet() == GT_LCL_VAR)
+                else if (lhs->OperIs(GT_LCL_VAR))
                 {
                     GenTreeLclVar* lhsLcl = lhs->AsLclVar();
                     GenTree*       rhs    = tree->AsOp()->gtOp2;
@@ -8233,17 +8232,15 @@ void Compiler::optRemoveRedundantZeroInits()
                     }
                     case GT_ASG:
                     {
-                        GenTreeOp* treeOp = tree->AsOp();
+                        bool                 totalOverlap;
+                        GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this, &totalOverlap);
 
-                        GenTreeLclVarCommon* lclVar;
-                        bool                 isEntire;
-
-                        if (!tree->DefinesLocal(this, &lclVar, &isEntire))
+                        if (lclNode == nullptr)
                         {
                             break;
                         }
 
-                        const unsigned lclNum = lclVar->GetLclNum();
+                        const unsigned lclNum = lclNode->GetLclNum();
 
                         LclVarDsc* const lclDsc    = lvaGetDesc(lclNum);
                         unsigned*        pRefCount = refCounts.LookupPointer(lclNum);
@@ -8281,7 +8278,7 @@ void Compiler::optRemoveRedundantZeroInits()
                         // The local hasn't been referenced before this assignment.
                         bool removedExplicitZeroInit = false;
 
-                        if (treeOp->gtGetOp2()->IsIntegralConst(0))
+                        if (tree->AsOp()->GetOp(1)->IsIntegralConst(0))
                         {
                             bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
                             bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
@@ -8291,7 +8288,7 @@ void Compiler::optRemoveRedundantZeroInits()
                                 if (BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclNum) ||
                                     (lclDsc->lvIsStructField &&
                                      BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclDsc->lvParentLcl)) ||
-                                    ((!lclDsc->lvTracked || !isEntire) &&
+                                    ((!lclDsc->lvTracked || !totalOverlap) &&
                                      !fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn)))
                                 {
                                     // We are guaranteed to have a zero initialization in the prolog or a
@@ -8313,7 +8310,7 @@ void Compiler::optRemoveRedundantZeroInits()
                                     }
                                 }
 
-                                if (isEntire)
+                                if (totalOverlap)
                                 {
                                     BitVecOps::AddElemD(&bitVecTraits, zeroInitLocals, lclNum);
                                 }
@@ -8321,7 +8318,7 @@ void Compiler::optRemoveRedundantZeroInits()
                             }
                         }
 
-                        if (!removedExplicitZeroInit && isEntire && (!canThrow || !lclDsc->lvLiveInOutOfHndlr))
+                        if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lclDsc->lvLiveInOutOfHndlr))
                         {
                             // If compMethodRequiresPInvokeFrame() returns true, lower may later
                             // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.

@@ -230,10 +230,10 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             // Otherwise, we treat it as a use here.
             if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
-                GenTree*             addr = tree->AsIndir()->GetAddr()->SkipComma();
-                GenTreeLclVarCommon* lclNode;
+                GenTree*             addr    = tree->AsIndir()->GetAddr()->SkipComma();
+                GenTreeLclVarCommon* lclNode = addr->DefinesLocalAddr(this);
 
-                if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclNode, nullptr))
+                if (lclNode != nullptr)
                 {
                     fgMarkUseDef(lclNode);
                 }
@@ -308,20 +308,15 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         }
 
         case GT_ASG:
-        {
-            GenTreeLclVarCommon* lclNode;
-
-            if (tree->DefinesLocal(this, &lclNode))
+            if (GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this))
             {
                 fgMarkUseDef(lclNode);
             }
             else
             {
-                // If it doesn't define a local, then it might update GcHeap/ByrefExposed.
                 fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
             }
-        }
-        break;
+            break;
 
         case GT_QMARK:
         case GT_COLON:
@@ -368,16 +363,11 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-        {
-            GenTree*             addr = tree->AsIndir()->GetAddr();
-            GenTreeLclVarCommon* lclNode;
-
-            if (addr->DefinesLocalAddr(this, /* size doesn't matter */ 0, &lclNode, nullptr))
+            if (GenTreeLclVarCommon* lclNode = tree->AsIndir()->GetAddr()->DefinesLocalAddr(this))
             {
                 fgMarkUseDef(lclNode);
             }
-        }
-        break;
+            break;
 
         case GT_CALL:
             fgPInvokeFrameLiveness(tree->AsCall());

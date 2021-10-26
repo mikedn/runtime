@@ -14346,7 +14346,7 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
     return lclFldSize < lclSize;
 }
 
-bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** lclVarNode, bool* isEntire)
+GenTreeLclVarCommon* GenTree::DefinesLocal(Compiler* comp, bool* totalOverlap)
 {
     assert(OperIs(GT_ASG));
 
@@ -14354,14 +14354,12 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** lclVarNode, boo
 
     if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        *lclVarNode = dest->AsLclVarCommon();
-
-        if (isEntire != nullptr)
+        if (totalOverlap != nullptr)
         {
-            *isEntire = !dest->IsPartialLclFld(comp);
+            *totalOverlap = !dest->IsPartialLclFld(comp);
         }
 
-        return true;
+        return dest->AsLclVarCommon();
     }
 
     if (dest->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
@@ -14380,7 +14378,7 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** lclVarNode, boo
 
                 if (size == 0)
                 {
-                    return false;
+                    return nullptr;
                 }
             }
             else
@@ -14400,17 +14398,17 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** lclVarNode, boo
 
             if (size == 0)
             {
-                return false;
+                return nullptr;
             }
         }
 
-        return dest->AsIndir()->GetAddr()->DefinesLocalAddr(comp, size, lclVarNode, isEntire);
+        return dest->AsIndir()->GetAddr()->DefinesLocalAddr(comp, size, totalOverlap);
     }
 
-    return false;
+    return nullptr;
 }
 
-bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, GenTreeLclVarCommon** lclVarNode, bool* isEntire)
+GenTreeLclVarCommon* GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, bool* totalOverlap)
 {
     GenTree* node      = this;
     bool     hasOffset = true;
@@ -14463,8 +14461,7 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, GenTreeLclVarCommo
             GenTree* base  = addrMode->GetBase();
             GenTree* index = addrMode->GetIndex();
 
-            INDEBUG(GenTreeLclVarCommon * temp;)
-            assert((index == nullptr) || !index->DefinesLocalAddr(comp, 0, &temp, nullptr));
+            assert((index == nullptr) || !index->DefinesLocalAddr(comp));
 
             if (base != nullptr)
             {
@@ -14481,13 +14478,11 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, GenTreeLclVarCommo
         return false;
     }
 
-    *lclVarNode = node->AsLclVarCommon();
-
-    if (isEntire != nullptr)
+    if (totalOverlap != nullptr)
     {
         if (hasOffset || (node->AsLclVarCommon()->GetLclOffs() != 0))
         {
-            *isEntire = false;
+            *totalOverlap = false;
         }
         else
         {
@@ -14505,11 +14500,11 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, GenTreeLclVarCommo
                 lclSize = lcl->GetSize();
             }
 
-            *isEntire = (lclSize == size);
+            *totalOverlap = (size >= lclSize);
         }
     }
 
-    return true;
+    return node->AsLclVarCommon();
 }
 
 GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
@@ -14554,10 +14549,7 @@ GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
     return false;
 }
 
-bool GenTree::IsLocalAddrExpr(Compiler*             comp,
-                              GenTreeLclVarCommon** outLclNode,
-                              unsigned*             outLclOffs,
-                              FieldSeqNode**        outFieldSeq)
+GenTreeLclVarCommon* GenTree::IsLocalAddrExpr(Compiler* comp, unsigned* outLclOffs, FieldSeqNode** outFieldSeq)
 {
     GenTree*      node     = this;
     unsigned      offset   = 0;
@@ -14606,8 +14598,6 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
             return false;
         }
 
-        *outLclNode = location->AsLclVarCommon();
-
         if (GenTreeLclFld* lclFld = location->IsLclFld())
         {
             offset += lclFld->GetLclOffs();
@@ -14624,13 +14614,11 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
 
         *outLclOffs  = offset;
         *outFieldSeq = fieldSeq;
-        return true;
+        return location->AsLclVarCommon();
     }
 
     if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
-        *outLclNode = node->AsLclVarCommon();
-
         if (GenTreeLclFld* lclFld = node->IsLclFld())
         {
             offset += lclFld->GetLclOffs();
@@ -14647,10 +14635,10 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
 
         *outLclOffs  = offset;
         *outFieldSeq = fieldSeq;
-        return true;
+        return node->AsLclVarCommon();
     }
 
-    return false;
+    return nullptr;
 }
 
 GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
