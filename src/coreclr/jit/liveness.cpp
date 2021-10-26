@@ -1570,50 +1570,29 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
     return false;
 }
 
-//------------------------------------------------------------------------
-// Compiler::fgComputeLifeUntrackedLocal:
-//    Compute the changes to local var liveness due to a use or a def of an untracked local var.
-//
-// Note:
-//    It may seem a bit counter-intuitive that a change to an untracked lclVar could affect the liveness of tracked
-//    lclVars. In theory, this could happen with promoted (especially dependently-promoted) structs: in these cases,
-//    a use or def of the untracked struct var is treated as a use or def of any of its component fields that are
-//    tracked.
-//
-// Arguments:
-//    life          - The live set that is being computed.
-//    keepAliveVars - The current set of variables to keep alive regardless of their actual lifetime.
-//    varDsc        - The LclVar descriptor for the variable being used or defined.
-//    lclVarNode    - The node that corresponds to the local var def or use.
-//
-// Returns:
-//    `true` if the node is a dead store (i.e. all fields are dead); `false` otherwise.
-//
-bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           life,
-                                           VARSET_VALARG_TP     keepAliveVars,
-                                           LclVarDsc&           varDsc,
-                                           GenTreeLclVarCommon* lclVarNode)
+bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
+                                           VARSET_VALARG_TP     keepAlive,
+                                           LclVarDsc*           lcl,
+                                           GenTreeLclVarCommon* node)
 {
-    assert(lclVarNode != nullptr);
-
-    bool isDef = ((lclVarNode->gtFlags & GTF_VAR_DEF) != 0);
+    bool isDef = ((node->gtFlags & GTF_VAR_DEF) != 0);
 
     // We have accurate ref counts when running late liveness so we can eliminate
-    // some stores if the lhs local has a ref count of 1.
-    if (isDef && compRationalIRForm && (varDsc.lvRefCnt() == 1) && !varDsc.lvPinned)
+    // some stores if the local has a ref count of 1.
+    if (isDef && compRationalIRForm && (lcl->lvRefCnt() == 1) && !lcl->lvPinned)
     {
-        if (varDsc.IsPromotedField())
+        if (lcl->IsPromotedField())
         {
-            LclVarDsc* parentLcl = lvaGetDesc(varDsc.GetPromotedFieldParentLclNum());
+            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
             if ((parentLcl->lvRefCnt() == 1) && parentLcl->IsDependentPromoted())
             {
                 return true;
             }
         }
-        else if (varTypeIsStruct(varDsc.GetType()))
+        else if (varTypeIsStruct(lcl->GetType()))
         {
-            if (!varDsc.IsIndependentPromoted())
+            if (!lcl->IsIndependentPromoted())
             {
                 return true;
             }
@@ -1624,94 +1603,89 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           life,
         }
     }
 
-    if (!varTypeIsStruct(varDsc.lvType) || !varDsc.IsPromoted())
+    if (!varTypeIsStruct(lcl->GetType()) || !lcl->IsPromoted())
     {
         return false;
     }
 
     VARSET_TP fieldSet(VarSetOps::MakeEmpty(this));
-    bool      fieldsAreTracked = true;
+    bool      allFieldAreTracked = true;
 
-    for (unsigned i = varDsc.lvFieldLclStart; i < varDsc.lvFieldLclStart + varDsc.lvFieldCnt; ++i)
+    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
     {
-        LclVarDsc* fieldVarDsc = lvaGetDesc(i);
-#if !defined(TARGET_64BIT)
-        if (!varTypeIsLong(fieldVarDsc->lvType) || !fieldVarDsc->IsPromoted())
-#endif // !defined(TARGET_64BIT)
+        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+#ifndef TARGET_64BIT
+        if (!varTypeIsLong(fieldLcl->GetType()) || !fieldLcl->IsPromoted())
+#endif
         {
-            noway_assert(fieldVarDsc->IsPromotedField());
+            noway_assert(fieldLcl->IsPromotedField());
         }
-        if (fieldVarDsc->lvTracked)
+
+        if (!fieldLcl->lvTracked)
         {
-            const unsigned varIndex = fieldVarDsc->lvVarIndex;
-            noway_assert(varIndex < lvaTrackedCount);
-            VarSetOps::AddElemD(this, fieldSet, varIndex);
-            if (isDef && lclVarNode->IsMultiRegLclVar() && !VarSetOps::IsMember(this, life, varIndex))
-            {
-                // Dead definition.
-                lclVarNode->AsLclVar()->SetLastUse(i - varDsc.lvFieldLclStart);
-            }
+            allFieldAreTracked = false;
+            continue;
         }
-        else
+
+        const unsigned index = fieldLcl->GetLivenessBitIndex();
+
+        VarSetOps::AddElemD(this, fieldSet, index);
+
+        if (isDef && node->IsMultiRegLclVar() && !VarSetOps::IsMember(this, liveOut, index))
         {
-            fieldsAreTracked = false;
+            node->AsLclVar()->SetLastUse(i);
         }
     }
 
     if (isDef)
     {
-        VARSET_TP liveFields(VarSetOps::Intersection(this, life, fieldSet));
-        if ((lclVarNode->gtFlags & GTF_VAR_USEASG) == 0)
+        VARSET_TP liveFields(VarSetOps::Intersection(this, liveOut, fieldSet));
+
+        if ((node->gtFlags & GTF_VAR_USEASG) == 0)
         {
-            VarSetOps::DiffD(this, fieldSet, keepAliveVars);
-            VarSetOps::DiffD(this, life, fieldSet);
+            VarSetOps::DiffD(this, fieldSet, keepAlive);
+            VarSetOps::DiffD(this, liveOut, fieldSet);
         }
 
-        if (fieldsAreTracked && VarSetOps::IsEmpty(this, liveFields))
+        if (allFieldAreTracked && VarSetOps::IsEmpty(this, liveFields))
         {
-            // None of the fields were live, so this is a dead store.
             if (!opts.MinOpts())
             {
-                // keepAliveVars always stay alive
-                VARSET_TP keepAliveFields(VarSetOps::Intersection(this, fieldSet, keepAliveVars));
+                VARSET_TP keepAliveFields(VarSetOps::Intersection(this, fieldSet, keepAlive));
                 noway_assert(VarSetOps::IsEmpty(this, keepAliveFields));
 
-                // Do not consider this store dead if the parent local variable is an address exposed local or
-                // if the struct has a custom layout and holes.
-                return !(varDsc.lvAddrExposed || (varDsc.lvCustomLayout && varDsc.lvContainsHoles));
+                // Do not consider this store dead if the parent local variable is an
+                // address exposed local or if the struct has a custom layout and holes.
+                return !(lcl->lvAddrExposed || (lcl->lvCustomLayout && lcl->lvContainsHoles));
             }
         }
-        return false;
     }
-
-    // This is a use.
-
-    // Are the variables already known to be alive?
-    if (VarSetOps::IsSubset(this, fieldSet, life))
+    else
     {
-        lclVarNode->gtFlags &= ~GTF_VAR_DEATH; // Since we may now call this multiple times, reset if live.
-        return false;
+        if (VarSetOps::IsSubset(this, fieldSet, liveOut))
+        {
+            node->gtFlags &= ~GTF_VAR_DEATH;
+            return false;
+        }
+
+        // Some fields are being used, and they are not currently live.
+        node->gtFlags |= GTF_VAR_DEATH;
+
+        if (!VarSetOps::IsEmptyIntersection(this, fieldSet, liveOut))
+        {
+            // Only a subset of the variables are becoming alive; we must record that subset.
+            // (Lack of an entry for "node" will be considered to imply all become dead in the
+            // forward traversal.)
+
+            VARSET_TP* deadVarSet = new (this, CMK_bitset) VARSET_TP;
+            VarSetOps::AssignNoCopy(this, *deadVarSet, VarSetOps::Diff(this, fieldSet, liveOut));
+            GetPromotedStructDeathVars()->Set(node, deadVarSet, NodeToVarsetPtrMap::Overwrite);
+        }
+
+        VarSetOps::UnionD(this, liveOut, fieldSet);
     }
 
-    // Some variables are being used, and they are not currently live.
-    // So they are just coming to life, in the backwards traversal; in a forwards
-    // traversal, one or more are dying.  Mark this.
-
-    lclVarNode->gtFlags |= GTF_VAR_DEATH;
-
-    // Are all the variables becoming alive (in the backwards traversal), or just a subset?
-    if (!VarSetOps::IsEmptyIntersection(this, fieldSet, life))
-    {
-        // Only a subset of the variables are becoming alive; we must record that subset.
-        // (Lack of an entry for "lclVarNode" will be considered to imply all become dead in the
-        // forward traversal.)
-        VARSET_TP* deadVarSet = new (this, CMK_bitset) VARSET_TP;
-        VarSetOps::AssignNoCopy(this, *deadVarSet, VarSetOps::Diff(this, fieldSet, life));
-        GetPromotedStructDeathVars()->Set(lclVarNode, deadVarSet, NodeToVarsetPtrMap::Overwrite);
-    }
-
-    // In any case, all the field vars are now live (in the backwards traversal).
-    VarSetOps::UnionD(this, life, fieldSet);
     return false;
 }
 
@@ -1721,7 +1695,7 @@ bool Compiler::fgComputeLifeLocal(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive
 
     if (!lcl->lvTracked)
     {
-        return fgComputeLifeUntrackedLocal(liveOut, keepAlive, *lcl, node);
+        return fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, node);
     }
 
     if ((node->gtFlags & GTF_VAR_DEF) != 0)
@@ -1874,7 +1848,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
                 }
                 else
                 {
-                    fgComputeLifeUntrackedLocal(life, keepAliveVars, *lcl, lclNode);
+                    fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
                 }
                 break;
             }
@@ -1944,7 +1918,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
                 }
                 else
                 {
-                    isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, *lcl, lclNode);
+                    isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
                 }
 
                 if (isDeadStore)
