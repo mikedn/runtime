@@ -730,7 +730,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     assert(asgNode->OperIs(GT_ASG));
 
     bool                 totalOverlap;
-    GenTreeLclVarCommon* lclNode = asgNode->DefinesLocal(m_pCompiler, &totalOverlap);
+    GenTreeLclVarCommon* lclNode = asgNode->IsLocalAssignment(m_pCompiler, &totalOverlap);
 
     if (lclNode != nullptr)
     {

@@ -14346,7 +14346,7 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
     return lclFldSize < lclSize;
 }
 
-GenTreeLclVarCommon* GenTree::DefinesLocal(Compiler* comp, bool* totalOverlap)
+GenTreeLclVarCommon* GenTree::IsLocalAssignment(Compiler* comp, bool* totalOverlap)
 {
     assert(OperIs(GT_ASG));
 
@@ -14383,7 +14383,7 @@ GenTreeLclVarCommon* GenTree::DefinesLocal(Compiler* comp, bool* totalOverlap)
             }
             else
             {
-                // We don't know the size so we'll use 0, to DefinesLocalAddr this will
+                // We don't know the size so we'll use 0, to IsLocalAddrExpr this will
                 // appear like a partial access of the local.
                 // TODO-MIKE-Review: This is dubious pre-existing garbage. You can't do
                 // SSA/VN with a local that has an access of unknown size, such locals
@@ -14402,13 +14402,13 @@ GenTreeLclVarCommon* GenTree::DefinesLocal(Compiler* comp, bool* totalOverlap)
             }
         }
 
-        return dest->AsIndir()->GetAddr()->DefinesLocalAddr(comp, size, totalOverlap);
+        return dest->AsIndir()->GetAddr()->IsLocalAddrExpr(comp, size, totalOverlap);
     }
 
     return nullptr;
 }
 
-GenTreeLclVarCommon* GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, bool* totalOverlap)
+GenTreeLclVarCommon* GenTree::IsLocalAddrExpr(Compiler* comp, unsigned size, bool* totalOverlap)
 {
     GenTree* node      = this;
     bool     hasOffset = true;
@@ -14461,7 +14461,7 @@ GenTreeLclVarCommon* GenTree::DefinesLocalAddr(Compiler* comp, unsigned size, bo
             GenTree* base  = addrMode->GetBase();
             GenTree* index = addrMode->GetIndex();
 
-            assert((index == nullptr) || !index->DefinesLocalAddr(comp));
+            assert((index == nullptr) || !index->IsLocalAddrExpr(comp));
 
             if (base != nullptr)
             {

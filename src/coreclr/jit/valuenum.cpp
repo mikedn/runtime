@@ -6957,7 +6957,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
     assert(dst->TypeIs(TYP_STRUCT));
 
     bool                 totalOverlap;
-    GenTreeLclVarCommon* dstLclNode = asg->DefinesLocal(this, &totalOverlap);
+    GenTreeLclVarCommon* dstLclNode = asg->IsLocalAssignment(this, &totalOverlap);
 
     if (dstLclNode == nullptr)
     {
@@ -7641,7 +7641,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             // address-exposed.  Assert on that.
                             bool                 totalOverlap;
                             GenTreeLclVarCommon* lclNode =
-                                arg->DefinesLocalAddr(this, varTypeSize(lhs->GetType()), &totalOverlap);
+                                arg->IsLocalAddrExpr(this, varTypeSize(lhs->GetType()), &totalOverlap);
                             noway_assert(lclNode != nullptr);
                             assert(lclNum == lclNode->GetLclNum());
 
@@ -7794,7 +7794,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         }
                         else
                         {
-                            GenTreeLclVarCommon* dstLclNode = tree->DefinesLocal(this);
+                            GenTreeLclVarCommon* dstLclNode = tree->IsLocalAssignment(this);
 
                             if (dstLclNode == nullptr)
                             {

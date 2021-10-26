@@ -371,7 +371,7 @@ public:
         }
         else if (GenTreeIndir* indir = tree->IsIndir())
         {
-            lclNode = indir->GetAddr()->DefinesLocalAddr(compiler);
+            lclNode = indir->GetAddr()->IsLocalAddrExpr(compiler);
         }
 
         if (lclNode == nullptr)

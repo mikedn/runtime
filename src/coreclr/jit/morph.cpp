@@ -8121,7 +8121,7 @@ void Compiler::fgAssignSetVarDef(GenTreeOp* asg)
     assert(asg->OperIs(GT_ASG));
 
     bool totalOverlap;
-    if (GenTreeLclVarCommon* lclNode = asg->DefinesLocal(this, &totalOverlap))
+    if (GenTreeLclVarCommon* lclNode = asg->IsLocalAssignment(this, &totalOverlap))
     {
         lclNode->gtFlags |= GTF_VAR_DEF;
 
@@ -8702,8 +8702,8 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         //
         // Not clear what should be done in this case, if DNERing the local is sufficient or
         // it has to be address exposed as well. Various "is local address" utility functions
-        // don't seem to check for COMMA chains (e.g. IsLocalAddrExpr, DefinesLocalAddr) so
-        // it may be that this kind of local access may be missed by liveness, SSA etc.
+        // don't seem to check for COMMA chains (e.g. IsLocalAddrExpr) so it may be that this
+        // kind of local access may be missed by liveness, SSA etc.
         //
         // But then DNER/address exposed are bad because this sometimes happens with SIMD
         // copies of locals...
@@ -9834,11 +9834,11 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
                 // TODO-MIKE-Cleanup: This should not be needed, IsLocalAddrExpr should have already recognized
                 // and indirect access to a local and then we'd be in the destLclVar != nullptr case above.
-                // Except that IsLocalAddrExpr may fail to recognize some trees that DefinesLocalAddr does...
+                // Except that IsLocalAddrExpr may fail to recognize some trees that IsLocalAddrExpr does...
 
                 bool totalOverlap = false;
                 if (GenTreeLclVarCommon* lclNode =
-                        destFieldAddr->DefinesLocalAddr(this, destSize, destHasSize ? &totalOverlap : nullptr))
+                        destFieldAddr->IsLocalAddrExpr(this, destSize, destHasSize ? &totalOverlap : nullptr))
                 {
                     lclNode->gtFlags |= GTF_VAR_DEF;
 
@@ -14310,7 +14310,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
     {
         if (tree->OperIs(GT_ASG))
         {
-            if (GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this))
+            if (GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this))
             {
                 unsigned lclNum = lclNode->GetLclNum();
                 noway_assert(lclNum < lvaCount);

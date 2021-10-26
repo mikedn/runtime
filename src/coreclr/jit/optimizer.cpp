@@ -7127,7 +7127,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                 }
                 else if (lhs->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
                 {
-                    GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this);
+                    GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this);
 
                     if (lclNode == nullptr)
                     {
@@ -8233,7 +8233,7 @@ void Compiler::optRemoveRedundantZeroInits()
                     case GT_ASG:
                     {
                         bool                 totalOverlap;
-                        GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this, &totalOverlap);
+                        GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this, &totalOverlap);
 
                         if (lclNode == nullptr)
                         {

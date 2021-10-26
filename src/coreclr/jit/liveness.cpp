@@ -230,10 +230,9 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             // Otherwise, we treat it as a use here.
             if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
-                GenTree*             addr    = tree->AsIndir()->GetAddr()->SkipComma();
-                GenTreeLclVarCommon* lclNode = addr->DefinesLocalAddr(this);
+                GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
 
-                if (lclNode != nullptr)
+                if (GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr(this))
                 {
                     fgMarkUseDef(lclNode);
                 }
@@ -308,7 +307,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         }
 
         case GT_ASG:
-            if (GenTreeLclVarCommon* lclNode = tree->DefinesLocal(this))
+            if (GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this))
             {
                 fgMarkUseDef(lclNode);
             }
@@ -363,7 +362,7 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-            if (GenTreeLclVarCommon* lclNode = tree->AsIndir()->GetAddr()->DefinesLocalAddr(this))
+            if (GenTreeLclVarCommon* lclNode = tree->AsIndir()->GetAddr()->IsLocalAddrExpr(this))
             {
                 fgMarkUseDef(lclNode);
             }

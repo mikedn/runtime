@@ -1911,8 +1911,8 @@ public:
     }
 
     bool IsPartialLclFld(Compiler* comp);
-    GenTreeLclVarCommon* DefinesLocal(Compiler* comp, bool* totalOverlap = nullptr);
-    GenTreeLclVarCommon* DefinesLocalAddr(Compiler* comp, unsigned size = 0, bool* totalOverlap = nullptr);
+    GenTreeLclVarCommon* IsLocalAssignment(Compiler* comp, bool* totalOverlap = nullptr);
+    GenTreeLclVarCommon* IsLocalAddrExpr(Compiler* comp, unsigned size = 0, bool* totalOverlap = nullptr);
     GenTreeLclVarCommon* IsLocalAddrExpr(Compiler* comp, unsigned* outLclOffs, FieldSeqNode** outFieldSeq);
     GenTreeLclVarCommon* IsLocalAddrExpr();
 

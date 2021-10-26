@@ -1098,7 +1098,7 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
         //   - implicit-by-ref struct arguments on win-x64 and arm64
         //   - stack args of varargs methods on x86
         // The resulting indirection trees are not recognized as local accesses
-        // by DefinesLocalAddr & co. so it's probably safer to add GTF_GLOB_REF
+        // by IsLocalAddrExpr & co. so it's probably safer to add GTF_GLOB_REF
         // to such indirections. Though the arguments can't really alias global
         // memory nor themselves so this might be overly conservative.
         // This is definitely unnecessary for implicit-by-ref args that end up
