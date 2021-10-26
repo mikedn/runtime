@@ -3834,7 +3834,7 @@ public:
 
     void fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call);
 
-    void fgComputeLifeTrackedLocalUse(VARSET_TP& life, LclVarDsc& varDsc, GenTreeLclVarCommon* node);
+    void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node);
     bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
                                       VARSET_VALARG_TP     keepAlive,
                                       LclVarDsc*           lcl,

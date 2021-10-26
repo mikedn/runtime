@@ -1513,44 +1513,18 @@ void Compiler::fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call)
     }
 }
 
-//------------------------------------------------------------------------
-// Compiler::fgComputeLifeTrackedLocalUse:
-//    Compute the changes to local var liveness due to a use of a tracked local var.
-//
-// Arguments:
-//    life          - The live set that is being computed.
-//    varDsc        - The LclVar descriptor for the variable being used or defined.
-//    node          - The node that is defining the lclVar.
-void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& life, LclVarDsc& varDsc, GenTreeLclVarCommon* node)
+void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node)
 {
-    assert(node != nullptr);
     assert((node->gtFlags & GTF_VAR_DEF) == 0);
-    assert(varDsc.lvTracked);
 
-    const unsigned varIndex = varDsc.lvVarIndex;
-
-    // Is the variable already known to be alive?
-    if (VarSetOps::IsMember(this, life, varIndex))
+    if (VarSetOps::TryAddElemD(this, liveOut, lcl->GetLivenessBitIndex()))
     {
-        // Since we may do liveness analysis multiple times, clear the GTF_VAR_DEATH if set.
+        node->gtFlags |= GTF_VAR_DEATH;
+    }
+    else
+    {
         node->gtFlags &= ~GTF_VAR_DEATH;
-        return;
     }
-
-#ifdef DEBUG
-    if (verbose && 0)
-    {
-        printf("Ref V%02u,T%02u] at ", node->GetLclNum(), varIndex);
-        printTreeID(node);
-        printf(" life %s -> %s\n", VarSetOps::ToString(this, life),
-               VarSetOps::ToString(this, VarSetOps::AddElem(this, life, varIndex)));
-    }
-#endif // DEBUG
-
-    // The variable is being used, and it is not currently live.
-    // So the variable is just coming to life
-    node->gtFlags |= GTF_VAR_DEATH;
-    VarSetOps::AddElemD(this, life, varIndex);
 }
 
 bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
@@ -1755,7 +1729,7 @@ bool Compiler::fgComputeLifeLocal(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive
         return fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, node);
     }
 
-    fgComputeLifeTrackedLocalUse(liveOut, *lcl, node);
+    fgComputeLifeTrackedLocalUse(liveOut, lcl, node);
     return false;
 }
 
@@ -1879,27 +1853,28 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
             case GT_LCL_VAR:
             case GT_LCL_FLD:
             {
-                GenTreeLclVarCommon* const lclVarNode = node->AsLclVarCommon();
-                LclVarDsc&                 varDsc     = lvaTable[lclVarNode->GetLclNum()];
+                GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
+                LclVarDsc*           lcl     = lvaGetDesc(lclNode);
 
                 if (node->IsUnusedValue())
                 {
                     JITDUMP("Removing dead LclVar use:\n");
-                    DISPNODE(lclVarNode);
+                    DISPNODE(lclNode);
 
                     blockRange.Delete(this, block, node);
-                    if (varDsc.lvTracked && !opts.MinOpts())
+
+                    if (lcl->lvTracked && !opts.MinOpts())
                     {
                         fgStmtRemoved = true;
                     }
                 }
-                else if (varDsc.lvTracked)
+                else if (lcl->lvTracked)
                 {
-                    fgComputeLifeTrackedLocalUse(life, varDsc, lclVarNode);
+                    fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
                 }
                 else
                 {
-                    fgComputeLifeUntrackedLocal(life, keepAliveVars, varDsc, lclVarNode);
+                    fgComputeLifeUntrackedLocal(life, keepAliveVars, *lcl, lclNode);
                 }
                 break;
             }
