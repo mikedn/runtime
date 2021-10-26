@@ -2679,12 +2679,12 @@ void Compiler::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */
     // set its type to TYP_BYREF when we create it. We know if it can
     // be changed to TYP_I_IMPL only at the point where we use it.
 
-    if (tree1->TypeIs(TYP_BYREF) && (tree1->IsLocalAddrExpr() != nullptr))
+    if (tree1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(tree1))
     {
         tree1->SetType(TYP_I_IMPL);
     }
 
-    if ((tree2 != nullptr) && tree2->TypeIs(TYP_BYREF) && (tree2->IsLocalAddrExpr() != nullptr))
+    if ((tree2 != nullptr) && tree2->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(tree2))
     {
         tree2->SetType(TYP_I_IMPL);
     }
@@ -9963,31 +9963,19 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 #endif // TARGET_64BIT
 
-                // We had better assign it a value of the correct type
-                assertImp(
-                    genActualType(lclTyp) == genActualType(op1->gtType) ||
-                    (genActualType(lclTyp) == TYP_I_IMPL && op1->IsLocalAddrExpr() != nullptr) ||
-                    (genActualType(lclTyp) == TYP_I_IMPL && (op1->gtType == TYP_BYREF || op1->gtType == TYP_REF)) ||
-                    (genActualType(op1->gtType) == TYP_I_IMPL && lclTyp == TYP_BYREF) ||
-                    (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->TypeGet())) ||
-                    ((genActualType(lclTyp) == TYP_BYREF) && genActualType(op1->TypeGet()) == TYP_REF));
-
-                /* If op1 is "&var" then its type is the transient "*" and it can
-                   be used either as TYP_BYREF or TYP_I_IMPL */
-
-                if (op1->IsLocalAddrExpr() != nullptr)
+                // When "&var" is created, we assume it is a byref. If it is being assigned
+                // to a TYP_I_IMPL var, change the type to prevent unnecessary GC info.
+                if ((lclTyp == TYP_I_IMPL) && op1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(op1))
                 {
-                    assertImp(genActualType(lclTyp) == TYP_I_IMPL || lclTyp == TYP_BYREF);
-
-                    /* When "&var" is created, we assume it is a byref. If it is
-                       being assigned to a TYP_I_IMPL var, change the type to
-                       prevent unnecessary GC info */
-
-                    if (genActualType(lclTyp) == TYP_I_IMPL)
-                    {
-                        op1->gtType = TYP_I_IMPL;
-                    }
+                    op1->SetType(TYP_I_IMPL);
                 }
+
+                // We had better assign it a value of the correct type
+                assertImp((varActualType(lclTyp) == varActualType(op1->GetType())) ||
+                          ((lclTyp == TYP_I_IMPL) && op1->TypeIs(TYP_BYREF, TYP_REF)) ||
+                          ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_I_IMPL)) ||
+                          ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_REF)) ||
+                          (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType())));
 
                 // If this is a local and the local is a ref type, see
                 // if we can improve type information based on the
@@ -10553,9 +10541,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op3 = impPopStack().val;
 
                 assertImp(op3->gtType == TYP_REF);
-                if (op2->IsLocalAddrExpr() != nullptr)
+
+                if (impIsLocalAddrExpr(op2))
                 {
-                    op2->gtType = TYP_I_IMPL;
+                    op2->SetType(TYP_I_IMPL);
                 }
 
                 op3 = impCheckForNullPointer(op3);
@@ -12711,10 +12700,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     // If we can resolve the field to be within some local,
                     // then just spill that local.
-                    // TODO-MIKE-Review: Importer should not use IsLocalAddrExpr
-                    GenTreeLclVarCommon* const lcl = obj->IsLocalAddrExpr();
 
-                    if (lcl != nullptr)
+                    if (GenTreeLclVarCommon* lcl = impIsLocalAddrExpr(obj))
                     {
                         impSpillLclRefs(lcl->GetLclNum());
                     }
@@ -14848,6 +14835,47 @@ GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
     }
 
     return location->OperIs(GT_LCL_VAR) ? location->AsLclVar() : nullptr;
+}
+
+// TODO-MIKE-Cleanup: This should be merged with impIsAddressInLocal
+GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
+{
+    while (node->OperIs(GT_ADD))
+    {
+        GenTree* op1 = node->AsOp()->GetOp(0);
+        GenTree* op2 = node->AsOp()->GetOp(1);
+
+        if (op1->OperIs(GT_CNS_INT))
+        {
+            std::swap(op1, op2);
+        }
+
+        if (!op2->OperIs(GT_CNS_INT))
+        {
+            return false;
+        }
+
+        node = op1;
+    }
+
+    if (node->OperIs(GT_ADDR))
+    {
+        GenTree* location = node->AsUnOp()->GetOp(0);
+
+        if (!location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            return false;
+        }
+
+        return location->AsLclVarCommon();
+    }
+
+    if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        return node->AsLclVarCommon();
+    }
+
+    return false;
 }
 
 //------------------------------------------------------------------------

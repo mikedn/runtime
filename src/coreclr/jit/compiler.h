@@ -3403,6 +3403,7 @@ private:
 #endif // DEBUG
 
     static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
+    static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
 
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
