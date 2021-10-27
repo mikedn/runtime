@@ -1680,24 +1680,6 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
     return false;
 }
 
-bool Compiler::fgComputeLifeLocal(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, GenTreeLclVarCommon* node)
-{
-    LclVarDsc* lcl = lvaGetDesc(node);
-
-    if (!lcl->lvTracked)
-    {
-        return fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, node);
-    }
-
-    if ((node->gtFlags & GTF_VAR_DEF) != 0)
-    {
-        return fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, node);
-    }
-
-    fgComputeLifeTrackedLocalUse(liveOut, lcl, node);
-    return false;
-}
-
 /*****************************************************************************
  *
  * Compute the set of live variables at each node in a given statement
@@ -1729,7 +1711,24 @@ void Compiler::fgComputeLife(VARSET_TP&       life,
         }
         else if (tree->OperIsNonPhiLocal() || tree->OperIsLocalAddr())
         {
-            bool isDeadStore = fgComputeLifeLocal(life, keepAliveVars, tree->AsLclVarCommon());
+            GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
+            LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+            bool                 isDeadStore;
+
+            if (!lcl->lvTracked)
+            {
+                isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
+            }
+            else if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
+            {
+                isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
+            }
+            else
+            {
+                fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
+                isDeadStore = false;
+            }
+
             if (isDeadStore)
             {
                 LclVarDsc* varDsc = &lvaTable[tree->AsLclVarCommon()->GetLclNum()];
@@ -1768,7 +1767,6 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
     {
         next = node->gtPrev;
 
-        bool isDeadStore;
         switch (node->OperGet())
         {
             case GT_CALL:
@@ -1860,7 +1858,24 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
                 }
                 else
                 {
-                    isDeadStore = fgComputeLifeLocal(life, keepAliveVars, node->AsLclVarCommon());
+                    GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
+                    LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+                    bool                 isDeadStore;
+
+                    if (!lcl->lvTracked)
+                    {
+                        isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
+                    }
+                    else if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
+                    {
+                        isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
+                    }
+                    else
+                    {
+                        fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
+                        isDeadStore = false;
+                    }
+
                     if (isDeadStore)
                     {
                         LIR::Use addrUse;
@@ -1902,6 +1917,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
             {
                 GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
                 LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+                bool                 isDeadStore;
 
                 if (lcl->lvTracked)
                 {
