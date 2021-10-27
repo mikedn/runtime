@@ -3844,9 +3844,8 @@ public:
                                      LclVarDsc*           lcl,
                                      GenTreeLclVarCommon* node);
 
-    void fgComputeLifeStmt(VARSET_TP& liveOut, Statement* stmt, VARSET_VALARG_TP volatiles);
-
-    void fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALARG_TP volatileVars);
+    void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
+    void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
     bool fgTryRemoveNonLocal(GenTree* node, LIR::Range* blockRange);
 

@@ -1680,10 +1680,9 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
     return false;
 }
 
-void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, Statement* stmt, VARSET_VALARG_TP volatiles)
+void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt)
 {
-    VARSET_TP keepAlive(VarSetOps::Union(this, volatiles, compCurBB->bbScope));
-    bool      updateStmt = false;
+    bool updateStmt = false;
     INDEBUG(bool modified = false;)
 
     noway_assert(VarSetOps::IsSubset(this, keepAlive, liveOut));
@@ -1748,11 +1747,8 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, Statement* stmt, VARSET_VAL
 #endif
 }
 
-void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALARG_TP volatileVars)
+void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, BasicBlock* block)
 {
-    // Don't kill volatile vars and vars in scope.
-    VARSET_TP keepAliveVars(VarSetOps::Union(this, volatileVars, block->bbScope));
-
     noway_assert(VarSetOps::IsSubset(this, keepAliveVars, life));
 
     LIR::Range& blockRange      = LIR::AsRange(block);
@@ -2548,12 +2544,13 @@ void Compiler::fgInterBlockLocalVarLiveness()
         /* Start with the variables live on exit from the block */
 
         VARSET_TP life(VarSetOps::MakeCopy(this, block->bbLiveOut));
+        VARSET_TP keepAlive(VarSetOps::Union(this, volatileVars, compCurBB->bbScope));
 
         /* Mark any interference we might have at the end of the block */
 
         if (block->IsLIR())
         {
-            fgComputeLifeLIR(life, block, volatileVars);
+            fgComputeLifeLIR(life, keepAlive, block);
         }
         else
         {
@@ -2577,7 +2574,7 @@ void Compiler::fgInterBlockLocalVarLiveness()
                 compCurStmt = nextStmt;
                 nextStmt    = nextStmt->GetPrevStmt();
 
-                fgComputeLifeStmt(life, compCurStmt, volatileVars);
+                fgComputeLifeStmt(life, keepAlive, compCurStmt);
             } while (compCurStmt != firstStmt);
         }
 
