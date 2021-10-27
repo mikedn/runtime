@@ -3844,11 +3844,7 @@ public:
                                      LclVarDsc*           lcl,
                                      GenTreeLclVarCommon* node);
 
-    void fgComputeLife(VARSET_TP&       life,
-                       GenTree*         startNode,
-                       GenTree*         endNode,
-                       VARSET_VALARG_TP volatileVars,
-                       bool* pStmtInfoDirty DEBUGARG(bool* treeModf));
+    void fgComputeLifeStmt(VARSET_TP& liveOut, Statement* stmt, VARSET_VALARG_TP volatiles);
 
     void fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALARG_TP volatileVars);
 

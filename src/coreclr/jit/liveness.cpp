@@ -1680,61 +1680,44 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
     return false;
 }
 
-/*****************************************************************************
- *
- * Compute the set of live variables at each node in a given statement
- * or subtree of a statement moving backward from startNode to endNode
- */
-
-void Compiler::fgComputeLife(VARSET_TP&       life,
-                             GenTree*         startNode,
-                             GenTree*         endNode,
-                             VARSET_VALARG_TP volatileVars,
-                             bool* pStmtInfoDirty DEBUGARG(bool* treeModf))
+void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, Statement* stmt, VARSET_VALARG_TP volatiles)
 {
-    // Don't kill vars in scope
-    VARSET_TP keepAliveVars(VarSetOps::Union(this, volatileVars, compCurBB->bbScope));
+    VARSET_TP keepAlive(VarSetOps::Union(this, volatiles, compCurBB->bbScope));
+    bool      updateStmt = false;
+    INDEBUG(bool modified = false;)
 
-    noway_assert(VarSetOps::IsSubset(this, keepAliveVars, life));
-    noway_assert(endNode || (startNode == compCurStmt->GetRootNode()));
+    noway_assert(VarSetOps::IsSubset(this, keepAlive, liveOut));
 
-    // NOTE: Live variable analysis will not work if you try
-    // to use the result of an assignment node directly!
-    for (GenTree* tree = startNode; tree != endNode; tree = tree->gtPrev)
+    for (GenTree* node = stmt->GetRootNode(); node != nullptr;)
     {
-    AGAIN:
-        assert(tree->OperGet() != GT_QMARK);
-
-        if (tree->gtOper == GT_CALL)
+        if (node->OperIs(GT_CALL))
         {
-            fgComputeLifeCall(life, tree->AsCall());
+            fgComputeLifeCall(liveOut, node->AsCall());
         }
-        else if (tree->OperIsNonPhiLocal() || tree->OperIsLocalAddr())
+        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
-            GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
+            GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
             LclVarDsc*           lcl     = lvaGetDesc(lclNode);
             bool                 isDeadStore;
 
             if (!lcl->lvTracked)
             {
-                isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
+                isDeadStore = fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, lclNode);
             }
             else if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
             {
-                isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
+                isDeadStore = fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, lclNode);
             }
             else
             {
-                fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
+                fgComputeLifeTrackedLocalUse(liveOut, lcl, lclNode);
                 isDeadStore = false;
             }
 
             if (isDeadStore)
             {
-                LclVarDsc* varDsc = &lvaTable[tree->AsLclVarCommon()->GetLclNum()];
-
                 bool doAgain = false;
-                if (fgRemoveDeadStore(&tree, varDsc, life, &doAgain, pStmtInfoDirty DEBUGARG(treeModf)))
+                if (fgRemoveDeadStore(&node, lcl, liveOut, &doAgain, &updateStmt DEBUGARG(&modified)))
                 {
                     assert(!doAgain);
                     break;
@@ -1742,11 +1725,27 @@ void Compiler::fgComputeLife(VARSET_TP&       life,
 
                 if (doAgain)
                 {
-                    goto AGAIN;
+                    continue;
                 }
             }
         }
+
+        node = node->gtPrev;
     }
+
+    if (updateStmt)
+    {
+        gtSetStmtInfo(compCurStmt);
+        fgSetStmtSeq(compCurStmt);
+        gtUpdateStmtSideEffects(compCurStmt);
+    }
+
+#ifdef DEBUG
+    if (modified)
+    {
+        JITDUMPTREE(compCurStmt->GetRootNode(), "\nfgComputeLifeStmt modified tree:\n");
+    }
+#endif
 }
 
 void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALARG_TP volatileVars)
@@ -2573,35 +2572,12 @@ void Compiler::fgInterBlockLocalVarLiveness()
 
             do
             {
-#ifdef DEBUG
-                bool treeModf = false;
-#endif // DEBUG
                 noway_assert(nextStmt != nullptr);
 
                 compCurStmt = nextStmt;
                 nextStmt    = nextStmt->GetPrevStmt();
 
-                /* Compute the liveness for each tree node in the statement */
-                bool stmtInfoDirty = false;
-
-                fgComputeLife(life, compCurStmt->GetRootNode(), nullptr, volatileVars,
-                              &stmtInfoDirty DEBUGARG(&treeModf));
-
-                if (stmtInfoDirty)
-                {
-                    gtSetStmtInfo(compCurStmt);
-                    fgSetStmtSeq(compCurStmt);
-                    gtUpdateStmtSideEffects(compCurStmt);
-                }
-
-#ifdef DEBUG
-                if (verbose && treeModf)
-                {
-                    printf("\nfgComputeLife modified tree:\n");
-                    gtDispTree(compCurStmt->GetRootNode());
-                    printf("\n");
-                }
-#endif // DEBUG
+                fgComputeLifeStmt(life, compCurStmt, volatileVars);
             } while (compCurStmt != firstStmt);
         }
 
