@@ -34,9 +34,24 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
     assert(isDef || isUse);
 
-    if (lcl->lvTracked)
+    if (lcl->IsAddressExposed())
     {
-        assert(!lcl->lvAddrExposed);
+        if (isUse)
+        {
+            fgCurMemoryUse |= memoryKindSet(ByrefExposed);
+        }
+
+        if (isDef)
+        {
+            fgCurMemoryDef |= memoryKindSet(ByrefExposed);
+            byrefStatesMatchGcHeapStates = false;
+        }
+
+        return;
+    }
+
+    if (lcl->HasLiveness())
+    {
         assert(lcl->lvVarIndex < lvaTrackedCount);
 
         if (compRationalIRForm && !lcl->TypeIs(TYP_STRUCT) && !varTypeIsMultiReg(lcl->GetType()))
@@ -59,29 +74,13 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
         return;
     }
 
-    if (lcl->lvAddrExposed)
-    {
-        if (isUse)
-        {
-            fgCurMemoryUse |= memoryKindSet(ByrefExposed);
-        }
-
-        if (isDef)
-        {
-            fgCurMemoryDef |= memoryKindSet(ByrefExposed);
-            byrefStatesMatchGcHeapStates = false;
-        }
-
-        return;
-    }
-
     if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
     {
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
             LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-            if (fieldLcl->lvTracked)
+            if (fieldLcl->HasLiveness())
             {
                 assert(fieldLcl->lvVarIndex < lvaTrackedCount);
 
@@ -1595,7 +1594,7 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
         }
     }
 
-    if (!varTypeIsStruct(lcl->GetType()) || !lcl->IsPromoted())
+    if (lcl->IsAddressExposed() || !varTypeIsStruct(lcl->GetType()) || !lcl->IsPromoted())
     {
         return false;
     }

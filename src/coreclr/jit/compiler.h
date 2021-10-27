@@ -767,6 +767,11 @@ public:
 
     uint16_t lvVarIndex;
 
+    bool HasLiveness() const
+    {
+        return lvTracked;
+    }
+
     unsigned GetLivenessBitIndex() const
     {
         assert(lvTracked);

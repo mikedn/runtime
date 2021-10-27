@@ -249,13 +249,7 @@ void Compiler::optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, Lc
         // 'c' with 'x.'
         if (!lvaTable[newLclNum].lvIsThisPtr)
         {
-            if (lvaTable[newLclNum].lvAddrExposed)
-            {
-                continue;
-            }
-
-            // We compute liveness only on tracked variables. So skip untracked locals.
-            if (!lvaTable[newLclNum].lvTracked)
+            if (!lvaTable[newLclNum].HasLiveness())
             {
                 continue;
             }
@@ -381,7 +375,7 @@ public:
 
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
-        if (!lcl->lvTracked && !lcl->IsPromoted())
+        if (lcl->IsAddressExposed() || (!lcl->HasLiveness() && !lcl->IsPromoted()))
         {
             return;
         }
@@ -397,7 +391,7 @@ public:
 
         VarSetOps::ClearD(compiler, varDeltaSet);
 
-        if (lcl->lvTracked)
+        if (lcl->HasLiveness())
         {
             VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
         }
@@ -426,7 +420,7 @@ public:
                 {
                     LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-                    if (fieldLcl->lvTracked)
+                    if (fieldLcl->HasLiveness())
                     {
                         VarSetOps::AddElemD(compiler, varDeltaSet, fieldLcl->lvVarIndex);
                     }

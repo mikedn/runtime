@@ -41,7 +41,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned
            compiler->lvaEnregMultiRegVars);
     unsigned   fieldVarNum = parentVarDsc->lvFieldLclStart + multiRegIndex;
     LclVarDsc* fldVarDsc   = compiler->lvaGetDesc(fieldVarNum);
-    assert(fldVarDsc->lvTracked);
+    assert(fldVarDsc->HasLiveness());
     unsigned fldVarIndex = fldVarDsc->lvVarIndex;
     assert((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
 
@@ -213,10 +213,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
     compiler->compCurLifeTree = tree;
     VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
 
-    // By codegen, a struct may not be TYP_STRUCT, so we have to
-    // check lvPromoted, for the case where the fields are being
-    // tracked.
-    if (!varDsc->lvTracked && !varDsc->lvPromoted)
+    if (varDsc->IsAddressExposed() || (!varDsc->HasLiveness() && !varDsc->IsPromoted()))
     {
         return;
     }
@@ -253,7 +250,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
     {
         VarSetOps::ClearD(compiler, varDeltaSet);
 
-        if (varDsc->lvTracked)
+        if (varDsc->HasLiveness())
         {
             VarSetOps::AddElemD(compiler, varDeltaSet, varDsc->lvVarIndex);
 
@@ -281,7 +278,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
                 bool       fieldIsSpilled = spill && ((lclVarTree->GetRegSpillFlagByIdx(i) & GTF_SPILL) != 0);
                 LclVarDsc* fldVarDsc      = &(compiler->lvaTable[firstFieldVarNum + i]);
                 noway_assert(fldVarDsc->lvIsStructField);
-                assert(fldVarDsc->lvTracked);
+                assert(fldVarDsc->HasLiveness());
                 unsigned  fldVarIndex  = fldVarDsc->lvVarIndex;
                 regNumber reg          = lclVarTree->AsLclVar()->GetRegNumByIdx(i);
                 bool      isInReg      = fldVarDsc->lvIsInReg() && reg != REG_NA;
@@ -330,7 +327,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
             {
                 LclVarDsc* fldVarDsc = compiler->lvaGetDesc(firstFieldVarNum + i);
                 noway_assert(fldVarDsc->lvIsStructField);
-                if (fldVarDsc->lvTracked)
+                if (fldVarDsc->HasLiveness())
                 {
                     unsigned fldVarIndex = fldVarDsc->lvVarIndex;
                     // We should never see enregistered fields in a struct local unless
