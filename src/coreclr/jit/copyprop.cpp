@@ -126,6 +126,169 @@ int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDs
     return score + ((preferOp2) ? 1 : -1);
 }
 
+class CopyPropLivenessUpdater
+{
+    Compiler* compiler;
+    VARSET_TP currentLife;
+    VARSET_TP newLife;     // a live set after processing an argument tree.
+    VARSET_TP varDeltaSet; // a set of variables that changed their liveness.
+    VARSET_TP killSet;
+
+public:
+    CopyPropLivenessUpdater::CopyPropLivenessUpdater(Compiler* compiler)
+        : compiler(compiler)
+        , currentLife(VarSetOps::MakeEmpty(compiler))
+        , newLife(VarSetOps::MakeEmpty(compiler))
+        , varDeltaSet(VarSetOps::MakeEmpty(compiler))
+        , killSet(VarSetOps::MakeEmpty(compiler))
+    {
+    }
+
+    void BeginBlock(BasicBlock* block)
+    {
+        VarSetOps::Assign(compiler, currentLife, block->bbLiveIn);
+    }
+
+    void BeginStatement()
+    {
+        VarSetOps::ClearD(compiler, killSet);
+    }
+
+    VARSET_VALARG_TP GetLiveSet() const
+    {
+        return currentLife;
+    }
+
+    VARSET_VALARG_TP GetKillSet() const
+    {
+        return killSet;
+    }
+
+    void Update(GenTree* tree)
+    {
+        if (tree->OperIs(GT_PHI_ARG))
+        {
+            return;
+        }
+
+        GenTreeLclVarCommon* lclNode = nullptr;
+
+        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            lclNode = tree->AsLclVarCommon();
+        }
+        else if (GenTreeIndir* indir = tree->IsIndir())
+        {
+            lclNode = indir->GetAddr()->IsLocalAddrExpr(compiler);
+        }
+
+        if (lclNode == nullptr)
+        {
+            return;
+        }
+
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+
+        if (lcl->IsAddressExposed() || (!lcl->HasLiveness() && !lcl->IsPromoted()))
+        {
+            return;
+        }
+
+        // if it's a partial definition then variable "x" must have had a previous, original, site to be born.
+        bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0 && (lclNode->gtFlags & GTF_VAR_USEASG) == 0);
+        bool isDying = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0);
+
+        if (!isBorn && !isDying)
+        {
+            return;
+        }
+
+        VarSetOps::ClearD(compiler, varDeltaSet);
+
+        if (lcl->HasLiveness())
+        {
+            VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
+        }
+        else
+        {
+            assert(lcl->IsPromoted());
+
+            bool hasDeadTrackedFields = false;
+
+            if (isDying)
+            {
+                assert(!isBorn); // GTF_VAR_DEATH only set for OBJ last use.
+
+                VARSET_TP* deadTrackedFields;
+                hasDeadTrackedFields = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFields);
+
+                if (hasDeadTrackedFields)
+                {
+                    VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFields);
+                }
+            }
+
+            if (!hasDeadTrackedFields)
+            {
+                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+                {
+                    LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+                    if (fieldLcl->HasLiveness())
+                    {
+                        VarSetOps::AddElemD(compiler, varDeltaSet, fieldLcl->lvVarIndex);
+                    }
+                }
+            }
+        }
+
+        VarSetOps::Assign(compiler, newLife, currentLife);
+
+        if (isDying)
+        {
+            assert(VarSetOps::IsSubset(compiler, varDeltaSet, newLife));
+            VarSetOps::DiffD(compiler, newLife, varDeltaSet);
+        }
+        else
+        {
+            // This shouldn't be in newLife, unless this is debug code, in which
+            // case we keep vars live everywhere, OR the variable is address-exposed,
+            // OR this block is part of a try block, in which case it may be live at the handler
+            // Could add a check that, if it's in newLife, that it's also in
+            // fgGetHandlerLiveVars(compCurBB), but seems excessive
+            //
+            // For a dead store, it can be the case that we set both isBorn and isDying to true.
+            // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
+            // eliminated.)  If it's both, we handled it above.
+
+            VarSetOps::UnionD(compiler, newLife, varDeltaSet);
+        }
+
+        if (VarSetOps::Equal(compiler, currentLife, newLife))
+        {
+            return;
+        }
+
+#ifdef DEBUG
+        if (compiler->verbose)
+        {
+            printf("Live vars: ");
+            dumpConvertedVarSet(compiler, currentLife);
+            printf(" => ");
+            dumpConvertedVarSet(compiler, newLife);
+            printf("\n");
+        }
+#endif
+
+        VarSetOps::Assign(compiler, currentLife, newLife);
+    }
+
+    void Kill(unsigned lclNum)
+    {
+        VarSetOps::AddElemD(compiler, killSet, compiler->lvaGetDesc(lclNum)->GetLivenessBitIndex());
+    }
+};
+
 //------------------------------------------------------------------------------
 // optCopyProp : Perform copy propagation on a given tree as we walk the graph and if it is a local
 //               variable, then look up all currently live definitions and check if any of those
@@ -137,7 +300,11 @@ int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDs
 //    tree        -  The tree to perform copy propagation on
 //    curSsaName  -  The map from lclNum to its recently live definitions as a stack
 
-void Compiler::optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, LclNumToGenTreePtrStack* curSsaName)
+void Compiler::optCopyProp(BasicBlock*              block,
+                           Statement*               stmt,
+                           GenTree*                 tree,
+                           LclNumToGenTreePtrStack* curSsaName,
+                           CopyPropLivenessUpdater& liveness)
 {
     // TODO-Review: EH successor/predecessor iteration seems broken.
     if (block->bbCatchTyp == BBCT_FINALLY || block->bbCatchTyp == BBCT_FAULT)
@@ -184,7 +351,7 @@ void Compiler::optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, Lc
 
         // Skip variables with assignments embedded in the statement (i.e., with a comma). Because we
         // are not currently updating their SSA names as live in the copy-prop pass of the stmt.
-        if (VarSetOps::IsMember(this, optCopyPropKillSet, lvaTable[newLclNum].lvVarIndex))
+        if (VarSetOps::IsMember(this, liveness.GetKillSet(), lvaTable[newLclNum].lvVarIndex))
         {
             continue;
         }
@@ -255,7 +422,7 @@ void Compiler::optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, Lc
 
             // Because of this dependence on live variable analysis, CopyProp phase is immediately
             // after Liveness, SSA and VN.
-            if (!VarSetOps::IsMember(this, compCurLife, lvaTable[newLclNum].lvVarIndex))
+            if (!VarSetOps::IsMember(this, liveness.GetLiveSet(), lvaTable[newLclNum].lvVarIndex))
             {
                 continue;
             }
@@ -337,138 +504,6 @@ unsigned Compiler::optIsSsaLocal(GenTree* tree)
     return lclNum;
 }
 
-class CopyPropLivenessUpdater
-{
-    Compiler* compiler;
-    VARSET_TP newLife;     // a live set after processing an argument tree.
-    VARSET_TP varDeltaSet; // a set of variables that changed their liveness.
-
-public:
-    CopyPropLivenessUpdater::CopyPropLivenessUpdater(Compiler* compiler)
-        : compiler(compiler), newLife(VarSetOps::MakeEmpty(compiler)), varDeltaSet(VarSetOps::MakeEmpty(compiler))
-    {
-    }
-
-    void Update(GenTree* tree)
-    {
-        if (tree->OperIs(GT_PHI_ARG))
-        {
-            return;
-        }
-
-        GenTreeLclVarCommon* lclNode = nullptr;
-
-        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            lclNode = tree->AsLclVarCommon();
-        }
-        else if (GenTreeIndir* indir = tree->IsIndir())
-        {
-            lclNode = indir->GetAddr()->IsLocalAddrExpr(compiler);
-        }
-
-        if (lclNode == nullptr)
-        {
-            return;
-        }
-
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
-
-        if (lcl->IsAddressExposed() || (!lcl->HasLiveness() && !lcl->IsPromoted()))
-        {
-            return;
-        }
-
-        // if it's a partial definition then variable "x" must have had a previous, original, site to be born.
-        bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0 && (lclNode->gtFlags & GTF_VAR_USEASG) == 0);
-        bool isDying = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0);
-
-        if (!isBorn && !isDying)
-        {
-            return;
-        }
-
-        VarSetOps::ClearD(compiler, varDeltaSet);
-
-        if (lcl->HasLiveness())
-        {
-            VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
-        }
-        else
-        {
-            assert(lcl->IsPromoted());
-
-            bool hasDeadTrackedFields = false;
-
-            if (isDying)
-            {
-                assert(!isBorn); // GTF_VAR_DEATH only set for OBJ last use.
-
-                VARSET_TP* deadTrackedFields;
-                hasDeadTrackedFields = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFields);
-
-                if (hasDeadTrackedFields)
-                {
-                    VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFields);
-                }
-            }
-
-            if (!hasDeadTrackedFields)
-            {
-                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
-                {
-                    LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
-                    if (fieldLcl->HasLiveness())
-                    {
-                        VarSetOps::AddElemD(compiler, varDeltaSet, fieldLcl->lvVarIndex);
-                    }
-                }
-            }
-        }
-
-        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
-
-        if (isDying)
-        {
-            assert(VarSetOps::IsSubset(compiler, varDeltaSet, newLife));
-            VarSetOps::DiffD(compiler, newLife, varDeltaSet);
-        }
-        else
-        {
-            // This shouldn't be in newLife, unless this is debug code, in which
-            // case we keep vars live everywhere, OR the variable is address-exposed,
-            // OR this block is part of a try block, in which case it may be live at the handler
-            // Could add a check that, if it's in newLife, that it's also in
-            // fgGetHandlerLiveVars(compCurBB), but seems excessive
-            //
-            // For a dead store, it can be the case that we set both isBorn and isDying to true.
-            // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
-            // eliminated.)  If it's both, we handled it above.
-
-            VarSetOps::UnionD(compiler, newLife, varDeltaSet);
-        }
-
-        if (VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
-        {
-            return;
-        }
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("Live vars: ");
-            dumpConvertedVarSet(compiler, compiler->compCurLife);
-            printf(" => ");
-            dumpConvertedVarSet(compiler, newLife);
-            printf("\n");
-        }
-#endif
-
-        VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
-    }
-};
-
 //------------------------------------------------------------------------------
 // optBlockCopyProp : Perform copy propagation using currently live definitions on the current block's
 //                    variables. Also as new definitions are encountered update the "curSsaName" which
@@ -478,7 +513,9 @@ public:
 //    block       -  Block the tree belongs to
 //    curSsaName  -  The map from lclNum to its recently live definitions as a stack
 
-void Compiler::optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName)
+void Compiler::optBlockCopyProp(BasicBlock*              block,
+                                LclNumToGenTreePtrStack* curSsaName,
+                                CopyPropLivenessUpdater& liveness)
 {
 #ifdef DEBUG
     JITDUMP("Copy Assertion for " FMT_BB "\n", block->bbNum);
@@ -491,20 +528,18 @@ void Compiler::optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curS
 
     // We are not generating code so we don't need to deal with liveness change
 
-    CopyPropLivenessUpdater liveness(this);
+    liveness.BeginBlock(block);
 
-    // There are no definitions at the start of the block. So clear it.
-    VarSetOps::Assign(this, compCurLife, block->bbLiveIn);
     for (Statement* stmt : block->Statements())
     {
-        VarSetOps::ClearD(this, optCopyPropKillSet);
+        liveness.BeginStatement();
 
         // Walk the tree to find if any local variable can be replaced with current live definitions.
         for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
         {
             liveness.Update(tree);
 
-            optCopyProp(block, stmt, tree, curSsaName);
+            optCopyProp(block, stmt, tree, curSsaName, liveness);
 
             // TODO-Review: Merge this loop with the following loop to correctly update the
             // live SSA num while also propagating copies.
@@ -523,7 +558,7 @@ void Compiler::optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curS
             const unsigned lclNum = optIsSsaLocal(tree);
             if ((lclNum != BAD_VAR_NUM) && (tree->gtFlags & GTF_VAR_DEF))
             {
-                VarSetOps::AddElemD(this, optCopyPropKillSet, lvaTable[lclNum].lvVarIndex);
+                liveness.Kill(lclNum);
             }
         }
 
@@ -603,24 +638,24 @@ void Compiler::optVnCopyProp()
         return;
     }
 
-    VarSetOps::AssignNoCopy(this, compCurLife, VarSetOps::MakeEmpty(this));
-    VarSetOps::AssignNoCopy(this, optCopyPropKillSet, VarSetOps::MakeEmpty(this));
-
     class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
     {
         // The map from lclNum to its recently live definitions as a stack.
         LclNumToGenTreePtrStack m_curSsaName;
+        CopyPropLivenessUpdater m_liveness;
 
     public:
         CopyPropDomTreeVisitor(Compiler* compiler)
-            : DomTreeVisitor(compiler, compiler->fgSsaDomTree), m_curSsaName(compiler->getAllocator(CMK_CopyProp))
+            : DomTreeVisitor(compiler, compiler->fgSsaDomTree)
+            , m_curSsaName(compiler->getAllocator(CMK_CopyProp))
+            , m_liveness(compiler)
         {
         }
 
         void PreOrderVisit(BasicBlock* block)
         {
             // TODO-Cleanup: Move this function from Compiler to this class.
-            m_compiler->optBlockCopyProp(block, &m_curSsaName);
+            m_compiler->optBlockCopyProp(block, &m_curSsaName, m_liveness);
         }
 
         void PostOrderVisit(BasicBlock* block)
@@ -632,8 +667,4 @@ void Compiler::optVnCopyProp()
 
     CopyPropDomTreeVisitor visitor(this);
     visitor.WalkTree();
-
-    // Tracked variable count increases after CopyProp, so don't keep a shorter array around.
-    // Destroy (release) the varset.
-    VarSetOps::AssignNoCopy(this, compCurLife, VarSetOps::UninitVal());
 }

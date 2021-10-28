@@ -5665,13 +5665,16 @@ public:
     typedef ArrayStack<GenTree*> GenTreePtrStack;
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTreePtrStack*> LclNumToGenTreePtrStack;
 
-    // Kill set to track variables with intervening definitions.
-    VARSET_TP optCopyPropKillSet;
-
     // Copy propagation functions.
-    void optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, LclNumToGenTreePtrStack* curSsaName);
+    void optCopyProp(BasicBlock*                    block,
+                     Statement*                     stmt,
+                     GenTree*                       tree,
+                     LclNumToGenTreePtrStack*       curSsaName,
+                     class CopyPropLivenessUpdater& liveness);
     void optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
-    void optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
+    void optBlockCopyProp(BasicBlock*                    block,
+                          LclNumToGenTreePtrStack*       curSsaName,
+                          class CopyPropLivenessUpdater& liveness);
     unsigned optIsSsaLocal(GenTree* tree);
     int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2);
     void optVnCopyProp();
