@@ -10,6 +10,7 @@
 class CodeGenLivenessUpdater
 {
     Compiler* compiler;
+    GenTree*  currentNode;
     VARSET_TP newLife;          // a live set after processing an argument tree.
     VARSET_TP stackVarDeltaSet; // a live set of tracked stack ptr lcls.
     VARSET_TP varDeltaSet;      // a set of variables that changed their liveness.
@@ -21,8 +22,13 @@ class CodeGenLivenessUpdater
 public:
     CodeGenLivenessUpdater(Compiler* compiler);
 
-    void UpdateLife(GenTree* tree);
-    bool UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned multiRegIndex);
+    void BeginBlock()
+    {
+        currentNode = nullptr;
+    }
+
+    void UpdateLife(GenTree* node);
+    bool UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned regIndex);
 
 private:
     GenTreeLclVar* IsLocalAddr(GenTree* addr);

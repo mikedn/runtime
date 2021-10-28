@@ -6804,8 +6804,7 @@ public:
 
     // LIVENESS
 
-    VARSET_TP compCurLife;     // current live variables
-    GenTree*  compCurLifeTree; // node after which compCurLife has been computed
+    VARSET_TP compCurLife; // current live variables
 
     // Compare the given "newLife" with last set of live variables and update
     // codeGen "gcInfo", siScopes, "regSet" with the new variable's homes/liveness.

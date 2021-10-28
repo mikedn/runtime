@@ -3,6 +3,7 @@
 
 CodeGenLivenessUpdater::CodeGenLivenessUpdater(Compiler* compiler)
     : compiler(compiler)
+    , currentNode(nullptr)
     , newLife(VarSetOps::MakeEmpty(compiler))
     , stackVarDeltaSet(VarSetOps::MakeEmpty(compiler))
     , varDeltaSet(VarSetOps::MakeEmpty(compiler))
@@ -153,26 +154,26 @@ GenTreeLclVar* CodeGenLivenessUpdater::IsLocalAddr(GenTree* addr)
     return addr->OperIs(GT_LCL_VAR_ADDR) ? addr->AsLclVar() : nullptr;
 }
 
-void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
+void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
 {
-    assert(!tree->OperIs(GT_PHI_ARG));
+    assert(!node->OperIs(GT_PHI_ARG));
     assert(compiler->GetCurLVEpoch() == epoch);
 
     // TODO-Cleanup: We shouldn't really be calling this more than once
-    if (tree == compiler->compCurLifeTree)
+    if (node == currentNode)
     {
         return;
     }
 
-    compiler->compCurLifeTree = tree;
+    currentNode = node;
 
     GenTreeLclVarCommon* lclNode = nullptr;
 
-    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
-        lclNode = tree->AsLclVarCommon();
+        lclNode = node->AsLclVarCommon();
     }
-    else if (GenTreeIndir* indir = tree->IsIndir())
+    else if (GenTreeIndir* indir = node->IsIndir())
     {
         lclNode = IsLocalAddr(indir->GetAddr());
     }
@@ -195,7 +196,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
     if (lclNode->IsMultiRegLclVar())
     {
         // We should never have an indirect access for a multireg local.
-        assert(lclNode == tree);
+        assert(lclNode == node);
         assert((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
 
         isBorn = ((lclNode->gtFlags & GTF_VAR_DEF) != 0);
@@ -225,17 +226,17 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
         {
             VarSetOps::AddElemD(compiler, varDeltaSet, lcl->GetLivenessBitIndex());
 
-            if (isBorn && lcl->lvIsRegCandidate() && tree->gtHasReg())
+            if (isBorn && lcl->lvIsRegCandidate() && node->gtHasReg())
             {
-                compiler->codeGen->genUpdateVarReg(lcl, tree);
+                compiler->codeGen->genUpdateVarReg(lcl, node);
             }
 
-            bool isInReg    = lcl->lvIsInReg() && (tree->GetRegNum() != REG_NA);
+            bool isInReg    = lcl->lvIsInReg() && (node->GetRegNum() != REG_NA);
             bool isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
 
             if (isInReg)
             {
-                compiler->codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(tree));
+                compiler->codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(node));
             }
 
             if (isInMemory)
@@ -270,10 +271,10 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
                 {
                     if (isBorn)
                     {
-                        compiler->codeGen->genUpdateVarReg(fieldLcl, tree, i);
+                        compiler->codeGen->genUpdateVarReg(fieldLcl, node, i);
                     }
 
-                    compiler->codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(tree));
+                    compiler->codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(node));
 
                     // If this was marked for spill, genProduceReg should already have spilled it.
                     assert(!isFieldSpilled);
@@ -286,7 +287,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
         {
             bool hasDeadTrackedFields = false;
 
-            if ((tree != lclNode) && isDying)
+            if ((node != lclNode) && isDying)
             {
                 assert(!isBorn);
 
@@ -406,7 +407,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* tree)
     if (spill)
     {
         assert(!lcl->lvPromoted);
-        compiler->codeGen->genSpillVar(tree->AsLclVar());
+        compiler->codeGen->genSpillVar(node->AsLclVar());
 
         if (VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcTrkStkPtrLcls, lcl->lvVarIndex) &&
             VarSetOps::TryAddElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))
