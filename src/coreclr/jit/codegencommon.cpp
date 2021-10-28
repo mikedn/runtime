@@ -472,24 +472,6 @@ void CodeGen::genUpdateLife(GenTree* node)
     m_liveness.UpdateLife(this, node);
 }
 
-void CodeGen::genUpdateLife(VARSET_VALARG_TP newLife)
-{
-    if (VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Liveness not changing: %s ", VarSetOps::ToString(compiler, compiler->compCurLife));
-            dumpConvertedVarSet(compiler, compiler->compCurLife);
-            printf("\n");
-        }
-#endif
-        return;
-    }
-
-    compChangeLife(newLife);
-}
-
 // Return the register mask for the given register variable
 // inline
 regMaskTP CodeGen::genGetRegMask(const LclVarDsc* varDsc)
@@ -692,11 +674,21 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
 //    live/dead of instructions that has not been emitted yet. This is used to ensure [) "VariableLiveRange"
 //    intervals when calling "siStartVariableLiveRange" and "siEndVariableLiveRange".
 //
-// Notes:
-//    If "ForCodeGen" is false, only "compCurLife" set (and no mask) will be setted.
-//
 void CodeGen::compChangeLife(VARSET_VALARG_TP newLife)
 {
+    if (VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
+    {
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("Liveness not changing: %s ", VarSetOps::ToString(compiler, compiler->compCurLife));
+            dumpConvertedVarSet(compiler, compiler->compCurLife);
+            printf("\n");
+        }
+#endif
+        return;
+    }
+
 #ifdef DEBUG
     if (compiler->verbose)
     {
@@ -708,16 +700,7 @@ void CodeGen::compChangeLife(VARSET_VALARG_TP newLife)
     }
 #endif // DEBUG
 
-    /* We should only be called when the live set has actually changed */
-
-    noway_assert(!VarSetOps::Equal(compiler, compiler->compCurLife, newLife));
-
-    /* Figure out which variables are becoming live/dead at this point */
-
-    // deadSet = compCurLife - newLife
     VARSET_TP deadSet(VarSetOps::Diff(compiler, compiler->compCurLife, newLife));
-
-    // bornSet = newLife - compCurLife
     VARSET_TP bornSet(VarSetOps::Diff(compiler, newLife, compiler->compCurLife));
 
     /* Can't simultaneously become live and dead at the same time */

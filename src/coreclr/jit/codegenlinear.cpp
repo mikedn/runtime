@@ -198,7 +198,7 @@ void CodeGen::genCodeForBBlist()
 
         // Updating variable liveness after last instruction of previous block was emitted
         // and before first of the current block is emitted
-        genUpdateLife(block->bbLiveIn);
+        compChangeLife(block->bbLiveIn);
 
         // Even if liveness didn't change, we need to update the registers containing GC references.
         // genUpdateLife will update the registers live due to liveness changes. But what about registers that didn't
@@ -803,7 +803,7 @@ void CodeGen::genCodeForBBlist()
 
     // There could be variables alive at this point. For example see lvaKeepAliveAndReportThis.
     // This call is for cleaning the GC refs
-    genUpdateLife(VarSetOps::MakeEmpty(compiler));
+    compChangeLife(VarSetOps::MakeEmpty(compiler));
 
     /* Finalize the spill  tracking logic */
 
