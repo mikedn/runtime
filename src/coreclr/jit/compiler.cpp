@@ -7181,6 +7181,12 @@ FILE* Compiler::compJitFuncInfoFile = nullptr;
 
 #ifdef DEBUG
 
+void Compiler::dmpVarSet(const char* name, VARSET_VALARG_TP vars)
+{
+    printf("%s\n", name);
+    dumpConvertedVarSet(this, vars);
+}
+
 // dumpConvertedVarSet() dumps the varset bits that are tracked
 // variable indices, and we convert them to variable numbers, sort the variable numbers, and
 // print them as variable numbers. To do this, we use a temporary set indexed by

@@ -2284,6 +2284,7 @@ public:
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
+    void dmpVarSet(const char* name, VARSET_VALARG_TP vars);
     void gtDispNodeName(GenTree* tree);
 #if FEATURE_MULTIREG_RET
     unsigned gtDispRegCount(GenTree* tree);
