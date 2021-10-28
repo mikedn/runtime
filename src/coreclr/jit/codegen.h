@@ -24,7 +24,7 @@ class CodeGen final : public CodeGenInterface
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
 
-    CodeGenLivenessUpdater* treeLifeUpdater;
+    CodeGenLivenessUpdater m_liveness;
 
 public:
     CodeGen(Compiler* compiler);

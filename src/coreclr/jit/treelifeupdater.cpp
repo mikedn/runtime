@@ -2,19 +2,6 @@
 #include "treelifeupdater.h"
 #include "codegen.h"
 
-CodeGenLivenessUpdater::CodeGenLivenessUpdater(Compiler* compiler)
-    : compiler(compiler)
-    , currentNode(nullptr)
-    , newLife(VarSetOps::MakeEmpty(compiler))
-    , stackVarDeltaSet(VarSetOps::MakeEmpty(compiler))
-    , varDeltaSet(VarSetOps::MakeEmpty(compiler))
-    , gcTrkStkDeltaSet(VarSetOps::MakeEmpty(compiler))
-#ifdef DEBUG
-    , epoch(compiler->GetCurLVEpoch())
-#endif
-{
-}
-
 // Update live sets for only the given field of a multi-reg LclVar node.
 //
 // This method need only be used when the fields are dying or going live at different times,

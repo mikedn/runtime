@@ -67,7 +67,7 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : gcInfo(compiler), regSe
 
 CodeGen::CodeGen(Compiler* compiler)
     : CodeGenInterface(compiler)
-    , treeLifeUpdater(nullptr)
+    , m_liveness(compiler)
 #if defined(TARGET_XARCH)
     , negBitmaskFlt(nullptr)
     , negBitmaskDbl(nullptr)
@@ -277,7 +277,7 @@ bool CodeGen::genShouldRoundFP()
 
 void CodeGen::genPrepForCompiler()
 {
-    treeLifeUpdater = new (compiler, CMK_bitset) CodeGenLivenessUpdater(compiler);
+    m_liveness.Begin();
 
     /* Figure out which non-register variables hold pointers */
 
@@ -469,7 +469,7 @@ void CodeGen::genMarkLabelsForCodegen()
 
 void CodeGen::genUpdateLife(GenTree* node)
 {
-    treeLifeUpdater->UpdateLife(this, node);
+    m_liveness.UpdateLife(this, node);
 }
 
 void CodeGen::genUpdateLife(VARSET_VALARG_TP newLife)
@@ -11499,7 +11499,7 @@ CodeGenInterface::VariableLiveKeeper::VariableLiveKeeper(unsigned int  totalLoca
 //    the variable becoming valid (when isBorn is true) or invalid (when isDying is true).
 //
 // Notes:
-//    This method is being called from treeLifeUpdater when the variable is being born,
+//    This method is being called when the variable is being born,
 //    becoming dead, or both.
 //
 void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc,
@@ -11540,7 +11540,7 @@ void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const
 //    the variable becoming valid (when isBorn is true) or invalid (when isDying is true).
 //
 // Notes:
-//    This method is being called from treeLifeUpdater when a set of variables
+//    This method is being called when a set of variables
 //    is being born, becoming dead, or both.
 //
 void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRanges(VARSET_VALARG_TP varsIndexSet,

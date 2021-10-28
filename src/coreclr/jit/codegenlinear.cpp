@@ -391,7 +391,7 @@ void CodeGen::genCodeForBBlist()
         }
 #endif // FEATURE_EH_FUNCLETS
 
-        treeLifeUpdater->BeginBlock();
+        m_liveness.BeginBlock();
 
         // Traverse the block in linear order, generating code for each node as we
         // as we encounter it.
@@ -1381,7 +1381,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
     genUnspillRegIfNeeded(tree, multiRegIndex);
 
     // UpdateLifeFieldVar() will return true if local var should be spilled.
-    if (tree->IsMultiRegLclVar() && treeLifeUpdater->UpdateLifeFieldVar(this, tree->AsLclVar(), multiRegIndex))
+    if (tree->IsMultiRegLclVar() && m_liveness.UpdateLifeFieldVar(this, tree->AsLclVar(), multiRegIndex))
     {
         GenTreeLclVar* lcl = tree->AsLclVar();
         genSpillLocal(lcl->GetLclNum(), lcl->GetFieldTypeByIndex(compiler, multiRegIndex), lcl,
