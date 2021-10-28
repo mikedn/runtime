@@ -926,7 +926,7 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
 //    regIndex - the index of the register in the node
 //
 // inline
-void CodeGenInterface::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
+void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
 {
     // This should only be called for multireg lclVars.
     assert(compiler->lvaEnregMultiRegVars);
@@ -942,7 +942,7 @@ void CodeGenInterface::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int reg
 //    tree   - the lclVar node
 //
 // inline
-void CodeGenInterface::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
+void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
 {
     // This should not be called for multireg lclVars.
     assert((tree->OperIsScalarLocal() && !tree->IsMultiRegLclVar()) || (tree->gtOper == GT_COPY));
@@ -1381,7 +1381,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
     genUnspillRegIfNeeded(tree, multiRegIndex);
 
     // UpdateLifeFieldVar() will return true if local var should be spilled.
-    if (tree->IsMultiRegLclVar() && treeLifeUpdater->UpdateLifeFieldVar(tree->AsLclVar(), multiRegIndex))
+    if (tree->IsMultiRegLclVar() && treeLifeUpdater->UpdateLifeFieldVar(this, tree->AsLclVar(), multiRegIndex))
     {
         GenTreeLclVar* lcl = tree->AsLclVar();
         genSpillLocal(lcl->GetLclNum(), lcl->GetFieldTypeByIndex(compiler, multiRegIndex), lcl,

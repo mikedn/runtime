@@ -61,13 +61,13 @@ CodeGenInterface* getCodeGenerator(Compiler* comp)
     return new (comp, CMK_Codegen) CodeGen(comp);
 }
 
-CodeGenInterface::CodeGenInterface(Compiler* compiler)
-    : gcInfo(compiler), regSet(compiler, gcInfo), compiler(compiler), treeLifeUpdater(nullptr)
+CodeGenInterface::CodeGenInterface(Compiler* compiler) : gcInfo(compiler), regSet(compiler, gcInfo), compiler(compiler)
 {
 }
 
 CodeGen::CodeGen(Compiler* compiler)
     : CodeGenInterface(compiler)
+    , treeLifeUpdater(nullptr)
 #if defined(TARGET_XARCH)
     , negBitmaskFlt(nullptr)
     , negBitmaskDbl(nullptr)
@@ -467,12 +467,12 @@ void CodeGen::genMarkLabelsForCodegen()
 #endif // DEBUG
 }
 
-void CodeGenInterface::genUpdateLife(GenTree* tree)
+void CodeGen::genUpdateLife(GenTree* node)
 {
-    treeLifeUpdater->UpdateLife(tree);
+    treeLifeUpdater->UpdateLife(this, node);
 }
 
-void CodeGenInterface::genUpdateLife(VARSET_VALARG_TP newLife)
+void CodeGen::genUpdateLife(VARSET_VALARG_TP newLife)
 {
     if (VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
     {
@@ -487,12 +487,12 @@ void CodeGenInterface::genUpdateLife(VARSET_VALARG_TP newLife)
         return;
     }
 
-    compiler->compChangeLife(newLife);
+    compChangeLife(newLife);
 }
 
 // Return the register mask for the given register variable
 // inline
-regMaskTP CodeGenInterface::genGetRegMask(const LclVarDsc* varDsc)
+regMaskTP CodeGen::genGetRegMask(const LclVarDsc* varDsc)
 {
     regMaskTP regMask = RBM_NONE;
 
@@ -511,7 +511,7 @@ regMaskTP CodeGenInterface::genGetRegMask(const LclVarDsc* varDsc)
 
 // Return the register mask for the given lclVar or regVar tree node
 // inline
-regMaskTP CodeGenInterface::genGetRegMask(GenTree* tree)
+regMaskTP CodeGen::genGetRegMask(GenTree* tree)
 {
     assert(tree->gtOper == GT_LCL_VAR);
 
@@ -539,7 +539,7 @@ regMaskTP CodeGenInterface::genGetRegMask(GenTree* tree)
 // It might be both going live and dying (that is, it is a dead store) under MinOpts.
 // Update regSet.GetMaskVars() accordingly.
 // inline
-void CodeGenInterface::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree))
+void CodeGen::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree))
 {
     regMaskTP regMask = genGetRegMask(varDsc);
 
@@ -695,49 +695,49 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
 // Notes:
 //    If "ForCodeGen" is false, only "compCurLife" set (and no mask) will be setted.
 //
-void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
+void CodeGen::compChangeLife(VARSET_VALARG_TP newLife)
 {
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
-        printf("Change life %s ", VarSetOps::ToString(this, compCurLife));
-        dumpConvertedVarSet(this, compCurLife);
-        printf(" -> %s ", VarSetOps::ToString(this, newLife));
-        dumpConvertedVarSet(this, newLife);
+        printf("Change life %s ", VarSetOps::ToString(compiler, compiler->compCurLife));
+        compiler->dmpVarSet("", compiler->compCurLife);
+        printf(" -> %s ", VarSetOps::ToString(compiler, newLife));
+        compiler->dmpVarSet("", newLife);
         printf("\n");
     }
 #endif // DEBUG
 
     /* We should only be called when the live set has actually changed */
 
-    noway_assert(!VarSetOps::Equal(this, compCurLife, newLife));
+    noway_assert(!VarSetOps::Equal(compiler, compiler->compCurLife, newLife));
 
     /* Figure out which variables are becoming live/dead at this point */
 
     // deadSet = compCurLife - newLife
-    VARSET_TP deadSet(VarSetOps::Diff(this, compCurLife, newLife));
+    VARSET_TP deadSet(VarSetOps::Diff(compiler, compiler->compCurLife, newLife));
 
     // bornSet = newLife - compCurLife
-    VARSET_TP bornSet(VarSetOps::Diff(this, newLife, compCurLife));
+    VARSET_TP bornSet(VarSetOps::Diff(compiler, newLife, compiler->compCurLife));
 
     /* Can't simultaneously become live and dead at the same time */
 
     // (deadSet UNION bornSet) != EMPTY
-    noway_assert(!VarSetOps::IsEmptyUnion(this, deadSet, bornSet));
+    noway_assert(!VarSetOps::IsEmptyUnion(compiler, deadSet, bornSet));
     // (deadSet INTERSECTION bornSet) == EMPTY
-    noway_assert(VarSetOps::IsEmptyIntersection(this, deadSet, bornSet));
+    noway_assert(VarSetOps::IsEmptyIntersection(compiler, deadSet, bornSet));
 
-    VarSetOps::Assign(this, compCurLife, newLife);
+    VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
 
     // Handle the dying vars first, then the newly live vars.
     // This is because, in the RyuJIT backend case, they may occupy registers that
     // will be occupied by another var that is newly live.
-    VarSetOps::Iter deadIter(this, deadSet);
+    VarSetOps::Iter deadIter(compiler, deadSet);
     unsigned        deadVarIndex = 0;
     while (deadIter.NextElem(&deadVarIndex))
     {
-        unsigned   varNum     = lvaTrackedIndexToLclNum(deadVarIndex);
-        LclVarDsc* varDsc     = lvaGetDesc(varNum);
+        unsigned   varNum     = compiler->lvaTrackedIndexToLclNum(deadVarIndex);
+        LclVarDsc* varDsc     = compiler->lvaGetDesc(varNum);
         bool       isGCRef    = (varDsc->TypeGet() == TYP_REF);
         bool       isByRef    = (varDsc->TypeGet() == TYP_BYREF);
         bool       isInReg    = varDsc->lvIsInReg();
@@ -750,32 +750,32 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
             regMaskTP regMask = varDsc->lvRegMask();
             if (isGCRef)
             {
-                codeGen->gcInfo.gcRegGCrefSetCur &= ~regMask;
+                gcInfo.gcRegGCrefSetCur &= ~regMask;
             }
             else if (isByRef)
             {
-                codeGen->gcInfo.gcRegByrefSetCur &= ~regMask;
+                gcInfo.gcRegByrefSetCur &= ~regMask;
             }
-            codeGen->genUpdateRegLife(varDsc, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
+            genUpdateRegLife(varDsc, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
         }
         // Update the gcVarPtrSetCur if it is in memory.
         if (isInMemory && (isGCRef || isByRef))
         {
-            VarSetOps::RemoveElemD(this, codeGen->gcInfo.gcVarPtrSetCur, deadVarIndex);
+            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, deadVarIndex);
             JITDUMP("V%02u becoming dead\n", varNum);
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-        codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(varNum);
+        getVariableLiveKeeper()->siEndVariableLiveRange(varNum);
 #endif // USING_VARIABLE_LIVE_RANGE
     }
 
-    VarSetOps::Iter bornIter(this, bornSet);
+    VarSetOps::Iter bornIter(compiler, bornSet);
     unsigned        bornVarIndex = 0;
     while (bornIter.NextElem(&bornVarIndex))
     {
-        unsigned   varNum  = lvaTrackedIndexToLclNum(bornVarIndex);
-        LclVarDsc* varDsc  = lvaGetDesc(varNum);
+        unsigned   varNum  = compiler->lvaTrackedIndexToLclNum(bornVarIndex);
+        LclVarDsc* varDsc  = compiler->lvaGetDesc(varNum);
         bool       isGCRef = (varDsc->TypeGet() == TYP_REF);
         bool       isByRef = (varDsc->TypeGet() == TYP_BYREF);
 
@@ -786,39 +786,39 @@ void Compiler::compChangeLife(VARSET_VALARG_TP newLife)
             if (!varDsc->lvLiveInOutOfHndlr)
             {
 #ifdef DEBUG
-                if (VarSetOps::IsMember(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex))
+                if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, bornVarIndex))
                 {
                     JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
                 }
 #endif // DEBUG
-                VarSetOps::RemoveElemD(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
+                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, bornVarIndex);
             }
-            codeGen->genUpdateRegLife(varDsc, true /*isBorn*/, false /*isDying*/ DEBUGARG(nullptr));
+            genUpdateRegLife(varDsc, true /*isBorn*/, false /*isDying*/ DEBUGARG(nullptr));
             regMaskTP regMask = varDsc->lvRegMask();
             if (isGCRef)
             {
-                codeGen->gcInfo.gcRegGCrefSetCur |= regMask;
+                gcInfo.gcRegGCrefSetCur |= regMask;
             }
             else if (isByRef)
             {
-                codeGen->gcInfo.gcRegByrefSetCur |= regMask;
+                gcInfo.gcRegByrefSetCur |= regMask;
             }
         }
-        else if (lvaIsGCTracked(varDsc))
+        else if (compiler->lvaIsGCTracked(varDsc))
         {
             // This isn't in a register, so update the gcVarPtrSetCur to show that it's live on the stack.
-            VarSetOps::AddElemD(this, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
+            VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, bornVarIndex);
             JITDUMP("V%02u becoming live\n", varNum);
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-        codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(varDsc, varNum);
-#endif // USING_VARIABLE_LIVE_RANGE
+        getVariableLiveKeeper()->siStartVariableLiveRange(varDsc, varNum);
+#endif
     }
 
 #ifdef USING_SCOPE_INFO
-    codeGen->siUpdate();
-#endif // USING_SCOPE_INFO
+    siUpdate();
+#endif
 }
 
 /*****************************************************************************

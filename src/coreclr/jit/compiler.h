@@ -6806,10 +6806,6 @@ public:
 
     VARSET_TP compCurLife; // current live variables
 
-    // Compare the given "newLife" with last set of live variables and update
-    // codeGen "gcInfo", siScopes, "regSet" with the new variable's homes/liveness.
-    void compChangeLife(VARSET_VALARG_TP newLife);
-
     // Gets a register mask that represent the kill set for a helper call since
     // not all JIT Helper calls follow the standard ABI on the target architecture.
     regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);

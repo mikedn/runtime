@@ -8,6 +8,7 @@
 #include "compiler.h" // temporary??
 #include "regset.h"
 #include "jitgcinfo.h"
+#include "treelifeupdater.h"
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
 #define FOREACH_REGISTER_FILE(file)                                                                                    \
@@ -21,6 +22,9 @@ class CodeGen final : public CodeGenInterface
 {
     friend class emitter;
     friend class DisAssembler;
+    friend class CodeGenLivenessUpdater;
+
+    CodeGenLivenessUpdater* treeLifeUpdater;
 
 public:
     CodeGen(Compiler* compiler);
@@ -1064,6 +1068,15 @@ protected:
 #endif // TARGET_ARM64
 
 #endif // FEATURE_HW_INTRINSICS
+
+    void genUpdateLife(GenTree* tree);
+    void genUpdateLife(VARSET_VALARG_TP newLife);
+    void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
+    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex);
+    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree);
+    regMaskTP genGetRegMask(const LclVarDsc* varDsc);
+    regMaskTP genGetRegMask(GenTree* tree);
+    void compChangeLife(VARSET_VALARG_TP newLife);
 
     // Do liveness update for register produced by the current node in codegen after
     // code has been emitted for it.

@@ -18,7 +18,6 @@
 
 #include "jitpch.h"
 #include "ssabuilder.h"
-#include "treelifeupdater.h"
 
 /**************************************************************************************
  *

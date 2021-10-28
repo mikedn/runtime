@@ -1,5 +1,6 @@
 #include "jitpch.h"
 #include "treelifeupdater.h"
+#include "codegen.h"
 
 CodeGenLivenessUpdater::CodeGenLivenessUpdater(Compiler* compiler)
     : compiler(compiler)
@@ -22,7 +23,7 @@ CodeGenLivenessUpdater::CodeGenLivenessUpdater(Compiler* compiler)
 //
 // Returns true iff the variable needs to be spilled.
 //
-bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned regIndex)
+bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar* lclNode, unsigned regIndex)
 {
     assert(lclNode->OperIs(GT_LCL_VAR));
     assert(lclNode->IsMultiReg() && compiler->lvaEnregMultiRegVars);
@@ -45,10 +46,10 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned
         {
             if (isBorn)
             {
-                compiler->codeGen->genUpdateVarReg(lcl, lclNode, regIndex);
+                codeGen->genUpdateVarReg(lcl, lclNode, regIndex);
             }
 
-            compiler->codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
+            codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
         }
 
         VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
@@ -79,39 +80,38 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned
             // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
             // on the stack (i.e. are not always in a register).
 
-            if (isInMemory && VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcTrkStkPtrLcls, index))
+            if (isInMemory && VarSetOps::IsMember(compiler, codeGen->gcInfo.gcTrkStkPtrLcls, index))
             {
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    compiler->dmpVarSet("GCvars: ", compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                    compiler->dmpVarSet("GCvars: ", codeGen->gcInfo.gcVarPtrSetCur);
                 }
 #endif
 
                 if (isBorn)
                 {
-                    VarSetOps::AddElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, index);
+                    VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index);
                 }
                 else
                 {
-                    VarSetOps::RemoveElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, index);
+                    VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index);
                 }
 
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    compiler->dmpVarSet(" => ", compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                    compiler->dmpVarSet(" => ", codeGen->gcInfo.gcVarPtrSetCur);
                     printf("\n");
                 }
 #endif
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-                compiler->codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNum, isBorn,
-                                                                                            isDying);
+                codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNum, isBorn, isDying);
 #endif
 
 #ifdef USING_SCOPE_INFO
-                compiler->codeGen->siUpdate();
+                codeGen->siUpdate();
 #endif
             }
         }
@@ -119,8 +119,8 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned
 
     if (spill)
     {
-        if (VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcTrkStkPtrLcls, index) &&
-            VarSetOps::TryAddElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, index))
+        if (VarSetOps::IsMember(compiler, codeGen->gcInfo.gcTrkStkPtrLcls, index) &&
+            VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index))
         {
             JITDUMP("Var V%02u becoming live\n", lclNum);
         }
@@ -153,7 +153,7 @@ GenTreeLclVar* CodeGenLivenessUpdater::IsLocalAddr(GenTree* addr)
     return addr->OperIs(GT_LCL_VAR_ADDR) ? addr->AsLclVar() : nullptr;
 }
 
-void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
+void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTree* node)
 {
     assert(!node->OperIs(GT_PHI_ARG));
     assert(compiler->GetCurLVEpoch() == epoch);
@@ -227,7 +227,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
 
             if (isBorn && lcl->lvIsRegCandidate() && node->gtHasReg())
             {
-                compiler->codeGen->genUpdateVarReg(lcl, node);
+                codeGen->genUpdateVarReg(lcl, node);
             }
 
             bool isInReg    = lcl->lvIsInReg() && (node->GetRegNum() != REG_NA);
@@ -235,7 +235,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
 
             if (isInReg)
             {
-                compiler->codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(node));
+                codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(node));
             }
 
             if (isInMemory)
@@ -270,10 +270,10 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
                 {
                     if (isBorn)
                     {
-                        compiler->codeGen->genUpdateVarReg(fieldLcl, node, i);
+                        codeGen->genUpdateVarReg(fieldLcl, node, i);
                     }
 
-                    compiler->codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(node));
+                    codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(node));
 
                     // If this was marked for spill, genProduceReg should already have spilled it.
                     assert(!isFieldSpilled);
@@ -363,7 +363,7 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
             // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack,
             // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
             // on the stack (i.e. are not always in a register).
-            VarSetOps::Assign(compiler, gcTrkStkDeltaSet, compiler->codeGen->gcInfo.gcTrkStkPtrLcls);
+            VarSetOps::Assign(compiler, gcTrkStkDeltaSet, codeGen->gcInfo.gcTrkStkPtrLcls);
             VarSetOps::IntersectionD(compiler, gcTrkStkDeltaSet, stackVarDeltaSet);
 
             if (!VarSetOps::IsEmpty(compiler, gcTrkStkDeltaSet))
@@ -371,45 +371,46 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    compiler->dmpVarSet("GCvars: ", compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                    compiler->dmpVarSet("GCvars: ", codeGen->gcInfo.gcVarPtrSetCur);
                 }
 #endif
 
                 if (isBorn)
                 {
-                    VarSetOps::UnionD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
+                    VarSetOps::UnionD(compiler, codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
                 }
                 else
                 {
-                    VarSetOps::DiffD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
+                    VarSetOps::DiffD(compiler, codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
                 }
 
 #ifdef DEBUG
                 if (compiler->verbose)
                 {
-                    compiler->dmpVarSet(" => ", compiler->codeGen->gcInfo.gcVarPtrSetCur);
+                    compiler->dmpVarSet(" => ", codeGen->gcInfo.gcVarPtrSetCur);
                     printf("\n");
                 }
 #endif
             }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-            compiler->codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRanges(varDeltaSet, isBorn, isDying);
+            codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRanges(varDeltaSet, isBorn, isDying);
 #endif
 
 #ifdef USING_SCOPE_INFO
-            compiler->codeGen->siUpdate();
+            codeGen->siUpdate();
 #endif
         }
     }
 
     if (spill)
     {
-        assert(!lcl->lvPromoted);
-        compiler->codeGen->genSpillVar(node->AsLclVar());
+        assert(!lcl->IsPromoted());
 
-        if (VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcTrkStkPtrLcls, lcl->lvVarIndex) &&
-            VarSetOps::TryAddElemD(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))
+        codeGen->genSpillVar(node->AsLclVar());
+
+        if (VarSetOps::IsMember(compiler, codeGen->gcInfo.gcTrkStkPtrLcls, lcl->lvVarIndex) &&
+            VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))
         {
             JITDUMP("Var V%02u becoming live\n", lcl - compiler->lvaTable);
         }
