@@ -75,12 +75,11 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned
 
             VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
 
-            // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack, since the
-            // gcInfo.gcTrkStkPtrLcls
-            // includes all TRACKED vars that EVER live on the stack (i.e. are not always in a register).
-            VarSetOps::Assign(compiler, gcTrkStkDeltaSet, compiler->codeGen->gcInfo.gcTrkStkPtrLcls);
+            // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack,
+            // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
+            // on the stack (i.e. are not always in a register).
 
-            if (isInMemory && VarSetOps::IsMember(compiler, gcTrkStkDeltaSet, index))
+            if (isInMemory && VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcTrkStkPtrLcls, index))
             {
 #ifdef DEBUG
                 if (compiler->verbose)
@@ -361,9 +360,9 @@ void CodeGenLivenessUpdater::UpdateLife(GenTree* node)
 
             VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
 
-            // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack, since the
-            // gcInfo.gcTrkStkPtrLcls
-            // includes all TRACKED vars that EVER live on the stack (i.e. are not always in a register).
+            // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack,
+            // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
+            // on the stack (i.e. are not always in a register).
             VarSetOps::Assign(compiler, gcTrkStkDeltaSet, compiler->codeGen->gcInfo.gcTrkStkPtrLcls);
             VarSetOps::IntersectionD(compiler, gcTrkStkDeltaSet, stackVarDeltaSet);
 
