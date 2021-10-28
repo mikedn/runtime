@@ -391,8 +391,6 @@ void CodeGen::genCodeForBBlist()
         }
 #endif // FEATURE_EH_FUNCLETS
 
-        compiler->compCurStmt = nullptr;
-
         treeLifeUpdater->BeginBlock();
 
         // Traverse the block in linear order, generating code for each node as we
