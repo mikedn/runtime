@@ -383,7 +383,37 @@ void Compiler::optCopyProp(BasicBlock*              block,
         {
             continue;
         }
-        ValueNum opVN = GetUseAsgDefVNOrTreeVN(op);
+
+        unsigned newSsaNum = SsaConfig::RESERVED_SSA_NUM;
+        ValueNum opVN;
+
+        if ((op->gtFlags & GTF_VAR_DEF) != 0)
+        {
+            newSsaNum = GetSsaNumForLocalVarDef(op);
+
+            // TODO-MIKE-CQ: The VN should always be obtained from the local SSA data, not from the node.
+            // Def nodes don't need a VN since they don't produce a value and there actually are some
+            // that don't have a VN (PHI defs apparently) and unnecessarily block copy propagation.
+            if ((op->gtFlags & GTF_VAR_USEASG) != 0)
+            {
+                opVN = lvaTable[newLclNum].GetPerSsaData(newSsaNum)->m_vnPair.GetConservative();
+            }
+            else
+            {
+                opVN = op->gtVNPair.GetConservative();
+            }
+        }
+        else // parameters, this pointer etc.
+        {
+            newSsaNum = op->AsLclVarCommon()->GetSsaNum();
+            opVN      = op->gtVNPair.GetConservative();
+        }
+
+        if (newSsaNum == SsaConfig::RESERVED_SSA_NUM)
+        {
+            continue;
+        }
+
         if (opVN == ValueNumStore::NoVN)
         {
             continue;
@@ -426,20 +456,6 @@ void Compiler::optCopyProp(BasicBlock*              block,
             {
                 continue;
             }
-        }
-        unsigned newSsaNum = SsaConfig::RESERVED_SSA_NUM;
-        if (op->gtFlags & GTF_VAR_DEF)
-        {
-            newSsaNum = GetSsaNumForLocalVarDef(op);
-        }
-        else // parameters, this pointer etc.
-        {
-            newSsaNum = op->AsLclVarCommon()->GetSsaNum();
-        }
-
-        if (newSsaNum == SsaConfig::RESERVED_SSA_NUM)
-        {
-            continue;
         }
 
 #ifdef DEBUG
