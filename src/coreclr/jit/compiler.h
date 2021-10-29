@@ -985,8 +985,6 @@ public:
         return GetRegisterType() != TYP_UNDEF;
     }
 
-    bool CanBeReplacedWithItsField(Compiler* comp) const;
-
 #ifdef DEBUG
 public:
     const char* lvReason;

@@ -2753,42 +2753,6 @@ var_types LclVarDsc::GetActualRegisterType() const
     return genActualType(GetRegisterType());
 }
 
-//----------------------------------------------------------------------------------------------
-// CanBeReplacedWithItsField: check if a whole struct reference could be replaced by a field.
-//
-// Arguments:
-//    comp - the compiler instance;
-//
-// Return Value:
-//    true if that can be replaced, false otherwise.
-//
-// Notes:
-//    The replacement can be made only for independently promoted structs
-//    with 1 field without holes.
-//
-bool LclVarDsc::CanBeReplacedWithItsField(Compiler* comp) const
-{
-    if (!IsIndependentPromoted() || (lvFieldCnt != 1))
-    {
-        return false;
-    }
-
-    assert(!lvContainsHoles);
-
-#if defined(FEATURE_SIMD)
-    // If we return `struct A { SIMD16 a; }` we split the struct into several fields.
-    // In order to do that we have to have its field `a` in memory. Right now lowering cannot
-    // handle RETURN struct(multiple registers)->SIMD16(one register), but it can be improved.
-    LclVarDsc* fieldDsc = comp->lvaGetDesc(lvFieldLclStart);
-    if (varTypeIsSIMD(fieldDsc))
-    {
-        return false;
-    }
-#endif // FEATURE_SIMD
-
-    unreached();
-}
-
 //------------------------------------------------------------------------
 // lvaMarkLclRefs: increment local var references counts and more
 //

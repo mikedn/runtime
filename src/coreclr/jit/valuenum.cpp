@@ -7137,15 +7137,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
             case GT_LCL_VAR:
             {
-                GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
-                unsigned             lclNum = lcl->GetLclNum();
-                LclVarDsc*           varDsc = &lvaTable[lclNum];
-
-                if (varDsc->CanBeReplacedWithItsField(this))
-                {
-                    lclNum = varDsc->lvFieldLclStart;
-                    varDsc = &lvaTable[lclNum];
-                }
+                GenTreeLclVarCommon* lcl = tree->AsLclVarCommon();
 
                 if ((lcl->gtFlags & GTF_VAR_DEF) == 0)
                 {
@@ -7158,6 +7150,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         GetZeroOffsetFieldMap()->Lookup(tree, &zeroOffsetFldSeq);
                     }
 
+                    unsigned   lclNum = lcl->GetLclNum();
+                    LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
+                    // TODO-MIKE-Review: This is dubious.
                     if (varDsc->lvPromoted && varDsc->lvFieldCnt == 1)
                     {
                         // If the promoted var has only one field var, treat like a use of the field var.

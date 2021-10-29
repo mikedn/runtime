@@ -439,32 +439,14 @@ void Compiler::optCopyProp(BasicBlock*              block,
     }
 }
 
-//------------------------------------------------------------------------------
-// optIsSsaLocal : helper to check if the tree is a local that participates in SSA numbering.
-//
-// Arguments:
-//    tree        -  The tree to perform the check on;
-//
-// Returns:
-//    - lclNum if the local is participating in SSA;
-//    - fieldLclNum if the parent local can be replaced by its only field;
-//    - BAD_VAR_NUM otherwise.
-//
 unsigned Compiler::optIsSsaLocal(GenTree* tree)
 {
-    if (!tree->IsLocal())
+    if (!tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         return BAD_VAR_NUM;
     }
 
-    GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
-    unsigned             lclNum  = lclNode->GetLclNum();
-    LclVarDsc*           varDsc  = lvaGetDesc(lclNum);
-
-    if (!lvaInSsa(lclNum) && varDsc->CanBeReplacedWithItsField(this))
-    {
-        lclNum = varDsc->lvFieldLclStart;
-    }
+    unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
 
     if (!lvaInSsa(lclNum))
     {

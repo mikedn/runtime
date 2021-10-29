@@ -449,12 +449,7 @@ LclSsaVarDsc* RangeCheck::GetSsaDefAsg(GenTreeLclVarCommon* lclUse)
         return nullptr;
     }
 
-    LclVarDsc* varDsc = m_pCompiler->lvaGetDesc(lclUse);
-    if (varDsc->CanBeReplacedWithItsField(m_pCompiler))
-    {
-        varDsc = m_pCompiler->lvaGetDesc(varDsc->lvFieldLclStart);
-    }
-    LclSsaVarDsc* ssaDef = varDsc->GetPerSsaData(ssaNum);
+    LclSsaVarDsc* ssaDef = m_pCompiler->lvaGetSsaDesc(lclUse);
 
     // RangeCheck does not care about uninitialized variables.
     if (ssaDef->GetAssignment() == nullptr)
@@ -482,11 +477,6 @@ LclSsaVarDsc* RangeCheck::GetSsaDefAsg(GenTreeLclVarCommon* lclUse)
 #ifdef DEBUG
 UINT64 RangeCheck::HashCode(unsigned lclNum, unsigned ssaNum)
 {
-    LclVarDsc* varDsc = m_pCompiler->lvaGetDesc(lclNum);
-    if (varDsc->CanBeReplacedWithItsField(m_pCompiler))
-    {
-        lclNum = varDsc->lvFieldLclStart;
-    }
     assert(ssaNum != SsaConfig::RESERVED_SSA_NUM);
     return UINT64(lclNum) << 32 | ssaNum;
 }
@@ -553,12 +543,7 @@ void RangeCheck::MergeEdgeAssertions(GenTreeLclVarCommon* lcl, ASSERT_VALARG_TP 
         return;
     }
 
-    LclVarDsc* varDsc = m_pCompiler->lvaGetDesc(lcl);
-    if (varDsc->CanBeReplacedWithItsField(m_pCompiler))
-    {
-        varDsc = m_pCompiler->lvaGetDesc(varDsc->lvFieldLclStart);
-    }
-    LclSsaVarDsc* ssaData     = varDsc->GetPerSsaData(lcl->GetSsaNum());
+    LclSsaVarDsc* ssaData     = m_pCompiler->lvaGetSsaDesc(lcl);
     ValueNum      normalLclVN = m_pCompiler->vnStore->VNConservativeNormalValue(ssaData->m_vnPair);
     MergeEdgeAssertions(normalLclVN, assertions, pRange);
 }

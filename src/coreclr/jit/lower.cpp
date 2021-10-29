@@ -2678,16 +2678,7 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_LCL_VAR));
     assert(!lclVar->IsMultiReg());
-
-#ifdef DEBUG
-    LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
-
-    if (lcl->IsIndependentPromoted())
-    {
-        LIR::Use use;
-        assert(BlockRange().TryGetUse(lclVar, &use) && use.User()->OperIs(GT_RETURN));
-    }
-#endif
+    assert(!comp->lvaGetDesc(lclVar)->IsIndependentPromoted());
 }
 
 void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
@@ -2718,29 +2709,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
     }
 #endif
 
-    if (!store->IsMultiReg() && varTypeIsStruct(lcl->GetType()))
-    {
-        // TODO-Cleanup: we want to check `lcl->lvRegStruct` as the last condition instead of `!paramLcl->lvPromoted`,
-        // but we do not set it for `CSE` vars so it is currently failing.
-        assert(lcl->CanBeReplacedWithItsField(comp) || lcl->lvDoNotEnregister || !lcl->IsPromoted());
-
-        if (lcl->CanBeReplacedWithItsField(comp))
-        {
-            assert(lcl->GetPromotedFieldCount() == 1);
-
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-            LclVarDsc* fieldLcl    = comp->lvaGetDesc(fieldLclNum);
-
-            JITDUMP("Replacing an independently promoted local var V%02u with its only field V%02u for the store "
-                    "from a call [%06u]\n",
-                    store->GetLclNum(), fieldLclNum, comp->dspTreeID(store));
-
-            store->SetLclNum(fieldLclNum);
-            store->SetType(fieldLcl->GetType());
-
-            lcl = fieldLcl;
-        }
-    }
+    assert(!lcl->IsIndependentPromoted() || store->IsMultiReg());
 
     if (!src->TypeIs(TYP_STRUCT) && (varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(src->GetType())))
     {
@@ -3066,25 +3035,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     unsigned   lclNum = lclVar->GetLclNum();
     LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
-    if (lcl->CanBeReplacedWithItsField(comp))
-    {
-        // We can replace the struct with its only field and keep the field in a register.
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-        LclVarDsc* fieldLcl    = comp->lvaGetDesc(fieldLclNum);
-
-        // For a non-small type it had to be done in morph.
-        assert(varTypeIsSmallInt(fieldLcl->GetType()));
-
-        JITDUMP("Replacing an independently promoted local var V%02u with its only field V%02u for the return [%06u]\n",
-                lclNum, fieldLclNum, comp->dspTreeID(ret));
-
-        lclVar->SetLclNum(fieldLclNum);
-        lclVar->SetType(fieldLcl->GetType());
-
-        lclNum = fieldLclNum;
-        lcl    = comp->lvaGetDesc(fieldLclNum);
-    }
-    else if (!lcl->lvRegStruct && !varTypeIsEnregisterable(lcl->GetType()))
+    if (!lcl->lvRegStruct && !varTypeIsEnregisterable(lcl->GetType()))
     {
         // TODO-1stClassStructs: We can no longer promote or enregister this struct,
         // since it is referenced as a whole.

@@ -9083,16 +9083,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 asg->gtOp1 = lclVar;
             }
         }
-
-        if (dest->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* varDsc = lvaGetDesc(dest->AsLclVar());
-            if (varTypeIsStruct(varDsc) && varDsc->CanBeReplacedWithItsField(this))
-            {
-                JITDUMP(" not morphing a single reg call return\n");
-                return asg;
-            }
-        }
     }
 
     // If the destination is an array element then we need to wrap it in an OBJ node.
