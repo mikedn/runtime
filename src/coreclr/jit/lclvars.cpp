@@ -2977,7 +2977,6 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
                 // If we have one of these cases:
                 //     1.    We have already seen a definition (i.e lvSingleDef is true)
                 //     2. or info.CompInitMem is true (thus this would be the second definition)
-                //     3. or we have an assignment inside QMARK-COLON trees
                 //     4. or we have an update form of assignment (i.e. +=, -=, *=)
                 //     5. the user is not ASG, optAddCopiesCallback does not recognize indirect
                 //        local definitions (e.g. BLK(ADDR(LCL_VAR)))
@@ -2986,8 +2985,8 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
                 //
                 // Note that all parameters start out with lvSingleDef set to true
 
-                if (varDsc->lvSingleDef || info.compInitMem || ((tree->gtFlags & GTF_COLON_COND) != 0) ||
-                    ((tree->gtFlags & GTF_VAR_USEASG) != 0) || !user->OperIs(GT_ASG))
+                if (varDsc->lvSingleDef || info.compInitMem || ((tree->gtFlags & GTF_VAR_USEASG) != 0) ||
+                    !user->OperIs(GT_ASG))
                 {
                     varDsc->lvaDisqualifyVar();
                 }
