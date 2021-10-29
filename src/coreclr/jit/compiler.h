@@ -5662,7 +5662,8 @@ public:
     // Copy propagation functions.
     void optCopyProp(BasicBlock*                    block,
                      Statement*                     stmt,
-                     GenTree*                       tree,
+                     GenTreeLclVar*                 tree,
+                     unsigned                       lclNum,
                      LclNumToGenTreePtrStack*       curSsaName,
                      class CopyPropLivenessUpdater& liveness);
     void optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
