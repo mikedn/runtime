@@ -2911,9 +2911,14 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 
     if (tree->OperIsLocalAddr())
     {
-        LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVarCommon());
-        assert(varDsc->lvAddrExposed);
-        varDsc->incRefCnts(weight, this);
+        LclVarDsc* lcl = lvaGetDesc(tree->AsLclVarCommon());
+        assert(lcl->IsAddressExposed());
+
+#if ASSERTION_PROP
+        lcl->lvaDisqualifyVar();
+#endif
+        lcl->incRefCnts(weight, this);
+
         return;
     }
 
@@ -2947,9 +2952,12 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 
     if (!isRecompute)
     {
-        if (lvaVarAddrExposed(lclNum))
+        if (varDsc->IsAddressExposed())
         {
             varDsc->lvIsBoolean = false;
+#if ASSERTION_PROP
+            varDsc->lvaDisqualifyVar();
+#endif
         }
 
         if (tree->gtOper == GT_LCL_FLD)
