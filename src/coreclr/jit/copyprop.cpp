@@ -444,19 +444,11 @@ void Compiler::optCopyProp(BasicBlock*              block,
         // node x2 = phi(x0, x1) which can then be used to substitute 'c' with. But because of pruning
         // there would be no such phi node. To solve this we'll check if 'x' is live, before replacing
         // 'c' with 'x.'
-        if (!newLcl->lvIsThisPtr)
+        // Because of this dependence on live variable analysis, CopyProp phase is immediately
+        // after Liveness, SSA and VN.
+        if (!newLcl->lvIsThisPtr && !VarSetOps::IsMember(this, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
         {
-            if (!newLcl->HasLiveness())
-            {
-                continue;
-            }
-
-            // Because of this dependence on live variable analysis, CopyProp phase is immediately
-            // after Liveness, SSA and VN.
-            if (!VarSetOps::IsMember(this, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
-            {
-                continue;
-            }
+            continue;
         }
 
 #ifdef DEBUG
@@ -473,17 +465,11 @@ void Compiler::optCopyProp(BasicBlock*              block,
 
         tree->AsLclVarCommon()->SetLclNum(newLclNum);
         tree->AsLclVarCommon()->SetSsaNum(newSsaNum);
-        gtUpdateSideEffects(stmt, tree);
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("copy propagated to:\n");
-            gtDispTree(tree, nullptr, nullptr, true);
-        }
-#endif
+
+        JITDUMPTREE(tree, "copy propagated to:\n");
+
         break;
     }
-    return;
 }
 
 //------------------------------------------------------------------------------
