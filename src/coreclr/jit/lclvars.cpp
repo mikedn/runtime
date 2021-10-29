@@ -2977,16 +2977,14 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
                 // If we have one of these cases:
                 //     1.    We have already seen a definition (i.e lvSingleDef is true)
                 //     2. or info.CompInitMem is true (thus this would be the second definition)
-                //     4. or we have an update form of assignment (i.e. +=, -=, *=)
-                //     5. the user is not ASG, optAddCopiesCallback does not recognize indirect
+                //     3. the user is not ASG, optAddCopiesCallback does not recognize indirect
                 //        local definitions (e.g. BLK(ADDR(LCL_VAR)))
                 //
                 // Then we must disqualify this variable for use in optAddCopies()
                 //
                 // Note that all parameters start out with lvSingleDef set to true
 
-                if (varDsc->lvSingleDef || info.compInitMem || ((tree->gtFlags & GTF_VAR_USEASG) != 0) ||
-                    !user->OperIs(GT_ASG))
+                if (varDsc->lvSingleDef || info.compInitMem || !user->OperIs(GT_ASG))
                 {
                     varDsc->lvaDisqualifyVar();
                 }
