@@ -8504,12 +8504,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     --msgLength;
                     break;
                 }
-                if (tree->gtFlags & GTF_VAR_CAST)
-                {
-                    printf("C");
-                    --msgLength;
-                    break;
-                }
                 if (tree->gtFlags & GTF_VAR_CONTEXT)
                 {
                     printf("!");

@@ -5007,7 +5007,6 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 {
                     tree->SetType(genSignedType(dstt));
                     tree->SetVNs(vnpNarrow);
-                    tree->gtFlags |= GTF_VAR_CAST;
                 }
 
                 return true;
@@ -5163,12 +5162,6 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 {
                     tree->gtType = genSignedType(dstt);
                     tree->SetVNs(vnpNarrow);
-
-                    /* Make sure we don't mess up the variable type */
-                    if ((oper == GT_LCL_VAR) || (oper == GT_LCL_FLD))
-                    {
-                        tree->gtFlags |= GTF_VAR_CAST;
-                    }
                 }
 
                 return true;

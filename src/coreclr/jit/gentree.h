@@ -523,7 +523,6 @@ enum GenTreeFlags : unsigned int
 
     GTF_LIVENESS_MASK   = GTF_VAR_DEF | GTF_VAR_USEASG | GTF_VAR_DEATH_MASK,
 
-    GTF_VAR_CAST        = 0x01000000, // GT_LCL_VAR -- has been explictly cast (variable node may not be type of local)
     GTF_VAR_ITERATOR    = 0x00800000, // GT_LCL_VAR -- this is a iterator reference in the loop condition
     GTF_VAR_CLONED      = 0x00400000, // GT_LCL_VAR -- this node has been cloned or is a clone
     GTF_VAR_CONTEXT     = 0x00200000, // GT_LCL_VAR -- this node is part of a runtime lookup

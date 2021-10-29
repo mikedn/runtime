@@ -312,21 +312,16 @@ void Compiler::optCopyProp(BasicBlock*              block,
         return;
     }
 
-    // If not local nothing to do.
-    if (!tree->IsLocal())
-    {
-        return;
-    }
-    if (tree->OperGet() == GT_PHI_ARG || tree->OperGet() == GT_LCL_FLD)
+    if (!tree->OperIs(GT_LCL_VAR))
     {
         return;
     }
 
-    // Propagate only on uses.
     if (tree->gtFlags & GTF_VAR_DEF)
     {
         return;
     }
+
     const unsigned lclNum = optIsSsaLocal(tree);
 
     // Skip non-SSA variables.
@@ -336,6 +331,8 @@ void Compiler::optCopyProp(BasicBlock*              block,
     }
 
     assert(tree->gtVNPair.GetConservative() != ValueNumStore::NoVN);
+
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
     for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName->Begin(); !iter.Equal(curSsaName->End()); ++iter)
     {
@@ -349,9 +346,26 @@ void Compiler::optCopyProp(BasicBlock*              block,
             continue;
         }
 
+        if (op->GetType() != tree->GetType())
+        {
+            continue;
+        }
+
+        LclVarDsc* newLcl = lvaGetDesc(newLclNum);
+
+        // TODO-MIKE-Review: This shouldn't be needed, it mostly exists to reject the case
+        // of LONG locals accessed via INT LCL_VAR nodes. Thing is, if the two nodes have
+        // the same type and the same VN then the local type should not matter. Removing
+        // this produces no diffs so it can stay for now, at least because VN can't be
+        // trusted when it comes to this kind of implicit casting.
+        if (varActualType(op->GetType()) != varActualType(newLcl->GetType()))
+        {
+            continue;
+        }
+
         // Skip variables with assignments embedded in the statement (i.e., with a comma). Because we
         // are not currently updating their SSA names as live in the copy-prop pass of the stmt.
-        if (VarSetOps::IsMember(this, liveness.GetKillSet(), lvaTable[newLclNum].lvVarIndex))
+        if (VarSetOps::IsMember(this, liveness.GetKillSet(), newLcl->GetLivenessBitIndex()))
         {
             continue;
         }
@@ -362,24 +376,12 @@ void Compiler::optCopyProp(BasicBlock*              block,
         // However, in addition, it may not be profitable to propagate a 'doNotEnregister' lclVar to an
         // existing use of an enregisterable lclVar.
 
-        if (lvaTable[lclNum].lvDoNotEnregister != lvaTable[newLclNum].lvDoNotEnregister)
+        if (lcl->lvDoNotEnregister != newLcl->lvDoNotEnregister)
         {
             continue;
         }
 
-        // TODO-MIKE-Cleanup: This is the only use of GTF_VAR_CAST and it's pointless. We can simply
-        // check here if the LCL_VAR and local have different types instead of checking the flag.
-        // Note that GTF_VAR_CAST can only appear on uses and the only reason why it may appear here
-        // is that optBlockCopyProp is pushing param uses as if they're definitions. And then that
-        // shouldn't really matter except that the code below is getting the VN from the op node
-        // instead of getting it from the SSA definition.
-        if ((op->gtFlags & GTF_VAR_CAST) != 0)
-        {
-            continue;
-        }
-
-        if (gsShadowVarInfo != nullptr && lvaTable[newLclNum].lvIsParam &&
-            gsShadowVarInfo[newLclNum].shadowLclNum == lclNum)
+        if ((gsShadowVarInfo != nullptr) && newLcl->IsParam() && (gsShadowVarInfo[newLclNum].shadowLclNum == lclNum))
         {
             continue;
         }
@@ -396,7 +398,7 @@ void Compiler::optCopyProp(BasicBlock*              block,
             // that don't have a VN (PHI defs apparently) and unnecessarily block copy propagation.
             if ((op->gtFlags & GTF_VAR_USEASG) != 0)
             {
-                opVN = lvaTable[newLclNum].GetPerSsaData(newSsaNum)->m_vnPair.GetConservative();
+                opVN = newLcl->GetPerSsaData(newSsaNum)->m_vnPair.GetConservative();
             }
             else
             {
@@ -418,18 +420,17 @@ void Compiler::optCopyProp(BasicBlock*              block,
         {
             continue;
         }
-        if (op->TypeGet() != tree->TypeGet())
-        {
-            continue;
-        }
+
         if (opVN != tree->gtVNPair.GetConservative())
         {
             continue;
         }
-        if (optCopyProp_LclVarScore(&lvaTable[lclNum], &lvaTable[newLclNum], true) <= 0)
+
+        if (optCopyProp_LclVarScore(lcl, newLcl, true) <= 0)
         {
             continue;
         }
+
         // Check whether the newLclNum is live before being substituted. Otherwise, we could end
         // up in a situation where there must've been a phi node that got pruned because the variable
         // is not live anymore. For example,
@@ -443,16 +444,16 @@ void Compiler::optCopyProp(BasicBlock*              block,
         // node x2 = phi(x0, x1) which can then be used to substitute 'c' with. But because of pruning
         // there would be no such phi node. To solve this we'll check if 'x' is live, before replacing
         // 'c' with 'x.'
-        if (!lvaTable[newLclNum].lvIsThisPtr)
+        if (!newLcl->lvIsThisPtr)
         {
-            if (!lvaTable[newLclNum].HasLiveness())
+            if (!newLcl->HasLiveness())
             {
                 continue;
             }
 
             // Because of this dependence on live variable analysis, CopyProp phase is immediately
             // after Liveness, SSA and VN.
-            if (!VarSetOps::IsMember(this, liveness.GetLiveSet(), lvaTable[newLclNum].lvVarIndex))
+            if (!VarSetOps::IsMember(this, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
             {
                 continue;
             }
