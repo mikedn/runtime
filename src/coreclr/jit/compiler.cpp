@@ -4033,8 +4033,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     fgDebugCheckLinks();
 #endif
 
-    // Create the variable table (and compute variable ref counts)
-    //
     DoPhase(this, PHASE_MARK_LOCAL_VARS, &Compiler::lvaMarkLocalVars);
 
     // IMPORTANT, after this point, locals are ref counted.
@@ -4043,8 +4041,11 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     if (opts.OptimizationEnabled())
     {
-        // Optimize boolean conditions
-        //
+#if ASSERTION_PROP
+        // optAddCopies depends on lvaRefBlks, which is set in lvaMarkLocalVars.
+        DoPhase(this, PHASE_ADD_COPIES, &Compiler::optAddCopies);
+#endif
+
         DoPhase(this, PHASE_OPTIMIZE_BOOLS, &Compiler::optOptimizeBools);
 
         // optOptimizeBools() might have changed the number of blocks; the dominators/reachability might be bad.

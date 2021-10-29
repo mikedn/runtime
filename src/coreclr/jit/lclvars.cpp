@@ -3251,13 +3251,6 @@ void Compiler::lvaMarkLocalVars()
         assert(info.compTypeCtxtArg != (int)BAD_VAR_NUM);
         lvaGetDesc(info.compTypeCtxtArg)->lvImplicitlyReferenced = reportParamTypeArg;
     }
-
-#if ASSERTION_PROP
-    assert(opts.OptimizationEnabled());
-
-    // Note: optAddCopies() depends on lvaRefBlks, which is set in lvaMarkLocalVars(BasicBlock*), called above.
-    optAddCopies();
-#endif
 }
 
 //------------------------------------------------------------------------
