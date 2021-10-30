@@ -390,48 +390,6 @@ public:
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range*>      RangeMap;
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*> SearchPath;
 
-#ifdef DEBUG
-    // TODO-Cleanup: This code has been kept around just to ensure that the SSA data is still
-    // valid when RangeCheck runs. It should be removed at some point (and perhaps replaced
-    // by a proper SSA validity checker).
-
-    // Location information is used to map where the defs occur in the method.
-    struct Location
-    {
-        BasicBlock*          block;
-        Statement*           stmt;
-        GenTreeLclVarCommon* tree;
-        GenTree*             parent;
-        Location(BasicBlock* block, Statement* stmt, GenTreeLclVarCommon* tree, GenTree* parent)
-            : block(block), stmt(stmt), tree(tree), parent(parent)
-        {
-        }
-
-    private:
-        Location();
-    };
-
-    typedef JitHashTable<INT64, JitLargePrimitiveKeyFuncs<INT64>, Location*> VarToLocMap;
-
-    // Generate a hashcode unique for this ssa var.
-    UINT64 HashCode(unsigned lclNum, unsigned ssaNum);
-
-    // Add a location of the definition of ssa var to the location map.
-    // Requires "hash" to be computed using HashCode.
-    // Requires "location" to be the local definition.
-    void SetDef(UINT64 hash, Location* loc);
-
-    // Given a tree node that is a local, return the Location defining the local.
-    Location* GetDef(GenTreeLclVarCommon* lcl);
-    Location* GetDef(unsigned lclNum, unsigned ssaNum);
-
-    // Given a statement, check if it is a def and add its locations in a map.
-    void MapStmtDefs(const Location& loc);
-
-    // Given the CFG, check if it has defs and add their locations in a map.
-    void MapMethodDefs();
-#endif
-
     int GetArrLength(ValueNum vn);
 
     // Check whether the computed range is within 0 and upper bounds. This function
@@ -531,11 +489,6 @@ private:
     RangeMap* m_pRangeMap;
 
     SearchPath* m_pSearchPath;
-
-#ifdef DEBUG
-    bool         m_fMappedDefs;
-    VarToLocMap* m_pDefTable;
-#endif
 
     Compiler*     m_pCompiler;
     CompAllocator m_alloc;
