@@ -1067,6 +1067,11 @@ public:
         gtVNPair = tree->gtVNPair;
     }
 
+    void SetVNP(ValueNumPair vnp)
+    {
+        gtVNPair = vnp;
+    }
+
     ValueNum GetVN(ValueNumKind vnk) const
     {
         if (vnk == VNK_Liberal)

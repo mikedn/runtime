@@ -420,6 +420,11 @@ public:
         return lvAddrExposed;
     }
 
+    bool IsInSsa() const
+    {
+        return lvInSsa;
+    }
+
 #if OPT_BOOL_OPS
     unsigned char lvIsBoolean : 1; // set if variable is boolean
 #endif

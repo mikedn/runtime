@@ -7476,124 +7476,69 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             switch (lhs->GetOper())
             {
                 case GT_LCL_VAR:
+                case GT_LCL_FLD:
                 {
-                    GenTreeLclVarCommon* lcl          = lhs->AsLclVarCommon();
-                    unsigned             lclDefSsaNum = GetSsaNumForLocalVarDef(lcl);
-
-                    // Should not have been recorded as updating the GC heap.
                     assert(!GetMemorySsaMap(GcHeap)->Lookup(tree, &memorySsaNum));
 
-                    if (lclDefSsaNum != SsaConfig::RESERVED_SSA_NUM)
+                    GenTreeLclVarCommon* lclNode = lhs->AsLclVarCommon();
+                    LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+
+                    if (lcl->IsAddressExposed())
                     {
-                        // Should not have been recorded as updating ByrefExposed mem.
+                        fgMutateAddressExposedLocal(tree);
+                    }
+                    else if (lcl->IsInSsa())
+                    {
                         assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree, &memorySsaNum));
 
-                        assert(rhsVNPair.GetLiberal() != ValueNumStore::NoVN);
+                        ValueNumPair vnp;
 
-                        lhs->gtVNPair                                                    = rhsVNPair;
-                        lvaTable[lcl->GetLclNum()].GetPerSsaData(lclDefSsaNum)->m_vnPair = rhsVNPair;
+                        if (lhs->OperIs(GT_LCL_VAR))
+                        {
+                            vnp = rhsVNPair;
+                        }
+                        else if ((lclNode->AsLclFld()->GetFieldSeq() == nullptr) ||
+                                 (lclNode->AsLclFld()->GetFieldSeq() == FieldSeqNode::NotAField()))
+                        {
+                            vnp.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+                        }
+                        else
+                        {
+                            if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
+                            {
+                                assert(!lclNode->IsPartialLclFld(this));
+                                vnp.SetBoth(ValueNumStore::VNForZeroMap());
+                            }
+                            else
+                            {
+                                vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
+                            }
+
+                            vnp = vnStore->VNPairApplySelectorsAssign(vnp, lclNode->AsLclFld()->GetFieldSeq(),
+                                                                      rhsVNPair, lclNode->GetType(), compCurBB);
+                        }
+
+                        // TODO-MIKE-Cleanup: LCL_VAR should never have GTF_VAR_USEASG.
+                        unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclNode);
+
+                        lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(vnp);
+                        lhs->SetVNP(vnp);
 
 #ifdef DEBUG
                         if (verbose)
                         {
-                            printf("N%03u ", lhs->gtSeqNum);
-                            Compiler::printTreeID(lhs);
-                            printf(" ");
+                            printf("N%03u [%06d] ", lhs->gtSeqNum, lhs->GetID());
                             gtDispNodeName(lhs);
                             gtDispLeaf(lhs, nullptr);
                             printf(" => ");
-                            vnpPrint(lhs->gtVNPair, 1);
+                            vnpPrint(vnp, 1);
                             printf("\n");
                         }
 #endif // DEBUG
                     }
-                    else if (lvaVarAddrExposed(lcl->GetLclNum()))
-                    {
-                        fgMutateAddressExposedLocal(tree);
-                    }
-#ifdef DEBUG
-                    else
-                    {
-                        if (verbose)
-                        {
-                            JITDUMP("Tree ");
-                            Compiler::printTreeID(tree);
-                            printf(" assigns to non-address-taken local var V%02u; excluded from SSA, so value not "
-                                   "tracked.\n",
-                                   lcl->GetLclNum());
-                        }
-                    }
-#endif // DEBUG
                 }
                 break;
-                case GT_LCL_FLD:
-                {
-                    GenTreeLclFld* lclFld       = lhs->AsLclFld();
-                    unsigned       lclDefSsaNum = GetSsaNumForLocalVarDef(lclFld);
 
-                    // Should not have been recorded as updating the GC heap.
-                    assert(!GetMemorySsaMap(GcHeap)->Lookup(tree, &memorySsaNum));
-
-                    if (lclDefSsaNum != SsaConfig::RESERVED_SSA_NUM)
-                    {
-                        LclVarDsc*   lcl = lvaGetDesc(lclFld);
-                        ValueNumPair newLhsVNPair;
-
-                        // We should never have a null field sequence here.
-                        assert(lclFld->GetFieldSeq() != nullptr);
-                        if (lclFld->GetFieldSeq() == FieldSeqStore::NotAField())
-                        {
-                            // We don't know what field this represents.  Assign a new VN to the whole variable
-                            // (since we may be writing to an unknown portion of it.)
-                            newLhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
-                        }
-                        else
-                        {
-                            // The "lclFld" node will be labeled with the SSA number of its "use" identity
-                            // (we looked in a side table above for its "def" identity).  Look up that value.
-                            ValueNumPair oldLhsVNPair;
-
-                            if ((lclFld->gtFlags & GTF_VAR_USEASG) == 0)
-                            {
-                                assert(!lclFld->IsPartialLclFld(this));
-                                oldLhsVNPair.SetBoth(ValueNumStore::VNForZeroMap());
-                            }
-                            else
-                            {
-                                oldLhsVNPair = lcl->GetPerSsaData(lclFld->GetSsaNum())->m_vnPair;
-                            }
-
-                            newLhsVNPair = vnStore->VNPairApplySelectorsAssign(oldLhsVNPair, lclFld->GetFieldSeq(),
-                                                                               rhsVNPair, // Pre-value.
-                                                                               lclFld->TypeGet(), compCurBB);
-                        }
-
-                        lcl->GetPerSsaData(lclDefSsaNum)->m_vnPair = newLhsVNPair;
-
-                        lhs->gtVNPair = newLhsVNPair;
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            if (lhs->gtVNPair.GetLiberal() != ValueNumStore::NoVN)
-                            {
-                                printf("N%03u ", lhs->gtSeqNum);
-                                Compiler::printTreeID(lhs);
-                                printf(" ");
-                                gtDispNodeName(lhs);
-                                gtDispLeaf(lhs, nullptr);
-                                printf(" => ");
-                                vnpPrint(lhs->gtVNPair, 1);
-                                printf("\n");
-                            }
-                        }
-#endif // DEBUG
-                    }
-                    else if (lvaVarAddrExposed(lclFld->GetLclNum()))
-                    {
-                        fgMutateAddressExposedLocal(tree);
-                    }
-                }
-                break;
                 case GT_IND:
                 {
                     bool isVolatile = (lhs->gtFlags & GTF_IND_VOLATILE) != 0;
