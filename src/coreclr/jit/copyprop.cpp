@@ -528,8 +528,7 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
                 continue;
             }
 
-            // As we encounter a definition add it to the stack as a live definition.
-            if (tree->gtFlags & GTF_VAR_DEF)
+            if ((tree->gtFlags & GTF_VAR_DEF) != 0)
             {
                 GenTreePtrStack* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
@@ -541,8 +540,7 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
             }
             // If we encounter first use of a param or this pointer add it as a live definition.
             // Since they are always live, do it only once.
-            else if ((tree->gtOper == GT_LCL_VAR) && !(tree->gtFlags & GTF_VAR_USEASG) &&
-                     (lvaTable[lclNum].lvIsParam || lvaTable[lclNum].lvIsThisPtr))
+            else if (tree->OperIs(GT_LCL_VAR) && (lvaTable[lclNum].lvIsParam || lvaTable[lclNum].lvIsThisPtr))
             {
                 GenTreePtrStack* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
