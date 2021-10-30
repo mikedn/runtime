@@ -568,13 +568,7 @@ public:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->gtGetOp1());
 
-                if ((node->gtFlags & GTF_IND_VOLATILE) != 0)
-                {
-                    // Volatile indirections must not be removed so the address,
-                    // if any, must be escaped.
-                    EscapeValue(TopValue(0), node);
-                }
-                else if (!TopValue(1).Indir(TopValue(0)))
+                if (!TopValue(1).Indir(TopValue(0)))
                 {
                     // If the address comes from another indirection (e.g. IND(IND(...))
                     // then we need to escape the location.
