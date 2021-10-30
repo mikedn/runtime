@@ -865,26 +865,15 @@ private:
         }
 #endif // TARGET_64BIT
 
-        // TODO-ADDR: For now use LCL_VAR_ADDR and LCL_FLD_ADDR only in certain cases.
-        // Other usages require more changes. For example, a tree like OBJ(ADD(ADDR(LCL_VAR), 4))
-        // could be changed to OBJ(LCL_FLD_ADDR) but then IsLocalAddrExpr does not recognize
-        // LCL_FLD_ADDR (even though it does recognize LCL_VAR_ADDR).
-        if (user->OperIs(GT_CALL, GT_ASG, GT_CMPXCHG, GT_ADD) || user->OperIsCompare()
-#ifdef FEATURE_HW_INTRINSICS
-            || user->IsHWIntrinsic()
-#endif
-                )
+        if (lcl == fieldLcl)
         {
-            if (lcl == fieldLcl)
-            {
-                Value fieldVal(val.Node());
-                fieldVal.Address(lclNum, 0, nullptr);
-                MorphLocalAddress(fieldVal, user);
-            }
-            else
-            {
-                MorphLocalAddress(val, user);
-            }
+            Value fieldVal(val.Node());
+            fieldVal.Address(lclNum, 0, nullptr);
+            MorphLocalAddress(fieldVal, user);
+        }
+        else
+        {
+            MorphLocalAddress(val, user);
         }
     }
 
