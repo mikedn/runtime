@@ -7153,13 +7153,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     unsigned   lclNum = lcl->GetLclNum();
                     LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
-                    // TODO-MIKE-Review: This is dubious.
-                    if (varDsc->lvPromoted && varDsc->lvFieldCnt == 1)
-                    {
-                        // If the promoted var has only one field var, treat like a use of the field var.
-                        lclNum = varDsc->lvFieldLclStart;
-                    }
-
                     if (lcl->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
                     {
                         // Not an SSA variable.
