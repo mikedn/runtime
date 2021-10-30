@@ -3612,6 +3612,11 @@ public:
         return m_fieldSeq;
     }
 
+    bool HasFieldSeq() const
+    {
+        return (m_fieldSeq != nullptr) && (m_fieldSeq != FieldSeqNode::NotAField());
+    }
+
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
         assert((fieldSeq == nullptr) || !fieldSeq->IsArrayElement());
