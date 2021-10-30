@@ -549,26 +549,36 @@ void Compiler::fgPerBlockLocalVarLiveness()
             printf(FMT_BB, block->bbNum);
             printf(" USE(%d)=", VarSetOps::Count(this, fgCurUseSet));
             lvaDispVarSet(fgCurUseSet, allVars);
-            for (MemoryKind memoryKind : allMemoryKinds())
+
+            if (!block->IsLIR())
             {
-                if ((fgCurMemoryUse & memoryKindSet(memoryKind)) != 0)
+                for (MemoryKind memoryKind : allMemoryKinds())
                 {
-                    printf(" + %s", memoryKindNames[memoryKind]);
+                    if ((fgCurMemoryUse & memoryKindSet(memoryKind)) != 0)
+                    {
+                        printf(" + %s", memoryKindNames[memoryKind]);
+                    }
                 }
             }
+
             printf("\n     DEF(%d)=", VarSetOps::Count(this, fgCurDefSet));
             lvaDispVarSet(fgCurDefSet, allVars);
-            for (MemoryKind memoryKind : allMemoryKinds())
+
+            if (!block->IsLIR())
             {
-                if ((fgCurMemoryDef & memoryKindSet(memoryKind)) != 0)
+                for (MemoryKind memoryKind : allMemoryKinds())
                 {
-                    printf(" + %s", memoryKindNames[memoryKind]);
-                }
-                if ((fgCurMemoryHavoc & memoryKindSet(memoryKind)) != 0)
-                {
-                    printf("*");
+                    if ((fgCurMemoryDef & memoryKindSet(memoryKind)) != 0)
+                    {
+                        printf(" + %s", memoryKindNames[memoryKind]);
+                    }
+                    if ((fgCurMemoryHavoc & memoryKindSet(memoryKind)) != 0)
+                    {
+                        printf("*");
+                    }
                 }
             }
+
             printf("\n\n");
         }
 #endif // DEBUG
@@ -2610,30 +2620,38 @@ void Compiler::fgInterBlockLocalVarLiveness()
 
 #ifdef DEBUG
 
-/*****************************************************************************/
-
 void Compiler::fgDispBBLiveness(BasicBlock* block)
 {
     VARSET_TP allVars(VarSetOps::Union(this, block->bbLiveIn, block->bbLiveOut));
     printf(FMT_BB, block->bbNum);
     printf(" IN (%d)=", VarSetOps::Count(this, block->bbLiveIn));
     lvaDispVarSet(block->bbLiveIn, allVars);
-    for (MemoryKind memoryKind : allMemoryKinds())
+
+    if (!block->IsLIR())
     {
-        if ((block->bbMemoryLiveIn & memoryKindSet(memoryKind)) != 0)
+        for (MemoryKind memoryKind : allMemoryKinds())
         {
-            printf(" + %s", memoryKindNames[memoryKind]);
+            if ((block->bbMemoryLiveIn & memoryKindSet(memoryKind)) != 0)
+            {
+                printf(" + %s", memoryKindNames[memoryKind]);
+            }
         }
     }
+
     printf("\n     OUT(%d)=", VarSetOps::Count(this, block->bbLiveOut));
     lvaDispVarSet(block->bbLiveOut, allVars);
-    for (MemoryKind memoryKind : allMemoryKinds())
+
+    if (!block->IsLIR())
     {
-        if ((block->bbMemoryLiveOut & memoryKindSet(memoryKind)) != 0)
+        for (MemoryKind memoryKind : allMemoryKinds())
         {
-            printf(" + %s", memoryKindNames[memoryKind]);
+            if ((block->bbMemoryLiveOut & memoryKindSet(memoryKind)) != 0)
+            {
+                printf(" + %s", memoryKindNames[memoryKind]);
+            }
         }
     }
+
     printf("\n\n");
 }
 
