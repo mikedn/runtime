@@ -11202,12 +11202,6 @@ DONE_MORPHING_CHILDREN:
     switch (oper)
     {
         case GT_ASG:
-            if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR) && ((op1->gtFlags & GTF_VAR_FOLDED_IND) != 0))
-            {
-                op1->gtFlags &= ~GTF_VAR_FOLDED_IND;
-                op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
-            }
-
             effectiveOp1 = op1->gtEffectiveVal();
 
             if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
