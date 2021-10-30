@@ -413,12 +413,7 @@ void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
 /*****************************************************************************/
 void Compiler::fgPerBlockLocalVarLiveness()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgPerBlockLocalVarLiveness()\n");
-    }
-#endif // DEBUG
+    JITDUMP("*************** In fgPerBlockLocalVarLiveness()\n");
 
     unsigned livenessVarEpoch = GetCurLVEpoch();
 
@@ -542,47 +537,6 @@ void Compiler::fgPerBlockLocalVarLiveness()
             }
         }
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            VARSET_TP allVars(VarSetOps::Union(this, fgCurUseSet, fgCurDefSet));
-            printf(FMT_BB, block->bbNum);
-            printf(" USE(%d)=", VarSetOps::Count(this, fgCurUseSet));
-            lvaDispVarSet(fgCurUseSet, allVars);
-
-            if (!block->IsLIR())
-            {
-                for (MemoryKind memoryKind : allMemoryKinds())
-                {
-                    if ((fgCurMemoryUse & memoryKindSet(memoryKind)) != 0)
-                    {
-                        printf(" + %s", memoryKindNames[memoryKind]);
-                    }
-                }
-            }
-
-            printf("\n     DEF(%d)=", VarSetOps::Count(this, fgCurDefSet));
-            lvaDispVarSet(fgCurDefSet, allVars);
-
-            if (!block->IsLIR())
-            {
-                for (MemoryKind memoryKind : allMemoryKinds())
-                {
-                    if ((fgCurMemoryDef & memoryKindSet(memoryKind)) != 0)
-                    {
-                        printf(" + %s", memoryKindNames[memoryKind]);
-                    }
-                    if ((fgCurMemoryHavoc & memoryKindSet(memoryKind)) != 0)
-                    {
-                        printf("*");
-                    }
-                }
-            }
-
-            printf("\n\n");
-        }
-#endif // DEBUG
-
         VarSetOps::Assign(this, block->bbVarUse, fgCurUseSet);
         VarSetOps::Assign(this, block->bbVarDef, fgCurDefSet);
         block->bbMemoryUse   = fgCurMemoryUse;
@@ -593,16 +547,17 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
         VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
         block->bbMemoryLiveIn = emptyMemoryKindSet;
+
+        DBEXEC(verbose, fgDispBBLocalLiveness(block))
     }
 
     noway_assert(livenessVarEpoch == GetCurLVEpoch());
-#ifdef DEBUG
-    if (verbose)
+
+    if (!compRationalIRForm)
     {
-        printf("** Memory liveness computed, GcHeap states and ByrefExposed states %s\n",
-               (byrefStatesMatchGcHeapStates ? "match" : "diverge"));
+        JITDUMP("** Memory liveness computed, GcHeap states and ByrefExposed states %s\n",
+                (byrefStatesMatchGcHeapStates ? "match" : "diverge"));
     }
-#endif // DEBUG
 }
 
 // Helper functions to mark variables live over their entire scope
@@ -2619,6 +2574,45 @@ void Compiler::fgInterBlockLocalVarLiveness()
 }
 
 #ifdef DEBUG
+
+void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
+{
+    VARSET_TP allVars(VarSetOps::Union(this, block->bbVarUse, block->bbVarDef));
+    printf(FMT_BB, block->bbNum);
+    printf(" USE(%d)=", VarSetOps::Count(this, block->bbVarUse));
+    lvaDispVarSet(block->bbVarUse, allVars);
+
+    if (!block->IsLIR())
+    {
+        for (MemoryKind memoryKind : allMemoryKinds())
+        {
+            if ((block->bbMemoryUse & memoryKindSet(memoryKind)) != 0)
+            {
+                printf(" + %s", memoryKindNames[memoryKind]);
+            }
+        }
+    }
+
+    printf("\n     DEF(%d)=", VarSetOps::Count(this, block->bbVarDef));
+    lvaDispVarSet(block->bbVarDef, allVars);
+
+    if (!block->IsLIR())
+    {
+        for (MemoryKind memoryKind : allMemoryKinds())
+        {
+            if ((block->bbMemoryDef & memoryKindSet(memoryKind)) != 0)
+            {
+                printf(" + %s", memoryKindNames[memoryKind]);
+            }
+            if ((block->bbMemoryHavoc & memoryKindSet(memoryKind)) != 0)
+            {
+                printf("*");
+            }
+        }
+    }
+
+    printf("\n\n");
+}
 
 void Compiler::fgDispBBLiveness(BasicBlock* block)
 {

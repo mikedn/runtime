@@ -4369,6 +4369,7 @@ public:
 #ifdef DEBUG
     void fgDispDoms();
     void fgDispReach();
+    void fgDispBBLocalLiveness(BasicBlock* block);
     void fgDispBBLiveness(BasicBlock* block);
     void fgDispBBLiveness();
     void fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth = 0);
