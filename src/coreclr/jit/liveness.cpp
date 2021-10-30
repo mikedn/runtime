@@ -356,10 +356,11 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
             // assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
             break;
 
+        case GT_DYN_BLK:
+            unreached();
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
-        case GT_DYN_BLK:
         case GT_STOREIND:
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
