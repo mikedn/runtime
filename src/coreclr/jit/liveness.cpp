@@ -1,16 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// =================================================================================
-//  Code that works with liveness and related concepts (interference, debug scope)
-// =================================================================================
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
 #include "decomposelongs.h"
 #endif
 #include "lower.h"
@@ -20,6 +12,8 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
 
     LclVarDsc* lcl = lvaGetDesc(node);
+
+    assert(!lcl->IsAddressExposed());
 
     // We should never encounter a reference to a local that has a zero ref count.
     if ((lcl->lvRefCnt() == 0) && (!varTypeIsPromotable(lcl->GetType()) || !lcl->IsPromoted()))
@@ -33,22 +27,6 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
     const bool isUse = !isDef || ((node->gtFlags & GTF_VAR_USEASG) != 0);
 
     assert(isDef || isUse);
-
-    if (lcl->IsAddressExposed())
-    {
-        if (isUse)
-        {
-            fgCurMemoryUse |= memoryKindSet(ByrefExposed);
-        }
-
-        if (isDef)
-        {
-            fgCurMemoryDef |= memoryKindSet(ByrefExposed);
-            byrefStatesMatchGcHeapStates = false;
-        }
-
-        return;
-    }
 
     if (lcl->HasLiveness())
     {
@@ -179,13 +157,20 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         case GT_LCL_FLD:
             if ((tree->gtFlags & GTF_VAR_DEF) == 0)
             {
-                fgMarkUseDef(tree->AsLclVarCommon());
+                if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
+                {
+                    fgCurMemoryUse |= memoryKindSet(ByrefExposed);
+                }
+                else
+                {
+                    fgMarkUseDef(tree->AsLclVarCommon());
+                }
             }
             break;
 
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
-            assert(lvaGetDesc(tree->AsLclVarCommon())->lvAddrExposed);
+            assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
             break;
 
         case GT_CLS_VAR:
@@ -233,7 +218,14 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
 
                 if (GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr(this))
                 {
-                    fgMarkUseDef(lclNode);
+                    if (lvaGetDesc(lclNode)->IsAddressExposed())
+                    {
+                        fgCurMemoryUse |= memoryKindSet(ByrefExposed);
+                    }
+                    else
+                    {
+                        fgMarkUseDef(lclNode);
+                    }
                 }
                 else
                 {
@@ -308,7 +300,15 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         case GT_ASG:
             if (GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this))
             {
-                fgMarkUseDef(lclNode);
+                if (lvaGetDesc(lclNode)->IsAddressExposed())
+                {
+                    fgCurMemoryDef |= memoryKindSet(ByrefExposed);
+                    byrefStatesMatchGcHeapStates = false;
+                }
+                else
+                {
+                    fgMarkUseDef(lclNode);
+                }
             }
             else
             {
@@ -341,7 +341,10 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
         case GT_LCL_FLD:
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            fgMarkUseDef(tree->AsLclVarCommon());
+            if (!lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
+            {
+                fgMarkUseDef(tree->AsLclVarCommon());
+            }
             break;
 
         case GT_LCL_VAR_ADDR:
@@ -350,7 +353,7 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
             // but LIR does not currently support struct STORE_LCL_VAR|FLD so it
             // uses STORE_OBJ(LCL_VAR|FLD_ADDR) without making the local address
             // exposed.
-            // assert(lvaGetDesc(tree->AsLclVarCommon())->lvAddrExposed);
+            // assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
             break;
 
         case GT_IND:
@@ -363,7 +366,10 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
         case GT_STORE_DYN_BLK:
             if (GenTreeLclVarCommon* lclNode = tree->AsIndir()->GetAddr()->IsLocalAddrExpr(this))
             {
-                fgMarkUseDef(lclNode);
+                if (!lvaGetDesc(lclNode)->IsAddressExposed())
+                {
+                    fgMarkUseDef(lclNode);
+                }
             }
             break;
 
@@ -2091,8 +2097,8 @@ bool Compiler::fgRemoveDeadStore(GenTree**        pTree,
     assert(!compRationalIRForm);
 
     // Vars should have already been checked for address exposure by this point.
-    assert(!varDsc->lvIsStructField || !lvaTable[varDsc->lvParentLcl].lvAddrExposed);
-    assert(!varDsc->lvAddrExposed);
+    assert(!varDsc->lvIsStructField || !lvaTable[varDsc->lvParentLcl].IsAddressExposed());
+    assert(!varDsc->IsAddressExposed());
 
     GenTree*       asgNode  = nullptr;
     GenTree*       rhsNode  = nullptr;
@@ -2190,13 +2196,13 @@ bool Compiler::fgRemoveDeadStore(GenTree**        pTree,
 
         // Do not remove if this local variable represents
         // a promoted struct field of an address exposed local.
-        if (varDsc->lvIsStructField && lvaTable[varDsc->lvParentLcl].lvAddrExposed)
+        if (varDsc->lvIsStructField && lvaTable[varDsc->lvParentLcl].IsAddressExposed())
         {
             return false;
         }
 
         // Do not remove if the address of the variable has been exposed.
-        if (varDsc->lvAddrExposed)
+        if (varDsc->IsAddressExposed())
         {
             return false;
         }
