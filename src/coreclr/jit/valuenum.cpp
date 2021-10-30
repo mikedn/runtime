@@ -7539,32 +7539,33 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         LclVarDsc*   lcl = lvaGetDesc(lclFld);
                         ValueNumPair newLhsVNPair;
 
-                        if ((lclFld->gtFlags & GTF_VAR_USEASG) == 0)
+                        // We should never have a null field sequence here.
+                        assert(lclFld->GetFieldSeq() != nullptr);
+                        if (lclFld->GetFieldSeq() == FieldSeqStore::NotAField())
                         {
-                            assert(!lclFld->IsPartialLclFld(this));
-                            assert(rhsVNPair.GetLiberal() != ValueNumStore::NoVN);
-                            newLhsVNPair = rhsVNPair;
+                            // We don't know what field this represents.  Assign a new VN to the whole variable
+                            // (since we may be writing to an unknown portion of it.)
+                            newLhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
                         }
                         else
                         {
-                            // We should never have a null field sequence here.
-                            assert(lclFld->GetFieldSeq() != nullptr);
-                            if (lclFld->GetFieldSeq() == FieldSeqStore::NotAField())
+                            // The "lclFld" node will be labeled with the SSA number of its "use" identity
+                            // (we looked in a side table above for its "def" identity).  Look up that value.
+                            ValueNumPair oldLhsVNPair;
+
+                            if ((lclFld->gtFlags & GTF_VAR_USEASG) == 0)
                             {
-                                // We don't know what field this represents.  Assign a new VN to the whole variable
-                                // (since we may be writing to an unknown portion of it.)
-                                newLhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+                                assert(!lclFld->IsPartialLclFld(this));
+                                oldLhsVNPair.SetBoth(ValueNumStore::VNForZeroMap());
                             }
                             else
                             {
-                                // We do know the field sequence.
-                                // The "lclFld" node will be labeled with the SSA number of its "use" identity
-                                // (we looked in a side table above for its "def" identity).  Look up that value.
-                                ValueNumPair oldLhsVNPair = lcl->GetPerSsaData(lclFld->GetSsaNum())->m_vnPair;
-                                newLhsVNPair = vnStore->VNPairApplySelectorsAssign(oldLhsVNPair, lclFld->GetFieldSeq(),
-                                                                                   rhsVNPair, // Pre-value.
-                                                                                   lclFld->TypeGet(), compCurBB);
+                                oldLhsVNPair = lcl->GetPerSsaData(lclFld->GetSsaNum())->m_vnPair;
                             }
+
+                            newLhsVNPair = vnStore->VNPairApplySelectorsAssign(oldLhsVNPair, lclFld->GetFieldSeq(),
+                                                                               rhsVNPair, // Pre-value.
+                                                                               lclFld->TypeGet(), compCurBB);
                         }
 
                         lcl->GetPerSsaData(lclDefSsaNum)->m_vnPair = newLhsVNPair;
