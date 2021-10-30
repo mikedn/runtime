@@ -7053,6 +7053,8 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
             {
                 GenTree* lhs = tree->AsOp()->GetOp(0)->SkipComma();
 
+                // TODO-MIKE-Review: This thing ignores LCL_FLD assignments.
+
                 if (lhs->OperIs(GT_IND))
                 {
                     GenTree* arg = lhs->AsIndir()->GetAddr()->SkipComma();
@@ -7126,7 +7128,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     {
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
                     }
-                    else if (lvaVarAddrExposed(lclNode->GetLclNum()))
+                    else if (lvaGetDesc(lclNode)->IsAddressExposed())
                     {
                         memoryHavoc |= memoryKindSet(ByrefExposed);
                     }
@@ -7137,27 +7139,25 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     // Conservatively assume byrefs may alias this static field
                     memoryHavoc |= memoryKindSet(ByrefExposed);
                 }
-                // Otherwise, must be local lhs form.  I should assert that.
                 else if (lhs->OperIs(GT_LCL_VAR))
                 {
-                    GenTreeLclVar* lhsLcl = lhs->AsLclVar();
-                    GenTree*       rhs    = tree->AsOp()->gtOp2;
-                    ValueNum       rhsVN  = rhs->gtVNPair.GetLiberal();
-                    // If we gave the RHS a value number, propagate it.
-                    if (rhsVN != ValueNumStore::NoVN)
-                    {
-                        rhsVN = vnStore->VNNormalValue(rhsVN);
-                        if (lvaInSsa(lhsLcl->GetLclNum()))
-                        {
-                            lvaTable[lhsLcl->GetLclNum()]
-                                .GetPerSsaData(lhsLcl->GetSsaNum())
-                                ->m_vnPair.SetLiberal(rhsVN);
-                        }
-                    }
-                    // If the local is address-exposed, count this as ByrefExposed havoc
-                    if (lvaVarAddrExposed(lhsLcl->GetLclNum()))
+                    GenTreeLclVar* lclNode = lhs->AsLclVar();
+                    LclVarDsc*     lcl     = lvaGetDesc(lclNode);
+
+                    if (lcl->IsAddressExposed())
                     {
                         memoryHavoc |= memoryKindSet(ByrefExposed);
+                    }
+                    else if (lcl->IsInSsa())
+                    {
+                        ValueNum srcVN = tree->AsOp()->GetOp(1)->gtVNPair.GetLiberal();
+
+                        if (srcVN != ValueNumStore::NoVN)
+                        {
+                            srcVN = vnStore->VNNormalValue(srcVN);
+
+                            lcl->GetPerSsaData(lclNode->GetSsaNum())->m_vnPair.SetLiberal(srcVN);
+                        }
                     }
                 }
             }

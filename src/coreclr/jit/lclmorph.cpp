@@ -1246,9 +1246,10 @@ private:
     {
         assert(val.IsAddress());
         assert(val.Node()->TypeIs(TYP_BYREF, TYP_I_IMPL));
-        assert(m_compiler->lvaVarAddrExposed(val.LclNum()));
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
+
+        assert(varDsc->IsAddressExposed());
 
         GenTree* addr = val.Node();
 

@@ -740,7 +740,9 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
         if (m_pCompiler->lvaInSsa(lclNum))
         {
             // Promoted variables are not in SSA, only their fields are.
-            assert(!m_pCompiler->lvaGetDesc(lclNum)->lvPromoted);
+            assert(!varDsc->IsPromoted());
+            // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
+            assert(!varDsc->IsAddressExposed());
             // This should have been marked as defintion.
             assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
 
@@ -772,8 +774,6 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                 AddDefToHandlerPhis(block, lclNum, ssaNum);
             }
 
-            // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
-            assert(!m_pCompiler->lvaVarAddrExposed(lclNum));
             return;
         }
 
@@ -783,7 +783,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     if (((block->bbMemoryHavoc & memoryKindSet(GcHeap)) == 0) && m_pCompiler->ehBlockHasExnFlowDsc(block))
     {
-        bool isAddrExposedLocal = (lclNode != nullptr) && m_pCompiler->lvaVarAddrExposed(lclNode->GetLclNum());
+        bool isAddrExposedLocal = (lclNode != nullptr) && m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed();
         bool hasByrefHavoc      = ((block->bbMemoryHavoc & memoryKindSet(ByrefExposed)) != 0);
         if ((lclNode == nullptr) || (isAddrExposedLocal && !hasByrefHavoc))
         {
@@ -1610,12 +1610,12 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 {
     LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
 
-    if (lcl->lvAddrExposed)
+    if (lcl->IsAddressExposed())
     {
         return false;
     }
 
-    if (!lcl->lvTracked)
+    if (!lcl->HasLiveness())
     {
         return false;
     }

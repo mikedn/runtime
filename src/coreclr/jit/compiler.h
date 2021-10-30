@@ -2448,8 +2448,6 @@ public:
 #endif
 #endif
 
-    // Getters and setters for address-exposed and do-not-enregister local var properties.
-    bool lvaVarAddrExposed(unsigned varNum);
     void lvaSetVarAddrExposed(unsigned varNum);
     void lvaSetVarLiveInOutOfHandler(unsigned varNum);
     bool lvaVarDoNotEnregister(unsigned varNum);

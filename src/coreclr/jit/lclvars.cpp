@@ -1465,22 +1465,6 @@ void Compiler::lvaResizeTable(unsigned newSize)
     lvaTable     = newTable;
 }
 
-/*****************************************************************************
- * Returns true if variable "varNum" may be address-exposed.
- */
-
-bool Compiler::lvaVarAddrExposed(unsigned varNum)
-{
-    noway_assert(varNum < lvaCount);
-    LclVarDsc* varDsc = &lvaTable[varNum];
-
-    return varDsc->lvAddrExposed;
-}
-
-/*****************************************************************************
- * Returns true iff variable "varNum" should not be enregistered (or one of several reasons).
- */
-
 bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
 {
     noway_assert(varNum < lvaCount);

@@ -6971,16 +6971,16 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         return;
     }
 
-    if (lvaVarAddrExposed(dstLclNode->GetLclNum()))
+    LclVarDsc* dstLcl = lvaGetDesc(dstLclNode);
+
+    if (dstLcl->IsAddressExposed())
     {
         fgMutateAddressExposedLocal(asg);
         return;
     }
 
-    if (!lvaInSsa(dstLclNode->GetLclNum()))
+    if (!dstLcl->IsInSsa())
     {
-        // Ignore vars that we excluded from SSA. They don't have SSA names in which
-        // to store VN's on defs. We'll yield unique VN's when we read from them.
         return;
     }
 
@@ -6990,7 +6990,6 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
     unsigned      dstLclNum   = dstLclNode->GetLclNum();
     unsigned      dstSsaNum   = GetSsaNumForLocalVarDef(dstLclNode);
-    LclVarDsc*    dstLcl      = lvaGetDesc(dstLclNode);
     FieldSeqNode* dstFieldSeq = nullptr;
     LclSsaVarDsc* dstSsaDef   = dstLcl->GetPerSsaData(dstSsaNum);
     LclSsaVarDsc* dstSsaUse   = dstLcl->GetPerSsaData(dstLclNode->GetSsaNum());
@@ -7676,7 +7675,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             {
                                 fgMutateGcHeap(tree DEBUGARG("assign-of-IND"));
                             }
-                            else if (lvaVarAddrExposed(dstLclNode->GetLclNum()))
+                            else if (lvaGetDesc(dstLclNode)->IsAddressExposed())
                             {
                                 fgMutateAddressExposedLocal(tree);
                             }
