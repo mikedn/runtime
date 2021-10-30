@@ -6224,15 +6224,16 @@ void Compiler::fgValueNumber()
     // Also give must-init vars a zero of their type.
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        if (!lvaInSsa(lclNum))
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
+        if (!varDsc->IsInSsa())
         {
             continue;
         }
 
-        LclVarDsc* varDsc = &lvaTable[lclNum];
-        assert(varDsc->lvTracked);
+        assert(varDsc->HasLiveness());
 
-        if (varDsc->lvIsParam)
+        if (varDsc->IsParam())
         {
             // We assume that code equivalent to this variable initialization loop
             // has been performed when doing SSA naming, so that all the variables we give
@@ -7208,27 +7209,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                     if (!generateUniqueVN)
                     {
-                        // There are a couple of cases where we haven't assigned a valid value number to 'lcl'
-                        //
-                        if (lcl->gtVNPair.GetLiberal() == ValueNumStore::NoVN)
-                        {
-                            // So far, we know about two of these cases:
-                            // Case 1) We have a local var who has never been defined but it's seen as a use.
-                            //         This is the case of storeIndir(addr(lclvar)) = expr.  In this case since we only
-                            //         take the address of the variable, this doesn't mean it's a use nor we have to
-                            //         initialize it, so in this very rare case, we fabricate a value number.
-                            // Case 2) Local variables that represent structs which are assigned using CpBlk.
-                            //
-                            // Make sure we have either case 1 or case 2
-                            //
-                            GenTree* nextNode = lcl->gtNext;
-                            assert((nextNode->gtOper == GT_ADDR && nextNode->AsOp()->gtOp1 == lcl) ||
-                                   varTypeIsStruct(lcl->TypeGet()));
-
-                            // We will assign a unique value number for these
-                            //
-                            generateUniqueVN = true;
-                        }
+                        assert(lcl->gtVNPair.GetLiberal() != ValueNumStore::NoVN);
                     }
 
                     if (!generateUniqueVN && (zeroOffsetFldSeq != nullptr))
