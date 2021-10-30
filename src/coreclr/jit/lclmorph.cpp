@@ -1461,8 +1461,6 @@ private:
 
         if (!varTypeIsStruct(lclType))
         {
-            // TODO-MIKE-Cleanup: This likely makes a bunch of IND morphing code in fgMorphSmpOp redundant.
-
             if ((val.Offset() == 0) && !varTypeIsStruct(indirType))
             {
                 if (varTypeSize(indirType) == varTypeSize(lclType))
