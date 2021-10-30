@@ -30,8 +30,6 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
     if (lcl->HasLiveness())
     {
-        assert(lcl->lvVarIndex < lvaTrackedCount);
-
         if (compRationalIRForm && !lcl->TypeIs(TYP_STRUCT) && !varTypeIsMultiReg(lcl->GetType()))
         {
             // If this is an enregisterable variable that is not marked doNotEnregister,
@@ -60,8 +58,6 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
             if (fieldLcl->HasLiveness())
             {
-                assert(fieldLcl->lvVarIndex < lvaTrackedCount);
-
                 if (isDef)
                 {
                     VarSetOps::AddElemD(this, fgCurDefSet, fieldLcl->lvVarIndex);
