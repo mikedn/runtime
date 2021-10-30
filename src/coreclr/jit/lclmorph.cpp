@@ -761,6 +761,30 @@ private:
         INDEBUG(val.Consume();)
         assert(user != nullptr);
 
+        if (user->OperIs(GT_EQ, GT_NE) || (user->OperIs(GT_GT) && user->IsUnsigned()))
+        {
+            GenTree* op1 = user->AsOp()->GetOp(0);
+            GenTree* op2 = user->AsOp()->GetOp(1);
+
+            if (op2 == val.Node())
+            {
+                std::swap(op1, op2);
+            }
+
+            if (op2->IsIntegralConst(0))
+            {
+                op1->ChangeToIntCon(1);
+                op1->SetType(TYP_I_IMPL);
+
+                return;
+            }
+
+            // TODO-MIKE-CQ: Other comparisons results in the local being address exposed
+            // even though that isn't necessary, DNER would be sufficient. However, such
+            // cases are very rare - Dragon4 in corelib has a few and avoiding address
+            // exposed in those case is unlikely to provide any benefits.
+        }
+
         unsigned   lclNum      = val.LclNum();
         LclVarDsc* lcl         = m_compiler->lvaGetDesc(val.LclNum());
         unsigned   fieldLclNum = BAD_VAR_NUM;
@@ -851,7 +875,7 @@ private:
         // Other usages require more changes. For example, a tree like OBJ(ADD(ADDR(LCL_VAR), 4))
         // could be changed to OBJ(LCL_FLD_ADDR) but then IsLocalAddrExpr does not recognize
         // LCL_FLD_ADDR (even though it does recognize LCL_VAR_ADDR).
-        if (user->OperIs(GT_CALL, GT_ASG, GT_CMPXCHG, GT_ADD)
+        if (user->OperIs(GT_CALL, GT_ASG, GT_CMPXCHG, GT_ADD) || user->OperIsCompare()
 #ifdef FEATURE_HW_INTRINSICS
             || user->IsHWIntrinsic()
 #endif
