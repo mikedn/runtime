@@ -2944,28 +2944,26 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
         struct Match
         {
-            static bool IsArgsFieldInit(GenTree* tree, unsigned index, unsigned lvaNewObjArrayArgs)
+            static bool IsArgsFieldInit(GenTree* tree, unsigned index, unsigned argLclNum)
             {
-                return (tree->OperGet() == GT_ASG) && IsArgsFieldIndir(tree->gtGetOp1(), index, lvaNewObjArrayArgs) &&
-                       IsArgsAddr(tree->gtGetOp1()->gtGetOp1()->gtGetOp1(), lvaNewObjArrayArgs);
+                return tree->OperIs(GT_ASG) && IsArgsField(tree->AsOp()->GetOp(0), index, argLclNum);
             }
 
-            static bool IsArgsFieldIndir(GenTree* tree, unsigned index, unsigned lvaNewObjArrayArgs)
+            static bool IsArgsField(GenTree* tree, unsigned index, unsigned argLclNum)
             {
-                return (tree->OperGet() == GT_IND) && (tree->gtGetOp1()->OperGet() == GT_ADD) &&
-                       (tree->gtGetOp1()->gtGetOp2()->IsIntegralConst(sizeof(INT32) * index)) &&
-                       IsArgsAddr(tree->gtGetOp1()->gtGetOp1(), lvaNewObjArrayArgs);
+                return tree->OperIs(GT_LCL_FLD) && (tree->AsLclFld()->GetLclOffs() == 4 * index) &&
+                       (tree->AsLclFld()->GetLclNum() == argLclNum);
             }
 
-            static bool IsArgsAddr(GenTree* tree, unsigned lvaNewObjArrayArgs)
+            static bool IsArgsAddr(GenTree* tree, unsigned argLclNum)
             {
-                return (tree->OperGet() == GT_ADDR) && (tree->gtGetOp1()->OperGet() == GT_LCL_VAR) &&
-                       (tree->gtGetOp1()->AsLclVar()->GetLclNum() == lvaNewObjArrayArgs);
+                return tree->OperIs(GT_ADDR) && tree->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
+                       (tree->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum() == argLclNum);
             }
 
             static bool IsComma(GenTree* tree)
             {
-                return (tree != nullptr) && (tree->OperGet() == GT_COMMA);
+                return (tree != nullptr) && tree->OperIs(GT_COMMA);
             }
         };
 
@@ -5445,6 +5443,8 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
             argsLcl = lvaGetDesc(lvaNewObjArrayArgs);
             argsLcl->SetBlockType(0);
+
+            lvaSetVarAddrExposed(lvaNewObjArrayArgs);
         }
         else
         {
@@ -5473,11 +5473,8 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         // into lvaNewObjArrayArgs temp.
         for (int i = pCallInfo->sig.numArgs - 1; i >= 0; i--)
         {
-            GenTree* arg = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
-
-            GenTree* dest = gtNewAddrNode(gtNewLclvNode(lvaNewObjArrayArgs, TYP_BLK), TYP_I_IMPL);
-            dest          = gtNewOperNode(GT_ADD, TYP_I_IMPL, dest, gtNewIconNode(sizeof(INT32) * i, TYP_I_IMPL));
-            dest          = gtNewOperNode(GT_IND, TYP_INT, dest);
+            GenTree* arg  = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
+            GenTree* dest = gtNewLclFldNode(lvaNewObjArrayArgs, TYP_INT, 4 * i);
             node          = gtNewCommaNode(gtNewAssignNode(dest, arg), node);
         }
 
