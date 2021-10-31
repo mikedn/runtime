@@ -1184,25 +1184,14 @@ public:
             return false;
         }
 
-        switch (gtOper)
+        if (gtOper == GT_NOP)
         {
-            case GT_NOP:
-                // NOPs may only be present in LIR if they do not produce a value.
-                return IsNothingNode();
-
-            case GT_ADDR:
-            {
-                // ADDR ndoes may only be present in LIR if the location they refer to is not a
-                // local, class variable, or IND node.
-                GenTree*   location   = gtGetOp1();
-                genTreeOps locationOp = location->OperGet();
-                return !location->IsLocal() && (locationOp != GT_CLS_VAR) && (locationOp != GT_IND);
-            }
-
-            default:
-                // All other nodes are assumed to be correct.
-                return true;
+            // NOPs may only be present in LIR if they do not produce a value.
+            return IsNothingNode();
         }
+
+        // All other nodes are assumed to be correct.
+        return true;
     }
 
     // LIR flags
