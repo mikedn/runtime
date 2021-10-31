@@ -3225,7 +3225,7 @@ void Compiler::fgMarkAddressExposedLocals()
 {
     JITDUMP("\n*************** In fgMarkAddressExposedLocals()\n");
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     lvaResetImplicitByRefParamsRefCount();
 #endif
 
@@ -3309,22 +3309,13 @@ public:
     {
         GenTree* node = *use;
 
-        switch (node->OperGet())
+        switch (node->GetOper())
         {
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
             case GT_LCL_VAR_ADDR:
             case GT_LCL_FLD_ADDR:
                 MorphImplicitByRefParamAddr(node->AsLclVarCommon());
                 return Compiler::WALK_SKIP_SUBTREES;
-
-            case GT_ADDR:
-                if (node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-                {
-                    MorphImplicitByRefParam(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-                return Compiler::WALK_CONTINUE;
-
             case GT_LCL_VAR:
             case GT_LCL_FLD:
                 MorphImplicitByRefParam(node);
@@ -3334,13 +3325,14 @@ public:
             case GT_LCL_FLD_ADDR:
                 MorphVarargsStackParamAddr(node->AsLclVarCommon());
                 return Compiler::WALK_SKIP_SUBTREES;
-
             case GT_LCL_VAR:
             case GT_LCL_FLD:
                 MorphVarargsStackParam(node->AsLclVarCommon());
                 return Compiler::WALK_SKIP_SUBTREES;
 #endif
-
+            case GT_ADDR:
+                assert(!node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+                FALLTHROUGH;
             default:
                 return Compiler::WALK_CONTINUE;
         }
@@ -3422,10 +3414,9 @@ public:
 
     void MorphImplicitByRefParam(GenTree* tree)
     {
-        assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
-               (tree->OperIs(GT_ADDR) && tree->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD)));
+        assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        GenTreeLclVarCommon* lclNode = (tree->OperIs(GT_ADDR) ? tree->AsUnOp()->GetOp(0) : tree)->AsLclVarCommon();
+        GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
         unsigned             lclNum  = lclNode->GetLclNum();
         LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNode);
 
@@ -3466,61 +3457,35 @@ public:
                     }
                 }
 
-                if (tree->OperIs(GT_ADDR))
-                {
-                    if (offset != nullptr)
-                    {
-                        // Change ADDR<BYREF|I_IMPL>(LCL_FLD<>(param)) into ADD(LCL_VAR<BYREF>(param), lclOffs))
-                        lclNode->SetType(TYP_BYREF);
-                        lclNode->gtFlags = GTF_EMPTY;
+                GenTree* addr = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
 
-                        tree->ChangeOper(GT_ADD);
-                        tree->SetType(TYP_BYREF);
-                        tree->AsOp()->SetOp(0, lclNode);
-                        tree->AsOp()->SetOp(1, offset);
-                        tree->gtFlags = GTF_EMPTY;
-                    }
-                    else
-                    {
-                        // Change ADDR<BYREF|I_IMPL>(LCL_VAR<STRUCT>(param)) into LCL_VAR<BYREF>(param)
-                        tree->ChangeOper(GT_LCL_VAR);
-                        tree->SetType(TYP_BYREF);
-                        tree->AsLclVar()->SetLclNum(lclNum);
-                        tree->gtFlags = GTF_EMPTY;
-                    }
+                if (offset != nullptr)
+                {
+                    addr = m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, offset);
+                }
+
+                ClassLayout* layout = nullptr;
+
+                if (varTypeIsStruct(lclNode->GetType()))
+                {
+                    layout = lclNode->OperIs(GT_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
+                                                         : lclNode->AsLclFld()->GetLayout(m_compiler);
+                }
+
+                if (layout != nullptr)
+                {
+                    tree->ChangeOper(GT_OBJ);
+                    tree->AsObj()->SetLayout(layout);
+                    tree->AsObj()->SetAddr(addr);
+                    tree->AsObj()->SetKind(StructStoreKind::Invalid);
                 }
                 else
                 {
-                    GenTree* addr = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
-
-                    if (offset != nullptr)
-                    {
-                        addr = m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, offset);
-                    }
-
-                    ClassLayout* layout = nullptr;
-
-                    if (varTypeIsStruct(lclNode->GetType()))
-                    {
-                        layout = lclNode->OperIs(GT_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
-                                                             : lclNode->AsLclFld()->GetLayout(m_compiler);
-                    }
-
-                    if (layout != nullptr)
-                    {
-                        tree->ChangeOper(GT_OBJ);
-                        tree->AsObj()->SetLayout(layout);
-                        tree->AsObj()->SetAddr(addr);
-                        tree->AsObj()->SetKind(StructStoreKind::Invalid);
-                    }
-                    else
-                    {
-                        tree->ChangeOper(GT_IND);
-                    }
-
-                    tree->AsIndir()->SetAddr(addr);
-                    tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
+                    tree->ChangeOper(GT_IND);
                 }
+
+                tree->AsIndir()->SetAddr(addr);
+                tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
             }
 
             INDEBUG(m_stmtModified = true;)
@@ -3549,48 +3514,36 @@ public:
 
             GenTreeIntCon* offset = m_compiler->gtNewIconNode(lclOffs, fieldSeq);
 
-            if (tree->OperIs(GT_ADDR))
-            {
-                // Change ADDR(LCL_VAR(paramPromotedField)) into ADD(LCL_VAR<BYREF>(param), offset)
-                lclNode->SetLclNum(lclNum);
-                lclNode->SetType(TYP_BYREF);
-                lclNode->gtFlags = GTF_EMPTY;
+            // Change LCL_VAR<fieldType>(paramPromotedField) into IND<fieldType>(ADD(LCL_VAR<BYREF>(param), offset))
 
-                tree->ChangeOper(GT_ADD);
-                tree->AsOp()->SetOp(0, lclNode);
-                tree->AsOp()->SetOp(1, offset);
-                tree->gtFlags = GTF_EMPTY;
-            }
-            else
+            if (lclNode->TypeIs(TYP_STRUCT))
             {
-                // Change LCL_VAR<fieldType>(paramPromotedField) into IND<fieldType>(ADD(LCL_VAR<BYREF>(param), offset))
+                ClassLayout* layout = nullptr;
 
-                if (lclNode->TypeIs(TYP_STRUCT))
+                if (lclNode->OperIs(GT_LCL_FLD))
                 {
-                    ClassLayout* layout = nullptr;
-
-                    if (lclNode->OperIs(GT_LCL_FLD))
-                    {
-                        layout = lclNode->AsLclFld()->GetLayout(m_compiler);
-                    }
-                    else
-                    {
-                        layout = lcl->GetImplicitByRefParamLayout();
-                    }
-
-                    tree->ChangeOper(GT_OBJ);
-                    tree->AsObj()->SetLayout(layout);
+                    layout = lclNode->AsLclFld()->GetLayout(m_compiler);
                 }
                 else
                 {
-                    tree->ChangeOper(GT_IND);
+                    layout = lcl->GetImplicitByRefParamLayout();
                 }
 
-                lclNode = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
-
-                tree->AsIndir()->SetAddr(m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, lclNode, offset));
-                tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+                tree->ChangeOper(GT_OBJ);
+                tree->AsObj()->SetLayout(layout);
             }
+            else
+            {
+                tree->ChangeOper(GT_IND);
+            }
+
+            // TODO-MIKE-Review: Are implicit by ref params really BYREF? They should
+            // have local storage, unless the JIT suddenly acquires magical powers that
+            // let it elide local copies if a param is known to be not modified/aliased.
+            lclNode = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
+
+            tree->AsIndir()->SetAddr(m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, lclNode, offset));
+            tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
             INDEBUG(m_stmtModified = true;)
         }
