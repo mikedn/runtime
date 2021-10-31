@@ -5038,11 +5038,11 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     unsigned             fldOffset       = tree->AsField()->gtFldOffset;
     GenTree*             objRef          = tree->AsField()->gtFldObj;
     bool                 fieldMayOverlap = false;
-    bool                 objIsLocal      = false;
 
     assert(objRef != nullptr);
-
-    noway_assert((objRef->IsLocalAddrExpr() != nullptr) || ((tree->gtFlags & GTF_GLOB_REF) != 0));
+    INDEBUG(GenTreeLclVarCommon* lclNode = objRef->IsLocalAddrExpr();)
+    assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
+    assert((tree->gtFlags & GTF_GLOB_REF) != 0);
 
     if (tree->AsField()->gtFldMayOverlap)
     {
@@ -5051,19 +5051,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
         tree->AsField()->gtFldMayOverlap = false;
     }
 
-#ifdef FEATURE_SIMD
-    if ((mac != nullptr) && objRef->OperIs(GT_ADDR) && varTypeIsSIMD(objRef->gtGetOp1()))
-    {
-        GenTreeLclVarCommon* lcl = objRef->IsLocalAddrExpr();
-        if (lcl != nullptr)
-        {
-            lvaSetVarDoNotEnregister(lcl->GetLclNum() DEBUGARG(DNER_LocalField));
-        }
-    }
-#endif
-
     GenTree* addr;
-    objIsLocal = objRef->IsLocal();
 
     /* We'll create the expression "*(objRef + mem_offs)" */
 
