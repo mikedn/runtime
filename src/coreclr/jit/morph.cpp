@@ -8980,6 +8980,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     GenTree* src  = asg->GetOp(1);
 
     assert(varTypeIsStruct(dest->GetType()));
+    assert(dest->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
     assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
 
 #if FEATURE_MULTIREG_RET
@@ -9199,9 +9200,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
 #endif // FEATURE_SIMD
 
-    bool requiresCopyBlock   = false;
-    bool srcSingleLclVarAsg  = false;
-    bool destSingleLclVarAsg = false;
+    bool requiresCopyBlock = false;
 
     if (!destPromote && !srcPromote)
     {
@@ -9282,73 +9281,13 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             }
         }
     }
-    else if (destPromote)
-    {
-        // Allow promotion when copying from a non-TYP_STRUCT variable to a promoted struct variable containing
-        // a single field having the same type as the source variable.
-        //
-        // Such trees are unlikely to be generated from valid IL. Instead, they appear as the result
-        // of (or rather lack of) recursive struct promotion morphing trees like:
-        //
-        //  [000265] -A--G-------  *  ASG       struct
-        //  [000263] D-----------  +--*  LCL_VAR   struct<System.DateTime, 8>(P) V04 loc1
-        //                         +--*    long   V04._dateData (offs=0x00) -> V47 tmp39
-        //  [000262] ----G-------  \--*  FIELD     struct End
-        //  [000261] ------------     \--*  ADDR      byref
-        //  [000260] ------------        \--*  LCL_VAR   struct<System.Globalization.DaylightTimeStruct, 24>(P) V02 arg2
-        //                               \--*    long   V02.Start (offs=0x00) -> V44 tmp36
-        //                               \--*    long   V02.End (offs=0x08) -> V45 tmp37
-        //                               \--*    long   V02.Delta (offs=0x10) -> V46 tmp38
-        //
-        // fgMorphCopyBlock input:
-        //
-        //  [000265] -A--G-------  *  ASG       struct
-        //  [000263] D-----------  +--*  LCL_VAR   struct<System.DateTime, 8>(P) V04 loc1
-        //                         +--*    long   V04._dateData (offs=0x00) -> V47 tmp39
-        //  [000262] -------N----  \--*  LCL_VAR   long   V45 tmp37
-        //
-        // Obviously, the entire tree is a simple V47 = V45 assignment but unfortunately this transformation
-        // requires 2 steps - first LocalAddressVisitor::MorphStructField replaces FIELD(ADDR(LCL_VAR)) with
-        // the promoted field LCL_VAR and then fgMorphCopyBlock takes care of the rest.
-
-        srcSingleLclVarAsg = (destHasSize && (destLclVar->GetPromotedFieldCount() == 1) && (srcLclVar != nullptr) &&
-                              (destSize == genTypeSize(srcLclVar->GetType())) &&
-                              (srcLclVar->GetType() == lvaGetDesc(destLclVar->GetPromotedFieldLclNum(0))->GetType()));
-    }
-    else
-    {
-        assert(srcPromote);
-
-        // Check for the symmetric case (which happens for the _pointer field of promoted spans):
-        //
-        // [000261] -A----------  *  ASG       struct
-        // [000260] n----+------  +--*  OBJ       struct<System.ByReference`1[Char], 8>
-        // [000259] -----+------  |  \--*  ADDR      byref
-        // [000258] D----+-N----  |     \--*  LCL_VAR   byref  V129 tmp116
-        // [000257] -----+------  \--*  LCL_VAR   struct<System.ByReference`1[Char], 8>(P) V27 tmp14
-        //                        \--*    byref  V27._value (offs=0x00) -> V137 tmp124
-        //
-        // fgMorphCopyBlock input:
-        //
-        // [000261] -A----------  *  ASG       struct
-        // [000260] ------------  +--*  OBJ       struct<System.ByReference`1[Char], 8>
-        // [000259] ------------  |  \--*  ADDR      byref
-        // [000258] ------------  |     \--*  FIELD     struct _pointer
-        // [000250] ------------  |        \--*  ADDR      byref
-        // [000251] ------------  |           \--*  LCL_VAR   struct<System.Span`1[Char], 16>(P) V16 tmp3
-        //                        |           \--*    byref  V16._pointer (offs=0x00) -> V129 tmp116
-        //                        |           \--*    int    V16._length (offs=0x08) -> V130 tmp117
-        // [000257] ------------  \--*  LCL_VAR   struct<System.ByReference`1[Char], 8>(P) V27 tmp14
-        //                        \--*    byref  V27._value (offs=0x00) -> V137 tmp124
-
-        destSingleLclVarAsg = (destHasSize && (srcLclVar->GetPromotedFieldCount() == 1) && (destLclVar != nullptr) &&
-                               (destSize == genTypeSize(destLclVar->GetType())) &&
-                               (destLclVar->GetType() == lvaGetDesc(srcLclVar->GetPromotedFieldLclNum(0))->GetType()));
-    }
 
     if (requiresCopyBlock)
     {
         JITDUMP(" this requires a CopyBlock.\n");
+
+        bool srcSingleLclVarAsg  = false;
+        bool destSingleLclVarAsg = false;
 
         // At this point, we know that the destination is TYP_STRUCT or one of the SIMD types (otherwise
         // the dest struct type assert would have failed at the start of fgMorphCopyBlock). However, the
@@ -9693,15 +9632,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             destField = gtNewLclvNode(destFieldLclNum, destFieldLclVar->GetType());
             destField->gtFlags |= destFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
         }
-        else if (destSingleLclVarAsg)
-        {
-            noway_assert(fieldCount == 1);
-            noway_assert(destLclVar != nullptr);
-            noway_assert(addr == nullptr);
-
-            destField = gtNewLclvNode(destLclNum, destLclVar->GetType());
-            destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
-        }
         else if (destLclVar != nullptr)
         {
             unsigned   srcFieldLclNum = srcLclVar->GetPromotedFieldLclNum(i);
@@ -9789,15 +9719,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             srcField = gtNewLclvNode(srcFieldLclNum, srcFieldLclVar->GetType());
             srcField->gtFlags |= srcFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
-        }
-        else if (srcSingleLclVarAsg)
-        {
-            noway_assert(fieldCount == 1);
-            noway_assert(srcLclNum != BAD_VAR_NUM);
-            noway_assert(addr == nullptr);
-
-            srcField = gtNewLclvNode(srcLclNum, srcLclVar->GetType());
-            srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
         }
         else if (srcLclVar != nullptr)
         {
