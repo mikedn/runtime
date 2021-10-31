@@ -869,11 +869,11 @@ private:
         {
             Value fieldVal(val.Node());
             fieldVal.Address(lclNum, 0, nullptr);
-            MorphLocalAddress(fieldVal, user);
+            CanonicalizeLocalAddress(fieldVal, user);
         }
         else
         {
-            MorphLocalAddress(val, user);
+            CanonicalizeLocalAddress(val, user);
         }
     }
 
@@ -1242,14 +1242,9 @@ private:
         return indir->AsBlk()->GetLayout()->GetSize();
     }
 
-    //------------------------------------------------------------------------
-    // MorphLocalAddress: Change a tree that represents a local variable address
-    //    to a single LCL_VAR_ADDR or LCL_FLD_ADDR node.
-    //
-    // Arguments:
-    //    val - a value that represents the local address
-    //
-    void MorphLocalAddress(const Value& val, GenTree* user)
+    // Change a tree that represents a local variable address
+    // to a single LCL_VAR_ADDR or LCL_FLD_ADDR node.
+    void CanonicalizeLocalAddress(const Value& val, GenTree* user)
     {
         assert(val.IsAddress());
         assert(val.Node()->TypeIs(TYP_BYREF, TYP_I_IMPL));
@@ -1290,35 +1285,6 @@ private:
         }
 
         INDEBUG(m_stmtModified = true;)
-    }
-
-    GenTree* CanonicalizeLocalAddress(const Value& val)
-    {
-        assert(val.IsAddress());
-
-        LclVarDsc* lcl  = m_compiler->lvaGetDesc(val.LclNum());
-        GenTree*   node = val.Node();
-
-        // TODO-ADDR: Use LCL_VAR/FLD_ADDR instead of ADDR(LCL_VAR)
-
-        node->ChangeOper(GT_LCL_VAR);
-        node->AsLclVar()->SetLclNum(val.LclNum());
-        node->SetType(lcl->GetType());
-        node->gtFlags = GTF_EMPTY;
-
-        GenTree* addr = m_compiler->gtNewAddrNode(node, TYP_I_IMPL);
-
-        if (val.Offset() != 0)
-        {
-            GenTree* offset = m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq());
-            addr            = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, offset);
-        }
-
-        m_compiler->lvaSetVarAddrExposed(val.LclNum());
-
-        INDEBUG(m_stmtModified = true;)
-
-        return addr;
     }
 
     void CanonicalizeLocalIndir(const Value& val)
@@ -1363,9 +1329,11 @@ private:
             addr = node->AsIndir()->GetAddr();
         }
 
+        m_compiler->lvaSetVarAddrExposed(val.LclNum());
+
         Value addrVal(addr);
         addrVal.Address(val.LclNum(), val.Offset(), val.FieldSeq());
-        addr = CanonicalizeLocalAddress(addrVal);
+        CanonicalizeLocalAddress(addrVal, node);
 
         node->AsIndir()->SetAddr(addr);
         node->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
