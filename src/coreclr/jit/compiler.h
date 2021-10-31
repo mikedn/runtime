@@ -4771,8 +4771,6 @@ private:
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
     GenTree* fgMorphConst(GenTree* tree);
-
-    GenTreeLclVar* fgMorphTryFoldObjAsLclVar(GenTreeObj* obj);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
 
 #ifdef FEATURE_HW_INTRINSICS
