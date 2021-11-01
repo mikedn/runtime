@@ -1901,7 +1901,6 @@ public:
     bool IsPartialLclFld(Compiler* comp);
     GenTreeLclVarCommon* IsLocalAssignment(Compiler* comp, bool* totalOverlap = nullptr);
     GenTreeLclVarCommon* IsLocalAddrExpr(Compiler* comp, unsigned size = 0, bool* totalOverlap = nullptr);
-    GenTreeLclVarCommon* IsLocalAddrExpr(Compiler* comp, unsigned* outLclOffs, FieldSeqNode** outFieldSeq);
     GenTreeLclVarCommon* IsLocalAddrExpr();
 
     // Determine if this tree represents an indirection for an implict byref parameter,

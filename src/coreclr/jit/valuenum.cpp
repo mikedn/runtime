@@ -7761,38 +7761,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // We will "evaluate" this as part of the assignment.
             else if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
-                unsigned             localLclOffs;
-                FieldSeqNode*        localFldSeq;
-                GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr(this, &localLclOffs, &localFldSeq);
-                VNFuncApp            funcApp;
+                VNFuncApp funcApp;
 
-                if ((lclNode != nullptr) && lvaInSsa(lclNode->GetLclNum()))
-                {
-                    ValueNumPair vnp;
-
-                    // TODO-MIKE-Review: null field sequence check is dubious. null means that
-                    // it's the address of the local itself and then if the indir type matches
-                    // the local type then we should get the proper VN from the SSA def, not
-                    // pull out a new one from the hat.
-                    // But then it's very unlikely that we'll ever hit this code path, we should
-                    // have already transformed IND(ADDR(LCL_VAR)) in LocalAddressVisitor and if
-                    // we didn't we should have made the local address exposed. So all this is
-                    // probably dead code...
-
-                    if ((localFldSeq == FieldSeqStore::NotAField()) || (localFldSeq == nullptr))
-                    {
-                        vnp.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
-                    }
-                    else
-                    {
-                        vnp = lvaGetSsaDesc(lclNode)->GetVNP();
-                        vnp = vnStore->VNPairApplySelectors(vnp, localFldSeq, tree->GetType());
-                    }
-
-                    // TODO-MIKE-Review: There should be no exceptions on a local address...
-                    tree->gtVNPair = vnStore->VNPWithExc(vnp, addrXvnp);
-                }
-                else if (vnStore->GetVNFunc(addrNvnp.GetLiberal(), &funcApp) && funcApp.m_func == VNF_PtrToStatic)
+                if (vnStore->GetVNFunc(addrNvnp.GetLiberal(), &funcApp) && funcApp.m_func == VNF_PtrToStatic)
                 {
                     var_types indType    = tree->TypeGet();
                     ValueNum  fieldSeqVN = funcApp.m_args[0];
