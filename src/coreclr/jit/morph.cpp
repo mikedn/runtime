@@ -8145,13 +8145,8 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             destSize = dest->AsBlk()->Size();
         }
 
-        destLclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclOffs, &destFieldSeq);
-
-        if (destLclNode != nullptr)
-        {
-            destLclNum = destLclNode->GetLclNum();
-            destLclVar = lvaGetDesc(destLclNum);
-        }
+        INDEBUG(GenTreeLclVarCommon* lclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr();)
+        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
     }
 
 #if LOCAL_ASSERTION_PROP
@@ -9084,16 +9079,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-        if (dest->OperIs(GT_IND, GT_OBJ))
-        {
-            destLclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclOffs, &destFieldSeq);
-
-            if (destLclNode != nullptr)
-            {
-                destLclNum = destLclNode->GetLclNum();
-                destLclVar = lvaGetDesc(destLclNum);
-            }
-        }
+        INDEBUG(GenTreeLclVarCommon* lclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr();)
+        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
     }
 
 #if LOCAL_ASSERTION_PROP
@@ -9124,16 +9111,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
     else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
     {
-        if (destHasSize && src->OperIs(GT_IND, GT_OBJ))
-        {
-            srcLclNode = src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclOffs, &srcFieldSeq);
-
-            if (srcLclNode != nullptr)
-            {
-                srcLclNum = srcLclNode->GetLclNum();
-                srcLclVar = lvaGetDesc(srcLclNum);
-            }
-        }
+        INDEBUG(GenTreeLclVarCommon* lclNode = src->AsIndir()->GetAddr()->IsLocalAddrExpr();)
+        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
     }
     else
     {
