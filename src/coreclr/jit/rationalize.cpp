@@ -56,116 +56,15 @@ void Rationalizer::RewriteIndir(LIR::Use& use)
     // Clear the `GTF_IND_ASG_LHS` flag, which overlaps with `GTF_IND_REQ_ADDR_IN_REG`.
     indir->gtFlags &= ~GTF_IND_ASG_LHS;
 
-    if (indir->OperIs(GT_IND))
-    {
-        if (varTypeIsSIMD(indir))
-        {
-            RewriteSIMDIndir(use);
-        }
-        else
-        {
-            // Due to promotion of structs containing fields of type struct with a
-            // single scalar type field, we could potentially see IR nodes of the
-            // form GT_IND(GT_ADD(lclvarAddr, 0)) where 0 is an offset representing
-            // a field-seq. These get folded here.
-            //
-            // TODO: This code can be removed once JIT implements recursive struct
-            // promotion instead of lying about the type of struct field as the type
-            // of its single scalar field.
-            GenTree* addr = indir->Addr();
-            if (addr->OperGet() == GT_ADD && addr->gtGetOp1()->OperGet() == GT_LCL_VAR_ADDR &&
-                addr->gtGetOp2()->IsIntegralConst(0))
-            {
-                GenTreeLclVarCommon* lclVarNode = addr->gtGetOp1()->AsLclVarCommon();
-                unsigned             lclNum     = lclVarNode->GetLclNum();
-                LclVarDsc*           varDsc     = comp->lvaTable + lclNum;
-                if (indir->TypeGet() == varDsc->TypeGet())
-                {
-                    JITDUMP("Rewriting GT_IND(GT_ADD(LCL_VAR_ADDR,0)) to LCL_VAR\n");
-                    lclVarNode->SetOper(GT_LCL_VAR);
-                    lclVarNode->gtType = indir->TypeGet();
-                    use.ReplaceWith(comp, lclVarNode);
-                    BlockRange().Remove(addr);
-                    BlockRange().Remove(addr->gtGetOp2());
-                    BlockRange().Remove(indir);
-                }
-            }
-        }
-    }
-    else if (indir->OperIs(GT_OBJ))
+    if (indir->OperIs(GT_OBJ))
     {
         assert(varTypeIsStruct(indir->GetType()));
 
-        // TODO-MIKE-Cleanup: This shouldn't be needed, SIMD typed OBJ should
-        // either not be generated or be converted to IND earlier.
-
-        if (varTypeIsSIMD(indir->TypeGet()))
+        if (varTypeIsSIMD(indir->GetType()))
         {
             indir->SetOper(GT_IND);
-            RewriteSIMDIndir(use);
         }
     }
-    else
-    {
-        assert(indir->OperIs(GT_BLK));
-        assert(indir->TypeIs(TYP_STRUCT));
-    }
-}
-
-// RewriteSIMDIndir: Rewrite a SIMD indirection as a simple lclVar if possible.
-//
-// Arguments:
-//    use - A use of a GT_IND node of SIMD type
-//
-// TODO-1stClassStructs: These should be eliminated earlier, once we can handle
-// lclVars in all the places that used to have GT_OBJ.
-//
-void Rationalizer::RewriteSIMDIndir(LIR::Use& use)
-{
-#ifdef FEATURE_SIMD
-    // No lowering is needed for non-SIMD nodes, so early out if SIMD types are not supported.
-    if (!comp->supportSIMDTypes())
-    {
-        return;
-    }
-
-    GenTreeIndir* indir = use.Def()->AsIndir();
-    assert(indir->OperIs(GT_IND));
-    var_types simdType = indir->TypeGet();
-    assert(varTypeIsSIMD(simdType));
-
-    GenTree* addr = indir->Addr();
-
-    if (addr->OperIs(GT_LCL_VAR_ADDR) && varTypeIsSIMD(comp->lvaGetDesc(addr->AsLclVar())->GetType()))
-    {
-        // If we have GT_IND(GT_LCL_VAR_ADDR) and the var is a SIMD type,
-        // replace the expression by GT_LCL_VAR or GT_LCL_FLD.
-        BlockRange().Remove(indir);
-
-        var_types lclType = comp->lvaGetDesc(addr->AsLclVar())->TypeGet();
-
-        if (lclType == simdType)
-        {
-            addr->SetOper(GT_LCL_VAR);
-        }
-        else
-        {
-            addr->ChangeOper(GT_LCL_FLD);
-            addr->AsLclFld()->SetLclOffs(0);
-            addr->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-
-            if (((addr->gtFlags & GTF_VAR_DEF) != 0) && (genTypeSize(simdType) < genTypeSize(lclType)))
-            {
-                addr->gtFlags |= GTF_VAR_USEASG;
-            }
-
-            comp->lvaSetVarDoNotEnregister(addr->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
-        }
-
-        addr->gtType = simdType;
-        use.ReplaceWith(comp, addr);
-    }
-#endif // FEATURE_SIMD
 }
 
 // RewriteNodeAsCall : Replace the given tree node by a GT_CALL.
@@ -358,17 +257,6 @@ static void RewriteAssignmentIntoStoreLclCore(GenTreeOp* assignment,
 
     DISPNODE(store);
     JITDUMP("\n");
-}
-
-void Rationalizer::RewriteAssignmentIntoStoreLcl(GenTreeOp* assignment)
-{
-    assert(assignment != nullptr);
-    assert(assignment->OperGet() == GT_ASG);
-
-    GenTree* location = assignment->gtGetOp1();
-    GenTree* value    = assignment->gtGetOp2();
-
-    RewriteAssignmentIntoStoreLclCore(assignment, location, value, location->OperGet());
 }
 
 void Rationalizer::RewriteAssignment(LIR::Use& use)
