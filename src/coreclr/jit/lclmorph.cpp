@@ -1255,7 +1255,7 @@ private:
 
         GenTree* addr = val.Node();
 
-        if (val.Offset() > UINT16_MAX)
+        if ((val.Offset() > UINT16_MAX) || (val.Offset() >= varDsc->GetSize()))
         {
             // The offset is too large to store in a LCL_FLD_ADDR node,
             // use ADD(LCL_VAR_ADDR, offset) instead.
