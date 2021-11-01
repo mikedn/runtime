@@ -4753,19 +4753,20 @@ private:
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
     void fgAssignSetVarDef(GenTreeOp* asg);
-    GenTree* fgMorphInitBlock(GenTreeOp* asg);
-    GenTree* fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal);
-    GenTree* fgMorphInitBlockConstant(GenTreeIntCon* initVal,
-                                      var_types      type,
-                                      bool           extendToActualType,
-                                      var_types      simdBaseType);
+    GenTree* fgMorphInitStruct(GenTreeOp* asg);
+    GenTree* fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
+                                       var_types      type,
+                                       bool           extendToActualType,
+                                       var_types      simdBaseType);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
 #ifdef FEATURE_SIMD
     GenTreeOp* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
     GenTreeOp* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
 #endif
-    GenTree* fgMorphCopyBlock(GenTreeOp* asg);
+    GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
+    GenTree* fgMorphCopyStruct(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);

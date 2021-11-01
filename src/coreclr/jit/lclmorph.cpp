@@ -1075,7 +1075,7 @@ private:
         if (IsMergedReturnAssignment(ret))
         {
             // This is a merged return, it will be transformed into a struct
-            // assignment so leave it to fgMorphCopyBlock to promote it.
+            // assignment so leave it to fgMorphCopyStruct to promote it.
             return;
         }
 
@@ -1796,7 +1796,7 @@ private:
         if (IsMergedReturnAssignment(ret))
         {
             // This is a merged return, it will be transformed into a struct
-            // assignment so leave it to fgMorphCopyBlock to handle it.
+            // assignment so leave it to fgMorphCopyStruct to handle it.
 
             LclVarDsc* mergedLcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
             assert(mergedLcl->TypeIs(TYP_STRUCT));

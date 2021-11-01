@@ -982,7 +982,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
     if (src->OperIs(GT_COMMA))
     {
-        // TODO-MIKE-Cleanup: Is this really needed? fgMorphCopyBlock already handles COMMAs
+        // TODO-MIKE-Cleanup: Is this really needed? fgMorphCopyStruct already handles COMMAs
         // and it does it correctly. This extracts COMMA's side effect into a new statement
         // without checking if the side effect doesn't interfere with the destination address.
         // It also does this inconsistently - if the block already contains a statement it

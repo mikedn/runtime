@@ -1777,7 +1777,7 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         // unless there's a way to import the inlined code using A<SomeRefClass>.
         //
         // This means that we can end up with "A<SomeRefClass> = A<Canon>" struct assignments but
-        // that's OK, fgMorphCopyBlock and codegen support that. It may be that such mismatches
+        // that's OK, fgMorphCopyStruct and codegen support that. It may be that such mismatches
         // have some CQ consequences (block copy prop/CSE due to different VNs?).
         // In FX there aren't many such type mismatch cases but Microsoft.CodeAnalysis.CSharp.dll
         // has a lot more.
