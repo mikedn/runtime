@@ -164,30 +164,15 @@ public:
         return killSet;
     }
 
-    void Update(GenTree* tree)
+    void Update(GenTree* node)
     {
-        if (tree->OperIs(GT_PHI_ARG))
+        if (!node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             return;
         }
 
-        GenTreeLclVarCommon* lclNode = nullptr;
-
-        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            lclNode = tree->AsLclVarCommon();
-        }
-        else if (GenTreeIndir* indir = tree->IsIndir())
-        {
-            lclNode = indir->GetAddr()->IsLocalAddrExpr(compiler);
-        }
-
-        if (lclNode == nullptr)
-        {
-            return;
-        }
-
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+        GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
+        LclVarDsc*           lcl     = compiler->lvaGetDesc(lclNode);
 
         if (lcl->IsAddressExposed() || (!lcl->HasLiveness() && !lcl->IsPromoted()))
         {
