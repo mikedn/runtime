@@ -14469,7 +14469,7 @@ GenTreeLclVarCommon* GenTree::IsLocalAddrExpr(Compiler* comp, unsigned size, boo
             }
         }
 
-        return false;
+        return nullptr;
     }
 
     if (totalOverlap != nullptr)
@@ -14517,7 +14517,7 @@ GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
 
         if (!op2->OperIs(GT_CNS_INT))
         {
-            return false;
+            return nullptr;
         }
 
         node = op1;
@@ -14529,7 +14529,7 @@ GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
 
         if (!location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            return false;
+            return nullptr;
         }
 
         return location->AsLclVarCommon();
@@ -14540,7 +14540,7 @@ GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
         return node->AsLclVarCommon();
     }
 
-    return false;
+    return nullptr;
 }
 
 GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)

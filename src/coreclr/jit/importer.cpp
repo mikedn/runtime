@@ -14836,7 +14836,7 @@ GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
 
         if (!op2->OperIs(GT_CNS_INT))
         {
-            return false;
+            return nullptr;
         }
 
         node = op1;
@@ -14848,7 +14848,7 @@ GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
 
         if (!location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            return false;
+            return nullptr;
         }
 
         return location->AsLclVarCommon();
@@ -14859,7 +14859,7 @@ GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
         return node->AsLclVarCommon();
     }
 
-    return false;
+    return nullptr;
 }
 
 //------------------------------------------------------------------------
