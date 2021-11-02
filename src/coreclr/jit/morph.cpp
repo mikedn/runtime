@@ -8094,11 +8094,14 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     assert(varTypeIsStruct(dest->GetType()));
     assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
 
-    dest = fgMorphBlkNode(dest, true);
-    asg->SetOp(0, dest);
-    asg->SetType(dest->GetType());
+    if (dest->OperIs(GT_COMMA))
+    {
+        dest = fgMorphStructComma(dest, true);
+        asg->SetOp(0, dest);
+        asg->SetType(dest->GetType());
 
-    JITDUMPTREE(asg, "fgMorphInitStruct (after fgMorphBlkNode):\n");
+        JITDUMPTREE(asg, "fgMorphInitStruct (after fgMorphStructComma):\n");
+    }
 
     unsigned             destSize     = 0;
     GenTreeLclVarCommon* destLclNode  = nullptr;
@@ -8587,118 +8590,102 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
     return tree;
 }
 
-//------------------------------------------------------------------------
-// fgMorphBlkNode: Morph a block node preparatory to morphing a block assignment
-//
-// Arguments:
-//    tree   - The struct type node
-//    isDest - True if this is the destination of the assignment
-//
-// Return Value:
-//    Returns the possibly-morphed node. The caller is responsible for updating
-//    the parent of this node..
-
-GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
+GenTree* Compiler::fgMorphStructComma(GenTree* tree, bool isDest)
 {
-    assert(!tree->OperIs(GT_BLK, GT_DYN_BLK));
+    assert(tree->OperIs(GT_COMMA) && (isDest || tree->TypeIs(TYP_STRUCT)));
 
-    if (tree->OperIs(GT_COMMA) && (isDest || tree->TypeIs(TYP_STRUCT)))
+    // In order to CSE and value number array index expressions and bounds checks,
+    // the commas in which they are contained need to match.
+    // The pattern is that the COMMA should be the address expression.
+    // Therefore, we insert a GT_ADDR just above the node, and wrap it in an obj or ind.
+    // TODO-1stClassStructs: Consider whether this can be improved.
+    // Example:
+    //   before: [3] comma struct <- [2] comma struct <- [1] LCL_VAR struct
+    //   after: [3] comma byref <- [2] comma byref <- [4] addr byref <- [1] LCL_VAR struct
+
+    ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+    for (GenTree* comma = tree; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
     {
-        // In order to CSE and value number array index expressions and bounds checks,
-        // the commas in which they are contained need to match.
-        // The pattern is that the COMMA should be the address expression.
-        // Therefore, we insert a GT_ADDR just above the node, and wrap it in an obj or ind.
-        // TODO-1stClassStructs: Consider whether this can be improved.
-        // Example:
-        //   before: [3] comma struct <- [2] comma struct <- [1] LCL_VAR struct
-        //   after: [3] comma byref <- [2] comma byref <- [4] addr byref <- [1] LCL_VAR struct
+        commas.Push(comma->AsOp());
+    }
 
-        ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-        for (GenTree* comma = tree; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
+    GenTree* effectiveVal = commas.Top()->GetOp(1);
+
+    // TODO-MIKE-Review: Weird, effectiveVal could be a LCL_VAR node so we end up taking
+    // the address of a local without DNERing/address exposing it. Some code below tried
+    // to DNER the local but it was simply checking for ADDR(LCL_VAR) but that is burried
+    // under COMMAs.
+    //
+    // Not clear what should be done in this case, if DNERing the local is sufficient or
+    // it has to be address exposed as well. Various "is local address" utility functions
+    // don't seem to check for COMMA chains (e.g. IsLocalAddrExpr) so it may be that this
+    // kind of local access may be missed by liveness, SSA etc.
+    //
+    // But then DNER/address exposed are bad because this sometimes happens with SIMD
+    // copies of locals...
+    //
+    // To make things worse, this transform can occur during CSE, after value numbering
+    // and nothing updates the value numbers of the COMMA chain, they'll still have the
+    // VN of the original effective value instead of its address.
+
+    GenTree* effectiveValAddr = gtNewAddrNode(effectiveVal);
+    INDEBUG(effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    commas.Top()->SetOp(1, effectiveValAddr);
+
+    while (!commas.Empty())
+    {
+        GenTreeOp* comma = commas.Pop();
+        comma->SetType(TYP_BYREF);
+        comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
+    }
+
+    GenTree* addr = tree;
+    GenTree* indir;
+
+    var_types structType = effectiveVal->GetType();
+
+    if (structType == TYP_STRUCT)
+    {
+        if (effectiveVal->OperIs(GT_IND))
         {
-            commas.Push(comma->AsOp());
-        }
+            // We may end up with STRUCT IND nodes from STRUCT INDEX morphing, these do not have layout.
+            // They're supposed to appear only as the source of a copy block so they don't really need
+            // layout. DYN_BLK also uses STRUCT IND but those never appear under a COMMA.
 
-        GenTree* effectiveVal = commas.Top()->GetOp(1);
-
-        // TODO-MIKE-Review: Weird, effectiveVal could be a LCL_VAR node so we end up taking
-        // the address of a local without DNERing/address exposing it. Some code below tried
-        // to DNER the local but it was simply checking for ADDR(LCL_VAR) but that is burried
-        // under COMMAs.
-        //
-        // Not clear what should be done in this case, if DNERing the local is sufficient or
-        // it has to be address exposed as well. Various "is local address" utility functions
-        // don't seem to check for COMMA chains (e.g. IsLocalAddrExpr) so it may be that this
-        // kind of local access may be missed by liveness, SSA etc.
-        //
-        // But then DNER/address exposed are bad because this sometimes happens with SIMD
-        // copies of locals...
-        //
-        // To make things worse, this transform can occur during CSE, after value numbering
-        // and nothing updates the value numbers of the COMMA chain, they'll still have the
-        // VN of the original effective value instead of its address.
-
-        GenTree* effectiveValAddr = gtNewAddrNode(effectiveVal);
-        INDEBUG(effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        commas.Top()->SetOp(1, effectiveValAddr);
-
-        while (!commas.Empty())
-        {
-            GenTreeOp* comma = commas.Pop();
-            comma->SetType(TYP_BYREF);
-            comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
-        }
-
-        GenTree* addr = tree;
-        GenTree* indir;
-
-        var_types structType = effectiveVal->GetType();
-
-        if (structType == TYP_STRUCT)
-        {
-            if (effectiveVal->OperIs(GT_IND))
-            {
-                // We may end up with STRUCT IND nodes from STRUCT INDEX morphing, these do not have layout.
-                // They're supposed to appear only as the source of a copy block so they don't really need
-                // layout. DYN_BLK also uses STRUCT IND but those never appear under a COMMA.
-
-                assert(!isDest);
-                indir = gtNewIndir(TYP_STRUCT, addr);
-            }
-            else
-            {
-                indir = gtNewObjNode(typGetStructLayout(effectiveVal), addr);
-            }
+            assert(!isDest);
+            indir = gtNewIndir(TYP_STRUCT, addr);
         }
         else
         {
-            if (!varTypeIsSIMD(structType))
-            {
-                // This shouldn't happen - if the tree is the destination of a block assignment then it should
-                // have struct type. If it's not the destination then, well, it still should have struct type
-                // but due to the messy nature of the JIT code the possibility of seeing a primitive type here
-                // can't be ruled out completely. Change the type to TYP_STRUCT, since it's always valid for an
-                // IND source of a block assignment.
-                //
-                // Note that block copies can have primitive type sources, mostly due to pseudo-recursive struct
-                // promotion. However, this code is intended to handle array access, the main user of COMMAs at
-                // this point. Still, it's not clear if it's impossible to get a promoted struct field under a
-                // COMMA too...
+            indir = gtNewObjNode(typGetStructLayout(effectiveVal), addr);
+        }
+    }
+    else
+    {
+        if (!varTypeIsSIMD(structType))
+        {
+            // This shouldn't happen - if the tree is the destination of a block assignment then it should
+            // have struct type. If it's not the destination then, well, it still should have struct type
+            // but due to the messy nature of the JIT code the possibility of seeing a primitive type here
+            // can't be ruled out completely. Change the type to TYP_STRUCT, since it's always valid for an
+            // IND source of a block assignment.
+            //
+            // Note that block copies can have primitive type sources, mostly due to pseudo-recursive struct
+            // promotion. However, this code is intended to handle array access, the main user of COMMAs at
+            // this point. Still, it's not clear if it's impossible to get a promoted struct field under a
+            // COMMA too...
 
-                assert(!"Unexpected primitive srcType block operand");
+            assert(!"Unexpected primitive srcType block operand");
 
-                structType = TYP_STRUCT;
-            }
-
-            indir = gtNewOperNode(GT_IND, structType, addr);
+            structType = TYP_STRUCT;
         }
 
-        gtUpdateNodeSideEffects(indir);
-        INDEBUG(indir->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        return indir;
+        indir = gtNewOperNode(GT_IND, structType, addr);
     }
 
-    return tree;
+    gtUpdateNodeSideEffects(indir);
+    INDEBUG(indir->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    return indir;
 }
 
 GenTree* Compiler::fgMorphStructAssignment(GenTreeOp* asg)
@@ -9028,27 +9015,34 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 #endif
     }
 
-    dest = fgMorphBlkNode(dest, true);
-    if (dest != asg->GetOp(0))
+    if (dest->OperIs(GT_COMMA))
     {
-        asg->SetOp(0, dest);
-        if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        dest = fgMorphStructComma(dest, true);
+
+        if (dest != asg->GetOp(0))
         {
-            dest->gtFlags |= GTF_VAR_DEF;
+            asg->SetOp(0, dest);
+            if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            {
+                dest->gtFlags |= GTF_VAR_DEF;
+            }
+        }
+
+        if (asg->GetType() != dest->GetType())
+        {
+            JITDUMP("changing srcType of dest from %-6s to %-6s\n", varTypeName(asg->GetType()),
+                    varTypeName(dest->GetType()));
+            asg->SetType(dest->GetType());
         }
     }
 
-    if (asg->GetType() != dest->GetType())
+    if (src->OperIs(GT_COMMA) && src->TypeIs(TYP_STRUCT))
     {
-        JITDUMP("changing srcType of dest from %-6s to %-6s\n", varTypeName(asg->GetType()),
-                varTypeName(dest->GetType()));
-        asg->SetType(dest->GetType());
+        src = fgMorphStructComma(src, false);
+        asg->SetOp(1, src);
     }
 
-    src = fgMorphBlkNode(src, false);
-    asg->SetOp(1, src);
-
-    JITDUMPTREE(asg, "fgMorphCopyStruct: (after fgMorphBlkNode)\n");
+    JITDUMPTREE(asg, "fgMorphCopyStruct: (after fgMorphStructComma)\n");
 
     unsigned             destSize     = 0;
     GenTreeLclVarCommon* destLclNode  = nullptr;
@@ -12096,7 +12090,7 @@ DONE_MORPHING_CHILDREN:
 
                 lastComma->SetOp(1, addr);
 
-                // TODO-MIKE-Cleanup: Like the similar transform in fgMorphBlkNode, this doesn't update
+                // TODO-MIKE-Cleanup: Like the similar transform in fgMorphStructComma, this doesn't update
                 // value numbers on COMMAs. It's likely that this transform doesn't happen past global
                 // morph so probabily this doesn't matter too much.
 
