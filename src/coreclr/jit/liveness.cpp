@@ -348,21 +348,29 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
 
         case GT_DYN_BLK:
             unreached();
+        case GT_STORE_OBJ:
+            if (tree->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+            {
+                GenTreeLclVarCommon* lclNode = tree->AsObj()->GetAddr()->AsLclVarCommon();
+
+                if (!lvaGetDesc(lclNode)->IsAddressExposed())
+                {
+                    fgMarkUseDef(lclNode);
+                    break;
+                }
+            }
+            FALLTHROUGH;
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
         case GT_STOREIND:
-        case GT_STORE_OBJ:
         case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-            if (GenTreeLclVarCommon* lclNode = tree->AsIndir()->GetAddr()->IsLocalAddrExpr(this))
-            {
-                if (!lvaGetDesc(lclNode)->IsAddressExposed())
-                {
-                    fgMarkUseDef(lclNode);
-                }
-            }
+        {
+            INDEBUG(GenTreeLclVarCommon* lclNode = tree->AsIndir()->GetAddr()->IsLocalAddrExpr();)
+            assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
             break;
+        }
 
         case GT_CALL:
             fgPInvokeFrameLiveness(tree->AsCall());
