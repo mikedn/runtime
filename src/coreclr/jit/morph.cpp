@@ -8698,22 +8698,6 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         return indir;
     }
 
-    if (tree->OperIs(GT_OBJ))
-    {
-        GenTree* addr = tree->AsBlk()->GetAddr();
-
-        if (!tree->TypeIs(TYP_STRUCT) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
-        {
-            GenTreeLclVar* lclNode = addr->AsUnOp()->GetOp(0)->AsLclVar();
-
-            if ((varTypeSize(tree->GetType()) != varTypeSize(lclNode->GetType())) ||
-                (!isDest && !varTypeIsStruct(lclNode->GetType())))
-            {
-                lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUG_ARG(DNER_BlockOp));
-            }
-        }
-    }
-
     return tree;
 }
 
