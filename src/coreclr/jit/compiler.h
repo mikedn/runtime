@@ -451,10 +451,6 @@ public:
 #ifdef TARGET_AMD64
     unsigned char lvQuirkPPPStuct : 1;
 #endif
-#ifdef DEBUG
-    unsigned char lvKeepType : 1;       // Don't change the type of this variable
-    unsigned char lvNoLclFldStress : 1; // Can't apply local field stress on this one
-#endif
     unsigned char lvIsPtr : 1; // Might this be used in an address computation? (used by buffer overflow security
                                // checks)
     unsigned char lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
@@ -525,8 +521,6 @@ public:
         lvParentLcl     = parentLclNum;
         lvFldOffset     = static_cast<uint8_t>(fieldOffset);
         m_fieldSeq      = fieldSeq;
-
-        INDEBUG(lvKeepType = 1;)
     }
 
     bool IsPromoted() const
@@ -2689,21 +2683,8 @@ public:
     VARSET_VALRET_TP lvaStmtLclMask(Statement* stmt);
 
 #ifdef DEBUG
-    struct lvaStressLclFldArgs
-    {
-        Compiler* m_pCompiler;
-        bool      m_bFirstPass;
-    };
-
-    static fgWalkPreFn lvaStressLclFldCB;
-    void               lvaStressLclFld();
-
     void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
     void lvaDispVarSet(VARSET_VALARG_TP set);
-
-#ifdef TARGET_ARMARCH
-    unsigned lvaStressLclFldGetAlignment(GenTreeLclVar* lclNode);
-#endif
 #endif
 
 #ifdef TARGET_ARM
@@ -7529,7 +7510,6 @@ public:
                                                                                                 \
         STRESS_MODE(REGS)                                                                       \
         STRESS_MODE(DBL_ALN)                                                                    \
-        STRESS_MODE(LCL_FLDS)                                                                   \
         STRESS_MODE(UNROLL_LOOPS)                                                               \
         STRESS_MODE(MAKE_CSE)                                                                   \
         STRESS_MODE(LEGACY_INLINE)                                                              \

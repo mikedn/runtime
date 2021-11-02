@@ -5863,19 +5863,6 @@ GenTreeCall* Compiler::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
     // See ILCodeStream::LowerOpcode
     assert(genActualType(fptr->gtType) == TYP_I_IMPL || genActualType(fptr->gtType) == TYP_INT);
 
-#ifdef DEBUG
-    // This temporary must never be converted to a double in stress mode,
-    // because that can introduce a call to the cast helper after the
-    // arguments have already been evaluated.
-
-    if (fptr->OperGet() == GT_LCL_VAR)
-    {
-        lvaTable[fptr->AsLclVarCommon()->GetLclNum()].lvKeepType = 1;
-    }
-#endif
-
-    /* Create the call node */
-
     GenTreeCall* call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
 
     call->gtFlags |= GTF_EXCEPT | (fptr->gtFlags & GTF_GLOB_EFFECT);

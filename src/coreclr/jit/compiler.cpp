@@ -3914,8 +3914,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
 
-    // Now that locals have address-taken and implicit byref marked, we can safely apply stress.
-    INDEBUG(lvaStressLclFld();)
 #ifndef TARGET_64BIT
     INDEBUG(fgStress64RsltMul();)
 #endif

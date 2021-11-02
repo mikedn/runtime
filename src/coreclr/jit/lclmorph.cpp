@@ -2369,9 +2369,6 @@ private:
             // So we must ensure that the struct lives in memory.
             m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
 
-            // We can't convert this guy to a float because he really does have his
-            // address taken..
-            INDEBUG(varDsc->lvKeepType = 1;)
             return;
         }
 
@@ -3015,8 +3012,6 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
     lcl->lvPromoted      = true;
     lcl->lvContainsHoles = info.containsHoles;
     lcl->lvCustomLayout  = info.customLayout;
-
-    INDEBUG(lcl->lvKeepType = 1;)
 
     JITDUMP("\nPromoting struct local V%02u (%s):", lclNum, lcl->GetLayout()->GetClassName());
 
@@ -3750,7 +3745,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
                 structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
-                structLcl->lvKeepType         = true;
 #endif // DEBUG
 
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
@@ -3811,10 +3805,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
         // parameter's address.  So clear the address-taken bit for the parameter.
         lcl->lvAddrExposed     = false;
         lcl->lvDoNotEnregister = false;
-
-        // This should not be converted to a double in stress mode,
-        // because it is really a pointer.
-        INDEBUG(lcl->lvKeepType = true;)
 
         JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lclNum);
     }

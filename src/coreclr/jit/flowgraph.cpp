@@ -2087,10 +2087,6 @@ private:
                 comp->compFloatingPointUsed |= varTypeIsFloating(comp->info.compRetType);
             }
 
-            // This temporary should not be converted to a double in stress mode,
-            // because we introduce assigns to it after the stress conversion
-            INDEBUG(lcl->lvKeepType = 1;)
-
             GenTree* retTemp = comp->gtNewLclvNode(lclNum, lcl->GetType());
             // make sure copy prop ignores this node (make sure it always does a reload from the temp).
             retTemp->gtFlags |= GTF_DONT_CSE;
