@@ -9390,9 +9390,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
     if (addr != nullptr)
     {
-        // IsLocalAddrExpr should have already recognized this as a local access.
-        assert(!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
         if (gtClone(addr) != nullptr)
         {
             // addr is a simple expression, no need to spill.
