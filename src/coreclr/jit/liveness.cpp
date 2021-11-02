@@ -212,16 +212,10 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             {
                 GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
 
-                if (GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr(this))
+                if (GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr())
                 {
-                    if (lvaGetDesc(lclNode)->IsAddressExposed())
-                    {
-                        fgCurMemoryUse |= memoryKindSet(ByrefExposed);
-                    }
-                    else
-                    {
-                        fgMarkUseDef(lclNode);
-                    }
+                    assert(lvaGetDesc(lclNode)->IsAddressExposed());
+                    fgCurMemoryUse |= memoryKindSet(ByrefExposed);
                 }
                 else
                 {
