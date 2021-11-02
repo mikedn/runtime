@@ -129,24 +129,18 @@ int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDs
 class CopyPropLivenessUpdater
 {
     Compiler* compiler;
-    VARSET_TP currentLife;
-    VARSET_TP newLife;     // a live set after processing an argument tree.
-    VARSET_TP varDeltaSet; // a set of variables that changed their liveness.
+    VARSET_TP liveSet;
     VARSET_TP killSet;
 
 public:
     CopyPropLivenessUpdater::CopyPropLivenessUpdater(Compiler* compiler)
-        : compiler(compiler)
-        , currentLife(VarSetOps::MakeEmpty(compiler))
-        , newLife(VarSetOps::MakeEmpty(compiler))
-        , varDeltaSet(VarSetOps::MakeEmpty(compiler))
-        , killSet(VarSetOps::MakeEmpty(compiler))
+        : compiler(compiler), liveSet(VarSetOps::MakeEmpty(compiler)), killSet(VarSetOps::MakeEmpty(compiler))
     {
     }
 
     void BeginBlock(BasicBlock* block)
     {
-        VarSetOps::Assign(compiler, currentLife, block->bbLiveIn);
+        VarSetOps::Assign(compiler, liveSet, block->bbLiveIn);
     }
 
     void BeginStatement()
@@ -156,7 +150,7 @@ public:
 
     VARSET_VALARG_TP GetLiveSet() const
     {
-        return currentLife;
+        return liveSet;
     }
 
     VARSET_VALARG_TP GetKillSet() const
@@ -174,13 +168,14 @@ public:
         GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
         LclVarDsc*           lcl     = compiler->lvaGetDesc(lclNode);
 
-        if (lcl->IsAddressExposed() || (!lcl->HasLiveness() && !lcl->IsPromoted()))
+        assert(!lcl->IsPromoted() || lcl->IsDependentPromoted() || lcl->lvIsMultiRegRet);
+
+        if (!lcl->IsInSsa())
         {
             return;
         }
 
-        // if it's a partial definition then variable "x" must have had a previous, original, site to be born.
-        bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0 && (lclNode->gtFlags & GTF_VAR_USEASG) == 0);
+        bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
         bool isDying = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0);
 
         if (!isBorn && !isDying)
@@ -188,84 +183,29 @@ public:
             return;
         }
 
-        VarSetOps::ClearD(compiler, varDeltaSet);
-
-        if (lcl->HasLiveness())
+#ifdef DEBUG
+        if (compiler->verbose)
         {
-            VarSetOps::AddElemD(compiler, varDeltaSet, lcl->lvVarIndex);
+            compiler->dmpVarSet("Live vars: ", liveSet);
         }
-        else
-        {
-            assert(lcl->IsPromoted());
-
-            bool hasDeadTrackedFields = false;
-
-            if (isDying)
-            {
-                assert(!isBorn); // GTF_VAR_DEATH only set for OBJ last use.
-
-                VARSET_TP* deadTrackedFields;
-                hasDeadTrackedFields = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFields);
-
-                if (hasDeadTrackedFields)
-                {
-                    VarSetOps::Assign(compiler, varDeltaSet, *deadTrackedFields);
-                }
-            }
-
-            if (!hasDeadTrackedFields)
-            {
-                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
-                {
-                    LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
-                    if (fieldLcl->HasLiveness())
-                    {
-                        VarSetOps::AddElemD(compiler, varDeltaSet, fieldLcl->lvVarIndex);
-                    }
-                }
-            }
-        }
-
-        VarSetOps::Assign(compiler, newLife, currentLife);
+#endif
 
         if (isDying)
         {
-            assert(VarSetOps::IsSubset(compiler, varDeltaSet, newLife));
-            VarSetOps::DiffD(compiler, newLife, varDeltaSet);
+            VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
         }
         else
         {
-            // This shouldn't be in newLife, unless this is debug code, in which
-            // case we keep vars live everywhere, OR the variable is address-exposed,
-            // OR this block is part of a try block, in which case it may be live at the handler
-            // Could add a check that, if it's in newLife, that it's also in
-            // fgGetHandlerLiveVars(compCurBB), but seems excessive
-            //
-            // For a dead store, it can be the case that we set both isBorn and isDying to true.
-            // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
-            // eliminated.)  If it's both, we handled it above.
-
-            VarSetOps::UnionD(compiler, newLife, varDeltaSet);
-        }
-
-        if (VarSetOps::Equal(compiler, currentLife, newLife))
-        {
-            return;
+            VarSetOps::AddElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
         }
 
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("Live vars: ");
-            dumpConvertedVarSet(compiler, currentLife);
-            printf(" => ");
-            dumpConvertedVarSet(compiler, newLife);
+            compiler->dmpVarSet(" => ", liveSet);
             printf("\n");
         }
 #endif
-
-        VarSetOps::Assign(compiler, currentLife, newLife);
     }
 
     void Kill(unsigned lclNum)

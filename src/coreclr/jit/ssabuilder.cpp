@@ -1610,17 +1610,12 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 {
     LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
 
-    if (lcl->IsAddressExposed())
-    {
-        return false;
-    }
-
     if (!lcl->HasLiveness())
     {
         return false;
     }
 
-    // Promoted structs are never tracked.
+    assert(!lcl->IsAddressExposed());
     assert(!lcl->IsPromoted());
 
     if (lcl->lvOverlappingFields)
@@ -1628,19 +1623,19 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
         return false;
     }
 
-    if (lcl->IsDependentPromotedField(m_pCompiler))
+    if (lcl->IsPromotedField())
     {
-        // SSA must exclude struct fields that are not independent:
-        // - we don't model the struct assignment properly when multiple fields
-        //   can be assigned by one struct assignment.
-        // - SSA doesn't allow a single node to contain multiple SSA definitions.
-        // - dependent promoted fields are never candidates for a register.
-        return false;
-    }
+        LclVarDsc* parentLcl = m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-    if (lcl->IsPromotedField() && m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->lvIsMultiRegRet)
-    {
-        return false;
+        if (parentLcl->IsDependentPromoted() || parentLcl->lvIsMultiRegRet)
+        {
+            // SSA must exclude struct fields that are not independent:
+            // - we don't model the struct assignment properly when multiple fields
+            //   can be assigned by one struct assignment.
+            // - SSA doesn't allow a single node to contain multiple SSA definitions.
+            // - dependent promoted fields are never candidates for a register.
+            return false;
+        }
     }
 
     return true;
