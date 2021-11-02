@@ -4740,7 +4740,7 @@ private:
                                        var_types      type,
                                        bool           extendToActualType,
                                        var_types      simdBaseType);
-    GenTree* fgMorphStructComma(GenTree* tree, bool isDest);
+    GenTree* fgMorphStructComma(GenTree* tree);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
 #ifdef FEATURE_SIMD
     GenTreeOp* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
