@@ -9056,6 +9056,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     LclVarDsc*           destLclVar   = nullptr;
     unsigned             destLclOffs  = 0;
     FieldSeqNode*        destFieldSeq = nullptr;
+    ClassLayout*         destLayout   = nullptr;
     bool                 destPromote  = false;
 
     if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
@@ -9066,19 +9067,28 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
         if (dest->OperIs(GT_LCL_VAR))
         {
-            if (destLclNode->TypeIs(TYP_STRUCT))
+            if (dest->TypeIs(TYP_STRUCT))
             {
-                destSize = destLclVar->GetLayout()->GetSize();
+                destLayout = destLclVar->GetLayout();
+                destSize   = destLayout->GetSize();
             }
             else
             {
-                destSize = genTypeSize(destLclVar->GetType());
+                destSize = varTypeSize(destLclVar->GetType());
             }
         }
         else
         {
-            destSize =
-                dest->TypeIs(TYP_STRUCT) ? dest->AsLclFld()->GetLayout(this)->GetSize() : genTypeSize(dest->GetType());
+            if (dest->TypeIs(TYP_STRUCT))
+            {
+                destLayout = dest->AsLclFld()->GetLayout(this);
+                destSize   = destLayout->GetSize();
+            }
+            else
+            {
+                destSize = varTypeSize(dest->GetType());
+            }
+
             destLclOffs  = dest->AsLclFld()->GetLclOffs();
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
@@ -9093,7 +9103,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         }
         else if (dest->OperIs(GT_OBJ))
         {
-            destSize = dest->AsObj()->GetLayout()->GetSize();
+            destLayout = dest->AsObj()->GetLayout();
+            destSize   = destLayout->GetSize();
         }
 
         noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
@@ -9132,6 +9143,15 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     {
         INDEBUG(GenTreeLclVarCommon* lclNode = src->AsIndir()->GetAddr()->IsLocalAddrExpr();)
         assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
+
+        // TODO-MIKE-Cleanup: This is only needed due to stupid FIELD morphing...
+
+        if (src->OperIs(GT_IND) && src->TypeIs(TYP_STRUCT))
+        {
+            src->ChangeOper(GT_OBJ);
+            src->AsObj()->SetLayout(destLayout);
+            src->AsObj()->SetKind(StructStoreKind::Invalid);
+        }
     }
     else
     {
@@ -9289,33 +9309,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             if (destLclVar != nullptr)
             {
                 lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
-            }
-
-            if (src->OperIs(GT_IND))
-            {
-                assert(dest->TypeIs(TYP_STRUCT));
-                assert(src->TypeIs(TYP_STRUCT));
-
-                ClassLayout* layout = nullptr;
-
-                if (dest->OperIs(GT_OBJ, GT_BLK))
-                {
-                    layout = dest->AsBlk()->GetLayout();
-                }
-                else if (dest->OperIs(GT_LCL_VAR))
-                {
-                    layout = lvaGetDesc(dest->AsLclVar())->GetLayout();
-                }
-                else if (dest->OperIs(GT_LCL_FLD))
-                {
-                    layout = dest->AsLclFld()->GetLayout(this);
-                }
-
-                if (layout != nullptr)
-                {
-                    src->ChangeOper(layout->IsBlockLayout() ? GT_BLK : GT_OBJ);
-                    src->AsBlk()->SetLayout(layout);
-                }
             }
         }
         else
