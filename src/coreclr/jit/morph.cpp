@@ -9425,21 +9425,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
                 destFieldAddr = (i == 0) ? addr : gtClone(addr);
 
                 noway_assert(destFieldAddr != nullptr);
-
-                // TODO-MIKE-Cleanup: This should not be needed, IsLocalAddrExpr should have already recognized
-                // and indirect access to a local and then we'd be in the destLclVar != nullptr case above.
-                // Except that IsLocalAddrExpr may fail to recognize some trees that IsLocalAddrExpr does...
-
-                bool totalOverlap = false;
-                if (GenTreeLclVarCommon* lclNode = destFieldAddr->IsLocalAddrExpr(this, destSize, &totalOverlap))
-                {
-                    lclNode->gtFlags |= GTF_VAR_DEF;
-
-                    if (!totalOverlap)
-                    {
-                        lclNode->gtFlags |= GTF_VAR_USEASG;
-                    }
-                }
             }
 
             unsigned   srcFieldLclNum = srcLclVar->GetPromotedFieldLclNum(i);
