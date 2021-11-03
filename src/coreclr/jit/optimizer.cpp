@@ -7122,15 +7122,14 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                 }
                 else if (lhs->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
                 {
-                    GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this);
-
-                    if (lclNode == nullptr)
+                    if (GenTreeLclVarCommon* lclNode = lhs->AsIndir()->GetAddr()->IsLocalAddrExpr())
+                    {
+                        assert(lvaGetDesc(lclNode)->IsAddressExposed());
+                        memoryHavoc |= memoryKindSet(ByrefExposed);
+                    }
+                    else
                     {
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
-                    }
-                    else if (lvaGetDesc(lclNode)->IsAddressExposed())
-                    {
-                        memoryHavoc |= memoryKindSet(ByrefExposed);
                     }
                 }
                 else if (lhs->OperIs(GT_CLS_VAR))
@@ -8225,8 +8224,15 @@ void Compiler::optRemoveRedundantZeroInits()
                     }
                     case GT_ASG:
                     {
-                        bool                 totalOverlap;
-                        GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this, &totalOverlap);
+                        GenTreeLclVarCommon* lclNode = nullptr;
+
+                        if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                        {
+                            lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
+                        }
+
+                        // TODO-MIKE-CQ: This could also recognize indirect local stores.
+                        // Though they're so rare that's hardly worth the trouble...
 
                         if (lclNode == nullptr)
                         {
@@ -8270,6 +8276,7 @@ void Compiler::optRemoveRedundantZeroInits()
 
                         // The local hasn't been referenced before this assignment.
                         bool removedExplicitZeroInit = false;
+                        bool totalOverlap            = !lclNode->IsPartialLclFld(this);
 
                         if (tree->AsOp()->GetOp(1)->IsIntegralConst(0))
                         {

@@ -8045,22 +8045,6 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
     return tree;
 }
 
-void Compiler::fgAssignSetVarDef(GenTreeOp* asg)
-{
-    assert(asg->OperIs(GT_ASG));
-
-    bool totalOverlap;
-    if (GenTreeLclVarCommon* lclNode = asg->IsLocalAssignment(this, &totalOverlap))
-    {
-        lclNode->gtFlags |= GTF_VAR_DEF;
-
-        if (!totalOverlap)
-        {
-            lclNode->gtFlags |= GTF_VAR_USEASG;
-        }
-    }
-}
-
 //------------------------------------------------------------------------
 // fgMorphInitStruct: Morph a block initialization assignment tree.
 //
@@ -9734,21 +9718,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
             }
-
-            // We can't CSE the LHS of an assignment. Only r-values can be CSEed.
-            // Previously, the "lhs" (addr) of a block op was CSE'd.  So, to duplicate the former
-            // behavior, allow CSE'ing if is a struct type (or a TYP_REF transformed from a struct type)
-            // TODO-1stClassStructs: improve this.
-            if (op1->IsLocal() || (op1->TypeGet() != TYP_STRUCT))
-            {
-                op1->gtFlags |= GTF_DONT_CSE;
-            }
-            break;
-
+            FALLTHROUGH;
         case GT_ADDR:
             assert(!op1->OperIsHWIntrinsic());
-
-            // op1 of a GT_ADDR is an l-value. Only r-values can be CSEed
+            // op1 of a ADDR/ASG is an l-value. Only r-values can be CSEed
             op1->gtFlags |= GTF_DONT_CSE;
             break;
 
@@ -10793,10 +10766,12 @@ DONE_MORPHING_CHILDREN:
             }
             else
             {
-                assert(effectiveOp1->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-            }
+                // TODO-MIKE-Review: Old code never checked for a LCL_VAR|FLD under
+                // a COMMA so presumably it can't happen.
+                assert(effectiveOp1 == op1);
 
-            fgAssignSetVarDef(tree->AsOp());
+                gtAssignSetVarDef(effectiveOp1);
+            }
 
             // If we are storing a small type, we might be able to omit a cast.
             // We may also omit a cast when storing to a "normalize on load"
@@ -13503,7 +13478,7 @@ void Compiler::fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree*
 //
 void Compiler::fgKillDependentAssertions(unsigned lclNum DEBUGARG(GenTree* tree))
 {
-    LclVarDsc* varDsc = &lvaTable[lclNum];
+    LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
     if (varDsc->lvPromoted)
     {
@@ -13587,14 +13562,10 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
 
     if (optAssertionCount > 0)
     {
-        if (tree->OperIs(GT_ASG))
+        if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            if (GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this))
-            {
-                unsigned lclNum = lclNode->GetLclNum();
-                noway_assert(lclNum < lvaCount);
-                fgKillDependentAssertions(lclNum DEBUGARG(tree));
-            }
+            GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
+            fgKillDependentAssertions(lclNode->GetLclNum() DEBUGARG(tree));
         }
         else
         {

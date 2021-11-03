@@ -4733,7 +4733,7 @@ private:
                                            CORINFO_CONTEXT_HANDLE* ExactContextHnd,
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
-    void fgAssignSetVarDef(GenTreeOp* asg);
+    void gtAssignSetVarDef(GenTree* dst);
     GenTree* fgMorphInitStruct(GenTreeOp* asg);
     GenTree* fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,

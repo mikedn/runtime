@@ -729,15 +729,16 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
     assert(asgNode->OperIs(GT_ASG));
 
-    bool                 totalOverlap;
-    GenTreeLclVarCommon* lclNode = asgNode->IsLocalAssignment(m_pCompiler, &totalOverlap);
+    GenTree*             dst     = asgNode->GetOp(0);
+    GenTreeLclVarCommon* lclNode = nullptr;
 
-    if (lclNode != nullptr)
+    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
+        lclNode           = dst->AsLclVarCommon();
         unsigned   lclNum = lclNode->GetLclNum();
         LclVarDsc* varDsc = m_pCompiler->lvaGetDesc(lclNum);
 
-        if (m_pCompiler->lvaInSsa(lclNum))
+        if (varDsc->IsInSsa())
         {
             // Promoted variables are not in SSA, only their fields are.
             assert(!varDsc->IsPromoted());
@@ -748,7 +749,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 
             unsigned ssaNum = varDsc->lvPerSsaData.AllocSsaNum(m_allocator, block, asgNode);
 
-            if (!totalOverlap)
+            if (lclNode->IsPartialLclFld(m_pCompiler))
             {
                 assert((lclNode->gtFlags & GTF_VAR_USEASG) != 0);
 
@@ -778,11 +779,25 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
         }
 
         lclNode->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
+
+        if (!varDsc->IsAddressExposed())
+        {
+            return;
+        }
     }
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     if (((block->bbMemoryHavoc & memoryKindSet(GcHeap)) == 0) && m_pCompiler->ehBlockHasExnFlowDsc(block))
     {
+        if (lclNode == nullptr)
+        {
+            if (GenTreeIndir* indir = dst->IsIndir())
+            {
+                lclNode = indir->GetAddr()->IsLocalAddrExpr();
+                assert((lclNode == nullptr) || m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed());
+            }
+        }
+
         bool isAddrExposedLocal = (lclNode != nullptr) && m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed();
         bool hasByrefHavoc      = ((block->bbMemoryHavoc & memoryKindSet(ByrefExposed)) != 0);
         if ((lclNode == nullptr) || (isAddrExposedLocal && !hasByrefHavoc))

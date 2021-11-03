@@ -3954,13 +3954,14 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     //   after the RHS (note that in this case it won't be renamed by SSA anyway, but the reordering is
                     //   safe).
                     //
-                    if (op1Val->AsIndir()->Addr()->IsLocalAddrExpr())
+                    if (op1Val->AsIndir()->GetAddr()->IsLocalAddrExpr())
                     {
                         bReverseInAssignment = true;
                         tree->gtFlags |= GTF_REVERSE_OPS;
                         break;
                     }
-                    if (op1Val->AsIndir()->Addr()->gtFlags & GTF_ALL_EFFECT)
+
+                    if (op1Val->AsIndir()->GetAddr()->gtFlags & GTF_ALL_EFFECT)
                     {
                         break;
                     }
@@ -5807,6 +5808,15 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 
     dst->gtFlags |= GTF_DONT_CSE;
 
+    gtAssignSetVarDef(dst);
+
+    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
+    asg->gtFlags |= GTF_ASG;
+    return asg;
+}
+
+void Compiler::gtAssignSetVarDef(GenTree* dst)
+{
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         dst->gtFlags |= GTF_VAR_DEF;
@@ -5816,10 +5826,6 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
             dst->gtFlags |= GTF_VAR_USEASG;
         }
     }
-
-    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
-    asg->gtFlags |= GTF_ASG;
-    return asg;
 }
 
 //------------------------------------------------------------------------
@@ -14338,167 +14344,6 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
     }
 
     return lclFldSize < lclSize;
-}
-
-GenTreeLclVarCommon* GenTree::IsLocalAssignment(Compiler* comp, bool* totalOverlap)
-{
-    assert(OperIs(GT_ASG));
-
-    GenTree* dest = AsOp()->GetOp(0);
-
-    if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        if (totalOverlap != nullptr)
-        {
-            *totalOverlap = !dest->IsPartialLclFld(comp);
-        }
-
-        return dest->AsLclVarCommon();
-    }
-
-    if (dest->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
-    {
-        unsigned size;
-
-        if (dest->OperIs(GT_IND))
-        {
-            size = varTypeSize(dest->GetType());
-        }
-        else if (GenTreeDynBlk* dynBlk = dest->AsBlk()->IsDynBlk())
-        {
-            if (GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon())
-            {
-                size = constSize->GetUInt32Value();
-
-                if (size == 0)
-                {
-                    return nullptr;
-                }
-            }
-            else
-            {
-                // We don't know the size so we'll use 0, to IsLocalAddrExpr this will
-                // appear like a partial access of the local.
-                // TODO-MIKE-Review: This is dubious pre-existing garbage. You can't do
-                // SSA/VN with a local that has an access of unknown size, such locals
-                // should be address exposed and there's no such thing as SSA def of an
-                // address exposed variable.
-                size = 0;
-            }
-        }
-        else
-        {
-            size = dest->AsBlk()->Size();
-
-            if (size == 0)
-            {
-                return nullptr;
-            }
-        }
-
-        return dest->AsIndir()->GetAddr()->IsLocalAddrExpr(comp, size, totalOverlap);
-    }
-
-    return nullptr;
-}
-
-GenTreeLclVarCommon* GenTree::IsLocalAddrExpr(Compiler* comp, unsigned size, bool* totalOverlap)
-{
-    GenTree* node      = this;
-    bool     hasOffset = true;
-
-    while (true)
-    {
-        if (node->OperIs(GT_ADDR))
-        {
-            GenTree* location = node->AsUnOp()->GetOp(0);
-
-            if (location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-            {
-                node = location;
-                break;
-            }
-
-            if (location->OperIs(GT_IND))
-            {
-                node = location->AsIndir()->GetAddr();
-                continue;
-            }
-        }
-        else if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-        {
-            break;
-        }
-        else if (node->OperIs(GT_ADD))
-        {
-            GenTree* op1 = node->AsOp()->GetOp(0);
-            GenTree* op2 = node->AsOp()->GetOp(1);
-
-            if (op1->OperIs(GT_CNS_INT))
-            {
-                std::swap(op1, op2);
-            }
-
-            if (GenTreeIntCon* intCon = op2->IsIntCon())
-            {
-                if (intCon->GetValue() != 0)
-                {
-                    hasOffset = false;
-                }
-
-                node = op1;
-                continue;
-            }
-        }
-        else if (GenTreeAddrMode* addrMode = node->IsAddrMode())
-        {
-            GenTree* base  = addrMode->GetBase();
-            GenTree* index = addrMode->GetIndex();
-
-            assert((index == nullptr) || !index->IsLocalAddrExpr(comp));
-
-            if (base != nullptr)
-            {
-                if ((index != nullptr) || (addrMode->GetOffset() != 0))
-                {
-                    hasOffset = false;
-                }
-
-                node = base;
-                continue;
-            }
-        }
-
-        return nullptr;
-    }
-
-    if (totalOverlap != nullptr)
-    {
-        if (hasOffset || (node->AsLclVarCommon()->GetLclOffs() != 0))
-        {
-            *totalOverlap = false;
-        }
-        else
-        {
-            LclVarDsc* lcl = comp->lvaGetDesc(node->AsLclVarCommon());
-            unsigned   lclSize;
-
-            if (lcl->lvNormalizeOnStore())
-            {
-                // If it's "normalize on store" we're supposed to write an INT value,
-                // if we write a small int value then that's really a partial def.
-                lclSize = varTypeSize(TYP_INT);
-            }
-            else
-            {
-                lclSize = lcl->GetSize();
-            }
-
-            *totalOverlap = (size >= lclSize);
-        }
-    }
-
-    return node->AsLclVarCommon();
 }
 
 GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()

@@ -288,22 +288,33 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         }
 
         case GT_ASG:
-            if (GenTreeLclVarCommon* lclNode = tree->IsLocalAssignment(this))
+            if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
+                GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
+
                 if (lvaGetDesc(lclNode)->IsAddressExposed())
                 {
                     fgCurMemoryDef |= memoryKindSet(ByrefExposed);
                     byrefStatesMatchGcHeapStates = false;
+                    break;
                 }
-                else
-                {
-                    fgMarkUseDef(lclNode);
-                }
+
+                fgMarkUseDef(lclNode);
+                break;
             }
-            else
+
+            if (GenTreeIndir* indir = tree->AsOp()->GetOp(0)->IsIndir())
             {
-                fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
+                if (GenTreeLclVarCommon* lclNode = indir->GetAddr()->IsLocalAddrExpr())
+                {
+                    assert(lvaGetDesc(lclNode)->IsAddressExposed());
+                    fgCurMemoryDef |= memoryKindSet(ByrefExposed);
+                    byrefStatesMatchGcHeapStates = false;
+                    break;
+                }
             }
+
+            fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
             break;
 
         case GT_QMARK:

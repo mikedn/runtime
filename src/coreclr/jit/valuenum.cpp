@@ -6960,8 +6960,17 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
     assert(dst->TypeIs(TYP_STRUCT));
 
-    bool                 totalOverlap;
-    GenTreeLclVarCommon* dstLclNode = asg->IsLocalAssignment(this, &totalOverlap);
+    GenTreeLclVarCommon* dstLclNode = nullptr;
+
+    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        dstLclNode = dst->AsLclVarCommon();
+    }
+    else if (GenTreeIndir* indir = dst->IsIndir())
+    {
+        dstLclNode = indir->GetAddr()->IsLocalAddrExpr();
+        assert((dstLclNode == nullptr) || lvaGetDesc(dstLclNode)->IsAddressExposed());
+    }
 
     if (dstLclNode == nullptr)
     {
@@ -6998,7 +7007,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
     {
         ValueNum vn;
 
-        if (totalOverlap && src->IsIntCon() && (src->AsIntCon()->GetUInt8Value() == 0))
+        if (!dstLclNode->IsPartialLclFld(this) && src->IsIntCon() && (src->AsIntCon()->GetUInt8Value() == 0))
         {
             vn = vnStore->VNZeroForType(dstLcl->GetType());
         }
@@ -7059,7 +7068,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         {
             ValueNumPair map;
 
-            if (totalOverlap)
+            if (!dstLclNode->IsPartialLclFld(this))
             {
                 // This can occur for structs with one field, itself of a struct type.
                 // We are assigning the one field and it is also the entire enclosing struct.
@@ -7483,7 +7492,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lhs->TypeGet()));
                     }
 
-                    GenTree* arg  = lhs->AsOp()->gtOp1;
+                    GenTree* arg  = lhs->AsIndir()->GetAddr();
                     lhs->gtVNPair = rhsVNPair;
 
                     ValueNum      argVN        = arg->gtVNPair.GetLiberal();
@@ -7587,18 +7596,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                         recordGcHeapStore(tree, heapVN DEBUGARG("StoreField"));
                     }
+                    else if (GenTreeLclVarCommon* dstLclNode = arg->IsLocalAddrExpr())
+                    {
+                        assert(lvaGetDesc(dstLclNode)->IsAddressExposed());
+                        fgMutateAddressExposedLocal(tree);
+                    }
                     else
                     {
-                        GenTreeLclVarCommon* dstLclNode = tree->IsLocalAssignment(this);
-
-                        if (dstLclNode == nullptr)
-                        {
-                            fgMutateGcHeap(tree DEBUGARG("assign-of-IND"));
-                        }
-                        else if (lvaGetDesc(dstLclNode)->IsAddressExposed())
-                        {
-                            fgMutateAddressExposedLocal(tree);
-                        }
+                        fgMutateGcHeap(tree DEBUGARG("assign-of-IND"));
                     }
 
                     // We don't actually evaluate an IND on the LHS, so give it the Void value.
