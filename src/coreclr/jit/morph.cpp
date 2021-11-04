@@ -1368,16 +1368,12 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
                     // TODO-MIKE-Cleanup: So why bother at all?
 
-                    assert(varTypeIsSIMD(arg->GetType()) && (arg->OperIsHWIntrinsic() || arg->OperIs(GT_IND)));
+                    assert(arg->OperIsHWIntrinsic() || arg->OperIs(GT_IND));
                     tempLcl->lvType = arg->GetType();
                 }
 
-                setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
-
-                if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
-                {
-                    setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
-                }
+                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, arg->GetType()), arg);
+                setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
             }
 #ifndef TARGET_X86
             else if (arg->OperIs(GT_MKREFANY))
@@ -1390,12 +1386,8 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             {
                 ClassLayout* layout = compiler->typGetStructLayout(arg);
                 compiler->lvaSetStruct(tempLclNum, layout, /* checkUnsafeBuffer */ false);
-                setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
-
-                if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
-                {
-                    setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
-                }
+                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, TYP_STRUCT), arg);
+                setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
             }
 
             lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(arg->GetType()));

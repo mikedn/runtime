@@ -3120,38 +3120,15 @@ public:
                     }
                 }
 
-                GenTreeOp* asg;
-                GenTree*   asgTree;
+                assert((cseLclVarTyp != TYP_STRUCT) ||
+                       (val->IsCall() && (val->AsCall()->GetRetDesc()->GetRegCount() == 1)));
 
-                if (!varTypeIsStruct(cseLclVarTyp))
-                {
-                    asg = m_pCompiler->gtNewAssignNode(m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp), val);
+                GenTreeLclVar* dstLclNode = m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
+                dstLclNode->SetVNP(val->gtVNPair);
+                dstLclNode->SetSsaNum(cseSsaNum);
 
-                    asgTree = asg;
-                }
-                else
-                {
-                    asgTree = m_pCompiler->gtNewTempAssign(cseLclVarNum, val);
-
-                    if (!asgTree->OperIs(GT_ASG))
-                    {
-                        // This can only be the case for a struct in which the 'val' was a COMMA,
-                        // so the assignment is sunk below it.
-                        noway_assert(asgTree->OperIs(GT_COMMA) && (asgTree == val));
-                        asg = asgTree->SkipComma()->AsOp();
-                    }
-                    else
-                    {
-                        asg = asgTree->AsOp();
-                        noway_assert(asg->GetOp(1) == val);
-                    }
-
-                    noway_assert(asg->GetOp(0)->OperIs(GT_LCL_VAR));
-                }
-
+                GenTreeOp* asg = m_pCompiler->gtNewAssignNode(dstLclNode, val);
                 asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
-                asg->GetOp(0)->gtVNPair = val->gtVNPair;
-                asg->GetOp(0)->AsLclVar()->SetSsaNum(cseSsaNum);
 
                 if (cseSsaNum != SsaConfig::RESERVED_SSA_NUM)
                 {
@@ -3186,7 +3163,7 @@ public:
                 }
                 cseUse->gtVNPair = val->gtVNPair;
 
-                cse = m_pCompiler->gtNewCommaNode(asgTree, cseUse, expTyp);
+                cse = m_pCompiler->gtNewCommaNode(asg, cseUse, expTyp);
                 // COMMA's VN is the same the original expression VN because assignment does not add any exceptions.
                 cse->gtVNPair = cseUse->gtVNPair;
             }

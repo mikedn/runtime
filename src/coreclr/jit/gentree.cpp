@@ -13615,24 +13615,6 @@ DONE:
 #pragma warning(pop)
 #endif
 
-GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
-{
-    assert(varTypeIsStruct(val->GetType()));
-    assert(!val->OperIs(GT_LCL_VAR) || (val->AsLclVar()->GetLclNum() != lclNum));
-    assert(lclNum != genReturnLocal);
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
-    assert(lcl->GetType() == val->GetType());
-
-    // TODO-MIKE-Review: Is this actually needed?
-    GenTree* commaValue = val->SkipComma();
-    commaValue->gtFlags |= GTF_DONT_CSE;
-
-    GenTree* dest = gtNewLclvNode(lclNum, lcl->GetType());
-    dest->gtFlags |= GTF_VAR_DEF;
-    return impAssignStructAddr(gtNewAddrNode(dest), val, lcl->GetLayout(), CHECK_SPILL_NONE);
-}
-
 /*****************************************************************************
  *
  *  Return true if the given node (excluding children trees) contains side effects.

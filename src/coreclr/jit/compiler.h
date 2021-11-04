@@ -2061,8 +2061,6 @@ public:
 
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
-    GenTree* gtNewTempAssign(unsigned tmp, GenTree* val);
-
     GenTree* gtNewNothingNode();
 
     GenTree* gtUnusedValNode(GenTree* expr);
