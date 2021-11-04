@@ -2115,6 +2115,14 @@ private:
         // Otherwise we're on arm64 or unix-x64 and we have promoted a single
         // SIMD field struct that will be transformed during global morph.
         assert(varTypeIsSIMD(type));
+
+#ifdef TARGET_ARM64
+        // TODO-MIKE-Fix: This doesn't handle reinterpretation weirdness,
+        // see arm64-multireg-call-single-simd-field.il.
+        assert(call->GetRetLayout()->IsHfa());
+        call->SetType(type);
+#endif
+
         return call;
     }
 
