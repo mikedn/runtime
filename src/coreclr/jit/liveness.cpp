@@ -52,19 +52,24 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
     if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
     {
+        // TODO-MIKE-Fix: This was dubious before and it still is. It doesn't check
+        // which fields are actually overlapping so we end up with fake uses/defs.
+        // Fake uses might not be a problem but fake defs may be dangerous.
+
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
             LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
             if (fieldLcl->HasLiveness())
             {
+                if (isUse && !VarSetOps::IsMember(this, fgCurDefSet, fieldLcl->lvVarIndex))
+                {
+                    VarSetOps::AddElemD(this, fgCurUseSet, fieldLcl->lvVarIndex);
+                }
+
                 if (isDef)
                 {
                     VarSetOps::AddElemD(this, fgCurDefSet, fieldLcl->lvVarIndex);
-                }
-                else if (!VarSetOps::IsMember(this, fgCurDefSet, fieldLcl->lvVarIndex))
-                {
-                    VarSetOps::AddElemD(this, fgCurUseSet, fieldLcl->lvVarIndex);
                 }
             }
         }
