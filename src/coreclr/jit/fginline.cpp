@@ -442,7 +442,8 @@ private:
         {
             GenTree* srcAddr = GetStructAddress(src);
 
-            if (srcAddr->OperIs(GT_ADDR))
+            if (srcAddr->OperIs(GT_ADDR) &&
+                (srcAddr->AsUnOp()->GetOp(0)->GetType() == m_compiler->typGetStructType(layout)))
             {
                 src = srcAddr->AsUnOp()->GetOp(0);
             }
