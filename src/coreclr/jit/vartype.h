@@ -206,12 +206,6 @@ inline bool varTypeIsI(T vt)
 }
 
 template <class T>
-inline bool varTypeIsEnregisterable(T vt)
-{
-    return (TypeGet(vt) != TYP_STRUCT);
-}
-
-template <class T>
 inline bool varTypeIsByte(T vt)
 {
     return (TypeGet(vt) >= TYP_BOOL) && (TypeGet(vt) <= TYP_UBYTE);

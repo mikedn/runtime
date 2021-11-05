@@ -3106,7 +3106,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
     assert(argSize <= lcl->GetLayout()->GetSize());
 
     LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-    assert(varTypeIsEnregisterable(fieldLcl->GetType()));
+    assert(!fieldLcl->TypeIs(TYP_STRUCT));
 
     if ((fieldLcl->GetPromotedFieldOffset() == 0) && (argSize <= varTypeSize(fieldLcl->GetType())) &&
         varTypeIsSingleReg(fieldLcl->GetType()))

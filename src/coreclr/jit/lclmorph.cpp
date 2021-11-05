@@ -2385,7 +2385,7 @@ private:
         // The field must be an enregisterable type; otherwise it would not be a promoted field.
         // The tree type may not match, e.g. for return types that have been morphed, but both
         // must be enregisterable types.
-        assert(varTypeIsEnregisterable(node->TypeGet()) && varTypeIsEnregisterable(fldVarDsc->TypeGet()));
+        assert(!node->TypeIs(TYP_STRUCT) && !fldVarDsc->TypeIs(TYP_STRUCT));
 
         node->ChangeOper(GT_LCL_VAR);
         node->AsLclVar()->SetLclNum(fieldLclIndex);

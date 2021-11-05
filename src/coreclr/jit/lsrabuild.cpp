@@ -3160,7 +3160,7 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 
         srcCount = dstCount;
     }
-    else if (varTypeIsEnregisterable(src->GetType()))
+    else if (!src->TypeIs(TYP_STRUCT))
     {
         // Create a delay free use, as we'll have to use it to create each field
         RefPosition* use = BuildUse(src, RBM_NONE);

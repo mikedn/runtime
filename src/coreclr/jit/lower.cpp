@@ -3004,7 +3004,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
             unreached();
 
         default:
-            assert(varTypeIsEnregisterable(src->GetType()));
+            assert(!src->TypeIs(TYP_STRUCT));
 
             if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
             {
@@ -3035,7 +3035,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     unsigned   lclNum = lclVar->GetLclNum();
     LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
-    if (!lcl->lvRegStruct && !varTypeIsEnregisterable(lcl->GetType()))
+    if (!lcl->lvRegStruct && lcl->TypeIs(TYP_STRUCT))
     {
         // TODO-1stClassStructs: We can no longer promote or enregister this struct,
         // since it is referenced as a whole.
@@ -6154,7 +6154,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
         assert(!lcl->IsPromoted() || lcl->lvIsMultiRegRet || (lcl->lvIsHfa() && varTypeUsesFloatReg(lcl->GetType())));
 
         // Mark var as contained if not enregisterable.
-        if (!varTypeIsEnregisterable(src->GetType()) && !src->AsLclVar()->IsMultiReg())
+        if (src->TypeIs(TYP_STRUCT) && !src->AsLclVar()->IsMultiReg())
         {
             src->SetContained();
         }

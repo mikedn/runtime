@@ -3384,9 +3384,12 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
         return false;
     }
 
-    var_types type = tree->GetType();
+    if (tree->TypeIs(TYP_VOID))
+    {
+        return false;
+    }
 
-    if ((!varTypeIsEnregisterable(type) && !tree->IsCall()) || (type == TYP_VOID))
+    if (tree->TypeIs(TYP_STRUCT) && !tree->IsCall())
     {
         // Don't attempt to CSE expressions having non-enregistrable types (STRUCT),
         // unless they're calls (some helper calls can be CSEed and do return structs
