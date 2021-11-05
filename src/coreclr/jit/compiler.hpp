@@ -1741,7 +1741,6 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
     if (lvIsStructField && propagate)
     {
         LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
-        assert(!parentLcl->lvRegStruct);
 
         // Depending on the promotion type, increment the ref count for the parent struct as well.
         if (parentLcl->IsDependentPromoted())

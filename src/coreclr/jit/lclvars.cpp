@@ -2426,22 +2426,22 @@ void Compiler::lvaSortByRefCount()
         // Pinned variables may not be tracked (a condition of the GCInfo representation)
         // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
         // references when using the general GC encoding.
-        if (varDsc->lvAddrExposed)
+        if (varDsc->IsAddressExposed())
         {
+            assert(varDsc->lvDoNotEnregister);
+
             varDsc->lvTracked = 0;
-            assert(varDsc->lvType != TYP_STRUCT ||
-                   varDsc->lvDoNotEnregister); // For structs, should have set this when we set lvAddrExposed.
         }
-        else if (varTypeIsStruct(varDsc))
+        else if (varTypeIsStruct(varDsc->GetType()))
         {
             // Promoted structs will never be considered for enregistration anyway,
             // and the DoNotEnregister flag was used to indicate whether promotion was
             // independent or dependent.
-            if (varDsc->lvPromoted)
+            if (varDsc->IsPromoted())
             {
                 varDsc->lvTracked = 0;
             }
-            else if ((varDsc->lvType == TYP_STRUCT) && !varDsc->lvRegStruct)
+            else if (varDsc->TypeIs(TYP_STRUCT))
             {
                 lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
             }

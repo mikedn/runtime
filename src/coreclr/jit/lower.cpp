@@ -3035,7 +3035,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     unsigned   lclNum = lclVar->GetLclNum();
     LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
-    if (!lcl->lvRegStruct && lcl->TypeIs(TYP_STRUCT))
+    if (lcl->TypeIs(TYP_STRUCT))
     {
         // TODO-1stClassStructs: We can no longer promote or enregister this struct,
         // since it is referenced as a whole.

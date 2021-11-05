@@ -9149,16 +9149,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         JITDUMP(" with no promoted structs");
         requiresCopyBlock = true;
     }
-    else if ((destLclVar != nullptr) && destLclVar->lvRegStruct)
-    {
-        JITDUMP(" dest is register struct");
-        requiresCopyBlock = true;
-    }
-    else if ((srcLclVar != nullptr) && srcLclVar->lvRegStruct)
-    {
-        JITDUMP(" src is register structs");
-        requiresCopyBlock = true;
-    }
     else if (destPromote && destLclVar->lvCustomLayout && destLclVar->lvContainsHoles)
     {
         JITDUMP(" dest has custom layout and contains holes");

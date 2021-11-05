@@ -476,7 +476,6 @@ public:
     unsigned char lvUsedInSIMDIntrinsic : 1; // This tells lclvar is used for simd intrinsic
     var_types     lvBaseType : 5;            // Note: this only packs because var_types is a typedef of unsigned char
 #endif                                       // FEATURE_SIMD
-    unsigned char lvRegStruct : 1;           // This is a reg-sized non-field-addressed struct.
 
     unsigned char lvClassIsExact : 1;              // lvClassHandle is the exact type
     INDEBUG(unsigned char lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness

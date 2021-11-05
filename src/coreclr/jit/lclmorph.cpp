@@ -3009,9 +3009,6 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 {
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-    // We should never see a reg-sized non-field-addressed struct here.
-    assert(!lcl->lvRegStruct);
-
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
     assert(info.canPromoteStructType);
 
@@ -3057,9 +3054,6 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         if (varTypeIsSIMD(field.type))
         {
             compiler->lvaSetStruct(fieldLclNum, field.layout, false);
-            // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
-            // be promoting this if we didn't think it could be enregistered.
-            fieldLcl->lvRegStruct = true;
         }
         else
         {
@@ -3184,25 +3178,28 @@ void Compiler::fgPromoteStructs()
         }
 #endif
 
-        if (varTypeIsSIMD(lcl->GetType()) && (lcl->lvIsUsedInSIMDIntrinsic() || lcl->GetLayout()->IsOpaqueVector()))
+        if (varTypeIsSIMD(lcl->GetType()))
         {
-            // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote
-            // its fields. Instead, we will attempt to enregister the entire struct.
-            lcl->lvRegStruct = true;
-            continue;
+            if (lcl->GetLayout()->IsOpaqueVector())
+            {
+                // Vector<T>/Vector64/128/256 are never promoted, even if they may have
+                // private fields as an implementation detail.
+                continue;
+            }
+
+            if (lcl->lvIsUsedInSIMDIntrinsic())
+            {
+                // If the local is used by vector intrinsics, then we do not want to promote
+                // since the cost of packing individual fields into a single SIMD register
+                // can be pretty high.
+                continue;
+            }
         }
 
         if (!helper.TryPromoteStructLocal(lclNum))
         {
             // If we don't promote then lvIsMultiRegRet is meaningless.
             lcl->lvIsMultiRegRet = false;
-
-            if (varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
-            {
-                // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
-                // we will treat it as a reg struct.
-                lcl->lvRegStruct = true;
-            }
         }
     }
 

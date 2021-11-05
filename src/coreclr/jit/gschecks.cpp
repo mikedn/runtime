@@ -449,7 +449,6 @@ void Compiler::gsParamsToShadows()
             shadowLcl->SetType(type);
         }
 
-        shadowLcl->lvRegStruct       = lcl->lvRegStruct;
         shadowLcl->lvAddrExposed     = lcl->lvAddrExposed;
         shadowLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
         shadowLcl->lvIsThisPtr       = lcl->lvIsThisPtr;
