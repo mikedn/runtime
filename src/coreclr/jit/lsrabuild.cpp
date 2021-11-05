@@ -3363,6 +3363,42 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     return srcCount;
 }
 
+int LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
+{
+#ifdef TARGET_X86
+    assert((store->GetKind() == StructStoreKind::RepStos) || (store->GetKind() == StructStoreKind::RepMovs));
+    regMaskTP dstRegMask  = RBM_RDI;
+    regMaskTP srcRegMask  = store->GetKind() == StructStoreKind::RepStos ? RBM_RAX : RBM_RSI;
+    regMaskTP sizeRegMask = RBM_RCX;
+#else
+    assert((store->GetKind() == StructStoreKind::MemSet) || (store->GetKind() == StructStoreKind::MemCpy));
+    regMaskTP dstRegMask  = RBM_ARG_0;
+    regMaskTP srcRegMask  = RBM_ARG_1;
+    regMaskTP sizeRegMask = RBM_ARG_2;
+#endif
+
+    GenTree* src = store->GetValue();
+
+    if (src->OperIs(GT_INIT_VAL))
+    {
+        assert(src->isContained());
+        src = src->AsUnOp()->GetOp(0);
+    }
+    else if (!src->OperIs(GT_CNS_INT))
+    {
+        assert(src->isContained());
+        src = src->AsIndir()->GetAddr();
+    }
+
+    BuildUse(store->GetAddr(), dstRegMask);
+    BuildUse(src, srcRegMask);
+    BuildUse(store->GetSize(), sizeRegMask);
+    BuildInternalUses();
+    BuildKills(store, getKillSetForStructStore(store));
+
+    return 3;
+}
+
 //------------------------------------------------------------------------
 // BuildSimple: Builds use RefPositions for trees requiring no special handling
 //

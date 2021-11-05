@@ -280,8 +280,11 @@ GenTree* Lowering::LowerNode(GenTree* node)
             }
             FALLTHROUGH;
         case GT_STORE_BLK:
-        case GT_STORE_DYN_BLK:
             LowerBlockStoreCommon(node->AsBlk());
+            break;
+
+        case GT_STORE_DYN_BLK:
+            LowerStoreDynBlk(node->AsDynBlk());
             break;
 
         case GT_LCLHEAP:
@@ -6422,21 +6425,59 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, Bas
     }
 }
 
-//------------------------------------------------------------------------
-// LowerBlockStoreCommon: a common logic to lower STORE_OBJ/BLK/DYN_BLK.
-//
-// Arguments:
-//    blkNode - the store blk/obj node we are lowering.
-//
 void Lowering::LowerBlockStoreCommon(GenTreeBlk* blkNode)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK, GT_STORE_OBJ));
+    assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
     if (TryTransformStoreObjAsStoreInd(blkNode))
     {
         return;
     }
 
     LowerStructStore(blkNode);
+}
+
+void Lowering::LowerStoreDynBlk(GenTreeDynBlk* store)
+{
+    assert(store->OperIs(GT_STORE_DYN_BLK));
+
+#ifdef TARGET_XARCH
+    TryCreateAddrMode(store->GetAddr(), false);
+#endif
+
+    GenTree* src = store->GetValue();
+
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    {
+        if (src->OperIs(GT_INIT_VAL))
+        {
+            src->SetContained();
+        }
+
+#ifdef TARGET_X86
+        // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
+        store->SetKind(StructStoreKind::RepStos);
+#else
+        store->SetKind(StructStoreKind::MemSet);
+#endif
+    }
+    else
+    {
+        assert(src->OperIs(GT_IND) && src->TypeIs(TYP_STRUCT));
+        assert(!src->AsIndir()->GetAddr()->isContained());
+
+        src->SetContained();
+
+#ifdef TARGET_XARCH
+        TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
+#endif
+
+#ifdef TARGET_X86
+        // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
+        store->SetKind(StructStoreKind::RepMovs);
+#else
+        store->SetKind(StructStoreKind::MemCpy);
+#endif
+    }
 }
 
 //------------------------------------------------------------------------
@@ -6455,23 +6496,13 @@ void Lowering::LowerBlockStoreCommon(GenTreeBlk* blkNode)
 //
 bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK, GT_STORE_OBJ));
+    assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
     if (comp->opts.OptimizationEnabled())
     {
         return false;
     }
 
-    if (blkNode->OperIs(GT_STORE_DYN_BLK))
-    {
-        return false;
-    }
-
     ClassLayout* layout = blkNode->GetLayout();
-    if (layout == nullptr)
-    {
-        return false;
-    }
-
     var_types regType = layout->GetRegisterType();
     if (regType == TYP_UNDEF)
     {

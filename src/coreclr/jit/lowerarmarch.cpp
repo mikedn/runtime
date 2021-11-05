@@ -202,7 +202,7 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
     GenTree*     dstAddr = store->GetAddr();
     GenTree*     src     = store->GetValue();
     ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
+    unsigned     size    = layout->GetSize();
 
     if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
@@ -271,7 +271,7 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         // the destination is a local variable. Even if the destination is a local we're still
         // going to use UnrollWB if the size is too large for normal unrolling.
 
-        if ((layout != nullptr) && layout->HasGCPtr() && (!dstAddr->OperIsLocalAddr() || (size > CPBLK_UNROLL_LIMIT)))
+        if (layout->HasGCPtr() && (!dstAddr->OperIsLocalAddr() || (size > CPBLK_UNROLL_LIMIT)))
         {
             assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 

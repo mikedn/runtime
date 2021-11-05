@@ -1842,6 +1842,7 @@ private:
     int BuildCall(GenTreeCall* call);
     int BuildCmp(GenTree* tree);
     int BuildStructStore(GenTreeBlk* store);
+    int BuildStoreDynBlk(GenTreeDynBlk* store);
     int BuildModDiv(GenTree* tree);
     int BuildIntrinsic(GenTree* tree);
     void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, int index);

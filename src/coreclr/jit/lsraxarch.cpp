@@ -457,8 +457,11 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
-        case GT_STORE_DYN_BLK:
             srcCount = BuildStructStore(tree->AsBlk());
+            break;
+
+        case GT_STORE_DYN_BLK:
+            srcCount = BuildStoreDynBlk(tree->AsDynBlk());
             break;
 
         case GT_LCLHEAP:
@@ -1165,7 +1168,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     GenTree*     dstAddr = store->GetAddr();
     GenTree*     src     = store->GetValue();
     ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
+    unsigned     size    = layout->GetSize();
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -1279,7 +1282,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         BuildInternalIntDef(store, srcRegMask);
     }
 
-    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
+    if (sizeRegMask != RBM_NONE)
     {
         // Reserve a temp register for the block size argument.
         BuildInternalIntDef(store, sizeRegMask);
@@ -1308,12 +1311,6 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         {
             useCount += BuildAddrUses(srcAddrOrFill);
         }
-    }
-
-    if (store->OperIs(GT_STORE_DYN_BLK))
-    {
-        useCount++;
-        BuildUse(store->AsDynBlk()->GetSize(), sizeRegMask);
     }
 
 #ifdef TARGET_X86

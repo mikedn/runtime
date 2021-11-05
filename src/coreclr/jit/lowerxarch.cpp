@@ -154,7 +154,7 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
     GenTree*     dstAddr = store->GetAddr();
     GenTree*     src     = store->GetValue();
     ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
+    unsigned     size    = layout->GetSize();
 
     TryCreateAddrMode(dstAddr, false);
 
@@ -170,10 +170,6 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
             case GT_STORE_BLK:
                 assert(layout->IsBlockLayout());
                 assert(store->TypeIs(TYP_STRUCT));
-                assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
-                break;
-            case GT_STORE_DYN_BLK:
-                assert(layout == nullptr);
                 assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
                 break;
             default:
@@ -269,11 +265,6 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
                 assert(src->TypeIs(TYP_STRUCT));
                 assert(layout == src->AsBlk()->GetLayout());
                 break;
-            case GT_STORE_DYN_BLK:
-                assert(layout == nullptr);
-                assert(src->OperIs(GT_IND));
-                assert(src->TypeIs(TYP_STRUCT));
-                break;
             default:
                 unreached();
         }
@@ -295,7 +286,7 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         // Normal unrolling requires GC non-interruptible regions, the JIT32 GC encoder does
         // not support that.
 
-        if ((layout != nullptr) && layout->HasGCPtr()
+        if (layout->HasGCPtr()
 #ifndef JIT32_GCENCODER
             && (!dstAddr->OperIsLocalAddr() || (size > CPBLK_UNROLL_LIMIT))
 #endif
