@@ -335,9 +335,10 @@ private:
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
-    void LowerStructStore(GenTreeBlk* store);
+    void LowerStoreObj(GenTreeObj* store);
+    void LowerStoreBlk(GenTreeBlk* store);
     void LowerStoreDynBlk(GenTreeDynBlk* store);
-    void LowerBlockStoreCommon(GenTreeBlk* blkNode);
+    void LowerStoreObjCommon(GenTreeObj* store);
     void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
 
@@ -364,7 +365,7 @@ private:
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);
 
-    bool TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode);
+    bool TryTransformStoreObjToStoreInd(GenTreeObj* store);
 
     GenTree* LowerSwitch(GenTreeUnOp* node);
     bool TryLowerSwitchToBitTest(

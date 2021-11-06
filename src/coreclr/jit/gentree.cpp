@@ -5870,52 +5870,6 @@ GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree*
     return objNode;
 }
 
-//------------------------------------------------------------------------
-// FixupInitBlkValue: Fixup the init value for an initBlk operation
-//
-// Arguments:
-//    asgType - The type of assignment that the initBlk is being transformed into
-//
-// Return Value:
-//    Modifies the constant value on this node to be the appropriate "fill"
-//    value for the initblk.
-//
-// Notes:
-//    The initBlk MSIL instruction takes a byte value, which must be
-//    extended to the size of the assignment when an initBlk is transformed
-//    to an assignment of a primitive type.
-//    This performs the appropriate extension.
-
-void GenTreeIntCon::FixupInitBlkValue(var_types asgType)
-{
-    assert(varTypeIsIntegralOrI(asgType));
-    unsigned size = genTypeSize(asgType);
-    if (size > 1)
-    {
-        size_t cns = gtIconVal;
-        cns        = cns & 0xFF;
-        cns |= cns << 8;
-        if (size >= 4)
-        {
-            cns |= cns << 16;
-#ifdef TARGET_64BIT
-            if (size == 8)
-            {
-                cns |= cns << 32;
-            }
-#endif // TARGET_64BIT
-
-            // Make the type match for evaluation types.
-            gtType = asgType;
-
-            // if we are initializing a GC type the value being assigned must be zero (null).
-            assert(!varTypeIsGC(asgType) || (cns == 0));
-        }
-
-        gtIconVal = cns;
-    }
-}
-
 //----------------------------------------------------------------------------
 // UsesDivideByConstOptimized:
 //    returns true if rationalize will use the division by constant

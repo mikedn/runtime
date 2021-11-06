@@ -149,136 +149,48 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
     ContainCheckStoreIndir(store);
 }
 
-void Lowering::LowerStructStore(GenTreeBlk* store)
+void Lowering::LowerStoreObj(GenTreeObj* store)
 {
+    assert(store->OperIs(GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
+
     GenTree*     dstAddr = store->GetAddr();
     GenTree*     src     = store->GetValue();
     ClassLayout* layout  = store->GetLayout();
     unsigned     size    = layout->GetSize();
 
+    assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+    assert(!layout->IsBlockLayout());
+
     TryCreateAddrMode(dstAddr, false);
 
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    if (src->OperIs(GT_CNS_INT))
     {
-        switch (store->GetOper())
-        {
-            case GT_STORE_OBJ:
-                assert(!layout->IsBlockLayout());
-                assert(varTypeIsStruct(store->GetType()));
-                assert(src->IsIntegralConst(0));
-                break;
-            case GT_STORE_BLK:
-                assert(layout->IsBlockLayout());
-                assert(store->TypeIs(TYP_STRUCT));
-                assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
-                break;
-            default:
-                unreached();
-        }
-
-        if (src->OperIs(GT_INIT_VAL))
-        {
-            src->SetContained();
-            src = src->AsUnOp()->GetOp(0);
-        }
+        assert(src->IsIntegralConst(0));
 
         if (size > INITBLK_UNROLL_LIMIT)
         {
-#ifdef TARGET_AMD64
-            store->SetKind(StructStoreKind::MemSet);
-#else
-            // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-            store->SetKind(StructStoreKind::RepStos);
-#endif
-        }
-        else if (!src->OperIs(GT_CNS_INT))
-        {
-            // TODO-CQ: We could unroll even when the initialization value is not a constant
-            // by inserting a MUL init, 0x01010101 instruction. We need to determine if the
-            // extra latency that MUL introduces isn't worse that rep stosb. Likely not.
-            store->SetKind(StructStoreKind::RepStos);
+            store->SetKind(StructStoreKind::LargeInit);
         }
         else
         {
             store->SetKind(StructStoreKind::UnrollInit);
 
-            // The fill value of an initblk is interpreted to hold a
-            // value of (unsigned int8) however a constant of any size
-            // may practically reside on the evaluation stack. So extract
-            // the lower byte out of the initVal constant and replicate
-            // it to a larger constant whose size is sufficient to support
-            // the largest width store of the desired inline expansion.
-
-            ssize_t fill = src->AsIntCon()->GetUInt8Value();
-
-            if (fill == 0)
+            // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
+            // codegen will use xorps to generate 0 directly in the temporary XMM register.
+            if ((size % XMM_REGSIZE_BYTES) == 0)
             {
-                // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
-                // codegen will use xorps to generate 0 directly in the temporary XMM register.
-                if ((size % XMM_REGSIZE_BYTES) == 0)
-                {
-                    src->SetContained();
-                }
+                src->SetContained();
             }
-#ifdef TARGET_AMD64
-            else if (size >= REGSIZE_BYTES)
-            {
-                fill *= 0x0101010101010101LL;
-                src->SetType(TYP_LONG);
-            }
-#endif
-            else
-            {
-                fill *= 0x01010101;
-            }
-
-            src->AsIntCon()->SetValue(fill);
 
             ContainBlockStoreAddress(store, size, dstAddr);
         }
     }
     else
     {
-        switch (store->GetOper())
-        {
-            case GT_STORE_OBJ:
-                assert(!layout->IsBlockLayout());
-                assert(varTypeIsStruct(store->GetType()));
-                assert(store->GetType() == src->GetType());
-                if (src->OperIs(GT_OBJ))
-                {
-                    // assert(blkNode->GetLayout() == src->AsObj()->GetLayout());
-                }
-                else if (src->OperIs(GT_LCL_FLD))
-                {
-                    // assert(blkNode->GetLayout() == src->AsLclFld()->GetLayout(comp));
-                }
-                else
-                {
-                    // assert(blkNode->GetLayout() == comp->lvaGetDesc(src->AsLclVar())->GetLayout());
-                }
-                break;
-            case GT_STORE_BLK:
-                assert(layout->IsBlockLayout());
-                assert(store->TypeIs(TYP_STRUCT));
-                assert(src->OperIs(GT_BLK));
-                assert(src->TypeIs(TYP_STRUCT));
-                assert(layout == src->AsBlk()->GetLayout());
-                break;
-            default:
-                unreached();
-        }
+        assert(src->OperIs(GT_OBJ, GT_LCL_VAR, GT_LCL_FLD));
+        assert(!src->OperIs(GT_OBJ) || !src->AsObj()->GetAddr()->isContained());
 
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_LCL_VAR, GT_LCL_FLD));
         src->SetContained();
-
-        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
-        {
-            // TODO-Cleanup: Make sure that GT_IND lowering didn't mark the source address as contained.
-            // Sometimes the GT_IND type is a non-struct type and then GT_IND lowering may contain the
-            // address, not knowing that GT_IND is part of a block op that has containment restrictions.
-            src->AsIndir()->GetAddr()->ClearContained();
-        }
 
         // If the struct contains GC pointers we need to generate GC write barriers, unless
         // the destination is a local variable. Even if the destination is a local we're still
@@ -336,34 +248,29 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
                 store->SetKind(StructStoreKind::UnrollCopyWB);
             }
 
-            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+            if (src->OperIs(GT_OBJ))
             {
-                TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
+                TryCreateAddrMode(src->AsObj()->GetAddr(), false);
             }
         }
         else if (size <= CPBLK_UNROLL_LIMIT)
         {
             store->SetKind(StructStoreKind::UnrollCopy);
 
-            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+            if (src->OperIs(GT_OBJ))
             {
-                ContainBlockStoreAddress(store, size, src->AsIndir()->GetAddr());
+                ContainBlockStoreAddress(store, size, src->AsObj()->GetAddr());
             }
 
             ContainBlockStoreAddress(store, size, dstAddr);
         }
         else
         {
-#ifdef TARGET_AMD64
-            store->SetKind(StructStoreKind::MemCpy);
-#else
-            // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-            store->SetKind(StructStoreKind::RepMovs);
-#endif
+            store->SetKind(StructStoreKind::LargeCopy);
 
-            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+            if (src->OperIs(GT_OBJ))
             {
-                TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
+                TryCreateAddrMode(src->AsObj()->GetAddr(), false);
             }
         }
     }

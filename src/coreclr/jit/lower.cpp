@@ -278,9 +278,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
                 LowerStoreSingleRegCallStruct(node->AsObj());
                 break;
             }
-            FALLTHROUGH;
+
+            LowerStoreObjCommon(node->AsObj());
+            break;
+
         case GT_STORE_BLK:
-            LowerBlockStoreCommon(node->AsBlk());
+            LowerStoreBlk(node->AsBlk());
             break;
 
         case GT_STORE_DYN_BLK:
@@ -2790,7 +2793,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 
             // Create the assignment node.
             store->ChangeOper(GT_STORE_OBJ);
-            GenTreeBlk* objStore = store->AsObj();
+            GenTreeObj* objStore = store->AsObj();
             // Only the GTF_LATE_ARG flag (if present) is preserved.
             objStore->gtFlags &= GTF_LATE_ARG;
             objStore->gtFlags |= GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
@@ -2799,7 +2802,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
             objStore->SetAddr(addr);
             objStore->SetData(src);
             BlockRange().InsertBefore(objStore, addr);
-            LowerBlockStoreCommon(objStore);
+            LowerStoreObjCommon(objStore);
 
             return;
         }
@@ -2856,15 +2859,14 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 
         ClassLayout* layout = store->GetLayout(comp);
 
-        store->ChangeOper(layout->IsBlockLayout() ? GT_STORE_BLK : GT_STORE_OBJ);
-
-        GenTreeBlk* indir = store->AsBlk();
+        store->ChangeOper(GT_STORE_OBJ);
+        GenTreeObj* indir = store->AsObj();
         indir->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
         indir->SetKind(StructStoreKind::Invalid);
         indir->SetLayout(layout);
         indir->SetAddr(addr);
         indir->SetValue(value);
-        LowerStructStore(indir);
+        LowerStoreObj(indir);
 
         return;
     }
@@ -3158,7 +3160,7 @@ void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
     unreached();
 #else
     store->SetValue(SpillStructCallResult(call));
-    LowerBlockStoreCommon(store);
+    LowerStoreObjCommon(store);
 #endif
 }
 
@@ -6425,15 +6427,132 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, Bas
     }
 }
 
-void Lowering::LowerBlockStoreCommon(GenTreeBlk* blkNode)
+void Lowering::LowerStoreObjCommon(GenTreeObj* store)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
-    if (TryTransformStoreObjAsStoreInd(blkNode))
+    assert(store->OperIs(GT_STORE_OBJ));
+
+    if (TryTransformStoreObjToStoreInd(store))
     {
         return;
     }
 
-    LowerStructStore(blkNode);
+    LowerStoreObj(store);
+}
+
+void Lowering::LowerStoreBlk(GenTreeBlk* store)
+{
+    assert(store->OperIs(GT_STORE_BLK) && store->TypeIs(TYP_STRUCT));
+
+    GenTree* dstAddr = store->GetAddr();
+    GenTree* src     = store->GetValue();
+    unsigned size    = store->Size();
+
+#ifdef TARGET_XARCH
+    TryCreateAddrMode(dstAddr, false);
+#endif
+
+    if (!src->OperIs(GT_BLK))
+    {
+        assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
+
+        if (src->OperIs(GT_INIT_VAL))
+        {
+            src->SetContained();
+            src = src->AsUnOp()->GetOp(0);
+        }
+
+        if (size > INITBLK_UNROLL_LIMIT)
+        {
+            store->SetKind(StructStoreKind::LargeInit);
+        }
+        else if (!src->OperIs(GT_CNS_INT))
+        {
+#ifdef TARGET_XARCH
+            // TODO-CQ: We could unroll even when the initialization value is not a constant
+            // by inserting a MUL init, 0x01010101 instruction. We need to determine if the
+            // extra latency that MUL introduces isn't worse that rep stosb. Likely not.
+
+            // TODO-MIKE-Review: Why does x64 uses RepStos instead of MemSet like in the
+            // constant case? RepStos/MemSet selection should depend only on size.
+            store->SetKind(StructStoreKind::RepStos);
+#else
+            store->SetKind(StructStoreKind::MemSet);
+#endif
+        }
+        else
+        {
+            store->SetKind(StructStoreKind::UnrollInit);
+
+            // The fill value of an initblk is interpreted to hold a
+            // value of (unsigned int8) however a constant of any size
+            // may practically reside on the evaluation stack. So extract
+            // the lower byte out of the initVal constant and replicate
+            // it to a larger constant whose size is sufficient to support
+            // the largest width store of the desired inline expansion.
+
+            ssize_t fill = src->AsIntCon()->GetUInt8Value();
+
+            if (fill == 0)
+            {
+#ifdef TARGET_XARCH
+                // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
+                // codegen will use xorps to generate 0 directly in the temporary XMM register.
+                if ((size % XMM_REGSIZE_BYTES) == 0)
+                {
+                    src->SetContained();
+                }
+#elif defined(TARGET_ARM64)
+                // Use REG_ZR as source on ARM64.
+                src->SetContained();
+#endif
+            }
+#ifdef TARGET_64BIT
+            else if (size >= 4)
+            {
+                fill *= 0x0101010101010101LL;
+                src->SetType(TYP_LONG);
+            }
+#endif
+            else
+            {
+                fill *= 0x01010101;
+            }
+
+            src->AsIntCon()->SetValue(fill);
+
+            ContainBlockStoreAddress(store, size, dstAddr);
+        }
+    }
+    else
+    {
+        assert(src->OperIs(GT_BLK) && src->TypeIs(TYP_STRUCT));
+        assert(!src->AsBlk()->GetAddr()->isContained());
+
+        src->SetContained();
+
+        if (size > CPBLK_UNROLL_LIMIT)
+        {
+            store->SetKind(StructStoreKind::LargeCopy);
+
+#ifdef TARGET_XARCH
+            if (src->OperIs(GT_BLK))
+            {
+                TryCreateAddrMode(src->AsBlk()->GetAddr(), false);
+            }
+#endif
+        }
+        else
+        {
+            store->SetKind(StructStoreKind::UnrollCopy);
+
+            if (src->OperIs(GT_BLK))
+            {
+                ContainBlockStoreAddress(store, size, src->AsBlk()->GetAddr());
+            }
+
+            ContainBlockStoreAddress(store, size, dstAddr);
+        }
+    }
 }
 
 void Lowering::LowerStoreDynBlk(GenTreeDynBlk* store)
@@ -6480,34 +6599,23 @@ void Lowering::LowerStoreDynBlk(GenTreeDynBlk* store)
     }
 }
 
-//------------------------------------------------------------------------
-// TryTransformStoreObjAsStoreInd: try to replace STORE_OBJ/BLK as STOREIND.
-//
-// Arguments:
-//    blkNode - the store node.
-//
-// Return value:
-//    true if the replacement was made, false otherwise.
-//
-// Notes:
-//    TODO-CQ: this method should do the transformation when possible
-//    and STOREIND should always generate better or the same code as
-//    STORE_OBJ/BLK for the same copy.
-//
-bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
+bool Lowering::TryTransformStoreObjToStoreInd(GenTreeObj* store)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
+    assert(store->OperIs(GT_STORE_OBJ));
+
+    // TODO-MIKE-Fix: This is backwards...
     if (comp->opts.OptimizationEnabled())
     {
         return false;
     }
 
-    ClassLayout* layout = blkNode->GetLayout();
-    var_types regType = layout->GetRegisterType();
+    var_types regType = store->GetLayout()->GetRegisterType();
+
     if (regType == TYP_UNDEF)
     {
         return false;
     }
+
     if (varTypeIsSIMD(regType))
     {
         // TODO-CQ: support STORE_IND SIMD16(SIMD16, CNT_INT 0).
@@ -6521,13 +6629,9 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
         return false;
     }
 
-    GenTree* src = blkNode->Data();
-    if (src->OperIs(GT_INIT_VAL) && !src->IsConstInitVal())
-    {
-        return false;
-    }
+    GenTree* src = store->GetValue();
 
-    if (varTypeIsSmall(regType) && !src->IsConstInitVal())
+    if (varTypeIsSmall(regType) && !src->IsIntegralConst(0))
     {
         // source operand INDIR will use a widening instruction
         // and generate worse code, like `movzx` instead of `mov`
@@ -6535,38 +6639,29 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
         return false;
     }
 
-    JITDUMP("Replacing STORE_OBJ with STOREIND for [06%u]", blkNode->gtTreeID);
-    blkNode->ChangeOper(GT_STOREIND);
-    blkNode->ChangeType(regType);
-
-    if (src->OperIs(GT_INIT_VAL))
-    {
-        GenTreeUnOp* initVal = src->AsUnOp();
-        src                  = src->gtGetOp1();
-        assert(src->IsCnsIntOrI());
-        blkNode->SetData(src);
-        BlockRange().Remove(initVal);
-    }
+    JITDUMP("Replacing STORE_OBJ with STOREIND for [06%u]", store->gtTreeID);
+    store->ChangeOper(GT_STOREIND);
+    store->ChangeType(regType);
 
     if (varTypeIsStruct(src->GetType()))
     {
-        if (src->OperIs(GT_OBJ, GT_BLK))
+        if (src->OperIs(GT_OBJ))
         {
             src->ChangeOper(GT_IND);
         }
 
         src->SetType(regType);
-        LowerNode(blkNode->Data());
-    }
-    else if (GenTreeIntCon* intCon = src->IsIntCon())
-    {
-        intCon->FixupInitBlkValue(regType);
+        LowerNode(src);
     }
     else
     {
-        assert(src->TypeIs(regType) || src->IsCnsIntOrI() || src->IsCall());
+        assert(src->IsIntegralConst(0));
+
+        src->SetType(varActualType(regType));
     }
-    LowerStoreIndirCommon(blkNode->AsStoreInd());
+
+    LowerStoreIndirCommon(store->AsStoreInd());
+
     return true;
 }
 

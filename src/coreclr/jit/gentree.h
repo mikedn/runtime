@@ -3099,8 +3099,6 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         m_fieldSeq = fieldSeq;
     }
 
-    void FixupInitBlkValue(var_types asgType);
-
 #ifdef TARGET_64BIT
     void TruncateOrSignExtend32()
     {
@@ -6443,7 +6441,16 @@ enum class StructStoreKind : uint8_t
     UnrollCopy,
     UnrollCopyWB,
 #ifdef TARGET_XARCH
-    UnrollCopyWBRepMovs
+    UnrollCopyWBRepMovs,
+#endif
+
+#ifdef TARGET_X86
+    // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
+    LargeInit = RepStos,
+    LargeCopy = RepMovs,
+#else
+    LargeInit = MemSet,
+    LargeCopy = MemCpy,
 #endif
 };
 
