@@ -279,7 +279,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
                 break;
             }
 
-            LowerStoreObjCommon(node->AsObj());
+            LowerStoreObj(node->AsObj());
             break;
 
         case GT_STORE_BLK:
@@ -2785,7 +2785,9 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
         }
         else if (!src->OperIs(GT_LCL_VAR) || !lcl->IsEnregisterable())
         {
-            LowerStoreLclStruct(store);
+            StructStoreKind kind = GetStructStoreKind(true, lcl->GetLayout(), src);
+            LowerStructStore(store, kind, lcl->GetLayout());
+
             return;
         }
     }
@@ -2835,7 +2837,10 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 #endif
         }
 
-        LowerStoreLclStruct(store);
+        ClassLayout*    layout = store->GetLayout(comp);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, value);
+        LowerStructStore(store, kind, layout);
+
         return;
     }
 
@@ -3128,7 +3133,7 @@ void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
     unreached();
 #else
     store->SetValue(SpillStructCallResult(call));
-    LowerStoreObjCommon(store);
+    LowerStoreObj(store);
 #endif
 }
 
@@ -6395,16 +6400,84 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, Bas
     }
 }
 
-void Lowering::LowerStoreObjCommon(GenTreeObj* store)
+void Lowering::LowerStoreObj(GenTreeObj* store)
 {
-    assert(store->OperIs(GT_STORE_OBJ));
+    assert(store->OperIs(GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
 
     if (TryTransformStoreObjToStoreInd(store))
     {
         return;
     }
 
-    LowerStoreObj(store);
+    StructStoreKind kind = GetStructStoreKind(false, store->GetLayout(), store->GetValue());
+    store->SetKind(kind);
+    LowerStructStore(store, kind, store->GetLayout());
+}
+
+void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
+{
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && store->TypeIs(TYP_STRUCT));
+    assert(!layout->IsBlockLayout());
+
+    GenTree* dstAddr = nullptr;
+    GenTree* src;
+
+    if (!store->OperIs(GT_STORE_OBJ))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        dstAddr = store->AsObj()->GetAddr();
+        src     = store->AsObj()->GetValue();
+
+        assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+#ifdef TARGET_XARCH
+        TryCreateAddrMode(dstAddr, false);
+#endif
+
+        if ((kind == StructStoreKind::UnrollInit) || (kind == StructStoreKind::UnrollCopy))
+        {
+            ContainBlockStoreAddress(store, layout->GetSize(), dstAddr);
+        }
+    }
+
+    assert((src->OperIs(GT_OBJ, GT_LCL_VAR, GT_LCL_FLD) && src->TypeIs(TYP_STRUCT)) || src->IsIntegralConst(0));
+    assert(!src->OperIs(GT_OBJ) || !src->AsObj()->GetAddr()->isContained());
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        src->SetContained();
+    }
+
+    if (kind == StructStoreKind::UnrollInit)
+    {
+#ifdef TARGET_XARCH
+        // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
+        // codegen will use xorps to generate 0 directly in the temporary XMM register.
+        if ((layout->GetSize() % XMM_REGSIZE_BYTES) == 0)
+        {
+            src->SetContained();
+        }
+#elif defined(TARGET_ARM64)
+        // Use REG_ZR as source on ARM64.
+        src->SetContained();
+#endif
+    }
+    else if (src->OperIs(GT_OBJ))
+    {
+        if (kind == StructStoreKind::UnrollCopy)
+        {
+            ContainBlockStoreAddress(store, layout->GetSize(), src->AsObj()->GetAddr());
+        }
+#ifdef TARGET_XARCH
+        else
+        {
+            TryCreateAddrMode(src->AsObj()->GetAddr(), false);
+        }
+#endif
+    }
 }
 
 void Lowering::LowerStoreBlk(GenTreeBlk* store)

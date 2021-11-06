@@ -1726,40 +1726,27 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src)
 {
+    assert(!layout->IsBlockLayout());
+
     unsigned size = layout->GetSize();
 
     if (src->OperIs(GT_CNS_INT))
     {
         assert(src->IsIntegralConst(0));
 
-        if (size > INITBLK_UNROLL_LIMIT)
-        {
-            return StructStoreKind::MemSet;
-        }
-        else
-        {
-            return StructStoreKind::UnrollInit;
-        }
+        return size > INITBLK_UNROLL_LIMIT ? StructStoreKind::LargeInit : StructStoreKind::UnrollInit;
     }
-    else
-    {
-        // If the struct contains GC pointers we need to generate GC write barriers, unless
-        // the destination is a local variable. Even if the destination is a local we're still
-        // going to use UnrollWB if the size is too large for normal unrolling.
 
-        if (layout->HasGCPtr() && (!isLocalStore || (size > CPBLK_UNROLL_LIMIT)))
-        {
-            return StructStoreKind::UnrollCopyWB;
-        }
-        else if (size <= CPBLK_UNROLL_LIMIT)
-        {
-            return StructStoreKind::UnrollCopy;
-        }
-        else
-        {
-            return StructStoreKind::MemCpy;
-        }
+    // If the struct contains GC pointers we need to generate GC write barriers, unless
+    // the destination is a local variable. Even if the destination is a local we're still
+    // going to use UnrollWB if the size is too large for normal unrolling.
+
+    if (layout->HasGCPtr() && (!isLocalStore || (size > CPBLK_UNROLL_LIMIT)))
+    {
+        return StructStoreKind::UnrollCopyWB;
     }
+
+    return size > CPBLK_UNROLL_LIMIT ? StructStoreKind::LargeCopy : StructStoreKind::UnrollCopy;
 }
 
 void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)

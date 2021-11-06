@@ -2438,84 +2438,67 @@ BAILOUT:
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src)
 {
+    assert(!layout->IsBlockLayout());
+
     unsigned size = layout->GetSize();
 
     if (src->OperIs(GT_CNS_INT))
     {
-        if (size > INITBLK_UNROLL_LIMIT)
+        assert(src->IsIntegralConst(0));
+
+        return size > INITBLK_UNROLL_LIMIT ? StructStoreKind::LargeInit : StructStoreKind::UnrollInit;
+    }
+
+    // If the struct contains GC pointers we need to generate GC write barriers, unless
+    // the destination is a local variable. Even if the destination is a local we're still
+    // going to use UnrollWB if the size is too large for normal unrolling.
+    // Normal unrolling requires GC non-interruptible regions, the JIT32 GC encoder does
+    // not support that.
+
+    if (layout->HasGCPtr()
+#ifndef JIT32_GCENCODER
+        && (!isLocalStore || (size > CPBLK_UNROLL_LIMIT))
+#endif
+            )
+    {
+        // If we have a long enough sequence of slots that do not require write barriers then
+        // we can use REP MOVSD/Q instead of a sequence of MOVSD/Q instructions. According to the
+        // Intel Manual, the sweet spot for small structs is between 4 to 12 slots of size where
+        // the entire operation takes 20 cycles and encodes in 5 bytes (loading RCX and REP MOVSD/Q).
+        unsigned nonWBSequenceLength = 0;
+
+        if (isLocalStore)
         {
-            return StructStoreKind::LargeInit;
+            // If the destination is on the stack then no write barriers are needed.
+            nonWBSequenceLength = layout->GetSlotCount();
         }
         else
         {
-            return StructStoreKind::UnrollInit;
-        }
-    }
-    else
-    {
-        // If the struct contains GC pointers we need to generate GC write barriers, unless
-        // the destination is a local variable. Even if the destination is a local we're still
-        // going to use UnrollWB if the size is too large for normal unrolling.
-        // Normal unrolling requires GC non-interruptible regions, the JIT32 GC encoder does
-        // not support that.
-
-        if (layout->HasGCPtr()
-#ifndef JIT32_GCENCODER
-            && (!isLocalStore || (size > CPBLK_UNROLL_LIMIT))
-#endif
-                )
-        {
-            // If we have a long enough sequence of slots that do not require write barriers then
-            // we can use REP MOVSD/Q instead of a sequence of MOVSD/Q instructions. According to the
-            // Intel Manual, the sweet spot for small structs is between 4 to 12 slots of size where
-            // the entire operation takes 20 cycles and encodes in 5 bytes (loading RCX and REP MOVSD/Q).
-            unsigned nonWBSequenceLength = 0;
-
-            if (isLocalStore)
+            // Otherwise a write barrier is needed for every GC pointer in the layout
+            // so we need to check if there's a long enough sequence of non-GC slots.
+            for (unsigned i = 0; i < layout->GetSlotCount(); i++)
             {
-                // If the destination is on the stack then no write barriers are needed.
-                nonWBSequenceLength = layout->GetSlotCount();
-            }
-            else
-            {
-                // Otherwise a write barrier is needed for every GC pointer in the layout
-                // so we need to check if there's a long enough sequence of non-GC slots.
-                for (unsigned i = 0; i < layout->GetSlotCount(); i++)
+                if (layout->IsGCPtr(i))
                 {
-                    if (layout->IsGCPtr(i))
-                    {
-                        nonWBSequenceLength = 0;
-                    }
-                    else
-                    {
-                        nonWBSequenceLength++;
+                    nonWBSequenceLength = 0;
+                }
+                else
+                {
+                    nonWBSequenceLength++;
 
-                        if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
-                        {
-                            break;
-                        }
+                    if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
+                    {
+                        break;
                     }
                 }
             }
+        }
 
-            if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
-            {
-                return StructStoreKind::UnrollCopyWBRepMovs;
-            }
-            else
-            {
-                return StructStoreKind::UnrollCopyWB;
-            }
-        }
-        else if (size <= CPBLK_UNROLL_LIMIT)
-        {
-            return StructStoreKind::UnrollCopy;
-        }
-        else
-        {
-            return StructStoreKind::LargeCopy;
-        }
+        return nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT ? StructStoreKind::UnrollCopyWBRepMovs
+                                                              : StructStoreKind::UnrollCopyWB;
     }
+
+    return size > CPBLK_UNROLL_LIMIT ? StructStoreKind::LargeCopy : StructStoreKind::UnrollCopy;
 }
 
 void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
