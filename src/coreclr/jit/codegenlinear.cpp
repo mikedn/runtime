@@ -1746,9 +1746,10 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 }
 #endif // !TARGET_X86
 
-void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
+void CodeGen::ConsumeStructStore(
+    GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     // We have to consume the registers, and perform any copies, in the actual execution order: dst, src, size.
     //
@@ -1758,11 +1759,20 @@ void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumb
     // to the REQUIRED register (if a fixed register requirement) in execution order.  This requires,
     // then, that we first consume all the operands, then do any necessary moves.
 
-    GenTree* dstAddr = store->GetAddr();
+    GenTree* dstAddr = nullptr;
+    GenTree* src;
 
-    genConsumeReg(dstAddr);
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        dstAddr = store->AsIndir()->GetAddr();
+        src     = store->AsIndir()->GetValue();
 
-    GenTree* src = store->GetValue();
+        genConsumeReg(dstAddr);
+    }
 
     if (src->OperIs(GT_INIT_VAL))
     {
@@ -1797,7 +1807,19 @@ void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumb
 
     // Copy registers as needed
 
-    genCopyRegIfNeeded(dstAddr, dstReg);
+    if (dstAddr != nullptr)
+    {
+        genCopyRegIfNeeded(dstAddr, dstReg);
+    }
+    else
+    {
+        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+
+        unsigned lclNum  = store->AsLclVarCommon()->GetLclNum();
+        unsigned lclOffs = store->AsLclVarCommon()->GetLclOffs();
+
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, lclNum, lclOffs);
+    }
 
     if (!src->isContained())
     {
@@ -1821,7 +1843,7 @@ void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumb
     {
         assert(store->HasTempReg(sizeReg));
 
-        genSetRegToIcon(sizeReg, store->Size());
+        genSetRegToIcon(sizeReg, layout->GetSize());
     }
 }
 

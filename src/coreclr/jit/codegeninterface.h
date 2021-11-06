@@ -730,4 +730,6 @@ public:
 #endif // LATE_DISASM
 };
 
+StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);
+
 #endif // _CODEGEN_INTERFACE_H_

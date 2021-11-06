@@ -335,6 +335,7 @@ private:
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
+    void LowerStoreLclStruct(GenTreeLclVarCommon* store);
     void LowerStoreObj(GenTreeObj* store);
     void LowerStoreBlk(GenTreeBlk* store);
     void LowerStoreDynBlk(GenTreeDynBlk* store);

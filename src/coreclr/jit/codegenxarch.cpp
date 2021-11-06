@@ -1710,7 +1710,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_STORE_OBJ:
         case GT_STORE_DYN_BLK:
         case GT_STORE_BLK:
-            genStructStore(treeNode->AsBlk());
+            GenStructStore(treeNode->AsBlk(), treeNode->AsBlk()->GetKind(), treeNode->AsBlk()->GetLayout());
             break;
 
         case GT_JMPTABLE:
@@ -2436,35 +2436,117 @@ BAILOUT:
     genProduceReg(tree);
 }
 
-void CodeGen::genStructStore(GenTreeBlk* store)
+StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
+    unsigned size = layout->GetSize();
 
-    switch (store->GetKind())
+    if (src->OperIs(GT_CNS_INT))
+    {
+        if (size > INITBLK_UNROLL_LIMIT)
+        {
+            return StructStoreKind::LargeInit;
+        }
+        else
+        {
+            return StructStoreKind::UnrollInit;
+        }
+    }
+    else
+    {
+        // If the struct contains GC pointers we need to generate GC write barriers, unless
+        // the destination is a local variable. Even if the destination is a local we're still
+        // going to use UnrollWB if the size is too large for normal unrolling.
+        // Normal unrolling requires GC non-interruptible regions, the JIT32 GC encoder does
+        // not support that.
+
+        if (layout->HasGCPtr()
+#ifndef JIT32_GCENCODER
+            && (!isLocalStore || (size > CPBLK_UNROLL_LIMIT))
+#endif
+                )
+        {
+            // If we have a long enough sequence of slots that do not require write barriers then
+            // we can use REP MOVSD/Q instead of a sequence of MOVSD/Q instructions. According to the
+            // Intel Manual, the sweet spot for small structs is between 4 to 12 slots of size where
+            // the entire operation takes 20 cycles and encodes in 5 bytes (loading RCX and REP MOVSD/Q).
+            unsigned nonWBSequenceLength = 0;
+
+            if (isLocalStore)
+            {
+                // If the destination is on the stack then no write barriers are needed.
+                nonWBSequenceLength = layout->GetSlotCount();
+            }
+            else
+            {
+                // Otherwise a write barrier is needed for every GC pointer in the layout
+                // so we need to check if there's a long enough sequence of non-GC slots.
+                for (unsigned i = 0; i < layout->GetSlotCount(); i++)
+                {
+                    if (layout->IsGCPtr(i))
+                    {
+                        nonWBSequenceLength = 0;
+                    }
+                    else
+                    {
+                        nonWBSequenceLength++;
+
+                        if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
+            {
+                return StructStoreKind::UnrollCopyWBRepMovs;
+            }
+            else
+            {
+                return StructStoreKind::UnrollCopyWB;
+            }
+        }
+        else if (size <= CPBLK_UNROLL_LIMIT)
+        {
+            return StructStoreKind::UnrollCopy;
+        }
+        else
+        {
+            return StructStoreKind::LargeCopy;
+        }
+    }
+}
+
+void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
+{
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+
+    switch (kind)
     {
 #ifdef TARGET_AMD64
         case StructStoreKind::MemSet:
-            genStructStoreMemSet(store);
+            GenStructStoreMemSet(store, layout);
             break;
         case StructStoreKind::MemCpy:
-            genStructStoreMemCpy(store);
+            GenStructStoreMemCpy(store, layout);
             break;
 #endif
         case StructStoreKind::RepStos:
-            genStructStoreRepStos(store);
+            GenStructStoreRepStos(store, layout);
             break;
         case StructStoreKind::RepMovs:
-            genStructStoreRepMovs(store);
+            GenStructStoreRepMovs(store, layout);
             break;
         case StructStoreKind::UnrollInit:
-            genStructStoreUnrollInit(store);
+            GenStructStoreUnrollInit(store, layout);
             break;
         case StructStoreKind::UnrollCopy:
-            genStructStoreUnrollCopy(store);
+            GenStructStoreUnrollCopy(store, layout);
             break;
         case StructStoreKind::UnrollCopyWB:
         case StructStoreKind::UnrollCopyWBRepMovs:
-            genStructStoreUnrollCopyWB(store->AsObj());
+            GenStructStoreUnrollCopyWB(store, layout);
             break;
         default:
             unreached();
@@ -2473,76 +2555,89 @@ void CodeGen::genStructStore(GenTreeBlk* store)
 
 #ifdef TARGET_AMD64
 
-void CodeGen::genStructStoreMemSet(GenTreeBlk* store)
+void CodeGen::GenStructStoreMemSet(GenTree* store, ClassLayout* layout)
 {
-    genConsumeStructStore(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+    ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
     genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
 }
 
-void CodeGen::genStructStoreMemCpy(GenTreeBlk* store)
+void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
 {
-    assert((store->GetLayout() == nullptr) || !store->GetLayout()->HasGCPtr());
+    assert((layout == nullptr) || !layout->HasGCPtr());
 
-    genConsumeStructStore(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+    ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
     genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
 }
 
 #endif // TARGET_AMD64
 
-void CodeGen::genStructStoreRepStos(GenTreeBlk* store)
+void CodeGen::GenStructStoreRepStos(GenTree* store, ClassLayout* layout)
 {
-    genConsumeStructStore(store, REG_RDI, REG_RAX, REG_RCX);
+    ConsumeStructStore(store, layout, REG_RDI, REG_RAX, REG_RCX);
     instGen(INS_r_stosb);
 }
 
-void CodeGen::genStructStoreRepMovs(GenTreeBlk* store)
+void CodeGen::GenStructStoreRepMovs(GenTree* store, ClassLayout* layout)
 {
-    assert((store->GetLayout() == nullptr) || !store->GetLayout()->HasGCPtr());
+    assert((layout == nullptr) || !layout->HasGCPtr());
 
-    genConsumeStructStore(store, REG_RDI, REG_RSI, REG_RCX);
+    ConsumeStructStore(store, layout, REG_RDI, REG_RSI, REG_RCX);
     instGen(INS_r_movsb);
 }
 
-void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
+void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
+    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     unsigned  dstLclNum         = BAD_VAR_NUM;
     regNumber dstAddrBaseReg    = REG_NA;
     regNumber dstAddrIndexReg   = REG_NA;
     unsigned  dstAddrIndexScale = 1;
     int       dstOffset         = 0;
-    GenTree*  dstAddr           = store->GetAddr();
+    GenTree*  src;
 
-    if (!dstAddr->isContained())
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
-        dstAddrBaseReg = genConsumeReg(dstAddr);
-    }
-    else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
-    {
-        if (addrMode->HasBase())
-        {
-            dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
-        }
+        dstLclNum = store->AsLclVarCommon()->GetLclNum();
+        dstOffset = store->AsLclVarCommon()->GetLclOffs();
 
-        if (addrMode->HasIndex())
-        {
-            dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
-            dstAddrIndexScale = addrMode->GetScale();
-        }
-
-        dstOffset = addrMode->GetOffset();
+        src = store->AsLclVarCommon()->GetOp(0);
     }
     else
     {
-        assert(dstAddr->OperIsLocalAddr());
+        GenTree* dstAddr = store->AsIndir()->GetAddr();
 
-        dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
-        dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+        if (!dstAddr->isContained())
+        {
+            dstAddrBaseReg = genConsumeReg(dstAddr);
+        }
+        else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
+        {
+            if (addrMode->HasBase())
+            {
+                dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            }
+
+            if (addrMode->HasIndex())
+            {
+                dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                dstAddrIndexScale = addrMode->GetScale();
+            }
+
+            dstOffset = addrMode->GetOffset();
+        }
+        else
+        {
+            assert(dstAddr->OperIsLocalAddr());
+
+            dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
+            dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+        }
+
+        src = store->AsIndir()->GetValue();
     }
 
     regNumber srcIntReg = REG_NA;
-    GenTree*  src       = store->GetValue();
 
     if (src->OperIs(GT_INIT_VAL))
     {
@@ -2559,11 +2654,11 @@ void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
         // If src is contained then it must be 0 and the size must be a multiple
         // of XMM_REGSIZE_BYTES so initialization can use only SSE2 instructions.
         assert(src->IsIntegralConst(0));
-        assert((store->GetLayout()->GetSize() % XMM_REGSIZE_BYTES) == 0);
+        assert((layout->GetSize() % XMM_REGSIZE_BYTES) == 0);
     }
 
     emitter* emit = GetEmitter();
-    unsigned size = store->GetLayout()->GetSize();
+    unsigned size = layout->GetSize();
 
     assert(size <= INT32_MAX);
     assert(dstOffset < (INT32_MAX - static_cast<int>(size)));
@@ -2628,11 +2723,11 @@ void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
     }
 }
 
-void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
+void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
+    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    if (store->GetLayout()->HasGCPtr())
+    if (layout->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
         GetEmitter()->emitDisableGC();
@@ -2646,33 +2741,47 @@ void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
     regNumber dstAddrIndexReg   = REG_NA;
     unsigned  dstAddrIndexScale = 1;
     int       dstOffset         = 0;
-    GenTree*  dstAddr           = store->GetAddr();
+    GenTree*  src;
 
-    if (!dstAddr->isContained())
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
-        dstAddrBaseReg = genConsumeReg(dstAddr);
-    }
-    else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
-    {
-        if (addrMode->HasBase())
-        {
-            dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
-        }
+        dstLclNum = store->AsLclVarCommon()->GetLclNum();
+        dstOffset = store->AsLclVarCommon()->GetLclOffs();
 
-        if (addrMode->HasIndex())
-        {
-            dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
-            dstAddrIndexScale = addrMode->GetScale();
-        }
-
-        dstOffset = addrMode->GetOffset();
+        src = store->AsLclVarCommon()->GetOp(0);
     }
     else
     {
-        assert(dstAddr->OperIsLocalAddr());
+        GenTree* dstAddr = store->AsIndir()->GetAddr();
 
-        dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
-        dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+        if (!dstAddr->isContained())
+        {
+            dstAddrBaseReg = genConsumeReg(dstAddr);
+        }
+        else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
+        {
+            if (addrMode->HasBase())
+            {
+                dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            }
+
+            if (addrMode->HasIndex())
+            {
+                dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                dstAddrIndexScale = addrMode->GetScale();
+            }
+
+            dstOffset = addrMode->GetOffset();
+        }
+        else
+        {
+            assert(dstAddr->OperIsLocalAddr());
+
+            dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
+            dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+        }
+
+        src = store->AsIndir()->GetValue();
     }
 
     unsigned  srcLclNum         = BAD_VAR_NUM;
@@ -2680,7 +2789,6 @@ void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
     regNumber srcAddrIndexReg   = REG_NA;
     unsigned  srcAddrIndexScale = 1;
     int       srcOffset         = 0;
-    GenTree*  src               = store->GetValue();
 
     assert(src->isContained());
 
@@ -2724,7 +2832,7 @@ void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
     }
 
     emitter* emit = GetEmitter();
-    unsigned size = store->GetLayout()->GetSize();
+    unsigned size = layout->GetSize();
 
     assert(size <= INT32_MAX);
     assert(srcOffset < (INT32_MAX - static_cast<int>(size)));
@@ -2797,7 +2905,7 @@ void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
         }
     }
 
-    if (store->GetLayout()->HasGCPtr())
+    if (layout->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
         GetEmitter()->emitEnableGC();
@@ -2811,18 +2919,34 @@ void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
 // This will generate a sequence of (REP) MOVS instructions for
 // non-GC slots and calls to the BY_REF_ASSIGN helper otherwise.
 //
-void CodeGen::genStructStoreUnrollCopyWB(GenTreeObj* store)
+void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 {
-    assert(store->GetLayout()->HasGCPtr());
+    assert(layout->HasGCPtr());
 
-    genConsumeStructStore(store, REG_RDI, REG_RSI, REG_NA);
+    ConsumeStructStore(store, layout, REG_RDI, REG_RSI, REG_NA);
 
-    GenTree*  dstAddr     = store->GetAddr();
-    bool      dstOnStack  = dstAddr->gtSkipReloadOrCopy()->OperIsLocalAddr();
-    var_types dstAddrType = dstAddr->GetType();
+    bool      dstOnStack;
+    var_types dstAddrType;
 
-    GenTree*  src = store->GetValue();
+    GenTree*  src;
     var_types srcAddrType;
+
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+
+        dstOnStack  = true;
+        dstAddrType = TYP_I_IMPL;
+    }
+    else
+    {
+        GenTree* dstAddr = store->AsIndir()->GetAddr();
+
+        dstOnStack  = false;
+        dstAddrType = dstAddr->GetType();
+
+        src = store->AsIndir()->GetValue();
+    }
 
     if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
@@ -2838,8 +2962,7 @@ void CodeGen::genStructStoreUnrollCopyWB(GenTreeObj* store)
     gcInfo.gcMarkRegPtrVal(REG_RSI, srcAddrType);
     gcInfo.gcMarkRegPtrVal(REG_RDI, dstAddrType);
 
-    ClassLayout* layout    = store->GetLayout();
-    unsigned     slotCount = layout->GetSlotCount();
+    unsigned slotCount = layout->GetSlotCount();
 
     if (dstOnStack)
     {
@@ -3728,18 +3851,26 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
-    assert(!store->TypeIs(TYP_STRUCT));
-
-#ifdef FEATURE_SIMD
-    if (store->TypeIs(TYP_SIMD12))
-    {
-        genStoreSIMD12(store, store->GetOp(0));
-        return;
-    }
-#endif
 
     var_types type = store->GetType();
     GenTree*  src  = store->GetOp(0);
+
+    if (type == TYP_STRUCT)
+    {
+        ClassLayout*    layout = store->GetLayout(compiler);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
+        genUpdateLife(store);
+        return;
+    }
+
+#ifdef FEATURE_SIMD
+    if (type == TYP_SIMD12)
+    {
+        genStoreSIMD12(store, src);
+        return;
+    }
+#endif
 
     assert(IsValidSourceType(type, src->GetType()));
 
@@ -3760,8 +3891,18 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
-    var_types  lclRegType = lcl->GetRegisterType(store);
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    {
+        ClassLayout*    layout = lcl->GetLayout();
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
+        genUpdateLife(store);
+        return;
+    }
+
+    var_types lclRegType = lcl->GetRegisterType(store);
 
 #ifdef DEBUG
     {

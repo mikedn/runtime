@@ -886,11 +886,9 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
     return killMask;
 }
 
-regMaskTP LinearScan::getKillSetForStructStore(GenTreeBlk* store)
+regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
-
-    switch (store->GetKind())
+    switch (kind)
     {
         case StructStoreKind::UnrollCopyWB:
 #ifdef TARGET_XARCH
@@ -1028,10 +1026,22 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             killMask = getKillSetForModDiv(tree->AsOp());
             break;
 
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+            if (tree->TypeIs(TYP_STRUCT) && !tree->AsLclVarCommon()->GetOp(0)->IsCall())
+            {
+                ClassLayout* layout = tree->OperIs(GT_STORE_LCL_VAR)
+                                          ? compiler->lvaGetDesc(tree->AsLclVar())->GetLayout()
+                                          : tree->AsLclFld()->GetLayout(compiler);
+                StructStoreKind kind = GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0));
+                killMask             = getKillSetForStructStore(kind);
+            }
+            break;
+
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-            killMask = getKillSetForStructStore(tree->AsBlk());
+            killMask = getKillSetForStructStore(tree->AsBlk()->GetKind());
             break;
 
         case GT_RETURNTRAP:
@@ -3222,12 +3232,29 @@ int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
         return BuildStoreLclVarMultiReg(store);
     }
 
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    GenTree*   src = store->GetOp(0);
+
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    {
+        ClassLayout*    layout = lcl->GetLayout();
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        return BuildStructStore(store, kind, layout);
+    }
+
     return BuildStoreLcl(store);
 }
 
 int LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
+
+    if (store->TypeIs(TYP_STRUCT))
+    {
+        ClassLayout*    layout = store->AsLclFld()->GetLayout(compiler);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetOp(0));
+        return BuildStructStore(store, kind, layout);
+    }
 
     return BuildStoreLcl(store);
 }
@@ -3394,7 +3421,7 @@ int LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
     BuildUse(src, srcRegMask);
     BuildUse(store->GetSize(), sizeRegMask);
     BuildInternalUses();
-    BuildKills(store, getKillSetForStructStore(store));
+    BuildKills(store, getKillSetForStructStore(store->GetKind()));
 
     return 3;
 }

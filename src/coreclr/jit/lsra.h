@@ -1021,7 +1021,7 @@ private:
     regMaskTP getKillSetForMul(GenTreeOp* tree);
     regMaskTP getKillSetForCall(GenTreeCall* call);
     regMaskTP getKillSetForModDiv(GenTreeOp* tree);
-    regMaskTP getKillSetForStructStore(GenTreeBlk* store);
+    regMaskTP getKillSetForStructStore(StructStoreKind kind);
     regMaskTP getKillSetForReturn();
     regMaskTP getKillSetForProfilerHook();
 #ifdef FEATURE_HW_INTRINSICS
@@ -1841,7 +1841,7 @@ private:
     int BuildPutArgReg(GenTreeUnOp* node);
     int BuildCall(GenTreeCall* call);
     int BuildCmp(GenTree* tree);
-    int BuildStructStore(GenTreeBlk* store);
+    int BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     int BuildStoreDynBlk(GenTreeDynBlk* store);
     int BuildModDiv(GenTree* tree);
     int BuildIntrinsic(GenTree* tree);

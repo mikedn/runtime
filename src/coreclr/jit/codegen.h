@@ -1103,7 +1103,7 @@ protected:
     void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
     void genConsumeAddrMode(GenTreeAddrMode* mode);
-    void genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
+    void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
 
 #if FEATURE_ARG_SPLIT
     void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
@@ -1214,18 +1214,18 @@ protected:
 #endif
                             );
 
-    void genStructStore(GenTreeBlk* store);
-    void genStructStoreUnrollCopyWB(GenTreeObj* store);
+    void GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
+    void GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout);
 #ifndef TARGET_X86
-    void genStructStoreMemSet(GenTreeBlk* store);
-    void genStructStoreMemCpy(GenTreeBlk* store);
+    void GenStructStoreMemSet(GenTree* store, ClassLayout* layout);
+    void GenStructStoreMemCpy(GenTree* store, ClassLayout* layout);
 #endif
 #ifdef TARGET_XARCH
-    void genStructStoreRepStos(GenTreeBlk* store);
-    void genStructStoreRepMovs(GenTreeBlk* store);
+    void GenStructStoreRepStos(GenTree* store, ClassLayout* layout);
+    void GenStructStoreRepMovs(GenTree* store, ClassLayout* layout);
 #endif
-    void genStructStoreUnrollInit(GenTreeBlk* store);
-    void genStructStoreUnrollCopy(GenTreeBlk* store);
+    void GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout);
+    void GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout);
 
     void genJumpTable(GenTree* tree);
     void genTableBasedSwitch(GenTree* tree);

@@ -850,10 +850,18 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
-    assert(!store->TypeIs(TYP_STRUCT));
 
     var_types type = store->GetType();
     GenTree*  src  = store->GetOp(0);
+
+    if (type == TYP_STRUCT)
+    {
+        ClassLayout*    layout = store->GetLayout(compiler);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
+        genUpdateLife(store);
+        return;
+    }
 
     assert(IsValidSourceType(type, src->GetType()));
 
@@ -908,8 +916,18 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
-    var_types  lclRegType = lcl->GetRegisterType(store);
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    {
+        ClassLayout*    layout = lcl->GetLayout();
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
+        genUpdateLife(store);
+        return;
+    }
+
+    var_types lclRegType = lcl->GetRegisterType(store);
 
     if (lclRegType == TYP_LONG)
     {

@@ -457,7 +457,7 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
-            srcCount = BuildStructStore(tree->AsBlk());
+            srcCount = BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
         case GT_STORE_DYN_BLK:
@@ -1163,12 +1163,22 @@ bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
 }
 #endif
 
-int LinearScan::BuildStructStore(GenTreeBlk* store)
+int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    GenTree*     dstAddr = store->GetAddr();
-    GenTree*     src     = store->GetValue();
-    ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout->GetSize();
+    GenTree* dstAddr = nullptr;
+    GenTree* src;
+
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        dstAddr = store->AsBlk()->GetAddr();
+        src     = store->AsBlk()->GetValue();
+    }
+
+    unsigned size = layout->GetSize();
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -1200,7 +1210,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     RefPosition* internalByteDef = nullptr;
 #endif
 
-    switch (store->GetKind())
+    switch (kind)
     {
         case StructStoreKind::UnrollInit:
             if (size >= XMM_REGSIZE_BYTES)
@@ -1290,14 +1300,17 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
     int useCount = 0;
 
-    if (!dstAddr->isContained())
+    if (dstAddr != nullptr)
     {
-        useCount++;
-        BuildUse(dstAddr, dstAddrRegMask);
-    }
-    else if (dstAddr->IsAddrMode())
-    {
-        useCount += BuildAddrUses(dstAddr);
+        if (!dstAddr->isContained())
+        {
+            useCount++;
+            BuildUse(dstAddr, dstAddrRegMask);
+        }
+        else if (dstAddr->IsAddrMode())
+        {
+            useCount += BuildAddrUses(dstAddr);
+        }
     }
 
     if (srcAddrOrFill != nullptr)
@@ -1326,7 +1339,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     {
         // Only unrolled copies may reach the limit, when both source and destination are
         // base + index address modes.
-        assert(store->GetKind() == StructStoreKind::UnrollCopy);
+        assert(kind == StructStoreKind::UnrollCopy);
 
         if (internalByteDef != nullptr)
         {
@@ -1336,7 +1349,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 #endif
 
     BuildInternalUses();
-    BuildKills(store, getKillSetForStructStore(store));
+    BuildKills(store, getKillSetForStructStore(kind));
 
     return useCount;
 }

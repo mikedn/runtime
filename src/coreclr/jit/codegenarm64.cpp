@@ -1902,18 +1902,26 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
-    assert(!store->TypeIs(TYP_STRUCT));
-
-#ifdef FEATURE_SIMD
-    if (store->TypeIs(TYP_SIMD12))
-    {
-        genStoreSIMD12(store, store->GetOp(0));
-        return;
-    }
-#endif
 
     var_types type = store->GetType();
     GenTree*  src  = store->GetOp(0);
+
+    if (type == TYP_STRUCT)
+    {
+        ClassLayout*    layout = store->GetLayout(compiler);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
+        genUpdateLife(store);
+        return;
+    }
+
+#ifdef FEATURE_SIMD
+    if (type == TYP_SIMD12)
+    {
+        genStoreSIMD12(store, src);
+        return;
+    }
+#endif
 
     assert(IsValidSourceType(type, src->GetType()));
 
@@ -1980,6 +1988,15 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         }
 
         genProduceReg(store);
+        return;
+    }
+
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    {
+        ClassLayout*    layout = lcl->GetLayout();
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
+        genUpdateLife(store);
         return;
     }
 

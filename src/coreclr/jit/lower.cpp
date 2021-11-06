@@ -2785,25 +2785,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
         }
         else if (!src->OperIs(GT_LCL_VAR) || !lcl->IsEnregisterable())
         {
-            GenTreeLclVar* addr = comp->gtNewLclVarAddrNode(store->GetLclNum(), TYP_BYREF);
-
-            addr->gtFlags |= GTF_VAR_DEF;
-            assert(!addr->IsPartialLclFld(comp));
-            addr->gtFlags |= GTF_DONT_CSE;
-
-            // Create the assignment node.
-            store->ChangeOper(GT_STORE_OBJ);
-            GenTreeObj* objStore = store->AsObj();
-            // Only the GTF_LATE_ARG flag (if present) is preserved.
-            objStore->gtFlags &= GTF_LATE_ARG;
-            objStore->gtFlags |= GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-            objStore->SetKind(StructStoreKind::Invalid);
-            objStore->SetLayout(lcl->GetLayout());
-            objStore->SetAddr(addr);
-            objStore->SetData(src);
-            BlockRange().InsertBefore(objStore, addr);
-            LowerStoreObjCommon(objStore);
-
+            LowerStoreLclStruct(store);
             return;
         }
     }
@@ -2853,21 +2835,7 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 #endif
         }
 
-        GenTreeLclFld* addr =
-            comp->gtNewLclFldAddrNode(store->GetLclNum(), store->GetLclOffs(), FieldSeqStore::NotAField());
-        BlockRange().InsertBefore(store, addr);
-
-        ClassLayout* layout = store->GetLayout(comp);
-
-        store->ChangeOper(GT_STORE_OBJ);
-        GenTreeObj* indir = store->AsObj();
-        indir->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-        indir->SetKind(StructStoreKind::Invalid);
-        indir->SetLayout(layout);
-        indir->SetAddr(addr);
-        indir->SetValue(value);
-        LowerStoreObj(indir);
-
+        LowerStoreLclStruct(store);
         return;
     }
 

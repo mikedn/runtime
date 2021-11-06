@@ -197,6 +197,42 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
     ContainCheckStoreIndir(store);
 }
 
+void Lowering::LowerStoreLclStruct(GenTreeLclVarCommon* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && store->TypeIs(TYP_STRUCT));
+
+    GenTree*     src = store->GetOp(0);
+    ClassLayout* layout =
+        store->OperIs(GT_STORE_LCL_VAR) ? comp->lvaGetDesc(store)->GetLayout() : store->AsLclFld()->GetLayout(comp);
+
+    assert(!layout->IsBlockLayout());
+
+    StructStoreKind kind = GetStructStoreKind(true, layout, src);
+
+    if (src->OperIs(GT_CNS_INT))
+    {
+        assert(src->IsIntegralConst(0));
+
+        if (kind == StructStoreKind::UnrollInit)
+        {
+            // Use REG_ZR as source on ARM64.
+            ARM64_ONLY(src->SetContained();)
+        }
+    }
+    else
+    {
+        assert(src->OperIs(GT_OBJ, GT_LCL_VAR, GT_LCL_FLD));
+        assert(!src->OperIs(GT_OBJ) || !src->AsObj()->GetAddr()->isContained());
+
+        src->SetContained();
+
+        if (src->OperIs(GT_OBJ) && (kind == StructStoreKind::UnrollCopy))
+        {
+            ContainBlockStoreAddress(store, layout->GetSize(), src->AsObj()->GetAddr());
+        }
+    }
+}
+
 void Lowering::LowerStoreObj(GenTreeObj* store)
 {
     assert(store->OperIs(GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
@@ -362,6 +398,7 @@ bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool 
 void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
     assert(
+        (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD)) ||
         (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
                                                        (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit))) ||
         store->OperIsPutArgStkOrSplit());

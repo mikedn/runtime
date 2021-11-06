@@ -149,6 +149,53 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
     ContainCheckStoreIndir(store);
 }
 
+void Lowering::LowerStoreLclStruct(GenTreeLclVarCommon* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && store->TypeIs(TYP_STRUCT));
+
+    GenTree*     src = store->GetOp(0);
+    ClassLayout* layout =
+        store->OperIs(GT_STORE_LCL_VAR) ? comp->lvaGetDesc(store)->GetLayout() : store->AsLclFld()->GetLayout(comp);
+
+    assert(!layout->IsBlockLayout());
+
+    StructStoreKind kind = GetStructStoreKind(true, layout, src);
+
+    if (src->OperIs(GT_CNS_INT))
+    {
+        assert(src->IsIntegralConst(0));
+
+        if (kind == StructStoreKind::UnrollInit)
+        {
+            // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
+            // codegen will use xorps to generate 0 directly in the temporary XMM register.
+            if ((layout->GetSize() % XMM_REGSIZE_BYTES) == 0)
+            {
+                src->SetContained();
+            }
+        }
+    }
+    else
+    {
+        assert(src->OperIs(GT_OBJ, GT_LCL_VAR, GT_LCL_FLD));
+        assert(!src->OperIs(GT_OBJ) || !src->AsObj()->GetAddr()->isContained());
+
+        src->SetContained();
+
+        if (src->OperIs(GT_OBJ))
+        {
+            if (kind == StructStoreKind::UnrollCopy)
+            {
+                ContainBlockStoreAddress(store, layout->GetSize(), src->AsObj()->GetAddr());
+            }
+            else
+            {
+                TryCreateAddrMode(src->AsObj()->GetAddr(), false);
+            }
+        }
+    }
+}
+
 void Lowering::LowerStoreObj(GenTreeObj* store)
 {
     assert(store->OperIs(GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
@@ -215,7 +262,7 @@ void Lowering::LowerStoreObj(GenTreeObj* store)
             if (dstAddr->OperIsLocalAddr())
             {
                 // If the destination is on the stack then no write barriers are needed.
-                nonWBSequenceLength = store->GetLayout()->GetSlotCount();
+                nonWBSequenceLength = layout->GetSlotCount();
             }
             else
             {
@@ -287,6 +334,7 @@ void Lowering::LowerStoreObj(GenTreeObj* store)
 void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
     assert(
+        store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
         (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
                                                        (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))) ||
         store->OperIs(GT_PUTARG_STK));

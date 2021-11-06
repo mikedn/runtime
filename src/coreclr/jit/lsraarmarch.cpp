@@ -476,12 +476,22 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 }
 #endif // FEATURE_ARG_SPLIT
 
-int LinearScan::BuildStructStore(GenTreeBlk* store)
+int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    GenTree*     dstAddr = store->GetAddr();
-    GenTree*     src     = store->GetValue();
-    ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout->GetSize();
+    GenTree* dstAddr = nullptr;
+    GenTree* src;
+
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        dstAddr = store->AsBlk()->GetAddr();
+        src     = store->AsBlk()->GetValue();
+    }
+
+    unsigned size = layout->GetSize();
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -511,7 +521,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     regMaskTP sizeRegMask        = RBM_NONE;
     regMaskTP internalIntRegMask = allRegs(TYP_INT);
 
-    switch (store->GetKind())
+    switch (kind)
     {
         case StructStoreKind::UnrollInit:
             break;
@@ -569,14 +579,17 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
     int useCount = 0;
 
-    if (!dstAddr->isContained())
+    if (dstAddr != nullptr)
     {
-        useCount++;
-        BuildUse(dstAddr, dstAddrRegMask);
-    }
-    else if (dstAddr->IsAddrMode())
-    {
-        useCount += BuildAddrUses(dstAddr->AsAddrMode()->Base());
+        if (!dstAddr->isContained())
+        {
+            useCount++;
+            BuildUse(dstAddr, dstAddrRegMask);
+        }
+        else if (dstAddr->IsAddrMode())
+        {
+            useCount += BuildAddrUses(dstAddr->AsAddrMode()->Base());
+        }
     }
 
     if (srcAddrOrFill != nullptr)
@@ -593,7 +606,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     }
 
     BuildInternalUses();
-    BuildKills(store, getKillSetForStructStore(store));
+    BuildKills(store, getKillSetForStructStore(kind));
 
     return useCount;
 }
