@@ -447,8 +447,12 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_KEEPALIVE:
             if (treeNode->AsOp()->gtOp1->isContained())
             {
-                // For this case we simply need to update the lifetime of the local.
-                genUpdateLife(treeNode->AsOp()->gtOp1);
+                GenTree* src = treeNode->AsUnOp()->GetOp(0);
+
+                if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                {
+                    genUpdateLife(src->AsLclVarCommon());
+                }
             }
             else
             {

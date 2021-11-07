@@ -1069,7 +1069,7 @@ protected:
 
 #endif // FEATURE_HW_INTRINSICS
 
-    void genUpdateLife(GenTree* tree);
+    void genUpdateLife(GenTreeLclVarCommon* tree);
     void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
     void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex);
     void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree);

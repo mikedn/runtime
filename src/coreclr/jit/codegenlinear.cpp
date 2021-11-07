@@ -1455,8 +1455,10 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
 
     genUnspillRegIfNeeded(tree);
 
-    // genUpdateLife() will also spill local var if marked as GTF_SPILL by calling CodeGen::genSpillVar
-    genUpdateLife(tree);
+    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        genUpdateLife(tree->AsLclVarCommon());
+    }
 
     // there are three cases where consuming a reg means clearing the bit in the live mask
     // 1. it was not produced by a local
@@ -1574,8 +1576,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
             noway_assert(varDsc->GetRegNum() == REG_STK);
             noway_assert(tree->IsRegOptional() || !varDsc->lvLRACandidate);
 
-            // Update the life of the lcl var.
-            genUpdateLife(tree);
+            genUpdateLife(tree->AsLclVarCommon());
         }
 #ifdef FEATURE_HW_INTRINSICS
         else if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
@@ -2006,8 +2007,10 @@ void CodeGen::genProduceReg(GenTree* tree)
         }
     }
 
-    // Updating variable liveness after instruction was emitted
-    genUpdateLife(tree);
+    if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        genUpdateLife(tree->AsLclVarCommon());
+    }
 
     // If we've produced a register, mark it as a pointer, as needed.
     if (tree->gtHasReg())

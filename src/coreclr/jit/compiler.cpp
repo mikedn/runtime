@@ -7182,7 +7182,7 @@ FILE* Compiler::compJitFuncInfoFile = nullptr;
 
 void Compiler::dmpVarSet(const char* name, VARSET_VALARG_TP vars)
 {
-    printf("%s\n", name);
+    printf("%s", name);
     dumpConvertedVarSet(this, vars);
 }
 

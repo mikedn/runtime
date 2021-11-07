@@ -9,7 +9,7 @@
 
 void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 {
-    assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+    assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     LclVarDsc* lcl = lvaGetDesc(node);
 
@@ -30,13 +30,6 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
     if (lcl->HasLiveness())
     {
-        if (compRationalIRForm && !lcl->TypeIs(TYP_STRUCT) && !varTypeIsMultiReg(lcl->GetType()))
-        {
-            // If this is an enregisterable variable that is not marked doNotEnregister,
-            // we should only see direct references (not ADDRs).
-            assert(lcl->lvDoNotEnregister || node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
-        }
-
         if (isUse && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
         {
             VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
@@ -355,38 +348,8 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
 
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
-            // In general these should be used only with address exposed locals
-            // but LIR does not currently support struct STORE_LCL_VAR|FLD so it
-            // uses STORE_OBJ(LCL_VAR|FLD_ADDR) without making the local address
-            // exposed.
-            // assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
+            assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
             break;
-
-        case GT_DYN_BLK:
-            unreached();
-        case GT_STORE_OBJ:
-            if (tree->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-            {
-                GenTreeLclVarCommon* lclNode = tree->AsObj()->GetAddr()->AsLclVarCommon();
-
-                if (!lvaGetDesc(lclNode)->IsAddressExposed())
-                {
-                    fgMarkUseDef(lclNode);
-                    break;
-                }
-            }
-            FALLTHROUGH;
-        case GT_IND:
-        case GT_OBJ:
-        case GT_BLK:
-        case GT_STOREIND:
-        case GT_STORE_BLK:
-        case GT_STORE_DYN_BLK:
-        {
-            INDEBUG(GenTreeLclVarCommon* lclNode = tree->AsIndir()->GetAddr()->IsLocalAddrExpr();)
-            assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
-            break;
-        }
 
         case GT_CALL:
             fgPInvokeFrameLiveness(tree->AsCall());
@@ -1678,7 +1641,7 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         {
             fgComputeLifeCall(liveOut, node->AsCall());
         }
-        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
             LclVarDsc*           lcl     = lvaGetDesc(lclNode);
@@ -1824,71 +1787,14 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
             case GT_LCL_VAR_ADDR:
             case GT_LCL_FLD_ADDR:
+                assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+
                 if (node->IsUnusedValue())
                 {
                     JITDUMP("Removing dead LclVar address:\n");
                     DISPNODE(node);
 
-                    const bool isTracked = lvaTable[node->AsLclVarCommon()->GetLclNum()].lvTracked;
                     blockRange.Delete(this, block, node);
-                    if (isTracked && !opts.MinOpts())
-                    {
-                        fgStmtRemoved = true;
-                    }
-                }
-                else
-                {
-                    GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                    LclVarDsc*           lcl     = lvaGetDesc(lclNode);
-                    bool                 isDeadStore;
-
-                    if (!lcl->lvTracked)
-                    {
-                        isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
-                    }
-                    else if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
-                    {
-                        isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
-                    }
-                    else
-                    {
-                        fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
-                        isDeadStore = false;
-                    }
-
-                    if (isDeadStore)
-                    {
-                        LIR::Use addrUse;
-                        if (blockRange.TryGetUse(node, &addrUse) &&
-                            addrUse.User()->OperIs(GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ))
-                        {
-                            // Remove the store. DCE will iteratively clean up any ununsed operands.
-                            GenTreeIndir* const store = addrUse.User()->AsIndir();
-
-                            JITDUMP("Removing dead indirect store:\n");
-                            DISPNODE(store);
-
-                            assert(store->Addr() == node);
-                            blockRange.Delete(this, block, node);
-
-                            GenTree* value = store->GetOp(1);
-
-                            if (value->TypeIs(TYP_STRUCT) && value->OperIsIndir())
-                            {
-                                value->SetOper(GT_IND);
-                                value->SetType(TYP_BYTE);
-                            }
-
-                            value->SetUnusedValue();
-
-                            if (value->isIndir())
-                            {
-                                Lowering::TransformUnusedIndirection(value->AsIndir(), this, block);
-                            }
-
-                            fgRemoveDeadStoreLIR(store, block);
-                        }
-                    }
                 }
                 break;
 

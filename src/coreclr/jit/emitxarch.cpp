@@ -3092,19 +3092,15 @@ void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, G
         return;
     }
 
+    // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address is nonsense.
+
     if (addr->OperIsLocalAddr())
     {
-        GenTreeLclVarCommon* varNode = addr->AsLclVarCommon();
-        unsigned             offset  = varNode->GetLclOffs();
-        emitIns_R_S(ins, attr, dstReg, varNode->GetLclNum(), offset);
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
 
-        // Updating variable liveness after instruction was emitted.
-        // TODO-Review: it appears that this call to genUpdateLife does nothing because it
-        // returns quickly when passed GT_LCL_VAR_ADDR or GT_LCL_FLD_ADDR. Below, emitInsStoreInd
-        // had similar code that replaced `varNode` with `mem` (to fix a GC hole). It might be
-        // appropriate to do that here as well, but doing so showed no asm diffs, so it's not
-        // clear when this scenario gets hit, at least for GC refs.
-        codeGen->genUpdateLife(varNode);
+        emitIns_R_S(ins, attr, dstReg, lclNode->GetLclNum(), lclNode->GetLclOffs());
+
         return;
     }
 
@@ -3131,13 +3127,15 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
         return;
     }
 
-    // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address are nonsense.
+    // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address is nonsense.
 
     if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
-        unsigned lclOffs = addr->OperIs(GT_LCL_FLD_ADDR) ? addr->AsLclFld()->GetLclOffs() : 0;
-        emitIns_S(ins, attr, addr->AsLclVarCommon()->GetLclNum(), lclOffs);
-        codeGen->genUpdateLife(addr);
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
+
+        emitIns_S(ins, attr, lclNode->GetLclNum(), lclNode->GetLclOffs());
+
         return;
     }
 
@@ -3183,22 +3181,23 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
         return;
     }
 
+    // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address is nonsense.
+
     if (addr->OperIsLocalAddr())
     {
-        GenTreeLclVarCommon* varNode = addr->AsLclVarCommon();
-        unsigned             offset  = varNode->GetLclOffs();
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
+
         if (data->isContainedIntOrIImmed())
         {
-            emitIns_S_I(ins, attr, varNode->GetLclNum(), offset, (int)data->AsIntConCommon()->IconValue());
+            emitIns_S_I(ins, attr, lclNode->GetLclNum(), lclNode->GetLclOffs(), data->AsIntCon()->GetInt32Value());
         }
         else
         {
             assert(!data->isContained());
-            emitIns_S_R(ins, attr, data->GetRegNum(), varNode->GetLclNum(), offset);
+            emitIns_S_R(ins, attr, data->GetRegNum(), lclNode->GetLclNum(), lclNode->GetLclOffs());
         }
 
-        // Updating variable liveness after instruction was emitted
-        codeGen->genUpdateLife(mem);
         return;
     }
 

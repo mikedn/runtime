@@ -2759,12 +2759,6 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         return false;
     }
 
-    if (arg->OperIs(GT_OBJ))
-    {
-        INDEBUG(GenTreeLclVarCommon* lclNode = arg->AsObj()->GetAddr()->IsLocalAddrExpr();)
-        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->lvDoNotEnregister);
-    }
-
     if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
     {
         // While not required for corectness, we can change the type of a struct arg to
@@ -2968,9 +2962,6 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         argSize = arg->AsObj()->GetLayout()->GetSize();
 
         assert(argSize <= argRegType);
-
-        INDEBUG(GenTreeLclVarCommon* lclNode = arg->AsObj()->GetAddr()->IsLocalAddrExpr();)
-        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->lvDoNotEnregister);
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_X86)
         // On win-x64 and x86 only register sized structs are passed in a register, others are passed by reference.
@@ -3808,9 +3799,6 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_OBJ))
     {
-        INDEBUG(GenTreeLclVarCommon* lclNode = arg->AsObj()->GetAddr()->IsLocalAddrExpr();)
-        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->lvDoNotEnregister);
-
         return abiMorphMultiRegObjArg(argInfo, arg->AsObj());
     }
 
@@ -8111,21 +8099,15 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
     }
+    else if (dest->OperIs(GT_IND))
+    {
+        assert(varTypeIsSIMD(dest->GetType()));
+
+        destSize = varTypeSize(dest->GetType());
+    }
     else
     {
-        if (dest->OperIs(GT_IND))
-        {
-            assert(varTypeIsSIMD(dest->GetType()));
-
-            destSize = varTypeSize(dest->GetType());
-        }
-        else
-        {
-            destSize = dest->AsObj()->GetLayout()->GetSize();
-        }
-
-        INDEBUG(GenTreeLclVarCommon* lclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr();)
-        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
+        destSize = dest->AsObj()->GetLayout()->GetSize();
     }
 
 #if LOCAL_ASSERTION_PROP
@@ -8858,15 +8840,7 @@ GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
     GenTree* dst = asg->GetOp(0);
     GenTree* src = asg->GetOp(1);
 
-    INDEBUG(GenTreeLclVarCommon* lclNode = dst->AsIndir()->GetAddr()->IsLocalAddrExpr();)
-    assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
-
-    if (src->IsIndir())
-    {
-        assert(src->TypeIs(TYP_STRUCT));
-        INDEBUG(lclNode = src->AsIndir()->GetAddr()->IsLocalAddrExpr();)
-        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
-    }
+    assert(!src->IsIndir() || src->TypeIs(TYP_STRUCT));
 
     if (dst->OperIs(GT_DYN_BLK))
     {
@@ -9022,24 +8996,16 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
     }
+    else if (dest->OperIs(GT_IND))
+    {
+        assert(varTypeIsSIMD(dest->GetType()));
+
+        destSize = varTypeSize(dest->GetType());
+    }
     else
     {
-        if (dest->OperIs(GT_IND))
-        {
-            assert(varTypeIsSIMD(dest->GetType()));
-
-            destSize = varTypeSize(dest->GetType());
-        }
-        else if (dest->OperIs(GT_OBJ))
-        {
-            destLayout = dest->AsObj()->GetLayout();
-            destSize   = destLayout->GetSize();
-        }
-
-        noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
-
-        INDEBUG(GenTreeLclVarCommon* lclNode = dest->AsIndir()->GetAddr()->IsLocalAddrExpr();)
-        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
+        destLayout = dest->AsObj()->GetLayout();
+        destSize   = destLayout->GetSize();
     }
 
 #if LOCAL_ASSERTION_PROP
@@ -9070,9 +9036,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
     else if (src->OperIs(GT_IND, GT_OBJ))
     {
-        INDEBUG(GenTreeLclVarCommon* lclNode = src->AsIndir()->GetAddr()->IsLocalAddrExpr();)
-        assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
-
         // TODO-MIKE-Cleanup: This is only needed due to stupid FIELD morphing...
 
         if (src->OperIs(GT_IND) && src->TypeIs(TYP_STRUCT))

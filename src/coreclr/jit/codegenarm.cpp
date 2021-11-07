@@ -859,49 +859,48 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
         ClassLayout*    layout = store->GetLayout(compiler);
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
         GenStructStore(store, kind, layout);
-        genUpdateLife(store);
-        return;
-    }
-
-    assert(IsValidSourceType(type, src->GetType()));
-
-    regNumber srcReg  = genConsumeReg(src);
-    unsigned  lclOffs = store->GetLclOffs();
-    unsigned  lclNum  = store->GetLclNum();
-    emitter*  emit    = GetEmitter();
-
-    if (store->IsOffsetMisaligned())
-    {
-        // ARM supports unaligned access only for integer types,
-        // use integer stores if the field is not aligned.
-
-        regNumber addrReg = store->ExtractTempReg();
-        emit->emitIns_R_S(INS_lea, EA_PTRSIZE, addrReg, lclNum, lclOffs);
-
-        if (type == TYP_FLOAT)
-        {
-            regNumber tempReg = store->GetSingleTempReg();
-
-            emit->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg);
-            emit->emitIns_R_R(INS_str, EA_4BYTE, tempReg, addrReg);
-        }
-        else
-        {
-            regNumber tempRegLo = store->ExtractTempReg();
-            regNumber tempRegHi = store->GetSingleTempReg();
-
-            emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempRegLo, tempRegHi, srcReg);
-            emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegLo, addrReg, 0);
-            emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegHi, addrReg, 4);
-        }
     }
     else
     {
-        emit->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, lclNum, lclOffs);
+        assert(IsValidSourceType(type, src->GetType()));
+
+        regNumber srcReg  = genConsumeReg(src);
+        unsigned  lclOffs = store->GetLclOffs();
+        unsigned  lclNum  = store->GetLclNum();
+        emitter*  emit    = GetEmitter();
+
+        if (store->IsOffsetMisaligned())
+        {
+            // ARM supports unaligned access only for integer types,
+            // use integer stores if the field is not aligned.
+
+            regNumber addrReg = store->ExtractTempReg();
+            emit->emitIns_R_S(INS_lea, EA_PTRSIZE, addrReg, lclNum, lclOffs);
+
+            if (type == TYP_FLOAT)
+            {
+                regNumber tempReg = store->GetSingleTempReg();
+
+                emit->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg);
+                emit->emitIns_R_R(INS_str, EA_4BYTE, tempReg, addrReg);
+            }
+            else
+            {
+                regNumber tempRegLo = store->ExtractTempReg();
+                regNumber tempRegHi = store->GetSingleTempReg();
+
+                emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempRegLo, tempRegHi, srcReg);
+                emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegLo, addrReg, 0);
+                emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegHi, addrReg, 4);
+            }
+        }
+        else
+        {
+            emit->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, lclNum, lclOffs);
+        }
     }
 
     genUpdateLife(store);
-    compiler->lvaGetDesc(store)->SetRegNum(REG_STK);
 }
 
 void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
@@ -1182,9 +1181,6 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     }
 
     GetEmitter()->emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), data->GetRegNum(), tree);
-
-    // If store was to a variable, update variable liveness after instruction was emitted.
-    genUpdateLife(tree);
 }
 
 // genLongToIntCast: Generate code for long to int casts.

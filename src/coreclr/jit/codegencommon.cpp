@@ -467,7 +467,7 @@ void CodeGen::genMarkLabelsForCodegen()
 #endif // DEBUG
 }
 
-void CodeGen::genUpdateLife(GenTree* node)
+void CodeGen::genUpdateLife(GenTreeLclVarCommon* node)
 {
     m_liveness.UpdateLife(this, node);
 }

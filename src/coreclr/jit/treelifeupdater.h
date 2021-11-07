@@ -37,9 +37,6 @@ public:
         currentNode = nullptr;
     }
 
-    void UpdateLife(class CodeGen* codeGen, GenTree* node);
+    void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
     bool UpdateLifeFieldVar(class CodeGen* codeGen, GenTreeLclVar* lclNode, unsigned regIndex);
-
-private:
-    GenTreeLclVar* IsLocalAddr(GenTree* addr);
 };

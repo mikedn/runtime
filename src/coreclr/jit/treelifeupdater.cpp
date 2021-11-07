@@ -116,58 +116,18 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
     return spill;
 }
 
-GenTreeLclVar* CodeGenLivenessUpdater::IsLocalAddr(GenTree* addr)
+void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
 {
-    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
-    {
-        // We use this method in backward dataflow after liveness computation - fgInterBlockLocalVarLiveness().
-        // Therefore it is critical that we don't miss 'uses' of any local.  It may seem this method overlooks
-        // if the index part of the LEA has indir( someAddrOperator ( lclVar ) ) to search for a use but it's
-        // covered by the fact we're traversing the expression in execution order and we also visit the index.
-
-        // TODO-MIKE-Review: And if the index is visted what? Complete nonsense.
-
-        GenTree* base = addrMode->GetBase();
-
-        if (base != nullptr)
-        {
-            addr = base;
-        }
-    }
-
-    // TODO-MIKE-Review: Why doesn't this check for LCL_FLD_ADDR?
-
-    return addr->OperIs(GT_LCL_VAR_ADDR) ? addr->AsLclVar() : nullptr;
-}
-
-void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTree* node)
-{
-    assert(!node->OperIs(GT_PHI_ARG));
+    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
     assert(compiler->GetCurLVEpoch() == epoch);
 
     // TODO-Cleanup: We shouldn't really be calling this more than once
-    if (node == currentNode)
+    if (lclNode == currentNode)
     {
         return;
     }
 
-    currentNode = node;
-
-    GenTreeLclVarCommon* lclNode = nullptr;
-
-    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
-    {
-        lclNode = node->AsLclVarCommon();
-    }
-    else if (GenTreeIndir* indir = node->IsIndir())
-    {
-        lclNode = IsLocalAddr(indir->GetAddr());
-    }
-
-    if (lclNode == nullptr)
-    {
-        return;
-    }
+    currentNode = lclNode;
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
@@ -181,8 +141,6 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTree* node)
 
     if (lclNode->IsMultiRegLclVar())
     {
-        // We should never have an indirect access for a multireg local.
-        assert(lclNode == node);
         assert((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
 
         isBorn = ((lclNode->gtFlags & GTF_VAR_DEF) != 0);
@@ -212,17 +170,17 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTree* node)
         {
             VarSetOps::AddElemD(compiler, varDeltaSet, lcl->GetLivenessBitIndex());
 
-            if (isBorn && lcl->lvIsRegCandidate() && node->gtHasReg())
+            if (isBorn && lcl->lvIsRegCandidate() && lclNode->gtHasReg())
             {
-                codeGen->genUpdateVarReg(lcl, node);
+                codeGen->genUpdateVarReg(lcl, lclNode);
             }
 
-            bool isInReg    = lcl->lvIsInReg() && (node->GetRegNum() != REG_NA);
+            bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNum() != REG_NA);
             bool isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
 
             if (isInReg)
             {
-                codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(node));
+                codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
             }
 
             if (isInMemory)
@@ -257,10 +215,10 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTree* node)
                 {
                     if (isBorn)
                     {
-                        codeGen->genUpdateVarReg(fieldLcl, node, i);
+                        codeGen->genUpdateVarReg(fieldLcl, lclNode, i);
                     }
 
-                    codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(node));
+                    codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(lclNode));
 
                     // If this was marked for spill, genProduceReg should already have spilled it.
                     assert(!isFieldSpilled);
@@ -273,7 +231,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTree* node)
         {
             bool hasDeadTrackedFields = false;
 
-            if ((node != lclNode) && isDying)
+            if (isDying)
             {
                 assert(!isBorn);
 
@@ -394,7 +352,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTree* node)
     {
         assert(!lcl->IsPromoted());
 
-        codeGen->genSpillVar(node->AsLclVar());
+        codeGen->genSpillVar(lclNode->AsLclVar());
 
         if (VarSetOps::IsMember(compiler, codeGen->gcInfo.gcTrkStkPtrLcls, lcl->lvVarIndex) &&
             VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))

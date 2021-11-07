@@ -3843,22 +3843,21 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
         ClassLayout*    layout = store->GetLayout(compiler);
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
         GenStructStore(store, kind, layout);
-        genUpdateLife(store);
-        return;
     }
-
 #ifdef FEATURE_SIMD
-    if (type == TYP_SIMD12)
+    else if (type == TYP_SIMD12)
     {
         genStoreSIMD12(store, src);
-        return;
     }
 #endif
+    else
+    {
+        assert(IsValidSourceType(type, src->GetType()));
 
-    assert(IsValidSourceType(type, src->GetType()));
+        genConsumeRegs(src);
+        GetEmitter()->emitInsBinary(ins_Store(type), emitTypeSize(type), store, src);
+    }
 
-    genConsumeRegs(src);
-    GetEmitter()->emitInsBinary(ins_Store(type), emitTypeSize(type), store, src);
     genUpdateLife(store);
 }
 
