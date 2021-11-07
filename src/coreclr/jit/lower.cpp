@@ -2948,7 +2948,8 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
             tempStore->AsLclVar()->SetOp(0, src);
             BlockRange().InsertAfter(src, tempStore);
 
-            src->ChangeOper(GT_IND);
+            src->ChangeOper(GT_OBJ);
+            src->AsObj()->SetLayout(retLayout);
 
             LowerStoreLclVar(tempStore);
 #endif
