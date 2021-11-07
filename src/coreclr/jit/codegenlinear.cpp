@@ -875,16 +875,16 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
         genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(tree));
         gcInfo.gcMarkRegSetNpt(varDsc->lvRegMask());
 
-        if (VarSetOps::IsMember(compiler, gcInfo.gcTrkStkPtrLcls, varDsc->lvVarIndex))
+        if (varDsc->HasStackGCPtrLiveness())
         {
 #ifdef DEBUG
             if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
             {
-                JITDUMP("Var V%02u becoming live\n", varNum);
+                JITDUMP("GC pointer V%02u becoming live on stack\n", varNum);
             }
             else
             {
-                JITDUMP("Var V%02u continuing live\n", varNum);
+                JITDUMP("GC pointer V%02u continuing live on stack\n", varNum);
             }
 #endif
             VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);

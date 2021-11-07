@@ -270,40 +270,14 @@ bool CodeGen::genShouldRoundFP()
     }
 }
 
-/*****************************************************************************
- *
- *  Initialize some global variables.
- */
-
 void CodeGen::genPrepForCompiler()
 {
     m_liveness.Begin();
 
-    /* Figure out which non-register variables hold pointers */
-
-    VarSetOps::AssignNoCopy(compiler, gcInfo.gcTrkStkPtrLcls, VarSetOps::MakeEmpty(compiler));
-
-    // Also, initialize gcTrkStkPtrLcls to include all tracked variables that do not fully live
-    // in a register (i.e. they live on the stack for all or part of their lifetime).
-    // Note that lvRegister indicates that a lclVar is in a register for its entire lifetime.
-
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
-    {
-        if (varDsc->lvTracked || varDsc->lvIsRegCandidate())
-        {
-            if (!varDsc->lvRegister && compiler->lvaIsGCTracked(varDsc))
-            {
-                VarSetOps::AddElemD(compiler, gcInfo.gcTrkStkPtrLcls, varDsc->lvVarIndex);
-            }
-        }
-    }
     VarSetOps::AssignNoCopy(compiler, genLastLiveSet, VarSetOps::MakeEmpty(compiler));
     genLastLiveMask = RBM_NONE;
-#ifdef DEBUG
-    compiler->fgBBcountAtCodegen = compiler->fgBBcount;
-#endif
+
+    INDEBUG(compiler->fgBBcountAtCodegen = compiler->fgBBcount;)
 }
 
 //------------------------------------------------------------------------
@@ -3345,7 +3319,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 
             if ((regArgMaskLive & genRegMask(regNum)) == 0)
             {
-                if (varDsc->lvTrackedNonStruct())
+                if (varDsc->HasLiveness() && !varDsc->TypeIs(TYP_STRUCT))
                 {
                     // We may now see some tracked locals with zero refs.
                     // See Lowering::DoPhase. Tolerate these.
@@ -6760,10 +6734,10 @@ void CodeGen::genFnProlog()
         signed int loOffs = varDsc->GetStackOffset();
         signed int hiOffs = varDsc->GetStackOffset() + compiler->lvaLclSize(varNum);
 
-        /* We need to know the offset range of tracked stack GC refs */
-        /* We assume that the GC reference can be anywhere in the TYP_STRUCT */
+        // We need to know the offset range of tracked stack GC refs
+        // We assume that the GC reference can be anywhere in the TYP_STRUCT
 
-        if (varDsc->HasGCPtr() && varDsc->lvTrackedNonStruct() && varDsc->lvOnFrame)
+        if (varDsc->HasGCPtr() && varDsc->HasLiveness() && !varDsc->TypeIs(TYP_STRUCT) && varDsc->lvOnFrame)
         {
             // Dependent promoted fields should have been taken care of by the parent struct.
             if (!varDsc->IsDependentPromotedField(compiler))

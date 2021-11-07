@@ -2,6 +2,32 @@
 #include "treelifeupdater.h"
 #include "codegen.h"
 
+void CodeGenLivenessUpdater::Begin()
+{
+    newLife               = VarSetOps::MakeEmpty(compiler);
+    varDeltaSet           = VarSetOps::MakeEmpty(compiler);
+    varStackGCPtrDeltaSet = VarSetOps::MakeEmpty(compiler);
+
+    INDEBUG(epoch = compiler->GetCurLVEpoch();)
+
+    // Also, initialize "HasStackGCPtrLiveness" for all tracked variables that do not fully
+    // live in a register (i.e. they live on the stack for all or part of their lifetime).
+    // Note that lvRegister indicates that a lclVar is in a register for its entire lifetime.
+
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        if (lcl->HasLiveness() || lcl->lvIsRegCandidate())
+        {
+            if (!lcl->lvRegister && compiler->lvaIsGCTracked(lcl))
+            {
+                lcl->SetHasStackGCPtrLiveness();
+            }
+        }
+    }
+}
+
 // Update live sets for only the given field of a multi-reg LclVar node.
 //
 // This method need only be used when the fields are dying or going live at different times,
@@ -67,7 +93,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
             // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
             // on the stack (i.e. are not always in a register).
 
-            if (isInMemory && VarSetOps::IsMember(compiler, codeGen->gcInfo.gcTrkStkPtrLcls, index))
+            if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
 #ifdef DEBUG
                 if (compiler->verbose)
@@ -106,8 +132,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
 
     if (spill)
     {
-        if (VarSetOps::IsMember(compiler, codeGen->gcInfo.gcTrkStkPtrLcls, index) &&
-            VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index))
+        if (lcl->HasStackGCPtrLiveness() && VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index))
         {
             JITDUMP("Var V%02u becoming live\n", lclNum);
         }
@@ -164,7 +189,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         // we maintain two separate sets of variables - the total set of variables that are either
         // born or dying here, and the subset of those that are on the stack
         VarSetOps::ClearD(compiler, varDeltaSet);
-        VarSetOps::ClearD(compiler, stackVarDeltaSet);
+        VarSetOps::ClearD(compiler, varStackGCPtrDeltaSet);
 
         if (lcl->HasLiveness())
         {
@@ -183,9 +208,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
                 codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
             }
 
-            if (isInMemory)
+            if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
-                VarSetOps::AddElemD(compiler, stackVarDeltaSet, lcl->GetLivenessBitIndex());
+                VarSetOps::AddElemD(compiler, varStackGCPtrDeltaSet, lcl->GetLivenessBitIndex());
             }
         }
         else if (lclNode->IsMultiRegLclVar())
@@ -205,9 +230,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
                 {
                     VarSetOps::AddElemD(compiler, varDeltaSet, fieldLcl->GetLivenessBitIndex());
 
-                    if (isInMemory)
+                    if (isInMemory && fieldLcl->HasStackGCPtrLiveness())
                     {
-                        VarSetOps::AddElemD(compiler, stackVarDeltaSet, fieldLcl->GetLivenessBitIndex());
+                        VarSetOps::AddElemD(compiler, varStackGCPtrDeltaSet, fieldLcl->GetLivenessBitIndex());
                     }
                 }
 
@@ -261,7 +286,10 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
                     if (!hasDeadTrackedFields || VarSetOps::IsMember(compiler, varDeltaSet, index))
                     {
-                        VarSetOps::AddElemD(compiler, stackVarDeltaSet, index);
+                        if (fieldLcl->HasStackGCPtrLiveness())
+                        {
+                            VarSetOps::AddElemD(compiler, varStackGCPtrDeltaSet, index);
+                        }
                     }
                 }
             }
@@ -305,13 +333,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
 
-            // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack,
-            // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
-            // on the stack (i.e. are not always in a register).
-            VarSetOps::Assign(compiler, gcTrkStkDeltaSet, codeGen->gcInfo.gcTrkStkPtrLcls);
-            VarSetOps::IntersectionD(compiler, gcTrkStkDeltaSet, stackVarDeltaSet);
-
-            if (!VarSetOps::IsEmpty(compiler, gcTrkStkDeltaSet))
+            if (!VarSetOps::IsEmpty(compiler, varStackGCPtrDeltaSet))
             {
 #ifdef DEBUG
                 if (compiler->verbose)
@@ -322,11 +344,11 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
                 if (isBorn)
                 {
-                    VarSetOps::UnionD(compiler, codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
+                    VarSetOps::UnionD(compiler, codeGen->gcInfo.gcVarPtrSetCur, varStackGCPtrDeltaSet);
                 }
                 else
                 {
-                    VarSetOps::DiffD(compiler, codeGen->gcInfo.gcVarPtrSetCur, gcTrkStkDeltaSet);
+                    VarSetOps::DiffD(compiler, codeGen->gcInfo.gcVarPtrSetCur, varStackGCPtrDeltaSet);
                 }
 
 #ifdef DEBUG
@@ -354,10 +376,10 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         codeGen->genSpillVar(lclNode->AsLclVar());
 
-        if (VarSetOps::IsMember(compiler, codeGen->gcInfo.gcTrkStkPtrLcls, lcl->lvVarIndex) &&
+        if (lcl->HasStackGCPtrLiveness() &&
             VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))
         {
-            JITDUMP("Var V%02u becoming live\n", lcl - compiler->lvaTable);
+            JITDUMP("GC pointer V%02u becoming live on stack\n", lclNode->GetLclNum());
         }
     }
 }
