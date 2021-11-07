@@ -4,6 +4,7 @@
 
 void CodeGenLivenessUpdater::Begin()
 {
+    currentLife           = VarSetOps::MakeEmpty(compiler);
     newLife               = VarSetOps::MakeEmpty(compiler);
     varDeltaSet           = VarSetOps::MakeEmpty(compiler);
     varStackGCPtrDeltaSet = VarSetOps::MakeEmpty(compiler);
@@ -65,7 +66,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
             codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
         }
 
-        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
+        VarSetOps::Assign(compiler, newLife, currentLife);
 
         if (isDying)
         {
@@ -76,18 +77,18 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
             VarSetOps::AddElemD(compiler, newLife, index);
         }
 
-        if (!VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
+        if (!VarSetOps::Equal(compiler, currentLife, newLife))
         {
 #ifdef DEBUG
             if (compiler->verbose)
             {
-                compiler->dmpVarSet("Live vars: ", compiler->compCurLife);
+                compiler->dmpVarSet("Live vars: ", currentLife);
                 compiler->dmpVarSet(" => ", newLife);
                 printf("\n");
             }
 #endif
 
-            VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
+            VarSetOps::Assign(compiler, currentLife, newLife);
 
             // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack,
             // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
@@ -184,7 +185,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     if (isBorn || isDying)
     {
-        VarSetOps::Assign(compiler, newLife, compiler->compCurLife);
+        VarSetOps::Assign(compiler, newLife, currentLife);
         // Since all tracked vars are register candidates, but not all are in registers at all times,
         // we maintain two separate sets of variables - the total set of variables that are either
         // born or dying here, and the subset of those that are on the stack
@@ -320,18 +321,18 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             VarSetOps::UnionD(compiler, newLife, varDeltaSet);
         }
 
-        if (!VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
+        if (!VarSetOps::Equal(compiler, currentLife, newLife))
         {
 #ifdef DEBUG
             if (compiler->verbose)
             {
-                compiler->dmpVarSet("Live vars: ", compiler->compCurLife);
+                compiler->dmpVarSet("Live vars: ", currentLife);
                 compiler->dmpVarSet(" => ", newLife);
                 printf("\n");
             }
 #endif
 
-            VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
+            VarSetOps::Assign(compiler, currentLife, newLife);
 
             if (!VarSetOps::IsEmpty(compiler, varStackGCPtrDeltaSet))
             {

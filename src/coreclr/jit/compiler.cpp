@@ -1388,7 +1388,7 @@ VarName Compiler::compVarName(regNumber reg, bool isFloatReg)
                 (varDsc->IsFloatRegType() || !isFloatReg) && (varDsc->lvSlotNum < info.compVarScopesCount))
             {
                 /* check if variable in that register is live */
-                if (VarSetOps::IsMember(this, compCurLife, varDsc->lvVarIndex))
+                if ((codeGen != nullptr) && VarSetOps::IsMember(this, codeGen->GetLiveSet(), varDsc->lvVarIndex))
                 {
                     /* variable is live - find the corresponding slot */
                     VarScopeDsc* varScope =
@@ -3602,8 +3602,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         }
 
         hashBv::Init(this);
-
-        VarSetOps::AssignAllowUninitRhs(this, compCurLife, VarSetOps::UninitVal());
 
         // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
         if (info.compPublishStubParam)

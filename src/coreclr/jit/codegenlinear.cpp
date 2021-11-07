@@ -74,8 +74,6 @@ void CodeGen::genInitializeRegisterState()
 //
 // Assumptions:
 //    -The pointer logic in "gcInfo" for pointers on registers and variable is cleaned.
-//    -"compiler->compCurLife" becomes an empty set
-//    -"compiler->compCurLife" are set to be a clean set
 //    -If there is local var info siScopes scope logic in codegen is initialized in "siInit()"
 //
 // Notes:
@@ -103,10 +101,6 @@ void CodeGen::genInitialize()
     // Initialize the register set logic
 
     genInitializeRegisterState();
-
-    // Make sure a set is allocated for compiler->compCurLife (in the long case), so we can set it to empty without
-    // allocation at the start of each basic block.
-    VarSetOps::AssignNoCopy(compiler, compiler->compCurLife, VarSetOps::MakeEmpty(compiler));
 
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
     // variable needs home and so its stack offset.
@@ -536,7 +530,7 @@ void CodeGen::genCodeForBBlist()
 #ifdef USING_VARIABLE_LIVE_RANGE
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
-            varLiveKeeper->siEndAllVariableLiveRange(compiler->compCurLife);
+            varLiveKeeper->siEndAllVariableLiveRange(m_liveness.GetLiveSet());
         }
 #endif // USING_VARIABLE_LIVE_RANGE
 
@@ -562,13 +556,13 @@ void CodeGen::genCodeForBBlist()
         SubtractStackLevel(savedStkLvl);
 
 #ifdef DEBUG
-        // compCurLife should be equal to the liveOut set, except that we don't keep
+        // Current live set should be equal to the liveOut set, except that we don't keep
         // it up to date for vars that are not register candidates
         // (it would be nice to have a xor set function)
 
-        VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, compiler->compCurLife));
+        VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, m_liveness.GetLiveSet()));
         VarSetOps::UnionD(compiler, mismatchLiveVars,
-                          VarSetOps::Diff(compiler, compiler->compCurLife, block->bbLiveOut));
+                          VarSetOps::Diff(compiler, m_liveness.GetLiveSet(), block->bbLiveOut));
         VarSetOps::Iter mismatchLiveVarIter(compiler, mismatchLiveVars);
         unsigned        mismatchLiveVarIndex  = 0;
         bool            foundMismatchedRegVar = false;

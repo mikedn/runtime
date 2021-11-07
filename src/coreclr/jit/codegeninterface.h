@@ -136,6 +136,8 @@ public:
         m_cgFramePointerUsed.ResetWritePhase();
     }
 
+    virtual VARSET_VALARG_TP GetLiveSet() const = 0;
+
     // The following property indicates whether the current method requires
     // an explicit frame. Does not prohibit double alignment of the stack.
 private:

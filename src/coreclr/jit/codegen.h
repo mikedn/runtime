@@ -35,6 +35,11 @@ public:
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
+    virtual VARSET_VALARG_TP GetLiveSet() const override
+    {
+        return m_liveness.GetLiveSet();
+    }
+
     // TODO-Cleanup: Abstract out the part of this that finds the addressing mode, and
     // move it to Lower
     virtual bool genCreateAddrMode(GenTree*  addr,

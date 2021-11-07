@@ -650,13 +650,12 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
 //
 void CodeGen::compChangeLife(VARSET_VALARG_TP newLife)
 {
-    if (VarSetOps::Equal(compiler, compiler->compCurLife, newLife))
+    if (VarSetOps::Equal(compiler, m_liveness.GetLiveSet(), newLife))
     {
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Liveness not changing: %s ", VarSetOps::ToString(compiler, compiler->compCurLife));
-            dumpConvertedVarSet(compiler, compiler->compCurLife);
+            compiler->dmpVarSet("Liveness not changing: ", m_liveness.GetLiveSet());
             printf("\n");
         }
 #endif
@@ -666,25 +665,23 @@ void CodeGen::compChangeLife(VARSET_VALARG_TP newLife)
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("Change life %s ", VarSetOps::ToString(compiler, compiler->compCurLife));
-        compiler->dmpVarSet("", compiler->compCurLife);
-        printf(" -> %s ", VarSetOps::ToString(compiler, newLife));
-        compiler->dmpVarSet("", newLife);
+        compiler->dmpVarSet("Change life ", m_liveness.GetLiveSet());
+        compiler->dmpVarSet(" -> ", newLife);
         printf("\n");
     }
 #endif // DEBUG
 
-    VARSET_TP deadSet(VarSetOps::Diff(compiler, compiler->compCurLife, newLife));
-    VARSET_TP bornSet(VarSetOps::Diff(compiler, newLife, compiler->compCurLife));
+    VARSET_TP deadSet(VarSetOps::Diff(compiler, m_liveness.GetLiveSet(), newLife));
+    VARSET_TP bornSet(VarSetOps::Diff(compiler, newLife, m_liveness.GetLiveSet()));
 
-    /* Can't simultaneously become live and dead at the same time */
+    // Can't simultaneously become live and dead at the same time
 
     // (deadSet UNION bornSet) != EMPTY
     noway_assert(!VarSetOps::IsEmptyUnion(compiler, deadSet, bornSet));
     // (deadSet INTERSECTION bornSet) == EMPTY
     noway_assert(VarSetOps::IsEmptyIntersection(compiler, deadSet, bornSet));
 
-    VarSetOps::Assign(compiler, compiler->compCurLife, newLife);
+    m_liveness.SetLiveSet(newLife);
 
     // Handle the dying vars first, then the newly live vars.
     // This is because, in the RyuJIT backend case, they may occupy registers that

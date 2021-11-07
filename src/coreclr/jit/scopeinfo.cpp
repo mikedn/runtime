@@ -1239,7 +1239,7 @@ void CodeGen::siUpdate()
     }
 #endif // FEATURE_EH_FUNCLETS
 
-    VARSET_TP killed(VarSetOps::Diff(compiler, siLastLife, compiler->compCurLife));
+    VARSET_TP killed(VarSetOps::Diff(compiler, siLastLife, m_liveness.GetLiveSet()));
     assert(VarSetOps::IsSubset(compiler, killed, compiler->lvaTrackedVars));
 
     VarSetOps::Iter iter(compiler, killed);
@@ -1250,7 +1250,7 @@ void CodeGen::siUpdate()
         siEndTrackedScope(varIndex);
     }
 
-    VarSetOps::Assign(compiler, siLastLife, compiler->compCurLife);
+    VarSetOps::Assign(compiler, siLastLife, m_liveness.GetLiveSet());
 }
 
 /*****************************************************************************

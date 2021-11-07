@@ -11,6 +11,7 @@ class CodeGenLivenessUpdater
 {
     Compiler* compiler;
     GenTree*  currentNode;
+    VARSET_TP currentLife;
     VARSET_TP newLife;
     VARSET_TP varDeltaSet;
     VARSET_TP varStackGCPtrDeltaSet;
@@ -30,4 +31,14 @@ public:
 
     void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
     bool UpdateLifeFieldVar(class CodeGen* codeGen, GenTreeLclVar* lclNode, unsigned regIndex);
+
+    VARSET_VALARG_TP GetLiveSet() const
+    {
+        return currentLife;
+    }
+
+    void SetLiveSet(VARSET_VALARG_TP newLife)
+    {
+        VarSetOps::Assign(compiler, currentLife, newLife);
+    }
 };
