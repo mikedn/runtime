@@ -29,16 +29,12 @@ public:
         currentNode = nullptr;
     }
 
+    void ChangeLife(class CodeGen* codeGen, VARSET_VALARG_TP newLife);
     void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
     bool UpdateLifeFieldVar(class CodeGen* codeGen, GenTreeLclVar* lclNode, unsigned regIndex);
 
     VARSET_VALARG_TP GetLiveSet() const
     {
         return currentLife;
-    }
-
-    void SetLiveSet(VARSET_VALARG_TP newLife)
-    {
-        VarSetOps::Assign(compiler, currentLife, newLife);
     }
 };

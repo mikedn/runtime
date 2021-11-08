@@ -1080,7 +1080,6 @@ protected:
     void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree);
     regMaskTP genGetRegMask(const LclVarDsc* varDsc);
     regMaskTP genGetRegMask(GenTree* tree);
-    void compChangeLife(VARSET_VALARG_TP newLife);
 
     // Do liveness update for register produced by the current node in codegen after
     // code has been emitted for it.

@@ -29,6 +29,133 @@ void CodeGenLivenessUpdater::Begin()
     }
 }
 
+void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLife)
+{
+    if (VarSetOps::Equal(compiler, currentLife, newLife))
+    {
+#ifdef DEBUG
+        if (compiler->verbose)
+        {
+            compiler->dmpVarSet("Liveness not changing: ", currentLife);
+            printf("\n");
+        }
+#endif
+        return;
+    }
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        compiler->dmpVarSet("Change life ", currentLife);
+        compiler->dmpVarSet(" -> ", newLife);
+        printf("\n");
+    }
+#endif // DEBUG
+
+    VARSET_TP deadSet(VarSetOps::Diff(compiler, currentLife, newLife));
+    VARSET_TP bornSet(VarSetOps::Diff(compiler, newLife, currentLife));
+
+    // Can't simultaneously become live and dead at the same time
+
+    // (deadSet UNION bornSet) != EMPTY
+    noway_assert(!VarSetOps::IsEmptyUnion(compiler, deadSet, bornSet));
+    // (deadSet INTERSECTION bornSet) == EMPTY
+    noway_assert(VarSetOps::IsEmptyIntersection(compiler, deadSet, bornSet));
+
+    VarSetOps::Assign(compiler, currentLife, newLife);
+
+    // Handle the dying vars first, then the newly live vars.
+    // This is because, in the RyuJIT backend case, they may occupy registers that
+    // will be occupied by another var that is newly live.
+    VarSetOps::Iter deadIter(compiler, deadSet);
+    unsigned        deadVarIndex = 0;
+    while (deadIter.NextElem(&deadVarIndex))
+    {
+        unsigned   varNum     = compiler->lvaTrackedIndexToLclNum(deadVarIndex);
+        LclVarDsc* varDsc     = compiler->lvaGetDesc(varNum);
+        bool       isGCRef    = (varDsc->TypeGet() == TYP_REF);
+        bool       isByRef    = (varDsc->TypeGet() == TYP_BYREF);
+        bool       isInReg    = varDsc->lvIsInReg();
+        bool       isInMemory = !isInReg || varDsc->lvLiveInOutOfHndlr;
+
+        if (isInReg)
+        {
+            // TODO-Cleanup: Move the code from compUpdateLifeVar to genUpdateRegLife that updates the
+            // gc sets
+            regMaskTP regMask = varDsc->lvRegMask();
+            if (isGCRef)
+            {
+                codeGen->gcInfo.gcRegGCrefSetCur &= ~regMask;
+            }
+            else if (isByRef)
+            {
+                codeGen->gcInfo.gcRegByrefSetCur &= ~regMask;
+            }
+            codeGen->genUpdateRegLife(varDsc, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
+        }
+        // Update the gcVarPtrSetCur if it is in memory.
+        if (isInMemory && (isGCRef || isByRef))
+        {
+            VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, deadVarIndex);
+            JITDUMP("V%02u becoming dead\n", varNum);
+        }
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+        codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(varNum);
+#endif // USING_VARIABLE_LIVE_RANGE
+    }
+
+    VarSetOps::Iter bornIter(compiler, bornSet);
+    unsigned        bornVarIndex = 0;
+    while (bornIter.NextElem(&bornVarIndex))
+    {
+        unsigned   varNum  = compiler->lvaTrackedIndexToLclNum(bornVarIndex);
+        LclVarDsc* varDsc  = compiler->lvaGetDesc(varNum);
+        bool       isGCRef = (varDsc->TypeGet() == TYP_REF);
+        bool       isByRef = (varDsc->TypeGet() == TYP_BYREF);
+
+        if (varDsc->lvIsInReg())
+        {
+            // If this variable is going live in a register, it is no longer live on the stack,
+            // unless it is an EH var, which always remains live on the stack.
+            if (!varDsc->lvLiveInOutOfHndlr)
+            {
+#ifdef DEBUG
+                if (VarSetOps::IsMember(compiler, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex))
+                {
+                    JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
+                }
+#endif // DEBUG
+                VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
+            }
+            codeGen->genUpdateRegLife(varDsc, true /*isBorn*/, false /*isDying*/ DEBUGARG(nullptr));
+            regMaskTP regMask = varDsc->lvRegMask();
+            if (isGCRef)
+            {
+                codeGen->gcInfo.gcRegGCrefSetCur |= regMask;
+            }
+            else if (isByRef)
+            {
+                codeGen->gcInfo.gcRegByrefSetCur |= regMask;
+            }
+        }
+        else if (compiler->lvaIsGCTracked(varDsc))
+        {
+            // This isn't in a register, so update the gcVarPtrSetCur to show that it's live on the stack.
+            VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, bornVarIndex);
+            JITDUMP("V%02u becoming live\n", varNum);
+        }
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+        codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(varDsc, varNum);
+#endif
+    }
+
+#ifdef USING_SCOPE_INFO
+    codeGen->siUpdate();
+#endif
+}
+
 // Update live sets for only the given field of a multi-reg LclVar node.
 //
 // This method need only be used when the fields are dying or going live at different times,
