@@ -2987,6 +2987,34 @@ void emitter::emitDispRegSet(regMaskTP regs)
     printf("}");
 }
 
+void emitter::emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
+{
+    printf("%s{ ", name);
+
+    for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
+    {
+        regMaskTP mask    = genRegMask(reg);
+        bool      fromBit = (from & mask) != 0;
+        bool      toBit   = (to & mask) != 0;
+
+        if (!fromBit && !toBit)
+        {
+            continue;
+        }
+
+        const char* s = "";
+
+        if (fromBit != toBit)
+        {
+            s = toBit ? "+" : "-";
+        }
+
+        printf("%s%s ", s, emitRegName(reg));
+    }
+
+    printf("}\n");
+}
+
 /*****************************************************************************
  *
  *  Display the current GC ref variable set in a readable form.

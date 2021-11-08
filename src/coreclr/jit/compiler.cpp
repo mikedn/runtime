@@ -7178,12 +7178,6 @@ FILE* Compiler::compJitFuncInfoFile = nullptr;
 
 #ifdef DEBUG
 
-void Compiler::dmpVarSet(const char* name, VARSET_VALARG_TP vars)
-{
-    printf("%s", name);
-    dumpConvertedVarSet(this, vars);
-}
-
 // dumpConvertedVarSet() dumps the varset bits that are tracked
 // variable indices, and we convert them to variable numbers, sort the variable numbers, and
 // print them as variable numbers. To do this, we use a temporary set indexed by
@@ -7220,6 +7214,45 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars)
         }
     }
     printf("}");
+}
+
+void Compiler::dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to)
+{
+    bool* fromBits = static_cast<bool*>(_alloca(lvaCount * sizeof(bool)));
+    memset(fromBits, 0, lvaCount * sizeof(bool));
+    bool* toBits = static_cast<bool*>(_alloca(lvaCount * sizeof(bool)));
+    memset(toBits, 0, lvaCount * sizeof(bool));
+
+    for (VarSetOps::Enumerator e(this, from); e.MoveNext();)
+    {
+        fromBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+    }
+
+    for (VarSetOps::Enumerator e(this, to); e.MoveNext();)
+    {
+        toBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+    }
+
+    printf("%s{ ", name);
+
+    for (unsigned i = 0; i < lvaCount; i++)
+    {
+        if (!fromBits[i] && !toBits[i])
+        {
+            continue;
+        }
+
+        const char* s = "";
+
+        if (fromBits[i] != toBits[i])
+        {
+            s = toBits[i] ? "+" : "-";
+        }
+
+        printf("%sV%02u ", s, i);
+    }
+
+    printf("}\n");
 }
 
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

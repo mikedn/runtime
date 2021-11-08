@@ -131,10 +131,16 @@ class CopyPropLivenessUpdater
     Compiler* compiler;
     VARSET_TP liveSet;
     VARSET_TP killSet;
+    INDEBUG(VARSET_TP scratchSet;)
 
 public:
     CopyPropLivenessUpdater::CopyPropLivenessUpdater(Compiler* compiler)
-        : compiler(compiler), liveSet(VarSetOps::MakeEmpty(compiler)), killSet(VarSetOps::MakeEmpty(compiler))
+        : compiler(compiler)
+        , liveSet(VarSetOps::MakeEmpty(compiler))
+        , killSet(VarSetOps::MakeEmpty(compiler))
+#ifdef DEBUG
+        , scratchSet(VarSetOps::MakeEmpty(compiler))
+#endif
     {
     }
 
@@ -183,12 +189,7 @@ public:
             return;
         }
 
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            compiler->dmpVarSet("Live vars: ", liveSet);
-        }
-#endif
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
 
         if (isDying)
         {
@@ -199,13 +200,7 @@ public:
             VarSetOps::AddElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
         }
 
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            compiler->dmpVarSet(" => ", liveSet);
-            printf("\n");
-        }
-#endif
+        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
     }
 
     void Kill(unsigned lclNum)

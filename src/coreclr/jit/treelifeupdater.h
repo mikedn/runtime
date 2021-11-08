@@ -15,6 +15,7 @@ class CodeGenLivenessUpdater
     VARSET_TP newLife;
     VARSET_TP varDeltaSet;
     VARSET_TP varStackGCPtrDeltaSet;
+    INDEBUG(VARSET_TP scratchSet;)
     INDEBUG(unsigned epoch;)
 
 public:

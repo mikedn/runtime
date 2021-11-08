@@ -9,6 +9,7 @@ void CodeGenLivenessUpdater::Begin()
     varDeltaSet           = VarSetOps::MakeEmpty(compiler);
     varStackGCPtrDeltaSet = VarSetOps::MakeEmpty(compiler);
 
+    INDEBUG(scratchSet = VarSetOps::MakeEmpty(compiler);)
     INDEBUG(epoch = compiler->GetCurLVEpoch();)
 
     // Also, initialize "HasStackGCPtrLiveness" for all tracked variables that do not fully
@@ -31,26 +32,12 @@ void CodeGenLivenessUpdater::Begin()
 
 void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLife)
 {
+    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
+
     if (VarSetOps::Equal(compiler, currentLife, newLife))
     {
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            compiler->dmpVarSet("Liveness not changing: ", currentLife);
-            printf("\n");
-        }
-#endif
         return;
     }
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        compiler->dmpVarSet("Change life ", currentLife);
-        compiler->dmpVarSet(" -> ", newLife);
-        printf("\n");
-    }
-#endif // DEBUG
 
     VARSET_TP deadSet(VarSetOps::Diff(compiler, currentLife, newLife));
     VARSET_TP bornSet(VarSetOps::Diff(compiler, newLife, currentLife));
@@ -206,14 +193,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
 
         if (!VarSetOps::Equal(compiler, currentLife, newLife))
         {
-#ifdef DEBUG
-            if (compiler->verbose)
-            {
-                compiler->dmpVarSet("Live vars: ", currentLife);
-                compiler->dmpVarSet(" => ", newLife);
-                printf("\n");
-            }
-#endif
+            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", currentLife, newLife);)
 
             VarSetOps::Assign(compiler, currentLife, newLife);
 
@@ -223,12 +203,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
 
             if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    compiler->dmpVarSet("GCvars: ", codeGen->gcInfo.gcVarPtrSetCur);
-                }
-#endif
+                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
 
                 if (isBorn)
                 {
@@ -239,13 +214,8 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
                     VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index);
                 }
 
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    compiler->dmpVarSet(" => ", codeGen->gcInfo.gcVarPtrSetCur);
-                    printf("\n");
-                }
-#endif
+                DBEXEC(compiler->verbose,
+                       compiler->dmpVarSetDiff("GCvars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
 
 #ifdef USING_VARIABLE_LIVE_RANGE
                 codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNum, isBorn, isDying);
@@ -450,25 +420,13 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (!VarSetOps::Equal(compiler, currentLife, newLife))
         {
-#ifdef DEBUG
-            if (compiler->verbose)
-            {
-                compiler->dmpVarSet("Live vars: ", currentLife);
-                compiler->dmpVarSet(" => ", newLife);
-                printf("\n");
-            }
-#endif
+            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", currentLife, newLife);)
 
             VarSetOps::Assign(compiler, currentLife, newLife);
 
             if (!VarSetOps::IsEmpty(compiler, varStackGCPtrDeltaSet))
             {
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    compiler->dmpVarSet("GCvars: ", codeGen->gcInfo.gcVarPtrSetCur);
-                }
-#endif
+                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
 
                 if (isBorn)
                 {
@@ -479,13 +437,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
                     VarSetOps::DiffD(compiler, codeGen->gcInfo.gcVarPtrSetCur, varStackGCPtrDeltaSet);
                 }
 
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    compiler->dmpVarSet(" => ", codeGen->gcInfo.gcVarPtrSetCur);
-                    printf("\n");
-                }
-#endif
+                DBEXEC(compiler->verbose,
+                       compiler->dmpVarSetDiff("GC stack vars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
             }
 
 #ifdef USING_VARIABLE_LIVE_RANGE

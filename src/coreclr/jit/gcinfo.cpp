@@ -78,61 +78,19 @@ void GCInfo::gcResetForBB()
 
 #ifdef DEBUG
 
-/*****************************************************************************
- *
- *  Print the changes in the gcRegGCrefSetCur sets.
- */
-
 void GCInfo::gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool forceOutput))
 {
-    if (compiler->verbose)
+    if (compiler->verbose && (forceOutput || (gcRegGCrefSetCur != gcRegGCrefSetNew)))
     {
-        if (forceOutput || (gcRegGCrefSetCur != gcRegGCrefSetNew))
-        {
-            printf("GC regs: ");
-            if (gcRegGCrefSetCur == gcRegGCrefSetNew)
-            {
-                printf("(unchanged) ");
-            }
-            else
-            {
-                printRegMaskInt(gcRegGCrefSetCur);
-                compiler->GetEmitter()->emitDispRegSet(gcRegGCrefSetCur);
-                printf(" => ");
-            }
-            printRegMaskInt(gcRegGCrefSetNew);
-            compiler->GetEmitter()->emitDispRegSet(gcRegGCrefSetNew);
-            printf("\n");
-        }
+        compiler->GetEmitter()->emitDispRegSetDiff("GC regs: ", gcRegGCrefSetCur, gcRegGCrefSetNew);
     }
 }
 
-/*****************************************************************************
- *
- *  Print the changes in the gcRegByrefSetCur sets.
- */
-
 void GCInfo::gcDspByrefSetChanges(regMaskTP gcRegByrefSetNew DEBUGARG(bool forceOutput))
 {
-    if (compiler->verbose)
+    if (compiler->verbose && (forceOutput || (gcRegByrefSetCur != gcRegByrefSetNew)))
     {
-        if (forceOutput || (gcRegByrefSetCur != gcRegByrefSetNew))
-        {
-            printf("Byref regs: ");
-            if (gcRegByrefSetCur == gcRegByrefSetNew)
-            {
-                printf("(unchanged) ");
-            }
-            else
-            {
-                printRegMaskInt(gcRegByrefSetCur);
-                compiler->GetEmitter()->emitDispRegSet(gcRegByrefSetCur);
-                printf(" => ");
-            }
-            printRegMaskInt(gcRegByrefSetNew);
-            compiler->GetEmitter()->emitDispRegSet(gcRegByrefSetNew);
-            printf("\n");
-        }
+        compiler->GetEmitter()->emitDispRegSetDiff("Byref regs: ", gcRegByrefSetCur, gcRegByrefSetNew);
     }
 }
 
