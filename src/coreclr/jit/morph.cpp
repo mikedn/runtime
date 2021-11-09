@@ -2708,6 +2708,16 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->IsIntegralConst(0))
     {
+#ifdef TARGET_64BIT
+        // Args that require more than one slot are handled in codegen but in the single slot
+        // case we need to ensure that the entire slot is zeroed, not just the low 4 bytes.
+        if ((argInfo->GetSlotCount() == 1) &&
+            (typGetLayoutByNum(argInfo->GetSigTypeNum())->GetSize() > varTypeSize(arg->GetType())))
+        {
+            arg->SetType(TYP_LONG);
+        }
+#endif
+
         return false;
     }
 
