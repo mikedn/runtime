@@ -2094,14 +2094,15 @@ private:
 
         if (retDesc.GetRegCount() == 1)
         {
-            var_types retRegType = varActualType(retDesc.GetRegType(0));
-            call->SetType(retRegType);
+            var_types retRegType = retDesc.GetRegType(0);
 
             if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(type))
             {
+                call->SetType(varActualType(retRegType));
                 return NewBitCastNode(type, call);
             }
 
+            call->SetType(varActualType(type));
             return call;
         }
 
@@ -2139,11 +2140,13 @@ private:
         assert(varTypeIsSIMD(type));
 
 #ifdef TARGET_ARM64
+        assert(call->GetRetLayout()->IsHfa());
+#elif defined(UNIX_AMD64_ABI)
+        assert(varTypeIsFloating(retDesc.GetRegType(0)) && varTypeIsFloating(retDesc.GetRegType(1)));
+#endif
         // TODO-MIKE-Fix: This doesn't handle reinterpretation weirdness,
         // see arm64-multireg-call-single-simd-field.il.
-        assert(call->GetRetLayout()->IsHfa());
         call->SetType(type);
-#endif
 
         return call;
     }
