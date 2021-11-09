@@ -35,7 +35,7 @@ public:
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
-    virtual VARSET_VALARG_TP GetLiveSet() const override
+    virtual VARSET_VALARG_TP GetLiveSet() const
     {
         return m_liveness.GetLiveSet();
     }
