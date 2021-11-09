@@ -13062,7 +13062,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (op1->OperIs(GT_LCL_VAR))
                 {
-                    op1 = gtNewLclFldNode(op1->AsLclVar()->GetLclNum(), TYP_BYREF,
+                    op1 = gtNewLclFldNode(op1->AsLclVar()->GetLclNum(), TYP_I_IMPL,
                                           OFFSETOF__CORINFO_TypedReference__type);
                     op1->AsLclFld()->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
                 }
