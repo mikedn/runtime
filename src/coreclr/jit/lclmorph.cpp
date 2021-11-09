@@ -463,12 +463,8 @@ public:
     {
         GenTree* node = *use;
 
-        if (node->OperIs(GT_LCL_FLD))
-        {
-            MorphLocalField(node, user);
-        }
-
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        // TODO-MIKE-Fix: Implicit byref counting should be done in post order.
         if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && m_compiler->lvaHasImplicitByRefParams)
         {
             UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
@@ -898,11 +894,11 @@ private:
         LclVarDsc* lcl  = m_compiler->lvaGetDesc(val.LclNum());
         GenTree*   node = val.Node();
 
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (node->OperIs(GT_LCL_VAR))
         {
-            assert(node->AsLclVarCommon()->GetLclNum() == val.LclNum());
+            assert(node->AsLclVar()->GetLclNum() == val.LclNum());
 
-            if (node->OperIs(GT_LCL_VAR) && lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
+            if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
             {
                 switch (user->GetOper())
                 {
@@ -919,6 +915,16 @@ private:
                         // Let's hope the importer doesn't produce STRUCT COMMAs again.
                         unreached();
                 }
+            }
+
+            return;
+        }
+
+        if (node->OperIs(GT_LCL_FLD))
+        {
+            if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclFld(), lcl))
+            {
+                m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
             }
 
             return;
@@ -1124,6 +1130,39 @@ private:
         assert(varTypeIsSIMD(fieldLcl->GetType()));
     }
 
+    bool PromoteLclFld(GenTreeLclFld* node, LclVarDsc* lcl)
+    {
+        // The importer does not currently produce STRUCT LCL_FLDs.
+        assert(!node->TypeIs(TYP_STRUCT));
+
+        unsigned fieldLclNum = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
+
+        if (fieldLclNum == BAD_VAR_NUM)
+        {
+            return false;
+        }
+
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
+
+        // The importer rarely produces LCL_FLDs, currently only when importing refanytype,
+        // so we can get away with handling only the trivial case when types match exactly.
+        // Otherwise we'll just DNER/P-DEP the promoted local so assert to know about it.
+        assert(fieldLcl->GetType() == node->GetType());
+
+        if (fieldLcl->GetType() != node->GetType())
+        {
+            return false;
+        }
+
+        node->ChangeOper(GT_LCL_VAR);
+        node->AsLclVar()->SetLclNum(fieldLclNum);
+        node->gtFlags &= ~GTF_VAR_USEASG;
+
+        INDEBUG(m_stmtModified = true;)
+
+        return true;
+    }
+
     //------------------------------------------------------------------------
     // FindPromotedField: Find a promoted struct field that completely overlaps
     //     a location of specified size at the specified offset.
@@ -1148,23 +1187,6 @@ private:
 
             if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
                 (offset - fieldLcl->GetPromotedFieldOffset() + size <= varTypeSize(fieldLcl->GetType())))
-            {
-                return fieldLclNum;
-            }
-        }
-
-        return BAD_VAR_NUM;
-    }
-
-    // TODO-MIKE-Cleanup: Replace with FindPromotedField?
-    unsigned GetPromotedFieldLclNumByOffset(const LclVarDsc* lcl, unsigned offset) const
-    {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
-        {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-            LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
-
-            if (fieldLcl->GetPromotedFieldOffset() == offset)
             {
                 return fieldLclNum;
             }
@@ -2323,81 +2345,6 @@ private:
         // Currently long/double BITCAST isn't supported by decomposition on 32 bit targets.
         return varTypeSize(type) <= REGSIZE_BYTES;
 #endif
-    }
-
-    //------------------------------------------------------------------------
-    // MorphLocalField: Replaces a GT_LCL_FLD based promoted struct field access
-    //    with a GT_LCL_VAR that references the struct field.
-    //
-    // Arguments:
-    //    node - the GT_LCL_FLD node
-    //    user - the node that uses the field
-    //
-    // Notes:
-    //    This does not do anything if the field access does not denote
-    //    involved a promoted struct local.
-    //    If the GT_LCL_FLD offset does not have a coresponding promoted struct
-    //    field then no transformation is done and struct local's enregistration
-    //    is disabled.
-    //
-    void MorphLocalField(GenTree* node, GenTree* user)
-    {
-        unsigned   lclNum = node->AsLclFld()->GetLclNum();
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-
-        if (!varTypeIsStruct(varDsc->TypeGet()))
-        {
-            return;
-        }
-
-        if (!varDsc->IsPromoted())
-        {
-            if (varTypeIsSIMD(varDsc->TypeGet()) && (genTypeSize(node->TypeGet()) == genTypeSize(varDsc->TypeGet())))
-            {
-                assert(node->AsLclFld()->GetLclOffs() == 0);
-
-                node->ChangeOper(GT_LCL_VAR);
-                node->gtType = varDsc->TypeGet();
-
-                JITDUMP("Replaced GT_LCL_FLD of struct with local var V%02u\n", lclNum);
-                INDEBUG(m_stmtModified = true;)
-            }
-
-            return;
-        }
-
-        unsigned fieldLclIndex = GetPromotedFieldLclNumByOffset(varDsc, node->AsLclFld()->GetLclOffs());
-        noway_assert(fieldLclIndex != BAD_VAR_NUM);
-        LclVarDsc* fldVarDsc = m_compiler->lvaGetDesc(fieldLclIndex);
-
-        if ((varTypeSize(fldVarDsc->GetType()) != varTypeSize(node->GetType())) &&
-            (varDsc->GetPromotedFieldCount() != 1))
-        {
-            // There is no existing field that has all the parts that we need
-            // So we must ensure that the struct lives in memory.
-            m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
-
-            return;
-        }
-
-        // There is an existing sub-field we can use.
-
-        // The field must be an enregisterable type; otherwise it would not be a promoted field.
-        // The tree type may not match, e.g. for return types that have been morphed, but both
-        // must be enregisterable types.
-        assert(!node->TypeIs(TYP_STRUCT) && !fldVarDsc->TypeIs(TYP_STRUCT));
-
-        node->ChangeOper(GT_LCL_VAR);
-        node->AsLclVar()->SetLclNum(fieldLclIndex);
-        node->gtType = fldVarDsc->TypeGet();
-
-        if (user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == node))
-        {
-            node->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-        }
-
-        JITDUMP("Replaced the GT_LCL_FLD in promoted struct with local var V%02u\n", fieldLclIndex);
-        INDEBUG(m_stmtModified = true;)
     }
 
     //------------------------------------------------------------------------
