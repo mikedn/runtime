@@ -439,9 +439,8 @@ void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dum
 #ifdef DEBUG
     if (verbose && dumpStmt)
     {
-        printf("\nremoving statement ");
+        printf("\nremoving statement " FMT_BB " ", block->bbNum);
         gtDispStmt(stmt);
-        printf(" from " FMT_BB "\n", block->bbNum);
     }
 #endif
 

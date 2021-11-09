@@ -3251,17 +3251,6 @@ void Compiler::fgMarkAddressExposedLocals()
             if (opts.OptimizationEnabled() && buffer.Add(this, stmt))
             {
                 buffer.Coalesce(this, block);
-
-                // Since we generated a new address node which didn't exist before,
-                // we should expose this address manually here.
-                // TODO-ADDR: Remove this when LocalAddressVisitor transforms all
-                // local field access into LCL_FLDs, at that point we would be
-                // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
-                // a local and thus cannot result in a new address exposed local.
-                // Note that this also results in overcounting of implicit byref
-                // parameters, that may be a CQ issue but SIMD coalescing is rare
-                // so it's not worth fixing now.
-                visitor.VisitStmt(stmt);
             }
 #endif
         }
