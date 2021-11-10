@@ -1806,7 +1806,18 @@ void CodeGen::ConsumeStructStore(
     {
         genCopyRegIfNeeded(dstAddr, dstReg);
     }
-    else
+
+    if (!src->isContained())
+    {
+        genCopyRegIfNeeded(src, srcReg);
+    }
+
+    if (store->OperIs(GT_STORE_DYN_BLK))
+    {
+        genCopyRegIfNeeded(store->AsDynBlk()->GetSize(), sizeReg);
+    }
+
+    if (dstAddr == nullptr)
     {
         assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
@@ -1816,11 +1827,7 @@ void CodeGen::ConsumeStructStore(
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, lclNum, lclOffs);
     }
 
-    if (!src->isContained())
-    {
-        genCopyRegIfNeeded(src, srcReg);
-    }
-    else
+    if (src->isContained())
     {
         assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
@@ -1830,11 +1837,7 @@ void CodeGen::ConsumeStructStore(
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNum, lclOffs);
     }
 
-    if (store->OperIs(GT_STORE_DYN_BLK))
-    {
-        genCopyRegIfNeeded(store->AsDynBlk()->GetSize(), sizeReg);
-    }
-    else if (sizeReg != REG_NA)
+    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeReg != REG_NA))
     {
         assert(store->HasTempReg(sizeReg));
 
