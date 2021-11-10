@@ -2776,6 +2776,25 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 {
     const BasicBlock::weight_t weight = block->getBBWeight(this);
 
+    if (tree->OperIs(GT_ASG))
+    {
+#if OPT_BOOL_OPS
+        if (!isRecompute)
+        {
+            GenTree* op1 = tree->AsOp()->GetOp(0);
+            GenTree* op2 = tree->AsOp()->GetOp(1);
+
+            if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
+                !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
+            {
+                lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
+            }
+        }
+#endif // OPT_BOOL_OPS
+
+        return;
+    }
+
     /* Is this a call to unmanaged code ? */
     if (tree->IsCall() && compMethodRequiresPInvokeFrame())
     {
@@ -2792,68 +2811,6 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
             /* Increment the ref counts twice */
             varDsc->incRefCnts(weight, this);
             varDsc->incRefCnts(weight, this);
-        }
-    }
-
-    if (!isRecompute)
-    {
-        /* Is this an assigment? */
-
-        if (tree->OperIs(GT_ASG))
-        {
-            GenTree* op1 = tree->AsOp()->gtOp1;
-            GenTree* op2 = tree->AsOp()->gtOp2;
-
-#if OPT_BOOL_OPS
-
-            /* Is this an assignment to a local variable? */
-
-            if (op1->gtOper == GT_LCL_VAR && op2->gtType != TYP_BOOL)
-            {
-                /* Only simple assignments allowed for booleans */
-
-                if (tree->gtOper != GT_ASG)
-                {
-                    goto NOT_BOOL;
-                }
-
-                /* Is the RHS clearly a boolean value? */
-
-                switch (op2->gtOper)
-                {
-                    unsigned lclNum;
-
-                    case GT_CNS_INT:
-
-                        if (op2->AsIntCon()->gtIconVal == 0)
-                        {
-                            break;
-                        }
-                        if (op2->AsIntCon()->gtIconVal == 1)
-                        {
-                            break;
-                        }
-
-                        // Not 0 or 1, fall through ....
-                        FALLTHROUGH;
-
-                    default:
-
-                        if (op2->OperIsCompare())
-                        {
-                            break;
-                        }
-
-                    NOT_BOOL:
-
-                        lclNum = op1->AsLclVarCommon()->GetLclNum();
-                        noway_assert(lclNum < lvaCount);
-
-                        lvaTable[lclNum].lvIsBoolean = false;
-                        break;
-                }
-            }
-#endif
         }
     }
 

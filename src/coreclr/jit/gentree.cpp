@@ -11573,22 +11573,8 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
     return tree;
 
 DONE_FOLD:
-
-    /* The node has beeen folded into 'op' */
-
-    // If there was an assigment update, we just morphed it into
-    // a use, update the flags appropriately
-    if (op->gtOper == GT_LCL_VAR)
-    {
-        assert(tree->OperIs(GT_ASG) || (op->gtFlags & (GTF_VAR_USEASG | GTF_VAR_DEF)) == 0);
-
-        op->gtFlags &= ~(GTF_VAR_USEASG | GTF_VAR_DEF);
-    }
-
-    JITDUMP("\nFolding binary operator with a constant operand:\n");
-    DISPTREE(tree);
-    JITDUMP("Transformed into:\n");
-    DISPTREE(op);
+    JITDUMPTREE(tree, "\nFolding binary operator with a constant operand:\n");
+    JITDUMPTREE(op, "Transformed into:\n");
 
     return op;
 }
