@@ -4097,13 +4097,6 @@ void emitter::emitIns_IJ(emitAttr attr, regNumber reg, unsigned base)
     emitCurIGsize += sz;
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a static data member operand. If 'size' is 0, the
- *  instruction operates on the address of the static member instead of its
- *  value (e.g. "push offset clsvar", rather than "push dword ptr [clsvar]").
- */
-
 void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs)
 {
     // Static always need relocs
@@ -4112,43 +4105,22 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fld
         attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
     }
 
-    UNATIVE_OFFSET sz;
-    instrDesc*     id;
+    instrDesc* id = emitNewInstrDsp(attr, offs);
+    id->idIns(ins);
+    id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
+    id->idAddr()->iiaFieldHnd = fldHnd;
 
-    /* Are we pushing the offset of the class variable? */
-
-    if (EA_IS_OFFSET(attr))
-    {
-        assert(ins == INS_push);
-        sz = 1 + TARGET_POINTER_SIZE;
-
-        id = emitNewInstrDsp(EA_1BYTE, offs);
-        id->idIns(ins);
-        id->idInsFmt(IF_MRD_OFF);
-    }
-    else
-    {
-        insFormat fmt = emitInsModeFormat(ins, IF_MRD);
-
-        id = emitNewInstrDsp(attr, offs);
-        id->idIns(ins);
-        id->idInsFmt(fmt);
-        sz = emitInsSizeCV(id, insCodeMR(ins));
-    }
+    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeMR(ins));
 
     if (TakesRexWPrefix(ins, attr))
     {
-        // REX.W prefix
         sz += emitGetRexPrefixSize(ins);
     }
-
-    id->idAddr()->iiaFieldHnd = fldHnd;
 
     id->idCodeSize(sz);
 
     dispIns(id);
     emitCurIGsize += sz;
-
     emitAdjustStackDepthPushPop(ins);
 }
 
@@ -5147,10 +5119,6 @@ void emitter::emitIns_R_R_R_R(
     emitCurIGsize += sz;
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a register + static member operands.
- */
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
 {
     // Static always need relocs
@@ -5159,63 +5127,38 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
         attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
     }
 
-    emitAttr size = EA_SIZE(attr);
+    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
-    assert(size <= EA_32BYTE);
-    noway_assert(emitVerifyEncodable(ins, size, reg));
+    instrDesc* id = emitNewInstrDsp(attr, offs);
+    id->idIns(ins);
+    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
+    id->idReg1(reg);
+    id->idAddr()->iiaFieldHnd = fldHnd;
 
     UNATIVE_OFFSET sz;
-    instrDesc*     id;
-
-    // Are we MOV'ing the offset of the class variable into EAX?
-    if (EA_IS_OFFSET(attr))
-    {
-        id = emitNewInstrDsp(EA_1BYTE, offs);
-        id->idIns(ins);
-        id->idInsFmt(IF_RWR_MRD_OFF);
-        id->idReg1(reg);
-
-        assert(ins == INS_mov && reg == REG_EAX);
-
-        // Special case: "mov eax, [addr]" is smaller
-        sz = 1 + TARGET_POINTER_SIZE;
-    }
-    else
-    {
-        insFormat fmt = emitInsModeFormat(ins, IF_RRD_MRD);
-
-        id = emitNewInstrDsp(attr, offs);
-        id->idIns(ins);
-        id->idInsFmt(fmt);
-        id->idReg1(reg);
 
 #ifdef TARGET_X86
-        // Special case: "mov eax, [addr]" is smaller.
-        // This case is not enabled for amd64 as it always uses RIP relative addressing
-        // and it results in smaller instruction size than encoding 64-bit addr in the
-        // instruction.
-        if (ins == INS_mov && reg == REG_EAX)
-        {
-            sz = 1 + TARGET_POINTER_SIZE;
-            if (size == EA_2BYTE)
-                sz += 1;
-        }
-        else
-#endif // TARGET_X86
-        {
-            sz = emitInsSizeCV(id, insCodeRM(ins));
-        }
+    // Special case: "mov eax, [addr]" is smaller.
+    // This case is not enabled for amd64 as it always uses RIP relative addressing
+    // and it results in smaller instruction size than encoding 64-bit addr in the
+    // instruction.
+    if ((ins == INS_mov) && (reg == REG_EAX))
+    {
+        sz = (EA_SIZE(attr) == EA_2BYTE) + 1 + 4;
+    }
+    else
+#endif
+    {
+        sz = emitInsSizeCV(id, insCodeRM(ins));
+    }
 
-        // Special case: mov reg, fs:[ddd]
-        if (fldHnd == FLD_GLOBAL_FS)
-        {
-            sz += 1;
-        }
+    // Special case: mov reg, fs:[ddd]
+    if (fldHnd == FLD_GLOBAL_FS)
+    {
+        sz += 1;
     }
 
     id->idCodeSize(sz);
-
-    id->idAddr()->iiaFieldHnd = fldHnd;
 
     dispIns(id);
     emitCurIGsize += sz;
