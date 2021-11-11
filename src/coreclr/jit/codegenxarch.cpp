@@ -2634,10 +2634,8 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
     }
     else
     {
-        // If src is contained then it must be 0 and the size must be a multiple
-        // of XMM_REGSIZE_BYTES so initialization can use only SSE2 instructions.
         assert(src->IsIntegralConst(0));
-        assert((layout->GetSize() % XMM_REGSIZE_BYTES) == 0);
+        assert((layout->GetSize() == 1) || ((layout->GetSize() % XMM_REGSIZE_BYTES) == 0));
     }
 
     emitter* emit = GetEmitter();
@@ -2645,6 +2643,20 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
     assert(size <= INT32_MAX);
     assert(dstOffset < (INT32_MAX - static_cast<int>(size)));
+
+    if (size == 1)
+    {
+        if (dstLclNum != BAD_VAR_NUM)
+        {
+            emit->emitIns_S_I(INS_mov, EA_1BYTE, dstLclNum, dstOffset, 0);
+        }
+        else
+        {
+            emit->emitIns_I_ARX(INS_mov, EA_1BYTE, 0, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
+        }
+
+        return;
+    }
 
     // Fill as much as possible using SSE2 stores.
     if (size >= XMM_REGSIZE_BYTES)

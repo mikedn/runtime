@@ -6445,9 +6445,10 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
     if (kind == StructStoreKind::UnrollInit)
     {
 #ifdef TARGET_XARCH
-        // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
-        // codegen will use xorps to generate 0 directly in the temporary XMM register.
-        if ((layout->GetSize() % XMM_REGSIZE_BYTES) == 0)
+        // If the size is 1 or a multiple of XMM register size there's no need to load
+        // 0 in a GPR, codegen will use an immediate 0 or xorps to generate 0 directly
+        // in the temporary XMM register.
+        if ((layout->GetSize() == 1) || ((layout->GetSize() % XMM_REGSIZE_BYTES) == 0))
         {
             src->SetContained();
         }
