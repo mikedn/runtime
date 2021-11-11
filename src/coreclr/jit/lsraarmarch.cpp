@@ -571,6 +571,12 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
             unreached();
     }
 
+    // TODO-MIKE-Review: Should temp registers be reserved for src/dest like on XARCH?
+    // They're not needed for correctness due to the kill set but on XARCH they avoid
+    // poor register allocation by imposing constraints that that the kill set doesn't.
+    // On the other hand, ARM doesn't have UnrollCopyWBRepMovs and large struct copies
+    // that use helper calls and thus have register constraints are relatively rare.
+
     if (sizeRegMask != RBM_NONE)
     {
         // Reserve a temp register for the block size argument.

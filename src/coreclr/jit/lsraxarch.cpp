@@ -1285,6 +1285,13 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
             unreached();
     }
 
+    if ((dstAddr == nullptr) && (dstAddrRegMask != RBM_NONE))
+    {
+        // This is a local destination; we'll use a temp register for its address.
+        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+        BuildInternalIntDef(store, dstAddrRegMask);
+    }
+
     if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
     {
         // This is a local source; we'll use a temp register for its address.
