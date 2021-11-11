@@ -1219,43 +1219,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     }
 #endif // !defined(TARGET_64BIT)
 
-    if (arg->OperIs(GT_OBJ))
-    {
-        assert(arg->TypeIs(TYP_STRUCT));
-
-        GenTree* srcAddr = arg->AsObj()->GetAddr();
-
-        // Simplify OBJ(LCL_VAR|FLD_ADDR) to LCL_VAR|FLD.
-        // TODO-MIKE-Cleanup: This should not be needed once the frontend uses struct LCL_VAR|FLD consistently.
-
-        if (srcAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-        {
-            ClassLayout* layout = arg->AsObj()->GetLayout();
-
-            unsigned   srcLclNum  = srcAddr->AsLclVarCommon()->GetLclNum();
-            unsigned   srcLclOffs = srcAddr->OperIs(GT_LCL_VAR_ADDR) ? 0 : srcAddr->AsLclFld()->GetLclOffs();
-            LclVarDsc* srcLcl     = comp->lvaGetDesc(srcLclNum);
-
-            if ((srcLcl->GetType() == TYP_STRUCT) && (srcLcl->GetLayout() == layout) && (srcLclOffs == 0))
-            {
-                arg->ChangeOper(GT_LCL_VAR);
-                arg->AsLclVar()->SetLclNum(srcLclNum);
-            }
-            else
-            {
-                arg->ChangeOper(GT_LCL_FLD);
-                arg->AsLclFld()->SetLclNum(srcLclNum);
-                arg->AsLclFld()->SetLclOffs(srcLclOffs);
-                arg->AsLclFld()->SetLayout(layout, comp);
-
-                comp->lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(Compiler::DNER_LocalField));
-            }
-
-            arg->gtFlags = GTF_EMPTY;
-
-            BlockRange().Remove(srcAddr);
-        }
-    }
+    assert(!arg->OperIs(GT_OBJ) || arg->TypeIs(TYP_STRUCT));
 
     if (arg->TypeIs(TYP_STRUCT))
     {
