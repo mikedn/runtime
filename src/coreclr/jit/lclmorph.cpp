@@ -662,15 +662,17 @@ public:
         assert(TopValue(1).Node() == asg->GetOp(0));
         assert(TopValue(0).Node() == asg->GetOp(1));
 
-        // TODO-MIKE-Cleanup: We can't assert here yet because MorphStructField already messed up the types.
-        // assert(op1->TypeIs(TYP_STRUCT));
-        // assert(op2->TypeIs(TYP_STRUCT) || op2->IsIntegralConst(0) || op2->OperIs(GT_INIT_VAL));
+        GenTree* op1 = asg->GetOp(0);
+        GenTree* op2 = asg->GetOp(1);
+
+        assert(op1->TypeIs(TYP_STRUCT));
+        assert(op2->TypeIs(TYP_STRUCT) || op2->IsIntegralConst(0) || op2->OperIs(GT_INIT_VAL));
 
         EscapeValue(TopValue(0), asg);
         EscapeValue(TopValue(1), asg);
 
-        GenTree* op1 = asg->GetOp(0);
-        GenTree* op2 = asg->GetOp(1);
+        op1 = asg->GetOp(0);
+        op2 = asg->GetOp(1);
 
         if (op2->IsIntegralConst(0))
         {
