@@ -3252,25 +3252,22 @@ public:
 
         switch (node->GetOper())
         {
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
                 MorphImplicitByRefParamAddr(node->AsLclVarCommon());
-                return Compiler::WALK_SKIP_SUBTREES;
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
-                MorphImplicitByRefParam(node);
-                return Compiler::WALK_SKIP_SUBTREES;
-#elif defined(TARGET_X86)
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
+#else
                 MorphVarargsStackParamAddr(node->AsLclVarCommon());
+#endif
                 return Compiler::WALK_SKIP_SUBTREES;
             case GT_LCL_VAR:
             case GT_LCL_FLD:
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+                MorphImplicitByRefParam(node);
+#else
                 MorphVarargsStackParam(node->AsLclVarCommon());
-                return Compiler::WALK_SKIP_SUBTREES;
 #endif
+                return Compiler::WALK_SKIP_SUBTREES;
             case GT_ADDR:
                 assert(!node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD));
                 FALLTHROUGH;
