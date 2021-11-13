@@ -45,9 +45,24 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
     if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
     {
-        // TODO-MIKE-Fix: This was dubious before and it still is. It doesn't check
-        // which fields are actually overlapping so we end up with fake uses/defs.
-        // Fake uses might not be a problem but fake defs may be dangerous.
+        // TODO-MIKE-Cleanup: This is kind of strange because it doesn't bother to
+        // check which fields actually overlap a LCL_FLD access. Since a LCL_FLD
+        // which doesn't overlap all fields is supposed to be "USEASG", this should
+        // be correct - all fields are always used so we don't risk eliminating
+        // previous stores as dead. But this means we also can't eliminate stores
+        // that are truly dead due to such false uses.
+        //
+        // It wouldn't be too difficult to check which fields overlap but it's not
+        // clear if it's worth the trouble. A common source of such partial access
+        // are multi-reg call args/returns but those end up using the entire struct
+        // anyway (e.g. 2 partial LCL_FLDs to load the entire struct in 2 registers).
+        //
+        // And then the question is if there's any need to preserve P-DEP promotion.
+        // Such fields are not in SSA and are not enregistered so probably the only
+        // advantage they may have is dead store elimination, and we don't do that.
+        // If we undo P-DEP then the struct local will be in SSA (assuming that
+        // P-DEP wasn't due to the local being address-exposed) so value numbering
+        // works too and may allow certain optimizations to be performed.
 
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
