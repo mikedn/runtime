@@ -22,7 +22,6 @@
 
 #include "regset.h"
 #include "jitgcinfo.h"
-#include "treelifeupdater.h"
 #include "emit.h"
 
 #if 0
@@ -70,12 +69,6 @@ public:
         return compiler;
     }
 
-    // genSpillVar is called by compUpdateLifeVar.
-    // TODO-Cleanup: We should handle the spill directly in CodeGen, rather than
-    // calling it from compUpdateLifeVar.  Then this can be non-virtual.
-
-    virtual void genSpillVar(GenTreeLclVar* node) = 0;
-
     //-------------------------------------------------------------------------
     //  The following property indicates whether to align loops.
     //  (Used to avoid effects of loop alignment when diagnosing perf issues.)
@@ -111,14 +104,6 @@ protected:
     Compiler* compiler;
     bool      m_genAlignLoops;
 
-public:
-    //-------------------------------------------------------------------------
-    // Liveness-related fields & methods
-public:
-    void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
-    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex);
-    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree);
-
 protected:
 #ifdef DEBUG
     VARSET_TP genTempOldLife;
@@ -127,14 +112,6 @@ protected:
 
     VARSET_TP genLastLiveSet;  // A one element map (genLastLiveSet-> genLastLiveMask)
     regMaskTP genLastLiveMask; // these two are used in genLiveMask
-
-    regMaskTP genGetRegMask(const LclVarDsc* varDsc);
-    regMaskTP genGetRegMask(GenTree* tree);
-
-    void genUpdateLife(GenTree* tree);
-    void genUpdateLife(VARSET_VALARG_TP newLife);
-
-    TreeLifeUpdater<true>* treeLifeUpdater;
 
 public:
     bool            genUseOptimizedWriteBarriers();
@@ -158,6 +135,8 @@ public:
     {
         m_cgFramePointerUsed.ResetWritePhase();
     }
+
+    virtual VARSET_VALARG_TP GetLiveSet() const = 0;
 
     // The following property indicates whether the current method requires
     // an explicit frame. Does not prohibit double alignment of the stack.
@@ -384,10 +363,6 @@ private:
     bool m_cgFullPtrRegMap;
 
 public:
-#ifdef USING_SCOPE_INFO
-    virtual void siUpdate() = 0;
-#endif // USING_SCOPE_INFO
-
     /* These are the different addressing modes used to access a local var.
      * The JIT has to report the location of the locals back to the EE
      * for debugging purposes.
@@ -756,5 +731,7 @@ public:
     virtual const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs) = 0;
 #endif // LATE_DISASM
 };
+
+StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);
 
 #endif // _CODEGEN_INTERFACE_H_

@@ -2196,6 +2196,7 @@ public:
 #ifdef DEBUG
     const char* emitGetFrameReg();
     void emitDispRegSet(regMaskTP regs);
+    void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
     void emitDispVarSet();
 #endif
 

@@ -476,12 +476,22 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 }
 #endif // FEATURE_ARG_SPLIT
 
-int LinearScan::BuildStructStore(GenTreeBlk* store)
+int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    GenTree*     dstAddr = store->GetAddr();
-    GenTree*     src     = store->GetValue();
-    ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
+    GenTree* dstAddr = nullptr;
+    GenTree* src;
+
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        dstAddr = store->AsBlk()->GetAddr();
+        src     = store->AsBlk()->GetValue();
+    }
+
+    unsigned size = layout->GetSize();
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -511,7 +521,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     regMaskTP sizeRegMask        = RBM_NONE;
     regMaskTP internalIntRegMask = allRegs(TYP_INT);
 
-    switch (store->GetKind())
+    switch (kind)
     {
         case StructStoreKind::UnrollInit:
             break;
@@ -561,7 +571,13 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
             unreached();
     }
 
-    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
+    // TODO-MIKE-Review: Should temp registers be reserved for src/dest like on XARCH?
+    // They're not needed for correctness due to the kill set but on XARCH they avoid
+    // poor register allocation by imposing constraints that that the kill set doesn't.
+    // On the other hand, ARM doesn't have UnrollCopyWBRepMovs and large struct copies
+    // that use helper calls and thus have register constraints are relatively rare.
+
+    if (sizeRegMask != RBM_NONE)
     {
         // Reserve a temp register for the block size argument.
         BuildInternalIntDef(store, sizeRegMask);
@@ -569,14 +585,17 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
     int useCount = 0;
 
-    if (!dstAddr->isContained())
+    if (dstAddr != nullptr)
     {
-        useCount++;
-        BuildUse(dstAddr, dstAddrRegMask);
-    }
-    else if (dstAddr->IsAddrMode())
-    {
-        useCount += BuildAddrUses(dstAddr->AsAddrMode()->Base());
+        if (!dstAddr->isContained())
+        {
+            useCount++;
+            BuildUse(dstAddr, dstAddrRegMask);
+        }
+        else if (dstAddr->IsAddrMode())
+        {
+            useCount += BuildAddrUses(dstAddr->AsAddrMode()->Base());
+        }
     }
 
     if (srcAddrOrFill != nullptr)
@@ -592,14 +611,8 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         }
     }
 
-    if (store->OperIs(GT_STORE_DYN_BLK))
-    {
-        useCount++;
-        BuildUse(store->AsDynBlk()->GetSize(), sizeRegMask);
-    }
-
     BuildInternalUses();
-    BuildKills(store, getKillSetForStructStore(store));
+    BuildKills(store, getKillSetForStructStore(kind));
 
     return useCount;
 }

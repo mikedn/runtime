@@ -1098,7 +1098,7 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
         //   - implicit-by-ref struct arguments on win-x64 and arm64
         //   - stack args of varargs methods on x86
         // The resulting indirection trees are not recognized as local accesses
-        // by DefinesLocalAddr & co. so it's probably safer to add GTF_GLOB_REF
+        // by IsLocalAddrExpr & co. so it's probably safer to add GTF_GLOB_REF
         // to such indirections. Though the arguments can't really alias global
         // memory nor themselves so this might be overly conservative.
         // This is definitely unnecessary for implicit-by-ref args that end up
@@ -1741,7 +1741,6 @@ inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, R
     if (lvIsStructField && propagate)
     {
         LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
-        assert(!parentLcl->lvRegStruct);
 
         // Depending on the promotion type, increment the ref count for the parent struct as well.
         if (parentLcl->IsDependentPromoted())
@@ -3029,36 +3028,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-//------------------------------------------------------------------------
-// compUpdateLife: Update the GC's masks, register's masks and reports change on variable's homes given a set of
-//    current live variables if changes have happened since "compCurLife".
-//
-// Arguments:
-//    newLife - the set of variables that are alive.
-//
-// Assumptions:
-//    The set of live variables reflects the result of only emitted code, it should not be considering the becoming
-//    live/dead of instructions that has not been emitted yet. This is requires by "compChangeLife".
-template <bool ForCodeGen>
-inline void Compiler::compUpdateLife(VARSET_VALARG_TP newLife)
-{
-    if (!VarSetOps::Equal(this, compCurLife, newLife))
-    {
-        compChangeLife<ForCodeGen>(newLife);
-    }
-#ifdef DEBUG
-    else
-    {
-        if (verbose)
-        {
-            printf("Liveness not changing: %s ", VarSetOps::ToString(this, compCurLife));
-            dumpConvertedVarSet(this, compCurLife);
-            printf("\n");
-        }
-    }
-#endif // DEBUG
-}
-
 /*****************************************************************************
  *
  *  We stash cookies in basic blocks for the code emitter; this call retrieves
@@ -3940,22 +3909,6 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
     return !info.compInitMem || (varDsc->lvIsTemp && !varDsc->HasGCPtr());
 }
 
-/*****************************************************************************/
-ValueNum Compiler::GetUseAsgDefVNOrTreeVN(GenTree* op)
-{
-    if (op->gtFlags & GTF_VAR_USEASG)
-    {
-        unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
-        unsigned ssaNum = GetSsaNumForLocalVarDef(op);
-        return lvaTable[lclNum].GetPerSsaData(ssaNum)->m_vnPair.GetConservative();
-    }
-    else
-    {
-        return op->gtVNPair.GetConservative();
-    }
-}
-
-/*****************************************************************************/
 unsigned Compiler::GetSsaNumForLocalVarDef(GenTree* lcl)
 {
     // Address-taken variables don't have SSA numbers.

@@ -8,6 +8,7 @@
 #include "compiler.h" // temporary??
 #include "regset.h"
 #include "jitgcinfo.h"
+#include "treelifeupdater.h"
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
 #define FOREACH_REGISTER_FILE(file)                                                                                    \
@@ -21,6 +22,9 @@ class CodeGen final : public CodeGenInterface
 {
     friend class emitter;
     friend class DisAssembler;
+    friend class CodeGenLivenessUpdater;
+
+    CodeGenLivenessUpdater m_liveness;
 
 public:
     CodeGen(Compiler* compiler);
@@ -30,6 +34,11 @@ public:
     void genGenerateMachineCode();
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
+
+    virtual VARSET_VALARG_TP GetLiveSet() const
+    {
+        return m_liveness.GetLiveSet();
+    }
 
     // TODO-Cleanup: Abstract out the part of this that finds the addressing mode, and
     // move it to Lower
@@ -1065,6 +1074,13 @@ protected:
 
 #endif // FEATURE_HW_INTRINSICS
 
+    void genUpdateLife(GenTreeLclVarCommon* tree);
+    void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
+    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex);
+    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree);
+    regMaskTP genGetRegMask(const LclVarDsc* varDsc);
+    regMaskTP genGetRegMask(GenTree* tree);
+
     // Do liveness update for register produced by the current node in codegen after
     // code has been emitted for it.
     void genProduceReg(GenTree* tree);
@@ -1091,7 +1107,7 @@ protected:
     void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
     void genConsumeAddrMode(GenTreeAddrMode* mode);
-    void genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
+    void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
 
 #if FEATURE_ARG_SPLIT
     void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
@@ -1202,18 +1218,18 @@ protected:
 #endif
                             );
 
-    void genStructStore(GenTreeBlk* store);
-    void genStructStoreUnrollCopyWB(GenTreeObj* store);
+    void GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
+    void GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout);
 #ifndef TARGET_X86
-    void genStructStoreMemSet(GenTreeBlk* store);
-    void genStructStoreMemCpy(GenTreeBlk* store);
+    void GenStructStoreMemSet(GenTree* store, ClassLayout* layout);
+    void GenStructStoreMemCpy(GenTree* store, ClassLayout* layout);
 #endif
 #ifdef TARGET_XARCH
-    void genStructStoreRepStos(GenTreeBlk* store);
-    void genStructStoreRepMovs(GenTreeBlk* store);
+    void GenStructStoreRepStos(GenTree* store, ClassLayout* layout);
+    void GenStructStoreRepMovs(GenTree* store, ClassLayout* layout);
 #endif
-    void genStructStoreUnrollInit(GenTreeBlk* store);
-    void genStructStoreUnrollCopy(GenTreeBlk* store);
+    void GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout);
+    void GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout);
 
     void genJumpTable(GenTree* tree);
     void genTableBasedSwitch(GenTree* tree);

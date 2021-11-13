@@ -3179,8 +3179,8 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("\nFound %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", m_index,
-               varTypeName(type), block->bbNum);
+        printf("Found %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", m_index, varTypeName(type),
+               block->bbNum);
         for (Statement* s = m_firstStmt; s != m_lastStmt->GetNextStmt(); s = s->GetNextStmt())
         {
             compiler->gtDispStmt(s);
@@ -3190,7 +3190,7 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
 
     for (unsigned i = 1; i < m_index; i++)
     {
-        compiler->fgRemoveStmt(block, m_firstStmt->GetNextStmt());
+        compiler->fgRemoveStmt(block, m_firstStmt->GetNextStmt() DEBUGARG(false));
     }
 
     GenTreeOp* asg = m_firstStmt->GetRootNode()->AsOp();

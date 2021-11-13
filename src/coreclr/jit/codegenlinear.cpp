@@ -74,8 +74,6 @@ void CodeGen::genInitializeRegisterState()
 //
 // Assumptions:
 //    -The pointer logic in "gcInfo" for pointers on registers and variable is cleaned.
-//    -"compiler->compCurLife" becomes an empty set
-//    -"compiler->compCurLife" are set to be a clean set
 //    -If there is local var info siScopes scope logic in codegen is initialized in "siInit()"
 //
 // Notes:
@@ -103,10 +101,6 @@ void CodeGen::genInitialize()
     // Initialize the register set logic
 
     genInitializeRegisterState();
-
-    // Make sure a set is allocated for compiler->compCurLife (in the long case), so we can set it to empty without
-    // allocation at the start of each basic block.
-    VarSetOps::AssignNoCopy(compiler, compiler->compCurLife, VarSetOps::MakeEmpty(compiler));
 
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
     // variable needs home and so its stack offset.
@@ -198,7 +192,7 @@ void CodeGen::genCodeForBBlist()
 
         // Updating variable liveness after last instruction of previous block was emitted
         // and before first of the current block is emitted
-        genUpdateLife(block->bbLiveIn);
+        m_liveness.ChangeLife(this, block->bbLiveIn);
 
         // Even if liveness didn't change, we need to update the registers containing GC references.
         // genUpdateLife will update the registers live due to liveness changes. But what about registers that didn't
@@ -391,9 +385,7 @@ void CodeGen::genCodeForBBlist()
         }
 #endif // FEATURE_EH_FUNCLETS
 
-        // Clear compCurStmt and compCurLifeTree.
-        compiler->compCurStmt     = nullptr;
-        compiler->compCurLifeTree = nullptr;
+        m_liveness.BeginBlock();
 
         // Traverse the block in linear order, generating code for each node as we
         // as we encounter it.
@@ -538,7 +530,7 @@ void CodeGen::genCodeForBBlist()
 #ifdef USING_VARIABLE_LIVE_RANGE
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
-            varLiveKeeper->siEndAllVariableLiveRange(compiler->compCurLife);
+            varLiveKeeper->siEndAllVariableLiveRange(m_liveness.GetLiveSet());
         }
 #endif // USING_VARIABLE_LIVE_RANGE
 
@@ -564,13 +556,13 @@ void CodeGen::genCodeForBBlist()
         SubtractStackLevel(savedStkLvl);
 
 #ifdef DEBUG
-        // compCurLife should be equal to the liveOut set, except that we don't keep
+        // Current live set should be equal to the liveOut set, except that we don't keep
         // it up to date for vars that are not register candidates
         // (it would be nice to have a xor set function)
 
-        VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, compiler->compCurLife));
+        VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, m_liveness.GetLiveSet()));
         VarSetOps::UnionD(compiler, mismatchLiveVars,
-                          VarSetOps::Diff(compiler, compiler->compCurLife, block->bbLiveOut));
+                          VarSetOps::Diff(compiler, m_liveness.GetLiveSet(), block->bbLiveOut));
         VarSetOps::Iter mismatchLiveVarIter(compiler, mismatchLiveVars);
         unsigned        mismatchLiveVarIndex  = 0;
         bool            foundMismatchedRegVar = false;
@@ -805,7 +797,7 @@ void CodeGen::genCodeForBBlist()
 
     // There could be variables alive at this point. For example see lvaKeepAliveAndReportThis.
     // This call is for cleaning the GC refs
-    genUpdateLife(VarSetOps::MakeEmpty(compiler));
+    m_liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
 
     /* Finalize the spill  tracking logic */
 
@@ -877,16 +869,16 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
         genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(tree));
         gcInfo.gcMarkRegSetNpt(varDsc->lvRegMask());
 
-        if (VarSetOps::IsMember(compiler, gcInfo.gcTrkStkPtrLcls, varDsc->lvVarIndex))
+        if (varDsc->HasStackGCPtrLiveness())
         {
 #ifdef DEBUG
             if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
             {
-                JITDUMP("Var V%02u becoming live\n", varNum);
+                JITDUMP("GC pointer V%02u becoming live on stack\n", varNum);
             }
             else
             {
-                JITDUMP("Var V%02u continuing live\n", varNum);
+                JITDUMP("GC pointer V%02u continuing live on stack\n", varNum);
             }
 #endif
             VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
@@ -928,7 +920,7 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
 //    regIndex - the index of the register in the node
 //
 // inline
-void CodeGenInterface::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
+void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
 {
     // This should only be called for multireg lclVars.
     assert(compiler->lvaEnregMultiRegVars);
@@ -944,7 +936,7 @@ void CodeGenInterface::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int reg
 //    tree   - the lclVar node
 //
 // inline
-void CodeGenInterface::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
+void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
 {
     // This should not be called for multireg lclVars.
     assert((tree->OperIsScalarLocal() && !tree->IsMultiRegLclVar()) || (tree->gtOper == GT_COPY));
@@ -1383,7 +1375,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
     genUnspillRegIfNeeded(tree, multiRegIndex);
 
     // UpdateLifeFieldVar() will return true if local var should be spilled.
-    if (tree->IsMultiRegLclVar() && treeLifeUpdater->UpdateLifeFieldVar(tree->AsLclVar(), multiRegIndex))
+    if (tree->IsMultiRegLclVar() && m_liveness.UpdateLifeFieldVar(this, tree->AsLclVar(), multiRegIndex))
     {
         GenTreeLclVar* lcl = tree->AsLclVar();
         genSpillLocal(lcl->GetLclNum(), lcl->GetFieldTypeByIndex(compiler, multiRegIndex), lcl,
@@ -1457,8 +1449,10 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
 
     genUnspillRegIfNeeded(tree);
 
-    // genUpdateLife() will also spill local var if marked as GTF_SPILL by calling CodeGen::genSpillVar
-    genUpdateLife(tree);
+    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        genUpdateLife(tree->AsLclVarCommon());
+    }
 
     // there are three cases where consuming a reg means clearing the bit in the live mask
     // 1. it was not produced by a local
@@ -1576,8 +1570,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
             noway_assert(varDsc->GetRegNum() == REG_STK);
             noway_assert(tree->IsRegOptional() || !varDsc->lvLRACandidate);
 
-            // Update the life of the lcl var.
-            genUpdateLife(tree);
+            genUpdateLife(tree->AsLclVarCommon());
         }
 #ifdef FEATURE_HW_INTRINSICS
         else if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
@@ -1748,9 +1741,10 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 }
 #endif // !TARGET_X86
 
-void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
+void CodeGen::ConsumeStructStore(
+    GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     // We have to consume the registers, and perform any copies, in the actual execution order: dst, src, size.
     //
@@ -1760,11 +1754,20 @@ void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumb
     // to the REQUIRED register (if a fixed register requirement) in execution order.  This requires,
     // then, that we first consume all the operands, then do any necessary moves.
 
-    GenTree* dstAddr = store->GetAddr();
+    GenTree* dstAddr = nullptr;
+    GenTree* src;
 
-    genConsumeReg(dstAddr);
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        dstAddr = store->AsIndir()->GetAddr();
+        src     = store->AsIndir()->GetValue();
 
-    GenTree* src = store->GetValue();
+        genConsumeReg(dstAddr);
+    }
 
     if (src->OperIs(GT_INIT_VAL))
     {
@@ -1799,13 +1802,32 @@ void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumb
 
     // Copy registers as needed
 
-    genCopyRegIfNeeded(dstAddr, dstReg);
+    if (dstAddr != nullptr)
+    {
+        genCopyRegIfNeeded(dstAddr, dstReg);
+    }
 
     if (!src->isContained())
     {
         genCopyRegIfNeeded(src, srcReg);
     }
-    else
+
+    if (store->OperIs(GT_STORE_DYN_BLK))
+    {
+        genCopyRegIfNeeded(store->AsDynBlk()->GetSize(), sizeReg);
+    }
+
+    if (dstAddr == nullptr)
+    {
+        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+
+        unsigned lclNum  = store->AsLclVarCommon()->GetLclNum();
+        unsigned lclOffs = store->AsLclVarCommon()->GetLclOffs();
+
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, lclNum, lclOffs);
+    }
+
+    if (src->isContained())
     {
         assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
@@ -1815,15 +1837,11 @@ void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumb
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNum, lclOffs);
     }
 
-    if (store->OperIs(GT_STORE_DYN_BLK))
-    {
-        genCopyRegIfNeeded(store->AsDynBlk()->GetSize(), sizeReg);
-    }
-    else if (sizeReg != REG_NA)
+    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeReg != REG_NA))
     {
         assert(store->HasTempReg(sizeReg));
 
-        genSetRegToIcon(sizeReg, store->Size());
+        genSetRegToIcon(sizeReg, layout->GetSize());
     }
 }
 
@@ -1986,8 +2004,10 @@ void CodeGen::genProduceReg(GenTree* tree)
         }
     }
 
-    // Updating variable liveness after instruction was emitted
-    genUpdateLife(tree);
+    if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        genUpdateLife(tree->AsLclVarCommon());
+    }
 
     // If we've produced a register, mark it as a pointer, as needed.
     if (tree->gtHasReg())

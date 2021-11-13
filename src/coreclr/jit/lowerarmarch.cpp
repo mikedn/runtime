@@ -197,104 +197,6 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
     ContainCheckStoreIndir(store);
 }
 
-void Lowering::LowerStructStore(GenTreeBlk* store)
-{
-    GenTree*     dstAddr = store->GetAddr();
-    GenTree*     src     = store->GetValue();
-    ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
-
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
-    {
-        if (src->OperIs(GT_INIT_VAL))
-        {
-            src->SetContained();
-            src = src->AsUnOp()->GetOp(0);
-        }
-
-        if ((size > INITBLK_UNROLL_LIMIT) || !src->OperIs(GT_CNS_INT))
-        {
-            store->SetKind(StructStoreKind::MemSet);
-        }
-        else
-        {
-            store->SetKind(StructStoreKind::UnrollInit);
-
-            // The fill value of an initblk is interpreted to hold a
-            // value of (unsigned int8) however a constant of any size
-            // may practically reside on the evaluation stack. So extract
-            // the lower byte out of the initVal constant and replicate
-            // it to a larger constant whose size is sufficient to support
-            // the largest width store of the desired inline expansion.
-
-            ssize_t fill = src->AsIntCon()->GetUInt8Value();
-
-            if (fill == 0)
-            {
-#ifdef TARGET_ARM64
-                // On ARM64 we can just use REG_ZR instead of having to load
-                // the constant into a real register like on ARM32.
-                src->SetContained();
-#endif
-            }
-#ifdef TARGET_ARM64
-            else if (size >= REGSIZE_BYTES)
-            {
-                fill *= 0x0101010101010101LL;
-                src->SetType(TYP_LONG);
-            }
-#endif
-            else
-            {
-                fill *= 0x01010101;
-            }
-
-            src->AsIntCon()->SetValue(fill);
-
-            ContainBlockStoreAddress(store, size, dstAddr);
-        }
-    }
-    else
-    {
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_LCL_VAR, GT_LCL_FLD));
-        src->SetContained();
-
-        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
-        {
-            // TODO-Cleanup: Make sure that GT_IND lowering didn't mark the source address as contained.
-            // Sometimes the GT_IND type is a non-struct type and then GT_IND lowering may contain the
-            // address, not knowing that GT_IND is part of a block op that has containment restrictions.
-            src->AsIndir()->GetAddr()->ClearContained();
-        }
-
-        // If the struct contains GC pointers we need to generate GC write barriers, unless
-        // the destination is a local variable. Even if the destination is a local we're still
-        // going to use UnrollWB if the size is too large for normal unrolling.
-
-        if ((layout != nullptr) && layout->HasGCPtr() && (!dstAddr->OperIsLocalAddr() || (size > CPBLK_UNROLL_LIMIT)))
-        {
-            assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
-
-            store->SetKind(StructStoreKind::UnrollCopyWB);
-        }
-        else if (size <= CPBLK_UNROLL_LIMIT)
-        {
-            store->SetKind(StructStoreKind::UnrollCopy);
-
-            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
-            {
-                ContainBlockStoreAddress(store, size, src->AsIndir()->GetAddr());
-            }
-
-            ContainBlockStoreAddress(store, size, dstAddr);
-        }
-        else
-        {
-            store->SetKind(StructStoreKind::MemCpy);
-        }
-    }
-}
-
 void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
@@ -399,6 +301,7 @@ bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool 
 void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
     assert(
+        (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD)) ||
         (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
                                                        (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit))) ||
         store->OperIsPutArgStkOrSplit());

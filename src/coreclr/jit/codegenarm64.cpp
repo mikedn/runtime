@@ -1902,50 +1902,55 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
-    assert(!store->TypeIs(TYP_STRUCT));
-
-#ifdef FEATURE_SIMD
-    if (store->TypeIs(TYP_SIMD12))
-    {
-        genStoreSIMD12(store, store->GetOp(0));
-        return;
-    }
-#endif
 
     var_types type = store->GetType();
     GenTree*  src  = store->GetOp(0);
 
-    assert(IsValidSourceType(type, src->GetType()));
-
-    regNumber srcReg;
-
-    if (src->isContained())
+    if (type == TYP_STRUCT)
     {
-        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
-
-        srcReg = REG_ZR;
+        ClassLayout*    layout = store->GetLayout(compiler);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
     }
+#ifdef FEATURE_SIMD
+    else if (type == TYP_SIMD12)
+    {
+        genStoreSIMD12(store, src);
+    }
+#endif
     else
     {
-        srcReg = genConsumeReg(src);
-    }
+        assert(IsValidSourceType(type, src->GetType()));
 
-    unsigned lclNum  = store->GetLclNum();
-    unsigned lclOffs = store->GetLclOffs();
+        regNumber srcReg;
 
-    if ((srcReg == REG_ZR) && (type == TYP_SIMD16))
-    {
-        GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, lclNum, lclOffs);
-    }
-    else
-    {
-        assert((srcReg != REG_ZR) || (varTypeSize(type) <= REGSIZE_BYTES));
+        if (src->isContained())
+        {
+            assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
-        GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), srcReg, lclNum, lclOffs);
+            srcReg = REG_ZR;
+        }
+        else
+        {
+            srcReg = genConsumeReg(src);
+        }
+
+        unsigned lclNum  = store->GetLclNum();
+        unsigned lclOffs = store->GetLclOffs();
+
+        if ((srcReg == REG_ZR) && (type == TYP_SIMD16))
+        {
+            GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, lclNum, lclOffs);
+        }
+        else
+        {
+            assert((srcReg != REG_ZR) || (varTypeSize(type) <= REGSIZE_BYTES));
+
+            GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), srcReg, lclNum, lclOffs);
+        }
     }
 
     genUpdateLife(store);
-    compiler->lvaGetDesc(store)->SetRegNum(REG_STK);
 }
 
 void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
@@ -1980,6 +1985,15 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         }
 
         genProduceReg(store);
+        return;
+    }
+
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    {
+        ClassLayout*    layout = lcl->GetLayout();
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        GenStructStore(store, kind, layout);
+        genUpdateLife(store);
         return;
     }
 
@@ -3022,9 +3036,6 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     }
 
     GetEmitter()->emitInsLoadStoreOp(ins, emitActualTypeSize(type), dataReg, tree);
-
-    // If store was to a variable, update variable liveness after instruction was emitted.
-    genUpdateLife(tree);
 }
 
 //------------------------------------------------------------------------

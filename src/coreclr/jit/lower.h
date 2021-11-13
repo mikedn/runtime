@@ -227,24 +227,10 @@ private:
 
     GenTree* NewStoreLclVar(unsigned lclNum, var_types type, GenTree* value)
     {
-        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
-        GenTree*   store;
+        GenTree*   store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(type, lclNum, value);
+        LclVarDsc* lcl   = comp->lvaGetDesc(lclNum);
 
-        if (type == TYP_STRUCT)
-        {
-            assert(lcl->TypeIs(TYP_STRUCT));
-            GenTree* addr = comp->gtNewLclVarAddrNode(lclNum);
-            addr->gtFlags |= GTF_VAR_DEF;
-            store = new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, lcl->GetLayout());
-            store->gtFlags |= GTF_IND_NONFAULTING;
-            store->gtFlags &= ~GTF_GLOB_REF;
-        }
-        else
-        {
-            store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(type, lclNum, value);
-        }
-
-        if (lcl->lvAddrExposed)
+        if (lcl->IsAddressExposed())
         {
             store->gtFlags |= GTF_GLOB_REF;
         }
@@ -335,8 +321,10 @@ private:
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
-    void LowerStructStore(GenTreeBlk* store);
-    void LowerBlockStoreCommon(GenTreeBlk* blkNode);
+    void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
+    void LowerStoreObj(GenTreeObj* store);
+    void LowerStoreBlk(GenTreeBlk* store);
+    void LowerStoreDynBlk(GenTreeDynBlk* store);
     void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
 
@@ -363,7 +351,7 @@ private:
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);
 
-    bool TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode);
+    bool TryTransformStoreObjToStoreInd(GenTreeObj* store);
 
     GenTree* LowerSwitch(GenTreeUnOp* node);
     bool TryLowerSwitchToBitTest(

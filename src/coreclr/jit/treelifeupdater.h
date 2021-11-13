@@ -5,28 +5,37 @@
 
 #include "compiler.h"
 
-//------------------------------------------------------------------------
-// TreeLifeUpdater: class that handles changes in variable liveness from a given tree.
+// Handles changes in variable liveness from a given node.
 // Keeps set of temporary VARSET_TP during its lifetime to avoid unnecessary memory allocations.
-template <bool ForCodeGen>
-class TreeLifeUpdater
+class CodeGenLivenessUpdater
 {
-public:
-    TreeLifeUpdater(Compiler* compiler);
-    void UpdateLife(GenTree* tree);
-    bool UpdateLifeFieldVar(GenTreeLclVar* lclNode, unsigned multiRegIndex);
-
-private:
-    void UpdateLifeVar(GenTree* tree);
-
-private:
     Compiler* compiler;
-    VARSET_TP newLife;          // a live set after processing an argument tree.
-    VARSET_TP stackVarDeltaSet; // a live set of tracked stack ptr lcls.
-    VARSET_TP varDeltaSet;      // a set of variables that changed their liveness.
-    VARSET_TP gcTrkStkDeltaSet; // // a set of gc tracked stack variables that changed their liveness..
-#ifdef DEBUG
-    VARSET_TP gcVarPtrSetNew; // a set to print changes to live part of tracked stack ptr lcls (gcVarPtrSetCur).
-    unsigned  epoch;          // VarSets epoch when the class was created, must stay the same during its using.
-#endif                        // DEBUG
+    GenTree*  currentNode;
+    VARSET_TP currentLife;
+    VARSET_TP newLife;
+    VARSET_TP varDeltaSet;
+    VARSET_TP varStackGCPtrDeltaSet;
+    INDEBUG(VARSET_TP scratchSet;)
+    INDEBUG(unsigned epoch;)
+
+public:
+    CodeGenLivenessUpdater(Compiler* compiler) : compiler(compiler)
+    {
+    }
+
+    void Begin();
+
+    void BeginBlock()
+    {
+        currentNode = nullptr;
+    }
+
+    void ChangeLife(class CodeGen* codeGen, VARSET_VALARG_TP newLife);
+    void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
+    bool UpdateLifeFieldVar(class CodeGen* codeGen, GenTreeLclVar* lclNode, unsigned regIndex);
+
+    VARSET_VALARG_TP GetLiveSet() const
+    {
+        return currentLife;
+    }
 };

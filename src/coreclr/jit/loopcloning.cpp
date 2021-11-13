@@ -1375,7 +1375,7 @@ bool Compiler::optIsLoopClonable(unsigned loopInd)
     }
 
     unsigned ivLclNum = loop.lpIterVar();
-    if (lvaVarAddrExposed(ivLclNum))
+    if (lvaGetDesc(ivLclNum)->IsAddressExposed())
     {
         JITDUMP("Loop cloning: rejecting loop " FMT_LP ". Rejected V%02u as iter var because is address-exposed.\n",
                 loopInd, ivLclNum);
@@ -1950,7 +1950,7 @@ void Compiler::optCloneLoop(unsigned loopInd, LoopCloneContext* context)
 //
 bool Compiler::optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum)
 {
-    if (lvaVarAddrExposed(lclNum))
+    if (lvaGetDesc(lclNum)->IsAddressExposed())
     {
         return false;
     }

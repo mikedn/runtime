@@ -886,11 +886,9 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
     return killMask;
 }
 
-regMaskTP LinearScan::getKillSetForStructStore(GenTreeBlk* store)
+regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
-
-    switch (store->GetKind())
+    switch (kind)
     {
         case StructStoreKind::UnrollCopyWB:
 #ifdef TARGET_XARCH
@@ -1028,10 +1026,22 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             killMask = getKillSetForModDiv(tree->AsOp());
             break;
 
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+            if (tree->TypeIs(TYP_STRUCT) && !tree->AsLclVarCommon()->GetOp(0)->IsCall())
+            {
+                ClassLayout* layout = tree->OperIs(GT_STORE_LCL_VAR)
+                                          ? compiler->lvaGetDesc(tree->AsLclVar())->GetLayout()
+                                          : tree->AsLclFld()->GetLayout(compiler);
+                StructStoreKind kind = GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0));
+                killMask             = getKillSetForStructStore(kind);
+            }
+            break;
+
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-            killMask = getKillSetForStructStore(tree->AsBlk());
+            killMask = getKillSetForStructStore(tree->AsBlk()->GetKind());
             break;
 
         case GT_RETURNTRAP:
@@ -3160,7 +3170,7 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 
         srcCount = dstCount;
     }
-    else if (varTypeIsEnregisterable(src->GetType()))
+    else if (!src->TypeIs(TYP_STRUCT))
     {
         // Create a delay free use, as we'll have to use it to create each field
         RefPosition* use = BuildUse(src, RBM_NONE);
@@ -3222,12 +3232,29 @@ int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
         return BuildStoreLclVarMultiReg(store);
     }
 
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    GenTree*   src = store->GetOp(0);
+
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    {
+        ClassLayout*    layout = lcl->GetLayout();
+        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        return BuildStructStore(store, kind, layout);
+    }
+
     return BuildStoreLcl(store);
 }
 
 int LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
+
+    if (store->TypeIs(TYP_STRUCT))
+    {
+        ClassLayout*    layout = store->AsLclFld()->GetLayout(compiler);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetOp(0));
+        return BuildStructStore(store, kind, layout);
+    }
 
     return BuildStoreLcl(store);
 }
@@ -3361,6 +3388,42 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     }
 
     return srcCount;
+}
+
+int LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
+{
+#ifdef TARGET_X86
+    assert((store->GetKind() == StructStoreKind::RepStos) || (store->GetKind() == StructStoreKind::RepMovs));
+    regMaskTP dstRegMask  = RBM_RDI;
+    regMaskTP srcRegMask  = store->GetKind() == StructStoreKind::RepStos ? RBM_RAX : RBM_RSI;
+    regMaskTP sizeRegMask = RBM_RCX;
+#else
+    assert((store->GetKind() == StructStoreKind::MemSet) || (store->GetKind() == StructStoreKind::MemCpy));
+    regMaskTP dstRegMask  = RBM_ARG_0;
+    regMaskTP srcRegMask  = RBM_ARG_1;
+    regMaskTP sizeRegMask = RBM_ARG_2;
+#endif
+
+    GenTree* src = store->GetValue();
+
+    if (src->OperIs(GT_INIT_VAL))
+    {
+        assert(src->isContained());
+        src = src->AsUnOp()->GetOp(0);
+    }
+    else if (!src->OperIs(GT_CNS_INT))
+    {
+        assert(src->isContained());
+        src = src->AsIndir()->GetAddr();
+    }
+
+    BuildUse(store->GetAddr(), dstRegMask);
+    BuildUse(src, srcRegMask);
+    BuildUse(store->GetSize(), sizeRegMask);
+    BuildInternalUses();
+    BuildKills(store, getKillSetForStructStore(store->GetKind()));
+
+    return 3;
 }
 
 //------------------------------------------------------------------------

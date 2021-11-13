@@ -107,8 +107,7 @@ public:
     regMaskTP gcRegGCrefSetCur; // current regs holding GCrefs
     regMaskTP gcRegByrefSetCur; // current regs holding Byrefs
 
-    VARSET_TP gcTrkStkPtrLcls; // set of tracked stack ptr lcls (GCref and Byref) - no args
-    VARSET_TP gcVarPtrSetCur;  // currently live part of "gcTrkStkPtrLcls"
+    VARSET_TP gcVarPtrSetCur; // current stack locals holding GC pointers
 
     //-------------------------------------------------------------------------
     //

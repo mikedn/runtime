@@ -160,6 +160,8 @@ class LclSsaVarDsc
     GenTreeOp* m_asg;
 
 public:
+    ValueNumPair m_vnPair;
+
     LclSsaVarDsc() : m_block(nullptr), m_asg(nullptr)
     {
     }
@@ -190,7 +192,15 @@ public:
         m_asg = asg;
     }
 
-    ValueNumPair m_vnPair;
+    ValueNumPair GetVNP() const
+    {
+        return m_vnPair;
+    }
+
+    void SetVNP(ValueNumPair vnp)
+    {
+        m_vnPair = vnp;
+    }
 };
 
 // This class stores information associated with a memory SSA definition.
@@ -334,10 +344,7 @@ public:
     unsigned char lvRegister : 1; // assigned to live in a register? For RyuJIT backend, this is only set if the
                                   // variable is in the same register for the entire function.
     unsigned char lvTracked : 1;  // is this a tracked variable?
-    bool          lvTrackedNonStruct()
-    {
-        return lvTracked && lvType != TYP_STRUCT;
-    }
+    unsigned char m_hasStackGCPtrLiveness : 1;
     unsigned char lvPinned : 1; // is this a pinned variable?
 
     unsigned char lvMustInit : 1;    // must be initialized
@@ -405,6 +412,16 @@ public:
 #endif
     }
 
+    bool IsAddressExposed() const
+    {
+        return lvAddrExposed;
+    }
+
+    bool IsInSsa() const
+    {
+        return lvInSsa;
+    }
+
 #if OPT_BOOL_OPS
     unsigned char lvIsBoolean : 1; // set if variable is boolean
 #endif
@@ -431,10 +448,6 @@ public:
 #ifdef TARGET_AMD64
     unsigned char lvQuirkPPPStuct : 1;
 #endif
-#ifdef DEBUG
-    unsigned char lvKeepType : 1;       // Don't change the type of this variable
-    unsigned char lvNoLclFldStress : 1; // Can't apply local field stress on this one
-#endif
     unsigned char lvIsPtr : 1; // Might this be used in an address computation? (used by buffer overflow security
                                // checks)
     unsigned char lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
@@ -458,9 +471,7 @@ public:
 
 #ifdef FEATURE_SIMD
     unsigned char lvUsedInSIMDIntrinsic : 1; // This tells lclvar is used for simd intrinsic
-    var_types     lvBaseType : 5;            // Note: this only packs because var_types is a typedef of unsigned char
-#endif                                       // FEATURE_SIMD
-    unsigned char lvRegStruct : 1;           // This is a reg-sized non-field-addressed struct.
+#endif
 
     unsigned char lvClassIsExact : 1;              // lvClassHandle is the exact type
     INDEBUG(unsigned char lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
@@ -505,8 +516,6 @@ public:
         lvParentLcl     = parentLclNum;
         lvFldOffset     = static_cast<uint8_t>(fieldOffset);
         m_fieldSeq      = fieldSeq;
-
-        INDEBUG(lvKeepType = 1;)
     }
 
     bool IsPromoted() const
@@ -750,7 +759,28 @@ public:
         return regMask;
     }
 
-    unsigned short lvVarIndex; // variable tracking index
+    uint16_t lvVarIndex;
+
+    bool HasLiveness() const
+    {
+        return lvTracked;
+    }
+
+    bool HasStackGCPtrLiveness() const
+    {
+        return m_hasStackGCPtrLiveness;
+    }
+
+    void SetHasStackGCPtrLiveness()
+    {
+        m_hasStackGCPtrLiveness = true;
+    }
+
+    unsigned GetLivenessBitIndex() const
+    {
+        assert(lvTracked);
+        return lvVarIndex;
+    }
 
 private:
     unsigned short m_lvRefCnt; // unweighted (real) reference count.  For implicit by reference
@@ -958,8 +988,6 @@ public:
     {
         return GetRegisterType() != TYP_UNDEF;
     }
-
-    bool CanBeReplacedWithItsField(Compiler* comp) const;
 
 #ifdef DEBUG
 public:
@@ -2038,8 +2066,6 @@ public:
 
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
-    GenTree* gtNewTempAssign(unsigned tmp, GenTree* val);
-
     GenTree* gtNewNothingNode();
 
     GenTree* gtUnusedValNode(GenTree* expr);
@@ -2258,6 +2284,7 @@ public:
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
+    void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
 #if FEATURE_MULTIREG_RET
     unsigned gtDispRegCount(GenTree* tree);
@@ -2380,9 +2407,8 @@ public:
         return lvaRefCountState == RCS_NORMAL;
     }
 
-    bool     lvaTrackedFixed; // true: We cannot add new 'tracked' variable
-    unsigned lvaCount;        // total number of locals, which includes function arguments,
-                              // special arguments, IL local variables, and JIT temporary variables
+    unsigned lvaCount; // total number of locals, which includes function arguments,
+                       // special arguments, IL local variables, and JIT temporary variables
 
     LclVarDsc* lvaTable;     // variable descriptor table
     unsigned   lvaTableSize; // lvaTable size (>= lvaCount)
@@ -2390,9 +2416,6 @@ public:
     unsigned lvaTrackedCount;             // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits; // min # of size_t's sufficient to hold a bit for all the locals being tracked
 
-#ifdef DEBUG
-    VARSET_TP lvaTrackedVars; // set of tracked variables
-#endif
 #ifndef TARGET_64BIT
     VARSET_TP lvaLongVars; // set of long (64-bit) variables
 #endif
@@ -2418,8 +2441,6 @@ public:
 #endif
 #endif
 
-    // Getters and setters for address-exposed and do-not-enregister local var properties.
-    bool lvaVarAddrExposed(unsigned varNum);
     void lvaSetVarAddrExposed(unsigned varNum);
     void lvaSetVarLiveInOutOfHandler(unsigned varNum);
     bool lvaVarDoNotEnregister(unsigned varNum);
@@ -2617,6 +2638,11 @@ public:
         return &lvaTable[lclVar->GetLclNum()];
     }
 
+    LclSsaVarDsc* lvaGetSsaDesc(const GenTreeLclVarCommon* lclNode)
+    {
+        return lvaGetDesc(lclNode)->GetPerSsaData(lclNode->GetSsaNum());
+    }
+
     unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
     {
         assert(trackedIndex < lvaTrackedCount);
@@ -2656,21 +2682,8 @@ public:
     VARSET_VALRET_TP lvaStmtLclMask(Statement* stmt);
 
 #ifdef DEBUG
-    struct lvaStressLclFldArgs
-    {
-        Compiler* m_pCompiler;
-        bool      m_bFirstPass;
-    };
-
-    static fgWalkPreFn lvaStressLclFldCB;
-    void               lvaStressLclFld();
-
     void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
     void lvaDispVarSet(VARSET_VALARG_TP set);
-
-#ifdef TARGET_ARMARCH
-    unsigned lvaStressLclFldGetAlignment(GenTreeLclVar* lclNode);
-#endif
 #endif
 
 #ifdef TARGET_ARM
@@ -3388,6 +3401,7 @@ private:
 #endif // DEBUG
 
     static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
+    static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
 
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
@@ -3797,6 +3811,8 @@ public:
     void fgLocalVarLivenessInit();
 
     void fgPerNodeLocalVarLiveness(GenTree* node);
+    void fgPerNodeLocalVarLivenessLIR(GenTree* node);
+    void fgPInvokeFrameLiveness(GenTreeCall* call);
     void fgPerBlockLocalVarLiveness();
 
     VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
@@ -3805,24 +3821,18 @@ public:
 
     void fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call);
 
-    void fgComputeLifeTrackedLocalUse(VARSET_TP& life, LclVarDsc& varDsc, GenTreeLclVarCommon* node);
-    bool fgComputeLifeTrackedLocalDef(VARSET_TP&           life,
-                                      VARSET_VALARG_TP     keepAliveVars,
-                                      LclVarDsc&           varDsc,
+    void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node);
+    bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
+                                      VARSET_VALARG_TP     keepAlive,
+                                      LclVarDsc*           lcl,
                                       GenTreeLclVarCommon* node);
-    bool fgComputeLifeUntrackedLocal(VARSET_TP&           life,
-                                     VARSET_VALARG_TP     keepAliveVars,
-                                     LclVarDsc&           varDsc,
-                                     GenTreeLclVarCommon* lclVarNode);
-    bool fgComputeLifeLocal(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, GenTree* lclVarNode);
+    bool fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
+                                     VARSET_VALARG_TP     keepAlive,
+                                     LclVarDsc*           lcl,
+                                     GenTreeLclVarCommon* node);
 
-    void fgComputeLife(VARSET_TP&       life,
-                       GenTree*         startNode,
-                       GenTree*         endNode,
-                       VARSET_VALARG_TP volatileVars,
-                       bool* pStmtInfoDirty DEBUGARG(bool* treeModf));
-
-    void fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALARG_TP volatileVars);
+    void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
+    void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
     bool fgTryRemoveNonLocal(GenTree* node, LIR::Range* blockRange);
 
@@ -3849,12 +3859,6 @@ public:
         }
         return m_opAsgnVarDefSsaNums;
     }
-
-    // Requires value numbering phase to have completed. Returns the value number ("gtVN") of the
-    // "tree," EXCEPT in the case of GTF_VAR_USEASG, because the tree node's gtVN member is the
-    // "use" VN. Performs a lookup into the map of (use asg tree -> def VN.) to return the "def's"
-    // VN.
-    inline ValueNum GetUseAsgDefVNOrTreeVN(GenTree* tree);
 
     // Requires that "lcl" has the GTF_VAR_DEF flag set.  Returns the SSA number of "lcl".
     // Except: assumes that lcl is a def, and if it is
@@ -3933,7 +3937,7 @@ public:
 
     // Called when an operation (performed by "tree", described by "msg") may cause an address-exposed local to be
     // mutated.
-    void fgMutateAddressExposedLocal(GenTree* tree DEBUGARG(const char* msg));
+    void fgMutateAddressExposedLocal(GenTree* tree);
 
     // For a GC heap store at curTree, record the new curMemoryVN's and update curTree's MemorySsaMap.
     // As GcHeap is a subset of ByrefExposed, this will also record the ByrefExposed store.
@@ -3956,7 +3960,7 @@ public:
     void fgValueNumberTree(GenTree* tree);
 
     // Does value-numbering for a block assignment.
-    void fgValueNumberBlockAssignment(GenTree* tree);
+    void vnStructAssignment(GenTreeOp* asg);
 
     // Does value-numbering for a cast tree.
     void fgValueNumberCastTree(GenTree* tree);
@@ -4348,12 +4352,12 @@ public:
 #ifdef DEBUG
     void fgDispDoms();
     void fgDispReach();
+    void fgDispBBLocalLiveness(BasicBlock* block);
     void fgDispBBLiveness(BasicBlock* block);
     void fgDispBBLiveness();
     void fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth = 0);
     void fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, bool dumpTrees);
     void fgDispBasicBlocks(bool dumpTrees = false);
-    void fgDumpStmtTree(Statement* stmt, unsigned bbNum);
     void fgDumpBlock(BasicBlock* block);
     void fgDumpTrees(BasicBlock* firstBlock, BasicBlock* lastBlock);
 
@@ -4727,27 +4731,26 @@ private:
                                            CORINFO_CONTEXT_HANDLE* ExactContextHnd,
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
-    void fgAssignSetVarDef(GenTree* tree);
-    GenTree* fgMorphInitBlock(GenTreeOp* asg);
-    GenTree* fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal);
-    GenTree* fgMorphInitBlockConstant(GenTreeIntCon* initVal,
-                                      var_types      type,
-                                      bool           extendToActualType,
-                                      var_types      simdBaseType);
-    GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
+    void gtAssignSetVarDef(GenTree* dst);
+    GenTree* fgMorphInitStruct(GenTreeOp* asg);
+    GenTree* fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
+                                       var_types      type,
+                                       bool           extendToActualType,
+                                       var_types      simdBaseType);
+    GenTree* fgMorphStructComma(GenTree* tree);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
 #ifdef FEATURE_SIMD
     GenTreeOp* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
     GenTreeOp* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
 #endif
-    GenTree* fgMorphCopyBlock(GenTreeOp* asg);
+    GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
+    GenTree* fgMorphCopyStruct(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
     GenTree* fgMorphConst(GenTree* tree);
-
-    GenTreeLclVar* fgMorphTryFoldObjAsLclVar(GenTreeObj* obj);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -5636,13 +5639,17 @@ public:
     typedef ArrayStack<GenTree*> GenTreePtrStack;
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTreePtrStack*> LclNumToGenTreePtrStack;
 
-    // Kill set to track variables with intervening definitions.
-    VARSET_TP optCopyPropKillSet;
-
     // Copy propagation functions.
-    void optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, LclNumToGenTreePtrStack* curSsaName);
+    void optCopyProp(BasicBlock*                    block,
+                     Statement*                     stmt,
+                     GenTreeLclVar*                 tree,
+                     unsigned                       lclNum,
+                     LclNumToGenTreePtrStack*       curSsaName,
+                     class CopyPropLivenessUpdater& liveness);
     void optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
-    void optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
+    void optBlockCopyProp(BasicBlock*                    block,
+                          LclNumToGenTreePtrStack*       curSsaName,
+                          class CopyPropLivenessUpdater& liveness);
     unsigned optIsSsaLocal(GenTree* tree);
     int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2);
     void optVnCopyProp();
@@ -6775,26 +6782,9 @@ public:
 
     // LIVENESS
 
-    VARSET_TP compCurLife;     // current live variables
-    GenTree*  compCurLifeTree; // node after which compCurLife has been computed
-
-    // Compare the given "newLife" with last set of live variables and update
-    // codeGen "gcInfo", siScopes, "regSet" with the new variable's homes/liveness.
-    template <bool ForCodeGen>
-    void compChangeLife(VARSET_VALARG_TP newLife);
-
-    // Update the GC's masks, register's masks and reports change on variable's homes given a set of
-    // current live variables if changes have happened since "compCurLife".
-    template <bool ForCodeGen>
-    inline void compUpdateLife(VARSET_VALARG_TP newLife);
-
     // Gets a register mask that represent the kill set for a helper call since
     // not all JIT Helper calls follow the standard ABI on the target architecture.
     regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
-
-    // If "tree" is a indirection (GT_IND, or GT_OBJ) whose arg is an ADDR, whose arg is a LCL_VAR, return that LCL_VAR
-    // node, else NULL.
-    static GenTreeLclVar* fgIsIndirOfAddrOfLocal(GenTree* tree);
 
     // This map is indexed by GT_OBJ nodes that are address of promoted struct variables, which
     // have been annotated with the GTF_VAR_DEATH flag.  If such a node is *not* mapped in this
@@ -7516,7 +7506,6 @@ public:
                                                                                                 \
         STRESS_MODE(REGS)                                                                       \
         STRESS_MODE(DBL_ALN)                                                                    \
-        STRESS_MODE(LCL_FLDS)                                                                   \
         STRESS_MODE(UNROLL_LOOPS)                                                               \
         STRESS_MODE(MAKE_CSE)                                                                   \
         STRESS_MODE(LEGACY_INLINE)                                                              \

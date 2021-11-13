@@ -72,7 +72,7 @@ GTNODE(CKFINITE         , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // Che
 GTNODE(LCLHEAP          , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // alloca()
 GTNODE(JMP              , GenTreeVal         ,0,(GTK_LEAF|GTK_NOVALUE))   // Jump to another function
 
-GTNODE(ADDR             , GenTreeOp          ,0,GTK_UNOP)               // address of
+GTNODE(ADDR             , GenTreeOp          ,0,(GTK_UNOP|GTK_NOTLIR))    // address of
 
 GTNODE(IND              , GenTreeIndir       ,0,GTK_UNOP)                // load indirection
 GTNODE(STOREIND         , GenTreeStoreInd    ,0,(GTK_BINOP|GTK_NOVALUE)) // store indirection
@@ -84,7 +84,7 @@ GTNODE(OBJ              , GenTreeObj         ,0,(GTK_UNOP|GTK_EXOP))            
 GTNODE(STORE_OBJ        , GenTreeObj         ,0,(GTK_BINOP|GTK_EXOP|GTK_NOVALUE)) // Object that MAY have gc pointers, and thus includes the relevant gc layout info.
 GTNODE(BLK              , GenTreeBlk         ,0,(GTK_UNOP|GTK_EXOP))              // Block/object with no gc pointers, and with a known size (e.g. a struct with no gc fields)
 GTNODE(STORE_BLK        , GenTreeBlk         ,0,(GTK_BINOP|GTK_EXOP|GTK_NOVALUE)) // Block/object with no gc pointers, and with a known size (e.g. a struct with no gc fields)
-GTNODE(DYN_BLK          , GenTreeDynBlk      ,0,GTK_SPECIAL)               // Dynamically sized block object
+GTNODE(DYN_BLK          , GenTreeDynBlk      ,0,GTK_SPECIAL|GTK_NOTLIR)           // Dynamically sized block object
 GTNODE(STORE_DYN_BLK    , GenTreeDynBlk      ,0,(GTK_SPECIAL|GTK_NOVALUE)) // Dynamically sized block object
 
 GTNODE(BOX              , GenTreeBox         ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR))
@@ -235,12 +235,12 @@ GTNODE(JTRUE            , GenTreeOp          ,0,(GTK_UNOP|GTK_NOVALUE))
 //  Other nodes that have special structure:
 //-----------------------------------------------------------------------------
 
-GTNODE(FIELD            , GenTreeField       ,0,GTK_SPECIAL)            // Member-field
-GTNODE(ARR_ELEM         , GenTreeArrElem     ,0,GTK_SPECIAL)            // Multi-dimensional array-element address
+GTNODE(FIELD            , GenTreeField       ,0,(GTK_SPECIAL|GTK_NOTLIR)) // Member-field
+GTNODE(ARR_ELEM         , GenTreeArrElem     ,0,GTK_SPECIAL)              // Multi-dimensional array-element address
 GTNODE(ARR_INDEX        , GenTreeArrIndex    ,0,(GTK_BINOP|GTK_EXOP))     // Effective, bounds-checked index for one dimension of a multi-dimensional array element
-GTNODE(ARR_OFFSET       , GenTreeArrOffs     ,0,GTK_SPECIAL)            // Flattened offset of multi-dimensional array element
+GTNODE(ARR_OFFSET       , GenTreeArrOffs     ,0,GTK_SPECIAL)              // Flattened offset of multi-dimensional array element
 GTNODE(CALL             , GenTreeCall        ,0,(GTK_SPECIAL|GTK_NOCONTAIN))
-GTNODE(FIELD_LIST       , GenTreeFieldList   ,0,GTK_SPECIAL)            // List of fields of a struct, when passed as an argument
+GTNODE(FIELD_LIST       , GenTreeFieldList   ,0,GTK_SPECIAL)              // List of fields of a struct, when passed as an argument
 
 GTNODE(RETURN           , GenTreeOp          ,0,(GTK_UNOP|GTK_NOVALUE))   // return from current function
 GTNODE(SWITCH           , GenTreeOp          ,0,(GTK_UNOP|GTK_NOVALUE))   // switch

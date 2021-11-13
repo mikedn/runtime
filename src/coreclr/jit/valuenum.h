@@ -653,6 +653,7 @@ public:
     // If "opA" has a PtrToLoc, PtrToArrElem, or PtrToStatic application as its value numbers, returns the VN for the
     // pointer form extended with "fieldSeq"; or else NoVN.
     ValueNum ExtendPtrVN(GenTree* opA, FieldSeqNode* fieldSeq);
+    ValueNum ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fieldSeq);
 
     ValueNum ExtractArrayElementIndex(const struct ArrayInfo& arrayInfo);
 

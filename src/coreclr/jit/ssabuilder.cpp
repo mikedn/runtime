@@ -727,46 +727,29 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
 //
 void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 {
-    // This is perhaps temporary -- maybe should be done elsewhere.  Label GT_INDs on LHS of assignments, so we
-    // can skip these during (at least) value numbering.
+    assert(asgNode->OperIs(GT_ASG));
 
-    GenTree* lhs = asgNode->GetOp(0)->SkipComma();
+    GenTree*             dst     = asgNode->GetOp(0);
+    GenTreeLclVarCommon* lclNode = nullptr;
 
-    if (lhs->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
+    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        lhs->gtFlags |= GTF_IND_ASG_LHS;
-    }
-    else if (lhs->OperIs(GT_CLS_VAR))
-    {
-        lhs->gtFlags |= GTF_CLS_VAR_ASG_LHS;
-    }
-
-    GenTreeLclVarCommon* lclNode;
-    bool                 isFullDef;
-    bool                 isLocal = asgNode->DefinesLocal(m_pCompiler, &lclNode, &isFullDef);
-
-    if (isLocal)
-    {
+        lclNode           = dst->AsLclVarCommon();
         unsigned   lclNum = lclNode->GetLclNum();
         LclVarDsc* varDsc = m_pCompiler->lvaGetDesc(lclNum);
 
-        if (!m_pCompiler->lvaInSsa(lclNum) && varDsc->CanBeReplacedWithItsField(m_pCompiler))
-        {
-            lclNum = varDsc->lvFieldLclStart;
-            varDsc = m_pCompiler->lvaGetDesc(lclNum);
-            assert(isFullDef);
-        }
-
-        if (m_pCompiler->lvaInSsa(lclNum))
+        if (varDsc->IsInSsa())
         {
             // Promoted variables are not in SSA, only their fields are.
-            assert(!m_pCompiler->lvaGetDesc(lclNum)->lvPromoted);
+            assert(!varDsc->IsPromoted());
+            // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
+            assert(!varDsc->IsAddressExposed());
             // This should have been marked as defintion.
             assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
 
             unsigned ssaNum = varDsc->lvPerSsaData.AllocSsaNum(m_allocator, block, asgNode);
 
-            if (!isFullDef)
+            if (lclNode->IsPartialLclFld(m_pCompiler))
             {
                 assert((lclNode->gtFlags & GTF_VAR_USEASG) != 0);
 
@@ -792,20 +775,32 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                 AddDefToHandlerPhis(block, lclNum, ssaNum);
             }
 
-            // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
-            assert(!m_pCompiler->lvaVarAddrExposed(lclNum));
             return;
         }
 
         lclNode->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
+
+        if (!varDsc->IsAddressExposed())
+        {
+            return;
+        }
     }
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     if (((block->bbMemoryHavoc & memoryKindSet(GcHeap)) == 0) && m_pCompiler->ehBlockHasExnFlowDsc(block))
     {
-        bool isAddrExposedLocal = isLocal && m_pCompiler->lvaVarAddrExposed(lclNode->GetLclNum());
+        if (lclNode == nullptr)
+        {
+            if (GenTreeIndir* indir = dst->IsIndir())
+            {
+                lclNode = indir->GetAddr()->IsLocalAddrExpr();
+                assert((lclNode == nullptr) || m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed());
+            }
+        }
+
+        bool isAddrExposedLocal = (lclNode != nullptr) && m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed();
         bool hasByrefHavoc      = ((block->bbMemoryHavoc & memoryKindSet(ByrefExposed)) != 0);
-        if (!isLocal || (isAddrExposedLocal && !hasByrefHavoc))
+        if ((lclNode == nullptr) || (isAddrExposedLocal && !hasByrefHavoc))
         {
             // It *may* define byref memory in a non-havoc way.  Make a new SSA # -- associate with this node.
             unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
@@ -826,7 +821,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
                 AddMemoryDefToHandlerPhis(ByrefExposed, block, ssaNum);
             }
 
-            if (!isLocal)
+            if (lclNode == nullptr)
             {
                 // Add a new def for GcHeap as well
                 if (m_pCompiler->byrefStatesMatchGcHeapStates)
@@ -1630,17 +1625,12 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 {
     LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
 
-    if (lcl->lvAddrExposed)
+    if (!lcl->HasLiveness())
     {
         return false;
     }
 
-    if (!lcl->lvTracked)
-    {
-        return false;
-    }
-
-    // Promoted structs are never tracked.
+    assert(!lcl->IsAddressExposed());
     assert(!lcl->IsPromoted());
 
     if (lcl->lvOverlappingFields)
@@ -1648,19 +1638,19 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
         return false;
     }
 
-    if (lcl->IsDependentPromotedField(m_pCompiler))
+    if (lcl->IsPromotedField())
     {
-        // SSA must exclude struct fields that are not independent:
-        // - we don't model the struct assignment properly when multiple fields
-        //   can be assigned by one struct assignment.
-        // - SSA doesn't allow a single node to contain multiple SSA definitions.
-        // - dependent promoted fields are never candidates for a register.
-        return false;
-    }
+        LclVarDsc* parentLcl = m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-    if (lcl->IsPromotedField() && m_pCompiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->lvIsMultiRegRet)
-    {
-        return false;
+        if (parentLcl->IsDependentPromoted() || parentLcl->lvIsMultiRegRet)
+        {
+            // SSA must exclude struct fields that are not independent:
+            // - we don't model the struct assignment properly when multiple fields
+            //   can be assigned by one struct assignment.
+            // - SSA doesn't allow a single node to contain multiple SSA definitions.
+            // - dependent promoted fields are never candidates for a register.
+            return false;
+        }
     }
 
     return true;

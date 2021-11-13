@@ -5007,7 +5007,6 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 {
                     tree->SetType(genSignedType(dstt));
                     tree->SetVNs(vnpNarrow);
-                    tree->gtFlags |= GTF_VAR_CAST;
                 }
 
                 return true;
@@ -5163,12 +5162,6 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 {
                     tree->gtType = genSignedType(dstt);
                     tree->SetVNs(vnpNarrow);
-
-                    /* Make sure we don't mess up the variable type */
-                    if ((oper == GT_LCL_VAR) || (oper == GT_LCL_FLD))
-                    {
-                        tree->gtFlags |= GTF_VAR_CAST;
-                    }
                 }
 
                 return true;
@@ -7060,6 +7053,8 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
             {
                 GenTree* lhs = tree->AsOp()->GetOp(0)->SkipComma();
 
+                // TODO-MIKE-Review: This thing ignores LCL_FLD assignments.
+
                 if (lhs->OperIs(GT_IND))
                 {
                     GenTree* arg = lhs->AsIndir()->GetAddr()->SkipComma();
@@ -7125,47 +7120,43 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         }
                     }
                 }
-                else if (lhs->OperIsBlk())
+                else if (lhs->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
                 {
-                    GenTreeLclVarCommon* lclVarTree;
-                    bool                 isEntire;
-                    if (!tree->DefinesLocal(this, &lclVarTree, &isEntire))
+                    if (GenTreeLclVarCommon* lclNode = lhs->AsIndir()->GetAddr()->IsLocalAddrExpr())
                     {
-                        // For now, assume arbitrary side effects on GcHeap/ByrefExposed...
-                        memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
-                    }
-                    else if (lvaVarAddrExposed(lclVarTree->GetLclNum()))
-                    {
+                        assert(lvaGetDesc(lclNode)->IsAddressExposed());
                         memoryHavoc |= memoryKindSet(ByrefExposed);
                     }
+                    else
+                    {
+                        memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                    }
                 }
-                else if (lhs->OperGet() == GT_CLS_VAR)
+                else if (lhs->OperIs(GT_CLS_VAR))
                 {
                     AddModifiedFieldAllContainingLoops(mostNestedLoop, lhs->AsClsVar()->gtClsVarHnd);
                     // Conservatively assume byrefs may alias this static field
                     memoryHavoc |= memoryKindSet(ByrefExposed);
                 }
-                // Otherwise, must be local lhs form.  I should assert that.
-                else if (lhs->OperGet() == GT_LCL_VAR)
+                else if (lhs->OperIs(GT_LCL_VAR))
                 {
-                    GenTreeLclVar* lhsLcl = lhs->AsLclVar();
-                    GenTree*       rhs    = tree->AsOp()->gtOp2;
-                    ValueNum       rhsVN  = rhs->gtVNPair.GetLiberal();
-                    // If we gave the RHS a value number, propagate it.
-                    if (rhsVN != ValueNumStore::NoVN)
-                    {
-                        rhsVN = vnStore->VNNormalValue(rhsVN);
-                        if (lvaInSsa(lhsLcl->GetLclNum()))
-                        {
-                            lvaTable[lhsLcl->GetLclNum()]
-                                .GetPerSsaData(lhsLcl->GetSsaNum())
-                                ->m_vnPair.SetLiberal(rhsVN);
-                        }
-                    }
-                    // If the local is address-exposed, count this as ByrefExposed havoc
-                    if (lvaVarAddrExposed(lhsLcl->GetLclNum()))
+                    GenTreeLclVar* lclNode = lhs->AsLclVar();
+                    LclVarDsc*     lcl     = lvaGetDesc(lclNode);
+
+                    if (lcl->IsAddressExposed())
                     {
                         memoryHavoc |= memoryKindSet(ByrefExposed);
+                    }
+                    else if (lcl->IsInSsa())
+                    {
+                        ValueNum srcVN = tree->AsOp()->GetOp(1)->gtVNPair.GetLiberal();
+
+                        if (srcVN != ValueNumStore::NoVN)
+                        {
+                            srcVN = vnStore->VNNormalValue(srcVN);
+
+                            lcl->GetPerSsaData(lclNode->GetSsaNum())->m_vnPair.SetLiberal(srcVN);
+                        }
                     }
                 }
             }
@@ -8233,17 +8224,22 @@ void Compiler::optRemoveRedundantZeroInits()
                     }
                     case GT_ASG:
                     {
-                        GenTreeOp* treeOp = tree->AsOp();
+                        GenTreeLclVarCommon* lclNode = nullptr;
 
-                        GenTreeLclVarCommon* lclVar;
-                        bool                 isEntire;
+                        if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                        {
+                            lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
+                        }
 
-                        if (!tree->DefinesLocal(this, &lclVar, &isEntire))
+                        // TODO-MIKE-CQ: This could also recognize indirect local stores.
+                        // Though they're so rare that's hardly worth the trouble...
+
+                        if (lclNode == nullptr)
                         {
                             break;
                         }
 
-                        const unsigned lclNum = lclVar->GetLclNum();
+                        const unsigned lclNum = lclNode->GetLclNum();
 
                         LclVarDsc* const lclDsc    = lvaGetDesc(lclNum);
                         unsigned*        pRefCount = refCounts.LookupPointer(lclNum);
@@ -8280,8 +8276,9 @@ void Compiler::optRemoveRedundantZeroInits()
 
                         // The local hasn't been referenced before this assignment.
                         bool removedExplicitZeroInit = false;
+                        bool totalOverlap            = !lclNode->IsPartialLclFld(this);
 
-                        if (treeOp->gtGetOp2()->IsIntegralConst(0))
+                        if (tree->AsOp()->GetOp(1)->IsIntegralConst(0))
                         {
                             bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
                             bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
@@ -8291,7 +8288,7 @@ void Compiler::optRemoveRedundantZeroInits()
                                 if (BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclNum) ||
                                     (lclDsc->lvIsStructField &&
                                      BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclDsc->lvParentLcl)) ||
-                                    ((!lclDsc->lvTracked || !isEntire) &&
+                                    ((!lclDsc->lvTracked || !totalOverlap) &&
                                      !fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn)))
                                 {
                                     // We are guaranteed to have a zero initialization in the prolog or a
@@ -8313,7 +8310,7 @@ void Compiler::optRemoveRedundantZeroInits()
                                     }
                                 }
 
-                                if (isEntire)
+                                if (totalOverlap)
                                 {
                                     BitVecOps::AddElemD(&bitVecTraits, zeroInitLocals, lclNum);
                                 }
@@ -8321,7 +8318,7 @@ void Compiler::optRemoveRedundantZeroInits()
                             }
                         }
 
-                        if (!removedExplicitZeroInit && isEntire && (!canThrow || !lclDsc->lvLiveInOutOfHndlr))
+                        if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lclDsc->lvLiveInOutOfHndlr))
                         {
                             // If compMethodRequiresPInvokeFrame() returns true, lower may later
                             // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.

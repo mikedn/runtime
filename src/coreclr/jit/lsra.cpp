@@ -1956,8 +1956,6 @@ void LinearScan::initVarRegMaps()
         outVarToRegMaps = nullptr;
         return;
     }
-    assert(compiler->lvaTrackedFixed); // We should have already set this to prevent us from adding any new tracked
-                                       // variables.
 
     // The compiler memory allocator requires that the allocation be an
     // even multiple of int-sized objects

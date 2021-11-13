@@ -1388,7 +1388,7 @@ VarName Compiler::compVarName(regNumber reg, bool isFloatReg)
                 (varDsc->IsFloatRegType() || !isFloatReg) && (varDsc->lvSlotNum < info.compVarScopesCount))
             {
                 /* check if variable in that register is live */
-                if (VarSetOps::IsMember(this, compCurLife, varDsc->lvVarIndex))
+                if ((codeGen != nullptr) && VarSetOps::IsMember(this, codeGen->GetLiveSet(), varDsc->lvVarIndex))
                 {
                     /* variable is live - find the corresponding slot */
                     VarScopeDsc* varScope =
@@ -3603,8 +3603,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
         hashBv::Init(this);
 
-        VarSetOps::AssignAllowUninitRhs(this, compCurLife, VarSetOps::UninitVal());
-
         // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
         if (info.compPublishStubParam)
         {
@@ -3914,8 +3912,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
 
-    // Now that locals have address-taken and implicit byref marked, we can safely apply stress.
-    INDEBUG(lvaStressLclFld();)
 #ifndef TARGET_64BIT
     INDEBUG(fgStress64RsltMul();)
 #endif
@@ -4033,8 +4029,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     fgDebugCheckLinks();
 #endif
 
-    // Create the variable table (and compute variable ref counts)
-    //
     DoPhase(this, PHASE_MARK_LOCAL_VARS, &Compiler::lvaMarkLocalVars);
 
     // IMPORTANT, after this point, locals are ref counted.
@@ -4043,8 +4037,11 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     if (opts.OptimizationEnabled())
     {
-        // Optimize boolean conditions
-        //
+#if ASSERTION_PROP
+        // optAddCopies depends on lvaRefBlks, which is set in lvaMarkLocalVars.
+        DoPhase(this, PHASE_ADD_COPIES, &Compiler::optAddCopies);
+#endif
+
         DoPhase(this, PHASE_OPTIMIZE_BOOLS, &Compiler::optOptimizeBools);
 
         // optOptimizeBools() might have changed the number of blocks; the dominators/reachability might be bad.
@@ -4266,9 +4263,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     StackLevelSetter stackLevelSetter(this);
     stackLevelSetter.Run();
 #endif // !OSX_ARM64_ABI
-
-    // We can not add any new tracked variables after this point.
-    lvaTrackedFixed = true;
 
     // Now that lowering is completed we can proceed to perform register allocation
     //
@@ -7219,6 +7213,45 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars)
     printf("}");
 }
 
+void Compiler::dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to)
+{
+    bool* fromBits = static_cast<bool*>(_alloca(lvaCount * sizeof(bool)));
+    memset(fromBits, 0, lvaCount * sizeof(bool));
+    bool* toBits = static_cast<bool*>(_alloca(lvaCount * sizeof(bool)));
+    memset(toBits, 0, lvaCount * sizeof(bool));
+
+    for (VarSetOps::Enumerator e(this, from); e.MoveNext();)
+    {
+        fromBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+    }
+
+    for (VarSetOps::Enumerator e(this, to); e.MoveNext();)
+    {
+        toBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+    }
+
+    printf("%s{ ", name);
+
+    for (unsigned i = 0; i < lvaCount; i++)
+    {
+        if (!fromBits[i] && !toBits[i])
+        {
+            continue;
+        }
+
+        const char* s = "";
+
+        if (fromBits[i] != toBits[i])
+        {
+            s = toBits[i] ? "+" : "-";
+        }
+
+        printf("%sV%02u ", s, i);
+    }
+
+    printf("}\n");
+}
+
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XX                                                                           XX
@@ -7702,10 +7735,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 if (tree->gtFlags & GTF_VAR_USEASG)
                 {
                     chars += printf("[VAR_USEASG]");
-                }
-                if (tree->gtFlags & GTF_VAR_CAST)
-                {
-                    chars += printf("[VAR_CAST]");
                 }
                 if (tree->gtFlags & GTF_VAR_ITERATOR)
                 {

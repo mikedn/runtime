@@ -457,8 +457,11 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
+            srcCount = BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
+            break;
+
         case GT_STORE_DYN_BLK:
-            srcCount = BuildStructStore(tree->AsBlk());
+            srcCount = BuildStoreDynBlk(tree->AsDynBlk());
             break;
 
         case GT_LCLHEAP:
@@ -1160,12 +1163,22 @@ bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
 }
 #endif
 
-int LinearScan::BuildStructStore(GenTreeBlk* store)
+int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    GenTree*     dstAddr = store->GetAddr();
-    GenTree*     src     = store->GetValue();
-    ClassLayout* layout  = store->GetLayout();
-    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
+    GenTree* dstAddr = nullptr;
+    GenTree* src;
+
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        dstAddr = store->AsBlk()->GetAddr();
+        src     = store->AsBlk()->GetValue();
+    }
+
+    unsigned size = layout->GetSize();
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -1197,7 +1210,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     RefPosition* internalByteDef = nullptr;
 #endif
 
-    switch (store->GetKind())
+    switch (kind)
     {
         case StructStoreKind::UnrollInit:
             if (size >= XMM_REGSIZE_BYTES)
@@ -1272,6 +1285,13 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
             unreached();
     }
 
+    if ((dstAddr == nullptr) && (dstAddrRegMask != RBM_NONE))
+    {
+        // This is a local destination; we'll use a temp register for its address.
+        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+        BuildInternalIntDef(store, dstAddrRegMask);
+    }
+
     if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
     {
         // This is a local source; we'll use a temp register for its address.
@@ -1279,7 +1299,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         BuildInternalIntDef(store, srcRegMask);
     }
 
-    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
+    if (sizeRegMask != RBM_NONE)
     {
         // Reserve a temp register for the block size argument.
         BuildInternalIntDef(store, sizeRegMask);
@@ -1287,14 +1307,17 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
     int useCount = 0;
 
-    if (!dstAddr->isContained())
+    if (dstAddr != nullptr)
     {
-        useCount++;
-        BuildUse(dstAddr, dstAddrRegMask);
-    }
-    else if (dstAddr->IsAddrMode())
-    {
-        useCount += BuildAddrUses(dstAddr);
+        if (!dstAddr->isContained())
+        {
+            useCount++;
+            BuildUse(dstAddr, dstAddrRegMask);
+        }
+        else if (dstAddr->IsAddrMode())
+        {
+            useCount += BuildAddrUses(dstAddr);
+        }
     }
 
     if (srcAddrOrFill != nullptr)
@@ -1310,12 +1333,6 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         }
     }
 
-    if (store->OperIs(GT_STORE_DYN_BLK))
-    {
-        useCount++;
-        BuildUse(store->AsDynBlk()->GetSize(), sizeRegMask);
-    }
-
 #ifdef TARGET_X86
     // If we require a byte register on x86, we may run into an over-constrained situation
     // if we have BYTE_REG_COUNT or more uses.
@@ -1329,7 +1346,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     {
         // Only unrolled copies may reach the limit, when both source and destination are
         // base + index address modes.
-        assert(store->GetKind() == StructStoreKind::UnrollCopy);
+        assert(kind == StructStoreKind::UnrollCopy);
 
         if (internalByteDef != nullptr)
         {
@@ -1339,7 +1356,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 #endif
 
     BuildInternalUses();
-    BuildKills(store, getKillSetForStructStore(store));
+    BuildKills(store, getKillSetForStructStore(kind));
 
     return useCount;
 }

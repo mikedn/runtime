@@ -43,8 +43,6 @@ void Compiler::lvaInit()
     lvaTrackedToVarNumSize = 0;
     lvaTrackedToVarNum     = nullptr;
 
-    lvaTrackedFixed = false; // false: We can still add new tracked variables
-
     lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 #if !defined(FEATURE_EH_FUNCLETS)
     lvaShadowSPslotsVar = BAD_VAR_NUM;
@@ -1465,22 +1463,6 @@ void Compiler::lvaResizeTable(unsigned newSize)
     lvaTable     = newTable;
 }
 
-/*****************************************************************************
- * Returns true if variable "varNum" may be address-exposed.
- */
-
-bool Compiler::lvaVarAddrExposed(unsigned varNum)
-{
-    noway_assert(varNum < lvaCount);
-    LclVarDsc* varDsc = &lvaTable[varNum];
-
-    return varDsc->lvAddrExposed;
-}
-
-/*****************************************************************************
- * Returns true iff variable "varNum" should not be enregistered (or one of several reasons).
- */
-
 bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
 {
     noway_assert(varNum < lvaCount);
@@ -1793,7 +1775,7 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         // unless there's a way to import the inlined code using A<SomeRefClass>.
         //
         // This means that we can end up with "A<SomeRefClass> = A<Canon>" struct assignments but
-        // that's OK, fgMorphCopyBlock and codegen support that. It may be that such mismatches
+        // that's OK, fgMorphCopyStruct and codegen support that. It may be that such mismatches
         // have some CQ consequences (block copy prop/CSE due to different VNs?).
         // In FX there aren't many such type mismatch cases but Microsoft.CodeAnalysis.CSharp.dll
         // has a lot more.
@@ -2393,10 +2375,6 @@ void Compiler::lvaSortByRefCount()
     lvaTrackedCount             = 0;
     lvaTrackedCountInSizeTUnits = 0;
 
-#ifdef DEBUG
-    VarSetOps::AssignNoCopy(this, lvaTrackedVars, VarSetOps::MakeEmpty(this));
-#endif
-
     if (lvaCount == 0)
     {
         return;
@@ -2442,22 +2420,22 @@ void Compiler::lvaSortByRefCount()
         // Pinned variables may not be tracked (a condition of the GCInfo representation)
         // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
         // references when using the general GC encoding.
-        if (varDsc->lvAddrExposed)
+        if (varDsc->IsAddressExposed())
         {
+            assert(varDsc->lvDoNotEnregister);
+
             varDsc->lvTracked = 0;
-            assert(varDsc->lvType != TYP_STRUCT ||
-                   varDsc->lvDoNotEnregister); // For structs, should have set this when we set lvAddrExposed.
         }
-        else if (varTypeIsStruct(varDsc))
+        else if (varTypeIsStruct(varDsc->GetType()))
         {
             // Promoted structs will never be considered for enregistration anyway,
             // and the DoNotEnregister flag was used to indicate whether promotion was
             // independent or dependent.
-            if (varDsc->lvPromoted)
+            if (varDsc->IsPromoted())
             {
                 varDsc->lvTracked = 0;
             }
-            else if ((varDsc->lvType == TYP_STRUCT) && !varDsc->lvRegStruct)
+            else if (varDsc->TypeIs(TYP_STRUCT))
             {
                 lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
             }
@@ -2574,10 +2552,6 @@ void Compiler::lvaSortByRefCount()
     lvaCurEpoch++;
     lvaTrackedCountInSizeTUnits =
         roundUp((unsigned)lvaTrackedCount, (unsigned)(sizeof(size_t) * 8)) / unsigned(sizeof(size_t) * 8);
-
-#ifdef DEBUG
-    VarSetOps::AssignNoCopy(this, lvaTrackedVars, VarSetOps::MakeFull(this));
-#endif
 }
 
 #if ASSERTION_PROP
@@ -2753,42 +2727,6 @@ var_types LclVarDsc::GetActualRegisterType() const
     return genActualType(GetRegisterType());
 }
 
-//----------------------------------------------------------------------------------------------
-// CanBeReplacedWithItsField: check if a whole struct reference could be replaced by a field.
-//
-// Arguments:
-//    comp - the compiler instance;
-//
-// Return Value:
-//    true if that can be replaced, false otherwise.
-//
-// Notes:
-//    The replacement can be made only for independently promoted structs
-//    with 1 field without holes.
-//
-bool LclVarDsc::CanBeReplacedWithItsField(Compiler* comp) const
-{
-    if (!IsIndependentPromoted() || (lvFieldCnt != 1))
-    {
-        return false;
-    }
-
-    assert(!lvContainsHoles);
-
-#if defined(FEATURE_SIMD)
-    // If we return `struct A { SIMD16 a; }` we split the struct into several fields.
-    // In order to do that we have to have its field `a` in memory. Right now lowering cannot
-    // handle RETURN struct(multiple registers)->SIMD16(one register), but it can be improved.
-    LclVarDsc* fieldDsc = comp->lvaGetDesc(lvFieldLclStart);
-    if (varTypeIsSIMD(fieldDsc))
-    {
-        return false;
-    }
-#endif // FEATURE_SIMD
-
-    unreached();
-}
-
 //------------------------------------------------------------------------
 // lvaMarkLclRefs: increment local var references counts and more
 //
@@ -2828,6 +2766,25 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 {
     const BasicBlock::weight_t weight = block->getBBWeight(this);
 
+    if (tree->OperIs(GT_ASG))
+    {
+#if OPT_BOOL_OPS
+        if (!isRecompute)
+        {
+            GenTree* op1 = tree->AsOp()->GetOp(0);
+            GenTree* op2 = tree->AsOp()->GetOp(1);
+
+            if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
+                !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
+            {
+                lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
+            }
+        }
+#endif // OPT_BOOL_OPS
+
+        return;
+    }
+
     /* Is this a call to unmanaged code ? */
     if (tree->IsCall() && compMethodRequiresPInvokeFrame())
     {
@@ -2847,73 +2804,16 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
         }
     }
 
-    if (!isRecompute)
-    {
-        /* Is this an assigment? */
-
-        if (tree->OperIs(GT_ASG))
-        {
-            GenTree* op1 = tree->AsOp()->gtOp1;
-            GenTree* op2 = tree->AsOp()->gtOp2;
-
-#if OPT_BOOL_OPS
-
-            /* Is this an assignment to a local variable? */
-
-            if (op1->gtOper == GT_LCL_VAR && op2->gtType != TYP_BOOL)
-            {
-                /* Only simple assignments allowed for booleans */
-
-                if (tree->gtOper != GT_ASG)
-                {
-                    goto NOT_BOOL;
-                }
-
-                /* Is the RHS clearly a boolean value? */
-
-                switch (op2->gtOper)
-                {
-                    unsigned lclNum;
-
-                    case GT_CNS_INT:
-
-                        if (op2->AsIntCon()->gtIconVal == 0)
-                        {
-                            break;
-                        }
-                        if (op2->AsIntCon()->gtIconVal == 1)
-                        {
-                            break;
-                        }
-
-                        // Not 0 or 1, fall through ....
-                        FALLTHROUGH;
-
-                    default:
-
-                        if (op2->OperIsCompare())
-                        {
-                            break;
-                        }
-
-                    NOT_BOOL:
-
-                        lclNum = op1->AsLclVarCommon()->GetLclNum();
-                        noway_assert(lclNum < lvaCount);
-
-                        lvaTable[lclNum].lvIsBoolean = false;
-                        break;
-                }
-            }
-#endif
-        }
-    }
-
     if (tree->OperIsLocalAddr())
     {
-        LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVarCommon());
-        assert(varDsc->lvAddrExposed);
-        varDsc->incRefCnts(weight, this);
+        LclVarDsc* lcl = lvaGetDesc(tree->AsLclVarCommon());
+        assert(lcl->IsAddressExposed());
+
+#if ASSERTION_PROP
+        lcl->lvaDisqualifyVar();
+#endif
+        lcl->incRefCnts(weight, this);
+
         return;
     }
 
@@ -2947,9 +2847,12 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 
     if (!isRecompute)
     {
-        if (lvaVarAddrExposed(lclNum))
+        if (varDsc->IsAddressExposed())
         {
             varDsc->lvIsBoolean = false;
+#if ASSERTION_PROP
+            varDsc->lvaDisqualifyVar();
+#endif
         }
 
         if (tree->gtOper == GT_LCL_FLD)
@@ -2977,17 +2880,14 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
                 // If we have one of these cases:
                 //     1.    We have already seen a definition (i.e lvSingleDef is true)
                 //     2. or info.CompInitMem is true (thus this would be the second definition)
-                //     3. or we have an assignment inside QMARK-COLON trees
-                //     4. or we have an update form of assignment (i.e. +=, -=, *=)
-                //     5. the user is not ASG, optAddCopiesCallback does not recognize indirect
+                //     3. the user is not ASG, optAddCopiesCallback does not recognize indirect
                 //        local definitions (e.g. BLK(ADDR(LCL_VAR)))
                 //
                 // Then we must disqualify this variable for use in optAddCopies()
                 //
                 // Note that all parameters start out with lvSingleDef set to true
 
-                if (varDsc->lvSingleDef || info.compInitMem || ((tree->gtFlags & GTF_COLON_COND) != 0) ||
-                    ((tree->gtFlags & GTF_VAR_USEASG) != 0) || !user->OperIs(GT_ASG))
+                if (varDsc->lvSingleDef || info.compInitMem || !user->OperIs(GT_ASG))
                 {
                     varDsc->lvaDisqualifyVar();
                 }
@@ -3252,13 +3152,6 @@ void Compiler::lvaMarkLocalVars()
         assert(info.compTypeCtxtArg != (int)BAD_VAR_NUM);
         lvaGetDesc(info.compTypeCtxtArg)->lvImplicitlyReferenced = reportParamTypeArg;
     }
-
-#if ASSERTION_PROP
-    assert(opts.OptimizationEnabled());
-
-    // Note: optAddCopies() depends on lvaRefBlks, which is set in lvaMarkLocalVars(BasicBlock*), called above.
-    optAddCopies();
-#endif
 }
 
 //------------------------------------------------------------------------
@@ -6745,234 +6638,6 @@ void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrins
     lvaGetDesc(lclVar)->lvUsedInSIMDIntrinsic = true;
 }
 #endif // FEATURE_SIMD
-
-/*****************************************************************************/
-
-#ifdef DEBUG
-/*****************************************************************************
- *  Pick a padding size at "random" for the local.
- *  0 means that it should not be converted to a GT_LCL_FLD
- */
-
-static unsigned LCL_FLD_PADDING(unsigned lclNum)
-{
-    // Convert every 2nd variable
-    if (lclNum % 2)
-    {
-        return 0;
-    }
-
-    // Pick a padding size at "random"
-    unsigned size = lclNum % 7;
-
-    return size;
-}
-
-/*****************************************************************************
- *
- *  Callback for fgWalkAllTreesPre()
- *  Convert as many GT_LCL_VAR's to GT_LCL_FLD's
- */
-
-/* static */
-/*
-    The stress mode does 2 passes.
-
-    In the first pass we will mark the locals where we CAN't apply the stress mode.
-    In the second pass we will do the appropiate morphing wherever we've not determined we can't do it.
-*/
-Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree*   tree = *pTree;
-    genTreeOps oper = tree->OperGet();
-    GenTree*   lcl;
-
-    switch (oper)
-    {
-        case GT_LCL_VAR:
-        case GT_LCL_VAR_ADDR:
-            lcl = tree;
-            break;
-
-        case GT_ADDR:
-            if (tree->AsOp()->gtOp1->gtOper != GT_LCL_VAR)
-            {
-                return WALK_CONTINUE;
-            }
-            lcl = tree->AsOp()->gtOp1;
-            break;
-
-        default:
-            return WALK_CONTINUE;
-    }
-
-    noway_assert(lcl->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR));
-
-    Compiler* const  pComp      = ((lvaStressLclFldArgs*)data->pCallbackData)->m_pCompiler;
-    const bool       bFirstPass = ((lvaStressLclFldArgs*)data->pCallbackData)->m_bFirstPass;
-    const unsigned   lclNum     = lcl->AsLclVar()->GetLclNum();
-    var_types        type       = lcl->TypeGet();
-    LclVarDsc* const varDsc     = pComp->lvaGetDesc(lclNum);
-
-    if (varDsc->lvNoLclFldStress)
-    {
-        // Already determined we can't do anything for this var
-        return WALK_SKIP_SUBTREES;
-    }
-
-    if (bFirstPass)
-    {
-        // Ignore arguments and temps
-        if (varDsc->lvIsParam || lclNum >= pComp->info.compLocalsCount)
-        {
-            varDsc->lvNoLclFldStress = true;
-            return WALK_SKIP_SUBTREES;
-        }
-
-        // Fix for lcl_fld stress mode
-        if (varDsc->lvKeepType)
-        {
-            varDsc->lvNoLclFldStress = true;
-            return WALK_SKIP_SUBTREES;
-        }
-
-        // Can't have GC ptrs in TYP_BLK.
-        if (!varTypeIsArithmetic(type))
-        {
-            varDsc->lvNoLclFldStress = true;
-            return WALK_SKIP_SUBTREES;
-        }
-
-        // The noway_assert in the second pass below, requires that these types match, or we have a TYP_BLK
-        //
-        if ((varDsc->lvType != lcl->gtType) && (varDsc->lvType != TYP_BLK))
-        {
-            varDsc->lvNoLclFldStress = true;
-            return WALK_SKIP_SUBTREES;
-        }
-
-        // Weed out "small" types like TYP_BYTE as we don't mark the GT_LCL_VAR
-        // node with the accurate small type. If we bash lvaTable[].lvType,
-        // then there will be no indication that it was ever a small type.
-        var_types varType = varDsc->TypeGet();
-        if (varType != TYP_BLK && genTypeSize(varType) != genTypeSize(genActualType(varType)))
-        {
-            varDsc->lvNoLclFldStress = true;
-            return WALK_SKIP_SUBTREES;
-        }
-
-        // Offset some of the local variable by a "random" non-zero amount
-        unsigned padding = LCL_FLD_PADDING(lclNum);
-        if (padding == 0)
-        {
-            varDsc->lvNoLclFldStress = true;
-            return WALK_SKIP_SUBTREES;
-        }
-    }
-    else
-    {
-        // Do the morphing
-        noway_assert((varDsc->lvType == lcl->gtType) || (varDsc->lvType == TYP_BLK));
-        var_types varType = varDsc->TypeGet();
-
-        // Calculate padding
-        unsigned padding = LCL_FLD_PADDING(lclNum);
-
-#ifdef TARGET_ARMARCH
-        // We need to support alignment requirements to access memory on ARM ARCH
-        unsigned alignment = pComp->lvaStressLclFldGetAlignment(lcl->AsLclVar());
-        padding            = roundUp(padding, alignment);
-#endif // TARGET_ARMARCH
-
-        // Change the variable to a TYP_BLK
-        if (varType != TYP_BLK)
-        {
-            varDsc->SetBlockType(roundUp(padding + pComp->lvaLclSize(lclNum), TARGET_POINTER_SIZE));
-            pComp->lvaSetVarAddrExposed(lclNum);
-        }
-
-        tree->gtFlags |= GTF_GLOB_REF;
-
-        /* Now morph the tree appropriately */
-        if (oper == GT_LCL_VAR)
-        {
-            /* Change lclVar(lclNum) to lclFld(lclNum,padding) */
-
-            tree->ChangeOper(GT_LCL_FLD);
-            tree->AsLclFld()->SetLclOffs(padding);
-        }
-        else if (oper == GT_LCL_VAR_ADDR)
-        {
-            tree->ChangeOper(GT_LCL_FLD_ADDR);
-            tree->AsLclFld()->SetLclOffs(padding);
-        }
-        else
-        {
-            /* Change addr(lclVar) to addr(lclVar)+padding */
-
-            noway_assert(oper == GT_ADDR);
-            GenTree* paddingTree = pComp->gtNewIconNode(padding);
-            GenTree* newAddr     = pComp->gtNewOperNode(GT_ADD, tree->gtType, tree, paddingTree);
-
-            *pTree = newAddr;
-
-            lcl->gtType = TYP_BLK;
-        }
-    }
-
-    return WALK_SKIP_SUBTREES;
-}
-
-#ifdef TARGET_ARMARCH
-
-unsigned Compiler::lvaStressLclFldGetAlignment(GenTreeLclVar* lclNode)
-{
-    if (lclNode->TypeIs(TYP_STRUCT))
-    {
-        LclVarDsc* lcl = lvaGetDesc(lclNode);
-        assert(lcl->GetType() == TYP_STRUCT);
-#ifndef TARGET_64BIT
-        if (lcl->lvStructDoubleAlign)
-        {
-            return REGSIZE_BYTES * 2;
-        }
-#endif
-        return REGSIZE_BYTES;
-    }
-
-    return roundUp(static_cast<unsigned>(genTypeAlignments[lclNode->GetType()]), REGSIZE_BYTES);
-}
-
-#endif // TARGET_ARMARCH
-
-void Compiler::lvaStressLclFld()
-{
-    if (!compStressCompile(STRESS_LCL_FLDS, 5))
-    {
-        return;
-    }
-
-    lvaStressLclFldArgs Args;
-    Args.m_pCompiler  = this;
-    Args.m_bFirstPass = true;
-
-    // Do First pass
-    fgWalkAllTreesPre(lvaStressLclFldCB, &Args);
-
-    // Second pass
-    Args.m_bFirstPass = false;
-    fgWalkAllTreesPre(lvaStressLclFldCB, &Args);
-}
-
-#endif // DEBUG
-
-/*****************************************************************************
- *
- *  A little routine that displays a local variable bitset.
- *  'set' is mask of variables that have to be displayed
- *  'allVars' is the complete set of interesting variables (blank space is
- *    inserted if its corresponding bit is not in 'set').
- */
 
 #ifdef DEBUG
 void Compiler::lvaDispVarSet(VARSET_VALARG_TP set)

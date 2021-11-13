@@ -189,25 +189,8 @@ void RegSet::rsRemoveRegsModified(regMaskTP mask)
 
 void RegSet::SetMaskVars(regMaskTP newMaskVars)
 {
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("Live regs: ");
-        if (_rsMaskVars == newMaskVars)
-        {
-            printf("(unchanged) ");
-        }
-        else
-        {
-            printRegMaskInt(_rsMaskVars);
-            m_rsCompiler->GetEmitter()->emitDispRegSet(_rsMaskVars);
-            printf(" => ");
-        }
-        printRegMaskInt(newMaskVars);
-        m_rsCompiler->GetEmitter()->emitDispRegSet(newMaskVars);
-        printf("\n");
-    }
-#endif // DEBUG
+    DBEXEC(m_rsCompiler->verbose,
+           m_rsCompiler->GetEmitter()->emitDispRegSetDiff("Live regs: ", _rsMaskVars, newMaskVars);)
 
     _rsMaskVars = newMaskVars;
 }

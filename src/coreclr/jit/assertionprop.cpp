@@ -78,7 +78,7 @@ void Compiler::optAddCopies()
         // We only add copies for non temp local variables
         // that have a single def and that can possibly be enregistered
 
-        if (varDsc->lvIsTemp || !varDsc->lvSingleDef || !varTypeIsEnregisterable(typ))
+        if (varDsc->lvIsTemp || !varDsc->lvSingleDef || (typ == TYP_STRUCT))
         {
             continue;
         }
@@ -2454,6 +2454,8 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
 {
     const unsigned lclNum = tree->GetLclNum();
 
+    assert(!lvaGetDesc(lclNum)->IsAddressExposed());
+
     if (lclNumIsCSE(lclNum))
     {
         return nullptr;
@@ -2687,6 +2689,9 @@ GenTree* Compiler::optCopyAssertionProp(AssertionDsc*        curAssertion,
 
     LclVarDsc* const copyVarDsc = lvaGetDesc(copyLclNum);
     LclVarDsc* const lclVarDsc  = lvaGetDesc(lclNum);
+
+    assert(!copyVarDsc->IsAddressExposed());
+    assert(!lclVarDsc->IsAddressExposed());
 
     // Make sure the types are compatible.
     if (!optAssertionProp_LclVarTypeCheck(tree, lclVarDsc, copyVarDsc))
@@ -3286,6 +3291,8 @@ GenTree* Compiler::optAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenT
         return nullptr;
     }
 
+    assert(!lvaGetDesc(lclNum)->IsAddressExposed());
+
     AssertionDsc* curAssertion = optGetAssertion(index);
 
     bool assertionKindIsEqual = (curAssertion->assertionKind == OAK_EQUAL);
@@ -3371,6 +3378,8 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
     if (index != NO_ASSERTION_INDEX)
     {
         LclVarDsc* varDsc = &lvaTable[lcl->AsLclVarCommon()->GetLclNum()];
+        assert(!varDsc->IsAddressExposed());
+
         if (varDsc->lvNormalizeOnLoad() || varTypeIsLong(varDsc->TypeGet()))
         {
             // For normalize on load variables it must be a narrowing cast to remove
@@ -3657,6 +3666,7 @@ AssertionIndex Compiler::optAssertionIsNonNullInternal(GenTree*         op,
                 (curAssertion->op2.kind == O2K_CONST_INT) &&      // op2
                 (curAssertion->op1.lcl.lclNum == lclNum) && (curAssertion->op2.u1.iconVal == 0))
             {
+                assert(!lvaGetDesc(lclNum)->IsAddressExposed());
                 return index;
             }
         }

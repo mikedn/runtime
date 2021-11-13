@@ -543,6 +543,27 @@ public:
         }
     };
 
+    class Enumerator
+    {
+        Iter     iter;
+        unsigned index;
+
+    public:
+        Enumerator(Env env, const BitSetShortLongRep& s) : iter(env, s), index(0)
+        {
+        }
+
+        bool MoveNext()
+        {
+            return iter.NextElem(&index);
+        }
+
+        unsigned Current() const
+        {
+            return index;
+        }
+    };
+
     typedef const BitSetShortLongRep& ValArgType;
     typedef BitSetShortLongRep        RetValType;
 };

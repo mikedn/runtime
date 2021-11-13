@@ -523,15 +523,9 @@ enum GenTreeFlags : unsigned int
 
     GTF_LIVENESS_MASK   = GTF_VAR_DEF | GTF_VAR_USEASG | GTF_VAR_DEATH_MASK,
 
-    GTF_VAR_CAST        = 0x01000000, // GT_LCL_VAR -- has been explictly cast (variable node may not be type of local)
     GTF_VAR_ITERATOR    = 0x00800000, // GT_LCL_VAR -- this is a iterator reference in the loop condition
     GTF_VAR_CLONED      = 0x00400000, // GT_LCL_VAR -- this node has been cloned or is a clone
     GTF_VAR_CONTEXT     = 0x00200000, // GT_LCL_VAR -- this node is part of a runtime lookup
-    GTF_VAR_FOLDED_IND  = 0x00100000, // GT_LCL_VAR -- this node was folded from *(typ*)&lclVar expression tree in fgMorphSmpOp()
-                                      // where 'typ' is a small type and 'lclVar' corresponds to a normalized-on-store local variable.
-                                      // This flag identifies such nodes in order to make sure that fgMorphNormalizeLclVarStore() is called
-                                      // on their parents in post-order morph.
-                                      // Relevant for inlining optimizations (see inlPrependStatements)
 
     // For additional flags for GT_CALL node see GTF_CALL_M_*
 
@@ -1073,6 +1067,11 @@ public:
         gtVNPair = tree->gtVNPair;
     }
 
+    void SetVNP(ValueNumPair vnp)
+    {
+        gtVNPair = vnp;
+    }
+
     ValueNum GetVN(ValueNumKind vnk) const
     {
         if (vnk == VNK_Liberal)
@@ -1185,25 +1184,14 @@ public:
             return false;
         }
 
-        switch (gtOper)
+        if (gtOper == GT_NOP)
         {
-            case GT_NOP:
-                // NOPs may only be present in LIR if they do not produce a value.
-                return IsNothingNode();
-
-            case GT_ADDR:
-            {
-                // ADDR ndoes may only be present in LIR if the location they refer to is not a
-                // local, class variable, or IND node.
-                GenTree*   location   = gtGetOp1();
-                genTreeOps locationOp = location->OperGet();
-                return !location->IsLocal() && (locationOp != GT_CLS_VAR) && (locationOp != GT_IND);
-            }
-
-            default:
-                // All other nodes are assumed to be correct.
-                return true;
+            // NOPs may only be present in LIR if they do not produce a value.
+            return IsNothingNode();
         }
+
+        // All other nodes are assumed to be correct.
+        return true;
     }
 
     // LIR flags
@@ -1910,47 +1898,16 @@ public:
         return OperIsLocal(OperGet());
     }
 
-    // Returns "true" iff 'this' is a GT_LCL_FLD or GT_STORE_LCL_FLD on which the type
-    // is not the same size as the type of the GT_LCL_VAR.
     bool IsPartialLclFld(Compiler* comp);
-
-    // Returns "true" iff "this" defines a local variable.  Requires "comp" to be the
-    // current compilation.  If returns "true", sets "*pLclVarTree" to the
-    // tree for the local that is defined, and, if "pIsEntire" is non-null, sets "*pIsEntire" to
-    // true or false, depending on whether the assignment writes to the entirety of the local
-    // variable, or just a portion of it.
-    bool DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire = nullptr);
-
-    // Returns true if "this" represents the address of a local, or a field of a local.  If returns true, sets
-    // "*outLclNode" to the node indicating the local variable.  If the address is that of a field of this node,
-    // sets "*outLclOffs" and "*outFieldSeq" to the field offset and field sequence representing that field, else null.
-    bool IsLocalAddrExpr(Compiler*             comp,
-                         GenTreeLclVarCommon** outLclNode,
-                         unsigned*             outLclOffs,
-                         FieldSeqNode**        outFieldSeq);
-
-    // Simpler variant of the above which just returns the local node if this is an expression that
-    // yields an address into a local
     GenTreeLclVarCommon* IsLocalAddrExpr();
 
     // Determine if this tree represents an indirection for an implict byref parameter,
     // and if so return the tree for the parameter.
     GenTreeLclVar* IsImplicitByrefIndir(Compiler* compiler);
 
-    // Determine if this is a LclVarCommon node and return some additional info about it in the
-    // two out parameters.
-    bool IsLocalExpr(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, FieldSeqNode** pFldSeq);
-
     // Determine whether this is an assignment tree of the form X = X (op) Y,
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
-
-    // Assumes that "this" occurs in a context where it is being dereferenced as the LHS of an assignment-like
-    // statement (assignment, initblk, or copyblk).  The "width" should be the number of bytes copied by the
-    // operation.  Returns "true" if "this" is an address of (or within)
-    // a local variable; sets "*pLclVarTree" to that local variable instance; and, if "pIsEntire" is non-null,
-    // sets "*pIsEntire" to true if this assignment writes the full width of the local.
-    bool DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire);
 
     // These are only used for dumping.
     // The GetRegNum() is only valid in LIR, but the dumping methods are not easily
@@ -3142,8 +3099,6 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         m_fieldSeq = fieldSeq;
     }
 
-    void FixupInitBlkValue(var_types asgType);
-
 #ifdef TARGET_64BIT
     void TruncateOrSignExtend32()
     {
@@ -3641,6 +3596,11 @@ public:
         return m_fieldSeq;
     }
 
+    bool HasFieldSeq() const
+    {
+        return (m_fieldSeq != nullptr) && (m_fieldSeq != FieldSeqNode::NotAField());
+    }
+
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
         assert((fieldSeq == nullptr) || !fieldSeq->IsArrayElement());
@@ -3807,10 +3767,14 @@ public:
     }
 #endif
 
-    // True if this field is a volatile memory operation.
     bool IsVolatile() const
     {
         return (gtFlags & GTF_FLD_VOLATILE) != 0;
+    }
+
+    bool IsUnaligned() const
+    {
+        return (gtFlags & GTF_IND_UNALIGNED) != 0;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -6477,7 +6441,16 @@ enum class StructStoreKind : uint8_t
     UnrollCopy,
     UnrollCopyWB,
 #ifdef TARGET_XARCH
-    UnrollCopyWBRepMovs
+    UnrollCopyWBRepMovs,
+#endif
+
+#ifdef TARGET_X86
+    // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
+    LargeInit = RepStos,
+    LargeCopy = RepMovs,
+#else
+    LargeInit = MemSet,
+    LargeCopy = MemCpy,
 #endif
 };
 
