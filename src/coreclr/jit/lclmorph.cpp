@@ -768,6 +768,8 @@ private:
                 op1->ChangeToIntCon(1);
                 op1->SetType(TYP_I_IMPL);
 
+                INDEBUG(m_stmtModified = true;)
+
                 return;
             }
 
