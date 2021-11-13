@@ -4264,9 +4264,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     stackLevelSetter.Run();
 #endif // !OSX_ARM64_ABI
 
-    // We can not add any new tracked variables after this point.
-    lvaTrackedFixed = true;
-
     // Now that lowering is completed we can proceed to perform register allocation
     //
     auto linearScanPhase = [this]() { m_pLinearScan->doLinearScan(); };

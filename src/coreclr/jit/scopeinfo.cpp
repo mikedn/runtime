@@ -1240,7 +1240,6 @@ void CodeGen::siUpdate()
 #endif // FEATURE_EH_FUNCLETS
 
     VARSET_TP killed(VarSetOps::Diff(compiler, siLastLife, m_liveness.GetLiveSet()));
-    assert(VarSetOps::IsSubset(compiler, killed, compiler->lvaTrackedVars));
 
     VarSetOps::Iter iter(compiler, killed);
     unsigned        varIndex = 0;

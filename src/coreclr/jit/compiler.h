@@ -2407,9 +2407,8 @@ public:
         return lvaRefCountState == RCS_NORMAL;
     }
 
-    bool     lvaTrackedFixed; // true: We cannot add new 'tracked' variable
-    unsigned lvaCount;        // total number of locals, which includes function arguments,
-                              // special arguments, IL local variables, and JIT temporary variables
+    unsigned lvaCount; // total number of locals, which includes function arguments,
+                       // special arguments, IL local variables, and JIT temporary variables
 
     LclVarDsc* lvaTable;     // variable descriptor table
     unsigned   lvaTableSize; // lvaTable size (>= lvaCount)
@@ -2417,9 +2416,6 @@ public:
     unsigned lvaTrackedCount;             // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits; // min # of size_t's sufficient to hold a bit for all the locals being tracked
 
-#ifdef DEBUG
-    VARSET_TP lvaTrackedVars; // set of tracked variables
-#endif
 #ifndef TARGET_64BIT
     VARSET_TP lvaLongVars; // set of long (64-bit) variables
 #endif

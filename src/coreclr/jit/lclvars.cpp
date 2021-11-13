@@ -43,8 +43,6 @@ void Compiler::lvaInit()
     lvaTrackedToVarNumSize = 0;
     lvaTrackedToVarNum     = nullptr;
 
-    lvaTrackedFixed = false; // false: We can still add new tracked variables
-
     lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 #if !defined(FEATURE_EH_FUNCLETS)
     lvaShadowSPslotsVar = BAD_VAR_NUM;
@@ -2377,10 +2375,6 @@ void Compiler::lvaSortByRefCount()
     lvaTrackedCount             = 0;
     lvaTrackedCountInSizeTUnits = 0;
 
-#ifdef DEBUG
-    VarSetOps::AssignNoCopy(this, lvaTrackedVars, VarSetOps::MakeEmpty(this));
-#endif
-
     if (lvaCount == 0)
     {
         return;
@@ -2558,10 +2552,6 @@ void Compiler::lvaSortByRefCount()
     lvaCurEpoch++;
     lvaTrackedCountInSizeTUnits =
         roundUp((unsigned)lvaTrackedCount, (unsigned)(sizeof(size_t) * 8)) / unsigned(sizeof(size_t) * 8);
-
-#ifdef DEBUG
-    VarSetOps::AssignNoCopy(this, lvaTrackedVars, VarSetOps::MakeFull(this));
-#endif
 }
 
 #if ASSERTION_PROP
