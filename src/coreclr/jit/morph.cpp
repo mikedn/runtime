@@ -10146,56 +10146,50 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         MorphAddrContext  subIndMac1(tree->OperIs(GT_ADDR));
         MorphAddrContext* subMac1 = mac;
 
-        switch (tree->GetOper())
+        if ((op1->OperIs(GT_FIELD) || op1->OperIsIndir()) && !tree->OperIs(GT_ADDR))
         {
-            case GT_ADDR:
-            case GT_OBJ:
-            case GT_BLK:
-            case GT_DYN_BLK:
-            case GT_IND:
-                if (subMac1 == nullptr)
-                {
-                    subMac1 = &subIndMac1;
-                }
-                break;
-
-            case GT_COMMA:
-                // COMMA's first operand has nothing to do with any existing address context.
-                subMac1 = nullptr;
-                break;
-
-            case GT_ADD:
-                // For additions, if we're in an IND context keep track of whether
-                // all offsets added to the address are constant, and their sum.
-                if (subMac1 != nullptr)
-                {
-                    if (GenTreeIntCon* offset = tree->AsOp()->GetOp(1)->IsIntCon())
-                    {
-                        subMac1->m_totalOffset += offset->GetUnsignedValue();
-                    }
-                    else
-                    {
-                        subMac1->m_allConstantOffsets = false;
-                    }
-                }
-                break;
-
-            default:
-                break;
-        }
-
-        // If op1 is a GT_FIELD or indir, we need to pass down the mac if
-        // its parent is GT_ADDR, since the address of op1
-        // is part of an ongoing address computation. Otherwise
-        // op1 represents the value of the field and so any address
-        // calculations it does are in a new context.
-        if (((op1->gtOper == GT_FIELD) || op1->OperIsIndir()) && (tree->gtOper != GT_ADDR))
-        {
+            // An indirection gets a default address context if it isn't address taken.
             subMac1 = nullptr;
+        }
+        else
+        {
+            switch (tree->GetOper())
+            {
+                case GT_ADDR:
+                case GT_OBJ:
+                case GT_BLK:
+                case GT_DYN_BLK:
+                case GT_IND:
+                    if (subMac1 == nullptr)
+                    {
+                        subMac1 = &subIndMac1;
+                    }
+                    break;
 
-            // The impact of op1's value to any ongoing
-            // address computation is handled below when looking
-            // at op2.
+                case GT_COMMA:
+                    // COMMA's first operand has nothing to do with any existing address context.
+                    subMac1 = nullptr;
+                    break;
+
+                case GT_ADD:
+                    // For additions, if we're in an IND context keep track of whether
+                    // all offsets added to the address are constant, and their sum.
+                    if (subMac1 != nullptr)
+                    {
+                        if (GenTreeIntCon* offset = tree->AsOp()->GetOp(1)->IsIntCon())
+                        {
+                            subMac1->m_totalOffset += offset->GetUnsignedValue();
+                        }
+                        else
+                        {
+                            subMac1->m_allConstantOffsets = false;
+                        }
+                    }
+                    break;
+
+                default:
+                    break;
+            }
         }
 
         tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1, subMac1);
@@ -10262,37 +10256,24 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         }
 #endif // LOCAL_ASSERTION_PROP
 
-        // We might need a new MorphAddressContext context to use in evaluating op2.
-        // (These are used to convey parent context about how addresses being calculated
-        // will be used; see the specification comment for MorphAddrContext for full details.)
-        // Assume it's an Ind context to start.
-        switch (tree->GetOper())
+        if (op2->OperIs(GT_FIELD) || op2->OperIsIndir())
         {
-            case GT_ADD:
-                if ((mac != nullptr) && !mac->m_isAddressTaken)
-                {
-                    if (GenTreeIntCon* offset = tree->AsOp()->GetOp(0)->IsIntCon())
-                    {
-                        mac->m_totalOffset += offset->GetUnsignedValue();
-                    }
-                    else
-                    {
-                        mac->m_allConstantOffsets = false;
-                    }
-                }
-                break;
-            default:
-                break;
-        }
-
-        // If op2 is a GT_FIELD or indir, we must be taking its value,
-        // so it should evaluate its address in a new context.
-        if ((op2->gtOper == GT_FIELD) || op2->OperIsIndir())
-        {
-            // The impact of op2's value to any ongoing
-            // address computation is handled above when looking
-            // at op1.
+            // An indirection gets a default address context if it isn't address taken.
             mac = nullptr;
+        }
+        else if (tree->OperIs(GT_ADD))
+        {
+            if ((mac != nullptr) && !mac->m_isAddressTaken)
+            {
+                if (GenTreeIntCon* offset = tree->AsOp()->GetOp(0)->IsIntCon())
+                {
+                    mac->m_totalOffset += offset->GetUnsignedValue();
+                }
+                else
+                {
+                    mac->m_allConstantOffsets = false;
+                }
+            }
         }
 
         tree->AsOp()->gtOp2 = op2 = fgMorphTree(op2, mac);
