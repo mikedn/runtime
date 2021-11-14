@@ -10263,7 +10263,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 mac->offset += tree->AsOp()->GetOp(0)->AsIntCon()->GetUnsignedValue();
             }
-            else
+            else if (!tree->OperIs(GT_COMMA))
             {
                 mac->isOffsetConstant = false;
             }
