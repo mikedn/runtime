@@ -10143,63 +10143,49 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         }
 #endif // LOCAL_ASSERTION_PROP
 
-        // We might need a new MorphAddressContext context.  (These are used to convey
-        // parent context about how addresses being calculated will be used; see the
-        // specification comment for MorphAddrContext for full details.)
-        // Assume it's an Ind context to start.
-        MorphAddrContext  subIndMac1(false);
+        MorphAddrContext  subIndMac1(tree->OperIs(GT_ADDR));
         MorphAddrContext* subMac1 = mac;
-        if ((subMac1 == nullptr) || !subMac1->m_isAddressTaken)
+
+        switch (tree->GetOper())
         {
-            switch (tree->GetOper())
-            {
-                case GT_ADDR:
-                    // A non-null mac here implies this node is part of an address computation.
-                    // If so, we need to pass the existing mac down to the child node.
-                    //
-                    // Otherwise, use a new mac.
-                    if (subMac1 == nullptr)
-                    {
-                        subMac1                   = &subIndMac1;
-                        subMac1->m_isAddressTaken = true;
-                    }
-                    break;
-                case GT_COMMA:
+            case GT_ADDR:
+            case GT_OBJ:
+            case GT_BLK:
+            case GT_DYN_BLK:
+            case GT_IND:
+                if (subMac1 == nullptr)
+                {
+                    subMac1 = &subIndMac1;
+                }
+                break;
+
+            case GT_COMMA:
+                if (!subMac1->m_isAddressTaken)
+                {
                     // In a comma, the incoming context only applies to the rightmost arg of the
                     // comma list.  The left arg (op1) gets a fresh context.
                     subMac1 = nullptr;
-                    break;
-                case GT_OBJ:
-                case GT_BLK:
-                case GT_DYN_BLK:
-                case GT_IND:
-                    // A non-null mac here implies this node is part of an address computation (the tree parent is
-                    // GT_ADDR).
-                    // If so, we need to pass the existing mac down to the child node.
-                    //
-                    // Otherwise, use a new mac.
-                    if (subMac1 == nullptr)
-                    {
-                        subMac1 = &subIndMac1;
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
+                }
+                break;
 
-        // For additions, if we're in an IND context keep track of whether
-        // all offsets added to the address are constant, and their sum.
-        if (tree->OperIs(GT_ADD) && (subMac1 != nullptr))
-        {
-            if (GenTreeIntCon* offset = tree->AsOp()->GetOp(1)->IsIntCon())
-            {
-                subMac1->m_totalOffset += offset->GetUnsignedValue();
-            }
-            else
-            {
-                subMac1->m_allConstantOffsets = false;
-            }
+            case GT_ADD:
+                // For additions, if we're in an IND context keep track of whether
+                // all offsets added to the address are constant, and their sum.
+                if (subMac1 != nullptr)
+                {
+                    if (GenTreeIntCon* offset = tree->AsOp()->GetOp(1)->IsIntCon())
+                    {
+                        subMac1->m_totalOffset += offset->GetUnsignedValue();
+                    }
+                    else
+                    {
+                        subMac1->m_allConstantOffsets = false;
+                    }
+                }
+                break;
+
+            default:
+                break;
         }
 
         // If op1 is a GT_FIELD or indir, we need to pass down the mac if
