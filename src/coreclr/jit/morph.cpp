@@ -10188,6 +10188,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     break;
 
                 default:
+                    if (subMac1 != nullptr)
+                    {
+                        subMac1->m_allConstantOffsets = false;
+                    }
                     break;
             }
         }
@@ -10274,6 +10278,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     mac->m_allConstantOffsets = false;
                 }
             }
+        }
+        else if (mac != nullptr)
+        {
+            mac->m_allConstantOffsets = false;
         }
 
         tree->AsOp()->gtOp2 = op2 = fgMorphTree(op2, mac);
