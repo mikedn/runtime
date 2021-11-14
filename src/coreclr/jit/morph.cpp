@@ -5021,7 +5021,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
     // null MAC means we encounter the FIELD first. This denotes a dereference of the field,
     // and thus is equivalent to a MACK_Ind with zero offset.
-    MorphAddrContext defMAC(MACK_Ind);
+    MorphAddrContext defMAC(false);
     if (mac == nullptr)
     {
         mac = &defMAC;
@@ -5036,7 +5036,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         {
             explicitNullCheckRequired = true;
         }
-        else if (mac->m_kind == MACK_Addr)
+        else if (mac->m_isAddressTaken)
         {
             // In R2R mode the field offset for some fields may change when the code
             // is loaded. So we can't rely on a zero offset here to suppress the null check.
@@ -10147,9 +10147,9 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         // parent context about how addresses being calculated will be used; see the
         // specification comment for MorphAddrContext for full details.)
         // Assume it's an Ind context to start.
-        MorphAddrContext  subIndMac1(MACK_Ind);
+        MorphAddrContext  subIndMac1(false);
         MorphAddrContext* subMac1 = mac;
-        if (subMac1 == nullptr || subMac1->m_kind == MACK_Ind)
+        if ((subMac1 == nullptr) || !subMac1->m_isAddressTaken)
         {
             switch (tree->gtOper)
             {
@@ -10160,8 +10160,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     // Otherwise, use a new mac.
                     if (subMac1 == nullptr)
                     {
-                        subMac1         = &subIndMac1;
-                        subMac1->m_kind = MACK_Addr;
+                        subMac1                   = &subIndMac1;
+                        subMac1->m_isAddressTaken = true;
                     }
                     break;
                 case GT_COMMA:
@@ -10300,7 +10300,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         switch (tree->gtOper)
         {
             case GT_ADD:
-                if (mac != nullptr && mac->m_kind == MACK_Ind)
+                if ((mac != nullptr) && !mac->m_isAddressTaken)
                 {
                     GenTree* otherOp = tree->AsOp()->gtOp1;
                     // Is the other operator a constant?
