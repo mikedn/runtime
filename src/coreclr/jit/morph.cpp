@@ -10160,12 +10160,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 break;
 
             case GT_COMMA:
-                if (!subMac1->m_isAddressTaken)
-                {
-                    // In a comma, the incoming context only applies to the rightmost arg of the
-                    // comma list.  The left arg (op1) gets a fresh context.
-                    subMac1 = nullptr;
-                }
+                // COMMA's first operand has nothing to do with any existing address context.
+                subMac1 = nullptr;
                 break;
 
             case GT_ADD:
