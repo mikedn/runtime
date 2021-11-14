@@ -4627,12 +4627,11 @@ private:
     // small; hence the other fields of MorphAddrContext.
     struct MorphAddrContext
     {
-        bool   m_isAddressTaken;
-        bool   m_allConstantOffsets;
-        size_t m_totalOffset;
+        const bool isAddressTaken;
+        bool       isOffsetConstant;
+        size_t     offset;
 
-        MorphAddrContext(bool isAddressTaken)
-            : m_isAddressTaken(isAddressTaken), m_allConstantOffsets(true), m_totalOffset(0)
+        MorphAddrContext(bool isAddressTaken) : isAddressTaken(isAddressTaken), isOffsetConstant(true), offset(0)
         {
         }
     };

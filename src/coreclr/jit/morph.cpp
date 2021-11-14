@@ -5032,17 +5032,17 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
     if (fgAddrCouldBeNull(addr))
     {
-        size_t totalOffset = mac->m_totalOffset + offset;
+        size_t totalOffset = mac->offset + offset;
 
         // TODO-MIKE-Review: It's odd that in the address take case we check for R2R
         // fields, but not in the indir case. In theory, the R2R field offset could
         // change enough to put us over the "big offset" limit.
 
-        if (!mac->m_allConstantOffsets || fgIsBigOffset(totalOffset))
+        if (!mac->isOffsetConstant || fgIsBigOffset(totalOffset))
         {
             explicitNullCheckRequired = true;
         }
-        else if (mac->m_isAddressTaken)
+        else if (mac->isAddressTaken)
         {
             // TODO-MIKE-Review: This code is dubious. The original thinking was probably that
             // null + 0 = null so we don't need a null check because an indir that uses the
@@ -10156,60 +10156,39 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         }
 #endif // LOCAL_ASSERTION_PROP
 
-        MorphAddrContext  subIndMac1(tree->OperIs(GT_ADDR));
-        MorphAddrContext* subMac1 = mac;
+        MorphAddrContext  newOp1Mac(tree->OperIs(GT_ADDR));
+        MorphAddrContext* op1Mac = mac;
 
         if ((op1->OperIs(GT_FIELD) || op1->OperIsIndir()) && !tree->OperIs(GT_ADDR))
         {
             // An indirection gets a default address context if it isn't address taken.
-            subMac1 = nullptr;
+            op1Mac = nullptr;
         }
-        else
+        else if (tree->OperIs(GT_ADDR, GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
         {
-            switch (tree->GetOper())
+            if (op1Mac == nullptr)
             {
-                case GT_ADDR:
-                case GT_OBJ:
-                case GT_BLK:
-                case GT_DYN_BLK:
-                case GT_IND:
-                    if (subMac1 == nullptr)
-                    {
-                        subMac1 = &subIndMac1;
-                    }
-                    break;
-
-                case GT_COMMA:
-                    // COMMA's first operand has nothing to do with any existing address context.
-                    subMac1 = nullptr;
-                    break;
-
-                case GT_ADD:
-                    // For additions, if we're in an IND context keep track of whether
-                    // all offsets added to the address are constant, and their sum.
-                    if (subMac1 != nullptr)
-                    {
-                        if (GenTreeIntCon* offset = tree->AsOp()->GetOp(1)->IsIntCon())
-                        {
-                            subMac1->m_totalOffset += offset->GetUnsignedValue();
-                        }
-                        else
-                        {
-                            subMac1->m_allConstantOffsets = false;
-                        }
-                    }
-                    break;
-
-                default:
-                    if (subMac1 != nullptr)
-                    {
-                        subMac1->m_allConstantOffsets = false;
-                    }
-                    break;
+                op1Mac = &newOp1Mac;
+            }
+        }
+        else if (op1Mac != nullptr)
+        {
+            if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(1)->IsIntCon())
+            {
+                op1Mac->offset += tree->AsOp()->GetOp(1)->AsIntCon()->GetUnsignedValue();
+            }
+            else if (tree->OperIs(GT_COMMA))
+            {
+                // COMMA's first operand has nothing to do with any existing address context.
+                op1Mac = nullptr;
+            }
+            else
+            {
+                op1Mac->isOffsetConstant = false;
             }
         }
 
-        tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1, subMac1);
+        tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1, op1Mac);
 
 #if LOCAL_ASSERTION_PROP
         // If we are exiting the "then" part of a Qmark-Colon we must
@@ -10282,11 +10261,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         {
             if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(0)->IsIntCon())
             {
-                mac->m_totalOffset += tree->AsOp()->GetOp(0)->AsIntCon()->GetUnsignedValue();
+                mac->offset += tree->AsOp()->GetOp(0)->AsIntCon()->GetUnsignedValue();
             }
             else
             {
-                mac->m_allConstantOffsets = false;
+                mac->isOffsetConstant = false;
             }
         }
 
