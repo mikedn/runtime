@@ -5032,21 +5032,34 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
     if (fgAddrCouldBeNull(addr))
     {
-        if (!mac->m_allConstantOffsets || fgIsBigOffset(mac->m_totalOffset + offset))
+        size_t totalOffset = mac->m_totalOffset + offset;
+
+        // TODO-MIKE-Review: It's odd that in the address take case we check for R2R
+        // fields, but not in the indir case. In theory, the R2R field offset could
+        // change enough to put us over the "big offset" limit.
+
+        if (!mac->m_allConstantOffsets || fgIsBigOffset(totalOffset))
         {
             explicitNullCheckRequired = true;
         }
         else if (mac->m_isAddressTaken)
         {
+            // TODO-MIKE-Review: This code is dubious. The original thinking was probably that
+            // null + 0 = null so we don't need a null check because an indir that uses the
+            // resulting address will fault anyway. But the resulting address may be further
+            // adjusted by an ADD that isn't included in the MAC offset (e.g. the ADD is in a
+            // different tree) or the indir is somewhere else, after other side effects, so we
+            // end up reordering side effects.
+
             // In R2R mode the field offset for some fields may change when the code
             // is loaded. So we can't rely on a zero offset here to suppress the null check.
             // See GitHub issue #16454.
 
-            bool fieldHasChangeableOffset = false;
+            explicitNullCheckRequired = (totalOffset != 0)
 #ifdef FEATURE_READYTORUN_COMPILER
-            fieldHasChangeableOffset = (field->GetR2RFieldLookupAddr() != nullptr);
+                                        || (field->GetR2RFieldLookupAddr() != nullptr)
 #endif
-            explicitNullCheckRequired = (mac->m_totalOffset + offset != 0) || fieldHasChangeableOffset;
+                ;
         }
     }
 
@@ -10265,23 +10278,16 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // An indirection gets a default address context if it isn't address taken.
             mac = nullptr;
         }
-        else if (tree->OperIs(GT_ADD))
-        {
-            if ((mac != nullptr) && !mac->m_isAddressTaken)
-            {
-                if (GenTreeIntCon* offset = tree->AsOp()->GetOp(0)->IsIntCon())
-                {
-                    mac->m_totalOffset += offset->GetUnsignedValue();
-                }
-                else
-                {
-                    mac->m_allConstantOffsets = false;
-                }
-            }
-        }
         else if (mac != nullptr)
         {
-            mac->m_allConstantOffsets = false;
+            if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(0)->IsIntCon())
+            {
+                mac->m_totalOffset += tree->AsOp()->GetOp(0)->AsIntCon()->GetUnsignedValue();
+            }
+            else
+            {
+                mac->m_allConstantOffsets = false;
+            }
         }
 
         tree->AsOp()->gtOp2 = op2 = fgMorphTree(op2, mac);
