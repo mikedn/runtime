@@ -3045,6 +3045,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return gtIconVal;
     }
 
+    size_t GetUnsignedValue() const
+    {
+        return static_cast<size_t>(gtIconVal);
+    }
+
     uint8_t GetUInt8Value() const
     {
         return static_cast<uint8_t>(gtIconVal & 0xFF);

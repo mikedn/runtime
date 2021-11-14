@@ -10151,7 +10151,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         MorphAddrContext* subMac1 = mac;
         if ((subMac1 == nullptr) || !subMac1->m_isAddressTaken)
         {
-            switch (tree->gtOper)
+            switch (tree->GetOper())
             {
                 case GT_ADDR:
                     // A non-null mac here implies this node is part of an address computation.
@@ -10190,24 +10190,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         // For additions, if we're in an IND context keep track of whether
         // all offsets added to the address are constant, and their sum.
-        if (tree->gtOper == GT_ADD && subMac1 != nullptr)
+        if (tree->OperIs(GT_ADD) && (subMac1 != nullptr))
         {
-            GenTree* otherOp = tree->AsOp()->gtOp2;
-            // Is the other operator a constant?
-            if (otherOp->IsCnsIntOrI())
+            if (GenTreeIntCon* offset = tree->AsOp()->GetOp(1)->IsIntCon())
             {
-                ClrSafeInt<size_t> totalOffset(subMac1->m_totalOffset);
-                totalOffset += otherOp->AsIntConCommon()->IconValue();
-                if (totalOffset.IsOverflow())
-                {
-                    // We will consider an offset so large as to overflow as "not a constant" --
-                    // we will do a null check.
-                    subMac1->m_allConstantOffsets = false;
-                }
-                else
-                {
-                    subMac1->m_totalOffset += otherOp->AsIntConCommon()->IconValue();
-                }
+                subMac1->m_totalOffset += offset->GetUnsignedValue();
             }
             else
             {
@@ -10297,16 +10284,14 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         // (These are used to convey parent context about how addresses being calculated
         // will be used; see the specification comment for MorphAddrContext for full details.)
         // Assume it's an Ind context to start.
-        switch (tree->gtOper)
+        switch (tree->GetOper())
         {
             case GT_ADD:
                 if ((mac != nullptr) && !mac->m_isAddressTaken)
                 {
-                    GenTree* otherOp = tree->AsOp()->gtOp1;
-                    // Is the other operator a constant?
-                    if (otherOp->IsCnsIntOrI())
+                    if (GenTreeIntCon* offset = tree->AsOp()->GetOp(0)->IsIntCon())
                     {
-                        mac->m_totalOffset += otherOp->AsIntConCommon()->IconValue();
+                        mac->m_totalOffset += offset->GetUnsignedValue();
                     }
                     else
                     {
