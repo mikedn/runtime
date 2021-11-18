@@ -5082,9 +5082,6 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         }
 
         nullCheck = gtNewNullCheck(gtNewLclvNode(lclNum, addrType), compCurBB);
-        // Don't try to create a CSE for these TYP_BYTE indirections
-        // TODO-MIKE-Review: This is likely pointless, CSE does not touch NULLCHECK.
-        nullCheck->gtFlags |= GTF_DONT_CSE;
 
         if (asg != nullptr)
         {
