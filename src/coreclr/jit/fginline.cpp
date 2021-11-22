@@ -384,6 +384,8 @@ private:
                 return tree;
 
             case GT_LCL_VAR:
+                return m_compiler->gtNewLclVarAddrNode(tree->AsLclVar()->GetLclNum(), TYP_BYREF);
+
             case GT_FIELD:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
@@ -400,34 +402,32 @@ private:
     {
         if (dst->OperIs(GT_LCL_VAR))
         {
-            LclVarDsc* tmpLcl = m_compiler->lvaGetDesc(dst->AsLclVar());
+            LclVarDsc* lcl = m_compiler->lvaGetDesc(dst->AsLclVar());
 
-            if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() &&
-                (tmpLcl->GetLayout() == layout))
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
             {
                 dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
                 return dst;
             }
 
-            return m_compiler->gtNewObjNode(layout, m_compiler->gtNewAddrNode(dst, TYP_I_IMPL));
+            dst->SetOper(GT_LCL_VAR_ADDR);
+            dst->SetType(TYP_I_IMPL);
+            return m_compiler->gtNewObjNode(layout, dst);
         }
 
         GenTree* dstAddr = GetStructAddress(dst);
 
-        if (dstAddr->OperIs(GT_ADDR))
+        if (dstAddr->OperIs(GT_LCL_VAR_ADDR))
         {
-            GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+            LclVarDsc* lcl = m_compiler->lvaGetDesc(dstAddr->AsLclVar());
 
-            if (location->OperIs(GT_LCL_VAR))
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
             {
-                LclVarDsc* tmpLcl = m_compiler->lvaGetDesc(location->AsLclVar());
-
-                if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() &&
-                    (tmpLcl->GetLayout() == layout))
-                {
-                    dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
-                    return location;
-                }
+                dst = dstAddr;
+                dst->SetOper(GT_LCL_VAR);
+                dst->SetType(lcl->GetType());
+                dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
+                return dst;
             }
         }
 
@@ -812,7 +812,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
 
     JITDUMP("\nInvoking compiler for the inlinee method %s :\n", eeGetMethodFullName(call->GetMethodHandle()));
 
-    if (!eeRunWithErrorTrap<InlineInfo>(jitInlineCode, &inlineInfo))
+    if (!eeRunWithErrorTrap(jitInlineCode, &inlineInfo))
     {
         JITDUMP("\nInlining failed due to an exception during invoking the compiler for the inlinee method %s.\n",
                 eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()));
@@ -825,6 +825,8 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
 
     if (inlineResult->IsFailure())
     {
+        inlPostInlineFailureCleanup(&inlineInfo);
+
         return;
     }
 
@@ -839,6 +841,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
                 eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()));
 
         inlineResult->NoteFatal(InlineObservation::CALLEE_LACKS_RETURN);
+        inlPostInlineFailureCleanup(&inlineInfo);
 
         return;
     }
@@ -857,6 +860,32 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     INDEBUG(impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
 
     inlineResult->NoteSuccess();
+}
+
+void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
+{
+    assert(inlineInfo->inlineResult->IsFailure());
+
+    for (unsigned i = 0; i < inlineInfo->ilArgCount; i++)
+    {
+        const InlArgInfo& argInfo = inlineInfo->ilArgInfo[i];
+
+        // In some cases we use existing call arg nodes inside the inlinee body.
+        // The inlinee compiler may change these from LCL_VAR to LCL_VAR_ADDR,
+        // we need to revert this change if inlining failed.
+
+        if (argInfo.argIsUnaliasedLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
+        {
+            if (!argInfo.argNode->OperIs(GT_LCL_VAR))
+            {
+                assert(argInfo.argNode->OperIs(GT_LCL_VAR_ADDR));
+                assert(argInfo.argNode->AsLclVar()->GetLclNum() == argInfo.paramLclNum);
+
+                argInfo.argNode->SetOper(GT_LCL_VAR);
+                argInfo.argNode->SetType(argInfo.argType);
+            }
+        }
+    }
 }
 
 void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount)
@@ -1017,33 +1046,30 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         // we are "reinterpreting" the struct.
 
         GenTree* effectiveRetVal = retExpr->gtEffectiveVal();
-        if (retExpr->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
+
+        if (retExpr->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_LCL_VAR_ADDR))
         {
-            GenTree* location = effectiveRetVal->AsUnOp()->GetOp(0);
-            if (location->OperIs(GT_LCL_VAR))
+            LclVarDsc* lcl = lvaGetDesc(effectiveRetVal->AsLclVar());
+
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
             {
-                LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+                CORINFO_CLASS_HANDLE byrefClass;
+                var_types            byrefType = JITtype2varType(
+                    info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &byrefClass));
 
-                if (varTypeIsStruct(location->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
+                if (varTypeIsStruct(byrefType) && (lcl->GetLayout()->GetClassHandle() != byrefClass))
                 {
-                    CORINFO_CLASS_HANDLE byrefClass;
-                    var_types            byrefType = JITtype2varType(
-                        info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &byrefClass));
+                    // We are returning a byref to struct1; the method signature specifies return type as
+                    // byref to struct2. struct1 and struct2 are different so we are "reinterpreting" the
+                    // struct (e.g. System.Runtime.CompilerServices.Unsafe.As<TFrom, TTo>).
+                    // We need to mark the source struct variable as having overlapping fields because its
+                    // fields may be accessed using field handles of a different type, which may confuse
+                    // optimizations, in particular, value numbering.
 
-                    if (varTypeIsStruct(byrefType) && (lcl->GetLayout()->GetClassHandle() != byrefClass))
-                    {
-                        // We are returning a byref to struct1; the method signature specifies return type as
-                        // byref to struct2. struct1 and struct2 are different so we are "reinterpreting" the
-                        // struct (e.g. System.Runtime.CompilerServices.Unsafe.As<TFrom, TTo>).
-                        // We need to mark the source struct variable as having overlapping fields because its
-                        // fields may be accessed using field handles of a different type, which may confuse
-                        // optimizations, in particular, value numbering.
+                    JITDUMP("\nSetting lvOverlappingFields on V%02u due to struct reinterpretation\n",
+                            effectiveRetVal->AsLclVar()->GetLclNum());
 
-                        JITDUMP("\nSetting lvOverlappingFields on V%02u due to struct reinterpretation\n",
-                                location->AsLclVar()->GetLclNum());
-
-                        lcl->lvOverlappingFields = true;
-                    }
+                    lcl->lvOverlappingFields = true;
                 }
             }
         }
@@ -1069,18 +1095,17 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
     {
         unsigned  lclNum  = inlineInfo->retSpillTempLclNum;
         var_types lclType = lvaGetDesc(lclNum)->GetType();
-        GenTree*  lclVar  = gtNewLclvNode(lclNum, lclType);
         GenTree*  asg;
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            GenTree* lclAddr = gtNewAddrNode(lclVar, TYP_I_IMPL);
+            GenTree* lclAddr = gtNewLclVarAddrNode(lclNum, TYP_I_IMPL);
 
             asg = impAssignStructAddr(lclAddr, retExpr, typGetObjLayout(retExprClass), CHECK_SPILL_NONE);
         }
         else
         {
-            asg = gtNewAssignNode(lclVar, retExpr);
+            asg = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), retExpr);
         }
 
         impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
@@ -2343,8 +2368,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
                 assert(!argNode->OperIs(GT_COMMA));
 
-                GenTree* dst     = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
-                GenTree* dstAddr = gtNewAddrNode(dst, TYP_BYREF);
+                GenTree* dstAddr = gtNewLclVarAddrNode(argInfo.paramLclNum, TYP_BYREF);
                 asg              = impAssignStructAddr(dstAddr, argNode, argLayout, CHECK_SPILL_NONE);
 
                 if (restoreLayout)
@@ -2368,7 +2392,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
 
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR));
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR, GT_LCL_VAR_ADDR));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;

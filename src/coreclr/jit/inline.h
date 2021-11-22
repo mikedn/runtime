@@ -569,6 +569,7 @@ struct InlArgInfo
     CORINFO_CLASS_HANDLE paramClass;
     unsigned             paramLclNum;
     var_types            paramType;
+    var_types            argType;
 
     bool argIsInvariant : 1;
     bool argIsUnaliasedLclVar : 1;
@@ -591,6 +592,7 @@ struct InlArgInfo
         , paramClass(NO_CLASS_HANDLE)
         , paramLclNum(BAD_VAR_NUM)
         , paramType(TYP_UNDEF)
+        , argType(argNode->GetType())
         , argIsInvariant(false)
         , argIsUnaliasedLclVar(false)
         , argHasSideEff(false)

@@ -170,24 +170,32 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* tree = *use;
-            assert(tree != nullptr);
-            assert(tree->IsLocal());
 
-            var_types type = tree->TypeGet();
-            if ((tree->OperGet() == GT_LCL_VAR) && (type == TYP_REF || type == TYP_BYREF || type == TYP_I_IMPL))
+            assert(tree == m_ancestors.Top());
+
+            unsigned lclNum  = tree->AsLclVarCommon()->GetLclNum();
+            bool     escapes = false;
+
+            if (tree->OperIs(GT_LCL_VAR))
             {
-                unsigned int lclNum = tree->AsLclVar()->GetLclNum();
-                assert(tree == m_ancestors.Top());
-
-                if (m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lclNum))
-                {
-                    if (!m_allocator->CanLclVarEscape(lclNum))
-                    {
-                        JITDUMP("V%02u first escapes via [%06u]\n", lclNum, m_compiler->dspTreeID(tree));
-                    }
-                    m_allocator->MarkLclVarAsEscaping(lclNum);
-                }
+                escapes = tree->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL) &&
+                          m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lclNum);
             }
+            else if (tree->OperIs(GT_LCL_VAR_ADDR))
+            {
+                escapes = m_compiler->lvaGetDesc(lclNum)->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL);
+            }
+
+            if (escapes)
+            {
+                if (!m_allocator->CanLclVarEscape(lclNum))
+                {
+                    JITDUMP("V%02u first escapes via [%06u]\n", lclNum, tree->GetID());
+                }
+
+                m_allocator->MarkLclVarAsEscaping(lclNum);
+            }
+
             return Compiler::fgWalkResult::WALK_CONTINUE;
         }
     };
@@ -852,7 +860,7 @@ void ObjectAllocator::RewriteUses()
                 if (m_allocator->m_HeapLocalToStackLocalMap.TryGetValue(lclNum, &newLclNum))
                 {
                     newType = TYP_I_IMPL;
-                    tree    = m_compiler->gtNewAddrNode(m_compiler->gtNewLclvNode(newLclNum, TYP_STRUCT), newType);
+                    tree    = m_compiler->gtNewLclVarAddrNode(newLclNum, newType);
                     *use    = tree;
                 }
                 else

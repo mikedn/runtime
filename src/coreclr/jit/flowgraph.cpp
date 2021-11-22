@@ -981,7 +981,7 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
             }
         }
     }
-    else if (addr->OperIs(GT_INDEX_ADDR))
+    else if (addr->OperIs(GT_INDEX_ADDR, GT_LCL_VAR_ADDR))
     {
         return false;
     }

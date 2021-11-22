@@ -9670,10 +9670,15 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
             }
-            FALLTHROUGH;
-        case GT_ADDR:
+
             assert(!op1->OperIsHWIntrinsic());
-            // op1 of a ADDR/ASG is an l-value. Only r-values can be CSEed
+            // op1 of a ASG is an l-value. Only r-values can be CSEed
+            op1->gtFlags |= GTF_DONT_CSE;
+            break;
+
+        case GT_ADDR:
+            assert(!op1->OperIsHWIntrinsic() && !op1->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+            // op1 of a ADDR is an l-value. Only r-values can be CSEed
             op1->gtFlags |= GTF_DONT_CSE;
             break;
 
@@ -15262,15 +15267,7 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
             break;
 
         case GT_ADDR:
-            if (addr->AsOp()->gtOp1->OperGet() == GT_LCL_FLD)
-            {
-                fieldSeqNode = addr->AsOp()->gtOp1;
-
-                GenTreeLclFld* lclFld = addr->AsOp()->gtOp1->AsLclFld();
-                fieldSeqUpdate        = GetFieldSeqStore()->Append(lclFld->GetFieldSeq(), fieldSeqZero);
-                lclFld->SetFieldSeq(fieldSeqUpdate);
-                fieldSeqRecorded = true;
-            }
+            assert(!addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_FLD));
             break;
 
         case GT_ADD:
