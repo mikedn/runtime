@@ -3839,11 +3839,7 @@ public:
     bool fgTryRemoveNonLocal(GenTree* node, LIR::Range* blockRange);
 
     void fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block);
-    bool fgRemoveDeadStore(GenTree**        pTree,
-                           LclVarDsc*       varDsc,
-                           VARSET_VALARG_TP life,
-                           bool*            doAgain,
-                           bool* pStmtInfoDirty DEBUGARG(bool* treeModf));
+    GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
 
     void fgInterBlockLocalVarLiveness();
 

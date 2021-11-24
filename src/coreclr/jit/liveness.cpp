@@ -1678,15 +1678,43 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
             if (isDeadStore)
             {
-                bool doAgain = false;
-                if (fgRemoveDeadStore(&node, lcl, liveOut, &doAgain, &updateStmt DEBUGARG(&modified)))
-                {
-                    assert(!doAgain);
-                    break;
-                }
+                GenTree* asgNode = lclNode->gtNext;
 
-                if (doAgain)
+                if ((asgNode != nullptr) && asgNode->OperIs(GT_ASG) && (asgNode->AsOp()->GetOp(0) == lclNode))
                 {
+                    GenTree* nextNode = fgRemoveDeadStore(asgNode->AsOp());
+
+                    if (nextNode == nullptr)
+                    {
+                        // The entire statement was removed, we're done.
+                        return;
+                    }
+
+                    INDEBUG(modified = true;)
+
+                    if (nextNode == stmt->GetRootNode())
+                    {
+                        // The statement root was replaced, sequence the entire statement
+                        // and start over.
+
+                        gtSetStmtInfo(stmt);
+                        fgSetStmtSeq(stmt);
+                        updateStmt = false;
+                        node       = nextNode;
+                    }
+                    else
+                    {
+                        // The statement was modified. We need to sequence it so we can
+                        // continue the current linear order traversal but we can't call
+                        // gtSetStmtInfo because that would change evaluation order and
+                        // mess up the current traversal. Instead, call gtSetStmtInfo
+                        // after traversal is complete.
+
+                        fgSetStmtSeq(stmt);
+                        updateStmt = true;
+                        node       = nextNode->gtPrev;
+                    }
+
                     continue;
                 }
             }
@@ -1697,15 +1725,15 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
     if (updateStmt)
     {
-        gtSetStmtInfo(compCurStmt);
-        fgSetStmtSeq(compCurStmt);
-        gtUpdateStmtSideEffects(compCurStmt);
+        gtSetStmtInfo(stmt);
+        fgSetStmtSeq(stmt);
+        gtUpdateStmtSideEffects(stmt);
     }
 
 #ifdef DEBUG
     if (modified)
     {
-        JITDUMPTREE(compCurStmt->GetRootNode(), "\nfgComputeLifeStmt modified tree:\n");
+        JITDUMPTREE(stmt->GetRootNode(), "\nfgComputeLifeStmt modified tree:\n");
     }
 #endif
 }
@@ -2013,211 +2041,82 @@ void Compiler::fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block)
     fgStmtRemoved = true;
 }
 
-//---------------------------------------------------------------------
-// fgRemoveDeadStore - remove a store to a local which has no exposed uses.
-//
-//   pTree          - GenTree** to local, including store-form local or local addr (post-rationalize)
-//   varDsc         - var that is being stored to
-//   life           - current live tracked vars (maintained as we walk backwards)
-//   doAgain        - out parameter, true if we should restart the statement
-//   pStmtInfoDirty - should defer the cost computation to the point after the reverse walk is completed?
-//
-// Returns: true if we should skip the rest of the statement, false if we should continue
-
-bool Compiler::fgRemoveDeadStore(GenTree**        pTree,
-                                 LclVarDsc*       varDsc,
-                                 VARSET_VALARG_TP life,
-                                 bool*            doAgain,
-                                 bool* pStmtInfoDirty DEBUGARG(bool* treeModf))
+// Remove a dead assignment. Returns true if the entire statement was removed.
+GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
 {
     assert(!compRationalIRForm);
+    assert(asgNode->OperIs(GT_ASG));
 
-    GenTree* const tree = *pTree;
+    JITDUMPTREE(asgNode, "Dead assignment:\n");
 
-    assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    noway_assert((tree->gtFlags & GTF_VAR_DEF) != 0);
+    GenTree* sideEffects = nullptr;
+    GenTree* src         = asgNode->AsOp()->GetOp(1);
 
-    // Vars should have already been checked for address exposure by this point.
-    assert(!varDsc->lvIsStructField || !lvaTable[varDsc->lvParentLcl].IsAddressExposed());
-    assert(!varDsc->IsAddressExposed());
-
-    GenTree* asgNode = tree->gtNext;
-
-    if ((asgNode == nullptr) || !asgNode->OperIs(GT_ASG) || (asgNode->AsOp()->GetOp(0) != tree))
+    if ((src->gtFlags & GTF_SIDE_EFFECT) != 0)
     {
-        return false;
-    }
+        gtExtractSideEffList(src, &sideEffects);
 
-    GenTree* rhsNode = asgNode->AsOp()->GetOp(1);
-
-    // Do not remove if this local variable represents
-    // a promoted struct field of an address exposed local.
-    if (varDsc->lvIsStructField && lvaTable[varDsc->lvParentLcl].IsAddressExposed())
-    {
-        return false;
-    }
-
-    // Do not remove if the address of the variable has been exposed.
-    if (varDsc->IsAddressExposed())
-    {
-        return false;
-    }
-
-    // Check for side effects
-    GenTree* sideEffList = nullptr;
-    if (rhsNode->gtFlags & GTF_SIDE_EFFECT)
-    {
-#ifdef DEBUG
-        if (verbose)
+        if (sideEffects != nullptr)
         {
-            printf(FMT_BB " - Dead assignment has side effects...\n", compCurBB->bbNum);
-            gtDispTree(asgNode);
-            printf("\n");
+            JITDUMPTREE(sideEffects, "Extracted dead assignment side effects:\n");
+            noway_assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
         }
-#endif // DEBUG
-        // Extract the side effects
-        gtExtractSideEffList(rhsNode, &sideEffList);
     }
-
-    // Test for interior statement
 
     if (asgNode->gtNext == nullptr)
     {
-        // This is a "NORMAL" statement with the assignment node hanging from the statement.
+        // This is a top level assignment, we can remove the entire statement
+        // if there are no side effects.
 
         noway_assert(compCurStmt->GetRootNode() == asgNode);
-        JITDUMP("top level assign\n");
 
-        if (sideEffList != nullptr)
+        if (sideEffects == nullptr)
         {
-            noway_assert(sideEffList->gtFlags & GTF_SIDE_EFFECT);
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Extracted side effects list...\n");
-                gtDispTree(sideEffList);
-                printf("\n");
-            }
-#endif // DEBUG
+            fgRemoveStmt(compCurBB, compCurStmt DEBUGARG(false));
 
-            // Replace the assignment statement with the list of side effects
-
-            *pTree = sideEffList;
-            compCurStmt->SetRootNode(sideEffList);
-#ifdef DEBUG
-            *treeModf = true;
-#endif // DEBUG
-            // Update ordering, costs, FP levels, etc.
-            gtSetStmtInfo(compCurStmt);
-
-            // Re-link the nodes for this statement
-            fgSetStmtSeq(compCurStmt);
-
-            // Since the whole statement gets replaced it is safe to
-            // re-thread and update order. No need to compute costs again.
-            *pStmtInfoDirty = false;
-
-            // Compute the live set for the new statement
-            *doAgain = true;
-            return false;
+            return nullptr;
         }
-        else
-        {
-            JITDUMP("removing stmt with no side effects\n");
 
-            // No side effects - remove the whole statement from the block->bbStmtList.
-            fgRemoveStmt(compCurBB, compCurStmt);
+        // Replace the assignment statement with the list of side effects
+        // and process the statement again.
+        compCurStmt->SetRootNode(sideEffects);
+        return sideEffects;
+    }
 
-            // Since we removed it do not process the rest (i.e. RHS) of the statement
-            // variables in the RHS will not be marked as live, so we get the benefit of
-            // propagating dead variables up the chain
-            return true;
-        }
+    // This is a nested assignment, we can change it to a NOP/COMMA.
+
+    if (sideEffects == nullptr)
+    {
+        asgNode->ChangeToNothingNode();
+    }
+    else if (sideEffects->OperIs(GT_ASG))
+    {
+        asgNode->AsOp()->SetOp(0, sideEffects->AsOp()->GetOp(0));
+        asgNode->AsOp()->SetOp(1, sideEffects->AsOp()->GetOp(1));
+        asgNode->SetType(sideEffects->GetType());
+        asgNode->SetSideEffects(sideEffects->GetSideEffects());
     }
     else
     {
-        // This is an INTERIOR STATEMENT with a dead assignment - remove it
-        // TODO-Cleanup: I'm not sure this assert is valuable; we've already determined this when
-        // we computed that it was dead.
-        if (varDsc->lvTracked)
+        asgNode->ChangeOper(GT_COMMA);
+        asgNode->SetType(TYP_VOID);
+
+        if (sideEffects->OperIs(GT_COMMA))
         {
-            noway_assert(!VarSetOps::IsMember(this, life, varDsc->lvVarIndex));
+            asgNode->AsOp()->SetOp(0, sideEffects->AsOp()->GetOp(0));
+            asgNode->AsOp()->SetOp(1, sideEffects->AsOp()->GetOp(1));
         }
         else
         {
-            for (unsigned i = 0; i < varDsc->lvFieldCnt; ++i)
-            {
-                unsigned fieldVarNum = varDsc->lvFieldLclStart + i;
-                {
-                    LclVarDsc* fieldVarDsc = lvaGetDesc(fieldVarNum);
-                    noway_assert(fieldVarDsc->lvTracked && !VarSetOps::IsMember(this, life, fieldVarDsc->lvVarIndex));
-                }
-            }
+            asgNode->AsOp()->SetOp(0, sideEffects);
+            asgNode->AsOp()->SetOp(1, gtNewNothingNode());
         }
 
-        if (sideEffList != nullptr)
-        {
-            noway_assert(sideEffList->gtFlags & GTF_SIDE_EFFECT);
-
-            JITDUMPTREE(sideEffList, "Extracted side effects list from condition...\n");
-
-            if (sideEffList->gtOper == asgNode->gtOper)
-            {
-                INDEBUG(*treeModf = true;)
-
-                asgNode->AsOp()->gtOp1 = sideEffList->AsOp()->gtOp1;
-                asgNode->AsOp()->gtOp2 = sideEffList->AsOp()->gtOp2;
-                asgNode->gtType        = sideEffList->gtType;
-            }
-            else
-            {
-                INDEBUG(*treeModf = true;)
-
-                asgNode->ChangeOper(GT_COMMA);
-                asgNode->SetType(TYP_VOID);
-
-                if (sideEffList->OperIs(GT_COMMA))
-                {
-                    asgNode->AsOp()->SetOp(0, sideEffList->AsOp()->GetOp(0));
-                    asgNode->AsOp()->SetOp(1, sideEffList->AsOp()->GetOp(1));
-                }
-                else
-                {
-                    asgNode->AsOp()->SetOp(0, sideEffList);
-                    asgNode->AsOp()->SetOp(1, gtNewNothingNode());
-                }
-
-                asgNode->SetSideEffects(sideEffList->GetSideEffects());
-                asgNode->gtFlags &= ~GTF_REVERSE_OPS;
-            }
-        }
-        else
-        {
-            JITDUMPTREE(asgNode, "Removing tree in " FMT_BB " as useless", compCurBB->bbNum);
-
-            // No side effects - Change the assignment to a GT_NOP node
-            asgNode->ChangeToNothingNode();
-
-            INDEBUG(*treeModf = true;)
-        }
-
-        // Re-link the nodes for this statement - Do not update ordering!
-
-        // Do not update costs by calling gtSetStmtInfo. fgSetStmtSeq modifies
-        // the tree threading based on the new costs. Removing nodes could
-        // cause a subtree to get evaluated first (earlier second) during the
-        // liveness walk. Instead just set a flag that costs are dirty and
-        // caller has to call gtSetStmtInfo.
-        *pStmtInfoDirty = true;
-
-        fgSetStmtSeq(compCurStmt);
-
-        // Continue analysis from this node
-
-        *pTree = asgNode;
-
-        return false;
+        asgNode->SetSideEffects(sideEffects->GetSideEffects());
+        asgNode->gtFlags &= ~GTF_REVERSE_OPS;
     }
+
+    return asgNode;
 }
 
 /*****************************************************************************
