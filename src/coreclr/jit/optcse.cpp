@@ -3022,9 +3022,6 @@ public:
                         }
                     }
                 }
-#ifdef DEBUG
-                cse->gtDebugFlags |= GTF_DEBUG_VAR_CSE_REF;
-#endif // DEBUG
 
                 // Now we need to unmark any nested CSE's uses that are found in 'exp'
                 // As well we extract any nested CSE defs that are found in 'exp' and

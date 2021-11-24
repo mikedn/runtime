@@ -696,8 +696,6 @@ enum GenTreeDebugFlags : unsigned int
     GTF_DEBUG_NODE_LSRA_ADDED   = 0x00000020, // This node was added by LSRA
 
     GTF_DEBUG_NODE_MASK         = 0x0000003F, // These flags are all node (rather than operation) properties.
-
-    GTF_DEBUG_VAR_CSE_REF       = 0x00800000, // GT_LCL_VAR -- This is a CSE LCL_VAR node
 };
 
 inline constexpr GenTreeDebugFlags operator ~(GenTreeDebugFlags a)

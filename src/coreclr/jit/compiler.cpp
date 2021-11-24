@@ -7748,12 +7748,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[VAR_DEATH]");
                 }
-#if defined(DEBUG)
-                if (tree->gtDebugFlags & GTF_DEBUG_VAR_CSE_REF)
-                {
-                    chars += printf("[VAR_CSE_REF]");
-                }
-#endif
                 break;
 
             case GT_NOP:
