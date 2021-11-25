@@ -6995,6 +6995,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
     assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
     assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
+    assert(dstLclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((dstLclNode->gtFlags & GTF_VAR_DEF) != 0);
 
     unsigned      dstLclNum   = dstLclNode->GetLclNum();

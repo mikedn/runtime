@@ -5610,23 +5610,8 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
-        {
-            const GenTreeLclVarCommon* lclVarAddr = node->AsLclVarCommon();
-            const LclVarDsc*           varDsc     = compiler->lvaGetDesc(lclVarAddr);
-            if (((lclVarAddr->gtFlags & GTF_VAR_DEF) != 0) && varDsc->HasGCPtr())
-            {
-                // Emitter does not correctly handle live updates for LCL_VAR_ADDR
-                // when they are not contained, for example, `STOREIND byref(GT_LCL_VAR_ADDR not-contained)`
-                // would generate:
-                // add     r1, sp, 48   // r1 contains address of a lclVar V01.
-                // str     r0, [r1]     // a gc ref becomes live in V01, but emitter would not report it.
-                // Make sure that we use uncontained address nodes only for variables
-                // that will be marked as mustInit and will be alive throughout the whole block even when tracked.
-                assert(lclVarAddr->isContained() || !varDsc->lvTracked || varTypeIsStruct(varDsc));
-                // TODO: support this assert for uses, see https://github.com/dotnet/runtime/issues/51900.
-            }
+            assert(compiler->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
             break;
-        }
 
         default:
             break;

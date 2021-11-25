@@ -8471,8 +8471,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 FALLTHROUGH;
             case GT_LCL_FLD:
             case GT_STORE_LCL_FLD:
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
                 if (tree->gtFlags & GTF_VAR_USEASG)
                 {
                     printf("U");
@@ -8491,7 +8489,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     --msgLength;
                     break;
                 }
-
                 goto DASH;
 
             case GT_EQ:

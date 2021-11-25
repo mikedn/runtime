@@ -1476,6 +1476,7 @@ void Compiler::fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call)
 
 void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node)
 {
+    assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((node->gtFlags & GTF_VAR_DEF) == 0);
 
     if (VarSetOps::TryAddElemD(this, liveOut, lcl->GetLivenessBitIndex()))
@@ -1493,6 +1494,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
                                             LclVarDsc*           lcl,
                                             GenTreeLclVarCommon* node)
 {
+    assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
     assert((node->gtFlags & GTF_VAR_DEF) != 0);
 
     const unsigned index = lcl->GetLivenessBitIndex();
@@ -1528,6 +1530,8 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
                                            LclVarDsc*           lcl,
                                            GenTreeLclVarCommon* node)
 {
+    assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+
     bool isDef = ((node->gtFlags & GTF_VAR_DEF) != 0);
 
     // We have accurate ref counts when running late liveness so we can eliminate

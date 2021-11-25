@@ -7721,11 +7721,8 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         genTreeOps op = tree->OperGet();
         switch (op)
         {
-
             case GT_LCL_VAR:
-            case GT_LCL_VAR_ADDR:
             case GT_LCL_FLD:
-            case GT_LCL_FLD_ADDR:
             case GT_STORE_LCL_FLD:
             case GT_STORE_LCL_VAR:
                 if (tree->gtFlags & GTF_VAR_DEF)
@@ -7740,13 +7737,16 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[VAR_ITERATOR]");
                 }
-                if (tree->gtFlags & GTF_VAR_CLONED)
-                {
-                    chars += printf("[VAR_CLONED]");
-                }
                 if (tree->gtFlags & GTF_VAR_DEATH)
                 {
                     chars += printf("[VAR_DEATH]");
+                }
+                FALLTHROUGH;
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                if (tree->gtFlags & GTF_VAR_CLONED)
+                {
+                    chars += printf("[VAR_CLONED]");
                 }
                 break;
 

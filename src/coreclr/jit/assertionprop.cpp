@@ -2735,8 +2735,10 @@ GenTree* Compiler::optCopyAssertionProp(AssertionDsc*        curAssertion,
 // Notes:
 //   stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVarCommon* tree, Statement* stmt)
+GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt)
 {
+    assert(tree->OperIs(GT_LCL_VAR));
+
     // If we have a var definition then bail or
     // If this is the address of the var then it will have the GTF_DONT_CSE
     // flag set and we don't want to to assertion prop on it.
@@ -3998,7 +4000,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
     switch (tree->gtOper)
     {
         case GT_LCL_VAR:
-            return optAssertionProp_LclVar(assertions, tree->AsLclVarCommon(), stmt);
+            return optAssertionProp_LclVar(assertions, tree->AsLclVar(), stmt);
 
         case GT_OBJ:
         case GT_BLK:
