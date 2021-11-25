@@ -197,14 +197,14 @@ private:
         return comp->gtNewOperNode(GT_IND, type, tree);
     }
 
-    GenTree* PhysReg(regNumber reg, var_types type = TYP_I_IMPL)
+    GenTreePhysReg* PhysReg(regNumber reg, var_types type = TYP_I_IMPL)
     {
         return comp->gtNewPhysRegNode(reg, type);
     }
 
-    GenTree* ThisReg(GenTreeCall* call)
+    GenTreePhysReg* ThisReg(GenTreeCall* call)
     {
-        return PhysReg(comp->codeGen->genGetThisArgReg(call), TYP_REF);
+        return comp->gtNewPhysRegNode(comp->codeGen->genGetThisArgReg(call), TYP_REF);
     }
 
     GenTree* Offset(GenTree* base, unsigned offset)
@@ -223,19 +223,6 @@ private:
     {
         var_types resultType = (base->TypeGet() == TYP_REF) ? TYP_BYREF : base->TypeGet();
         return new (comp, GT_LEA) GenTreeAddrMode(resultType, base, index, scale, 0);
-    }
-
-    GenTree* NewStoreLclVar(unsigned lclNum, var_types type, GenTree* value)
-    {
-        GenTree*   store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(type, lclNum, value);
-        LclVarDsc* lcl   = comp->lvaGetDesc(lclNum);
-
-        if (lcl->IsAddressExposed())
-        {
-            store->gtFlags |= GTF_GLOB_REF;
-        }
-
-        return store;
     }
 
     // Replace the definition of the given use with a lclVar, allocating a new temp

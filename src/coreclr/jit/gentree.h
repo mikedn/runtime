@@ -3560,6 +3560,18 @@ public:
         assert(lclOffs <= UINT16_MAX);
     }
 
+    GenTreeLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value)
+        : GenTreeLclVarCommon(GT_STORE_LCL_FLD, type, lclNum)
+        , m_lclOffs(static_cast<uint16_t>(lclOffs))
+        , m_layoutNum(0)
+        , m_fieldSeq(FieldSeqStore::NotAField())
+    {
+        assert(lclOffs <= UINT16_MAX);
+
+        gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        SetOp(0, value);
+    }
+
     GenTreeLclFld(GenTreeLclFld* copyFrom)
         : GenTreeLclVarCommon(copyFrom)
         , m_lclOffs(copyFrom->m_lclOffs)

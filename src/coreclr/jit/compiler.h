@@ -1909,7 +1909,7 @@ public:
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
 
-    GenTree* gtNewPhysRegNode(regNumber reg, var_types type);
+    GenTreePhysReg* gtNewPhysRegNode(regNumber reg, var_types type);
 
     GenTree* gtNewJmpTableNode();
 
@@ -1939,7 +1939,8 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-    GenTreeLclVar* gtNewStoreLclVar(unsigned dstLclNum, GenTree* src);
+    GenTreeLclVar* gtNewStoreLclVar(unsigned lclNum, var_types type, GenTree* value);
+    GenTreeLclFld* gtNewStoreLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value);
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 

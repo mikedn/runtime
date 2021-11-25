@@ -5250,11 +5250,10 @@ GenTreeIntCon* Compiler::gtNewIconNode(unsigned fieldOffset, FieldSeqNode* field
 }
 
 // return a new node representing the value in a physical register
-GenTree* Compiler::gtNewPhysRegNode(regNumber reg, var_types type)
+GenTreePhysReg* Compiler::gtNewPhysRegNode(regNumber reg, var_types type)
 {
     assert(genIsValidIntReg(reg) || (reg == REG_SPBASE));
-    GenTree* result = new (this, GT_PHYSREG) GenTreePhysReg(reg, type);
-    return result;
+    return new (this, GT_PHYSREG) GenTreePhysReg(reg, type);
 }
 
 GenTree* Compiler::gtNewJmpTableNode()
@@ -5533,13 +5532,14 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
     }
 }
 
-GenTreeLclVar* Compiler::gtNewStoreLclVar(unsigned dstLclNum, GenTree* src)
+GenTreeLclVar* Compiler::gtNewStoreLclVar(unsigned lclNum, var_types type, GenTree* src)
 {
-    GenTreeLclVar* store = new (this, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, src->GetType(), dstLclNum);
-    store->SetOp(0, src);
-    store->gtFlags = (src->gtFlags & GTF_COMMON_MASK); // TODO-MIKE-Review: This looks bogus.
-    store->gtFlags |= GTF_VAR_DEF | GTF_ASG;
-    return store;
+    return new (this, GT_STORE_LCL_VAR) GenTreeLclVar(type, lclNum, src);
+}
+
+GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value)
+{
+    return new (this, GT_STORE_LCL_FLD) GenTreeLclFld(type, lclNum, lclOffs, value);
 }
 
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)

@@ -976,9 +976,7 @@ void Compiler::fgExtendDbgLifetimes()
                 }
                 else
                 {
-                    GenTree* store       = new (this, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, type, varNum);
-                    store->AsOp()->gtOp1 = zero;
-                    store->gtFlags |= (GTF_VAR_DEF | GTF_ASG);
+                    GenTree* store = gtNewStoreLclVar(varNum, type, zero);
 
                     LIR::Range initRange = LIR::EmptyRange();
                     initRange.InsertBefore(nullptr, zero, store);

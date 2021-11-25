@@ -423,9 +423,9 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
 
     noway_assert(rhs->OperIs(GT_LONG));
 
-    LclVarDsc* varDsc = m_compiler->lvaGetDesc(tree);
+    LclVarDsc* lcl = m_compiler->lvaGetDesc(tree);
 
-    if (!varDsc->lvPromoted)
+    if (!lcl->IsPromoted())
     {
         // We cannot decompose a st.lclVar that is not promoted because doing so
         // changes its liveness semantics. For example, consider the following
@@ -462,23 +462,17 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
         return tree->gtNext;
     }
 
-    assert(varDsc->lvFieldCnt == 2);
+    assert(lcl->GetPromotedFieldCount() == 2);
     GenTreeOp* value = rhs->AsOp();
     Range().Remove(value);
 
-    const unsigned loVarNum = varDsc->lvFieldLclStart;
-    GenTree*       loStore  = tree;
-    loStore->AsLclVarCommon()->SetLclNum(loVarNum);
-    loStore->AsOp()->gtOp1 = value->gtOp1;
-    loStore->gtType        = TYP_INT;
+    GenTreeLclVar* loStore = tree->AsLclVar();
+    loStore->SetType(TYP_INT);
+    loStore->SetLclNum(lcl->GetPromotedFieldLclNum(0));
+    loStore->SetOp(0, value->GetOp(0));
+    GenTreeLclVar* hiStore = m_compiler->gtNewStoreLclVar(lcl->GetPromotedFieldLclNum(1), TYP_INT, value->GetOp(1));
 
-    const unsigned hiVarNum = loVarNum + 1;
-    GenTree*       hiStore  = m_compiler->gtNewLclLNode(hiVarNum, TYP_INT);
-    hiStore->SetOper(GT_STORE_LCL_VAR);
-    hiStore->AsOp()->gtOp1 = value->gtOp2;
-    hiStore->gtFlags |= GTF_VAR_DEF;
-
-    Range().InsertAfter(tree, hiStore);
+    Range().InsertAfter(loStore, hiStore);
 
     return hiStore->gtNext;
 }
