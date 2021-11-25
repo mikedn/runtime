@@ -390,7 +390,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 #endif // DEBUG
     };
 
-    ArrayStack<Value> m_valueStack;
+    ArrayStack<Value, 16> m_valueStack;
     INDEBUG(bool m_stmtModified;)
 
 public:

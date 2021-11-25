@@ -1533,7 +1533,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         ArrayStack<NonStandardArg> args;
 
     public:
-        NonStandardArgs(CompAllocator alloc) : args(alloc, 3) // We will have at most 3 non-standard arguments
+        NonStandardArgs(CompAllocator alloc) : args(alloc)
         {
         }
 

@@ -4,26 +4,19 @@
 //
 // ArrayStack: A stack, implemented as a growable array
 
-template <class T>
+template <class T, unsigned InlineCapacity = 8>
 class ArrayStack
 {
-    static const int builtinSize = 8;
+    CompAllocator m_alloc;
+    int           tosIndex; // first free location
+    int           maxIndex;
+    T*            data;
+    char          inlineData[InlineCapacity * sizeof(T)];
 
 public:
-    ArrayStack(CompAllocator alloc, int initialCapacity = builtinSize) : m_alloc(alloc)
+    ArrayStack(CompAllocator alloc)
+        : m_alloc(alloc), tosIndex(0), maxIndex(InlineCapacity), data(reinterpret_cast<T*>(inlineData))
     {
-        if (initialCapacity > builtinSize)
-        {
-            maxIndex = initialCapacity;
-            data     = m_alloc.allocate<T>(initialCapacity);
-        }
-        else
-        {
-            maxIndex = builtinSize;
-            data     = reinterpret_cast<T*>(builtinData);
-        }
-
-        tosIndex = 0;
     }
 
     void Push(T item)
@@ -119,12 +112,4 @@ public:
     {
         tosIndex = 0;
     }
-
-private:
-    CompAllocator m_alloc;
-    int           tosIndex; // first free location
-    int           maxIndex;
-    T*            data;
-    // initial allocation
-    char builtinData[builtinSize * sizeof(T)];
 };
