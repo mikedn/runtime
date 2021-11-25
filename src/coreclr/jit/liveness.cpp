@@ -1656,33 +1656,42 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         {
             fgComputeLifeCall(liveOut, node->AsCall());
         }
-        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((node->gtFlags & GTF_VAR_DEF) == 0))
         {
             GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
             LclVarDsc*           lcl     = lvaGetDesc(lclNode);
-            bool                 isDeadStore;
 
-            if (!lcl->lvTracked)
+            if (lcl->HasLiveness())
             {
-                isDeadStore = fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, lclNode);
-            }
-            else if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
-            {
-                isDeadStore = fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, lclNode);
+                fgComputeLifeTrackedLocalUse(liveOut, lcl, lclNode);
             }
             else
             {
-                fgComputeLifeTrackedLocalUse(liveOut, lcl, lclNode);
-                isDeadStore = false;
+                bool isDeadStore = fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, lclNode);
+                assert(!isDeadStore);
             }
-
-            if (isDeadStore)
+        }
+        else if (node->OperIs(GT_ASG))
+        {
+            if (GenTreeLclVarCommon* lclNode = node->AsOp()->GetOp(0)->SkipComma()->IsLclVarCommon())
             {
-                GenTree* asgNode = lclNode->gtNext;
+                assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
 
-                if ((asgNode != nullptr) && asgNode->OperIs(GT_ASG) && (asgNode->AsOp()->GetOp(0) == lclNode))
+                LclVarDsc* lcl = lvaGetDesc(lclNode);
+                bool       isDeadStore;
+
+                if (lcl->HasLiveness())
                 {
-                    GenTree* nextNode = fgRemoveDeadStore(asgNode->AsOp());
+                    isDeadStore = fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, lclNode);
+                }
+                else
+                {
+                    isDeadStore = fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, lclNode);
+                }
+
+                if (isDeadStore)
+                {
+                    GenTree* nextNode = fgRemoveDeadStore(node->AsOp());
 
                     if (nextNode == nullptr)
                     {
@@ -1690,17 +1699,13 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
                         return;
                     }
 
-                    INDEBUG(modified = true;)
-
                     if (nextNode == stmt->GetRootNode())
                     {
                         // The statement root was replaced, sequence the entire statement
                         // and start over.
 
-                        gtSetStmtInfo(stmt);
-                        fgSetStmtSeq(stmt);
                         updateStmt = false;
-                        node       = nextNode;
+                        gtSetStmtInfo(stmt);
                     }
                     else
                     {
@@ -1710,10 +1715,12 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
                         // mess up the current traversal. Instead, call gtSetStmtInfo
                         // after traversal is complete.
 
-                        fgSetStmtSeq(stmt);
                         updateStmt = true;
-                        node       = nextNode->gtPrev;
                     }
+
+                    INDEBUG(modified = true;)
+                    fgSetStmtSeq(stmt);
+                    node = nextNode;
 
                     continue;
                 }
@@ -2050,11 +2057,10 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
     JITDUMPTREE(asgNode, "Dead assignment:\n");
 
     GenTree* sideEffects = nullptr;
-    GenTree* src         = asgNode->AsOp()->GetOp(1);
 
-    if ((src->gtFlags & GTF_SIDE_EFFECT) != 0)
+    if ((asgNode->GetOp(1)->gtFlags & GTF_SIDE_EFFECT) != 0)
     {
-        gtExtractSideEffList(src, &sideEffects);
+        gtExtractSideEffList(asgNode->GetOp(1), &sideEffects);
 
         if (sideEffects != nullptr)
         {
@@ -2091,29 +2097,31 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
     }
     else if (sideEffects->OperIs(GT_ASG))
     {
-        asgNode->AsOp()->SetOp(0, sideEffects->AsOp()->GetOp(0));
-        asgNode->AsOp()->SetOp(1, sideEffects->AsOp()->GetOp(1));
+        asgNode->SetOp(0, sideEffects->AsOp()->GetOp(0));
+        asgNode->SetOp(1, sideEffects->AsOp()->GetOp(1));
         asgNode->SetType(sideEffects->GetType());
         asgNode->SetSideEffects(sideEffects->GetSideEffects());
+        asgNode->SetReverseOps(sideEffects->IsReverseOp());
     }
     else
     {
-        asgNode->ChangeOper(GT_COMMA);
+        asgNode->SetOper(GT_COMMA);
         asgNode->SetType(TYP_VOID);
 
         if (sideEffects->OperIs(GT_COMMA))
         {
-            asgNode->AsOp()->SetOp(0, sideEffects->AsOp()->GetOp(0));
-            asgNode->AsOp()->SetOp(1, sideEffects->AsOp()->GetOp(1));
+            asgNode->SetOp(0, sideEffects->AsOp()->GetOp(0));
+            asgNode->SetOp(1, sideEffects->AsOp()->GetOp(1));
+            asgNode->SetReverseOps(sideEffects->IsReverseOp());
         }
         else
         {
-            asgNode->AsOp()->SetOp(0, sideEffects);
-            asgNode->AsOp()->SetOp(1, gtNewNothingNode());
+            asgNode->SetOp(0, sideEffects);
+            asgNode->SetOp(1, gtNewNothingNode());
+            asgNode->SetReverseOps(false);
         }
 
         asgNode->SetSideEffects(sideEffects->GetSideEffects());
-        asgNode->gtFlags &= ~GTF_REVERSE_OPS;
     }
 
     return asgNode;

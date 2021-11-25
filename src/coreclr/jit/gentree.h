@@ -1974,6 +1974,11 @@ public:
         return (gtFlags & GTF_REVERSE_OPS) ? true : false;
     }
 
+    void SetReverseOps(bool reverseOps)
+    {
+        gtFlags = (gtFlags & ~GTF_REVERSE_OPS) | (reverseOps ? GTF_REVERSE_OPS : GTF_EMPTY);
+    }
+
     bool IsUnsigned() const
     {
         return ((gtFlags & GTF_UNSIGNED) != 0);
