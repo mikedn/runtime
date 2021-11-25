@@ -464,9 +464,8 @@ public:
         GenTree* node = *use;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        // TODO-MIKE-Fix: Implicit byref counting should be done in post order.
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) &&
-            m_compiler->lvaHasImplicitByRefParams)
+        if (m_compiler->lvaHasImplicitByRefParams &&
+            node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
             UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
         }
@@ -2371,20 +2370,12 @@ private:
     {
         LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
 
+        // We should not encounter any promoted fields yet.
+        assert(!lcl->IsPromotedField());
+
         if (!lcl->IsImplicitByRefParam())
         {
-            if (!lcl->IsPromotedField())
-            {
-                return;
-            }
-
-            lclNum = lcl->GetPromotedFieldParentLclNum();
-            lcl    = m_compiler->lvaGetDesc(lclNum);
-
-            if (!lcl->IsImplicitByRefParam())
-            {
-                return;
-            }
+            return;
         }
 
         JITDUMP("LocalAddressVisitor incrementing ref count from %d to %d for implict byref V%02d\n",
