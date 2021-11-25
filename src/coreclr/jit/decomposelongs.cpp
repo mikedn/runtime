@@ -347,7 +347,7 @@ GenTree* DecomposeLongs::DecomposeLclVar(LIR::Use& use)
     GenTree*   loResult = tree;
     loResult->gtType    = TYP_INT;
 
-    GenTree* hiResult = m_compiler->gtNewLclLNode(varNum, TYP_INT);
+    GenTree* hiResult = m_compiler->gtNewLclvNode(varNum, TYP_INT);
     Range().InsertAfter(loResult, hiResult);
 
     if (varDsc->lvPromoted)
@@ -1750,7 +1750,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     // Create:
     //      hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2 + 1)
 
-    GenTree* simdTmpVar2 = m_compiler->gtNewLclLNode(simdTmpVarNum, op1->TypeGet());
+    GenTree* simdTmpVar2 = m_compiler->gtNewLclvNode(simdTmpVarNum, op1->TypeGet());
     GenTree* indexTimesTwoPlusOne;
 
     if (indexIsConst)
@@ -1760,7 +1760,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     }
     else
     {
-        GenTree* indexTmpVar2   = m_compiler->gtNewLclLNode(indexTmpVarNum, TYP_INT);
+        GenTree* indexTmpVar2   = m_compiler->gtNewLclvNode(indexTmpVarNum, TYP_INT);
         GenTree* two2           = m_compiler->gtNewIconNode(2, TYP_INT);
         GenTree* indexTimesTwo2 = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar2, two2);
         GenTree* one            = m_compiler->gtNewIconNode(1, TYP_INT);

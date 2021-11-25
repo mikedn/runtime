@@ -5642,7 +5642,7 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
     return new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(ILoffs));
 }
 
-GenTreeLclVar* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
+GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
 #ifdef DEBUG
     LclVarDsc* lcl = lvaGetDesc(lnum);
