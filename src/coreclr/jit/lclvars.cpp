@@ -74,6 +74,8 @@ void Compiler::lvaInit()
 #endif
     lvaCurEpoch = 0;
 
+    lvaAddressExposedLocalsMarked = false;
+
     impPromotableStructTypeCache[0] = nullptr;
     impPromotableStructTypeCache[1] = nullptr;
 }
@@ -3294,10 +3296,13 @@ void Compiler::lvaComputeRefCounts(bool isRecompute, bool setSlotNumbers)
             {
                 switch (node->OperGet())
                 {
-                    case GT_LCL_VAR:
-                    case GT_LCL_FLD:
                     case GT_LCL_VAR_ADDR:
                     case GT_LCL_FLD_ADDR:
+                        lvaGetDesc(node->AsLclVarCommon())->incRefCnts(0, this);
+                        break;
+
+                    case GT_LCL_VAR:
+                    case GT_LCL_FLD:
                     case GT_STORE_LCL_VAR:
                     case GT_STORE_LCL_FLD:
                     {
@@ -6593,17 +6598,14 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
 {
     if (op->OperIs(GT_OBJ, GT_IND))
     {
-        GenTree* addr = op->AsIndir()->Addr();
+        GenTree* addr = op->AsIndir()->GetAddr();
 
-        if (!addr->OperIs(GT_ADDR))
+        if (addr->OperIs(GT_LCL_VAR_ADDR))
         {
-            return;
+            lvaRecordSimdIntrinsicUse(addr->AsLclVar());
         }
-
-        op = addr->AsUnOp()->GetOp(0);
     }
-
-    if (op->OperIs(GT_LCL_VAR))
+    else if (op->OperIs(GT_LCL_VAR))
     {
         lvaRecordSimdIntrinsicUse(op->AsLclVar());
     }
@@ -6621,6 +6623,11 @@ void Compiler::lvaRecordSimdIntrinsicUse(unsigned lclNum)
 
 void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
 {
+    lvaRecordSimdIntrinsicDef(lclVar->GetLclNum(), src);
+}
+
+void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src)
+{
     // Don't block promotion due to Create/Zero intrinsics, we can promote these.
     switch (src->GetIntrinsic())
     {
@@ -6635,7 +6642,7 @@ void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrins
             break;
     }
 
-    lvaGetDesc(lclVar)->lvUsedInSIMDIntrinsic = true;
+    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
 }
 #endif // FEATURE_SIMD
 

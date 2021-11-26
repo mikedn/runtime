@@ -1909,7 +1909,7 @@ public:
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
 
-    GenTree* gtNewPhysRegNode(regNumber reg, var_types type);
+    GenTreePhysReg* gtNewPhysRegNode(regNumber reg, var_types type);
 
     GenTree* gtNewJmpTableNode();
 
@@ -1939,7 +1939,8 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-    GenTreeLclVar* gtNewStoreLclVar(unsigned dstLclNum, GenTree* src);
+    GenTreeLclVar* gtNewStoreLclVar(unsigned lclNum, var_types type, GenTree* value);
+    GenTreeLclFld* gtNewStoreLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value);
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
@@ -1974,7 +1975,7 @@ public:
                                                   void*                   compileTimeHandle);
 
     GenTreeLclVar* gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs = BAD_IL_OFFSET));
-    GenTreeLclVar* gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs = BAD_IL_OFFSET));
+    GenTreeLclVar* gtNewLclVarLargeNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs = BAD_IL_OFFSET));
 
     GenTreeLclVar* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
     GenTreeLclFld* gtNewLclFldAddrNode(unsigned      lclNum,
@@ -2517,6 +2518,8 @@ public:
     unsigned lvaCallSpCheck; // Stores SP to confirm it is not corrupted after every call.
 
 #endif // defined(DEBUG) && defined(TARGET_X86)
+
+    bool lvaAddressExposedLocalsMarked;
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     bool lvaHasImplicitByRefParams;
@@ -3837,11 +3840,7 @@ public:
     bool fgTryRemoveNonLocal(GenTree* node, LIR::Range* blockRange);
 
     void fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block);
-    bool fgRemoveDeadStore(GenTree**        pTree,
-                           LclVarDsc*       varDsc,
-                           VARSET_VALARG_TP life,
-                           bool*            doAgain,
-                           bool* pStmtInfoDirty DEBUGARG(bool* treeModf));
+    GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
 
     void fgInterBlockLocalVarLiveness();
 
@@ -4654,7 +4653,7 @@ private:
         unsigned   m_lclNum;
         unsigned   m_index;
 
-        unsigned IsSimdLocalField(GenTree* node);
+        unsigned IsSimdLocalField(GenTree* node, Compiler* compiler);
         unsigned IsSimdLocalExtract(GenTree* node);
 
         bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum);
@@ -4844,6 +4843,7 @@ public:
     void inlFoldJTrue(BasicBlock* block);
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
+    void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
     void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
@@ -6199,7 +6199,7 @@ public:
 
     // Assertion propagation functions.
     GenTree* optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block);
-    GenTree* optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVarCommon* tree, Statement* stmt);
+    GenTree* optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt);
     GenTree* optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt);
@@ -6988,6 +6988,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
     void lvaRecordSimdIntrinsicUse(unsigned lclNum);
     void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.

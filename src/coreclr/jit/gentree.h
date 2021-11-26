@@ -696,8 +696,6 @@ enum GenTreeDebugFlags : unsigned int
     GTF_DEBUG_NODE_LSRA_ADDED   = 0x00000020, // This node was added by LSRA
 
     GTF_DEBUG_NODE_MASK         = 0x0000003F, // These flags are all node (rather than operation) properties.
-
-    GTF_DEBUG_VAR_CSE_REF       = 0x00800000, // GT_LCL_VAR -- This is a CSE LCL_VAR node
 };
 
 inline constexpr GenTreeDebugFlags operator ~(GenTreeDebugFlags a)
@@ -1974,6 +1972,11 @@ public:
     bool IsReverseOp() const
     {
         return (gtFlags & GTF_REVERSE_OPS) ? true : false;
+    }
+
+    void SetReverseOps(bool reverseOps)
+    {
+        gtFlags = (gtFlags & ~GTF_REVERSE_OPS) | (reverseOps ? GTF_REVERSE_OPS : GTF_EMPTY);
     }
 
     bool IsUnsigned() const
@@ -3555,6 +3558,18 @@ public:
         , m_fieldSeq(FieldSeqStore::NotAField())
     {
         assert(lclOffs <= UINT16_MAX);
+    }
+
+    GenTreeLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value)
+        : GenTreeLclVarCommon(GT_STORE_LCL_FLD, type, lclNum)
+        , m_lclOffs(static_cast<uint16_t>(lclOffs))
+        , m_layoutNum(0)
+        , m_fieldSeq(FieldSeqStore::NotAField())
+    {
+        assert(lclOffs <= UINT16_MAX);
+
+        gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        SetOp(0, value);
     }
 
     GenTreeLclFld(GenTreeLclFld* copyFrom)

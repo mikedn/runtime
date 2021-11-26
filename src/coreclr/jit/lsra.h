@@ -5,7 +5,6 @@
 #ifndef _LSRA_H_
 #define _LSRA_H_
 
-#include "arraylist.h"
 #include "smallhash.h"
 
 // Minor and forward-reference types
@@ -13,9 +12,6 @@ class Interval;
 class RefPosition;
 class LinearScan;
 class RegRecord;
-
-template <class T>
-class ArrayStack;
 
 // LsraLocation tracks the linearized order of the nodes.
 // Each node is assigned two LsraLocations - one for all the uses and all but the last

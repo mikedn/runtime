@@ -856,6 +856,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
 //
 void SsaBuilder::RenameLclUse(GenTreeLclVarCommon* lclNode)
 {
+    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((lclNode->gtFlags & GTF_VAR_DEF) == 0);
 
     unsigned lclNum = lclNode->GetLclNum();

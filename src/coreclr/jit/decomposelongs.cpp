@@ -347,7 +347,7 @@ GenTree* DecomposeLongs::DecomposeLclVar(LIR::Use& use)
     GenTree*   loResult = tree;
     loResult->gtType    = TYP_INT;
 
-    GenTree* hiResult = m_compiler->gtNewLclLNode(varNum, TYP_INT);
+    GenTree* hiResult = m_compiler->gtNewLclvNode(varNum, TYP_INT);
     Range().InsertAfter(loResult, hiResult);
 
     if (varDsc->lvPromoted)
@@ -423,9 +423,9 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
 
     noway_assert(rhs->OperIs(GT_LONG));
 
-    LclVarDsc* varDsc = m_compiler->lvaGetDesc(tree);
+    LclVarDsc* lcl = m_compiler->lvaGetDesc(tree);
 
-    if (!varDsc->lvPromoted)
+    if (!lcl->IsPromoted())
     {
         // We cannot decompose a st.lclVar that is not promoted because doing so
         // changes its liveness semantics. For example, consider the following
@@ -462,23 +462,17 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
         return tree->gtNext;
     }
 
-    assert(varDsc->lvFieldCnt == 2);
+    assert(lcl->GetPromotedFieldCount() == 2);
     GenTreeOp* value = rhs->AsOp();
     Range().Remove(value);
 
-    const unsigned loVarNum = varDsc->lvFieldLclStart;
-    GenTree*       loStore  = tree;
-    loStore->AsLclVarCommon()->SetLclNum(loVarNum);
-    loStore->AsOp()->gtOp1 = value->gtOp1;
-    loStore->gtType        = TYP_INT;
+    GenTreeLclVar* loStore = tree->AsLclVar();
+    loStore->SetType(TYP_INT);
+    loStore->SetLclNum(lcl->GetPromotedFieldLclNum(0));
+    loStore->SetOp(0, value->GetOp(0));
+    GenTreeLclVar* hiStore = m_compiler->gtNewStoreLclVar(lcl->GetPromotedFieldLclNum(1), TYP_INT, value->GetOp(1));
 
-    const unsigned hiVarNum = loVarNum + 1;
-    GenTree*       hiStore  = m_compiler->gtNewLclLNode(hiVarNum, TYP_INT);
-    hiStore->SetOper(GT_STORE_LCL_VAR);
-    hiStore->AsOp()->gtOp1 = value->gtOp2;
-    hiStore->gtFlags |= GTF_VAR_DEF;
-
-    Range().InsertAfter(tree, hiStore);
+    Range().InsertAfter(loStore, hiStore);
 
     return hiStore->gtNext;
 }
@@ -1756,7 +1750,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     // Create:
     //      hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2 + 1)
 
-    GenTree* simdTmpVar2 = m_compiler->gtNewLclLNode(simdTmpVarNum, op1->TypeGet());
+    GenTree* simdTmpVar2 = m_compiler->gtNewLclvNode(simdTmpVarNum, op1->TypeGet());
     GenTree* indexTimesTwoPlusOne;
 
     if (indexIsConst)
@@ -1766,7 +1760,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     }
     else
     {
-        GenTree* indexTmpVar2   = m_compiler->gtNewLclLNode(indexTmpVarNum, TYP_INT);
+        GenTree* indexTmpVar2   = m_compiler->gtNewLclvNode(indexTmpVarNum, TYP_INT);
         GenTree* two2           = m_compiler->gtNewIconNode(2, TYP_INT);
         GenTree* indexTimesTwo2 = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar2, two2);
         GenTree* one            = m_compiler->gtNewIconNode(1, TYP_INT);

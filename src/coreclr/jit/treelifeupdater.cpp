@@ -144,47 +144,29 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
 {
     assert(lclNode->OperIs(GT_LCL_VAR));
     assert(lclNode->IsMultiReg() && compiler->lvaEnregMultiRegVars);
-    assert((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
+    assert((lclNode->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) == 0);
 
     unsigned   lclNum = compiler->lvaGetDesc(lclNode)->GetPromotedFieldLclNum(regIndex);
     LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
     unsigned   index  = lcl->GetLivenessBitIndex();
 
-    bool isBorn  = (lclNode->gtFlags & GTF_VAR_DEF) != 0;
-    bool isDying = !isBorn && lclNode->IsLastUse(regIndex);
-    bool spill   = ((lclNode->gtFlags & lclNode->GetRegSpillFlagByIdx(regIndex)) & GTF_SPILL) != 0;
+    bool spill = ((lclNode->gtFlags & lclNode->GetRegSpillFlagByIdx(regIndex)) & GTF_SPILL) != 0;
 
-    if (isBorn || isDying)
+    if (lclNode->IsLastUse(regIndex))
     {
         bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNumByIdx(regIndex) != REG_NA);
         bool isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
 
         if (isInReg)
         {
-            if (isBorn)
-            {
-                codeGen->genUpdateVarReg(lcl, lclNode, regIndex);
-            }
-
-            codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
+            codeGen->genUpdateRegLife(lcl, false, true DEBUGARG(lclNode));
         }
 
-        VarSetOps::Assign(compiler, newLife, currentLife);
-
-        if (isDying)
+        if (!VarSetOps::IsMember(compiler, currentLife, index))
         {
-            VarSetOps::RemoveElemD(compiler, newLife, index);
-        }
-        else
-        {
-            VarSetOps::AddElemD(compiler, newLife, index);
-        }
-
-        if (!VarSetOps::Equal(compiler, currentLife, newLife))
-        {
-            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", currentLife, newLife);)
-
-            VarSetOps::Assign(compiler, currentLife, newLife);
+            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, currentLife);)
+            VarSetOps::RemoveElemD(compiler, currentLife, index);
+            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, currentLife);)
 
             // Only add vars to the gcInfo.gcVarPtrSetCur if they are currently on stack,
             // since the gcInfo.gcTrkStkPtrLcls includes all TRACKED vars that EVER live
@@ -192,22 +174,13 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
 
             if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
-                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
-
-                if (isBorn)
-                {
-                    VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index);
-                }
-                else
-                {
-                    VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index);
-                }
-
-                DBEXEC(compiler->verbose,
-                       compiler->dmpVarSetDiff("GCvars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+                VARSET_TP& currentGcStackLife = codeGen->gcInfo.gcVarPtrSetCur;
+                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, currentGcStackLife);)
+                VarSetOps::RemoveElemD(compiler, currentGcStackLife, index);
+                DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("GCvars: ", scratchSet, currentGcStackLife);)
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-                codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNum, isBorn, isDying);
+                codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNum, false, true);
 #endif
 
 #ifdef USING_SCOPE_INFO
@@ -221,7 +194,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
     {
         if (lcl->HasStackGCPtrLiveness() && VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, index))
         {
-            JITDUMP("Var V%02u becoming live\n", lclNum);
+            JITDUMP("GC pointer V%02u becoming live on stack\n", lclNum);
         }
     }
 

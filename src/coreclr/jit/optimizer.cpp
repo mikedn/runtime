@@ -8176,7 +8176,7 @@ void Compiler::optRemoveRedundantZeroInits()
                             refCounts.Set(lclNum, 1);
                         }
 
-                        if ((tree->gtFlags & GTF_VAR_DEF) == 0)
+                        if (!tree->OperIs(GT_LCL_VAR, GT_LCL_FLD) || ((tree->gtFlags & GTF_VAR_DEF) == 0))
                         {
                             break;
                         }

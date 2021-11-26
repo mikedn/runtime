@@ -296,10 +296,8 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum)
         }
     }
 
-    GenTreeLclVar* store = new (compiler, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, type, lclNum);
-    store->gtFlags |= GTF_ASG | GTF_VAR_DEF;
-    store->SetOp(0, def);
-    GenTree* load = compiler->gtNewLclvNode(lclNum, type);
+    GenTree* store = compiler->gtNewStoreLclVar(lclNum, type, def);
+    GenTree* load  = compiler->gtNewLclvNode(lclNum, type);
     m_range->InsertAfter(def, store, load);
 
     ReplaceWith(compiler, load);

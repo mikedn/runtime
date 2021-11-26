@@ -869,6 +869,8 @@ inline GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree
 
 inline GenTree* Compiler::gtNewAddrNode(GenTree* location, var_types type)
 {
+    assert(!location->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+
     if (location->OperIs(GT_IND) && ((location->gtFlags & GTF_IND_ARR_INDEX) == 0))
     {
         return location->AsIndir()->GetAddr();
@@ -1086,9 +1088,9 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
     GenTreeField* tree = new (this, GT_FIELD) GenTreeField(typ, addr, fldHnd, offset);
 
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
-    if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+    if (addr->OperIs(GT_LCL_VAR_ADDR))
     {
-        unsigned   lclNum = addr->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
         LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
         varDsc->lvFieldAccessed = 1;
@@ -1110,7 +1112,7 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
 #if defined(TARGET_X86)
             && info.compIsVarArgs && !varDsc->lvIsRegArg && (lclNum != lvaVarargsHandleArg)
 #else
-            && varTypeIsStruct(addr->AsUnOp()->GetOp(0)->GetType())
+            && varTypeIsStruct(varDsc->GetType())
 #endif
                 )
         {

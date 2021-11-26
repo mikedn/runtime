@@ -390,7 +390,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 #endif // DEBUG
     };
 
-    ArrayStack<Value> m_valueStack;
+    ArrayStack<Value, 16> m_valueStack;
     INDEBUG(bool m_stmtModified;)
 
 public:
@@ -464,8 +464,8 @@ public:
         GenTree* node = *use;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        // TODO-MIKE-Fix: Implicit byref counting should be done in post order.
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && m_compiler->lvaHasImplicitByRefParams)
+        if (m_compiler->lvaHasImplicitByRefParams &&
+            node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
             UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
         }
@@ -512,6 +512,7 @@ public:
             case GT_ADDR:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
+                assert(!node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
 
                 TopValue(1).Address(TopValue(0));
                 PopValue();
@@ -2369,20 +2370,12 @@ private:
     {
         LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
 
+        // We should not encounter any promoted fields yet.
+        assert(!lcl->IsPromotedField());
+
         if (!lcl->IsImplicitByRefParam())
         {
-            if (!lcl->IsPromotedField())
-            {
-                return;
-            }
-
-            lclNum = lcl->GetPromotedFieldParentLclNum();
-            lcl    = m_compiler->lvaGetDesc(lclNum);
-
-            if (!lcl->IsImplicitByRefParam())
-            {
-                return;
-            }
+            return;
         }
 
         JITDUMP("LocalAddressVisitor incrementing ref count from %d to %d for implict byref V%02d\n",
@@ -2402,9 +2395,8 @@ private:
         // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
         // longer wraps struct args in OBJs.
 
-        if (((m_ancestors.Height() >= 4) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
-             m_ancestors.Top(1)->OperIs(GT_ADDR) && m_ancestors.Top(2)->OperIs(GT_OBJ) &&
-             m_ancestors.Top(3)->OperIs(GT_CALL)) ||
+        if (((m_ancestors.Height() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR_ADDR) &&
+             m_ancestors.Top(1)->OperIs(GT_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
             ((m_ancestors.Height() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
@@ -3209,6 +3201,8 @@ void Compiler::fgMarkAddressExposedLocals()
 #endif
         }
     }
+
+    lvaAddressExposedLocalsMarked = true;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     lvaRetypeImplicitByRefParams();

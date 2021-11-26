@@ -3035,11 +3035,11 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
             chkFlags |= GTF_ASG;
         }
 
-        if (oper == GT_ADDR && (op1->OperIsLocal() || op1->gtOper == GT_CLS_VAR ||
-                                (op1->gtOper == GT_IND && op1->AsOp()->gtOp1->gtOper == GT_CLS_VAR_ADDR)))
+        if ((oper == GT_ADDR) &&
+            (op1->OperIs(GT_CLS_VAR) || (op1->OperIs(GT_IND) && op1->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))))
         {
-            /* &aliasedVar doesn't need GTF_GLOB_REF, though alisasedVar does.
-               Similarly for clsVar */
+            // &aliasedVar doesn't need GTF_GLOB_REF, though alisasedVar does.
+            // Similarly for clsVar
             treeFlags |= GTF_GLOB_REF;
         }
     }
