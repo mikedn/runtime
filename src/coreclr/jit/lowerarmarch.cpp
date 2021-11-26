@@ -810,7 +810,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     UNATIVE_OFFSET       offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
     CORINFO_FIELD_HANDLE handle = comp->eeFindJitDataOffs(offset);
 
-    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(GT_CLS_VAR_ADDR, TYP_I_IMPL, handle);
+    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(handle);
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;

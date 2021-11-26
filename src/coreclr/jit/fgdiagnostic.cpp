@@ -2830,10 +2830,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
     {
         switch (oper)
         {
-            case GT_CLS_VAR:
-                chkFlags |= GTF_GLOB_REF;
-                break;
-
             case GT_CATCH_ARG:
                 chkFlags |= GTF_ORDER_SIDEEFF;
                 break;
@@ -3035,8 +3031,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
             chkFlags |= GTF_ASG;
         }
 
-        if ((oper == GT_ADDR) &&
-            (op1->OperIs(GT_CLS_VAR) || (op1->OperIs(GT_IND) && op1->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))))
+        if ((oper == GT_ADDR) && (op1->OperIs(GT_IND) && op1->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
         {
             // &aliasedVar doesn't need GTF_GLOB_REF, though alisasedVar does.
             // Similarly for clsVar

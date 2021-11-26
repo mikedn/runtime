@@ -3456,7 +3456,6 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
 
         case GT_ARR_ELEM:
         case GT_ARR_LENGTH:
-        case GT_CLS_VAR:
         case GT_LCL_FLD:
         case GT_NEG:
         case GT_NOT:
@@ -3493,6 +3492,7 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
         case GT_CNS_DBL:
         case GT_CNS_STR:
 #endif // CSE_CONSTS
+            // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
             return true;
 
 #ifdef FEATURE_HW_INTRINSICS

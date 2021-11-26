@@ -1281,13 +1281,8 @@ AGAIN:
             case GT_LCL_FLD_ADDR:
                 return GenTreeLclFld::Equals(op1->AsLclFld(), op2->AsLclFld());
 
-            case GT_CLS_VAR:
-                if (op1->AsClsVar()->gtClsVarHnd != op2->AsClsVar()->gtClsVarHnd)
-                {
-                    break;
-                }
-
-                return true;
+            case GT_CLS_VAR_ADDR:
+                return op1->AsClsVar()->GetFieldHandle() == op2->AsClsVar()->GetFieldHandle();
 
             case GT_LABEL:
             case GT_ARGPLACE:
@@ -3357,14 +3352,17 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #endif
                 break;
 
-            case GT_CLS_VAR:
+            case GT_CLS_VAR_ADDR:
+                level = 1;
 #ifdef TARGET_ARM
-                // We generate movw/movt/ldr
-                level  = 1;
-                costEx = 3 + IND_COST_EX; // 6
-                costSz = 4 + 4 + 2;       // 10
-                break;
+                // We generate movw/movt
+                costEx = 2;
+                costSz = 4 + 4;
+#else
+                costEx     = 1;
+                costSz     = 4;
 #endif
+                break;
             case GT_LCL_FLD:
                 level  = 1;
                 costEx = IND_COST_EX;
@@ -3726,6 +3724,12 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         costEx += (op1->GetCostEx() - 1);
                         costSz += op1->GetCostSz();
                         goto DONE;
+                    }
+                    else if (op1->OperIs(GT_CLS_VAR_ADDR))
+                    {
+                        op1->SetDoNotCSE();
+                        costEx -= 1;
+                        costSz -= 2;
                     }
 #endif
                     break;
@@ -6254,8 +6258,8 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             copy = new (this, tree->GetOper()) GenTreeLclFld(tree->AsLclFld());
             break;
 
-        case GT_CLS_VAR:
-            copy = new (this, GT_CLS_VAR) GenTreeClsVar(tree->AsClsVar());
+        case GT_CLS_VAR_ADDR:
+            copy = new (this, GT_CLS_VAR_ADDR) GenTreeClsVar(tree->AsClsVar());
             break;
 
         default:
@@ -6420,8 +6424,8 @@ GenTree* Compiler::gtCloneExpr(
                 }
                 goto DONE;
 
-            case GT_CLS_VAR:
-                copy = new (this, GT_CLS_VAR) GenTreeClsVar(tree->AsClsVar());
+            case GT_CLS_VAR_ADDR:
+                copy = new (this, GT_CLS_VAR_ADDR) GenTreeClsVar(tree->AsClsVar());
                 goto DONE;
 
             case GT_RET_EXPR:
@@ -7199,12 +7203,8 @@ bool Compiler::gtCompareTree(GenTree* op1, GenTree* op2)
                 }
                 break;
 
-            case GT_CLS_VAR:
-                if (op1->AsClsVar()->gtClsVarHnd == op2->AsClsVar()->gtClsVarHnd)
-                {
-                    return true;
-                }
-                break;
+            case GT_CLS_VAR_ADDR:
+                return op1->AsClsVar()->GetFieldHandle() == op2->AsClsVar()->GetFieldHandle();
 
             default:
                 // we return false for these unhandled 'oper' kinds
@@ -7331,7 +7331,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
 #endif // !FEATURE_EH_FUNCLETS
         case GT_PHI_ARG:
         case GT_JMPTABLE:
-        case GT_CLS_VAR:
         case GT_CLS_VAR_ADDR:
         case GT_ARGPLACE:
         case GT_PHYSREG:
@@ -8386,7 +8385,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             case GT_INDEX:
             case GT_INDEX_ADDR:
             case GT_FIELD:
-            case GT_CLS_VAR:
                 if (tree->gtFlags & GTF_IND_VOLATILE)
                 {
                     printf("V");
@@ -9413,7 +9411,6 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
         }
         break;
 
-        case GT_CLS_VAR:
         case GT_CLS_VAR_ADDR:
             printf(" %#x", dspPtr(tree->AsClsVar()->GetFieldHandle()));
 
@@ -15156,15 +15153,13 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                     objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
                 }
             }
+            else if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
+            {
+                CORINFO_FIELD_HANDLE fieldHandle = clsVarAddr->GetFieldHandle();
+                assert(info.compCompHnd->isFieldStatic(fieldHandle));
+                objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
+            }
 
-            break;
-        }
-
-        case GT_CLS_VAR:
-        {
-            CORINFO_FIELD_HANDLE fieldHandle = obj->AsClsVar()->GetFieldHandle();
-            assert(info.compCompHnd->isFieldStatic(fieldHandle));
-            objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
             break;
         }
 

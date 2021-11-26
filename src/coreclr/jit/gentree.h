@@ -543,7 +543,7 @@ enum GenTreeFlags : unsigned int
 
     GTF_MEMORYBARRIER_LOAD      = 0x40000000, // GT_MEMORYBARRIER -- Load barrier
 
-    GTF_FLD_VOLATILE            = 0x40000000, // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
+    GTF_FLD_VOLATILE            = 0x40000000, // GT_FIELD -- same as GTF_IND_VOLATILE
 
     GTF_INX_RNGCHK              = 0x80000000, // GT_INDEX/GT_INDEX_ADDR -- the array reference should be range-checked.
 
@@ -569,10 +569,7 @@ enum GenTreeFlags : unsigned int
     GTF_IND_FLAGS = GTF_IND_VOLATILE | GTF_IND_NONFAULTING | GTF_IND_TGT_HEAP | GTF_IND_NONNULL | \
                     GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_ARR_INDEX | GTF_IND_TGT_NOT_HEAP,
 
-    GTF_CLS_VAR_VOLATILE        = 0x40000000, // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
-    GTF_CLS_VAR_INITCLASS       = 0x20000000, // GT_CLS_VAR
-    GTF_CLS_VAR_ASG_LHS         = 0x04000000, // GT_CLS_VAR   -- this GT_CLS_VAR node is (the effective val) of the LHS
-                                              //                 of an assignment; don't evaluate it independently.
+    GTF_CLS_VAR_INITCLASS       = 0x20000000, // GT_CLS_VAR_ADDR
 
     GTF_ADDRMODE_NO_CSE         = 0x80000000, // GT_ADD/GT_MUL/GT_LSH -- Do not CSE this node only, forms complex
                                               //                         addressing mode
@@ -6992,12 +6989,6 @@ public:
     }
 };
 
-/*  NOTE: Any tree nodes that are larger than 8 bytes (two ints or
-    pointers) must be flagged as 'large' in GenTree::InitNodeSize().
- */
-
-/* AsClsVar() -- 'static data member' (GT_CLS_VAR) */
-
 struct GenTreeClsVar : public GenTree
 {
     CORINFO_FIELD_HANDLE gtClsVarHnd;
@@ -7006,10 +6997,9 @@ private:
     FieldSeqNode* m_fieldSeq;
 
 public:
-    GenTreeClsVar(genTreeOps oper, var_types type, CORINFO_FIELD_HANDLE fieldHandle, FieldSeqNode* fieldSeq = nullptr)
-        : GenTree(oper, type), gtClsVarHnd(fieldHandle), m_fieldSeq(fieldSeq)
+    GenTreeClsVar(CORINFO_FIELD_HANDLE fieldHandle, FieldSeqNode* fieldSeq = nullptr)
+        : GenTree(GT_CLS_VAR_ADDR, TYP_I_IMPL), gtClsVarHnd(fieldHandle), m_fieldSeq(fieldSeq)
     {
-        assert((oper == GT_CLS_VAR_ADDR) || (oper == GT_CLS_VAR));
     }
 
     GenTreeClsVar(const GenTreeClsVar* copyFrom)

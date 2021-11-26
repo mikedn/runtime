@@ -276,7 +276,6 @@ GTNODE(SWITCH_TABLE     , GenTreeOp          ,0, (GTK_BINOP|GTK_NOVALUE))  // Ju
 //  Nodes used only within the code generator:
 //-----------------------------------------------------------------------------
 
-GTNODE(CLS_VAR          , GenTreeClsVar      ,0,GTK_LEAF)                        // static data member
 GTNODE(CLS_VAR_ADDR     , GenTreeClsVar      ,0,GTK_LEAF)                        // static data member address
 GTNODE(ARGPLACE         , GenTree            ,0,GTK_LEAF|GTK_NOVALUE|GTK_NOTLIR) // placeholder for a register arg
 GTNODE(NULLCHECK        , GenTreeIndir       ,0,GTK_UNOP|GTK_NOVALUE)            // null checks the source
