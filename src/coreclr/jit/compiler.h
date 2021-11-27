@@ -8298,7 +8298,7 @@ public:
 
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
     CORINFO_CLASS_HANDLE m_refAnyClass;
-    CORINFO_FIELD_HANDLE GetRefanyDataField()
+    CORINFO_FIELD_HANDLE GetRefanyValueField()
     {
         if (m_refAnyClass == nullptr)
         {

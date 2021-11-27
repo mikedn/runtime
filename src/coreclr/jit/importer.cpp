@@ -1128,11 +1128,12 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
         GenTree* destAddrUses[2];
         impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
 
-        FieldSeqNode* valFieldSeq = GetFieldSeqStore()->CreateSingleton(GetRefanyDataField());
+        // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
+        FieldSeqNode* valueFieldSeq = GetFieldSeqStore()->CreateSingleton(GetRefanyValueField());
         assert(OFFSETOF__CORINFO_TypedReference__dataPtr == 0);
-        fgAddFieldSeqForZeroOffset(destAddrUses[0], valFieldSeq);
-        GenTree* valField = gtNewOperNode(GT_IND, TYP_I_IMPL, destAddrUses[0]);
-        impAppendTree(gtNewAssignNode(valField, src->AsOp()->GetOp(0)), curLevel, impCurStmtOffs);
+        fgAddFieldSeqForZeroOffset(destAddrUses[0], valueFieldSeq);
+        GenTree* valueField = gtNewOperNode(GT_IND, TYP_BYREF, destAddrUses[0]);
+        impAppendTree(gtNewAssignNode(valueField, src->AsOp()->GetOp(0)), curLevel, impCurStmtOffs);
 
         FieldSeqNode* typeFieldSeq    = GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField());
         GenTree*      typeFieldOffset = gtNewIconNode(OFFSETOF__CORINFO_TypedReference__type, typeFieldSeq);
