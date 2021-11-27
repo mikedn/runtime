@@ -1908,6 +1908,7 @@ public:
 
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
+    GenTreeIntCon* gtNewIntConFieldOffset(target_size_t fieldOffset, FieldSeqNode* fieldSeq);
 
     GenTreePhysReg* gtNewPhysRegNode(regNumber reg, var_types type);
 
@@ -4627,9 +4628,9 @@ private:
     // small; hence the other fields of MorphAddrContext.
     struct MorphAddrContext
     {
-        const bool isAddressTaken;
-        bool       isOffsetConstant;
-        size_t     offset;
+        const bool    isAddressTaken;
+        bool          isOffsetConstant;
+        target_size_t offset;
 
         MorphAddrContext(bool isAddressTaken) : isAddressTaken(isAddressTaken), isOffsetConstant(true), offset(0)
         {

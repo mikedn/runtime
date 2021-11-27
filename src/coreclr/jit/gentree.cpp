@@ -5235,6 +5235,12 @@ GenTreeIntCon* Compiler::gtNewIconNode(unsigned fieldOffset, FieldSeqNode* field
                                                 fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
 }
 
+GenTreeIntCon* Compiler::gtNewIntConFieldOffset(target_size_t fieldOffset, FieldSeqNode* fieldSeq)
+{
+    return new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, static_cast<ssize_t>(fieldOffset),
+                                                fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+}
+
 // return a new node representing the value in a physical register
 GenTreePhysReg* Compiler::gtNewPhysRegNode(regNumber reg, var_types type)
 {

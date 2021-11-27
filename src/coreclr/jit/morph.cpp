@@ -5014,11 +5014,37 @@ unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
 
 GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 {
-    GenTree* addr = field->GetAddr();
+    GenTreeField*  firstField    = field;
+    GenTree*       addr          = field->GetAddr();
+    target_size_t  offset        = field->GetOffset();
+    FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
+    FieldSeqNode*  fieldSeq =
+        field->MayOverlap() ? FieldSeqNode::NotAField() : fieldSeqStore->CreateSingleton(field->GetFieldHandle());
+
+    while (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_FIELD))
+    {
+        field = addr->AsUnOp()->GetOp(0)->AsField();
+        addr  = field->GetAddr();
+        offset += field->GetOffset();
+
+        if (field->MayOverlap())
+        {
+            fieldSeq = FieldSeqNode::NotAField();
+        }
+        else
+        {
+            fieldSeq = fieldSeqStore->Append(fieldSeqStore->CreateSingleton(field->GetFieldHandle()), fieldSeq);
+        }
+
+        if (field->GetR2RFieldLookupAddr() != nullptr)
+        {
+            break;
+        }
+    }
 
     INDEBUG(GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();)
     assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
-    assert((field->gtFlags & GTF_GLOB_REF) != 0);
+    assert((firstField->gtFlags & GTF_GLOB_REF) != 0);
 
     // null MAC means we encounter the FIELD first. This denotes a dereference of the field,
     // and thus is equivalent to a MACK_Ind with zero offset.
@@ -5028,12 +5054,11 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         mac = &defMAC;
     }
 
-    unsigned offset                    = field->GetOffset();
-    bool     explicitNullCheckRequired = false;
+    bool explicitNullCheckRequired = false;
 
     if (fgAddrCouldBeNull(addr))
     {
-        size_t totalOffset = mac->offset + offset;
+        target_size_t totalOffset = mac->offset + offset;
 
         // TODO-MIKE-Review: It's odd that in the address take case we check for R2R
         // fields, but not in the indir case. In theory, the R2R field offset could
@@ -5106,12 +5131,9 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
     }
 #endif
 
-    FieldSeqNode* fieldSeq =
-        field->MayOverlap() ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(field->GetFieldHandle());
-
     if (offset != 0)
     {
-        addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, gtNewIconNode(offset, fieldSeq));
+        addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, gtNewIntConFieldOffset(offset, fieldSeq));
     }
 
     if (nullCheck != nullptr)
@@ -5119,7 +5141,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         addr = gtNewCommaNode(nullCheck, addr);
     }
 
-    GenTree* indir = field;
+    GenTree* indir = firstField;
     indir->SetOper(GT_IND);
     indir->AsIndir()->SetAddr(addr);
 
