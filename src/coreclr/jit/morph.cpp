@@ -5038,6 +5038,9 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
         if (field->GetR2RFieldLookupAddr() != nullptr)
         {
+            // R2R field lookup is used only for fields of reference
+            // types so this must be the last field in the sequence.
+            assert(!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_FIELD));
             break;
         }
     }
@@ -5054,9 +5057,16 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         mac = &defMAC;
     }
 
+    // Note that using fgAddrCouldBeNull with field addresses is a bit of a chicken & egg
+    // case due to it returning false for ADDR(FIELD). But then ADDR(FIELD) is guaranteed
+    // to be non null only if we add an explicit null check and we don't rely on the IND
+    // to fault. But we've already ensured that addr isn't ADDR(FIELD) so we can rely on
+    // addr being non null both to elide the explicit null check and remove the exception
+    // side effect from the IND node.
+    bool addrMayBeNull             = fgAddrCouldBeNull(addr);
     bool explicitNullCheckRequired = false;
 
-    if (fgAddrCouldBeNull(addr))
+    if (addrMayBeNull)
     {
         target_size_t totalOffset = mac->offset + offset;
 
@@ -5145,14 +5155,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
     indir->SetOper(GT_IND);
     indir->AsIndir()->SetAddr(addr);
 
-    // TODO-MIKE-CQ: We can't rely on fgAddrCouldBeNull here to set GTF_IND_NONFAULTING due
-    // to the way a sequence of fields is morphed - we'd be setting GTF_IND_NONFAULTING on
-    // the top level indir, assuming that the next field in the sequence does a null check.
-    // But then the next field in the sequence doesn't do a null check because it assumes
-    // that the top indirection will fault anyway.
-    // There is at least one case where the address is guaranteed to be non-null, when it
-    // is the address of an array element.
-    if (nullCheck != nullptr)
+    if ((nullCheck != nullptr) || !addrMayBeNull)
     {
         indir->gtFlags &= ~GTF_EXCEPT;
         indir->gtFlags |= GTF_IND_NONFAULTING;
