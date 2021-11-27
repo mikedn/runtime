@@ -5011,7 +5011,6 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
                 return true;
 
-            case GT_CLS_VAR:
             case GT_LCL_FLD:
                 // Operands that are in memory can usually be narrowed
                 // simply by changing their type.
@@ -5328,16 +5327,17 @@ Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* dat
                 desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
             }
         }
-        else if (destOper == GT_CLS_VAR)
-        {
-            desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | VR_GLB_VAR);
-        }
         else if (destOper == GT_IND)
         {
-            /* Set the proper indirection bits */
-
-            varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
-            desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
+            if (dest->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))
+            {
+                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | VR_GLB_VAR);
+            }
+            else
+            {
+                varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
+                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
+            }
         }
     }
     else if (tree->gtOper == GT_CALL)
@@ -6093,18 +6093,6 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
         bool IsTreeVNInvariant(GenTree* tree)
         {
             ValueNum vn = tree->gtVNPair.GetLiberal();
-            if (m_compiler->vnStore->IsVNConstant(vn))
-            {
-                // It is unsafe to allow a GT_CLS_VAR that has been assigned a constant.
-                // The logic in optVNIsLoopInvariant would consider it to be loop-invariant, even
-                // if the assignment of the constant to the GT_CLS_VAR was inside the loop.
-                //
-                if (tree->OperIs(GT_CLS_VAR))
-                {
-                    return false;
-                }
-            }
-
             return m_compiler->optVNIsLoopInvariant(vn, m_loopNum, &m_hoistContext->m_curLoopVnInvariantCache);
         }
 
@@ -6198,14 +6186,15 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                 return fgWalkResult::WALK_CONTINUE;
             }
 
-            // Initclass CLS_VARs and IconHandles are the base cases of cctor dependent trees.
+            // Initclass CLS_VAR_ADDRs and IconHandles are the base cases of cctor dependent trees.
             // In the IconHandle case, it's of course the dereference, rather than the constant itself, that is
             // truly dependent on the cctor.  So a more precise approach would be to separately propagate
             // isCctorDependent and isAddressWhoseDereferenceWouldBeCctorDependent, but we don't for
             // simplicity/throughput; the constant itself would be considered non-hoistable anyway, since
             // optIsCSEcandidate returns false for constants.
-            bool treeIsCctorDependent = ((tree->OperIs(GT_CLS_VAR) && ((tree->gtFlags & GTF_CLS_VAR_INITCLASS) != 0)) ||
-                                         (tree->OperIs(GT_CNS_INT) && ((tree->gtFlags & GTF_ICON_INITCLASS) != 0)));
+            bool treeIsCctorDependent =
+                (tree->OperIs(GT_CLS_VAR_ADDR) && ((tree->gtFlags & GTF_CLS_VAR_INITCLASS) != 0)) ||
+                (tree->OperIs(GT_CNS_INT) && ((tree->gtFlags & GTF_ICON_INITCLASS) != 0));
             bool treeIsInvariant          = true;
             bool treeHasHoistableChildren = false;
             int  childCount;
@@ -7065,6 +7054,14 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         continue;
                     }
 
+                    if (GenTreeClsVar* clsVarAddr = arg->IsClsVar())
+                    {
+                        AddModifiedFieldAllContainingLoops(mostNestedLoop, clsVarAddr->GetFieldHandle());
+                        // Conservatively assume byrefs may alias this static field
+                        memoryHavoc |= memoryKindSet(ByrefExposed);
+                        continue;
+                    }
+
                     ArrayInfo arrInfo;
 
                     if (arg->TypeGet() == TYP_BYREF && arg->OperGet() == GT_LCL_VAR)
@@ -7131,12 +7128,6 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     {
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
                     }
-                }
-                else if (lhs->OperIs(GT_CLS_VAR))
-                {
-                    AddModifiedFieldAllContainingLoops(mostNestedLoop, lhs->AsClsVar()->gtClsVarHnd);
-                    // Conservatively assume byrefs may alias this static field
-                    memoryHavoc |= memoryKindSet(ByrefExposed);
                 }
                 else if (lhs->OperIs(GT_LCL_VAR))
                 {
@@ -7499,7 +7490,7 @@ Compiler::fgWalkResult Compiler::optValidRangeCheckIndex(GenTree** pTree, fgWalk
     GenTree*          tree  = *pTree;
     optRangeCheckDsc* pData = (optRangeCheckDsc*)data->pCallbackData;
 
-    if (tree->gtOper == GT_IND || tree->gtOper == GT_CLS_VAR || tree->gtOper == GT_FIELD || tree->gtOper == GT_LCL_FLD)
+    if (tree->gtOper == GT_IND || tree->gtOper == GT_FIELD || tree->gtOper == GT_LCL_FLD)
     {
         pData->bValidIndex = false;
         return WALK_ABORT;

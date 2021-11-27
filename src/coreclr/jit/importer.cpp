@@ -2037,20 +2037,11 @@ void Compiler::impSpillStackEnsure(bool spillLeaves)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
 
-        // TODO-MIKE-Review: The use of OperIsLeaf here is kind of risky.
-        // It makes sense to ignore such trees when breaking up trees that
-        // are too deep but this fails to account for side effects leafs
-        // may have (e.g. GT_CLS_VAR). There are all sort of other leafs
-        // (e.g. MEMORYBARRIER) and the only reason why this happens to
-        // work is that such opers don't appear during import or as part
-        // of other trees (MEMORYBARRIER returns VOID). This is also
-        // problematic to test because large trees are not that common.
-
-        // TODO-MIKE-Cleanup: LCL_VAR_ADDR never needs spilling, it is
-        // blocked here only because ADDR(LCL_VAR) was not a leaf before.
+        // TODO-MIKE-Cleanup: CLS|LCL_VAR_ADDR never needs spilling, it is
+        // blocked here only because ADDR(CLS|LCL_VAR) was not a leaf before.
         // The whole "spill leaves" thing is bonkers.
 
-        if (!spillLeaves && tree->OperIsLeaf() && !tree->OperIs(GT_CLS_VAR, GT_LCL_VAR_ADDR))
+        if (!spillLeaves && tree->OperIsLeaf() && !tree->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR))
         {
             continue;
         }
@@ -6354,17 +6345,20 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
 
     if (addr == nullptr)
     {
-        indir = new (this, GT_CLS_VAR) GenTreeClsVar(GT_CLS_VAR, type, resolvedToken->hField, fieldSeq);
+        addr = new (this, GT_CLS_VAR_ADDR) GenTreeClsVar(resolvedToken->hField, fieldSeq);
 
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {
-            indir->gtFlags |= GTF_CLS_VAR_INITCLASS;
+            addr->gtFlags |= GTF_CLS_VAR_INITCLASS;
         }
+
+        indir = gtNewOperNode(GT_IND, type, addr);
+
+        // TODO-MIKE-CQ: Should GTF_IND_INVARIANT be set here? CLS_VAR did not have such a thing.
     }
     else
     {
         indir = gtNewOperNode(GT_IND, type, addr);
-        indir->gtFlags |= GTF_IND_NONFAULTING;
 
 #ifdef TARGET_64BIT
         if (isStaticReadOnlyInited)
@@ -6374,7 +6368,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
 #endif
     }
 
-    indir->gtFlags |= GTF_GLOB_REF;
+    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
@@ -12379,7 +12373,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                         op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
 
-                        assert(op1->OperIs(GT_FIELD, GT_IND, GT_OBJ, GT_CLS_VAR));
+                        assert(op1->OperIs(GT_FIELD, GT_IND, GT_OBJ));
                         op1->gtFlags |= GTF_IND_VOLATILE;
                     }
 
@@ -12614,7 +12608,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     if (prefixFlags & PREFIX_VOLATILE)
                     {
-                        assert(op1->OperIs(GT_FIELD, GT_IND, GT_CLS_VAR));
+                        assert(op1->OperIs(GT_FIELD, GT_IND));
                         op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                         op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
                         op1->gtFlags |= GTF_IND_VOLATILE;

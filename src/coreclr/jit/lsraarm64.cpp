@@ -689,7 +689,6 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_ADDR:
         case GT_ARGPLACE:
         case GT_ASG:
-        case GT_CLS_VAR:
         case GT_DYN_BLK:
         case GT_BLK:
         case GT_FIELD_LIST:

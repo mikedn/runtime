@@ -509,7 +509,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                         switch (src->GetOper())
                         {
                             case GT_IND:
-                            case GT_CLS_VAR:
                             case GT_LCL_FLD:
                             case GT_ARR_ELEM:
                                 src->SetType(dstType);
@@ -10420,13 +10419,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         /* Propagate the new flags */
         tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-
-        // &aliasedVar doesn't need GTF_GLOB_REF, though alisasedVar does
-        // Similarly for clsVar
-        if (oper == GT_ADDR && (op1->gtOper == GT_LCL_VAR || op1->gtOper == GT_CLS_VAR))
-        {
-            tree->gtFlags &= ~GTF_GLOB_REF;
-        }
     } // if (op1)
 
     /*-------------------------------------------------------------------------
@@ -10716,10 +10708,6 @@ DONE_MORPHING_CHILDREN:
             if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
             {
                 effectiveOp1->gtFlags |= GTF_IND_ASG_LHS;
-            }
-            else if (effectiveOp1->OperIs(GT_CLS_VAR))
-            {
-                effectiveOp1->gtFlags |= GTF_CLS_VAR_ASG_LHS;
             }
             else
             {

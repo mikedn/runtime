@@ -7804,14 +7804,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
-            case GT_CLS_VAR:
-
-                if (tree->gtFlags & GTF_CLS_VAR_ASG_LHS)
-                {
-                    chars += printf("[CLS_VAR_ASG_LHS]");
-                }
-                break;
-
             case GT_MUL:
 #ifndef TARGET_64BIT
             case GT_MUL_LONG:

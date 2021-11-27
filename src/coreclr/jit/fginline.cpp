@@ -2467,13 +2467,13 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
 
     if (argNode->OperIs(GT_COMMA))
     {
-        // Look for COMMA(CALL special DCE helper, CLS_VAR|IND(CNS_INT)) (jit case)
+        // Look for COMMA(CALL special DCE helper, IND(CNS_INT|CLS_VAR_ADDR)) (jit case)
 
         GenTree* op1 = argNode->AsOp()->GetOp(0);
         GenTree* op2 = argNode->AsOp()->GetOp(1);
 
         if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-            (op2->OperIs(GT_CLS_VAR) || (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->IsIntCon())))
+            (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR, GT_CNS_INT)))
         {
             JITDUMP("\nPerforming special DCE on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
                     op1->GetID());
