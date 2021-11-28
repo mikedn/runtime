@@ -5036,6 +5036,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
             fieldSeq = fieldSeqStore->Append(fieldSeqStore->CreateSingleton(field->GetFieldHandle()), fieldSeq);
         }
 
+#ifdef FEATURE_READYTORUN_COMPILER
         if (field->GetR2RFieldLookupAddr() != nullptr)
         {
             // R2R field lookup is used only for fields of reference
@@ -5043,6 +5044,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
             assert(!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_FIELD));
             break;
         }
+#endif
     }
 
     bool addrMayBeNull = true;
@@ -5066,7 +5068,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
             if ((intCon->GetFieldSeq() != nullptr) && intCon->GetFieldSeq()->IsBoxedValueField())
             {
                 addr = op1;
-                offset += intCon->GetUnsignedValue();
+                offset += static_cast<target_size_t>(intCon->GetUnsignedValue());
                 fieldSeq      = fieldSeqStore->Append(intCon->GetFieldSeq(), fieldSeq);
                 addrMayBeNull = false;
             }
@@ -10226,7 +10228,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         {
             if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(1)->IsIntCon())
             {
-                op1Mac->offset += tree->AsOp()->GetOp(1)->AsIntCon()->GetUnsignedValue();
+                op1Mac->offset += static_cast<target_size_t>(tree->AsOp()->GetOp(1)->AsIntCon()->GetUnsignedValue());
             }
             else if (tree->OperIs(GT_COMMA))
             {
@@ -10312,7 +10314,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         {
             if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(0)->IsIntCon())
             {
-                mac->offset += tree->AsOp()->GetOp(0)->AsIntCon()->GetUnsignedValue();
+                mac->offset += static_cast<target_size_t>(tree->AsOp()->GetOp(0)->AsIntCon()->GetUnsignedValue());
             }
             else if (!tree->OperIs(GT_COMMA))
             {
