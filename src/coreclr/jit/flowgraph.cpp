@@ -907,6 +907,10 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
     {
         return false;
     }
+    else if (addr->OperIs(GT_INDEX_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_CLS_VAR_ADDR))
+    {
+        return false;
+    }
     else if (addr->gtOper == GT_LCL_VAR)
     {
         unsigned varNum = addr->AsLclVarCommon()->GetLclNum();
@@ -984,10 +988,6 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
                 }
             }
         }
-    }
-    else if (addr->OperIs(GT_INDEX_ADDR, GT_LCL_VAR_ADDR))
-    {
-        return false;
     }
 
     return true; // default result: addr could be null

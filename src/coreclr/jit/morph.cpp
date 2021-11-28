@@ -5045,6 +5045,8 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         }
     }
 
+    bool addrMayBeNull = true;
+
     // The address can be ADD(ref, boxed value offset) for static struct fields.
     // TODO-MIKE-Review: There should be no other case where we get an ADD with
     // a field sequence from the importer so perhaps we should change the field
@@ -5065,10 +5067,19 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
             {
                 addr = op1;
                 offset += intCon->GetUnsignedValue();
-                fieldSeq = fieldSeqStore->Append(intCon->GetFieldSeq(), fieldSeq);
+                fieldSeq      = fieldSeqStore->Append(intCon->GetFieldSeq(), fieldSeq);
+                addrMayBeNull = false;
             }
         }
     }
+
+    // Note that using fgAddrCouldBeNull with field addresses is a bit of a chicken & egg
+    // case due to it returning false for ADDR(FIELD). But then ADDR(FIELD) is guaranteed
+    // to be non null only if we add an explicit null check and we don't rely on the IND
+    // to fault. But we've already ensured that addr isn't ADDR(FIELD) so we can rely on
+    // addr being non null both to elide the explicit null check and remove the exception
+    // side effect from the IND node.
+    addrMayBeNull = addrMayBeNull && fgAddrCouldBeNull(addr);
 
     INDEBUG(GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();)
     assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
@@ -5082,13 +5093,6 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         mac = &defMAC;
     }
 
-    // Note that using fgAddrCouldBeNull with field addresses is a bit of a chicken & egg
-    // case due to it returning false for ADDR(FIELD). But then ADDR(FIELD) is guaranteed
-    // to be non null only if we add an explicit null check and we don't rely on the IND
-    // to fault. But we've already ensured that addr isn't ADDR(FIELD) so we can rely on
-    // addr being non null both to elide the explicit null check and remove the exception
-    // side effect from the IND node.
-    bool addrMayBeNull             = fgAddrCouldBeNull(addr);
     bool explicitNullCheckRequired = false;
 
     if (addrMayBeNull)
