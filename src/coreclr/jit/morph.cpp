@@ -5045,6 +5045,31 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         }
     }
 
+    // The address can be ADD(ref, boxed value offset) for static struct fields.
+    // TODO-MIKE-Review: There should be no other case where we get an ADD with
+    // a field sequence from the importer so perhaps we should change the field
+    // sequence to NotAField if we see any other kind of ADD here?
+    if (addr->OperIs(GT_ADD))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        if (op1->IsIntCon())
+        {
+            std::swap(op1, op2);
+        }
+
+        if (GenTreeIntCon* intCon = op2->IsIntCon())
+        {
+            if ((intCon->GetFieldSeq() != nullptr) && intCon->GetFieldSeq()->IsBoxedValueField())
+            {
+                addr = op1;
+                offset += intCon->GetUnsignedValue();
+                fieldSeq = fieldSeqStore->Append(intCon->GetFieldSeq(), fieldSeq);
+            }
+        }
+    }
+
     INDEBUG(GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();)
     assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
     assert((firstField->gtFlags & GTF_GLOB_REF) != 0);
