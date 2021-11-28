@@ -8249,30 +8249,9 @@ public:
     // attach the field sequence directly to the address node.
     NodeToFieldSeqMap* m_zeroOffsetFieldMap;
 
-    NodeToFieldSeqMap* GetZeroOffsetFieldMap()
-    {
-        // Don't need to worry about inlining here
-        if (m_zeroOffsetFieldMap == nullptr)
-        {
-            // Create a CompAllocator that labels sub-structure with CMK_ZeroOffsetFieldMap, and use that for
-            // allocation.
-            CompAllocator ialloc(getAllocator(CMK_ZeroOffsetFieldMap));
-            m_zeroOffsetFieldMap = new (ialloc) NodeToFieldSeqMap(ialloc);
-        }
-        return m_zeroOffsetFieldMap;
-    }
-
-    // Requires that "op1" is a node of type "TYP_BYREF" or "TYP_I_IMPL".  We are dereferencing this with the fields in
-    // "fieldSeq", whose offsets are required all to be zero.  Ensures that any field sequence annotation currently on
-    // "op1" or its components is augmented by appending "fieldSeq".  In practice, if "op1" is a GT_LCL_FLD, it has
-    // a field sequence as a member; otherwise, it may be the addition of an a byref and a constant, where the const
-    // has a field sequence -- in this case "fieldSeq" is appended to that of the constant; otherwise, we
-    // record the the field sequence using the ZeroOffsetFieldMap described above.
-    //
-    // One exception above is that "op1" is a node of type "TYP_REF" where "op1" is a GT_LCL_VAR.
-    // This happens when System.Object vtable pointer is a regular field at offset 0 in System.Private.CoreLib in
-    // CoreRT. Such case is handled same as the default case.
-    void fgAddFieldSeqForZeroOffset(GenTree* op1, FieldSeqNode* fieldSeq);
+    FieldSeqNode* GetZeroOffsetFieldSeq(GenTree* node);
+    void CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to);
+    void AddZeroOffsetFieldSeq(GenTree* node, FieldSeqNode* fieldSeq);
 
     NodeToUnsignedMap* m_memorySsaMap[MemoryKindCount];
 

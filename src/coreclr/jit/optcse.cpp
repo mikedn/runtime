@@ -2920,9 +2920,8 @@ public:
             //
             GenTree*      cse = nullptr;
             bool          isDef;
-            FieldSeqNode* fldSeq               = nullptr;
-            GenTree*      effectiveExp         = exp->SkipComma();
-            const bool    hasZeroMapAnnotation = m_pCompiler->GetZeroOffsetFieldMap()->Lookup(effectiveExp, &fldSeq);
+            GenTree*      effectiveExp = exp->SkipComma();
+            FieldSeqNode* fieldSeq     = m_pCompiler->GetZeroOffsetFieldSeq(effectiveExp);
 
             if (IS_CSE_USE(exp->gtCSEnum))
             {
@@ -3198,9 +3197,9 @@ public:
             *link = cse;
 
             // If it has a zero-offset field seq, copy annotation.
-            if (hasZeroMapAnnotation)
+            if (fieldSeq != nullptr)
             {
-                m_pCompiler->fgAddFieldSeqForZeroOffset(cse, fldSeq);
+                m_pCompiler->AddZeroOffsetFieldSeq(cse, fieldSeq);
             }
 
             assert(m_pCompiler->fgRemoveRestOfBlock == false);

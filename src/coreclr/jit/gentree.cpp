@@ -6782,11 +6782,7 @@ DONE:
     // If it has a zero-offset field seq, copy annotation.
     if (tree->TypeGet() == TYP_BYREF)
     {
-        FieldSeqNode* fldSeq = nullptr;
-        if (GetZeroOffsetFieldMap()->Lookup(tree, &fldSeq))
-        {
-            fgAddFieldSeqForZeroOffset(copy, fldSeq);
-        }
+        CopyZeroOffsetFieldSeq(tree, copy);
     }
 
     copy->gtVNPair = tree->gtVNPair; // A cloned tree gets the orginal's Value number pair
@@ -8173,10 +8169,10 @@ void Compiler::gtDispNodeName(GenTree* tree)
 
 void Compiler::gtDispZeroFieldSeq(GenTree* tree)
 {
-    if (FieldSeqNode** fieldSeq = GetZeroOffsetFieldMap()->LookupPointer(tree))
+    if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(tree))
     {
         printf(" ZeroFseq(");
-        dmpFieldSeqFields(*fieldSeq);
+        dmpFieldSeqFields(fieldSeq);
         printf(")");
     }
 }
@@ -14686,7 +14682,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             addr     = op1;
         }
     }
-    else if (GetZeroOffsetFieldMap()->Lookup(addr, &fieldSeq))
+    else if ((fieldSeq = GetZeroOffsetFieldSeq(addr)) != nullptr)
     {
         // Reference type objects can't have a field at offset 0 (that's where the method table
         // pointer is) so this can only be a static field. If it isn't then it means that it's
@@ -14765,12 +14761,14 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             addr = addr->gtEffectiveVal();
 
             // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
-            FieldSeqNode* zeroFieldSeq = nullptr;
-
-            if (addr->OperIs(GT_CALL, GT_LCL_VAR) && GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq) &&
-                (zeroFieldSeq->GetNext() == nullptr))
+            if (addr->OperIs(GT_CALL, GT_LCL_VAR))
             {
-                staticStructFldSeq = zeroFieldSeq;
+                FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(addr);
+
+                if ((zeroFieldSeq != nullptr) && (zeroFieldSeq->GetNext() == nullptr))
+                {
+                    staticStructFldSeq = zeroFieldSeq;
+                }
             }
         }
     }
