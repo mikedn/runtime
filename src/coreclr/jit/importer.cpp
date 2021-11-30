@@ -12246,6 +12246,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
 
+                        if (lclTyp == TYP_STRUCT)
+                        {
+                            op1->AsField()->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
+                        }
+
 #ifdef FEATURE_READYTORUN_COMPILER
                         if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
                         {
@@ -12518,6 +12523,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         obj = impCheckForNullPointer(obj);
 
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
+
+                        if (lclTyp == TYP_STRUCT)
+                        {
+                            op1->AsField()->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
+                        }
 
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {

@@ -3715,6 +3715,7 @@ struct GenTreeField : public GenTreeUnOp
     CORINFO_FIELD_HANDLE m_handle;
     unsigned             m_offset;
     bool                 m_mayOverlap;
+    uint16_t             m_layoutNum;
 #ifdef FEATURE_READYTORUN_COMPILER
     void* m_r2rFieldLookupAddr;
 #endif
@@ -3725,6 +3726,7 @@ public:
         , m_handle(handle)
         , m_offset(offset)
         , m_mayOverlap(false)
+        , m_layoutNum(0)
 #ifdef FEATURE_READYTORUN_COMPILER
         , m_r2rFieldLookupAddr(nullptr)
 #endif
@@ -3739,6 +3741,7 @@ public:
         , m_handle(copyFrom->m_handle)
         , m_offset(copyFrom->m_offset)
         , m_mayOverlap(copyFrom->m_mayOverlap)
+        , m_layoutNum(copyFrom->m_layoutNum)
 #ifdef FEATURE_READYTORUN_COMPILER
         , m_r2rFieldLookupAddr(copyFrom->m_r2rFieldLookupAddr)
 #endif
@@ -3775,6 +3778,21 @@ public:
     {
         m_mayOverlap = true;
     }
+
+    uint16_t GetLayoutNum() const
+    {
+        return varTypeIsStruct(GetType()) ? m_layoutNum : 0;
+    }
+
+    void SetLayoutNum(unsigned layoutNum)
+    {
+        assert(layoutNum <= UINT16_MAX);
+        assert((layoutNum == 0) || varTypeIsStruct(GetType()));
+        m_layoutNum = static_cast<uint16_t>(layoutNum);
+    }
+
+    ClassLayout* GetLayout(Compiler* compiler) const;
+    void SetLayout(ClassLayout* layout, Compiler* compiler);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     void* GetR2RFieldLookupAddr() const

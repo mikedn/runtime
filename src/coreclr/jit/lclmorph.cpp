@@ -1263,7 +1263,7 @@ private:
 
         if (GenTreeField* field = indir->IsField())
         {
-            return m_compiler->info.compCompHnd->getClassSize(GetStructFieldType(field));
+            return field->GetLayout(m_compiler)->GetSize();
         }
 
         return indir->AsBlk()->GetLayout()->GetSize();
@@ -1330,7 +1330,7 @@ private:
 
             if (field->TypeIs(TYP_STRUCT))
             {
-                ClassLayout* layout = m_compiler->typGetObjLayout(GetStructFieldType(field->GetFieldHandle()));
+                ClassLayout* layout = field->GetLayout(m_compiler);
 
                 node->ChangeOper(GT_OBJ);
                 node->AsObj()->SetLayout(layout);
@@ -2184,18 +2184,18 @@ private:
         assert(structIndir->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
-        GenTree*      addr     = nullptr;
-        FieldSeqNode* fieldSeq = FieldSeqNode::NotAField();
+        GenTree*     addr       = nullptr;
+        ClassLayout* addrLayout = nullptr;
 
         if (GenTreeField* field = structIndir->IsField())
         {
-            addr     = m_compiler->gtNewAddrNode(field, varTypeAddrAdd(field->GetAddr()->GetType()));
-            fieldSeq = GetFieldSequence(GetStructFieldType(field), type);
+            addr       = m_compiler->gtNewAddrNode(field, varTypeAddrAdd(field->GetAddr()->GetType()));
+            addrLayout = field->GetLayout(m_compiler);
         }
         else if (GenTreeIndex* index = structIndir->IsIndex())
         {
-            addr     = m_compiler->gtNewAddrNode(index, TYP_BYREF);
-            fieldSeq = GetFieldSequence(index->GetLayout()->GetClassHandle(), type);
+            addr       = m_compiler->gtNewAddrNode(index, TYP_BYREF);
+            addrLayout = index->GetLayout();
         }
         else
         {
@@ -2205,26 +2205,31 @@ private:
             {
                 if (GenTreeField* field = addr->AsUnOp()->GetOp(0)->IsField())
                 {
-                    fieldSeq = GetFieldSequence(GetStructFieldType(field), type);
+                    addrLayout = field->GetLayout(m_compiler);
                 }
                 else if (GenTreeIndex* index = addr->AsUnOp()->GetOp(0)->IsIndex())
                 {
-                    fieldSeq = GetFieldSequence(index->GetLayout()->GetClassHandle(), type);
+                    addrLayout = index->GetLayout();
                 }
             }
         }
 
-        if (fieldSeq->IsField())
+        if (addrLayout != nullptr)
         {
-            GenTree* field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+            FieldSeqNode* fieldSeq = GetFieldSequence(addrLayout->GetClassHandle(), type);
 
-            for (fieldSeq = fieldSeq->GetNext(); fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+            if (fieldSeq->IsField())
             {
-                addr  = m_compiler->gtNewAddrNode(field, addr->GetType());
-                field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
-            }
+                GenTree* field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
 
-            return field;
+                for (fieldSeq = fieldSeq->GetNext(); fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+                {
+                    addr  = m_compiler->gtNewAddrNode(field, addr->GetType());
+                    field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+                }
+
+                return field;
+            }
         }
 
         if (!structIndir->IsObj())
@@ -2248,17 +2253,10 @@ private:
     {
         if (GenTreeField* field = indir->IsField())
         {
-            return m_compiler->typGetObjLayout(GetStructFieldType(field));
+            return field->GetLayout(m_compiler);
         }
 
         return indir->AsObj()->GetLayout();
-    }
-
-    CORINFO_CLASS_HANDLE GetStructFieldType(GenTreeField* field)
-    {
-        assert(varTypeIsStruct(field->GetType()));
-
-        return GetStructFieldType(field->GetFieldHandle());
     }
 
     CORINFO_CLASS_HANDLE GetStructFieldType(CORINFO_FIELD_HANDLE fieldHandle)

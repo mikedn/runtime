@@ -8661,13 +8661,17 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
                     layout = varDsc->GetLayout();
                 }
             }
-            else if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD) && (tree->AsLclFld()->GetLayoutNum() != 0))
+            else if (GenTreeLclFld* lclFld = tree->IsLclFld())
             {
-                layout = typGetLayoutByNum(tree->AsLclFld()->GetLayoutNum());
+                layout = tree->AsLclFld()->GetLayout(this);
             }
             else if (GenTreeIndex* index = tree->IsIndex())
             {
                 layout = index->GetLayout();
+            }
+            else if (GenTreeField* field = tree->IsField())
+            {
+                layout = field->GetLayout(this);
             }
             else if (GenTreeCall* call = tree->IsCall())
             {
@@ -14647,11 +14651,20 @@ bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
 
 ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const
 {
-    unsigned layoutNum = GetLayoutNum();
     return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
 }
 
 void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)
+{
+    SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
+}
+
+ClassLayout* GenTreeField::GetLayout(Compiler* compiler) const
+{
+    return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
+}
+
+void GenTreeField::SetLayout(ClassLayout* layout, Compiler* compiler)
 {
     SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
 }
@@ -14872,9 +14885,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
         case GT_INDEX:
             return tree->AsIndex()->GetLayout()->GetClassHandle();
         case GT_FIELD:
-            CORINFO_CLASS_HANDLE structHnd;
-            info.compCompHnd->getFieldType(tree->AsField()->GetFieldHandle(), &structHnd);
-            return structHnd;
+            return tree->AsField()->GetLayout(this)->GetClassHandle();
         case GT_LCL_VAR:
             return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
         case GT_LCL_FLD:
