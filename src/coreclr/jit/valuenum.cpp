@@ -3972,7 +3972,8 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
 
         // TODO-MIKE-Cleanup: Would be good to actually retrieve the field offset
         // from the field sequence but that currently requires calling the VM.
-        // Anyway, this path is pretty much never hit due to GTF_IND_ARR_INDEX.
+        // Anyway, this path is pretty much never hit due to the COMMA added by
+        // fgMorphArrayIndex.
 
         offset -= fieldOffset;
         assert(offset % elemSize == 0);

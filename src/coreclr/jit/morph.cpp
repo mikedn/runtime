@@ -4893,8 +4893,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
     GenTree* addr = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
 
-    indir->gtFlags |= GTF_IND_ARR_INDEX;
-
     if (boundsCheck == nullptr)
     {
         addr = fgMorphTree(addr);
@@ -8498,9 +8496,7 @@ GenTree* Compiler::fgMorphStructComma(GenTree* tree)
         return tree;
     }
 
-    // Note that we can't simply use indir's address due to the stupid GTF_IND_ARR_INDEX...
-    GenTree* effectiveValAddr = gtNewAddrNode(effectiveVal);
-    INDEBUG(effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    GenTree* effectiveValAddr = effectiveVal->AsIndir()->GetAddr();
     commas.Top()->SetOp(1, effectiveValAddr);
     GenTreeFlags sideEffects = tree->GetSideEffects();
 
@@ -11698,33 +11694,31 @@ DONE_MORPHING_CHILDREN:
 
             if (op1->OperIs(GT_IND, GT_OBJ))
             {
-                if ((op1->gtFlags & GTF_IND_ARR_INDEX) == 0)
+                // Can not remove a GT_ADDR if it is currently a CSE candidate.
+                if (gtIsActiveCSE_Candidate(tree))
                 {
-                    // Can not remove a GT_ADDR if it is currently a CSE candidate.
-                    if (gtIsActiveCSE_Candidate(tree))
-                    {
-                        break;
-                    }
-
-                    // Perform the transform ADDR(IND(...)) == (...).
-                    GenTree* addr = op1->AsIndir()->GetAddr();
-
-                    // If tree has a zero field sequence annotation, update the annotation
-                    // on addr node.
-                    if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
-                    {
-                        AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
-                    }
-
-                    noway_assert(varTypeIsGC(addr->gtType) || addr->gtType == TYP_I_IMPL);
-
-                    DEBUG_DESTROY_NODE(op1);
-                    DEBUG_DESTROY_NODE(tree);
-
-                    return addr;
+                    break;
                 }
+
+                // Perform the transform ADDR(IND(...)) == (...).
+                GenTree* addr = op1->AsIndir()->GetAddr();
+
+                // If tree has a zero field sequence annotation, update the annotation
+                // on addr node.
+                if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
+                {
+                    AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
+                }
+
+                noway_assert(varTypeIsI(addr->GetType()));
+
+                DEBUG_DESTROY_NODE(op1);
+                DEBUG_DESTROY_NODE(tree);
+
+                return addr;
             }
-            else if (op1->OperIs(GT_COMMA) && !optValnumCSE_phase)
+
+            if (op1->OperIs(GT_COMMA) && !optValnumCSE_phase)
             {
                 // Perform the transform ADDR(COMMA(x, ..., z)) == COMMA(x, ..., ADDR(z)).
 
@@ -11745,29 +11739,12 @@ DONE_MORPHING_CHILDREN:
 
                 if (location->OperIs(GT_IND))
                 {
-                    if ((location->gtFlags & GTF_IND_ARR_INDEX) == 0)
+                    addr = location->AsIndir()->GetAddr();
+
+                    // The morphed ADDR might be annotated with a zero offset field sequence.
+                    if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
                     {
-                        addr = location->AsIndir()->GetAddr();
-
-                        // The morphed ADDR might be annotated with a zero offset field sequence.
-                        if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
-                        {
-                            AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
-                        }
-                    }
-                    else
-                    {
-                        // If the node we're about to put under a GT_ADDR is an indirection, it doesn't
-                        // need to be materialized, since we only want its address. Because of this, the
-                        // GT_IND is not a faulting indirection.
-
-                        // TODO: the flag update below is conservative and can be improved.
-                        // For example, if we made the ADDR(IND(x)) == x transformation, we may be able to
-                        // get rid of some other IND flags (e.g., GTF_GLOB_REF).
-
-                        location->gtFlags |= GTF_IND_NONFAULTING;
-                        location->gtFlags &= ~GTF_EXCEPT;
-                        location->gtFlags |= (location->AsIndir()->GetAddr()->gtFlags & GTF_EXCEPT);
+                        AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
                     }
                 }
 

@@ -7815,12 +7815,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                         --msgLength;
                         break;
                     }
-                    if (tree->gtFlags & GTF_IND_ARR_INDEX)
-                    {
-                        printf("a");
-                        --msgLength;
-                        break;
-                    }
                     if (tree->gtFlags & GTF_IND_NONFAULTING)
                     {
                         printf("n"); // print a n for non-faulting

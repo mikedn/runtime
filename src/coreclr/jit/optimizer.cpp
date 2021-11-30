@@ -7159,28 +7159,20 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         tree->gtVNPair = tree->AsOp()->gtOp2->gtVNPair;
                         break;
 
-                    case GT_ADDR:
-                        // Is it an addr of a array index expression?
+                    case GT_ADD:
+                    {
+                        ArrayInfo arrInfo;
+                        if (optIsArrayElemAddr(tree, &arrInfo))
                         {
-                            GenTree* addrArg = tree->AsOp()->gtOp1;
-                            if (addrArg->OperGet() == GT_IND)
-                            {
-                                ArrayInfo arrInfo;
-
-                                // Is the LHS an array index expression?
-                                if (optIsArrayElemAddr(addrArg->AsIndir()->GetAddr(), &arrInfo))
-                                {
-                                    ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-                                    ValueNum ptrToArrElemVN =
-                                        vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
-                                                           // The rest are dummy arguments.
-                                                           vnStore->VNForNull(), vnStore->VNForNull(),
-                                                           vnStore->VNForNull());
-                                    tree->gtVNPair.SetBoth(ptrToArrElemVN);
-                                }
-                            }
+                            ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+                            ValueNum ptrToArrElemVN =
+                                vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
+                                                   // The rest are dummy arguments.
+                                                   vnStore->VNForNull(), vnStore->VNForNull(), vnStore->VNForNull());
+                            tree->gtVNPair.SetBoth(ptrToArrElemVN);
                         }
-                        break;
+                    }
+                    break;
 
                     case GT_LOCKADD:
                     case GT_XORR:
