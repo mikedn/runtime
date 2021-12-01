@@ -4759,6 +4759,13 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         indir->ChangeOper(GT_IND);
     }
 
+    if (checkIndexRange)
+    {
+        // If there's a bounds check, the indir itself won't fault since
+        // the bounds check ensures that the address is not null.
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+
     // In minopts, we expand GT_INDEX to IND(INDEX_ADDR) in order to minimize the size of the IR. As minopts
     // compilation time is roughly proportional to the size of the IR, this helps keep compilation times down.
     // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
@@ -4904,9 +4911,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
     }
 
     indir->AsIndir()->SetAddr(addr);
-    // If there's a bounds check, the indir itself won't fault since
-    // the bounds check ensures that the address is not null.
-    indir->gtFlags |= GTF_IND_NONFAULTING;
     indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
 
     // Note that the original INDEX node may have GTF_DONOT_CSE set, either
@@ -9611,6 +9615,20 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif
             {
                 isQmarkColon = true;
+            }
+            break;
+
+        case GT_IND:
+        case GT_OBJ:
+            // TODO-MIKE-Cleanup: Ideally this should be done when the indir is created.
+            if (op1->OperIs(GT_ADDR) && op1->AsUnOp()->GetOp(0)->OperIs(GT_INDEX))
+            {
+                tree->gtFlags |= GTF_IND_NONFAULTING;
+            }
+
+            if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && ((op1->gtFlags & GTF_EXCEPT) == 0))
+            {
+                tree->gtFlags &= ~GTF_EXCEPT;
             }
             break;
 
