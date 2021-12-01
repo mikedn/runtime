@@ -1365,52 +1365,47 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 {
     assert(arg->GetType() == typGetStructType(argLayout));
 
-    unsigned argLclNum = BAD_VAR_NUM;
-    bool     isCanonical;
-
     switch (arg->GetOper())
     {
+        unsigned argLclNum;
+
         case GT_CALL:
         case GT_RET_EXPR:
             // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
             // a return buffer. Do we also need a temp if structs are returned in registers?
-            {
-                argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
-                impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
-                arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
-            }
-
-            isCanonical = false;
+            argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+            impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
+            arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
             break;
 
         case GT_LCL_VAR:
-        case GT_LCL_FLD:
-            argLclNum = arg->AsLclVarCommon()->GetLclNum();
-            assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
-            isCanonical = true;
+            assert(arg->GetType() == lvaGetDesc(arg->AsLclVar())->GetType());
             break;
 
         case GT_FIELD:
             // FIELDs need to be wrapped in OBJs because FIELD morphing code produces INDs
             // instead of OBJs so we lose the struct type. They can also be turned into
             // primitive type LCL_VARs due to single field struct promotion.
-            isCanonical = false;
+            if (arg->TypeIs(TYP_STRUCT))
+            {
+                arg = gtNewAddrNode(arg);
+                arg = gtNewObjNode(argLayout, arg);
+            }
             break;
 
+#ifdef FEATURE_SIMD
         case GT_IND:
-            arg         = gtNewObjNode(argLayout, arg->AsIndir()->GetAddr());
-            isCanonical = true;
-            break;
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            assert(varTypeIsSIMD(arg->GetType()));
-            FALLTHROUGH;
 #endif
+            assert(varTypeIsSIMD(arg->GetType()));
+            break;
+#endif
+
         case GT_MKREFANY:
+        case GT_LCL_FLD:
         case GT_INDEX:
         case GT_OBJ:
-            isCanonical = true;
             break;
 
         case GT_COMMA:
@@ -1463,8 +1458,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
                     arg = commaValue;
                 }
             }
-
-            isCanonical = true;
         }
         break;
 
@@ -1472,36 +1465,9 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             unreached();
     }
 
-    if (!isCanonical && arg->TypeIs(TYP_STRUCT) && !arg->OperIs(GT_OBJ))
-    {
-        if (arg->OperIs(GT_LCL_VAR))
-        {
-            arg->SetOper(GT_LCL_VAR_ADDR);
-            arg->SetType(TYP_BYREF);
-        }
-        else
-        {
-            arg = gtNewAddrNode(arg);
-        }
-
-        arg = gtNewObjNode(argLayout, arg);
-    }
-
     if (arg->OperIs(GT_OBJ))
     {
-        if (argLclNum != BAD_VAR_NUM)
-        {
-            // A OBJ on a ADDR(LCL_VAR) can never raise an exception so we don't set GTF_EXCEPT here.
-            if (!lvaGetDesc(argLclNum)->IsImplicitByRefParam())
-            {
-                arg->gtFlags &= ~GTF_GLOB_REF;
-            }
-        }
-        else
-        {
-            // In general a OBJ is an indirection and could raise an exception.
-            arg->gtFlags |= GTF_EXCEPT;
-        }
+        arg->gtFlags |= GTF_EXCEPT;
     }
 
     return arg;
