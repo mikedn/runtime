@@ -6390,7 +6390,7 @@ struct GenTreeIndir : public GenTreeOp
     void SetAddr(GenTree* addr)
     {
         assert(addr != nullptr);
-        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+        assert(varTypeIsI(addr->GetType()));
         gtOp1 = addr;
     }
 

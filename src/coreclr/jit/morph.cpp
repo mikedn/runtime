@@ -11658,33 +11658,42 @@ DONE_MORPHING_CHILDREN:
             if (op1->OperIs(GT_COMMA) && fgGlobalMorph)
             {
                 // Perform the transform IND(COMMA(x, ..., z)) == COMMA(x, ..., IND(z)).
-                // 
+                //
                 // TBD: this transformation is currently necessary for correctness -- it might
                 // be good to analyze the failures that result if we don't do this, and fix them
                 // in other ways.  Ideally, this should be optional.
 
-                GenTreeFlags indirFlags = tree->gtFlags;
-
-                GenTreeOp* comma = op1->AsOp();
-                comma->SetType(typ);
-                comma->gtFlags = indirFlags & ~GTF_REVERSE_OPS;
-                INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-                while (comma->GetOp(1)->OperIs(GT_COMMA))
+                ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+                for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
                 {
-                    comma = comma->GetOp(1)->AsOp();
-                    comma->SetType(typ);
-                    comma->gtFlags = indirFlags & ~(GTF_REVERSE_OPS | GTF_ASG | GTF_CALL);
-                    comma->gtFlags |= (comma->GetOp(0)->gtFlags | comma->GetOp(1)->gtFlags) & (GTF_ASG | GTF_CALL);
-                    INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+                    commas.Push(comma->AsOp());
                 }
 
-                GenTree* indir = gtNewIndir(typ, comma->GetOp(1));
-                indir->gtFlags |= indirFlags & ~(GTF_ALL_EFFECT | GTF_IND_NONFAULTING);
-                INDEBUG(indir->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+                GenTreeOp* lastComma = commas.Top();
+                GenTree*   addr      = lastComma->GetOp(1);
+                tree->AsIndir()->SetAddr(addr);
 
-                comma->SetOp(1, indir);
-                comma->AddSideEffects(indir->GetSideEffects());
+                GenTreeFlags sideEffects = tree->GetSideEffects() & (GTF_GLOB_REF | GTF_ORDER_SIDEEFF);
+
+                if ((tree->gtFlags & GTF_IND_NONFAULTING) == 0)
+                {
+                    sideEffects |= GTF_EXCEPT;
+                }
+
+                tree->SetSideEffects(sideEffects | addr->GetSideEffects());
+
+                lastComma->SetOp(1, tree);
+
+                while (!commas.Empty())
+                {
+                    GenTreeOp* comma = commas.Pop();
+                    comma->SetType(typ);
+                    comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
+                }
+
+                op1->gtFlags |= tree->gtFlags & (GTF_LATE_ARG | GTF_DONT_CSE);
+                tree->gtFlags &= ~GTF_LATE_ARG;
+                INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
                 return op1;
             }
