@@ -1365,10 +1365,10 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 {
     assert(arg->GetType() == typGetStructType(argLayout));
 
-    unsigned argLclNum = BAD_VAR_NUM;
-
     switch (arg->GetOper())
     {
+        unsigned argLclNum;
+
         case GT_CALL:
         case GT_RET_EXPR:
             // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
@@ -1467,19 +1467,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
     if (arg->OperIs(GT_OBJ))
     {
-        if (argLclNum != BAD_VAR_NUM)
-        {
-            // A OBJ on a ADDR(LCL_VAR) can never raise an exception so we don't set GTF_EXCEPT here.
-            if (!lvaGetDesc(argLclNum)->IsImplicitByRefParam())
-            {
-                arg->gtFlags &= ~GTF_GLOB_REF;
-            }
-        }
-        else
-        {
-            // In general a OBJ is an indirection and could raise an exception.
-            arg->gtFlags |= GTF_EXCEPT;
-        }
+        arg->gtFlags |= GTF_EXCEPT;
     }
 
     return arg;
