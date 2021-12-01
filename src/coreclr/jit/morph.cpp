@@ -11629,7 +11629,6 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_IND:
-        {
             // Can not remove a GT_IND if it is currently a CSE candidate.
             if (gtIsActiveCSE_Candidate(tree))
             {
@@ -11656,51 +11655,41 @@ DONE_MORPHING_CHILDREN:
 
             // Only do this optimization when we are in the global optimizer. Doing this after value numbering
             // could result in an invalid value number for the newly generated GT_IND node.
-            if ((op1->OperGet() == GT_COMMA) && fgGlobalMorph)
+            if (op1->OperIs(GT_COMMA) && fgGlobalMorph)
             {
                 // Perform the transform IND(COMMA(x, ..., z)) == COMMA(x, ..., IND(z)).
+                // 
                 // TBD: this transformation is currently necessary for correctness -- it might
                 // be good to analyze the failures that result if we don't do this, and fix them
                 // in other ways.  Ideally, this should be optional.
-                GenTree*     commaNode = op1;
-                GenTreeFlags treeFlags = tree->gtFlags;
-                commaNode->gtType      = typ;
-                commaNode->gtFlags     = (treeFlags & ~GTF_REVERSE_OPS); // Bashing the GT_COMMA flags here is
-                                                                         // dangerous, clear the GTF_REVERSE_OPS at
-                                                                         // least.
 
-                INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+                GenTreeFlags indirFlags = tree->gtFlags;
 
-                while (commaNode->AsOp()->gtOp2->gtOper == GT_COMMA)
+                GenTreeOp* comma = op1->AsOp();
+                comma->SetType(typ);
+                comma->gtFlags = indirFlags & ~GTF_REVERSE_OPS;
+                INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
+                while (comma->GetOp(1)->OperIs(GT_COMMA))
                 {
-                    commaNode         = commaNode->AsOp()->gtOp2;
-                    commaNode->gtType = typ;
-                    commaNode->gtFlags =
-                        (treeFlags & ~GTF_REVERSE_OPS & ~GTF_ASG & ~GTF_CALL); // Bashing the GT_COMMA flags here is
-                    // dangerous, clear the GTF_REVERSE_OPS, GT_ASG, and GT_CALL at
-                    // least.
-                    commaNode->gtFlags |= ((commaNode->AsOp()->gtOp1->gtFlags | commaNode->AsOp()->gtOp2->gtFlags) &
-                                           (GTF_ASG | GTF_CALL));
-
-                    INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+                    comma = comma->GetOp(1)->AsOp();
+                    comma->SetType(typ);
+                    comma->gtFlags = indirFlags & ~(GTF_REVERSE_OPS | GTF_ASG | GTF_CALL);
+                    comma->gtFlags |= (comma->GetOp(0)->gtFlags | comma->GetOp(1)->gtFlags) & (GTF_ASG | GTF_CALL);
+                    INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
                 }
 
-                tree          = op1;
-                GenTree* addr = commaNode->AsOp()->gtOp2;
-                op1           = gtNewIndir(typ, addr);
-                // This is very conservative
-                op1->gtFlags |= treeFlags & ~GTF_ALL_EFFECT & ~GTF_IND_NONFAULTING;
-                op1->gtFlags |= (addr->gtFlags & GTF_ALL_EFFECT);
+                GenTree* indir = gtNewIndir(typ, comma->GetOp(1));
+                indir->gtFlags |= indirFlags & ~(GTF_ALL_EFFECT | GTF_IND_NONFAULTING);
+                INDEBUG(indir->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
-                INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+                comma->SetOp(1, indir);
+                comma->AddSideEffects(indir->GetSideEffects());
 
-                commaNode->AsOp()->gtOp2 = op1;
-                commaNode->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-                return tree;
+                return op1;
             }
 
             break;
-        }
 
         case GT_ADDR:
 
