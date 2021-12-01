@@ -1366,7 +1366,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
     assert(arg->GetType() == typGetStructType(argLayout));
 
     unsigned argLclNum = BAD_VAR_NUM;
-    bool     isCanonical;
 
     switch (arg->GetOper())
     {
@@ -1377,26 +1376,27 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
             impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
             arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
-            isCanonical = true;
             break;
 
         case GT_LCL_VAR:
         case GT_LCL_FLD:
             argLclNum = arg->AsLclVarCommon()->GetLclNum();
             assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
-            isCanonical = true;
             break;
 
         case GT_FIELD:
             // FIELDs need to be wrapped in OBJs because FIELD morphing code produces INDs
             // instead of OBJs so we lose the struct type. They can also be turned into
             // primitive type LCL_VARs due to single field struct promotion.
-            isCanonical = false;
+            if (arg->TypeIs(TYP_STRUCT))
+            {
+                arg = gtNewAddrNode(arg);
+                arg = gtNewObjNode(argLayout, arg);
+            }
             break;
 
         case GT_IND:
-            arg         = gtNewObjNode(argLayout, arg->AsIndir()->GetAddr());
-            isCanonical = true;
+            arg = gtNewObjNode(argLayout, arg->AsIndir()->GetAddr());
             break;
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -1407,7 +1407,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
         case GT_MKREFANY:
         case GT_INDEX:
         case GT_OBJ:
-            isCanonical = true;
             break;
 
         case GT_COMMA:
@@ -1460,28 +1459,11 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
                     arg = commaValue;
                 }
             }
-
-            isCanonical = true;
         }
         break;
 
         default:
             unreached();
-    }
-
-    if (!isCanonical && arg->TypeIs(TYP_STRUCT) && !arg->OperIs(GT_OBJ))
-    {
-        if (arg->OperIs(GT_LCL_VAR))
-        {
-            arg->SetOper(GT_LCL_VAR_ADDR);
-            arg->SetType(TYP_BYREF);
-        }
-        else
-        {
-            arg = gtNewAddrNode(arg);
-        }
-
-        arg = gtNewObjNode(argLayout, arg);
     }
 
     if (arg->OperIs(GT_OBJ))
