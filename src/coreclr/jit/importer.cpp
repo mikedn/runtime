@@ -1393,15 +1393,15 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             }
             break;
 
+#ifdef FEATURE_SIMD
         case GT_IND:
-            arg = gtNewObjNode(argLayout, arg->AsIndir()->GetAddr());
-            break;
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            assert(varTypeIsSIMD(arg->GetType()));
-            FALLTHROUGH;
 #endif
+            assert(varTypeIsSIMD(arg->GetType()));
+            break;
+#endif
+
         case GT_MKREFANY:
         case GT_LCL_FLD:
         case GT_INDEX:
