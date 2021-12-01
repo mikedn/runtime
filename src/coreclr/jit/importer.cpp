@@ -1379,9 +1379,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             break;
 
         case GT_LCL_VAR:
-        case GT_LCL_FLD:
-            argLclNum = arg->AsLclVarCommon()->GetLclNum();
-            assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
+            assert(arg->GetType() == lvaGetDesc(arg->AsLclVar())->GetType());
             break;
 
         case GT_FIELD:
@@ -1405,6 +1403,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             FALLTHROUGH;
 #endif
         case GT_MKREFANY:
+        case GT_LCL_FLD:
         case GT_INDEX:
         case GT_OBJ:
             break;
