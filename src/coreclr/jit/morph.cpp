@@ -5187,7 +5187,24 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
     }
 
     GenTree* indir = firstField;
-    indir->SetOper(GT_IND);
+
+    // TODO-MIKE-Cleanup: If the field is address taken then we don't really need an OBJ
+    // but it wouldn't hurt to use one for consistency. However, OBJ lacks the special
+    // IND(COMMA) morphing and that results in some diffs due to the removal of spurious
+    // GTF_DONT_CSE.
+
+    if (!firstField->TypeIs(TYP_STRUCT) || mac->isAddressTaken)
+    {
+        indir->SetOper(GT_IND);
+    }
+    else
+    {
+        ClassLayout* layout = firstField->GetLayout(this);
+
+        indir->SetOper(GT_OBJ);
+        indir->AsObj()->SetLayout(layout);
+    }
+
     indir->AsIndir()->SetAddr(addr);
 
     if ((nullCheck != nullptr) || !addrMayBeNull)

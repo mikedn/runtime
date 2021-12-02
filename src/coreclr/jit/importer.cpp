@@ -1196,23 +1196,24 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
                         dest = destLocation;
                     }
                 }
-                else if (destLocation->OperIs(GT_INDEX))
+                else if (GenTreeIndex* index = destLocation->IsIndex())
                 {
                     if (varTypeIsSIMD(srcType))
                     {
                         dest = destLocation;
                     }
-                    else if (destLocation->AsIndex()->GetLayout() == layout)
+                    else if (index->GetLayout() == layout)
                     {
                         dest = destLocation;
                     }
                 }
-                else if (destLocation->OperIs(GT_FIELD))
+                else if (GenTreeField* field = destLocation->IsField())
                 {
-                    // SIMD typed FIELDs can be used directly, STRUCT typed fields need to be wrapped into
-                    // an OBJ to avoid the struct type getting lost due to single field struct promotion.
-
                     if (varTypeIsSIMD(srcType))
+                    {
+                        dest = destLocation;
+                    }
+                    else if (field->GetLayout(this) == layout)
                     {
                         dest = destLocation;
                     }
@@ -1380,17 +1381,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             assert(arg->GetType() == lvaGetDesc(arg->AsLclVar())->GetType());
             break;
 
-        case GT_FIELD:
-            // FIELDs need to be wrapped in OBJs because FIELD morphing code produces INDs
-            // instead of OBJs so we lose the struct type. They can also be turned into
-            // primitive type LCL_VARs due to single field struct promotion.
-            if (arg->TypeIs(TYP_STRUCT))
-            {
-                arg = gtNewAddrNode(arg);
-                arg = gtNewObjNode(argLayout, arg);
-            }
-            break;
-
 #ifdef FEATURE_SIMD
         case GT_IND:
 #ifdef FEATURE_HW_INTRINSICS
@@ -1402,6 +1392,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
         case GT_MKREFANY:
         case GT_LCL_FLD:
+        case GT_FIELD:
         case GT_INDEX:
         case GT_OBJ:
             break;
