@@ -8960,17 +8960,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             srcFieldSeq = src->AsLclFld()->GetFieldSeq();
         }
     }
-    else if (src->OperIs(GT_IND, GT_OBJ))
-    {
-        // TODO-MIKE-Cleanup: This is only needed due to stupid FIELD morphing...
-
-        if (src->OperIs(GT_IND) && src->TypeIs(TYP_STRUCT))
-        {
-            src->ChangeOper(GT_OBJ);
-            src->AsObj()->SetLayout(destLayout);
-            src->AsObj()->SetKind(StructStoreKind::Invalid);
-        }
-    }
     else if (src->OperIs(GT_COMMA))
     {
         // During CSE we may see COMMA(..., LCL_VAR) but neither the CSE temp
@@ -8979,7 +8968,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         assert(!lvaGetDesc(src->SkipComma()->AsLclVar())->IsPromoted());
         assert((destLclVar == nullptr) || !destLclVar->IsIndependentPromoted());
     }
-    else
+    else if (!src->OperIs(GT_OBJ))
     {
         // For SIMD copies the source can be any SIMD typed tree or a CALL.
         assert(src->OperIs(GT_CALL) || varTypeIsSIMD(src->GetType()));
