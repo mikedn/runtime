@@ -1067,13 +1067,6 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
                                              GenTree*             addr,
                                              unsigned             offset)
 {
-    if (type == TYP_STRUCT)
-    {
-        CORINFO_CLASS_HANDLE fieldClass;
-        (void)info.compCompHnd->getFieldType(handle, &fieldClass);
-        type = typGetStructType(fieldClass);
-    }
-
     GenTreeField* tree = new (this, GT_FIELD) GenTreeField(type, addr, handle, offset);
 
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.

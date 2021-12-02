@@ -12248,7 +12248,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (lclTyp == TYP_STRUCT)
                         {
-                            op1->AsField()->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
+                            unsigned layoutNum = typGetObjLayoutNum(fieldInfo.structType);
+                            op1->AsField()->SetLayoutNum(layoutNum);
+                            op1->AsField()->SetType(typGetStructType(typGetLayoutByNum(layoutNum)));
                         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -12526,7 +12528,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (lclTyp == TYP_STRUCT)
                         {
-                            op1->AsField()->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
+                            unsigned layoutNum = typGetObjLayoutNum(fieldInfo.structType);
+                            op1->AsField()->SetLayoutNum(layoutNum);
+                            op1->AsField()->SetType(typGetStructType(typGetLayoutByNum(layoutNum)));
                         }
 
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
