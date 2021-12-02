@@ -2220,15 +2220,13 @@ private:
 
             if (fieldSeq->IsField())
             {
-                GenTree* field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
-
-                for (fieldSeq = fieldSeq->GetNext(); fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+                for (; fieldSeq->GetNext() != nullptr; fieldSeq = fieldSeq->GetNext())
                 {
-                    addr  = m_compiler->gtNewAddrNode(field, addr->GetType());
-                    field = m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+                    GenTree* field = m_compiler->gtNewFieldRef(TYP_STRUCT, fieldSeq->GetFieldHandle(), addr, 0);
+                    addr           = m_compiler->gtNewAddrNode(field, varTypeAddrAdd(addr->GetType()));
                 }
 
-                return field;
+                return m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
             }
         }
 
