@@ -1128,17 +1128,15 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
         GenTree* destAddrUses[2];
         impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
 
-        FieldSeqNode* valFieldSeq = GetFieldSeqStore()->CreateSingleton(GetRefanyDataField());
-        assert(OFFSETOF__CORINFO_TypedReference__dataPtr == 0);
-        fgAddFieldSeqForZeroOffset(destAddrUses[0], valFieldSeq);
-        GenTree* valField = gtNewOperNode(GT_IND, TYP_I_IMPL, destAddrUses[0]);
-        impAppendTree(gtNewAssignNode(valField, src->AsOp()->GetOp(0)), curLevel, impCurStmtOffs);
+        // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
+        // The field is accessed by TypedReference.IsNull, which is only called from
+        // RtFieldInfo.Get/SetValueDirect so chances that this causes problems are slim.
+        GenTree* valueField =
+            gtNewFieldRef(TYP_BYREF, GetRefanyValueField(), destAddrUses[0], OFFSETOF__CORINFO_TypedReference__dataPtr);
+        impAppendTree(gtNewAssignNode(valueField, src->AsOp()->GetOp(0)), curLevel, impCurStmtOffs);
 
-        FieldSeqNode* typeFieldSeq    = GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField());
-        GenTree*      typeFieldOffset = gtNewIconNode(OFFSETOF__CORINFO_TypedReference__type, typeFieldSeq);
-        GenTree* typeFieldAddr = gtNewOperNode(GT_ADD, destAddrUses[1]->GetType(), destAddrUses[1], typeFieldOffset);
-        GenTree* typeField     = gtNewOperNode(GT_IND, TYP_I_IMPL, typeFieldAddr);
-
+        GenTree* typeField =
+            gtNewFieldRef(TYP_I_IMPL, GetRefanyTypeField(), destAddrUses[1], OFFSETOF__CORINFO_TypedReference__type);
         return gtNewAssignNode(typeField, src->AsOp()->GetOp(1));
     }
 
@@ -1198,23 +1196,24 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
                         dest = destLocation;
                     }
                 }
-                else if (destLocation->OperIs(GT_INDEX))
+                else if (GenTreeIndex* index = destLocation->IsIndex())
                 {
                     if (varTypeIsSIMD(srcType))
                     {
                         dest = destLocation;
                     }
-                    else if (destLocation->AsIndex()->GetLayout() == layout)
+                    else if (index->GetLayout() == layout)
                     {
                         dest = destLocation;
                     }
                 }
-                else if (destLocation->OperIs(GT_FIELD))
+                else if (GenTreeField* field = destLocation->IsField())
                 {
-                    // SIMD typed FIELDs can be used directly, STRUCT typed fields need to be wrapped into
-                    // an OBJ to avoid the struct type getting lost due to single field struct promotion.
-
                     if (varTypeIsSIMD(srcType))
+                    {
+                        dest = destLocation;
+                    }
+                    else if (field->GetLayout(this) == layout)
                     {
                         dest = destLocation;
                     }
@@ -1382,17 +1381,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             assert(arg->GetType() == lvaGetDesc(arg->AsLclVar())->GetType());
             break;
 
-        case GT_FIELD:
-            // FIELDs need to be wrapped in OBJs because FIELD morphing code produces INDs
-            // instead of OBJs so we lose the struct type. They can also be turned into
-            // primitive type LCL_VARs due to single field struct promotion.
-            if (arg->TypeIs(TYP_STRUCT))
-            {
-                arg = gtNewAddrNode(arg);
-                arg = gtNewObjNode(argLayout, arg);
-            }
-            break;
-
 #ifdef FEATURE_SIMD
         case GT_IND:
 #ifdef FEATURE_HW_INTRINSICS
@@ -1404,6 +1392,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
         case GT_MKREFANY:
         case GT_LCL_FLD:
+        case GT_FIELD:
         case GT_INDEX:
         case GT_OBJ:
             break;
@@ -12248,6 +12237,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
 
+                        if (lclTyp == TYP_STRUCT)
+                        {
+                            unsigned layoutNum = typGetObjLayoutNum(fieldInfo.structType);
+                            op1->AsField()->SetLayoutNum(layoutNum);
+                            op1->AsField()->SetType(typGetStructType(typGetLayoutByNum(layoutNum)));
+                        }
+
 #ifdef FEATURE_READYTORUN_COMPILER
                         if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
                         {
@@ -12263,7 +12259,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
-                            op1->AsField()->gtFldMayOverlap = true;
+                            op1->AsField()->SetMayOverlap();
                         }
 
                         // wrap it in a address of operator if necessary
@@ -12521,9 +12517,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
 
+                        if (lclTyp == TYP_STRUCT)
+                        {
+                            unsigned layoutNum = typGetObjLayoutNum(fieldInfo.structType);
+                            op1->AsField()->SetLayoutNum(layoutNum);
+                            op1->AsField()->SetType(typGetStructType(typGetLayoutByNum(layoutNum)));
+                        }
+
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
-                            op1->AsField()->gtFldMayOverlap = true;
+                            op1->AsField()->SetMayOverlap();
                         }
 
 #ifdef FEATURE_READYTORUN_COMPILER

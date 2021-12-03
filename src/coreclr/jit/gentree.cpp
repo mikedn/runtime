@@ -1320,6 +1320,12 @@ AGAIN:
                         return false;
                     }
                     break;
+                case GT_FIELD:
+                    if (op1->AsField()->GetFieldHandle() != op2->AsField()->GetFieldHandle())
+                    {
+                        return false;
+                    }
+                    break;
 
                 // For the ones below no extra argument matters for comparison.
                 case GT_BOX:
@@ -1330,7 +1336,8 @@ AGAIN:
                     assert(!"unexpected unary ExOp operator");
             }
         }
-        return Compare(op1->AsOp()->gtOp1, op2->AsOp()->gtOp1);
+
+        return Compare(op1->AsUnOp()->gtOp1, op2->AsUnOp()->gtOp1);
     }
 
     if (kind & GTK_BINOP)
@@ -1379,7 +1386,7 @@ AGAIN:
             }
         }
 
-        if (op1->AsOp()->gtOp2)
+        if (op1->AsOp()->gtOp2 != nullptr)
         {
             if (!Compare(op1->AsOp()->gtOp1, op2->AsOp()->gtOp1, swapOK))
             {
@@ -1427,16 +1434,6 @@ AGAIN:
 
     switch (oper)
     {
-        case GT_FIELD:
-            if (op1->AsField()->gtFldHnd != op2->AsField()->gtFldHnd)
-            {
-                break;
-            }
-
-            op1 = op1->AsField()->GetAddr();
-            op2 = op2->AsField()->GetAddr();
-            goto AGAIN;
-
         case GT_CALL:
             return GenTreeCall::Equals(op1->AsCall(), op2->AsCall());
 
@@ -1558,7 +1555,16 @@ AGAIN:
 
     if (kind & GTK_SMPOP)
     {
-        if (tree->gtGetOp2IfPresent())
+        if (GenTreeField* field = tree->IsField())
+        {
+            if (lclNum == reinterpret_cast<ssize_t>(field->GetFieldHandle()))
+            {
+                return true;
+            }
+
+            tree = field->GetAddr();
+        }
+        else if (tree->gtGetOp2IfPresent() != nullptr)
         {
             if (gtHasRef(tree->AsOp()->gtOp1, lclNum))
             {
@@ -1566,49 +1572,24 @@ AGAIN:
             }
 
             tree = tree->AsOp()->gtOp2;
-            goto AGAIN;
         }
         else
         {
             tree = tree->AsOp()->gtOp1;
 
-            if (!tree)
+            if (tree == nullptr)
             {
                 return false;
             }
-
-            if (oper == GT_ASG)
-            {
-                // 'tree' is the gtOp1 of an assignment node. So we can handle
-                // the case where defOnly is either true or false.
-
-                if (tree->gtOper == GT_LCL_VAR && tree->AsLclVarCommon()->GetLclNum() == (unsigned)lclNum)
-                {
-                    return true;
-                }
-                else if (tree->gtOper == GT_FIELD && lclNum == (ssize_t)tree->AsField()->gtFldHnd)
-                {
-                    return true;
-                }
-            }
-
-            goto AGAIN;
         }
+
+        goto AGAIN;
     }
 
     /* See what kind of a special operator we have here */
 
     switch (oper)
     {
-        case GT_FIELD:
-            if (lclNum == (ssize_t)tree->AsField()->gtFldHnd)
-            {
-                return true;
-            }
-
-            tree = tree->AsField()->GetAddr();
-            goto AGAIN;
-
         case GT_CALL:
             if (tree->AsCall()->gtCallThisArg != nullptr)
             {
@@ -1962,6 +1943,11 @@ AGAIN:
                         genTreeHashAdd(hash,
                                        static_cast<unsigned>(reinterpret_cast<uintptr_t>(tree->AsBlk()->GetLayout())));
                     break;
+                case GT_FIELD:
+                    hash = genTreeHashAdd(hash, gtHashValue(tree->AsField()->GetAddr()));
+                    // TODO-MIKE-Review: Shouldn't the field handle be included in the hash?
+                    break;
+
                 // For the ones below no extra argument matters for comparison.
                 case GT_BOX:
                     break;
@@ -2047,10 +2033,6 @@ AGAIN:
     /* See what kind of a special operator we have here */
     switch (tree->gtOper)
     {
-        case GT_FIELD:
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsField()->GetAddr()));
-            break;
-
         case GT_ARR_ELEM:
 
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrElem()->gtArrObj));
@@ -5253,6 +5235,12 @@ GenTreeIntCon* Compiler::gtNewIconNode(unsigned fieldOffset, FieldSeqNode* field
                                                 fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
 }
 
+GenTreeIntCon* Compiler::gtNewIntConFieldOffset(target_size_t fieldOffset, FieldSeqNode* fieldSeq)
+{
+    return new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, static_cast<ssize_t>(fieldOffset),
+                                                fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+}
+
 // return a new node representing the value in a physical register
 GenTreePhysReg* Compiler::gtNewPhysRegNode(regNumber reg, var_types type)
 {
@@ -6518,6 +6506,10 @@ GenTree* Compiler::gtCloneExpr(
 
             // The nodes below this are not bashed, so they can be allocated at their individual sizes.
 
+            case GT_FIELD:
+                copy = new (this, GT_FIELD) GenTreeField(tree->AsField());
+                break;
+
             case GT_INDEX:
                 copy = new (this, GT_INDEX) GenTreeIndex(tree->AsIndex());
                 break;
@@ -6630,7 +6622,7 @@ GenTree* Compiler::gtCloneExpr(
             copy->gtFlags |= GTF_OVERFLOW;
         }
 
-        if (tree->AsOp()->gtOp1)
+        if (tree->AsOp()->gtOp1 != nullptr)
         {
             if (tree->gtOper == GT_ASG)
             {
@@ -6643,7 +6635,7 @@ GenTree* Compiler::gtCloneExpr(
             }
         }
 
-        if (tree->gtGetOp2IfPresent())
+        if (tree->gtGetOp2IfPresent() != nullptr)
         {
             copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, deepVarNum, deepVarVal);
         }
@@ -6681,11 +6673,6 @@ GenTree* Compiler::gtCloneExpr(
             }
 
             copy = gtCloneExprCallHelper(tree->AsCall(), addFlags, deepVarNum, deepVarVal);
-            break;
-
-        case GT_FIELD:
-            copy = new (this, GT_FIELD) GenTreeField(tree->AsField());
-            copy->AsField()->SetAddr(gtCloneExpr(tree->AsField()->GetAddr(), addFlags, deepVarNum, deepVarVal));
             break;
 
         case GT_ARR_ELEM:
@@ -6795,11 +6782,7 @@ DONE:
     // If it has a zero-offset field seq, copy annotation.
     if (tree->TypeGet() == TYP_BYREF)
     {
-        FieldSeqNode* fldSeq = nullptr;
-        if (GetZeroOffsetFieldMap()->Lookup(tree, &fldSeq))
-        {
-            fgAddFieldSeqForZeroOffset(copy, fldSeq);
-        }
+        CopyZeroOffsetFieldSeq(tree, copy);
     }
 
     copy->gtVNPair = tree->gtVNPair; // A cloned tree gets the orginal's Value number pair
@@ -7354,6 +7337,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_ADDR:
+        case GT_FIELD:
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
@@ -7460,11 +7444,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             m_edge = &m_node->AsBoundsChk()->gtIndex;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::AdvanceBoundsChk;
-            return;
-
-        case GT_FIELD:
-            m_edge    = &m_node->AsField()->gtFldObj;
-            m_advance = &GenTreeUseEdgeIterator::Terminate;
             return;
 
         case GT_ARR_ELEM:
@@ -8190,10 +8169,10 @@ void Compiler::gtDispNodeName(GenTree* tree)
 
 void Compiler::gtDispZeroFieldSeq(GenTree* tree)
 {
-    if (FieldSeqNode** fieldSeq = GetZeroOffsetFieldMap()->LookupPointer(tree))
+    if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(tree))
     {
         printf(" ZeroFseq(");
-        dmpFieldSeqFields(*fieldSeq);
+        dmpFieldSeqFields(fieldSeq);
         printf(")");
     }
 }
@@ -8682,13 +8661,17 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
                     layout = varDsc->GetLayout();
                 }
             }
-            else if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD) && (tree->AsLclFld()->GetLayoutNum() != 0))
+            else if (GenTreeLclFld* lclFld = tree->IsLclFld())
             {
-                layout = typGetLayoutByNum(tree->AsLclFld()->GetLayoutNum());
+                layout = tree->AsLclFld()->GetLayout(this);
             }
             else if (GenTreeIndex* index = tree->IsIndex())
             {
                 layout = index->GetLayout();
+            }
+            else if (GenTreeField* field = tree->IsField())
+            {
+                layout = field->GetLayout(this);
             }
             else if (GenTreeCall* call = tree->IsCall())
             {
@@ -9973,14 +9956,6 @@ void Compiler::gtDispTree(GenTree*     tree,
             printf(" @%u %s::%s", tree->AsField()->GetOffset(),
                    eeGetSimpleClassName(info.compCompHnd->getFieldClass(tree->AsField()->GetFieldHandle())),
                    eeGetFieldName(tree->AsField()->GetFieldHandle()));
-
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                gtDispChild(tree->AsField()->GetAddr(), indentStack, IIArcBottom);
-            }
-
             break;
 
         case GT_CALL:
@@ -11662,21 +11637,23 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
     if (arg->OperIs(GT_LCL_VAR_ADDR, GT_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
     {
-        CORINFO_CLASS_HANDLE nullableHnd;
+        ClassLayout* nullableLayout;
 
         if (arg->OperIs(GT_LCL_VAR_ADDR))
         {
-            nullableHnd = lvaGetDesc(arg->AsLclVar())->GetLayout()->GetClassHandle();
+            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
         }
         else
         {
-            nullableHnd = gtGetStructHandle(arg->AsUnOp()->GetOp(0));
+            nullableLayout = gtGetStructLayout(arg->AsUnOp()->GetOp(0));
         }
 
-        // TODO-MIKE-Cleanup: It would be better for this to be an if rather than an assert.
-        assert(nullableHnd != NO_CLASS_HANDLE);
+        if (nullableLayout == nullptr)
+        {
+            return tree;
+        }
 
-        CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableHnd, 0);
+        CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableLayout->GetClassHandle(), 0);
         unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
 
         // Replace the box with an access of the nullable 'hasValue' field.
@@ -14676,11 +14653,20 @@ bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
 
 ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const
 {
-    unsigned layoutNum = GetLayoutNum();
     return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
 }
 
 void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)
+{
+    SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
+}
+
+ClassLayout* GenTreeField::GetLayout(Compiler* compiler) const
+{
+    return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
+}
+
+void GenTreeField::SetLayout(ClassLayout* layout, Compiler* compiler)
 {
     SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
 }
@@ -14711,7 +14697,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             addr     = op1;
         }
     }
-    else if (GetZeroOffsetFieldMap()->Lookup(addr, &fieldSeq))
+    else if ((fieldSeq = GetZeroOffsetFieldSeq(addr)) != nullptr)
     {
         // Reference type objects can't have a field at offset 0 (that's where the method table
         // pointer is) so this can only be a static field. If it isn't then it means that it's
@@ -14790,12 +14776,14 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             addr = addr->gtEffectiveVal();
 
             // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
-            FieldSeqNode* zeroFieldSeq = nullptr;
-
-            if (addr->OperIs(GT_CALL, GT_LCL_VAR) && GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq) &&
-                (zeroFieldSeq->GetNext() == nullptr))
+            if (addr->OperIs(GT_CALL, GT_LCL_VAR))
             {
-                staticStructFldSeq = zeroFieldSeq;
+                FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(addr);
+
+                if ((zeroFieldSeq != nullptr) && (zeroFieldSeq->GetNext() == nullptr))
+                {
+                    staticStructFldSeq = zeroFieldSeq;
+                }
             }
         }
     }
@@ -14882,7 +14870,7 @@ bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_
     return fieldTyp != TYP_REF;
 }
 
-CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
+ClassLayout* Compiler::gtGetStructLayout(GenTree* tree)
 {
     assert(tree->TypeIs(TYP_STRUCT));
 
@@ -14891,21 +14879,19 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
     switch (tree->GetOper())
     {
         case GT_OBJ:
-            return tree->AsObj()->GetLayout()->GetClassHandle();
+            return tree->AsObj()->GetLayout();
         case GT_CALL:
-            return tree->AsCall()->GetRetLayout()->GetClassHandle();
+            return tree->AsCall()->GetRetLayout();
         case GT_RET_EXPR:
-            return tree->AsRetExpr()->GetLayout()->GetClassHandle();
+            return tree->AsRetExpr()->GetLayout();
         case GT_INDEX:
-            return tree->AsIndex()->GetLayout()->GetClassHandle();
+            return tree->AsIndex()->GetLayout();
         case GT_FIELD:
-            CORINFO_CLASS_HANDLE structHnd;
-            info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
-            return structHnd;
+            return tree->AsField()->GetLayout(this);
         case GT_LCL_VAR:
-            return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
+            return lvaGetDesc(tree->AsLclVar())->GetLayout();
         case GT_LCL_FLD:
-            return tree->AsLclFld()->GetLayout(this)->GetClassHandle();
+            return tree->AsLclFld()->GetLayout(this);
         default:
             unreached();
     }
@@ -14952,17 +14938,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         }
 
         case GT_FIELD:
-        {
-            // For fields, get the type from the field handle.
-            CORINFO_FIELD_HANDLE fieldHnd = obj->AsField()->gtFldHnd;
-
-            if (fieldHnd != nullptr)
-            {
-                objClass = gtGetFieldClassHandle(fieldHnd, pIsExact, pIsNonNull);
-            }
-
+            objClass = gtGetFieldClassHandle(obj->AsField()->GetFieldHandle(), pIsExact, pIsNonNull);
             break;
-        }
 
         case GT_RET_EXPR:
             objClass = gtGetClassHandle(tree->AsRetExpr()->GetRetExpr(), pIsExact, pIsNonNull);

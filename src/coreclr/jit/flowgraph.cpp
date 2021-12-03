@@ -907,6 +907,10 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
     {
         return false;
     }
+    else if (addr->OperIs(GT_INDEX_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_CLS_VAR_ADDR))
+    {
+        return false;
+    }
     else if (addr->gtOper == GT_LCL_VAR)
     {
         unsigned varNum = addr->AsLclVarCommon()->GetLclNum();
@@ -918,18 +922,10 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
     }
     else if (addr->gtOper == GT_ADDR)
     {
-        if (addr->AsOp()->gtOp1->gtOper == GT_CNS_INT)
-        {
-            GenTree* cns1Tree = addr->AsOp()->gtOp1;
-            if (!cns1Tree->IsIconHandle())
-            {
-                // Indirection of some random constant...
-                // It is safest just to return true
-                return true;
-            }
-        }
-
-        return false; // we can't have a null address
+        // If the address is a ADDR node then it cannot be null. The location whose address is
+        // being taken is either a local or static variable, whose address is necessarily non-null,
+        // or else it is a FIELD or INDEX node, which will do its own null checking if necessary.
+        return false;
     }
     else if (addr->gtOper == GT_ADD)
     {
@@ -980,10 +976,6 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
                 }
             }
         }
-    }
-    else if (addr->OperIs(GT_INDEX_ADDR, GT_LCL_VAR_ADDR))
-    {
-        return false;
     }
 
     return true; // default result: addr could be null

@@ -1908,6 +1908,7 @@ public:
 
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
+    GenTreeIntCon* gtNewIntConFieldOffset(target_size_t fieldOffset, FieldSeqNode* fieldSeq);
 
     GenTreePhysReg* gtNewPhysRegNode(regNumber reg, var_types type);
 
@@ -2051,7 +2052,7 @@ public:
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
-    GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
+    GenTreeField* gtNewFieldRef(var_types type, CORINFO_FIELD_HANDLE handle, GenTree* addr, unsigned offset);
 
     GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
     GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
@@ -2259,9 +2260,8 @@ public:
     GenTree* gtTryRemoveBoxUpstreamEffects(GenTree* tree, BoxRemovalOptions options = BR_REMOVE_AND_NARROW);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
 
-    //-------------------------------------------------------------------------
-    // Get the handle, if any.
-    CORINFO_CLASS_HANDLE gtGetStructHandle(GenTree* tree);
+    ClassLayout* gtGetStructLayout(GenTree* tree);
+
     // Get the handle for a ref type.
     CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* pIsExact, bool* pIsNonNull);
     // Get the class handle for an helper call
@@ -3240,8 +3240,6 @@ private:
 
     GenTree* impCheckForNullPointer(GenTree* obj);
     bool impIsThis(GenTree* obj);
-    bool impIsLDFTN_TOKEN(const BYTE* delegateCreateStart, const BYTE* newobjCodeAddr);
-    bool impIsDUP_LDVIRTFTN_TOKEN(const BYTE* delegateCreateStart, const BYTE* newobjCodeAddr);
     bool impIsAnySTLOC(OPCODE opcode)
     {
         return ((opcode == CEE_STLOC) || (opcode == CEE_STLOC_S) ||
@@ -4627,20 +4625,13 @@ private:
     // know will be dereferenced.  To know that reliance on implicit null checking is sound, we must further know that
     // all offsets between the top-level indirection and the bottom are constant, and that their sum is sufficiently
     // small; hence the other fields of MorphAddrContext.
-    enum MorphAddrContextKind
-    {
-        MACK_Ind,
-        MACK_Addr,
-    };
     struct MorphAddrContext
     {
-        MorphAddrContextKind m_kind;
-        bool                 m_allConstantOffsets; // Valid only for "m_kind == MACK_Ind".  True iff all offsets between
-                                                   // top-level indirection and here have been constants.
-        size_t m_totalOffset; // Valid only for "m_kind == MACK_Ind", and if "m_allConstantOffsets" is true.
-                              // In that case, is the sum of those constant offsets.
+        const bool    isAddressTaken;
+        bool          isOffsetConstant;
+        target_size_t offset;
 
-        MorphAddrContext(MorphAddrContextKind kind) : m_kind(kind), m_allConstantOffsets(true), m_totalOffset(0)
+        MorphAddrContext(bool isAddressTaken) : isAddressTaken(isAddressTaken), isOffsetConstant(true), offset(0)
         {
         }
     };
@@ -4690,7 +4681,7 @@ public:
     bool fgAddrCouldBeNull(GenTree* addr);
 
 private:
-    GenTree* fgMorphField(GenTree* tree, MorphAddrContext* mac);
+    GenTree* fgMorphField(GenTreeField* field, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
 #if FEATURE_FASTTAILCALL
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
@@ -4935,17 +4926,9 @@ private:
 public:
     void optInit();
 
-    GenTree* Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt);
-    GenTree* Compiler::optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt);
-    void Compiler::optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt);
-    bool optIsRangeCheckRemovable(GenTree* tree);
-
-protected:
-    static fgWalkPreFn optValidRangeCheckIndex;
-
-    /**************************************************************************
-     *
-     *************************************************************************/
+    GenTree* optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt);
+    GenTree* optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt);
+    void optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt);
 
 protected:
     // Do hoisting for all loops.
@@ -6435,8 +6418,6 @@ public:
 
     // Method entry-points, instrs
 
-    CORINFO_METHOD_HANDLE eeMarkNativeTarget(CORINFO_METHOD_HANDLE method);
-
     CORINFO_EE_INFO eeInfo;
     bool            eeInfoInitialized;
 
@@ -6628,9 +6609,7 @@ public:
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);
 
-    static fgWalkPreFn CountSharedStaticHelper;
     static bool IsSharedStaticHelper(GenTree* tree);
-    static bool IsTreeAlwaysHoistable(GenTree* tree);
     static bool IsGcSafePoint(GenTree* tree);
 
     static CORINFO_FIELD_HANDLE eeFindJitDataOffs(unsigned jitDataOffs);
@@ -8269,30 +8248,9 @@ public:
     // attach the field sequence directly to the address node.
     NodeToFieldSeqMap* m_zeroOffsetFieldMap;
 
-    NodeToFieldSeqMap* GetZeroOffsetFieldMap()
-    {
-        // Don't need to worry about inlining here
-        if (m_zeroOffsetFieldMap == nullptr)
-        {
-            // Create a CompAllocator that labels sub-structure with CMK_ZeroOffsetFieldMap, and use that for
-            // allocation.
-            CompAllocator ialloc(getAllocator(CMK_ZeroOffsetFieldMap));
-            m_zeroOffsetFieldMap = new (ialloc) NodeToFieldSeqMap(ialloc);
-        }
-        return m_zeroOffsetFieldMap;
-    }
-
-    // Requires that "op1" is a node of type "TYP_BYREF" or "TYP_I_IMPL".  We are dereferencing this with the fields in
-    // "fieldSeq", whose offsets are required all to be zero.  Ensures that any field sequence annotation currently on
-    // "op1" or its components is augmented by appending "fieldSeq".  In practice, if "op1" is a GT_LCL_FLD, it has
-    // a field sequence as a member; otherwise, it may be the addition of an a byref and a constant, where the const
-    // has a field sequence -- in this case "fieldSeq" is appended to that of the constant; otherwise, we
-    // record the the field sequence using the ZeroOffsetFieldMap described above.
-    //
-    // One exception above is that "op1" is a node of type "TYP_REF" where "op1" is a GT_LCL_VAR.
-    // This happens when System.Object vtable pointer is a regular field at offset 0 in System.Private.CoreLib in
-    // CoreRT. Such case is handled same as the default case.
-    void fgAddFieldSeqForZeroOffset(GenTree* op1, FieldSeqNode* fieldSeq);
+    FieldSeqNode* GetZeroOffsetFieldSeq(GenTree* node);
+    void CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to);
+    void AddZeroOffsetFieldSeq(GenTree* node, FieldSeqNode* fieldSeq);
 
     NodeToUnsignedMap* m_memorySsaMap[MemoryKindCount];
 
@@ -8319,7 +8277,7 @@ public:
 
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
     CORINFO_CLASS_HANDLE m_refAnyClass;
-    CORINFO_FIELD_HANDLE GetRefanyDataField()
+    CORINFO_FIELD_HANDLE GetRefanyValueField()
     {
         if (m_refAnyClass == nullptr)
         {
@@ -8929,6 +8887,7 @@ public:
             case GT_CKFINITE:
             case GT_LCLHEAP:
             case GT_ADDR:
+            case GT_FIELD:
             case GT_IND:
             case GT_OBJ:
             case GT_BLK:
@@ -9059,14 +9018,6 @@ public:
                     return result;
                 }
                 result = WalkTree(&node->AsBoundsChk()->gtArrLen, node);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                break;
-
-            case GT_FIELD:
-                result = WalkTree(&node->AsField()->gtFldObj, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;

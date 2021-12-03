@@ -235,8 +235,8 @@ GTNODE(JTRUE            , GenTreeOp          ,0,(GTK_UNOP|GTK_NOVALUE))
 //  Other nodes that have special structure:
 //-----------------------------------------------------------------------------
 
-GTNODE(FIELD            , GenTreeField       ,0,(GTK_SPECIAL|GTK_NOTLIR)) // Member-field
-GTNODE(ARR_ELEM         , GenTreeArrElem     ,0,GTK_SPECIAL)              // Multi-dimensional array-element address
+GTNODE(FIELD            , GenTreeField       ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR)) // Member-field
+GTNODE(ARR_ELEM         , GenTreeArrElem     ,0,GTK_SPECIAL)            // Multi-dimensional array-element address
 GTNODE(ARR_INDEX        , GenTreeArrIndex    ,0,(GTK_BINOP|GTK_EXOP))     // Effective, bounds-checked index for one dimension of a multi-dimensional array element
 GTNODE(ARR_OFFSET       , GenTreeArrOffs     ,0,GTK_SPECIAL)              // Flattened offset of multi-dimensional array element
 GTNODE(CALL             , GenTreeCall        ,0,(GTK_SPECIAL|GTK_NOCONTAIN))

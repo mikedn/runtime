@@ -3045,6 +3045,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return gtIconVal;
     }
 
+    size_t GetUnsignedValue() const
+    {
+        return static_cast<size_t>(gtIconVal);
+    }
+
     uint8_t GetUInt8Value() const
     {
         return static_cast<uint8_t>(gtIconVal & 0xFF);
@@ -3705,41 +3710,38 @@ struct GenTreeBox : public GenTreeUnOp
 #endif
 };
 
-/* gtField  -- data member ref  (GT_FIELD) */
-
-struct GenTreeField : public GenTree
+struct GenTreeField : public GenTreeUnOp
 {
-    GenTree*             gtFldObj;
-    CORINFO_FIELD_HANDLE gtFldHnd;
-    DWORD                gtFldOffset;
-    bool                 gtFldMayOverlap;
-
-private:
+    CORINFO_FIELD_HANDLE m_handle;
+    unsigned             m_offset;
+    bool                 m_mayOverlap;
+    uint16_t             m_layoutNum;
 #ifdef FEATURE_READYTORUN_COMPILER
     void* m_r2rFieldLookupAddr;
 #endif
 
 public:
-    GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
-        : GenTree(GT_FIELD, type)
-        , gtFldObj(addr)
-        , gtFldHnd(fldHnd)
-        , gtFldOffset(offs)
-        , gtFldMayOverlap(false)
+    GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
+        : GenTreeUnOp(GT_FIELD, type, addr)
+        , m_handle(handle)
+        , m_offset(offset)
+        , m_mayOverlap(false)
+        , m_layoutNum(0)
 #ifdef FEATURE_READYTORUN_COMPILER
         , m_r2rFieldLookupAddr(nullptr)
 #endif
     {
-        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+        assert(varTypeIsI(addr->GetType()));
+        assert(handle != nullptr);
         gtFlags |= addr->GetSideEffects();
     }
 
     GenTreeField(const GenTreeField* copyFrom)
-        : GenTree(GT_FIELD, copyFrom->GetType())
-        , gtFldObj(copyFrom->gtFldObj)
-        , gtFldHnd(copyFrom->gtFldHnd)
-        , gtFldOffset(copyFrom->gtFldOffset)
-        , gtFldMayOverlap(copyFrom->gtFldMayOverlap)
+        : GenTreeUnOp(GT_FIELD, copyFrom->GetType(), copyFrom->GetAddr())
+        , m_handle(copyFrom->m_handle)
+        , m_offset(copyFrom->m_offset)
+        , m_mayOverlap(copyFrom->m_mayOverlap)
+        , m_layoutNum(copyFrom->m_layoutNum)
 #ifdef FEATURE_READYTORUN_COMPILER
         , m_r2rFieldLookupAddr(copyFrom->m_r2rFieldLookupAddr)
 #endif
@@ -3748,24 +3750,49 @@ public:
 
     GenTree* GetAddr() const
     {
-        return gtFldObj;
+        return gtOp1;
     }
 
     void SetAddr(GenTree* addr)
     {
-        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
-        gtFldObj = addr;
+        assert(varTypeIsI(addr->GetType()));
+        gtOp1 = addr;
     }
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
-        return gtFldHnd;
+        return m_handle;
     }
 
     unsigned GetOffset() const
     {
-        return gtFldOffset;
+        return m_offset;
     }
+
+    bool MayOverlap() const
+    {
+        return m_mayOverlap;
+    }
+
+    void SetMayOverlap()
+    {
+        m_mayOverlap = true;
+    }
+
+    uint16_t GetLayoutNum() const
+    {
+        return varTypeIsStruct(GetType()) ? m_layoutNum : 0;
+    }
+
+    void SetLayoutNum(unsigned layoutNum)
+    {
+        assert(layoutNum <= UINT16_MAX);
+        assert((layoutNum == 0) || varTypeIsStruct(GetType()));
+        m_layoutNum = static_cast<uint16_t>(layoutNum);
+    }
+
+    ClassLayout* GetLayout(Compiler* compiler) const;
+    void SetLayout(ClassLayout* layout, Compiler* compiler);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     void* GetR2RFieldLookupAddr() const
@@ -3790,7 +3817,7 @@ public:
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeField() : GenTree()
+    GenTreeField() : GenTreeUnOp()
     {
     }
 #endif

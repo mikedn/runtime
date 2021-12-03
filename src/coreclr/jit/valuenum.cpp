@@ -7194,15 +7194,16 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         }
 
                         // A BYREF local may have a zero offset field sequence that needs to be added.
-                        FieldSeqNode* fieldSeq = nullptr;
-
-                        if (lclNode->TypeIs(TYP_BYREF) && GetZeroOffsetFieldMap()->Lookup(tree, &fieldSeq))
+                        if (lclNode->TypeIs(TYP_BYREF))
                         {
-                            ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq);
-
-                            if (extendVN != ValueNumStore::NoVN)
+                            if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(tree))
                             {
-                                vnp.SetBoth(extendVN);
+                                ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq);
+
+                                if (extendVN != ValueNumStore::NoVN)
+                                {
+                                    vnp.SetBoth(extendVN);
+                                }
                             }
                         }
                     }
@@ -7581,13 +7582,15 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
             if (arg->OperIs(GT_IND, GT_OBJ))
             {
+                GenTree* addr = arg->AsIndir()->GetAddr();
+
                 // Usually the ADDR and IND just cancel out...
                 // except when this GT_ADDR has a valid zero-offset field sequence
-                FieldSeqNode* zeroOffsetFieldSeq = nullptr;
-                if (GetZeroOffsetFieldMap()->Lookup(tree, &zeroOffsetFieldSeq) &&
-                    (zeroOffsetFieldSeq != FieldSeqStore::NotAField()))
+                FieldSeqNode* zeroOffsetFieldSeq = GetZeroOffsetFieldSeq(tree);
+
+                if ((zeroOffsetFieldSeq != nullptr) && (zeroOffsetFieldSeq != FieldSeqStore::NotAField()))
                 {
-                    ValueNum addrExtended = vnStore->ExtendPtrVN(arg->AsOp()->gtOp1, zeroOffsetFieldSeq);
+                    ValueNum addrExtended = vnStore->ExtendPtrVN(addr, zeroOffsetFieldSeq);
                     if (addrExtended != ValueNumStore::NoVN)
                     {
                         tree->gtVNPair.SetBoth(addrExtended); // We don't care about lib/cons differences for addresses.
@@ -7602,8 +7605,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 else
                 {
                     // They just cancel, so fetch the ValueNumber from the op1 of the GT_IND node.
-                    //
-                    GenTree* addr  = arg->AsIndir()->Addr();
                     tree->gtVNPair = addr->gtVNPair;
 
                     // For the CSE phase mark the address as GTF_DONT_CSE

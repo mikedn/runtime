@@ -2328,8 +2328,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             }
             else
             {
-                CORINFO_CLASS_HANDLE argClass = gtGetStructHandle(argNode);
-                noway_assert(argClass != NO_CLASS_HANDLE);
+                ClassLayout* argLayout = gtGetStructLayout(argNode);
+                noway_assert(argLayout != nullptr);
 
                 // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
                 // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
@@ -2347,7 +2347,6 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
                 LclVarDsc*   paramLcl      = lvaGetDesc(argInfo.paramLclNum);
                 ClassLayout* paramLayout   = paramLcl->GetLayout();
-                ClassLayout* argLayout     = typGetObjLayout(argClass);
                 bool         restoreLayout = false;
 
                 if (argLayout != paramLayout)
@@ -2401,6 +2400,35 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         if (argInfo.argHasSideEff)
         {
             // This parameter isn't used. We need to preserve argument side effects though.
+
+            // TODO-MIKE-Cleanup: This seems like the wrong place for such special casing,
+            // morph would probably make more sense. But the problem is that when we morph
+            // a FIELD we don't know if it is used or not and then we may end up adding
+            // a null check temp thinking that the address has multiple uses. But if the
+            // FIELD isn't used we only have one use of the address - the null check itself.
+
+            if (GenTreeField* field = argNode->IsField())
+            {
+                while (!field->IsVolatile() && field->GetAddr()->OperIs(GT_ADDR) &&
+                       field->GetAddr()->AsUnOp()->GetOp(0)->IsField())
+                {
+                    field = field->GetAddr()->AsUnOp()->GetOp(0)->AsField();
+                }
+
+                if (field->IsVolatile())
+                {
+                    argNode = field;
+                }
+                else if (fgAddrCouldBeNull(field->GetAddr()))
+                {
+                    gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
+                    argNode = field;
+                }
+                else
+                {
+                    argNode = field->GetAddr();
+                }
+            }
 
             GenTree* sideEffects = nullptr;
 
