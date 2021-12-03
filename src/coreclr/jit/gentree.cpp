@@ -11637,21 +11637,23 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
     if (arg->OperIs(GT_LCL_VAR_ADDR, GT_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
     {
-        CORINFO_CLASS_HANDLE nullableHnd;
+        ClassLayout* nullableLayout;
 
         if (arg->OperIs(GT_LCL_VAR_ADDR))
         {
-            nullableHnd = lvaGetDesc(arg->AsLclVar())->GetLayout()->GetClassHandle();
+            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
         }
         else
         {
-            nullableHnd = gtGetStructHandle(arg->AsUnOp()->GetOp(0));
+            nullableLayout = gtGetStructLayout(arg->AsUnOp()->GetOp(0));
         }
 
-        // TODO-MIKE-Cleanup: It would be better for this to be an if rather than an assert.
-        assert(nullableHnd != NO_CLASS_HANDLE);
+        if (nullableLayout == nullptr)
+        {
+            return tree;
+        }
 
-        CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableHnd, 0);
+        CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableLayout->GetClassHandle(), 0);
         unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
 
         // Replace the box with an access of the nullable 'hasValue' field.
@@ -14868,7 +14870,7 @@ bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_
     return fieldTyp != TYP_REF;
 }
 
-CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
+ClassLayout* Compiler::gtGetStructLayout(GenTree* tree)
 {
     assert(tree->TypeIs(TYP_STRUCT));
 
@@ -14877,19 +14879,19 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
     switch (tree->GetOper())
     {
         case GT_OBJ:
-            return tree->AsObj()->GetLayout()->GetClassHandle();
+            return tree->AsObj()->GetLayout();
         case GT_CALL:
-            return tree->AsCall()->GetRetLayout()->GetClassHandle();
+            return tree->AsCall()->GetRetLayout();
         case GT_RET_EXPR:
-            return tree->AsRetExpr()->GetLayout()->GetClassHandle();
+            return tree->AsRetExpr()->GetLayout();
         case GT_INDEX:
-            return tree->AsIndex()->GetLayout()->GetClassHandle();
+            return tree->AsIndex()->GetLayout();
         case GT_FIELD:
-            return tree->AsField()->GetLayout(this)->GetClassHandle();
+            return tree->AsField()->GetLayout(this);
         case GT_LCL_VAR:
-            return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
+            return lvaGetDesc(tree->AsLclVar())->GetLayout();
         case GT_LCL_FLD:
-            return tree->AsLclFld()->GetLayout(this)->GetClassHandle();
+            return tree->AsLclFld()->GetLayout(this);
         default:
             unreached();
     }

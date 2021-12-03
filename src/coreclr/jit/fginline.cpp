@@ -2328,8 +2328,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             }
             else
             {
-                CORINFO_CLASS_HANDLE argClass = gtGetStructHandle(argNode);
-                noway_assert(argClass != NO_CLASS_HANDLE);
+                ClassLayout* argLayout = gtGetStructLayout(argNode);
+                noway_assert(argLayout != nullptr);
 
                 // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
                 // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
@@ -2347,7 +2347,6 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
                 LclVarDsc*   paramLcl      = lvaGetDesc(argInfo.paramLclNum);
                 ClassLayout* paramLayout   = paramLcl->GetLayout();
-                ClassLayout* argLayout     = typGetObjLayout(argClass);
                 bool         restoreLayout = false;
 
                 if (argLayout != paramLayout)
