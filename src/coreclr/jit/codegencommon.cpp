@@ -1062,7 +1062,7 @@ AGAIN:
         std::swap(op1, op2);
     }
 
-    if (op2->IsIntCnsFitsInI32() && !op2->TypeIs(TYP_REF) && FitsIn<INT32>(offset + op2->AsIntCon()->GetValue()))
+    if (op2->IsIntCon() && !op2->TypeIs(TYP_REF) && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
     {
         // TODO-MIKE-Review: Shouldn't this assert be an if?
         assert(!op2->AsIntCon()->ImmedValNeedsReloc(compiler));
@@ -1123,8 +1123,8 @@ AGAIN:
 #ifndef TARGET_ARMARCH
         // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
         case GT_ADD:
-            if (!op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCnsFitsInI32() &&
-                FitsIn<INT32>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
+            if (!op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
+                FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
             {
                 offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
                 op1 = op1->AsOp()->GetOp(0);
@@ -1180,8 +1180,8 @@ AGAIN:
 #ifndef TARGET_ARMARCH
         // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
         case GT_ADD:
-            if (!op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCnsFitsInI32() &&
-                FitsIn<INT32>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
+            if (!op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon() &&
+                FitsIn<int32_t>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
             {
                 offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
                 op2 = op2->AsOp()->GetOp(0);
@@ -1254,7 +1254,7 @@ FOUND_AM:
 
     // We shouldn't have [index * 1 + offset] - this is equivalent to [base + offset]
     noway_assert((base != nullptr) || (scale != 1));
-    noway_assert(FitsIn<INT32>(offset));
+    noway_assert(FitsIn<int32_t>(offset));
 
     addrMode->base   = base;
     addrMode->index  = index;
