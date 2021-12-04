@@ -1790,10 +1790,6 @@ public:
 
     bool OperMayThrow(Compiler* comp);
 
-    unsigned GetScaleIndexMul();
-    unsigned GetScaleIndexShf();
-    unsigned GetScaledIndex();
-
     // Returns true if "addr" is a GT_ADD node, at least one of whose arguments is an integer
     // (<= 32 bit) constant.  If it returns true, it sets "*offset" to (one of the) constant value(s), and
     // "*addr" to the other argument.

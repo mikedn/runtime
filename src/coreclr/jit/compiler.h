@@ -9523,6 +9523,12 @@ struct AddrMode
     GenTree* index  = nullptr;
     unsigned scale  = 0;
     int32_t  offset = 0;
+
+    static bool IsIndexScale(size_t value);
+    static bool IsIndexShift(ssize_t value);
+    static unsigned GetMulIndexScale(GenTree* node);
+    static unsigned GetLshIndexScale(GenTree* node);
+    static unsigned GetIndexScale(GenTreeOp* node);
 };
 
 bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode);

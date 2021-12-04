@@ -5395,7 +5395,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     unsigned offset = comp->eeGetMDArrayDataOffset(arrElem->gtArrElemType, arrElem->gtArrRank);
 
     GenTree* leaIndexNode = prevArrOffs;
-    if (!jitIsScaleIndexMul(scale))
+    if (!AddrMode::IsIndexScale(scale))
     {
         // We do the address arithmetic in TYP_I_IMPL, though note that the lower bounds and lengths in memory are
         // TYP_INT

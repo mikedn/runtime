@@ -11501,7 +11501,7 @@ DONE_MORPHING_CHILDREN:
                     changeToShift = true;
                 }
 #if LEA_AVAILABLE
-                else if ((lowestBit > 1) && jitIsScaleIndexMul(lowestBit) && optAvoidIntMult())
+                else if ((lowestBit > 1) && AddrMode::IsIndexScale(lowestBit) && optAvoidIntMult())
                 {
                     int     shift  = genLog2(lowestBit);
                     ssize_t factor = abs_mult >> shift;
@@ -12438,7 +12438,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             {
                 GenTree* add = op1->AsOp()->gtOp2;
 
-                if (add->IsCnsIntOrI() && (op2->GetScaleIndexMul() != 0))
+                if (add->IsCnsIntOrI() && (AddrMode::GetMulIndexScale(op2) != 0))
                 {
                     if (tree->gtOverflow() || op1->gtOverflow())
                     {
@@ -12494,7 +12494,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             {
                 GenTree* cns = op1->AsOp()->gtOp2;
 
-                if (cns->IsCnsIntOrI() && (op2->GetScaleIndexShf() != 0))
+                if (cns->IsCnsIntOrI() && (AddrMode::GetLshIndexScale(op2) != 0))
                 {
                     ssize_t ishf = op2->AsIntConCommon()->IconValue();
                     ssize_t iadd = cns->AsIntConCommon()->IconValue();

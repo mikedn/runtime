@@ -973,6 +973,62 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
 #endif // !FEATURE_FIXED_OUT_ARGS
 }
 
+bool AddrMode::IsIndexScale(size_t value)
+{
+    return (value == 1) || (value == 2) || (value == 4) || (value == 8);
+}
+
+bool AddrMode::IsIndexShift(ssize_t value)
+{
+    return (0 < value) && (value < 4);
+}
+
+unsigned AddrMode::GetMulIndexScale(GenTree* node)
+{
+    if (GenTreeIntCon* intCon = node->IsIntCon())
+    {
+        if (IsIndexScale(intCon->GetValue()) && (intCon->GetValue() != 1))
+        {
+            return intCon->GetUInt32Value();
+        }
+    }
+
+    return 0;
+}
+
+unsigned AddrMode::GetLshIndexScale(GenTree* node)
+{
+    if (GenTreeIntCon* intCon = node->IsIntCon())
+    {
+        if (IsIndexShift(intCon->GetValue()))
+        {
+            return 1u << intCon->GetValue();
+        }
+    }
+
+    return 0;
+}
+
+unsigned AddrMode::GetIndexScale(GenTreeOp* node)
+{
+    // In minopts we may get CNS_INT * CNS_INT, leave it alone.
+    if (node->GetOp(0)->IsIntCon())
+    {
+        return 0;
+    }
+
+    switch (node->GetOper())
+    {
+        case GT_MUL:
+            return GetMulIndexScale(node->GetOp(1));
+        case GT_LSH:
+            return GetLshIndexScale(node->GetOp(1));
+        default:
+            assert(!"AddrMode::GetIndexScale() called with illegal gtOper");
+            return 0;
+    }
+}
+
 // Take an address expression and try to find the best set of components to
 // form an address mode; returns true if this is successful.
 bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
@@ -1039,7 +1095,7 @@ AGAIN:
                     }
                     FALLTHROUGH;
                 case GT_LSH:
-                    scale = op1->GetScaledIndex();
+                    scale = AddrMode::GetIndexScale(op1->AsOp());
 
                     if (scale == 0)
                     {
@@ -1084,7 +1140,7 @@ AGAIN:
             }
             FALLTHROUGH;
         case GT_LSH:
-            scale = op1->GetScaledIndex();
+            scale = AddrMode::GetIndexScale(op1->AsOp());
 
             if (scale == 0)
             {
@@ -1094,10 +1150,10 @@ AGAIN:
             base  = op2;
             index = op1->AsOp()->GetOp(0);
 
-            int argScale;
-            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = index->GetScaledIndex()) != 0)
+            unsigned argScale;
+            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
             {
-                if (!jitIsScaleIndexMul(scale * argScale))
+                if (!AddrMode::IsIndexScale(scale * argScale))
                 {
                     break;
                 }
@@ -1141,7 +1197,7 @@ AGAIN:
             }
             FALLTHROUGH;
         case GT_LSH:
-            scale = op2->GetScaledIndex();
+            scale = AddrMode::GetIndexScale(op2->AsOp());
 
             if (scale == 0)
             {
@@ -1150,10 +1206,10 @@ AGAIN:
 
             index = op2->AsOp()->GetOp(0);
 
-            int argScale;
-            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = index->GetScaledIndex()) != 0)
+            unsigned argScale;
+            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
             {
-                if (!jitIsScaleIndexMul(scale * argScale))
+                if (!AddrMode::IsIndexScale(scale * argScale))
                 {
                     break;
                 }
