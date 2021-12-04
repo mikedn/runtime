@@ -1140,19 +1140,6 @@ AGAIN:
             base  = op2;
             index = op1->AsOp()->GetOp(0);
 
-            while (index->OperIs(GT_MUL, GT_LSH))
-            {
-                unsigned newScale = AddrMode::GetIndexScale(index->AsOp());
-
-                if (!AddrMode::IsIndexScale(scale * newScale))
-                {
-                    break;
-                }
-
-                scale = scale * newScale;
-                index = index->AsOp()->GetOp(0);
-            }
-
             goto FOUND_AM;
 #endif // !TARGET_ARMARCH
 
@@ -1190,22 +1177,9 @@ AGAIN:
                 break;
             }
 
+            base  = op1;
             index = op2->AsOp()->GetOp(0);
 
-            while (index->OperIs(GT_MUL, GT_LSH))
-            {
-                unsigned newScale = AddrMode::GetIndexScale(index->AsOp());
-
-                if (!AddrMode::IsIndexScale(scale * newScale))
-                {
-                    break;
-                }
-
-                scale = scale * newScale;
-                index = index->AsOp()->GetOp(0);
-            }
-
-            base = op1;
             goto FOUND_AM;
 #endif // !TARGET_ARMARCH
 
@@ -1231,6 +1205,24 @@ FOUND_AM:
     {
         return false;
     }
+
+#ifndef TARGET_ARMARCH
+    if (index != nullptr)
+    {
+        while (index->OperIs(GT_MUL, GT_LSH))
+        {
+            unsigned newScale = AddrMode::GetIndexScale(index->AsOp());
+
+            if (!AddrMode::IsIndexScale(scale * newScale))
+            {
+                break;
+            }
+
+            scale = scale * newScale;
+            index = index->AsOp()->GetOp(0);
+        }
+    }
+#endif
 
     // Make sure a GC address doesn't end up in 'index'
     if ((index != nullptr) && varTypeIsGC(index->GetType()))
