@@ -2644,11 +2644,11 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
     GenTree* base; // This is the base of the address.
     GenTree* idx;  // This is the index.
 
-    if (codeGen->genCreateAddrMode(addr, &base, &idx,
+    if (CreateAddrMode(this, addr, &base, &idx,
 #if SCALED_ADDR_MODES
-                                   &mul,
+                       &mul,
 #endif // SCALED_ADDR_MODES
-                                   &cns))
+                       &cns))
     {
         // We can form a complex addressing mode, so mark each of the interior
         // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.

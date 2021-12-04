@@ -1002,13 +1002,14 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
  *                  form an address mode later on.
  */
 
-bool CodeGen::genCreateAddrMode(GenTree*  addr,
-                                GenTree** rv1Ptr,
-                                GenTree** rv2Ptr,
+bool CreateAddrMode(Compiler* compiler,
+                    GenTree*  addr,
+                    GenTree** rv1Ptr,
+                    GenTree** rv2Ptr,
 #if SCALED_ADDR_MODES
-                                unsigned* mulPtr,
+                    unsigned* mulPtr,
 #endif // SCALED_ADDR_MODES
-                                ssize_t* cnsPtr)
+                    ssize_t* cnsPtr)
 {
     /*
         The following indirections are valid address modes on x86/x64:

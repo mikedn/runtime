@@ -82,16 +82,6 @@ public:
         m_genAlignLoops = value;
     }
 
-    // TODO-Cleanup: Abstract out the part of this that finds the addressing mode, and
-    // move it to Lower
-    virtual bool genCreateAddrMode(GenTree*  addr,
-                                   GenTree** rv1Ptr,
-                                   GenTree** rv2Ptr,
-#if SCALED_ADDR_MODES
-                                   unsigned* mulPtr,
-#endif // SCALED_ADDR_MODES
-                                   ssize_t* cnsPtr) = 0;
-
     GCInfo gcInfo;
 
     RegSet   regSet;

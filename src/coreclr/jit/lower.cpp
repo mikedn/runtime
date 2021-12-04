@@ -4357,13 +4357,13 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     ssize_t  offset = 0;
 
     // Find out if an addressing mode can be constructed
-    bool doAddrMode = comp->codeGen->genCreateAddrMode(addr,   // address
-                                                       &base,  // base addr
-                                                       &index, // index val
+    bool doAddrMode = CreateAddrMode(comp, addr, // address
+                                     &base,      // base addr
+                                     &index,     // index val
 #if SCALED_ADDR_MODES
-                                                       &scale,   // scaling
-#endif                                                           // SCALED_ADDR_MODES
-                                                       &offset); // displacement
+                                     &scale,   // scaling
+#endif                                         // SCALED_ADDR_MODES
+                                     &offset); // displacement
 
     if (scale == 0)
     {
