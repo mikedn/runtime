@@ -2666,7 +2666,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
 
         if (am.offset != 0)
         {
-            if (((signed char)am.offset) == am.offset)
+            if (FitsIn<int8_t>(am.offset))
             {
                 *pCostSz += 1;
             }
@@ -2790,7 +2790,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
 
         if (am.offset != 0)
         {
-            if (am.offset >= (4096 * varTypeSize(type)))
+            if (am.offset >= static_cast<int32_t>(4096 * varTypeSize(type)))
             {
                 *pCostEx += 1;
                 *pCostSz += 4;

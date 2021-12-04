@@ -990,31 +990,31 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
         std::swap(op1, op2);
     }
 
-    GenTree* rv1 = nullptr;
-    GenTree* rv2 = nullptr;
-    unsigned mul = 0;
-    ssize_t  cns = 0;
+    GenTree* base   = nullptr;
+    GenTree* index  = nullptr;
+    unsigned scale  = 0;
+    ssize_t  offset = 0;
 
 AGAIN:
     // We come back to 'AGAIN' if we have an add of a constant, and we are folding that
     // constant, or we have gone through a GT_NOP or GT_COMMA node. We never come back
     // here if we find a scaled index.
-    assert(mul == 0);
+    assert(scale == 0);
 
     if (op1->IsIntCon())
     {
         std::swap(op1, op2);
     }
 
-    if (op2->IsIntCnsFitsInI32() && !op2->TypeIs(TYP_REF) && FitsIn<INT32>(cns + op2->AsIntCon()->GetValue()))
+    if (op2->IsIntCnsFitsInI32() && !op2->TypeIs(TYP_REF) && FitsIn<INT32>(offset + op2->AsIntCon()->GetValue()))
     {
         // TODO-MIKE-Review: Shouldn't this assert be an if?
         assert(!op2->AsIntCon()->ImmedValNeedsReloc(compiler));
 
-        cns += op2->AsIntCon()->GetValue();
+        offset += op2->AsIntCon()->GetValue();
 
 #ifdef TARGET_ARMARCH
-        if (cns == 0)
+        if (offset == 0)
 #endif
         {
             switch (op1->GetOper())
@@ -1039,15 +1039,15 @@ AGAIN:
                     }
                     FALLTHROUGH;
                 case GT_LSH:
-                    mul = op1->GetScaledIndex();
+                    scale = op1->GetScaledIndex();
 
-                    if (mul == 0)
+                    if (scale == 0)
                     {
                         break;
                     }
 
-                    rv1 = nullptr;
-                    rv2 = op1->AsOp()->GetOp(0);
+                    base  = nullptr;
+                    index = op1->AsOp()->GetOp(0);
 
                     goto FOUND_AM;
 #endif // !TARGET_ARMARCH
@@ -1056,8 +1056,8 @@ AGAIN:
             }
         }
 
-        rv1 = op1;
-        rv2 = nullptr;
+        base  = op1;
+        index = nullptr;
 
         goto FOUND_AM;
     }
@@ -1068,9 +1068,9 @@ AGAIN:
         // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
         case GT_ADD:
             if (!op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCnsFitsInI32() &&
-                FitsIn<INT32>(cns + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
+                FitsIn<INT32>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
             {
-                cns += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+                offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
                 op1 = op1->AsOp()->GetOp(0);
 
                 goto AGAIN;
@@ -1084,26 +1084,26 @@ AGAIN:
             }
             FALLTHROUGH;
         case GT_LSH:
-            mul = op1->GetScaledIndex();
+            scale = op1->GetScaledIndex();
 
-            if (mul == 0)
+            if (scale == 0)
             {
                 break;
             }
 
-            rv1 = op2;
-            rv2 = op1->AsOp()->GetOp(0);
+            base  = op2;
+            index = op1->AsOp()->GetOp(0);
 
             int argScale;
-            while (rv2->OperIs(GT_MUL, GT_LSH) && (argScale = rv2->GetScaledIndex()) != 0)
+            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = index->GetScaledIndex()) != 0)
             {
-                if (!jitIsScaleIndexMul(mul * argScale))
+                if (!jitIsScaleIndexMul(scale * argScale))
                 {
                     break;
                 }
 
-                mul = mul * argScale;
-                rv2 = rv2->AsOp()->GetOp(0);
+                scale = scale * argScale;
+                index = index->AsOp()->GetOp(0);
             }
 
             goto FOUND_AM;
@@ -1125,9 +1125,9 @@ AGAIN:
         // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
         case GT_ADD:
             if (!op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCnsFitsInI32() &&
-                FitsIn<INT32>(cns + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
+                FitsIn<INT32>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
             {
-                cns += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+                offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
                 op2 = op2->AsOp()->GetOp(0);
 
                 goto AGAIN;
@@ -1141,28 +1141,28 @@ AGAIN:
             }
             FALLTHROUGH;
         case GT_LSH:
-            mul = op2->GetScaledIndex();
+            scale = op2->GetScaledIndex();
 
-            if (mul == 0)
+            if (scale == 0)
             {
                 break;
             }
 
-            rv2 = op2->AsOp()->GetOp(0);
+            index = op2->AsOp()->GetOp(0);
 
             int argScale;
-            while (rv2->OperIs(GT_MUL, GT_LSH) && (argScale = rv2->GetScaledIndex()) != 0)
+            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = index->GetScaledIndex()) != 0)
             {
-                if (!jitIsScaleIndexMul(mul * argScale))
+                if (!jitIsScaleIndexMul(scale * argScale))
                 {
                     break;
                 }
 
-                mul = mul * argScale;
-                rv2 = rv2->AsOp()->GetOp(0);
+                scale = scale * argScale;
+                index = index->AsOp()->GetOp(0);
             }
 
-            rv1 = op1;
+            base = op1;
             goto FOUND_AM;
 #endif // !TARGET_ARMARCH
 
@@ -1176,34 +1176,34 @@ AGAIN:
             break;
     }
 
-    rv1 = op1;
-    rv2 = op2;
+    base  = op1;
+    index = op2;
 
 #ifdef TARGET_ARM64
-    assert(cns == 0);
+    assert(offset == 0);
 #endif
 
 FOUND_AM:
-    if ((rv1 == nullptr) && (rv2 == nullptr))
+    if ((base == nullptr) && (index == nullptr))
     {
         return false;
     }
 
-    // Make sure a GC address doesn't end up in 'rv2'
-    if ((rv2 != nullptr) && varTypeIsGC(rv2->GetType()))
+    // Make sure a GC address doesn't end up in 'index'
+    if ((index != nullptr) && varTypeIsGC(index->GetType()))
     {
-        noway_assert((rv1 != nullptr) && !varTypeIsGC(rv1->GetType()));
-        std::swap(rv1, rv2);
+        noway_assert((base != nullptr) && !varTypeIsGC(base->GetType()));
+        std::swap(base, index);
     }
 
-    // We shouldn't have [rv2*1 + cns] - this is equivalent to [rv1 + cns]
-    noway_assert((rv1 != nullptr) || (mul != 1));
-    noway_assert(FitsIn<INT32>(cns));
+    // We shouldn't have [index * 1 + offset] - this is equivalent to [base + offset]
+    noway_assert((base != nullptr) || (scale != 1));
+    noway_assert(FitsIn<INT32>(offset));
 
-    addrMode->base   = rv1;
-    addrMode->index  = rv2;
-    addrMode->scale  = mul;
-    addrMode->offset = static_cast<int32_t>(cns);
+    addrMode->base   = base;
+    addrMode->index  = index;
+    addrMode->scale  = scale;
+    addrMode->offset = static_cast<int32_t>(offset);
 
     return true;
 }
