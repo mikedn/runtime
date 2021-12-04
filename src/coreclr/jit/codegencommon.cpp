@@ -1151,7 +1151,8 @@ AGAIN:
             index = op1->AsOp()->GetOp(0);
 
             unsigned argScale;
-            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
+            while (((index->OperIs(GT_MUL) && !index->gtOverflow()) || index->OperIs(GT_LSH)) &&
+                   (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
             {
                 if (!AddrMode::IsIndexScale(scale * argScale))
                 {
@@ -1207,7 +1208,8 @@ AGAIN:
             index = op2->AsOp()->GetOp(0);
 
             unsigned argScale;
-            while (index->OperIs(GT_MUL, GT_LSH) && (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
+            while (((index->OperIs(GT_MUL) && !index->gtOverflow()) || index->OperIs(GT_LSH)) &&
+                   (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
             {
                 if (!AddrMode::IsIndexScale(scale * argScale))
                 {
