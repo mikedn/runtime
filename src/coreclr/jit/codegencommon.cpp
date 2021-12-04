@@ -1062,7 +1062,7 @@ AGAIN:
         std::swap(op1, op2);
     }
 
-    if (op2->IsIntCon() && !op2->TypeIs(TYP_REF) && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
+    if (op2->IsIntCon() && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
     {
         // TODO-MIKE-Review: Shouldn't this assert be an if?
         assert(!op2->AsIntCon()->ImmedValNeedsReloc(compiler));
