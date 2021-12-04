@@ -1020,7 +1020,7 @@ unsigned AddrMode::GetIndexScale(GenTreeOp* node)
     switch (node->GetOper())
     {
         case GT_MUL:
-            return GetMulIndexScale(node->GetOp(1));
+            return node->gtOverflow() ? 0 : GetMulIndexScale(node->GetOp(1));
         case GT_LSH:
             return GetLshIndexScale(node->GetOp(1));
         default:
@@ -1089,11 +1089,6 @@ AGAIN:
 #ifndef TARGET_ARMARCH
                 // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
                 case GT_MUL:
-                    if (op1->gtOverflow())
-                    {
-                        return false;
-                    }
-                    FALLTHROUGH;
                 case GT_LSH:
                     scale = AddrMode::GetIndexScale(op1->AsOp());
 
@@ -1134,11 +1129,6 @@ AGAIN:
             break;
 
         case GT_MUL:
-            if (op1->gtOverflow())
-            {
-                break;
-            }
-            FALLTHROUGH;
         case GT_LSH:
             scale = AddrMode::GetIndexScale(op1->AsOp());
 
@@ -1150,16 +1140,16 @@ AGAIN:
             base  = op2;
             index = op1->AsOp()->GetOp(0);
 
-            unsigned argScale;
-            while (((index->OperIs(GT_MUL) && !index->gtOverflow()) || index->OperIs(GT_LSH)) &&
-                   (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
+            while (index->OperIs(GT_MUL, GT_LSH))
             {
-                if (!AddrMode::IsIndexScale(scale * argScale))
+                unsigned newScale = AddrMode::GetIndexScale(index->AsOp());
+
+                if (!AddrMode::IsIndexScale(scale * newScale))
                 {
                     break;
                 }
 
-                scale = scale * argScale;
+                scale = scale * newScale;
                 index = index->AsOp()->GetOp(0);
             }
 
@@ -1192,11 +1182,6 @@ AGAIN:
             break;
 
         case GT_MUL:
-            if (op2->gtOverflow())
-            {
-                break;
-            }
-            FALLTHROUGH;
         case GT_LSH:
             scale = AddrMode::GetIndexScale(op2->AsOp());
 
@@ -1207,16 +1192,16 @@ AGAIN:
 
             index = op2->AsOp()->GetOp(0);
 
-            unsigned argScale;
-            while (((index->OperIs(GT_MUL) && !index->gtOverflow()) || index->OperIs(GT_LSH)) &&
-                   (argScale = AddrMode::GetIndexScale(index->AsOp())) != 0)
+            while (index->OperIs(GT_MUL, GT_LSH))
             {
-                if (!AddrMode::IsIndexScale(scale * argScale))
+                unsigned newScale = AddrMode::GetIndexScale(index->AsOp());
+
+                if (!AddrMode::IsIndexScale(scale * newScale))
                 {
                     break;
                 }
 
-                scale = scale * argScale;
+                scale = scale * newScale;
                 index = index->AsOp()->GetOp(0);
             }
 
