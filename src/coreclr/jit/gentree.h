@@ -8473,20 +8473,20 @@ inline bool GenTree::IsCnsIntOrI() const
 inline bool GenTree::IsIntegralConst() const
 {
 #ifdef TARGET_64BIT
-    return IsCnsIntOrI();
-#else  // !TARGET_64BIT
+    return IsIntCon();
+#else
     return ((gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG));
-#endif // !TARGET_64BIT
+#endif
 }
 
 // Is this node an integer constant that fits in a 32-bit signed integer (INT32)
 inline bool GenTree::IsIntCnsFitsInI32()
 {
 #ifdef TARGET_64BIT
-    return IsCnsIntOrI() && AsIntCon()->FitsInI32();
-#else  // !TARGET_64BIT
-    return IsCnsIntOrI();
-#endif // !TARGET_64BIT
+    return IsIntCon() && AsIntCon()->FitsInI32();
+#else
+    return IsIntCon();
+#endif
 }
 
 inline bool GenTree::IsCnsFltOrDbl() const
