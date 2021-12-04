@@ -4606,34 +4606,6 @@ DONE:
 #pragma warning(pop)
 #endif
 
-/*****************************************************************************
- *
- *  Returns true if "addr" is a GT_ADD node, at least one of whose arguments is an integer (<= 32 bit)
- *  constant.  If it returns true, it sets "*offset" to (one of the) constant value(s), and
- *  "*addr" to the other argument.
- */
-
-bool GenTree::IsAddWithI32Const(GenTree** addr, int* offset)
-{
-    if (OperGet() == GT_ADD)
-    {
-        if (AsOp()->gtOp1->IsIntCnsFitsInI32())
-        {
-            *offset = (int)AsOp()->gtOp1->AsIntCon()->gtIconVal;
-            *addr   = AsOp()->gtOp2;
-            return true;
-        }
-        else if (AsOp()->gtOp2->IsIntCnsFitsInI32())
-        {
-            *offset = (int)AsOp()->gtOp2->AsIntCon()->gtIconVal;
-            *addr   = AsOp()->gtOp1;
-            return true;
-        }
-    }
-    // Otherwise...
-    return false;
-}
-
 //------------------------------------------------------------------------
 // FindUse: Find the use of a node within this node.
 //
