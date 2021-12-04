@@ -2636,13 +2636,9 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 //
 bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_types type)
 {
-    // These are "out" parameters on the call to genCreateAddrMode():
-    unsigned mul;  // This is the index (scale) value for the addressing mode
-    ssize_t  cns;  // This is the constant offset
-    GenTree* base; // This is the base of the address.
-    GenTree* idx;  // This is the index.
+    AddrMode am;
 
-    if (CreateAddrMode(this, addr, &base, &idx, &mul, &cns))
+    if (CreateAddrMode(this, addr, &am))
     {
         // We can form a complex addressing mode, so mark each of the interior
         // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.
@@ -2651,26 +2647,26 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
 #ifdef TARGET_XARCH
         // addrmodeCount is the count of items that we used to form
         // an addressing mode.  The maximum value is 4 when we have
-        // all of these:   { base, idx, cns, mul }
+        // all of these:   { base, index, offset, scale }
         //
         unsigned addrmodeCount = 0;
-        if (base)
+        if (am.base != nullptr)
         {
-            *pCostEx += base->GetCostEx();
-            *pCostSz += base->GetCostSz();
+            *pCostEx += am.base->GetCostEx();
+            *pCostSz += am.base->GetCostSz();
             addrmodeCount++;
         }
 
-        if (idx)
+        if (am.index != nullptr)
         {
-            *pCostEx += idx->GetCostEx();
-            *pCostSz += idx->GetCostSz();
+            *pCostEx += am.index->GetCostEx();
+            *pCostSz += am.index->GetCostSz();
             addrmodeCount++;
         }
 
-        if (cns)
+        if (am.offset != 0)
         {
-            if (((signed char)cns) == ((int)cns))
+            if (((signed char)am.offset) == ((int)am.offset))
             {
                 *pCostSz += 1;
             }
@@ -2680,7 +2676,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
             }
             addrmodeCount++;
         }
-        if (mul)
+        if (am.scale != 0)
         {
             addrmodeCount++;
         }
@@ -2715,7 +2711,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
                     GenTree* tmpOp2 = tmp->gtGetOp2();
                     assert(tmpOp2 != nullptr);
 
-                    if ((tmpOp1 != base) && (tmpOp1->OperGet() == GT_ADD))
+                    if ((tmpOp1 != am.base) && (tmpOp1->OperGet() == GT_ADD))
                     {
                         tmp = tmpOp1;
                     }
@@ -2741,31 +2737,31 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
             }
         }
 #elif defined TARGET_ARM
-        if (base)
+        if (am.base != nullptr)
         {
-            *pCostEx += base->GetCostEx();
-            *pCostSz += base->GetCostSz();
-            if ((base->gtOper == GT_LCL_VAR) && ((idx == NULL) || (cns == 0)))
+            *pCostEx += am.base->GetCostEx();
+            *pCostSz += am.base->GetCostSz();
+            if ((am.base->gtOper == GT_LCL_VAR) && ((am.index == nullptr) || (am.offset == 0)))
             {
                 *pCostSz -= 1;
             }
         }
 
-        if (idx)
+        if (am.index != nullptr)
         {
-            *pCostEx += idx->GetCostEx();
-            *pCostSz += idx->GetCostSz();
-            if (mul > 0)
+            *pCostEx += am.index->GetCostEx();
+            *pCostSz += am.index->GetCostSz();
+            if (am.scale > 0)
             {
                 *pCostSz += 2;
             }
         }
 
-        if (cns)
+        if (am.offset)
         {
-            if (cns >= 128) // small offsets fits into a 16-bit instruction
+            if (am.offset >= 128) // small offsets fits into a 16-bit instruction
             {
-                if (cns < 4096) // medium offsets require a 32-bit instruction
+                if (am.offset < 4096) // medium offsets require a 32-bit instruction
                 {
                     if (!varTypeIsFloating(type))
                     {
@@ -2780,21 +2776,21 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
             }
         }
 #elif defined TARGET_ARM64
-        if (base)
+        if (am.base != nullptr)
         {
-            *pCostEx += base->GetCostEx();
-            *pCostSz += base->GetCostSz();
+            *pCostEx += am.base->GetCostEx();
+            *pCostSz += am.base->GetCostSz();
         }
 
-        if (idx)
+        if (am.index != nullptr)
         {
-            *pCostEx += idx->GetCostEx();
-            *pCostSz += idx->GetCostSz();
+            *pCostEx += am.index->GetCostEx();
+            *pCostSz += am.index->GetCostSz();
         }
 
-        if (cns != 0)
+        if (am.offset != 0)
         {
-            if (cns >= (4096 * genTypeSize(type)))
+            if (am.offset >= (4096 * genTypeSize(type)))
             {
                 *pCostEx += 1;
                 *pCostSz += 4;
@@ -2806,7 +2802,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
 
         assert(addr->gtOper == GT_ADD);
         assert(!addr->gtOverflow());
-        assert(mul != 1);
+        assert(am.scale != 1);
 
         // If we have an addressing mode, we have one of:
         //   [base             + cns]
@@ -2818,7 +2814,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
         // Note that cns can be zero.
         CLANG_FORMAT_COMMENT_ANCHOR;
 
-        assert((base != nullptr) || (idx != nullptr && mul >= 2));
+        assert((am.base != nullptr) || ((am.index != nullptr) && (am.scale >= 2)));
 
         INDEBUG(GenTree* op1Save = addr);
 
@@ -2832,7 +2828,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
         // map to the base and index.
         GenTree* op1 = addr;
         GenTree* op2 = nullptr;
-        gtWalkOp(&op1, &op2, base, false);
+        gtWalkOp(&op1, &op2, am.base, false);
 
         // op1 and op2 are now descendents of the root GT_ADD of the addressing mode.
         assert(op1 != op1Save);
@@ -2863,17 +2859,18 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
         // and other times op1/op2 is a GT_COMMA node with
         // an effective value that is idx/base
 
-        if (mul > 1)
+        if (am.scale > 1)
         {
-            if ((op1 != base) && (op1->gtOper == GT_LSH))
+            if ((op1 != am.base) && (op1->gtOper == GT_LSH))
             {
                 op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
                 if (op1->AsOp()->gtOp1->gtOper == GT_MUL)
                 {
                     op1->AsOp()->gtOp1->gtFlags |= GTF_ADDRMODE_NO_CSE;
                 }
-                assert((base == nullptr) || (op2 == base) || (op2->gtEffectiveVal() == base->gtEffectiveVal()) ||
-                       (gtWalkOpEffectiveVal(op2) == gtWalkOpEffectiveVal(base)));
+                assert((am.base == nullptr) || (op2 == am.base) ||
+                       (op2->gtEffectiveVal() == am.base->gtEffectiveVal()) ||
+                       (gtWalkOpEffectiveVal(op2) == gtWalkOpEffectiveVal(am.base)));
             }
             else
             {
@@ -2883,22 +2880,22 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
                 // We may have eliminated multiple shifts and multiplies in the addressing mode,
                 // so navigate down through them to get to "idx".
                 GenTree* op2op1 = op2->AsOp()->gtOp1;
-                while ((op2op1->gtOper == GT_LSH || op2op1->gtOper == GT_MUL) && op2op1 != idx)
+                while ((op2op1->gtOper == GT_LSH || op2op1->gtOper == GT_MUL) && op2op1 != am.index)
                 {
                     op2op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
                     op2op1 = op2op1->AsOp()->gtOp1;
                 }
-                assert(op1->gtEffectiveVal() == base);
-                assert(op2op1 == idx);
+                assert(op1->gtEffectiveVal() == am.base);
+                assert(op2op1 == am.index);
             }
         }
         else
         {
-            assert(mul == 0);
+            assert(am.scale == 0);
 
-            if ((op1 == idx) || (op1->gtEffectiveVal() == idx))
+            if ((op1 == am.index) || (op1->gtEffectiveVal() == am.index))
             {
-                if (idx != nullptr)
+                if (am.index != nullptr)
                 {
                     if ((op1->gtOper == GT_MUL) || (op1->gtOper == GT_LSH))
                     {
@@ -2914,11 +2911,11 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
                         }
                     }
                 }
-                assert((op2 == base) || (op2->gtEffectiveVal() == base));
+                assert((op2 == am.base) || (op2->gtEffectiveVal() == am.base));
             }
-            else if ((op1 == base) || (op1->gtEffectiveVal() == base))
+            else if ((op1 == am.base) || (op1->gtEffectiveVal() == am.base))
             {
-                if (idx != nullptr)
+                if (am.index != nullptr)
                 {
                     assert(op2 != nullptr);
                     if (op2->OperIs(GT_MUL, GT_LSH))
@@ -2934,7 +2931,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
                             }
                         }
                     }
-                    assert((op2 == idx) || (op2->gtEffectiveVal() == idx));
+                    assert((op2 == am.index) || (op2->gtEffectiveVal() == am.index));
                 }
             }
             else

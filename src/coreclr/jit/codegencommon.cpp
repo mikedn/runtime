@@ -1000,8 +1000,7 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
  *                  form an address mode later on.
  */
 
-bool CreateAddrMode(
-    Compiler* compiler, GenTree* addr, GenTree** rv1Ptr, GenTree** rv2Ptr, unsigned* mulPtr, ssize_t* cnsPtr)
+bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 {
     /*
         The following indirections are valid address modes on x86/x64:
@@ -1359,10 +1358,10 @@ FOUND_AM:
 
     /* Success - return the various components to the caller */
 
-    *rv1Ptr = rv1;
-    *rv2Ptr = rv2;
-    *mulPtr = mul;
-    *cnsPtr = cns;
+    addrMode->base   = rv1;
+    addrMode->index  = rv2;
+    addrMode->scale  = mul;
+    addrMode->offset = cns;
 
     return true;
 }

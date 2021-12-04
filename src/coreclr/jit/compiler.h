@@ -9517,8 +9517,15 @@ extern const BYTE genActualTypes[];
 void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
 #endif // DEBUG
 
-bool CreateAddrMode(
-    Compiler* compiler, GenTree* addr, GenTree** rv1Ptr, GenTree** rv2Ptr, unsigned* mulPtr, ssize_t* cnsPtr);
+struct AddrMode
+{
+    GenTree* base   = nullptr;
+    GenTree* index  = nullptr;
+    unsigned scale  = 0;
+    ssize_t  offset = 0;
+};
+
+bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode);
 
 #include "compiler.hpp" // All the shared inline functions
 

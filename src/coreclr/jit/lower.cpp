@@ -4351,40 +4351,33 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
         return false;
     }
 
-    GenTree* base   = nullptr;
-    GenTree* index  = nullptr;
-    unsigned scale  = 0;
-    ssize_t  offset = 0;
+    AddrMode am;
 
     // Find out if an addressing mode can be constructed
-    bool doAddrMode = CreateAddrMode(comp, addr, // address
-                                     &base,      // base addr
-                                     &index,     // index val
-                                     &scale,     // scaling
-                                     &offset);   // displacement
+    bool doAddrMode = CreateAddrMode(comp, addr, &am);
 
-    if (scale == 0)
+    if (am.scale == 0)
     {
-        scale = 1;
+        am.scale = 1;
     }
 
     if (!isContainable)
     {
         // this is just a reg-const add
-        if (index == nullptr)
+        if (am.index == nullptr)
         {
             return false;
         }
 
         // this is just a reg-reg add
-        if ((scale == 1) && (offset == 0))
+        if ((am.scale == 1) && (am.offset == 0))
         {
             return false;
         }
     }
 
     // make sure there are not any side effects between def of leaves and use
-    if (!doAddrMode || AreSourcesPossiblyModifiedLocals(addr, base, index))
+    if (!doAddrMode || AreSourcesPossiblyModifiedLocals(addr, am.base, am.index))
     {
         JITDUMP("No addressing mode:\n  ");
         DISPNODE(addr);
@@ -4393,15 +4386,15 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     JITDUMP("Addressing mode:\n");
     JITDUMP("  Base\n    ");
-    DISPNODE(base);
-    if (index != nullptr)
+    DISPNODE(am.base);
+    if (am.index != nullptr)
     {
-        JITDUMP("  + Index * %u + %d\n    ", scale, offset);
-        DISPNODE(index);
+        JITDUMP("  + Index * %u + %d\n    ", am.scale, am.offset);
+        DISPNODE(am.index);
     }
     else
     {
-        JITDUMP("  + %d\n", offset);
+        JITDUMP("  + %d\n", am.offset);
     }
 
     // Save the (potentially) unused operands before changing the address to LEA.
@@ -4415,19 +4408,19 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     addr->gtFlags &= ~GTF_ALL_EFFECT;
 
     GenTreeAddrMode* addrMode = addr->AsAddrMode();
-    addrMode->SetBase(base);
-    addrMode->SetIndex(index);
-    addrMode->SetScale(scale);
-    addrMode->SetOffset(static_cast<int>(offset));
+    addrMode->SetBase(am.base);
+    addrMode->SetIndex(am.index);
+    addrMode->SetScale(am.scale);
+    addrMode->SetOffset(static_cast<int>(am.offset));
 
     // Neither the base nor the index should now be contained.
-    if (base != nullptr)
+    if (am.base != nullptr)
     {
-        base->ClearContained();
+        am.base->ClearContained();
     }
-    if (index != nullptr)
+    if (am.index != nullptr)
     {
-        index->ClearContained();
+        am.index->ClearContained();
     }
 
     // Remove all the nodes that are no longer used.
@@ -4437,7 +4430,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
         // Use a loop to process some of the nodes iteratively
         // instead of pushing them on the stack.
-        while ((unused != base) && (unused != index))
+        while ((unused != am.base) && (unused != am.index))
         {
             JITDUMP("Removing unused node:\n  ");
             DISPNODE(unused);
