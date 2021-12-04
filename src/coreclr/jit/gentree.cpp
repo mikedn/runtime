@@ -2660,11 +2660,11 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
         *indirCostSz += am.index->GetCostSz();
 
         addrModeCount++;
-    }
 
-    if (am.scale != 0)
-    {
-        addrModeCount++;
+        if (am.scale > 1)
+        {
+            addrModeCount++;
+        }
     }
 
     if (am.offset != 0)
@@ -2736,7 +2736,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
         *indirCostEx += am.index->GetCostEx();
         *indirCostSz += am.index->GetCostSz();
 
-        if (am.scale > 0)
+        if (am.scale > 1)
         {
             *indirCostSz += 2;
         }
@@ -2782,8 +2782,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 #error "Unknown TARGET"
 #endif
 
-    assert(am.scale != 1);
-    assert((am.base != nullptr) || ((am.index != nullptr) && (am.scale >= 2)));
+    assert((am.base != nullptr) || ((am.index != nullptr) && (am.scale > 1)));
 
     // TODO-MIKE-Fix: Delete this pile of incomprehensible garbage. It asserts on code
     // like "a[i + long.MaxValue / 4]" and there doesn't seem to be an easy/safe way to
@@ -2857,8 +2856,6 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     }
     else
     {
-        assert(am.scale == 0);
-
         if ((op1 == am.index) || (op1->gtEffectiveVal() == am.index))
         {
             if ((am.index != nullptr) && op1->OperIs(GT_MUL, GT_LSH))

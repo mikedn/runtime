@@ -1195,6 +1195,7 @@ AGAIN:
 
     base  = op1;
     index = op2;
+    scale = 1;
 
 #ifdef TARGET_ARM64
     assert(offset == 0);

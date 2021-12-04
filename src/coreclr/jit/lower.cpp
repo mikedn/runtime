@@ -4358,11 +4358,6 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
         return false;
     }
 
-    if (am.scale == 0)
-    {
-        am.scale = 1;
-    }
-
     if (!isContainable)
     {
         // this is just a reg-const add
