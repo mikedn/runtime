@@ -1003,8 +1003,6 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
  */
 
 bool CodeGen::genCreateAddrMode(GenTree*  addr,
-                                bool      fold,
-                                bool*     revPtr,
                                 GenTree** rv1Ptr,
                                 GenTree** rv2Ptr,
 #if SCALED_ADDR_MODES
@@ -1079,8 +1077,6 @@ bool CodeGen::genCreateAddrMode(GenTree*  addr,
         op1 = addr->AsOp()->gtOp1;
         op2 = addr->AsOp()->gtOp2;
     }
-
-    bool rev = false; // Is op2 first in the evaluation order?
 
     /*
         A complex address mode can combine the following operands:
@@ -1252,9 +1248,6 @@ AGAIN:
                     }
                 }
 
-                noway_assert(rev == false);
-                rev = true;
-
                 goto FOUND_AM;
             }
             break;
@@ -1375,64 +1368,6 @@ FOUND_AM:
             tmp = rv1;
             rv1 = rv2;
             rv2 = tmp;
-
-            rev = !rev;
-        }
-
-        /* Special case: constant array index (that is range-checked) */
-
-        if (fold)
-        {
-            ssize_t  tmpMul;
-            GenTree* index;
-
-            if ((rv2->gtOper == GT_MUL || rv2->gtOper == GT_LSH) && (rv2->AsOp()->gtOp2->IsCnsIntOrI()))
-            {
-                /* For valuetype arrays where we can't use the scaled address
-                   mode, rv2 will point to the scaled index. So we have to do
-                   more work */
-
-                tmpMul = compiler->optGetArrayRefScaleAndIndex(rv2, &index DEBUGARG(false));
-                if (mul)
-                {
-                    tmpMul *= mul;
-                }
-            }
-            else
-            {
-                /* May be a simple array. rv2 will points to the actual index */
-
-                index  = rv2;
-                tmpMul = mul;
-            }
-
-            /* Get hold of the array index and see if it's a constant */
-            if (index->IsIntCnsFitsInI32())
-            {
-                /* Get hold of the index value */
-                ssize_t ixv = index->AsIntConCommon()->IconValue();
-
-#if SCALED_ADDR_MODES
-                /* Scale the index if necessary */
-                if (tmpMul)
-                {
-                    ixv *= tmpMul;
-                }
-#endif
-
-                if (FitsIn<INT32>(cns + ixv))
-                {
-                    /* Add the scaled index to the offset value */
-
-                    cns += ixv;
-
-#if SCALED_ADDR_MODES
-                    /* There is no scaled operand any more */
-                    mul = 0;
-#endif
-                    rv2 = nullptr;
-                }
-            }
         }
     }
 
@@ -1448,7 +1383,6 @@ FOUND_AM:
 
     /* Success - return the various components to the caller */
 
-    *revPtr = rev;
     *rv1Ptr = rv1;
     *rv2Ptr = rv2;
 #if SCALED_ADDR_MODES

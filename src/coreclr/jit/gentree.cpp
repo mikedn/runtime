@@ -2636,9 +2636,7 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 //
 bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_types type)
 {
-    // These are "out" parameters on the call to genCreateAddrMode():
-    bool rev; // This will be true if the operands will need to be reversed. At this point we
-              // don't care about this because we're not yet instantiating this addressing mode.
+// These are "out" parameters on the call to genCreateAddrMode():
 #if SCALED_ADDR_MODES
     unsigned mul; // This is the index (scale) value for the addressing mode
 #endif
@@ -2646,7 +2644,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
     GenTree* base; // This is the base of the address.
     GenTree* idx;  // This is the index.
 
-    if (codeGen->genCreateAddrMode(addr, false /*fold*/, &rev, &base, &idx,
+    if (codeGen->genCreateAddrMode(addr, &base, &idx,
 #if SCALED_ADDR_MODES
                                    &mul,
 #endif // SCALED_ADDR_MODES
