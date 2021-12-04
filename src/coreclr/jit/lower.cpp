@@ -4353,8 +4353,10 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     AddrMode am;
 
-    // Find out if an addressing mode can be constructed
-    bool doAddrMode = CreateAddrMode(comp, addr, &am);
+    if (!CreateAddrMode(comp, addr, &am))
+    {
+        return false;
+    }
 
     if (am.scale == 0)
     {
@@ -4377,7 +4379,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     }
 
     // make sure there are not any side effects between def of leaves and use
-    if (!doAddrMode || AreSourcesPossiblyModifiedLocals(addr, am.base, am.index))
+    if (AreSourcesPossiblyModifiedLocals(addr, am.base, am.index))
     {
         JITDUMP("No addressing mode:\n  ");
         DISPNODE(addr);
