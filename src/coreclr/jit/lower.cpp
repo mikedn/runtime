@@ -4411,7 +4411,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     addrMode->SetBase(am.base);
     addrMode->SetIndex(am.index);
     addrMode->SetScale(am.scale);
-    addrMode->SetOffset(static_cast<int>(am.offset));
+    addrMode->SetOffset(am.offset);
 
     // Neither the base nor the index should now be contained.
     if (am.base != nullptr)

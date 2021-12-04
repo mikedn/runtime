@@ -2666,7 +2666,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
 
         if (am.offset != 0)
         {
-            if (((signed char)am.offset) == ((int)am.offset))
+            if (((signed char)am.offset) == am.offset)
             {
                 *pCostSz += 1;
             }
@@ -2757,7 +2757,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
             }
         }
 
-        if (am.offset)
+        if (am.offset != 0)
         {
             if (am.offset >= 128) // small offsets fits into a 16-bit instruction
             {
@@ -2790,7 +2790,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
 
         if (am.offset != 0)
         {
-            if (am.offset >= (4096 * genTypeSize(type)))
+            if (am.offset >= (4096 * varTypeSize(type)))
             {
                 *pCostEx += 1;
                 *pCostSz += 4;

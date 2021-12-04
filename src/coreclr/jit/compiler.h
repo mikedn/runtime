@@ -9522,7 +9522,7 @@ struct AddrMode
     GenTree* base   = nullptr;
     GenTree* index  = nullptr;
     unsigned scale  = 0;
-    ssize_t  offset = 0;
+    int32_t  offset = 0;
 };
 
 bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode);

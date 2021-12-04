@@ -1184,6 +1184,11 @@ AGAIN:
 #endif
 
 FOUND_AM:
+    if ((rv1 == nullptr) && (rv2 == nullptr))
+    {
+        return false;
+    }
+
     // Make sure a GC address doesn't end up in 'rv2'
     if ((rv2 != nullptr) && varTypeIsGC(rv2->GetType()))
     {
@@ -1195,15 +1200,10 @@ FOUND_AM:
     noway_assert((rv1 != nullptr) || (mul != 1));
     noway_assert(FitsIn<INT32>(cns));
 
-    if ((rv1 == nullptr) && (rv2 == nullptr))
-    {
-        return false;
-    }
-
     addrMode->base   = rv1;
     addrMode->index  = rv2;
     addrMode->scale  = mul;
-    addrMode->offset = cns;
+    addrMode->offset = static_cast<int32_t>(cns);
 
     return true;
 }
