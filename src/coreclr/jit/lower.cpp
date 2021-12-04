@@ -4360,10 +4360,8 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     bool doAddrMode = CreateAddrMode(comp, addr, // address
                                      &base,      // base addr
                                      &index,     // index val
-#if SCALED_ADDR_MODES
-                                     &scale,   // scaling
-#endif                                         // SCALED_ADDR_MODES
-                                     &offset); // displacement
+                                     &scale,     // scaling
+                                     &offset);   // displacement
 
     if (scale == 0)
     {
