@@ -2674,10 +2674,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
         *indirCostEx += am.index->GetCostEx();
         *indirCostSz += am.index->GetCostSz();
 
-        if (am.scale > 1)
-        {
-            *indirCostSz += 2;
-        }
+        assert(am.scale == 1);
     }
 
     if (am.offset != 0)
@@ -2709,6 +2706,8 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     {
         *indirCostEx += am.index->GetCostEx();
         *indirCostSz += am.index->GetCostSz();
+
+        assert(am.scale == 1);
     }
 
     if ((am.offset != 0) && (am.offset >= static_cast<int32_t>(4096 * varTypeSize(indirType))))
@@ -2758,6 +2757,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     // Note that sometimes op1/op2 is equal to index/base and other times
     // op1/op2 is a COMMA node with an effective value that is index/base.
 
+#ifdef TARGET_XARCH
     if (am.scale > 1)
     {
         if ((op1 != am.base) && op1->OperIs(GT_LSH))
@@ -2793,6 +2793,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
         }
     }
     else
+#endif // TARGET_XARCH
     {
         if ((op1 == am.index) || (op1->gtEffectiveVal() == am.index))
         {
