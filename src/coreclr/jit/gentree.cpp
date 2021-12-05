@@ -2641,83 +2641,21 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     addr->gtFlags |= GTF_ADDRMODE_NO_CSE;
 
 #ifdef TARGET_XARCH
-    // addrModeCount is the count of items that we used to form
-    // an addressing mode.  The maximum value is 4 when we have
-    // all of these: { base, index, offset, scale }
-    unsigned addrModeCount = 0;
-
     if (am.base != nullptr)
     {
         *indirCostEx += am.base->GetCostEx();
         *indirCostSz += am.base->GetCostSz();
-
-        addrModeCount++;
     }
 
     if (am.index != nullptr)
     {
         *indirCostEx += am.index->GetCostEx();
         *indirCostSz += am.index->GetCostSz();
-
-        addrModeCount++;
-
-        if (am.scale > 1)
-        {
-            addrModeCount++;
-        }
     }
 
     if (am.offset != 0)
     {
         *indirCostSz += FitsIn<int8_t>(am.offset) ? 1 : 4;
-
-        addrModeCount++;
-    }
-
-    if (addrModeCount > 1)
-    {
-        // When we form a complex addressing mode we can reduced the costs associated
-        // with the interior ADD and LSH nodes.
-
-        // The number of interior ADD and LSH will always be one less than addrModeCount
-        addrModeCount--;
-
-        GenTreeOp* tmp = addr->AsOp();
-
-        while (addrModeCount > 0)
-        {
-            // Reduce costs for the interior ADD or LSH node by the remaining addrModeCount.
-            tmp->SetCosts(tmp->GetCostEx() - addrModeCount, tmp->GetCostSz() - addrModeCount);
-
-            addrModeCount--;
-
-            if (addrModeCount > 0)
-            {
-                GenTree* tmpOp1 = tmp->GetOp(0);
-                GenTree* tmpOp2 = tmp->GetOp(1);
-
-                assert(tmpOp2 != nullptr);
-
-                if ((tmpOp1 != am.base) && tmpOp1->OperIs(GT_ADD))
-                {
-                    tmp = tmpOp1->AsOp();
-                }
-                else if (tmpOp2->OperIs(GT_ADD, GT_LSH))
-                {
-                    tmp = tmpOp2->AsOp();
-                }
-                else if (tmpOp1->OperIs(GT_LSH))
-                {
-                    tmp = tmpOp1->AsOp();
-                }
-                else
-                {
-                    // We can very rarely encounter a tree that has a COMMA node that
-                    // is difficult to walk, so we just early out without decrementing.
-                    addrModeCount = 0;
-                }
-            }
-        }
     }
 #elif defined(TARGET_ARM)
     if (am.base != nullptr)
