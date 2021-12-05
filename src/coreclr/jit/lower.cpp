@@ -4351,7 +4351,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
         return false;
     }
 
-    AddrMode am;
+    AddrMode am(comp->getAllocator(CMK_ArrayStack));
 
     if (!CreateAddrMode(comp, addr, &am))
     {
@@ -4422,34 +4422,14 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     }
 
     // Remove all the nodes that are no longer used.
-    while (!unusedStack.Empty())
+    while (am.nodes.Height() > 1)
     {
-        GenTree* unused = unusedStack.Pop();
-
-        // Use a loop to process some of the nodes iteratively
-        // instead of pushing them on the stack.
-        while ((unused != am.base) && (unused != am.index))
-        {
-            JITDUMP("Removing unused node:\n  ");
-            DISPNODE(unused);
-
-            BlockRange().Remove(unused);
-
-            if (unused->OperIs(GT_ADD, GT_MUL, GT_LSH))
-            {
-                // Push the first operand and loop back to process the second one.
-                // This minimizes the stack depth because the second one tends to be
-                // a constant so it gets processed and then the first one gets popped.
-                unusedStack.Push(unused->AsOp()->gtGetOp1());
-                unused = unused->AsOp()->gtGetOp2();
-            }
-            else
-            {
-                assert(unused->OperIs(GT_CNS_INT));
-                break;
-            }
-        }
+        GenTree* node = am.nodes.Pop();
+        assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_CNS_INT));
+        BlockRange().Remove(node);
     }
+
+    assert(am.nodes.Top() == addr);
 
     JITDUMP("New addressing mode node:\n  ");
     DISPNODE(addrMode);

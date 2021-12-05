@@ -2537,7 +2537,7 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 //
 bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType)
 {
-    AddrMode am;
+    AddrMode am(getAllocator(CMK_ArrayStack));
 
     if (!CreateAddrMode(this, addr, &am))
     {
@@ -2549,8 +2549,6 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 
     // We can form a complex addressing mode, so mark each of the interior
     // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.
-
-    addr->gtFlags |= GTF_ADDRMODE_NO_CSE;
 
     if (am.base != nullptr)
     {
@@ -2606,108 +2604,14 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 #error "Unknown TARGET"
 #endif
 
-    // TODO-MIKE-Fix: Delete this pile of incomprehensible garbage. It asserts on code
-    // like "a[i + long.MaxValue / 4]" and there doesn't seem to be an easy/safe way to
-    // fix it because it basically tries to duplicate the CreateAddrMode logic and fails.
-
-    // Walk 'addr' identifying non-overflow ADDs that will be part of the address mode.
-
-    GenTree* op1 = addr;
-    GenTree* op2 = nullptr;
-
-    do
+    while (!am.nodes.Empty())
     {
-        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-        op2 = op1->AsOp()->GetOp(1);
-        op1 = op1->AsOp()->GetOp(0);
+        GenTree* node = am.nodes.Pop();
+        assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA, GT_CNS_INT));
 
-        if ((op2 == am.base) || !op2->IsIntCon())
+        if (!node->OperIs(GT_COMMA, GT_CNS_INT))
         {
-            break;
-        }
-
-        op1 = op1->SkipComma();
-    } while (op1->OperIs(GT_ADD) && !op1->gtOverflow());
-
-    // Walk the operands again. This time we will only consider adds with constant
-    // op2's, since we have already found either a non-ADD op1 or a non-constant op2.
-    op1 = op1->SkipComma();
-
-    while (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon())
-    {
-        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-        op1 = op1->AsOp()->GetOp(0)->SkipComma();
-    }
-
-#ifdef TARGET_XARCH
-    // For XARCH we will fold ADDs in the op2 position into the addressing mode, so we
-    // walk both operands of the original ADD.
-    // At this point, op2 may itself be an ADD of a constant that should be folded into
-    // the addressing mode.
-    op2 = op2->SkipComma();
-
-    while (op2->OperIs(GT_ADD) && !op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon())
-    {
-        op2->gtFlags |= GTF_ADDRMODE_NO_CSE;
-        op2 = op2->AsOp()->GetOp(0)->SkipComma();
-    }
-#endif
-
-// Note that sometimes op1/op2 is equal to index/base and other times
-// op1/op2 is a COMMA node with an effective value that is index/base.
-
-#ifdef TARGET_XARCH
-    if (am.scale > 1)
-    {
-        if ((op1 != am.base) && op1->OperIs(GT_LSH))
-        {
-            op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-
-            if (op1->AsOp()->GetOp(0)->OperIs(GT_MUL))
-            {
-                op1->AsOp()->GetOp(0)->gtFlags |= GTF_ADDRMODE_NO_CSE;
-            }
-
-            assert((am.base == nullptr) || (op2 == am.base) || (op2->SkipComma() == am.base->SkipComma()) ||
-                   (gtWalkOpEffectiveVal(op2) == gtWalkOpEffectiveVal(am.base)));
-        }
-        else
-        {
-            assert(op2->OperIs(GT_LSH, GT_MUL));
-
-            op2->gtFlags |= GTF_ADDRMODE_NO_CSE;
-
-            // We may have eliminated multiple shifts and multiplies in the addressing mode,
-            // so navigate down through them to get to "index".
-            GenTree* op2op1 = op2->AsOp()->GetOp(0);
-
-            while (op2op1->OperIs(GT_LSH, GT_MUL) && (op2op1 != am.index))
-            {
-                op2op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                op2op1 = op2op1->AsOp()->GetOp(0);
-            }
-
-            assert(op1->SkipComma() == am.base);
-            assert(op2op1 == am.index);
-        }
-    }
-    else
-#endif // TARGET_XARCH
-    {
-        if ((op1 == am.index) || (op1->SkipComma() == am.index))
-        {
-            assert((op2 == am.base) || (op2->SkipComma() == am.base));
-        }
-        else if ((op1 == am.base) || (op1->SkipComma() == am.base))
-        {
-            if (am.index != nullptr)
-            {
-                assert((op2 == am.index) || (op2->SkipComma() == am.index));
-            }
-        }
-        else
-        {
-            // op1 isn't base or index. Is this possible? Or should there be an assert?
+            node->gtFlags |= GTF_ADDRMODE_NO_CSE;
         }
     }
 

@@ -9513,10 +9513,15 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
 
 struct AddrMode
 {
-    GenTree* base   = nullptr;
-    GenTree* index  = nullptr;
-    unsigned scale  = 0;
-    int32_t  offset = 0;
+    ArrayStack<GenTree*> nodes;
+    GenTree*             base   = nullptr;
+    GenTree*             index  = nullptr;
+    unsigned             scale  = 0;
+    int32_t              offset = 0;
+
+    AddrMode(CompAllocator alloc) : nodes(alloc)
+    {
+    }
 
     static bool IsIndexScale(size_t value);
     static bool IsIndexShift(ssize_t value);

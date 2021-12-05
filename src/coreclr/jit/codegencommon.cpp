@@ -1034,6 +1034,8 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
         return false;
     }
 
+    addrMode->nodes.Push(addr);
+
     GenTree* op1 = addr->AsOp()->GetOp(0);
     GenTree* op2 = addr->AsOp()->GetOp(1);
 
@@ -1062,6 +1064,7 @@ AGAIN:
         assert(!op2->AsIntCon()->ImmedValNeedsReloc(compiler));
 
         offset += op2->AsIntCon()->GetValue();
+        addrMode->nodes.Push(op2);
 
         if (op1->OperIs(GT_ADD) && !op1->gtOverflow()
 #ifdef TARGET_ARMARCH
@@ -1069,6 +1072,7 @@ AGAIN:
 #endif
                 )
         {
+            addrMode->nodes.Push(op1);
             op2 = op1->AsOp()->GetOp(1);
             op1 = op1->AsOp()->GetOp(0);
 
@@ -1082,6 +1086,7 @@ AGAIN:
     {
         if (op1->OperIs(GT_COMMA))
         {
+            addrMode->nodes.Push(op1);
             op1 = op1->AsOp()->GetOp(1);
 
             goto AGAIN;
@@ -1089,6 +1094,7 @@ AGAIN:
 
         if (op2->OperIs(GT_COMMA))
         {
+            addrMode->nodes.Push(op2);
             op2 = op2->AsOp()->GetOp(1);
 
             goto AGAIN;
@@ -1098,6 +1104,8 @@ AGAIN:
         if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
             FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
         {
+            addrMode->nodes.Push(op1);
+            addrMode->nodes.Push(op1->AsOp()->GetOp(1));
             offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
             op1 = op1->AsOp()->GetOp(0);
 
@@ -1107,6 +1115,8 @@ AGAIN:
         if (op2->OperIs(GT_ADD) && !op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon() &&
             FitsIn<int32_t>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
         {
+            addrMode->nodes.Push(op2);
+            addrMode->nodes.Push(op2->AsOp()->GetOp(1));
             offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
             op2 = op2->AsOp()->GetOp(0);
 
@@ -1140,6 +1150,8 @@ AGAIN:
                 break;
             }
 
+            addrMode->nodes.Push(index);
+            addrMode->nodes.Push(index->AsOp()->GetOp(1));
             scale = scale * newScale;
             index = index->AsOp()->GetOp(0);
         }
