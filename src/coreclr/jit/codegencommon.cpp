@@ -1084,6 +1084,7 @@ AGAIN:
     }
     else
     {
+#ifdef TARGET_XARCH
         if (op1->OperIs(GT_COMMA))
         {
             addrMode->nodes.Push(op1);
@@ -1100,7 +1101,6 @@ AGAIN:
             goto AGAIN;
         }
 
-#ifdef TARGET_XARCH
         if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
             FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
         {
