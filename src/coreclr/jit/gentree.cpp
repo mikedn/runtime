@@ -2366,76 +2366,6 @@ unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lat
     return level;
 }
 
-//-----------------------------------------------------------------------------
-// gtWalkOp: Traverse and mark an address expression
-//
-// Arguments:
-//    op1WB - An out parameter which is either the address expression, or one
-//            of its operands.
-//    op2WB - An out parameter which starts as either null or one of the operands
-//            of the address expression.
-//    base  - The base address of the addressing mode, or null if 'constOnly' is false
-//    constOnly - True if we will only traverse into ADDs with constant op2.
-//
-// This routine is a helper routine for gtSetEvalOrder() and is used to identify the
-// base and index nodes, which will be validated against those identified by
-// genCreateAddrMode().
-// It also marks the ADD nodes involved in the address expression with the
-// GTF_ADDRMODE_NO_CSE flag which prevents them from being considered for CSE's.
-//
-// Its two output parameters are modified under the following conditions:
-//
-// It is called once with the original address expression as 'op1WB', and
-// with 'constOnly' set to false. On this first invocation, *op1WB is always
-// an ADD node, and it will consider the operands of the ADD even if its op2 is
-// not a constant. However, when it encounters a non-constant or the base in the
-// op2 position, it stops iterating. That operand is returned in the 'op2WB' out
-// parameter, and will be considered on the third invocation of this method if
-// it is an ADD.
-//
-// It is called the second time with the two operands of the original expression, in
-// the original order, and the third time in reverse order. For these invocations
-// 'constOnly' is true, so it will only traverse cascaded ADD nodes if they have a
-// constant op2.
-//
-// The result, after three invocations, is that the values of the two out parameters
-// correspond to the base and index in some fashion. This method doesn't attempt
-// to determine or validate the scale or offset, if any.
-//
-// Assumptions (presumed to be ensured by genCreateAddrMode()):
-//    If an ADD has a constant operand, it is in the op2 position.
-//
-// Notes:
-//    This method, and its invocation sequence, are quite confusing, and since they
-//    were not originally well-documented, this specification is a possibly-imperfect
-//    reconstruction.
-//
-void Compiler::gtWalkOp(GenTree** op1WB, GenTree** op2WB, GenTree* base)
-{
-    GenTree* op1 = *op1WB;
-    GenTree* op2 = *op2WB;
-
-    op1 = op1->SkipComma();
-
-    while (op1->OperIs(GT_ADD) && !op1->gtOverflow())
-    {
-        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-
-        op2 = op1->AsOp()->GetOp(1);
-        op1 = op1->AsOp()->GetOp(0);
-
-        if ((op2 == base) || !op2->IsIntCon())
-        {
-            break;
-        }
-
-        op1 = op1->SkipComma();
-    }
-
-    *op1WB = op1;
-    *op2WB = op2;
-}
-
 #ifdef DEBUG
 /*****************************************************************************
  * This is a workaround. It is to help implement an assert in gtSetEvalOrder() that the values
@@ -2678,20 +2608,26 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 
     // TODO-MIKE-Fix: Delete this pile of incomprehensible garbage. It asserts on code
     // like "a[i + long.MaxValue / 4]" and there doesn't seem to be an easy/safe way to
-    // fix it because gtWalkOp basically tries to duplicate the CreateAddrMode logic
-    // and fails.
+    // fix it because it basically tries to duplicate the CreateAddrMode logic and fails.
 
     // Walk 'addr' identifying non-overflow ADDs that will be part of the address mode.
-    // Note that we will be modifying op1 and op2 so that eventually they should map
-    // to base and index.
+
     GenTree* op1 = addr;
     GenTree* op2 = nullptr;
 
-    gtWalkOp(&op1, &op2, am.base);
+    do
+    {
+        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+        op2 = op1->AsOp()->GetOp(1);
+        op1 = op1->AsOp()->GetOp(0);
 
-    // op1 and op2 are now descendents of the root ADD of the addressing mode.
-    assert(op1 != addr);
-    assert(op2 != nullptr);
+        if ((op2 == am.base) || !op2->IsIntCon())
+        {
+            break;
+        }
+
+        op1 = op1->SkipComma();
+    } while (op1->OperIs(GT_ADD) && !op1->gtOverflow());
 
     // Walk the operands again. This time we will only consider adds with constant
     // op2's, since we have already found either a non-ADD op1 or a non-constant op2.
