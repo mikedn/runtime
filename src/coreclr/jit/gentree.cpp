@@ -2410,26 +2410,21 @@ unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lat
 //    were not originally well-documented, this specification is a possibly-imperfect
 //    reconstruction.
 //
-void Compiler::gtWalkOp(GenTree** op1WB, GenTree** op2WB, GenTree* base, bool constOnly)
+void Compiler::gtWalkOp(GenTree** op1WB, GenTree** op2WB, GenTree* base)
 {
     GenTree* op1 = *op1WB;
     GenTree* op2 = *op2WB;
 
     op1 = op1->SkipComma();
 
-    // Now we look for op1's with non-overflow GT_ADDs [of constants]
-    while ((op1->gtOper == GT_ADD) && (!op1->gtOverflow()) && (!constOnly || (op1->AsOp()->gtOp2->IsCnsIntOrI())))
+    while (op1->OperIs(GT_ADD) && !op1->gtOverflow())
     {
-        // mark it with GTF_ADDRMODE_NO_CSE
         op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
 
-        if (!constOnly)
-        {
-            op2 = op1->AsOp()->gtOp2;
-        }
-        op1 = op1->AsOp()->gtOp1;
+        op2 = op1->AsOp()->GetOp(1);
+        op1 = op1->AsOp()->GetOp(0);
 
-        if (!constOnly && ((op2 == base) || (!op2->IsCnsIntOrI())))
+        if ((op2 == base) || !op2->IsIntCon())
         {
             break;
         }
@@ -2692,26 +2687,34 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     GenTree* op1 = addr;
     GenTree* op2 = nullptr;
 
-    gtWalkOp(&op1, &op2, am.base, false);
+    gtWalkOp(&op1, &op2, am.base);
 
     // op1 and op2 are now descendents of the root ADD of the addressing mode.
     assert(op1 != addr);
     assert(op2 != nullptr);
 
-    // Walk the operands again (the third operand is unused in this case).
-    // This time we will only consider adds with constant op2's, since
-    // we have already found either a non-ADD op1 or a non-constant op2.
-    gtWalkOp(&op1, &op2, nullptr, true);
+    // Walk the operands again. This time we will only consider adds with constant
+    // op2's, since we have already found either a non-ADD op1 or a non-constant op2.
+    op1 = op1->SkipComma();
+
+    while (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon())
+    {
+        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+        op1 = op1->AsOp()->GetOp(0)->SkipComma();
+    }
 
 #ifdef TARGET_XARCH
-    // For XARCH we will fold ADDs in the op2 position into the addressing mode, so we call
-    // gtWalkOp on both operands of the original ADD. This is not done for ARMARCH. Though
-    // the stated reason is that we don't try to create scaled index, in fact we actually
-    // do create them (even base + index*scale + offset).
-
+    // For XARCH we will fold ADDs in the op2 position into the addressing mode, so we
+    // walk both operands of the original ADD.
     // At this point, op2 may itself be an ADD of a constant that should be folded into
-    // the addressing mode. Walk op2 looking for non-overflow GT_ADDs of constants.
-    gtWalkOp(&op2, &op1, nullptr, true);
+    // the addressing mode.
+    op2 = op2->SkipComma();
+
+    while (op2->OperIs(GT_ADD) && !op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon())
+    {
+        op2->gtFlags |= GTF_ADDRMODE_NO_CSE;
+        op2 = op2->AsOp()->GetOp(0)->SkipComma();
+    }
 #endif
 
 // Note that sometimes op1/op2 is equal to index/base and other times

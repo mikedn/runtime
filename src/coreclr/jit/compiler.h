@@ -2145,7 +2145,7 @@ public:
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
 
-    void gtWalkOp(GenTree** op1, GenTree** op2, GenTree* base, bool constOnly);
+    void gtWalkOp(GenTree** op1, GenTree** op2, GenTree* base);
 
 #ifdef DEBUG
     unsigned gtHashValue(GenTree* tree);
