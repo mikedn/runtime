@@ -1160,11 +1160,6 @@ AGAIN:
 #endif
 
 FOUND_AM:
-    if ((base == nullptr) && (index == nullptr))
-    {
-        return false;
-    }
-
 #ifdef TARGET_XARCH
     if (index != nullptr)
     {
