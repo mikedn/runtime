@@ -1069,43 +1069,27 @@ AGAIN:
 
         offset += op2->AsIntCon()->GetValue();
 
+        if (op1->OperIs(GT_ADD) && !op1->gtOverflow()
 #ifdef TARGET_ARMARCH
-        if (offset == 0)
+            && (offset == 0)
 #endif
+                )
         {
-            switch (op1->GetOper())
-            {
-                case GT_ADD:
-                    if (op1->gtOverflow())
-                    {
-                        break;
-                    }
+            op2 = op1->AsOp()->GetOp(1);
+            op1 = op1->AsOp()->GetOp(0);
 
-                    op2 = op1->AsOp()->GetOp(1);
-                    op1 = op1->AsOp()->GetOp(0);
-
-                    goto AGAIN;
-
-#ifndef TARGET_ARMARCH
-                // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
-                case GT_MUL:
-                case GT_LSH:
-                    scale = AddrMode::GetIndexScale(op1->AsOp());
-
-                    if (scale == 0)
-                    {
-                        break;
-                    }
-
-                    base  = nullptr;
-                    index = op1->AsOp()->GetOp(0);
-
-                    goto FOUND_AM;
-#endif // !TARGET_ARMARCH
-                default:
-                    break;
-            }
+            goto AGAIN;
         }
+
+#ifdef TARGET_XARCH
+        if (op1->OperIs(GT_LSH, GT_MUL) && ((scale = AddrMode::GetIndexScale(op1->AsOp())) != 0))
+        {
+            base  = nullptr;
+            index = op1->AsOp()->GetOp(0);
+
+            goto FOUND_AM;
+        }
+#endif
 
         base  = op1;
         index = nullptr;
@@ -1113,81 +1097,59 @@ AGAIN:
         goto FOUND_AM;
     }
 
-    switch (op1->GetOper())
+    if (op1->OperIs(GT_COMMA))
     {
-        case GT_COMMA:
-            op1 = op1->AsOp()->GetOp(1);
-            goto AGAIN;
+        op1 = op1->AsOp()->GetOp(1);
 
-#ifndef TARGET_ARMARCH
-        // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
-        case GT_ADD:
-            if (!op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
-                FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
-            {
-                offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-                op1 = op1->AsOp()->GetOp(0);
-
-                goto AGAIN;
-            }
-            break;
-
-        case GT_MUL:
-        case GT_LSH:
-            scale = AddrMode::GetIndexScale(op1->AsOp());
-
-            if (scale == 0)
-            {
-                break;
-            }
-
-            base  = op2;
-            index = op1->AsOp()->GetOp(0);
-
-            goto FOUND_AM;
-#endif // !TARGET_ARMARCH
-
-        default:
-            break;
+        goto AGAIN;
     }
 
-    switch (op2->GetOper())
+#ifdef TARGET_XARCH
+    if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
+        FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
     {
-        case GT_COMMA:
-            op2 = op2->AsOp()->GetOp(1);
-            goto AGAIN;
+        offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+        op1 = op1->AsOp()->GetOp(0);
 
-#ifndef TARGET_ARMARCH
-        // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
-        case GT_ADD:
-            if (!op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon() &&
-                FitsIn<int32_t>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
-            {
-                offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-                op2 = op2->AsOp()->GetOp(0);
-
-                goto AGAIN;
-            }
-            break;
-
-        case GT_MUL:
-        case GT_LSH:
-            scale = AddrMode::GetIndexScale(op2->AsOp());
-
-            if (scale == 0)
-            {
-                break;
-            }
-
-            base  = op1;
-            index = op2->AsOp()->GetOp(0);
-
-            goto FOUND_AM;
-#endif // !TARGET_ARMARCH
-
-        default:
-            break;
+        goto AGAIN;
     }
+
+    // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
+    if (op1->OperIs(GT_LSH, GT_MUL) && ((scale = AddrMode::GetIndexScale(op1->AsOp())) != 0))
+    {
+        base  = op2;
+        index = op1->AsOp()->GetOp(0);
+
+        goto FOUND_AM;
+    }
+#endif
+
+    if (op2->OperIs(GT_COMMA))
+    {
+        op2 = op2->AsOp()->GetOp(1);
+
+        goto AGAIN;
+    }
+
+#ifdef TARGET_XARCH
+    if (op2->OperIs(GT_ADD) && !op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon() &&
+        FitsIn<int32_t>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
+    {
+        offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+        op2 = op2->AsOp()->GetOp(0);
+
+        goto AGAIN;
+    }
+
+    // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
+    if (op2->OperIs(GT_LSH, GT_MUL) && ((scale = AddrMode::GetIndexScale(op2->AsOp())) != 0))
+    {
+        base  = op1;
+        index = op2->AsOp()->GetOp(0);
+
+        goto FOUND_AM;
+    }
+#endif
 
     base  = op1;
     index = op2;
@@ -1203,7 +1165,7 @@ FOUND_AM:
         return false;
     }
 
-#ifndef TARGET_ARMARCH
+#ifdef TARGET_XARCH
     if (index != nullptr)
     {
         while (index->OperIs(GT_MUL, GT_LSH))
