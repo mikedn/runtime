@@ -1009,24 +1009,20 @@ unsigned AddrMode::GetLshIndexScale(GenTree* node)
     return 0;
 }
 
-unsigned AddrMode::GetIndexScale(GenTreeOp* node)
+unsigned AddrMode::GetIndexScale(GenTree* node)
 {
     // In minopts we may get CNS_INT * CNS_INT, leave it alone.
-    if (node->GetOp(0)->IsIntCon())
+    if (!node->OperIs(GT_LSH, GT_MUL) || node->AsOp()->GetOp(0)->IsIntCon())
     {
         return 0;
     }
 
-    switch (node->GetOper())
+    if (node->OperIs(GT_LSH))
     {
-        case GT_MUL:
-            return node->gtOverflow() ? 0 : GetMulIndexScale(node->GetOp(1));
-        case GT_LSH:
-            return GetLshIndexScale(node->GetOp(1));
-        default:
-            assert(!"AddrMode::GetIndexScale() called with illegal gtOper");
-            return 0;
+        return GetLshIndexScale(node->AsOp()->GetOp(1));
     }
+
+    return node->gtOverflow() ? 0 : GetMulIndexScale(node->AsOp()->GetOp(1));
 }
 
 // Take an address expression and try to find the best set of components to
@@ -1053,9 +1049,7 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 
 AGAIN:
     // We come back to 'AGAIN' if we have an add of a constant, and we are folding that
-    // constant, or we have gone through a COMMA node. We never come back here if we
-    // find a scaled index.
-    assert(scale == 0);
+    // constant, or we have gone through a COMMA node.
 
     if (op1->IsIntCon())
     {
@@ -1081,89 +1075,66 @@ AGAIN:
             goto AGAIN;
         }
 
-#ifdef TARGET_XARCH
-        if (op1->OperIs(GT_LSH, GT_MUL) && ((scale = AddrMode::GetIndexScale(op1->AsOp())) != 0))
+        base  = op1;
+        index = nullptr;
+    }
+    else
+    {
+        if (op1->OperIs(GT_COMMA))
         {
-            base  = nullptr;
-            index = op1->AsOp()->GetOp(0);
+            op1 = op1->AsOp()->GetOp(1);
 
-            goto FOUND_AM;
+            goto AGAIN;
+        }
+
+        if (op2->OperIs(GT_COMMA))
+        {
+            op2 = op2->AsOp()->GetOp(1);
+
+            goto AGAIN;
+        }
+
+#ifdef TARGET_XARCH
+        if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
+            FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
+        {
+            offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+            op1 = op1->AsOp()->GetOp(0);
+
+            goto AGAIN;
+        }
+
+        if (op2->OperIs(GT_ADD) && !op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon() &&
+            FitsIn<int32_t>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
+        {
+            offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+            op2 = op2->AsOp()->GetOp(0);
+
+            goto AGAIN;
         }
 #endif
 
         base  = op1;
-        index = nullptr;
+        index = op2;
+        scale = 1;
 
-        goto FOUND_AM;
-    }
-
-    if (op1->OperIs(GT_COMMA))
-    {
-        op1 = op1->AsOp()->GetOp(1);
-
-        goto AGAIN;
-    }
-
-    if (op2->OperIs(GT_COMMA))
-    {
-        op2 = op2->AsOp()->GetOp(1);
-
-        goto AGAIN;
+#ifdef TARGET_ARMARCH
+        assert(offset == 0);
+#endif
     }
 
 #ifdef TARGET_XARCH
-    if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
-        FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
-    {
-        offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-        op1 = op1->AsOp()->GetOp(0);
-
-        goto AGAIN;
-    }
-
-    if (op2->OperIs(GT_ADD) && !op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon() &&
-        FitsIn<int32_t>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
-    {
-        offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-        op2 = op2->AsOp()->GetOp(0);
-
-        goto AGAIN;
-    }
-
     // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
-    if (op1->OperIs(GT_LSH, GT_MUL) && ((scale = AddrMode::GetIndexScale(op1->AsOp())) != 0))
+    if (AddrMode::GetIndexScale(base) != 0)
     {
-        base  = op2;
-        index = op1->AsOp()->GetOp(0);
-
-        goto FOUND_AM;
+        std::swap(base, index);
+        scale = 1;
     }
 
-    if (op2->OperIs(GT_LSH, GT_MUL) && ((scale = AddrMode::GetIndexScale(op2->AsOp())) != 0))
-    {
-        base  = op1;
-        index = op2->AsOp()->GetOp(0);
-
-        goto FOUND_AM;
-    }
-#endif
-
-    base  = op1;
-    index = op2;
-    scale = 1;
-
-#ifdef TARGET_ARM64
-    assert(offset == 0);
-#endif
-
-FOUND_AM:
-#ifdef TARGET_XARCH
     if (index != nullptr)
     {
-        while (index->OperIs(GT_MUL, GT_LSH))
+        while (unsigned newScale = AddrMode::GetIndexScale(index))
         {
-            unsigned newScale = AddrMode::GetIndexScale(index->AsOp());
-
             if (!AddrMode::IsIndexScale(scale * newScale))
             {
                 break;

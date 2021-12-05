@@ -9522,7 +9522,7 @@ struct AddrMode
     static bool IsIndexShift(ssize_t value);
     static unsigned GetMulIndexScale(GenTree* node);
     static unsigned GetLshIndexScale(GenTree* node);
-    static unsigned GetIndexScale(GenTreeOp* node);
+    static unsigned GetIndexScale(GenTree* node);
 };
 
 bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode);
