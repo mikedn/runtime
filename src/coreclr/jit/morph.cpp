@@ -4585,12 +4585,6 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
         }
 #endif
 
-        // Check for GTF_ADDRMODE_NO_CSE flag on add/mul Binary Operators
-        if (((oper == GT_ADD) || (oper == GT_MUL)) && ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0))
-        {
-            return;
-        }
-
         if ((tree->gtFlags | op2->gtFlags) & GTF_BOOLEAN)
         {
             // We could deal with this, but we were always broken and just hit the assert
