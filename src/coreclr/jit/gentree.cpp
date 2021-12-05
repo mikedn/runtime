@@ -2409,16 +2409,13 @@ unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lat
 //    This method, and its invocation sequence, are quite confusing, and since they
 //    were not originally well-documented, this specification is a possibly-imperfect
 //    reconstruction.
-//    The motivation for the handling of the NOP case is unclear.
-//    Note that 'op2WB' is only modified in the initial (!constOnly) case,
-//    or if a NOP is encountered in the op1 position.
 //
 void Compiler::gtWalkOp(GenTree** op1WB, GenTree** op2WB, GenTree* base, bool constOnly)
 {
     GenTree* op1 = *op1WB;
     GenTree* op2 = *op2WB;
 
-    op1 = op1->gtEffectiveVal();
+    op1 = op1->SkipComma();
 
     // Now we look for op1's with non-overflow GT_ADDs [of constants]
     while ((op1->gtOper == GT_ADD) && (!op1->gtOverflow()) && (!constOnly || (op1->AsOp()->gtOp2->IsCnsIntOrI())))
@@ -2432,23 +2429,12 @@ void Compiler::gtWalkOp(GenTree** op1WB, GenTree** op2WB, GenTree* base, bool co
         }
         op1 = op1->AsOp()->gtOp1;
 
-        // If op1 is a GT_NOP then swap op1 and op2.
-        // (Why? Also, presumably op2 is not a GT_NOP in this case?)
-        if (op1->gtOper == GT_NOP)
-        {
-            GenTree* tmp;
-
-            tmp = op1;
-            op1 = op2;
-            op2 = tmp;
-        }
-
         if (!constOnly && ((op2 == base) || (!op2->IsCnsIntOrI())))
         {
             break;
         }
 
-        op1 = op1->gtEffectiveVal();
+        op1 = op1->SkipComma();
     }
 
     *op1WB = op1;
@@ -2482,7 +2468,7 @@ GenTree* Compiler::gtWalkOpEffectiveVal(GenTree* op)
 {
     for (;;)
     {
-        op = op->gtEffectiveVal();
+        op = op->SkipComma();
 
         if ((op->gtOper != GT_ADD) || op->gtOverflow() || !op->AsOp()->gtOp2->IsCnsIntOrI())
         {
@@ -2754,8 +2740,8 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     gtWalkOp(&op2, &op1, nullptr, true);
 #endif
 
-    // Note that sometimes op1/op2 is equal to index/base and other times
-    // op1/op2 is a COMMA node with an effective value that is index/base.
+// Note that sometimes op1/op2 is equal to index/base and other times
+// op1/op2 is a COMMA node with an effective value that is index/base.
 
 #ifdef TARGET_XARCH
     if (am.scale > 1)
@@ -2769,7 +2755,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
                 op1->AsOp()->GetOp(0)->gtFlags |= GTF_ADDRMODE_NO_CSE;
             }
 
-            assert((am.base == nullptr) || (op2 == am.base) || (op2->gtEffectiveVal() == am.base->gtEffectiveVal()) ||
+            assert((am.base == nullptr) || (op2 == am.base) || (op2->SkipComma() == am.base->SkipComma()) ||
                    (gtWalkOpEffectiveVal(op2) == gtWalkOpEffectiveVal(am.base)));
         }
         else
@@ -2788,52 +2774,22 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
                 op2op1 = op2op1->AsOp()->GetOp(0);
             }
 
-            assert(op1->gtEffectiveVal() == am.base);
+            assert(op1->SkipComma() == am.base);
             assert(op2op1 == am.index);
         }
     }
     else
 #endif // TARGET_XARCH
     {
-        if ((op1 == am.index) || (op1->gtEffectiveVal() == am.index))
+        if ((op1 == am.index) || (op1->SkipComma() == am.index))
         {
-            if ((am.index != nullptr) && op1->OperIs(GT_MUL, GT_LSH))
-            {
-                GenTree* op1op1 = op1->AsOp()->GetOp(0);
-
-                if (op1op1->OperIs(GT_NOP) || (op1op1->OperIs(GT_MUL) && op1op1->AsOp()->GetOp(0)->OperIs(GT_NOP)))
-                {
-                    op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-
-                    if (op1op1->OperIs(GT_MUL))
-                    {
-                        op1op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                    }
-                }
-            }
-
-            assert((op2 == am.base) || (op2->gtEffectiveVal() == am.base));
+            assert((op2 == am.base) || (op2->SkipComma() == am.base));
         }
-        else if ((op1 == am.base) || (op1->gtEffectiveVal() == am.base))
+        else if ((op1 == am.base) || (op1->SkipComma() == am.base))
         {
             if (am.index != nullptr)
             {
-                assert((op2 == am.index) || (op2->gtEffectiveVal() == am.index));
-
-                if (op2->OperIs(GT_MUL, GT_LSH))
-                {
-                    GenTree* op2op1 = op2->AsOp()->GetOp(0);
-
-                    if (op2op1->OperIs(GT_NOP) || (op2op1->OperIs(GT_MUL) && op2op1->AsOp()->GetOp(0)->OperIs(GT_NOP)))
-                    {
-                        op2->gtFlags |= GTF_ADDRMODE_NO_CSE;
-
-                        if (op2op1->OperIs(GT_MUL))
-                        {
-                            op2op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                        }
-                    }
-                }
+                assert((op2 == am.index) || (op2->SkipComma() == am.index));
             }
         }
         else

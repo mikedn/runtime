@@ -1053,8 +1053,8 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 
 AGAIN:
     // We come back to 'AGAIN' if we have an add of a constant, and we are folding that
-    // constant, or we have gone through a GT_NOP or GT_COMMA node. We never come back
-    // here if we find a scaled index.
+    // constant, or we have gone through a COMMA node. We never come back here if we
+    // find a scaled index.
     assert(scale == 0);
 
     if (op1->IsIntCon())
@@ -1115,6 +1115,10 @@ AGAIN:
 
     switch (op1->GetOper())
     {
+        case GT_COMMA:
+            op1 = op1->AsOp()->GetOp(1);
+            goto AGAIN;
+
 #ifndef TARGET_ARMARCH
         // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
         case GT_ADD:
@@ -1143,18 +1147,16 @@ AGAIN:
             goto FOUND_AM;
 #endif // !TARGET_ARMARCH
 
-        case GT_NOP:
-            op1 = op1->AsUnOp()->GetOp(0);
-            goto AGAIN;
-        case GT_COMMA:
-            op1 = op1->AsOp()->GetOp(1);
-            goto AGAIN;
         default:
             break;
     }
 
     switch (op2->GetOper())
     {
+        case GT_COMMA:
+            op2 = op2->AsOp()->GetOp(1);
+            goto AGAIN;
+
 #ifndef TARGET_ARMARCH
         // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
         case GT_ADD:
@@ -1183,12 +1185,6 @@ AGAIN:
             goto FOUND_AM;
 #endif // !TARGET_ARMARCH
 
-        case GT_NOP:
-            op2 = op2->AsUnOp()->GetOp(0);
-            goto AGAIN;
-        case GT_COMMA:
-            op2 = op2->AsOp()->GetOp(1);
-            goto AGAIN;
         default:
             break;
     }
