@@ -4407,7 +4407,8 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     GenTreeAddrMode* addrMode = addr->AsAddrMode();
     addrMode->SetBase(am.base);
     addrMode->SetIndex(am.index);
-    addrMode->SetScale(am.scale);
+    // TODO-MIKE-Cleanup: Emitter is stupid and asserts when scale is 0 even if index is null.
+    addrMode->SetScale(am.scale == 0 ? 1 : am.scale);
     addrMode->SetOffset(am.offset);
 
     // Neither the base nor the index should now be contained.
