@@ -2620,13 +2620,13 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     }
 
     assert(addr->OperIs(GT_ADD) && !addr->gtOverflow());
+    assert((am.base != nullptr) || ((am.index != nullptr) && (am.scale > 1)));
 
     // We can form a complex addressing mode, so mark each of the interior
     // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.
 
     addr->gtFlags |= GTF_ADDRMODE_NO_CSE;
 
-#ifdef TARGET_XARCH
     if (am.base != nullptr)
     {
         *indirCostEx += am.base->GetCostEx();
@@ -2637,65 +2637,41 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
     {
         *indirCostEx += am.index->GetCostEx();
         *indirCostSz += am.index->GetCostSz();
+
+#ifdef TARGET_ARMARCH
+        assert(am.scale == 1);
+#endif
     }
 
+#ifdef TARGET_XARCH
     if (am.offset != 0)
     {
         *indirCostSz += FitsIn<int8_t>(am.offset) ? 1 : 4;
     }
 #elif defined(TARGET_ARM)
-    if (am.base != nullptr)
+    // TODO-MIKE-Review: It's not clear what this is trying to do. Removing
+    // it improves code size a bit by reducing loop condition cloning.
+    if (am.base->OperIs(GT_LCL_VAR))
     {
-        *indirCostEx += am.base->GetCostEx();
-        *indirCostSz += am.base->GetCostSz();
+        *indirCostSz -= 1;
+    }
 
-        if (am.base->OperIs(GT_LCL_VAR) && ((am.index == nullptr) || (am.offset == 0)))
+    if (am.offset >= 128) // small offsets fits into a 16-bit instruction
+    {
+        if (am.offset < 4096) // medium offsets require a 32-bit instruction
         {
-            *indirCostSz -= 1;
+            if (!varTypeIsFloating(indirType))
+            {
+                *indirCostSz += 2;
+            }
         }
-    }
-
-    if (am.index != nullptr)
-    {
-        *indirCostEx += am.index->GetCostEx();
-        *indirCostSz += am.index->GetCostSz();
-
-        assert(am.scale == 1);
-    }
-
-    if (am.offset != 0)
-    {
-        if (am.offset >= 128) // small offsets fits into a 16-bit instruction
+        else
         {
-            if (am.offset < 4096) // medium offsets require a 32-bit instruction
-            {
-                if (!varTypeIsFloating(indirType))
-                {
-                    *indirCostSz += 2;
-                }
-            }
-            else
-            {
-                *indirCostEx += 2; // Very large offsets require movw/movt instructions
-                *indirCostSz += 8;
-            }
+            *indirCostEx += 2; // Very large offsets require movw/movt instructions
+            *indirCostSz += 8;
         }
     }
 #elif defined(TARGET_ARM64)
-    if (am.base != nullptr)
-    {
-        *indirCostEx += am.base->GetCostEx();
-        *indirCostSz += am.base->GetCostSz();
-    }
-
-    if (am.index != nullptr)
-    {
-        *indirCostEx += am.index->GetCostEx();
-        *indirCostSz += am.index->GetCostSz();
-
-        assert(am.scale == 1);
-    }
-
     if ((am.offset != 0) && (am.offset >= static_cast<int32_t>(4096 * varTypeSize(indirType))))
     {
         *indirCostEx += 1;
@@ -2704,8 +2680,6 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 #else
 #error "Unknown TARGET"
 #endif
-
-    assert((am.base != nullptr) || ((am.index != nullptr) && (am.scale > 1)));
 
     // TODO-MIKE-Fix: Delete this pile of incomprehensible garbage. It asserts on code
     // like "a[i + long.MaxValue / 4]" and there doesn't seem to be an easy/safe way to
