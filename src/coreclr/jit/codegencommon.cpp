@@ -1133,9 +1133,6 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
         std::swap(base, index);
     }
 
-    // We shouldn't have [index * 1 + offset] - this is equivalent to [base + offset]
-    noway_assert((base != nullptr) || (scale != 1));
-
     addrMode->base   = base;
     addrMode->index  = index;
     addrMode->scale  = scale;
