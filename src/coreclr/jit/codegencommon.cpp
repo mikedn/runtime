@@ -1082,7 +1082,6 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 
 #ifdef TARGET_XARCH
 AGAIN:
-#endif
     addrMode->nodes.Push(op1);
     op2 = op1->AsOp()->GetOp(1);
     op1 = op1->AsOp()->GetOp(0);
@@ -1095,34 +1094,21 @@ AGAIN:
         offset += op2->AsIntCon()->GetValue();
         addrMode->nodes.Push(op2);
 
-#ifdef TARGET_XARCH
         if (op1->OperIs(GT_ADD) && !op1->gtOverflow())
         {
             goto AGAIN;
         }
-#endif
 
         base  = op1;
         index = nullptr;
     }
     else
     {
-#ifdef TARGET_XARCH
-        op1 = AddrMode::ExtractOffset(op1, &offset, addrMode);
-        op2 = AddrMode::ExtractOffset(op2, &offset, addrMode);
-#endif
-
-        base  = op1;
-        index = op2;
+        base  = AddrMode::ExtractOffset(op1, &offset, addrMode);
+        index = AddrMode::ExtractOffset(op2, &offset, addrMode);
         scale = 1;
-
-#ifdef TARGET_ARMARCH
-        assert(offset == 0);
-#endif
     }
 
-#ifdef TARGET_XARCH
-    // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
     if (AddrMode::GetIndexScale(base) != 0)
     {
         std::swap(base, index);
@@ -1144,6 +1130,31 @@ AGAIN:
             index = index->AsOp()->GetOp(0);
         }
     }
+#elif defined(TARGET_ARMARCH)
+    addrMode->nodes.Push(op1);
+    op2 = op1->AsOp()->GetOp(1);
+    op1 = op1->AsOp()->GetOp(0);
+
+    if (op2->IsIntCon() && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
+    {
+        // TODO-MIKE-Review: Shouldn't this assert be an if?
+        assert(!op2->AsIntCon()->ImmedValNeedsReloc(compiler));
+
+        offset += op2->AsIntCon()->GetValue();
+        addrMode->nodes.Push(op2);
+
+        base  = op1;
+        index = nullptr;
+    }
+    else
+    {
+        base  = op1;
+        index = op2;
+        // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
+        scale = 1;
+    }
+#else
+#error Unknown target
 #endif
 
     // Make sure a GC address doesn't end up in 'index'
