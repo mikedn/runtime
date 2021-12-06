@@ -1025,7 +1025,7 @@ unsigned AddrMode::GetIndexScale(GenTree* node)
     return node->gtOverflow() ? 0 : GetMulIndexScale(node->AsOp()->GetOp(1));
 }
 
-GenTree* AddrMode::ExtractOffset(GenTree* op, ssize_t* offset, AddrMode* addrMode)
+GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, ssize_t* offset, AddrMode* addrMode)
 {
     GenTree* val = op->SkipComma();
 
@@ -1038,6 +1038,9 @@ GenTree* AddrMode::ExtractOffset(GenTree* op, ssize_t* offset, AddrMode* addrMod
         {
             break;
         }
+
+        // TODO-MIKE-Review: Shouldn't this assert be an if?
+        assert(!offsVal->AsIntCon()->ImmedValNeedsReloc(compiler));
 
         *offset += offsVal->GetValue();
 
@@ -1073,39 +1076,19 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
         return false;
     }
 
-    GenTree* base   = nullptr;
+    GenTree* base   = addr;
     GenTree* index  = nullptr;
     unsigned scale  = 0;
     ssize_t  offset = 0;
-    GenTree* op1    = addr;
-    GenTree* op2;
+
+    base = AddrMode::ExtractOffset(compiler, base, &offset, addrMode);
 
 #ifdef TARGET_XARCH
-AGAIN:
-    addrMode->nodes.Push(op1);
-    op2 = op1->AsOp()->GetOp(1);
-    op1 = op1->AsOp()->GetOp(0);
-
-    if (op2->IsIntCon() && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
+    if (base->OperIs(GT_ADD) && !base->gtOverflow())
     {
-        // TODO-MIKE-Review: Shouldn't this assert be an if?
-        assert(!op2->AsIntCon()->ImmedValNeedsReloc(compiler));
-
-        offset += op2->AsIntCon()->GetValue();
-        addrMode->nodes.Push(op2);
-
-        if (op1->OperIs(GT_ADD) && !op1->gtOverflow())
-        {
-            goto AGAIN;
-        }
-
-        base  = op1;
-        index = nullptr;
-    }
-    else
-    {
-        base  = AddrMode::ExtractOffset(op1, &offset, addrMode);
-        index = AddrMode::ExtractOffset(op2, &offset, addrMode);
+        addrMode->nodes.Push(base);
+        index = AddrMode::ExtractOffset(compiler, base->AsOp()->GetOp(1), &offset, addrMode);
+        base  = AddrMode::ExtractOffset(compiler, base->AsOp()->GetOp(0), &offset, addrMode);
         scale = 1;
     }
 
@@ -1131,25 +1114,11 @@ AGAIN:
         }
     }
 #elif defined(TARGET_ARMARCH)
-    addrMode->nodes.Push(op1);
-    op2 = op1->AsOp()->GetOp(1);
-    op1 = op1->AsOp()->GetOp(0);
-
-    if (op2->IsIntCon() && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
+    if ((offset == 0) && base->OperIs(GT_ADD) && !base->gtOverflow())
     {
-        // TODO-MIKE-Review: Shouldn't this assert be an if?
-        assert(!op2->AsIntCon()->ImmedValNeedsReloc(compiler));
-
-        offset += op2->AsIntCon()->GetValue();
-        addrMode->nodes.Push(op2);
-
-        base  = op1;
-        index = nullptr;
-    }
-    else
-    {
-        base  = op1;
-        index = op2;
+        addrMode->nodes.Push(base);
+        index = base->AsOp()->GetOp(1);
+        base  = base->AsOp()->GetOp(0);
         // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
         scale = 1;
     }
