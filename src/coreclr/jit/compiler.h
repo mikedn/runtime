@@ -9533,6 +9533,7 @@ struct AddrMode
 
 private:
     GenTree* ExtractOffset(Compiler* compiler, GenTree* op);
+    GenTree* ExtractScale(GenTree* index);
 };
 
 #include "compiler.hpp" // All the shared inline functions

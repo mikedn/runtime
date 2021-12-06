@@ -1067,6 +1067,24 @@ GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op)
     return op;
 }
 
+GenTree* AddrMode::ExtractScale(GenTree* index)
+{
+    while (unsigned newScale = GetIndexScale(index))
+    {
+        if (!IsIndexScale(scale * newScale))
+        {
+            break;
+        }
+
+        nodes.Push(index);
+        nodes.Push(index->AsOp()->GetOp(1));
+        scale = scale * newScale;
+        index = index->AsOp()->GetOp(0);
+    }
+
+    return index;
+}
+
 // Take an address expression and try to find the best set of components to
 // form an address mode; returns true if this is successful.
 bool AddrMode::Extract(Compiler* compiler)
@@ -1112,18 +1130,7 @@ bool AddrMode::Extract(Compiler* compiler)
 
     if (index != nullptr)
     {
-        while (unsigned newScale = GetIndexScale(index))
-        {
-            if (!IsIndexScale(scale * newScale))
-            {
-                break;
-            }
-
-            nodes.Push(index);
-            nodes.Push(index->AsOp()->GetOp(1));
-            scale = scale * newScale;
-            index = index->AsOp()->GetOp(0);
-        }
+        index = ExtractScale(index);
     }
 #endif
 
