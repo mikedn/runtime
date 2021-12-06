@@ -1044,7 +1044,9 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
     unsigned scale  = 0;
     ssize_t  offset = 0;
 
+#ifdef TARGET_XARCH
 AGAIN:
+#endif
     // We come back to 'AGAIN' if we have an add of a constant, and we are folding that
     // constant, or we have gone through a COMMA node.
 
@@ -1061,11 +1063,8 @@ AGAIN:
         offset += op2->AsIntCon()->GetValue();
         addrMode->nodes.Push(op2);
 
-        if (op1->OperIs(GT_ADD) && !op1->gtOverflow()
-#ifdef TARGET_ARMARCH
-            && (offset == 0)
-#endif
-                )
+#ifdef TARGET_XARCH
+        if (op1->OperIs(GT_ADD) && !op1->gtOverflow())
         {
             addrMode->nodes.Push(op1);
             op2 = op1->AsOp()->GetOp(1);
@@ -1073,6 +1072,7 @@ AGAIN:
 
             goto AGAIN;
         }
+#endif
 
         base  = op1;
         index = nullptr;
