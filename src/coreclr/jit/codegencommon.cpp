@@ -1073,21 +1073,19 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
         return false;
     }
 
-    addrMode->nodes.Push(addr);
-
-    GenTree* op1 = addr->AsOp()->GetOp(0);
-    GenTree* op2 = addr->AsOp()->GetOp(1);
-
     GenTree* base   = nullptr;
     GenTree* index  = nullptr;
     unsigned scale  = 0;
     ssize_t  offset = 0;
+    GenTree* op1    = addr;
+    GenTree* op2;
 
 #ifdef TARGET_XARCH
 AGAIN:
 #endif
-    // We come back to 'AGAIN' if we have an add of a constant, and we are folding that
-    // constant.
+    addrMode->nodes.Push(op1);
+    op2 = op1->AsOp()->GetOp(1);
+    op1 = op1->AsOp()->GetOp(0);
 
     if (op2->IsIntCon() && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
     {
@@ -1100,10 +1098,6 @@ AGAIN:
 #ifdef TARGET_XARCH
         if (op1->OperIs(GT_ADD) && !op1->gtOverflow())
         {
-            addrMode->nodes.Push(op1);
-            op2 = op1->AsOp()->GetOp(1);
-            op1 = op1->AsOp()->GetOp(0);
-
             goto AGAIN;
         }
 #endif
