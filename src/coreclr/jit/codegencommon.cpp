@@ -1025,6 +1025,45 @@ unsigned AddrMode::GetIndexScale(GenTree* node)
     return node->gtOverflow() ? 0 : GetMulIndexScale(node->AsOp()->GetOp(1));
 }
 
+GenTree* AddrMode::ExtractOffset(GenTree* op, ssize_t* offset, AddrMode* addrMode)
+{
+    GenTree* val = op->SkipComma();
+
+    while (val->OperIs(GT_ADD) && !val->gtOverflow())
+    {
+        GenTree*       offs    = val->AsOp()->GetOp(1);
+        GenTreeIntCon* offsVal = offs->SkipComma()->IsIntCon();
+
+        if ((offsVal == nullptr) || !FitsIn<int32_t>(offsVal->GetValue() + *offset))
+        {
+            break;
+        }
+
+        *offset += offsVal->GetValue();
+
+        while (op != val)
+        {
+            addrMode->nodes.Push(op);
+            op = op->AsOp()->GetOp(1);
+        }
+
+        addrMode->nodes.Push(op);
+
+        while (offs != offsVal)
+        {
+            addrMode->nodes.Push(offs);
+            offs = offs->AsOp()->GetOp(1);
+        }
+
+        addrMode->nodes.Push(offs);
+
+        op  = op->AsOp()->GetOp(0);
+        val = op->SkipComma();
+    }
+
+    return op;
+}
+
 // Take an address expression and try to find the best set of components to
 // form an address mode; returns true if this is successful.
 bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
@@ -1048,7 +1087,7 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 AGAIN:
 #endif
     // We come back to 'AGAIN' if we have an add of a constant, and we are folding that
-    // constant, or we have gone through a COMMA node.
+    // constant.
 
     if (op1->IsIntCon())
     {
@@ -1080,35 +1119,8 @@ AGAIN:
     else
     {
 #ifdef TARGET_XARCH
-        if (op1->OperIs(GT_COMMA))
-        {
-            addrMode->nodes.Push(op1);
-            op1 = op1->AsOp()->GetOp(1);
-        }
-
-        if (op2->OperIs(GT_COMMA))
-        {
-            addrMode->nodes.Push(op2);
-            op2 = op2->AsOp()->GetOp(1);
-        }
-
-        while (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op1->AsOp()->GetOp(1)->IsIntCon() &&
-               FitsIn<int32_t>(offset + op1->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
-        {
-            addrMode->nodes.Push(op1);
-            addrMode->nodes.Push(op1->AsOp()->GetOp(1));
-            offset += op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-            op1 = op1->AsOp()->GetOp(0);
-        }
-
-        while (op2->OperIs(GT_ADD) && !op2->gtOverflow() && op2->AsOp()->GetOp(1)->IsIntCon() &&
-               FitsIn<int32_t>(offset + op2->AsOp()->GetOp(1)->AsIntCon()->GetValue()))
-        {
-            addrMode->nodes.Push(op2);
-            addrMode->nodes.Push(op2->AsOp()->GetOp(1));
-            offset += op2->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-            op2 = op2->AsOp()->GetOp(0);
-        }
+        op1 = AddrMode::ExtractOffset(op1, &offset, addrMode);
+        op2 = AddrMode::ExtractOffset(op2, &offset, addrMode);
 #endif
 
         base  = op1;
