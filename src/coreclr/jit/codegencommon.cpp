@@ -1083,15 +1083,26 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 
     base = AddrMode::ExtractOffset(compiler, base, &offset, addrMode);
 
-#ifdef TARGET_XARCH
-    if (base->OperIs(GT_ADD) && !base->gtOverflow())
+    if (base->OperIs(GT_ADD) && !base->gtOverflow()
+#ifndef TARGET_XARCH
+        && (offset == 0)
+#endif
+            )
     {
         addrMode->nodes.Push(base);
-        index = AddrMode::ExtractOffset(compiler, base->AsOp()->GetOp(1), &offset, addrMode);
-        base  = AddrMode::ExtractOffset(compiler, base->AsOp()->GetOp(0), &offset, addrMode);
+        index = base->AsOp()->GetOp(1);
+        base  = base->AsOp()->GetOp(0);
+
+#ifdef TARGET_XARCH
+        base  = AddrMode::ExtractOffset(compiler, base, &offset, addrMode);
+        index = AddrMode::ExtractOffset(compiler, index, &offset, addrMode);
+#endif
+
         scale = 1;
     }
 
+#ifdef TARGET_XARCH
+    // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
     if (AddrMode::GetIndexScale(base) != 0)
     {
         std::swap(base, index);
@@ -1113,17 +1124,6 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
             index = index->AsOp()->GetOp(0);
         }
     }
-#elif defined(TARGET_ARMARCH)
-    if ((offset == 0) && base->OperIs(GT_ADD) && !base->gtOverflow())
-    {
-        addrMode->nodes.Push(base);
-        index = base->AsOp()->GetOp(1);
-        base  = base->AsOp()->GetOp(0);
-        // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
-        scale = 1;
-    }
-#else
-#error Unknown target
 #endif
 
     // Make sure a GC address doesn't end up in 'index'
