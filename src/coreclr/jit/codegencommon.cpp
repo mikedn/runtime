@@ -1025,7 +1025,7 @@ unsigned AddrMode::GetIndexScale(GenTree* node)
     return node->gtOverflow() ? 0 : GetMulIndexScale(node->AsOp()->GetOp(1));
 }
 
-GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, int32_t* offset, AddrMode* addrMode)
+GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op)
 {
     GenTree* val = op->SkipComma();
 
@@ -1034,7 +1034,7 @@ GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, int32_t* offse
         GenTree*       offs    = val->AsOp()->GetOp(1);
         GenTreeIntCon* offsVal = offs->SkipComma()->IsIntCon();
 
-        if ((offsVal == nullptr) || !FitsIn<int32_t>(offsVal->GetValue() + *offset))
+        if ((offsVal == nullptr) || !FitsIn<int32_t>(offsVal->GetValue() + offset))
         {
             break;
         }
@@ -1042,23 +1042,23 @@ GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, int32_t* offse
         // TODO-MIKE-Review: Shouldn't this assert be an if?
         assert(!offsVal->AsIntCon()->ImmedValNeedsReloc(compiler));
 
-        *offset = static_cast<int32_t>(*offset + offsVal->GetValue());
+        offset = static_cast<int32_t>(offset + offsVal->GetValue());
 
         while (op != val)
         {
-            addrMode->nodes.Push(op);
+            nodes.Push(op);
             op = op->AsOp()->GetOp(1);
         }
 
-        addrMode->nodes.Push(op);
+        nodes.Push(op);
 
         while (offs != offsVal)
         {
-            addrMode->nodes.Push(offs);
+            nodes.Push(offs);
             offs = offs->AsOp()->GetOp(1);
         }
 
-        addrMode->nodes.Push(offs);
+        nodes.Push(offs);
 
         op  = op->AsOp()->GetOp(0);
         val = op->SkipComma();
@@ -1069,19 +1069,14 @@ GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, int32_t* offse
 
 // Take an address expression and try to find the best set of components to
 // form an address mode; returns true if this is successful.
-bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
+bool AddrMode::Extract(Compiler* compiler)
 {
-    if (!addr->OperIs(GT_ADD) || addr->gtOverflow())
+    if (!base->OperIs(GT_ADD) || base->gtOverflow())
     {
         return false;
     }
 
-    GenTree* base   = addr;
-    GenTree* index  = nullptr;
-    unsigned scale  = 0;
-    int32_t  offset = 0;
-
-    base = AddrMode::ExtractOffset(compiler, base, &offset, addrMode);
+    base = ExtractOffset(compiler, base);
 
     if (base->OperIs(GT_ADD) && !base->gtOverflow()
 #ifndef TARGET_XARCH
@@ -1089,14 +1084,14 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 #endif
             )
     {
-        addrMode->nodes.Push(base);
+        nodes.Push(base);
         index = base->AsOp()->GetOp(1);
         base  = base->AsOp()->GetOp(0);
         scale = 1;
 
 #ifdef TARGET_XARCH
-        base  = AddrMode::ExtractOffset(compiler, base, &offset, addrMode);
-        index = AddrMode::ExtractOffset(compiler, index, &offset, addrMode);
+        base  = ExtractOffset(compiler, base);
+        index = ExtractOffset(compiler, index);
 #endif
 
         // Index should not be a GC pointer
@@ -1109,7 +1104,7 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 
 #ifdef TARGET_XARCH
     // TODO-ARM64-CQ, TODO-ARM-CQ: For now we don't try to create a scaled index.
-    if (AddrMode::GetIndexScale(base) != 0)
+    if (GetIndexScale(base) != 0)
     {
         std::swap(base, index);
         scale = 1;
@@ -1117,25 +1112,20 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 
     if (index != nullptr)
     {
-        while (unsigned newScale = AddrMode::GetIndexScale(index))
+        while (unsigned newScale = GetIndexScale(index))
         {
-            if (!AddrMode::IsIndexScale(scale * newScale))
+            if (!IsIndexScale(scale * newScale))
             {
                 break;
             }
 
-            addrMode->nodes.Push(index);
-            addrMode->nodes.Push(index->AsOp()->GetOp(1));
+            nodes.Push(index);
+            nodes.Push(index->AsOp()->GetOp(1));
             scale = scale * newScale;
             index = index->AsOp()->GetOp(0);
         }
     }
 #endif
-
-    addrMode->base   = base;
-    addrMode->index  = index;
-    addrMode->scale  = scale;
-    addrMode->offset = offset;
 
     return true;
 }

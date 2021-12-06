@@ -2537,9 +2537,9 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 //
 bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType)
 {
-    AddrMode am(getAllocator(CMK_ArrayStack));
+    AddrMode am(addr, getAllocator(CMK_ArrayStack));
 
-    if (!CreateAddrMode(this, addr, &am))
+    if (!am.Extract(this))
     {
         return false;
     }

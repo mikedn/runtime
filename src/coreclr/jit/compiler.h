@@ -9514,24 +9514,26 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
 struct AddrMode
 {
     ArrayStack<GenTree*> nodes;
-    GenTree*             base   = nullptr;
+    GenTree*             base;
     GenTree*             index  = nullptr;
     unsigned             scale  = 0;
     int32_t              offset = 0;
 
-    AddrMode(CompAllocator alloc) : nodes(alloc)
+    AddrMode(GenTree* base, CompAllocator alloc) : nodes(alloc), base(base)
     {
     }
+
+    bool Extract(Compiler* compiler);
 
     static bool IsIndexScale(size_t value);
     static bool IsIndexShift(ssize_t value);
     static unsigned GetMulIndexScale(GenTree* node);
     static unsigned GetLshIndexScale(GenTree* node);
     static unsigned GetIndexScale(GenTree* node);
-    static GenTree* ExtractOffset(Compiler* compiler, GenTree* op, int32_t* offset, AddrMode* addrMode);
-};
 
-bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode);
+private:
+    GenTree* ExtractOffset(Compiler* compiler, GenTree* op);
+};
 
 #include "compiler.hpp" // All the shared inline functions
 
