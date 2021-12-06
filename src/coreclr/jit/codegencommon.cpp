@@ -1092,13 +1092,19 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
         addrMode->nodes.Push(base);
         index = base->AsOp()->GetOp(1);
         base  = base->AsOp()->GetOp(0);
+        scale = 1;
 
 #ifdef TARGET_XARCH
         base  = AddrMode::ExtractOffset(compiler, base, &offset, addrMode);
         index = AddrMode::ExtractOffset(compiler, index, &offset, addrMode);
 #endif
 
-        scale = 1;
+        // Index should not be a GC pointer
+        if (varTypeIsGC(index->GetType()))
+        {
+            noway_assert(!varTypeIsGC(base->GetType()));
+            std::swap(base, index);
+        }
     }
 
 #ifdef TARGET_XARCH
@@ -1125,13 +1131,6 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
         }
     }
 #endif
-
-    // Make sure a GC address doesn't end up in 'index'
-    if ((index != nullptr) && varTypeIsGC(index->GetType()))
-    {
-        noway_assert((base != nullptr) && !varTypeIsGC(base->GetType()));
-        std::swap(base, index);
-    }
 
     addrMode->base   = base;
     addrMode->index  = index;
