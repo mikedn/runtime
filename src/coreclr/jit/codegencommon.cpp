@@ -1087,13 +1087,8 @@ GenTree* AddrMode::ExtractScale(GenTree* index)
 
 // Take an address expression and try to find the best set of components to
 // form an address mode; returns true if this is successful.
-bool AddrMode::Extract(Compiler* compiler)
+void AddrMode::Extract(Compiler* compiler)
 {
-    if (!base->OperIs(GT_ADD) || base->gtOverflow())
-    {
-        return false;
-    }
-
     base = ExtractOffset(compiler, base);
 
     if (base->OperIs(GT_ADD) && !base->gtOverflow()
@@ -1134,7 +1129,7 @@ bool AddrMode::Extract(Compiler* compiler)
     }
 #endif
 
-    return true;
+    assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
 #ifdef TARGET_ARMARCH

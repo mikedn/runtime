@@ -9521,9 +9521,10 @@ struct AddrMode
 
     AddrMode(GenTree* base, CompAllocator alloc) : nodes(alloc), base(base)
     {
+        assert(base->OperIs(GT_ADD) && !base->gtOverflow());
     }
 
-    bool Extract(Compiler* compiler);
+    void Extract(Compiler* compiler);
 
     static bool IsIndexScale(size_t value);
     static bool IsIndexShift(ssize_t value);

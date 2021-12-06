@@ -4352,11 +4352,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     }
 
     AddrMode am(addr, comp->getAllocator(CMK_ArrayStack));
-
-    if (!am.Extract(comp))
-    {
-        return false;
-    }
+    am.Extract(comp);
 
     if (!isContainable)
     {

@@ -2538,14 +2538,7 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType)
 {
     AddrMode am(addr, getAllocator(CMK_ArrayStack));
-
-    if (!am.Extract(this))
-    {
-        return false;
-    }
-
-    assert(addr->OperIs(GT_ADD) && !addr->gtOverflow());
-    assert((am.base != nullptr) || ((am.index != nullptr) && (am.scale > 1)));
+    am.Extract(this);
 
     // We can form a complex addressing mode, so mark each of the interior
     // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.
@@ -3314,7 +3307,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     // TODO-CQ: Consider changing this to op1->gtEffectiveVal() to take into account
                     // addressing modes hidden under a comma node.
 
-                    if (op1->OperIs(GT_ADD))
+                    if (op1->OperIs(GT_ADD) && !op1->gtOverflow())
                     {
                         // See if we can form a complex addressing mode.
 
