@@ -1089,11 +1089,6 @@ AGAIN:
     // We come back to 'AGAIN' if we have an add of a constant, and we are folding that
     // constant.
 
-    if (op1->IsIntCon())
-    {
-        std::swap(op1, op2);
-    }
-
     if (op2->IsIntCon() && FitsIn<int32_t>(offset + op2->AsIntCon()->GetValue()))
     {
         // TODO-MIKE-Review: Shouldn't this assert be an if?
