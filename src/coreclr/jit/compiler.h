@@ -9528,7 +9528,7 @@ struct AddrMode
     static unsigned GetMulIndexScale(GenTree* node);
     static unsigned GetLshIndexScale(GenTree* node);
     static unsigned GetIndexScale(GenTree* node);
-    static GenTree* ExtractOffset(Compiler* compiler, GenTree* op, ssize_t* offset, AddrMode* addrMode);
+    static GenTree* ExtractOffset(Compiler* compiler, GenTree* op, int32_t* offset, AddrMode* addrMode);
 };
 
 bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode);

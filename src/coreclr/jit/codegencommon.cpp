@@ -1025,7 +1025,7 @@ unsigned AddrMode::GetIndexScale(GenTree* node)
     return node->gtOverflow() ? 0 : GetMulIndexScale(node->AsOp()->GetOp(1));
 }
 
-GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, ssize_t* offset, AddrMode* addrMode)
+GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, int32_t* offset, AddrMode* addrMode)
 {
     GenTree* val = op->SkipComma();
 
@@ -1042,7 +1042,7 @@ GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op, ssize_t* offse
         // TODO-MIKE-Review: Shouldn't this assert be an if?
         assert(!offsVal->AsIntCon()->ImmedValNeedsReloc(compiler));
 
-        *offset += offsVal->GetValue();
+        *offset = static_cast<int32_t>(*offset + offsVal->GetValue());
 
         while (op != val)
         {
@@ -1079,7 +1079,7 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
     GenTree* base   = addr;
     GenTree* index  = nullptr;
     unsigned scale  = 0;
-    ssize_t  offset = 0;
+    int32_t  offset = 0;
 
     base = AddrMode::ExtractOffset(compiler, base, &offset, addrMode);
 
@@ -1135,12 +1135,11 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
 
     // We shouldn't have [index * 1 + offset] - this is equivalent to [base + offset]
     noway_assert((base != nullptr) || (scale != 1));
-    noway_assert(FitsIn<int32_t>(offset));
 
     addrMode->base   = base;
     addrMode->index  = index;
     addrMode->scale  = scale;
-    addrMode->offset = static_cast<int32_t>(offset);
+    addrMode->offset = offset;
 
     return true;
 }
