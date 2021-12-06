@@ -1039,11 +1039,6 @@ bool CreateAddrMode(Compiler* compiler, GenTree* addr, AddrMode* addrMode)
     GenTree* op1 = addr->AsOp()->GetOp(0);
     GenTree* op2 = addr->AsOp()->GetOp(1);
 
-    if (addr->IsReverseOp())
-    {
-        std::swap(op1, op2);
-    }
-
     GenTree* base   = nullptr;
     GenTree* index  = nullptr;
     unsigned scale  = 0;
