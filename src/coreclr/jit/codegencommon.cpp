@@ -1025,6 +1025,22 @@ unsigned AddrMode::GetIndexScale(GenTree* node)
     return node->gtOverflow() ? 0 : GetMulIndexScale(node->AsOp()->GetOp(1));
 }
 
+void AddrMode::AddNode(GenTree* node)
+{
+    // We keep increasing nodeCount even if there's no room left to add a new node
+    // so we can distinguish between having exactly countof(nodes) nodes and having
+    // more than that and implicitly discarding them.
+    if (++nodeCount <= _countof(nodes))
+    {
+        nodes[nodeCount - 1] = node;
+    }
+}
+
+bool AddrMode::HasTooManyNodes() const
+{
+    return nodeCount > _countof(nodes);
+}
+
 GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op)
 {
     GenTree* val = op->SkipComma();
@@ -1046,19 +1062,19 @@ GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op)
 
         while (op != val)
         {
-            nodes.Push(op);
+            AddNode(op);
             op = op->AsOp()->GetOp(1);
         }
 
-        nodes.Push(op);
+        AddNode(op);
 
         while (offs != offsVal)
         {
-            nodes.Push(offs);
+            AddNode(offs);
             offs = offs->AsOp()->GetOp(1);
         }
 
-        nodes.Push(offs);
+        AddNode(offs);
 
         op  = op->AsOp()->GetOp(0);
         val = op->SkipComma();
@@ -1076,9 +1092,9 @@ GenTree* AddrMode::ExtractScale(GenTree* index)
             break;
         }
 
-        nodes.Push(index);
-        nodes.Push(index->AsOp()->GetOp(1));
         scale = scale * newScale;
+        AddNode(index);
+        AddNode(index->AsOp()->GetOp(1));
         index = index->AsOp()->GetOp(0);
     }
 
@@ -1097,7 +1113,7 @@ void AddrMode::Extract(Compiler* compiler)
 #endif
             )
     {
-        nodes.Push(base);
+        AddNode(base);
         index = base->AsOp()->GetOp(1);
         base  = base->AsOp()->GetOp(0);
         scale = 1;

@@ -2537,8 +2537,13 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 //
 bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType)
 {
-    AddrMode am(addr, getAllocator(CMK_ArrayStack));
+    AddrMode am(addr);
     am.Extract(this);
+
+    if (am.HasTooManyNodes())
+    {
+        return false;
+    }
 
     // We can form a complex addressing mode, so mark each of the interior
     // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.
@@ -2597,9 +2602,9 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
 #error "Unknown TARGET"
 #endif
 
-    while (!am.nodes.Empty())
+    for (unsigned i = 0; i < am.nodeCount; i++)
     {
-        GenTree* node = am.nodes.Pop();
+        GenTree* node = am.nodes[i];
         assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA, GT_CNS_INT));
 
         if (!node->OperIs(GT_CNS_INT))

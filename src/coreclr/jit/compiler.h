@@ -9513,18 +9513,20 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
 
 struct AddrMode
 {
-    ArrayStack<GenTree*> nodes;
-    GenTree*             base;
-    GenTree*             index  = nullptr;
-    unsigned             scale  = 0;
-    int32_t              offset = 0;
+    GenTree* nodes[8];
+    GenTree* base;
+    GenTree* index     = nullptr;
+    unsigned scale     = 0;
+    int32_t  offset    = 0;
+    unsigned nodeCount = 0;
 
-    AddrMode(GenTree* base, CompAllocator alloc) : nodes(alloc), base(base)
+    AddrMode(GenTree* base) : base(base)
     {
         assert(base->OperIs(GT_ADD) && !base->gtOverflow());
     }
 
     void Extract(Compiler* compiler);
+    bool HasTooManyNodes() const;
 
     static bool IsIndexScale(size_t value);
     static bool IsIndexShift(ssize_t value);
@@ -9535,6 +9537,7 @@ struct AddrMode
 private:
     GenTree* ExtractOffset(Compiler* compiler, GenTree* op);
     GenTree* ExtractScale(GenTree* index);
+    void AddNode(GenTree* node);
 };
 
 #include "compiler.hpp" // All the shared inline functions

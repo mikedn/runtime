@@ -4351,8 +4351,13 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
         return false;
     }
 
-    AddrMode am(addr, comp->getAllocator(CMK_ArrayStack));
+    AddrMode am(addr);
     am.Extract(comp);
+
+    if (am.HasTooManyNodes())
+    {
+        return false;
+    }
 
     if (!isContainable)
     {
@@ -4418,14 +4423,14 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     }
 
     // Remove all the nodes that are no longer used.
-    while (am.nodes.Height() > 1)
+    assert(am.nodes[0] == addr);
+
+    for (unsigned i = 1; i < am.nodeCount; i++)
     {
-        GenTree* node = am.nodes.Pop();
+        GenTree* node = am.nodes[i];
         assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_CNS_INT));
         BlockRange().Remove(node);
     }
-
-    assert(am.nodes.Top() == addr);
 
     JITDUMP("New addressing mode node:\n  ");
     DISPNODE(addrMode);
