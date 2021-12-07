@@ -3309,36 +3309,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                     if (op1->OperIs(GT_ADD) && !op1->gtOverflow())
                     {
-                        // See if we can form a complex addressing mode.
-
-                        bool doAddrMode = true;
-                        // See if we can form a complex addressing mode.
-                        // Always use an addrMode for an array index indirection.
-                        // TODO-1stClassStructs: Always do this, but first make sure it's
-                        // done in Lowering as well.
-                        if ((tree->gtFlags & GTF_IND_ARR_INDEX) == 0)
-                        {
-                            if (tree->TypeIs(TYP_STRUCT))
-                            {
-                                doAddrMode = false;
-                            }
-                            else if (varTypeIsSIMD(tree->GetType()))
-                            {
-                                // This is a heuristic attempting to match prior behavior when indirections
-                                // under a struct assignment would not be considered for addressing modes.
-                                if (compCurStmt != nullptr)
-                                {
-                                    GenTree* expr = compCurStmt->GetRootNode();
-                                    if ((expr->OperGet() == GT_ASG) &&
-                                        ((expr->gtGetOp1() == tree) || (expr->gtGetOp2() == tree)))
-                                    {
-                                        doAddrMode = false;
-                                    }
-                                }
-                            }
-                        }
-
-                        if (doAddrMode && gtMarkAddrMode(op1, &costEx, &costSz, tree->TypeGet()))
+                        if (gtMarkAddrMode(op1, &costEx, &costSz, tree->TypeGet()))
                         {
                             goto DONE;
                         }
