@@ -3303,20 +3303,9 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #endif // TARGET_ARM
                     }
 
-                    // Can we form an addressing mode with this indirection?
-                    // TODO-CQ: Consider changing this to op1->gtEffectiveVal() to take into account
-                    // addressing modes hidden under a comma node.
-
-                    if (op1->OperIs(GT_ADD) && !op1->gtOverflow())
+                    if (gtIsLikelyRegVar(op1))
                     {
-                        if (gtMarkAddrMode(op1, &costEx, &costSz, tree->TypeGet()))
-                        {
-                            goto DONE;
-                        }
-                    }
-                    else if (gtIsLikelyRegVar(op1))
-                    {
-                        /* Indirection of an enregister LCL_VAR, don't increase costEx/costSz */
+                        // Indirection of an enregister LCL_VAR, don't increase costEx/costSz
                         goto DONE;
                     }
 #ifdef TARGET_XARCH
@@ -3331,6 +3320,22 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         costSz -= 2;
                     }
 #endif
+                    else
+                    {
+                        GenTree* addr = op1->SkipComma();
+
+                        if (addr->OperIs(GT_ADD) && !addr->gtOverflow() &&
+                            gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
+                        {
+                            while (op1 != addr)
+                            {
+                                op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                                op1 = op1->AsOp()->GetOp(1);
+                            }
+
+                            goto DONE;
+                        }
+                    }
                     break;
 
                 default:
