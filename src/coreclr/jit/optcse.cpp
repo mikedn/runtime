@@ -3443,8 +3443,9 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
             return !tree->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
 
         case GT_ADD:
-        case GT_MUL:
         case GT_LSH:
+        case GT_MUL:
+        case GT_COMMA:
             return (tree->gtFlags & GTF_ADDRMODE_NO_CSE) == 0;
 
         case GT_LCL_VAR:
@@ -3482,7 +3483,6 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
         case GT_GT:
         case GT_INTRINSIC:
         case GT_OBJ:
-        case GT_COMMA:
 #if CSE_CONSTS
 #ifdef TARGET_64BIT
         case GT_CNS_LNG:

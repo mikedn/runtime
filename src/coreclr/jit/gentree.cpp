@@ -2602,7 +2602,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz,
         GenTree* node = am.nodes.Pop();
         assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA, GT_CNS_INT));
 
-        if (!node->OperIs(GT_COMMA, GT_CNS_INT))
+        if (!node->OperIs(GT_CNS_INT))
         {
             node->gtFlags |= GTF_ADDRMODE_NO_CSE;
         }
@@ -8052,45 +8052,21 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 break;
         }
 
-        /* Then print the general purpose flags */
         GenTreeFlags flags = tree->gtFlags;
 
-        if (tree->OperIsBinary())
+        if (tree->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA) && ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0))
         {
-            genTreeOps oper = tree->OperGet();
-
-            // Check for GTF_ADDRMODE_NO_CSE flag on add/mul/shl Binary Operators
-            if ((oper == GT_ADD) || (oper == GT_MUL) || (oper == GT_LSH))
-            {
-                if ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0)
-                {
-                    flags |= GTF_DONT_CSE; // Force the GTF_ADDRMODE_NO_CSE flag to print out like GTF_DONT_CSE
-                }
-            }
+            // Force the GTF_ADDRMODE_NO_CSE flag to print out like GTF_DONT_CSE
+            flags |= GTF_DONT_CSE;
         }
-        else // !tree->OperIsBinary()
+
+        if (!tree->OperIsBinary())
         {
             // the GTF_REVERSE flag only applies to binary operations
-            flags &= ~GTF_REVERSE_OPS; // we use this value for GTF_VAR_ARR_INDEX above
+            flags &= ~GTF_REVERSE_OPS;
         }
 
         msgLength -= GenTree::gtDispFlags(flags, tree->gtDebugFlags);
-        /*
-            printf("%c", (flags & GTF_ASG           ) ? 'A' : '-');
-            printf("%c", (flags & GTF_CALL          ) ? 'C' : '-');
-            printf("%c", (flags & GTF_EXCEPT        ) ? 'X' : '-');
-            printf("%c", (flags & GTF_GLOB_REF      ) ? 'G' : '-');
-            printf("%c", (flags & GTF_ORDER_SIDEEFF ) ? 'O' : '-');
-            printf("%c", (flags & GTF_COLON_COND    ) ? '?' : '-');
-            printf("%c", (flags & GTF_DONT_CSE      ) ? 'N' :        // N is for No cse
-                         (flags & GTF_MAKE_CSE      ) ? 'H' : '-');  // H is for Hoist this expr
-            printf("%c", (flags & GTF_REVERSE_OPS   ) ? 'R' : '-');
-            printf("%c", (flags & GTF_UNSIGNED      ) ? 'U' :
-                         (flags & GTF_BOOLEAN       ) ? 'B' : '-');
-            printf("%c", (flags & GTF_SET_FLAGS     ) ? 'S' : '-');
-            printf("%c", (flags & GTF_SPILLED       ) ? 'z' : '-');
-            printf("%c", (flags & GTF_SPILL         ) ? 'Z' : '-');
-        */
     }
 
     return msgLength;

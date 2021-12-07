@@ -571,8 +571,8 @@ enum GenTreeFlags : unsigned int
 
     GTF_CLS_VAR_INITCLASS       = 0x20000000, // GT_CLS_VAR_ADDR
 
-    GTF_ADDRMODE_NO_CSE         = 0x80000000, // GT_ADD/GT_MUL/GT_LSH -- Do not CSE this node only, forms complex
-                                              //                         addressing mode
+    GTF_ADDRMODE_NO_CSE         = 0x80000000, // ADD/MUL/LSH/COMMA -- Node is part of addressing mode, do not CSE.
+                                              // Unlike GTF_DONT_CSE this does not block constant propagation.
 
 #ifndef TARGET_64BIT
     GTF_MUL_64RSLT              = 0x40000000, // GT_MUL     -- produce 64-bit result
