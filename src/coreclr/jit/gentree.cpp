@@ -3322,12 +3322,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #ifdef TARGET_XARCH
                     else if (op1->IsCnsIntOrI())
                     {
-                        // Indirection of a CNS_INT, subtract 1 from costEx
-                        // makes costEx 3 for x86 and 4 for amd64
-                        //
-                        costEx += (op1->GetCostEx() - 1);
-                        costSz += op1->GetCostSz();
-                        goto DONE;
+                        costEx -= 1;
                     }
                     else if (op1->OperIs(GT_CLS_VAR_ADDR))
                     {
