@@ -275,32 +275,6 @@ inline unsigned __int64 BitsBetween(unsigned __int64 value, unsigned __int64 end
            (end - 1);                       // Ones to the right of set bit in the end mask.
 }
 
-/*****************************************************************************/
-
-inline bool jitIsScaleIndexMul(size_t val)
-{
-    switch (val)
-    {
-        case 1:
-        case 2:
-        case 4:
-        case 8:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-// Returns "tree" iff "val" is a valid addressing mode scale shift amount on
-// the target architecture.
-inline bool jitIsScaleIndexShift(ssize_t val)
-{
-    // It happens that this is the right test for all our current targets: x86, x64 and ARM.
-    // This test would become target-dependent if we added a new target with a different constraint.
-    return 0 < val && val < 4;
-}
-
 /*****************************************************************************
  * Returns true if value is between [start..end).
  * The comparison is inclusive of start, exclusive of end.

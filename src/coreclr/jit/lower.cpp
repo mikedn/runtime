@@ -4351,45 +4351,31 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
         return false;
     }
 
-    GenTree* base   = nullptr;
-    GenTree* index  = nullptr;
-    unsigned scale  = 0;
-    ssize_t  offset = 0;
-    bool     rev    = false;
+    AddrMode am(addr);
+    am.Extract(comp);
 
-    // Find out if an addressing mode can be constructed
-    bool doAddrMode = comp->codeGen->genCreateAddrMode(addr,   // address
-                                                       true,   // fold
-                                                       &rev,   // reverse ops
-                                                       &base,  // base addr
-                                                       &index, // index val
-#if SCALED_ADDR_MODES
-                                                       &scale,   // scaling
-#endif                                                           // SCALED_ADDR_MODES
-                                                       &offset); // displacement
-
-    if (scale == 0)
+    if (am.HasTooManyNodes())
     {
-        scale = 1;
+        return false;
     }
 
     if (!isContainable)
     {
         // this is just a reg-const add
-        if (index == nullptr)
+        if (am.index == nullptr)
         {
             return false;
         }
 
         // this is just a reg-reg add
-        if ((scale == 1) && (offset == 0))
+        if ((am.scale == 1) && (am.offset == 0))
         {
             return false;
         }
     }
 
     // make sure there are not any side effects between def of leaves and use
-    if (!doAddrMode || AreSourcesPossiblyModifiedLocals(addr, base, index))
+    if (AreSourcesPossiblyModifiedLocals(addr, am.base, am.index))
     {
         JITDUMP("No addressing mode:\n  ");
         DISPNODE(addr);
@@ -4398,15 +4384,15 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     JITDUMP("Addressing mode:\n");
     JITDUMP("  Base\n    ");
-    DISPNODE(base);
-    if (index != nullptr)
+    DISPNODE(am.base);
+    if (am.index != nullptr)
     {
-        JITDUMP("  + Index * %u + %d\n    ", scale, offset);
-        DISPNODE(index);
+        JITDUMP("  + Index * %u + %d\n    ", am.scale, am.offset);
+        DISPNODE(am.index);
     }
     else
     {
-        JITDUMP("  + %d\n", offset);
+        JITDUMP("  + %d\n", am.offset);
     }
 
     // Save the (potentially) unused operands before changing the address to LEA.
@@ -4420,49 +4406,30 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     addr->gtFlags &= ~GTF_ALL_EFFECT;
 
     GenTreeAddrMode* addrMode = addr->AsAddrMode();
-    addrMode->SetBase(base);
-    addrMode->SetIndex(index);
-    addrMode->SetScale(scale);
-    addrMode->SetOffset(static_cast<int>(offset));
+    addrMode->SetBase(am.base);
+    addrMode->SetIndex(am.index);
+    // TODO-MIKE-Cleanup: Emitter is stupid and asserts when scale is 0 even if index is null.
+    addrMode->SetScale(am.scale == 0 ? 1 : am.scale);
+    addrMode->SetOffset(am.offset);
 
     // Neither the base nor the index should now be contained.
-    if (base != nullptr)
+    if (am.base != nullptr)
     {
-        base->ClearContained();
+        am.base->ClearContained();
     }
-    if (index != nullptr)
+    if (am.index != nullptr)
     {
-        index->ClearContained();
+        am.index->ClearContained();
     }
 
     // Remove all the nodes that are no longer used.
-    while (!unusedStack.Empty())
+    assert(am.nodes[0] == addr);
+
+    for (unsigned i = 1; i < am.nodeCount; i++)
     {
-        GenTree* unused = unusedStack.Pop();
-
-        // Use a loop to process some of the nodes iteratively
-        // instead of pushing them on the stack.
-        while ((unused != base) && (unused != index))
-        {
-            JITDUMP("Removing unused node:\n  ");
-            DISPNODE(unused);
-
-            BlockRange().Remove(unused);
-
-            if (unused->OperIs(GT_ADD, GT_MUL, GT_LSH))
-            {
-                // Push the first operand and loop back to process the second one.
-                // This minimizes the stack depth because the second one tends to be
-                // a constant so it gets processed and then the first one gets popped.
-                unusedStack.Push(unused->AsOp()->gtGetOp1());
-                unused = unused->AsOp()->gtGetOp2();
-            }
-            else
-            {
-                assert(unused->OperIs(GT_CNS_INT));
-                break;
-            }
-        }
+        GenTree* node = am.nodes[i];
+        assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_CNS_INT));
+        BlockRange().Remove(node);
     }
 
     JITDUMP("New addressing mode node:\n  ");
@@ -5407,7 +5374,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     unsigned offset = comp->eeGetMDArrayDataOffset(arrElem->gtArrElemType, arrElem->gtArrRank);
 
     GenTree* leaIndexNode = prevArrOffs;
-    if (!jitIsScaleIndexMul(scale))
+    if (!AddrMode::IsIndexScale(scale))
     {
         // We do the address arithmetic in TYP_I_IMPL, though note that the lower bounds and lengths in memory are
         // TYP_INT

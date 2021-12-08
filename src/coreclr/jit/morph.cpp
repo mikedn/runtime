@@ -1639,8 +1639,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         noway_assert(arg != nullptr);
 
-        GenTree* newArg = new (this, GT_LEA)
-            GenTreeAddrMode(TYP_BYREF, arg, nullptr, 0, eeGetEEInfo()->offsetOfWrapperDelegateIndirectCell);
+        GenTree* newArg =
+            gtNewOperNode(GT_ADD, TYP_BYREF, arg,
+                          gtNewIconNode(static_cast<ssize_t>(eeGetEEInfo()->offsetOfWrapperDelegateIndirectCell)));
 
         // Append newArg as the last arg
         GenTreeCall::Use** insertionPoint = &call->gtCallArgs;
@@ -4584,12 +4585,6 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
             return;
         }
 #endif
-
-        // Check for GTF_ADDRMODE_NO_CSE flag on add/mul Binary Operators
-        if (((oper == GT_ADD) || (oper == GT_MUL)) && ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0))
-        {
-            return;
-        }
 
         if ((tree->gtFlags | op2->gtFlags) & GTF_BOOLEAN)
         {
@@ -11501,7 +11496,7 @@ DONE_MORPHING_CHILDREN:
                     changeToShift = true;
                 }
 #if LEA_AVAILABLE
-                else if ((lowestBit > 1) && jitIsScaleIndexMul(lowestBit) && optAvoidIntMult())
+                else if ((lowestBit > 1) && AddrMode::IsIndexScale(lowestBit) && optAvoidIntMult())
                 {
                     int     shift  = genLog2(lowestBit);
                     ssize_t factor = abs_mult >> shift;
@@ -12438,7 +12433,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             {
                 GenTree* add = op1->AsOp()->gtOp2;
 
-                if (add->IsCnsIntOrI() && (op2->GetScaleIndexMul() != 0))
+                if (add->IsCnsIntOrI() && (AddrMode::GetMulIndexScale(op2) != 0))
                 {
                     if (tree->gtOverflow() || op1->gtOverflow())
                     {
@@ -12494,7 +12489,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             {
                 GenTree* cns = op1->AsOp()->gtOp2;
 
-                if (cns->IsCnsIntOrI() && (op2->GetScaleIndexShf() != 0))
+                if (cns->IsCnsIntOrI() && (AddrMode::GetLshIndexScale(op2) != 0))
                 {
                     ssize_t ishf = op2->AsIntConCommon()->IconValue();
                     ssize_t iadd = cns->AsIntConCommon()->IconValue();

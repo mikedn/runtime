@@ -7804,31 +7804,20 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
-            case GT_MUL:
 #ifndef TARGET_64BIT
             case GT_MUL_LONG:
                 if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
                 {
                     chars += printf("[64RSLT]");
                 }
-#endif
-                if (tree->gtFlags & GTF_ADDRMODE_NO_CSE)
-                {
-                    chars += printf("[ADDRMODE_NO_CSE]");
-                }
                 break;
+#endif
 
             case GT_ADD:
-
-                if (tree->gtFlags & GTF_ADDRMODE_NO_CSE)
-                {
-                    chars += printf("[ADDRMODE_NO_CSE]");
-                }
-                break;
-
             case GT_LSH:
-
-                if (tree->gtFlags & GTF_ADDRMODE_NO_CSE)
+            case GT_MUL:
+            case GT_COMMA:
+                if ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0)
                 {
                     chars += printf("[ADDRMODE_NO_CSE]");
                 }

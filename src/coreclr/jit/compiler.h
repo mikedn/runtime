@@ -2145,8 +2145,6 @@ public:
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
 
-    void gtWalkOp(GenTree** op1, GenTree** op2, GenTree* base, bool constOnly);
-
 #ifdef DEBUG
     unsigned gtHashValue(GenTree* tree);
 
@@ -2159,11 +2157,7 @@ public:
     // Returns true iff the secondNode can be swapped with firstNode.
     bool gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode);
 
-    // Given an address expression, compute its costs and addressing mode opportunities,
-    // and mark addressing mode candidates as GTF_DONT_CSE.
-    // TODO-Throughput - Consider actually instantiating these early, to avoid
-    // having to re-run the algorithm that looks for them (might also improve CQ).
-    bool gtMarkAddrMode(GenTree* addr, int* costEx, int* costSz, var_types type);
+    bool gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType);
 
     unsigned gtSetEvalOrder(GenTree* tree);
 
@@ -5784,7 +5778,6 @@ public:
 
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
 
-    bool gtIsVtableRef(GenTree* tree);
     GenTree* getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block));
     GenTree* getObjectHandleNodeFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block));
     GenTree* optPropGetValueRec(unsigned lclNum, unsigned ssaNum, optPropKind valueKind, int walkDepth);
@@ -9516,6 +9509,35 @@ extern const BYTE genActualTypes[];
 #ifdef DEBUG
 void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
 #endif // DEBUG
+
+struct AddrMode
+{
+    GenTree* nodes[8];
+    GenTree* base;
+    GenTree* index     = nullptr;
+    unsigned scale     = 0;
+    int32_t  offset    = 0;
+    unsigned nodeCount = 0;
+
+    AddrMode(GenTree* base) : base(base)
+    {
+        assert(base->OperIs(GT_ADD) && !base->gtOverflow());
+    }
+
+    void Extract(Compiler* compiler);
+    bool HasTooManyNodes() const;
+
+    static bool IsIndexScale(size_t value);
+    static bool IsIndexShift(ssize_t value);
+    static unsigned GetMulIndexScale(GenTree* node);
+    static unsigned GetLshIndexScale(GenTree* node);
+    static unsigned GetIndexScale(GenTree* node);
+
+private:
+    GenTree* ExtractOffset(Compiler* compiler, GenTree* op);
+    GenTree* ExtractScale(GenTree* index);
+    void AddNode(GenTree* node);
+};
 
 #include "compiler.hpp" // All the shared inline functions
 

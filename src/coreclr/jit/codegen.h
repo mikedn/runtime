@@ -40,18 +40,6 @@ public:
         return m_liveness.GetLiveSet();
     }
 
-    // TODO-Cleanup: Abstract out the part of this that finds the addressing mode, and
-    // move it to Lower
-    virtual bool genCreateAddrMode(GenTree*  addr,
-                                   bool      fold,
-                                   bool*     revPtr,
-                                   GenTree** rv1Ptr,
-                                   GenTree** rv2Ptr,
-#if SCALED_ADDR_MODES
-                                   unsigned* mulPtr,
-#endif // SCALED_ADDR_MODES
-                                   ssize_t* cnsPtr);
-
 private:
 #if defined(TARGET_XARCH)
     // Bit masks used in negating a float or double number.

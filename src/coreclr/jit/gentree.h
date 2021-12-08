@@ -571,8 +571,8 @@ enum GenTreeFlags : unsigned int
 
     GTF_CLS_VAR_INITCLASS       = 0x20000000, // GT_CLS_VAR_ADDR
 
-    GTF_ADDRMODE_NO_CSE         = 0x80000000, // GT_ADD/GT_MUL/GT_LSH -- Do not CSE this node only, forms complex
-                                              //                         addressing mode
+    GTF_ADDRMODE_NO_CSE         = 0x80000000, // ADD/MUL/LSH/COMMA -- Node is part of addressing mode, do not CSE.
+                                              // Unlike GTF_DONT_CSE this does not block constant propagation.
 
 #ifndef TARGET_64BIT
     GTF_MUL_64RSLT              = 0x40000000, // GT_MUL     -- produce 64-bit result
@@ -1789,15 +1789,6 @@ public:
     bool OperRequiresCallFlag(Compiler* comp);
 
     bool OperMayThrow(Compiler* comp);
-
-    unsigned GetScaleIndexMul();
-    unsigned GetScaleIndexShf();
-    unsigned GetScaledIndex();
-
-    // Returns true if "addr" is a GT_ADD node, at least one of whose arguments is an integer
-    // (<= 32 bit) constant.  If it returns true, it sets "*offset" to (one of the) constant value(s), and
-    // "*addr" to the other argument.
-    bool IsAddWithI32Const(GenTree** addr, int* offset);
 
 public:
     static unsigned char s_gtNodeSizes[];
@@ -8473,20 +8464,20 @@ inline bool GenTree::IsCnsIntOrI() const
 inline bool GenTree::IsIntegralConst() const
 {
 #ifdef TARGET_64BIT
-    return IsCnsIntOrI();
-#else  // !TARGET_64BIT
+    return IsIntCon();
+#else
     return ((gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG));
-#endif // !TARGET_64BIT
+#endif
 }
 
 // Is this node an integer constant that fits in a 32-bit signed integer (INT32)
 inline bool GenTree::IsIntCnsFitsInI32()
 {
 #ifdef TARGET_64BIT
-    return IsCnsIntOrI() && AsIntCon()->FitsInI32();
-#else  // !TARGET_64BIT
-    return IsCnsIntOrI();
-#endif // !TARGET_64BIT
+    return IsIntCon() && AsIntCon()->FitsInI32();
+#else
+    return IsIntCon();
+#endif
 }
 
 inline bool GenTree::IsCnsFltOrDbl() const

@@ -2366,95 +2366,6 @@ unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lat
     return level;
 }
 
-//-----------------------------------------------------------------------------
-// gtWalkOp: Traverse and mark an address expression
-//
-// Arguments:
-//    op1WB - An out parameter which is either the address expression, or one
-//            of its operands.
-//    op2WB - An out parameter which starts as either null or one of the operands
-//            of the address expression.
-//    base  - The base address of the addressing mode, or null if 'constOnly' is false
-//    constOnly - True if we will only traverse into ADDs with constant op2.
-//
-// This routine is a helper routine for gtSetEvalOrder() and is used to identify the
-// base and index nodes, which will be validated against those identified by
-// genCreateAddrMode().
-// It also marks the ADD nodes involved in the address expression with the
-// GTF_ADDRMODE_NO_CSE flag which prevents them from being considered for CSE's.
-//
-// Its two output parameters are modified under the following conditions:
-//
-// It is called once with the original address expression as 'op1WB', and
-// with 'constOnly' set to false. On this first invocation, *op1WB is always
-// an ADD node, and it will consider the operands of the ADD even if its op2 is
-// not a constant. However, when it encounters a non-constant or the base in the
-// op2 position, it stops iterating. That operand is returned in the 'op2WB' out
-// parameter, and will be considered on the third invocation of this method if
-// it is an ADD.
-//
-// It is called the second time with the two operands of the original expression, in
-// the original order, and the third time in reverse order. For these invocations
-// 'constOnly' is true, so it will only traverse cascaded ADD nodes if they have a
-// constant op2.
-//
-// The result, after three invocations, is that the values of the two out parameters
-// correspond to the base and index in some fashion. This method doesn't attempt
-// to determine or validate the scale or offset, if any.
-//
-// Assumptions (presumed to be ensured by genCreateAddrMode()):
-//    If an ADD has a constant operand, it is in the op2 position.
-//
-// Notes:
-//    This method, and its invocation sequence, are quite confusing, and since they
-//    were not originally well-documented, this specification is a possibly-imperfect
-//    reconstruction.
-//    The motivation for the handling of the NOP case is unclear.
-//    Note that 'op2WB' is only modified in the initial (!constOnly) case,
-//    or if a NOP is encountered in the op1 position.
-//
-void Compiler::gtWalkOp(GenTree** op1WB, GenTree** op2WB, GenTree* base, bool constOnly)
-{
-    GenTree* op1 = *op1WB;
-    GenTree* op2 = *op2WB;
-
-    op1 = op1->gtEffectiveVal();
-
-    // Now we look for op1's with non-overflow GT_ADDs [of constants]
-    while ((op1->gtOper == GT_ADD) && (!op1->gtOverflow()) && (!constOnly || (op1->AsOp()->gtOp2->IsCnsIntOrI())))
-    {
-        // mark it with GTF_ADDRMODE_NO_CSE
-        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-
-        if (!constOnly)
-        {
-            op2 = op1->AsOp()->gtOp2;
-        }
-        op1 = op1->AsOp()->gtOp1;
-
-        // If op1 is a GT_NOP then swap op1 and op2.
-        // (Why? Also, presumably op2 is not a GT_NOP in this case?)
-        if (op1->gtOper == GT_NOP)
-        {
-            GenTree* tmp;
-
-            tmp = op1;
-            op1 = op2;
-            op2 = tmp;
-        }
-
-        if (!constOnly && ((op2 == base) || (!op2->IsCnsIntOrI())))
-        {
-            break;
-        }
-
-        op1 = op1->gtEffectiveVal();
-    }
-
-    *op1WB = op1;
-    *op2WB = op2;
-}
-
 #ifdef DEBUG
 /*****************************************************************************
  * This is a workaround. It is to help implement an assert in gtSetEvalOrder() that the values
@@ -2482,7 +2393,7 @@ GenTree* Compiler::gtWalkOpEffectiveVal(GenTree* op)
 {
     for (;;)
     {
-        op = op->gtEffectiveVal();
+        op = op->SkipComma();
 
         if ((op->gtOper != GT_ADD) || op->gtOverflow() || !op->AsOp()->gtOp2->IsCnsIntOrI())
         {
@@ -2617,347 +2528,92 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
     return canSwap;
 }
 
-//------------------------------------------------------------------------
-// Given an address expression, compute its costs and addressing mode opportunities,
-// and mark addressing mode candidates as GTF_DONT_CSE.
+// Given an address expression, compute its costs and addressing mode
+// opportunities, and mark addressing mode candidates as GTF_DONT_CSE.
+// Returns true if it finds an addressing mode.
 //
-// Arguments:
-//    addr   - The address expression
-//    costEx - The execution cost of this address expression (in/out arg to be updated)
-//    costEx - The size cost of this address expression (in/out arg to be updated)
-//    type   - The type of the value being referenced by the parent of this address expression.
+// TODO-Throughput - Consider actually instantiating these early, to avoid
+// having to re-run the algorithm that looks for them (might also improve CQ).
 //
-// Return Value:
-//    Returns true if it finds an addressing mode.
-//
-// Notes:
-//    TODO-Throughput - Consider actually instantiating these early, to avoid
-//    having to re-run the algorithm that looks for them (might also improve CQ).
-//
-bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_types type)
+bool Compiler::gtMarkAddrMode(GenTree* addr, int* indirCostEx, int* indirCostSz, var_types indirType)
 {
-    // These are "out" parameters on the call to genCreateAddrMode():
-    bool rev; // This will be true if the operands will need to be reversed. At this point we
-              // don't care about this because we're not yet instantiating this addressing mode.
-#if SCALED_ADDR_MODES
-    unsigned mul; // This is the index (scale) value for the addressing mode
-#endif
-    ssize_t  cns;  // This is the constant offset
-    GenTree* base; // This is the base of the address.
-    GenTree* idx;  // This is the index.
+    AddrMode am(addr);
+    am.Extract(this);
 
-    if (codeGen->genCreateAddrMode(addr, false /*fold*/, &rev, &base, &idx,
-#if SCALED_ADDR_MODES
-                                   &mul,
-#endif // SCALED_ADDR_MODES
-                                   &cns))
+    if (am.HasTooManyNodes())
     {
-        // We can form a complex addressing mode, so mark each of the interior
-        // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.
+        return false;
+    }
 
-        addr->gtFlags |= GTF_ADDRMODE_NO_CSE;
+    // We can form a complex addressing mode, so mark each of the interior
+    // nodes with GTF_ADDRMODE_NO_CSE and calculate a more accurate cost.
+
+    if (am.base != nullptr)
+    {
+        *indirCostEx += am.base->GetCostEx();
+        *indirCostSz += am.base->GetCostSz();
+    }
+
+    if (am.index != nullptr)
+    {
+        *indirCostEx += am.index->GetCostEx();
+        *indirCostSz += am.index->GetCostSz();
+
+#ifdef TARGET_ARMARCH
+        assert(am.scale == 1);
+#endif
+    }
+
 #ifdef TARGET_XARCH
-        // addrmodeCount is the count of items that we used to form
-        // an addressing mode.  The maximum value is 4 when we have
-        // all of these:   { base, idx, cns, mul }
-        //
-        unsigned addrmodeCount = 0;
-        if (base)
-        {
-            *pCostEx += base->GetCostEx();
-            *pCostSz += base->GetCostSz();
-            addrmodeCount++;
-        }
+    if (am.offset != 0)
+    {
+        *indirCostSz += FitsIn<int8_t>(am.offset) ? 1 : 4;
+    }
+#elif defined(TARGET_ARM)
+    // TODO-MIKE-Review: It's not clear what this is trying to do. Removing
+    // it improves code size a bit by reducing loop condition cloning.
+    if (am.base->OperIs(GT_LCL_VAR))
+    {
+        *indirCostSz -= 1;
+    }
 
-        if (idx)
+    if (am.offset >= 128) // small offsets fits into a 16-bit instruction
+    {
+        if (am.offset < 4096) // medium offsets require a 32-bit instruction
         {
-            *pCostEx += idx->GetCostEx();
-            *pCostSz += idx->GetCostSz();
-            addrmodeCount++;
-        }
-
-        if (cns)
-        {
-            if (((signed char)cns) == ((int)cns))
+            if (!varTypeIsFloating(indirType))
             {
-                *pCostSz += 1;
-            }
-            else
-            {
-                *pCostSz += 4;
-            }
-            addrmodeCount++;
-        }
-        if (mul)
-        {
-            addrmodeCount++;
-        }
-        // When we form a complex addressing mode we can reduced the costs
-        // associated with the interior GT_ADD and GT_LSH nodes:
-        //
-        //                      GT_ADD      -- reduce this interior GT_ADD by (-3,-3)
-        //                      /   \       --
-        //                  GT_ADD  'cns'   -- reduce this interior GT_ADD by (-2,-2)
-        //                  /   \           --
-        //               'base'  GT_LSL     -- reduce this interior GT_LSL by (-1,-1)
-        //                      /   \       --
-        //                   'idx'  'mul'
-        //
-        if (addrmodeCount > 1)
-        {
-            // The number of interior GT_ADD and GT_LSL will always be one less than addrmodeCount
-            //
-            addrmodeCount--;
-
-            GenTree* tmp = addr;
-            while (addrmodeCount > 0)
-            {
-                // decrement the gtCosts for the interior GT_ADD or GT_LSH node by the remaining
-                // addrmodeCount
-                tmp->SetCosts(tmp->GetCostEx() - addrmodeCount, tmp->GetCostSz() - addrmodeCount);
-
-                addrmodeCount--;
-                if (addrmodeCount > 0)
-                {
-                    GenTree* tmpOp1 = tmp->AsOp()->gtOp1;
-                    GenTree* tmpOp2 = tmp->gtGetOp2();
-                    assert(tmpOp2 != nullptr);
-
-                    if ((tmpOp1 != base) && (tmpOp1->OperGet() == GT_ADD))
-                    {
-                        tmp = tmpOp1;
-                    }
-                    else if (tmpOp2->OperGet() == GT_LSH)
-                    {
-                        tmp = tmpOp2;
-                    }
-                    else if (tmpOp1->OperGet() == GT_LSH)
-                    {
-                        tmp = tmpOp1;
-                    }
-                    else if (tmpOp2->OperGet() == GT_ADD)
-                    {
-                        tmp = tmpOp2;
-                    }
-                    else
-                    {
-                        // We can very rarely encounter a tree that has a GT_COMMA node
-                        // that is difficult to walk, so we just early out without decrementing.
-                        addrmodeCount = 0;
-                    }
-                }
-            }
-        }
-#elif defined TARGET_ARM
-        if (base)
-        {
-            *pCostEx += base->GetCostEx();
-            *pCostSz += base->GetCostSz();
-            if ((base->gtOper == GT_LCL_VAR) && ((idx == NULL) || (cns == 0)))
-            {
-                *pCostSz -= 1;
-            }
-        }
-
-        if (idx)
-        {
-            *pCostEx += idx->GetCostEx();
-            *pCostSz += idx->GetCostSz();
-            if (mul > 0)
-            {
-                *pCostSz += 2;
-            }
-        }
-
-        if (cns)
-        {
-            if (cns >= 128) // small offsets fits into a 16-bit instruction
-            {
-                if (cns < 4096) // medium offsets require a 32-bit instruction
-                {
-                    if (!varTypeIsFloating(type))
-                    {
-                        *pCostSz += 2;
-                    }
-                }
-                else
-                {
-                    *pCostEx += 2; // Very large offsets require movw/movt instructions
-                    *pCostSz += 8;
-                }
-            }
-        }
-#elif defined TARGET_ARM64
-        if (base)
-        {
-            *pCostEx += base->GetCostEx();
-            *pCostSz += base->GetCostSz();
-        }
-
-        if (idx)
-        {
-            *pCostEx += idx->GetCostEx();
-            *pCostSz += idx->GetCostSz();
-        }
-
-        if (cns != 0)
-        {
-            if (cns >= (4096 * genTypeSize(type)))
-            {
-                *pCostEx += 1;
-                *pCostSz += 4;
-            }
-        }
-#else
-#error "Unknown TARGET"
-#endif
-
-        assert(addr->gtOper == GT_ADD);
-        assert(!addr->gtOverflow());
-        assert(mul != 1);
-
-        // If we have an addressing mode, we have one of:
-        //   [base             + cns]
-        //   [       idx * mul      ]  // mul >= 2, else we would use base instead of idx
-        //   [       idx * mul + cns]  // mul >= 2, else we would use base instead of idx
-        //   [base + idx * mul      ]  // mul can be 0, 2, 4, or 8
-        //   [base + idx * mul + cns]  // mul can be 0, 2, 4, or 8
-        // Note that mul == 0 is semantically equivalent to mul == 1.
-        // Note that cns can be zero.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if SCALED_ADDR_MODES
-        assert((base != nullptr) || (idx != nullptr && mul >= 2));
-#else
-        assert(base != NULL);
-#endif
-
-        INDEBUG(GenTree* op1Save = addr);
-
-        // TODO-MIKE-Fix: Delete this pile of incomprehensible garbage. It asserts on code
-        // like "a[i + long.MaxValue / 4]" and there doesn't seem to be an easy/safe way to
-        // fix it because gtWalkOp basically tries to duplicate the genCreateAddrMode logic
-        // and fails.
-
-        // Walk 'addr' identifying non-overflow ADDs that will be part of the address mode.
-        // Note that we will be modifying 'op1' and 'op2' so that eventually they should
-        // map to the base and index.
-        GenTree* op1 = addr;
-        GenTree* op2 = nullptr;
-        gtWalkOp(&op1, &op2, base, false);
-
-        // op1 and op2 are now descendents of the root GT_ADD of the addressing mode.
-        assert(op1 != op1Save);
-        assert(op2 != nullptr);
-
-        // Walk the operands again (the third operand is unused in this case).
-        // This time we will only consider adds with constant op2's, since
-        // we have already found either a non-ADD op1 or a non-constant op2.
-        gtWalkOp(&op1, &op2, nullptr, true);
-
-#if defined(TARGET_XARCH)
-        // For XARCH we will fold GT_ADDs in the op2 position into the addressing mode, so we call
-        // gtWalkOp on both operands of the original GT_ADD.
-        // This is not done for ARMARCH. Though the stated reason is that we don't try to create a
-        // scaled index, in fact we actually do create them (even base + index*scale + offset).
-
-        // At this point, 'op2' may itself be an ADD of a constant that should be folded
-        // into the addressing mode.
-        // Walk op2 looking for non-overflow GT_ADDs of constants.
-        gtWalkOp(&op2, &op1, nullptr, true);
-#endif // defined(TARGET_XARCH)
-
-        // OK we are done walking the tree
-        // Now assert that op1 and op2 correspond with base and idx
-        // in one of the several acceptable ways.
-
-        // Note that sometimes op1/op2 is equal to idx/base
-        // and other times op1/op2 is a GT_COMMA node with
-        // an effective value that is idx/base
-
-        if (mul > 1)
-        {
-            if ((op1 != base) && (op1->gtOper == GT_LSH))
-            {
-                op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                if (op1->AsOp()->gtOp1->gtOper == GT_MUL)
-                {
-                    op1->AsOp()->gtOp1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                }
-                assert((base == nullptr) || (op2 == base) || (op2->gtEffectiveVal() == base->gtEffectiveVal()) ||
-                       (gtWalkOpEffectiveVal(op2) == gtWalkOpEffectiveVal(base)));
-            }
-            else
-            {
-                assert(op2 != nullptr);
-                assert(op2->OperIs(GT_LSH, GT_MUL));
-                op2->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                // We may have eliminated multiple shifts and multiplies in the addressing mode,
-                // so navigate down through them to get to "idx".
-                GenTree* op2op1 = op2->AsOp()->gtOp1;
-                while ((op2op1->gtOper == GT_LSH || op2op1->gtOper == GT_MUL) && op2op1 != idx)
-                {
-                    op2op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                    op2op1 = op2op1->AsOp()->gtOp1;
-                }
-                assert(op1->gtEffectiveVal() == base);
-                assert(op2op1 == idx);
+                *indirCostSz += 2;
             }
         }
         else
         {
-            assert(mul == 0);
-
-            if ((op1 == idx) || (op1->gtEffectiveVal() == idx))
-            {
-                if (idx != nullptr)
-                {
-                    if ((op1->gtOper == GT_MUL) || (op1->gtOper == GT_LSH))
-                    {
-                        GenTree* op1op1 = op1->AsOp()->gtOp1;
-                        if ((op1op1->gtOper == GT_NOP) ||
-                            (op1op1->gtOper == GT_MUL && op1op1->AsOp()->gtOp1->gtOper == GT_NOP))
-                        {
-                            op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                            if (op1op1->gtOper == GT_MUL)
-                            {
-                                op1op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                            }
-                        }
-                    }
-                }
-                assert((op2 == base) || (op2->gtEffectiveVal() == base));
-            }
-            else if ((op1 == base) || (op1->gtEffectiveVal() == base))
-            {
-                if (idx != nullptr)
-                {
-                    assert(op2 != nullptr);
-                    if (op2->OperIs(GT_MUL, GT_LSH))
-                    {
-                        GenTree* op2op1 = op2->AsOp()->gtOp1;
-                        if ((op2op1->gtOper == GT_NOP) ||
-                            (op2op1->gtOper == GT_MUL && op2op1->AsOp()->gtOp1->gtOper == GT_NOP))
-                        {
-                            op2->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                            if (op2op1->gtOper == GT_MUL)
-                            {
-                                op2op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
-                            }
-                        }
-                    }
-                    assert((op2 == idx) || (op2->gtEffectiveVal() == idx));
-                }
-            }
-            else
-            {
-                // op1 isn't base or idx. Is this possible? Or should there be an assert?
-            }
+            *indirCostEx += 2; // Very large offsets require movw/movt instructions
+            *indirCostSz += 8;
         }
-        return true;
+    }
+#elif defined(TARGET_ARM64)
+    if ((am.offset != 0) && (am.offset >= static_cast<int32_t>(4096 * varTypeSize(indirType))))
+    {
+        *indirCostEx += 1;
+        *indirCostSz += 4;
+    }
+#else
+#error "Unknown TARGET"
+#endif
 
-    } // end  if  (genCreateAddrMode(...))
-    return false;
+    for (unsigned i = 0; i < am.nodeCount; i++)
+    {
+        GenTree* node = am.nodes[i];
+        assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA, GT_CNS_INT));
+
+        if (!node->OperIs(GT_CNS_INT))
+        {
+            node->gtFlags |= GTF_ADDRMODE_NO_CSE;
+        }
+    }
+
+    return true;
 }
 
 /*****************************************************************************
@@ -3652,60 +3308,15 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 #endif // TARGET_ARM
                     }
 
-                    // Can we form an addressing mode with this indirection?
-                    // TODO-CQ: Consider changing this to op1->gtEffectiveVal() to take into account
-                    // addressing modes hidden under a comma node.
-
-                    if (op1->OperIs(GT_ADD))
+                    if (gtIsLikelyRegVar(op1))
                     {
-                        // See if we can form a complex addressing mode.
-
-                        bool doAddrMode = true;
-                        // See if we can form a complex addressing mode.
-                        // Always use an addrMode for an array index indirection.
-                        // TODO-1stClassStructs: Always do this, but first make sure it's
-                        // done in Lowering as well.
-                        if ((tree->gtFlags & GTF_IND_ARR_INDEX) == 0)
-                        {
-                            if (tree->TypeIs(TYP_STRUCT))
-                            {
-                                doAddrMode = false;
-                            }
-                            else if (varTypeIsSIMD(tree->GetType()))
-                            {
-                                // This is a heuristic attempting to match prior behavior when indirections
-                                // under a struct assignment would not be considered for addressing modes.
-                                if (compCurStmt != nullptr)
-                                {
-                                    GenTree* expr = compCurStmt->GetRootNode();
-                                    if ((expr->OperGet() == GT_ASG) &&
-                                        ((expr->gtGetOp1() == tree) || (expr->gtGetOp2() == tree)))
-                                    {
-                                        doAddrMode = false;
-                                    }
-                                }
-                            }
-                        }
-
-                        if (doAddrMode && gtMarkAddrMode(op1, &costEx, &costSz, tree->TypeGet()))
-                        {
-                            goto DONE;
-                        }
-                    }
-                    else if (gtIsLikelyRegVar(op1))
-                    {
-                        /* Indirection of an enregister LCL_VAR, don't increase costEx/costSz */
+                        // Indirection of an enregister LCL_VAR, don't increase costEx/costSz
                         goto DONE;
                     }
 #ifdef TARGET_XARCH
                     else if (op1->IsCnsIntOrI())
                     {
-                        // Indirection of a CNS_INT, subtract 1 from costEx
-                        // makes costEx 3 for x86 and 4 for amd64
-                        //
-                        costEx += (op1->GetCostEx() - 1);
-                        costSz += op1->GetCostSz();
-                        goto DONE;
+                        costEx -= 1;
                     }
                     else if (op1->OperIs(GT_CLS_VAR_ADDR))
                     {
@@ -3714,6 +3325,22 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         costSz -= 2;
                     }
 #endif
+                    else
+                    {
+                        GenTree* addr = op1->SkipComma();
+
+                        if (addr->OperIs(GT_ADD) && !addr->gtOverflow() &&
+                            gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
+                        {
+                            while (op1 != addr)
+                            {
+                                op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                                op1 = op1->AsOp()->GetOp(1);
+                            }
+
+                            goto DONE;
+                        }
+                    }
                     break;
 
                 default:
@@ -4620,103 +4247,6 @@ DONE:
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
-
-/*****************************************************************************
- *
- *  If the given tree is an integer constant that can be used
- *  in a scaled index address mode as a multiplier (e.g. "[4*index]"), then return
- *  the scale factor: 2, 4, or 8. Otherwise, return 0. Note that we never return 1,
- *  to match the behavior of GetScaleIndexShf().
- */
-
-unsigned GenTree::GetScaleIndexMul()
-{
-    if (IsCnsIntOrI() && jitIsScaleIndexMul(AsIntConCommon()->IconValue()) && AsIntConCommon()->IconValue() != 1)
-    {
-        return (unsigned)AsIntConCommon()->IconValue();
-    }
-
-    return 0;
-}
-
-/*****************************************************************************
- *
- *  If the given tree is the right-hand side of a left shift (that is,
- *  'y' in the tree 'x' << 'y'), and it is an integer constant that can be used
- *  in a scaled index address mode as a multiplier (e.g. "[4*index]"), then return
- *  the scale factor: 2, 4, or 8. Otherwise, return 0.
- */
-
-unsigned GenTree::GetScaleIndexShf()
-{
-    if (IsCnsIntOrI() && jitIsScaleIndexShift(AsIntConCommon()->IconValue()))
-    {
-        return (unsigned)(1 << AsIntConCommon()->IconValue());
-    }
-
-    return 0;
-}
-
-/*****************************************************************************
- *
- *  If the given tree is a scaled index (i.e. "op * 4" or "op << 2"), returns
- *  the multiplier: 2, 4, or 8; otherwise returns 0. Note that "1" is never
- *  returned.
- */
-
-unsigned GenTree::GetScaledIndex()
-{
-    // with (!opts.OptEnabled(CLFLG_CONSTANTFOLD) we can have
-    //   CNS_INT * CNS_INT
-    //
-    if (AsOp()->gtOp1->IsCnsIntOrI())
-    {
-        return 0;
-    }
-
-    switch (gtOper)
-    {
-        case GT_MUL:
-            return AsOp()->gtOp2->GetScaleIndexMul();
-
-        case GT_LSH:
-            return AsOp()->gtOp2->GetScaleIndexShf();
-
-        default:
-            assert(!"GenTree::GetScaledIndex() called with illegal gtOper");
-            break;
-    }
-
-    return 0;
-}
-
-/*****************************************************************************
- *
- *  Returns true if "addr" is a GT_ADD node, at least one of whose arguments is an integer (<= 32 bit)
- *  constant.  If it returns true, it sets "*offset" to (one of the) constant value(s), and
- *  "*addr" to the other argument.
- */
-
-bool GenTree::IsAddWithI32Const(GenTree** addr, int* offset)
-{
-    if (OperGet() == GT_ADD)
-    {
-        if (AsOp()->gtOp1->IsIntCnsFitsInI32())
-        {
-            *offset = (int)AsOp()->gtOp1->AsIntCon()->gtIconVal;
-            *addr   = AsOp()->gtOp2;
-            return true;
-        }
-        else if (AsOp()->gtOp2->IsIntCnsFitsInI32())
-        {
-            *offset = (int)AsOp()->gtOp2->AsIntCon()->gtIconVal;
-            *addr   = AsOp()->gtOp1;
-            return true;
-        }
-    }
-    // Otherwise...
-    return false;
-}
 
 //------------------------------------------------------------------------
 // FindUse: Find the use of a node within this node.
@@ -8304,15 +7834,14 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         /* First print the flags associated with the node */
         switch (tree->gtOper)
         {
-            case GT_LEA:
+            case GT_IND:
             case GT_BLK:
             case GT_OBJ:
             case GT_DYN_BLK:
+            case GT_STOREIND:
             case GT_STORE_BLK:
             case GT_STORE_OBJ:
             case GT_STORE_DYN_BLK:
-
-            case GT_IND:
                 // We prefer printing V or U
                 if ((tree->gtFlags & (GTF_IND_VOLATILE | GTF_IND_UNALIGNED)) == 0)
                 {
@@ -8360,9 +7889,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     }
                 }
                 FALLTHROUGH;
-
             case GT_INDEX:
-            case GT_INDEX_ADDR:
             case GT_FIELD:
                 if (tree->gtFlags & GTF_IND_VOLATILE)
                 {
@@ -8527,45 +8054,21 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 break;
         }
 
-        /* Then print the general purpose flags */
         GenTreeFlags flags = tree->gtFlags;
 
-        if (tree->OperIsBinary())
+        if (tree->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA) && ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0))
         {
-            genTreeOps oper = tree->OperGet();
-
-            // Check for GTF_ADDRMODE_NO_CSE flag on add/mul/shl Binary Operators
-            if ((oper == GT_ADD) || (oper == GT_MUL) || (oper == GT_LSH))
-            {
-                if ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0)
-                {
-                    flags |= GTF_DONT_CSE; // Force the GTF_ADDRMODE_NO_CSE flag to print out like GTF_DONT_CSE
-                }
-            }
+            // Force the GTF_ADDRMODE_NO_CSE flag to print out like GTF_DONT_CSE
+            flags |= GTF_DONT_CSE;
         }
-        else // !tree->OperIsBinary()
+
+        if (!tree->OperIsBinary())
         {
             // the GTF_REVERSE flag only applies to binary operations
-            flags &= ~GTF_REVERSE_OPS; // we use this value for GTF_VAR_ARR_INDEX above
+            flags &= ~GTF_REVERSE_OPS;
         }
 
         msgLength -= GenTree::gtDispFlags(flags, tree->gtDebugFlags);
-        /*
-            printf("%c", (flags & GTF_ASG           ) ? 'A' : '-');
-            printf("%c", (flags & GTF_CALL          ) ? 'C' : '-');
-            printf("%c", (flags & GTF_EXCEPT        ) ? 'X' : '-');
-            printf("%c", (flags & GTF_GLOB_REF      ) ? 'G' : '-');
-            printf("%c", (flags & GTF_ORDER_SIDEEFF ) ? 'O' : '-');
-            printf("%c", (flags & GTF_COLON_COND    ) ? '?' : '-');
-            printf("%c", (flags & GTF_DONT_CSE      ) ? 'N' :        // N is for No cse
-                         (flags & GTF_MAKE_CSE      ) ? 'H' : '-');  // H is for Hoist this expr
-            printf("%c", (flags & GTF_REVERSE_OPS   ) ? 'R' : '-');
-            printf("%c", (flags & GTF_UNSIGNED      ) ? 'U' :
-                         (flags & GTF_BOOLEAN       ) ? 'B' : '-');
-            printf("%c", (flags & GTF_SET_FLAGS     ) ? 'S' : '-');
-            printf("%c", (flags & GTF_SPILLED       ) ? 'z' : '-');
-            printf("%c", (flags & GTF_SPILL         ) ? 'Z' : '-');
-        */
     }
 
     return msgLength;
