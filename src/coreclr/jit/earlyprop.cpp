@@ -29,32 +29,6 @@ bool Compiler::optDoEarlyPropForBlock(BasicBlock* block)
     return bbHasArrayRef || bbHasNullCheck;
 }
 
-//--------------------------------------------------------------------
-// gtIsVtableRef: Return true if the tree is a method table reference.
-//
-// Arguments:
-//    tree           - The input tree.
-//
-// Return Value:
-//    Return true if the tree is a method table reference.
-
-bool Compiler::gtIsVtableRef(GenTree* tree)
-{
-    if (tree->OperGet() == GT_IND)
-    {
-        GenTree* addr = tree->AsIndir()->Addr();
-
-        if (addr->OperIsAddrMode())
-        {
-            GenTreeAddrMode* addrMode = addr->AsAddrMode();
-
-            return (!addrMode->HasIndex() && (addrMode->Base()->TypeGet() == TYP_REF));
-        }
-    }
-
-    return false;
-}
-
 //------------------------------------------------------------------------------
 // getArrayLengthFromAllocation: Return the array length for an array allocation
 //                               helper call.
