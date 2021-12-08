@@ -1639,8 +1639,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         noway_assert(arg != nullptr);
 
-        GenTree* newArg = new (this, GT_LEA)
-            GenTreeAddrMode(TYP_BYREF, arg, nullptr, 0, eeGetEEInfo()->offsetOfWrapperDelegateIndirectCell);
+        GenTree* newArg =
+            gtNewOperNode(GT_ADD, TYP_BYREF, arg,
+                          gtNewIconNode(static_cast<ssize_t>(eeGetEEInfo()->offsetOfWrapperDelegateIndirectCell)));
 
         // Append newArg as the last arg
         GenTreeCall::Use** insertionPoint = &call->gtCallArgs;
