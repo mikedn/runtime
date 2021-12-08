@@ -7834,15 +7834,14 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         /* First print the flags associated with the node */
         switch (tree->gtOper)
         {
-            case GT_LEA:
+            case GT_IND:
             case GT_BLK:
             case GT_OBJ:
             case GT_DYN_BLK:
+            case GT_STOREIND:
             case GT_STORE_BLK:
             case GT_STORE_OBJ:
             case GT_STORE_DYN_BLK:
-
-            case GT_IND:
                 // We prefer printing V or U
                 if ((tree->gtFlags & (GTF_IND_VOLATILE | GTF_IND_UNALIGNED)) == 0)
                 {
@@ -7890,9 +7889,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     }
                 }
                 FALLTHROUGH;
-
             case GT_INDEX:
-            case GT_INDEX_ADDR:
             case GT_FIELD:
                 if (tree->gtFlags & GTF_IND_VOLATILE)
                 {
