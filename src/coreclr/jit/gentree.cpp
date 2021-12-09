@@ -3425,9 +3425,19 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 // twice for ADDR(IND(x)) trees. Most ADDRs were removed during global morphing but
                 // the ones computing array element addresses were not. So, in order to reduce diffs,
                 // double op2's costs when the COMMA looks like an array element address.
-                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF))
+                //
+                // Also, address mode marking code managed to mark in ADDR(IND(x)) even though the
+                // IND is fake and disappears before codegen, so there isn't really an address mode
+                // to mark here. We'll mark it for now to reduce diffs, even if this increases the
+                // chance of producing 3 component LEAs that may be slow on many older CPUs.
+
+                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF) && op2->OperIs(GT_ADD) && !op2->gtOverflow())
                 {
                     op2->SetCosts(op2->GetCostEx() * 2, op2->GetCostSz() * 2);
+
+                    int indirCostEx = 0;
+                    int indirCostSz = 0;
+                    gtMarkAddrMode(op2, &indirCostEx, &indirCostSz, TYP_STRUCT);
                 }
 
                 costEx = op1->GetCostEx() + op2->GetCostEx();
