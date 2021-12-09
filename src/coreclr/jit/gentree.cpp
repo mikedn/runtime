@@ -3418,14 +3418,20 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 break;
 
             case GT_COMMA:
-
-                /* Comma tosses the result of the left operand */
                 gtSetEvalOrder(op1);
                 level = gtSetEvalOrder(op2);
 
-                /* GT_COMMA cost is the sum of op1 and op2 costs */
-                costEx = (op1->GetCostEx() + op2->GetCostEx());
-                costSz = (op1->GetCostSz() + op2->GetCostSz());
+                // TODO-MIKE-Cleanup: ADDR costing code was bogus, it managed to add operand's costs
+                // twice for ADDR(IND(x)) trees. Most ADDRs were removed during global morphing but
+                // the ones computing array element addresses were not. So, in order to reduce diffs,
+                // double op2's costs when the COMMA looks like an array element address.
+                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF))
+                {
+                    op2->SetCosts(op2->GetCostEx() * 2, op2->GetCostSz() * 2);
+                }
+
+                costEx = op1->GetCostEx() + op2->GetCostEx();
+                costSz = op1->GetCostSz() + op2->GetCostSz();
 
                 goto DONE;
 
