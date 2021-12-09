@@ -17229,16 +17229,28 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
         // If the value being produced comes from loading
         // via an underlying address, just null check the address.
 
-        // TODO-MIKE-Cleanup: If the tree is an INDEX then this will assign it to
-        // a newly allocated temp. We don't need it, we only need the range check
-        // side effect. This could probably be achieved by changing the tree to
-        // ADDR(INDEX(...)) and treating the address as an unused value below or
-        // perhaps by simply replacing INDEX with ARR_BOUNDS_CHECK here instead of
-        // deferring it to morph.
-
         if (op1->OperIs(GT_FIELD, GT_IND, GT_OBJ))
         {
-            gtChangeOperToNullCheck(op1, block);
+            GenTree* addr;
+
+            if (GenTreeField* field = op1->IsField())
+            {
+                addr = field->GetAddr();
+            }
+            else
+            {
+                addr = op1->AsIndir()->GetAddr();
+            }
+
+            // Don't create NULLCHECK(ADDR(INDEX)), INDEX already checks for null.
+            if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_INDEX))
+            {
+                op1 = addr;
+            }
+            else
+            {
+                gtChangeOperToNullCheck(op1, block);
+            }
         }
         else
         {
