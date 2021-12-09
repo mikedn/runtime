@@ -7436,46 +7436,6 @@ void Compiler::optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt)
     optRemoveRangeCheck(comma->gtGetOp1()->AsBoundsChk(), comma, stmt);
 }
 
-/*****************************************************************************
- * Return the scale in an array reference, given a pointer to the
- * multiplication node.
- */
-
-ssize_t Compiler::optGetArrayRefScaleAndIndex(GenTree* mul, GenTree** pIndex DEBUGARG(bool bRngChk))
-{
-    assert(mul);
-    assert(mul->gtOper == GT_MUL || mul->gtOper == GT_LSH);
-    assert(mul->AsOp()->gtOp2->IsCnsIntOrI());
-
-    ssize_t scale = mul->AsOp()->gtOp2->AsIntConCommon()->IconValue();
-
-    if (mul->gtOper == GT_LSH)
-    {
-        scale = ((ssize_t)1) << scale;
-    }
-
-    GenTree* index = mul->AsOp()->gtOp1;
-
-    if (index->gtOper == GT_MUL && index->AsOp()->gtOp2->IsCnsIntOrI())
-    {
-        // case of two cascading multiplications for constant int (e.g.  * 20 morphed to * 5 * 4):
-        // When index->gtOper is GT_MUL and index->AsOp()->gtOp2->gtOper is GT_CNS_INT (i.e. * 5),
-        //     we can bump up the scale from 4 to 5*4, and then change index to index->AsOp()->gtOp1.
-        // Otherwise, we cannot optimize it. We will simply keep the original scale and index.
-        scale *= index->AsOp()->gtOp2->AsIntConCommon()->IconValue();
-        index = index->AsOp()->gtOp1;
-    }
-
-    assert(!bRngChk || index->gtOper != GT_COMMA);
-
-    if (pIndex)
-    {
-        *pIndex = index;
-    }
-
-    return scale;
-}
-
 /******************************************************************************
  *
  * Replace x==null with (x|x)==0 if x is a GC-type.

@@ -4874,21 +4874,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
     if (elemSize > 1)
     {
-        GenTree* size = gtNewIconNode(elemSize, TYP_I_IMPL);
-
-        // Fix 392756 WP7 Crossgen
-        //
-        // During codegen optGetArrayRefScaleAndIndex() makes the assumption that op2 of a GT_MUL node
-        // is a constant and is not capable of handling CSE'ing the elemSize constant into a lclvar.
-
-        // TODO-MIKE-Review: It's not clear what optGetArrayRefScaleAndIndex has to do with CSE. It's
-        // used to build address modes and of course that if the constant gets CSEd then address mode
-        // can't include the "constant". But was this a bug fix or a CQ fix? And why would the kind of
-        // constant that can participate in address modes get CSEd anyway?
-
-        size->SetDoNotCSE();
-
-        offset = gtNewOperNode(GT_MUL, TYP_I_IMPL, offset, size);
+        offset = gtNewOperNode(GT_MUL, TYP_I_IMPL, offset, gtNewIconNode(elemSize, TYP_I_IMPL));
     }
 
     // The element address is ADD(array, ADD(MUL(index, elemSize), dataOffs)). Compared to other possible

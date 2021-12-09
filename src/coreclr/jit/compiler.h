@@ -6236,8 +6236,6 @@ public:
                                               BasicBlock*       slow);
 
 protected:
-    ssize_t optGetArrayRefScaleAndIndex(GenTree* mul, GenTree** pIndex DEBUGARG(bool bRngChk));
-
     bool optReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
 
 protected:
