@@ -2366,54 +2366,6 @@ unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lat
     return level;
 }
 
-#ifdef DEBUG
-/*****************************************************************************
- * This is a workaround. It is to help implement an assert in gtSetEvalOrder() that the values
- * gtWalkOp() leaves in op1 and op2 correspond with the values of adr, idx, mul, and cns
- * that are returned by genCreateAddrMode(). It's essentially impossible to determine
- * what gtWalkOp() *should* return for all possible trees. This simply loosens one assert
- * to handle the following case:
-
-         indir     int
-                    const(h)  int    4 field
-                 +         byref
-                    lclVar    byref  V00 this               <-- op2
-              comma     byref                           <-- adr (base)
-                 indir     byte
-                    lclVar    byref  V00 this
-           +         byref
-                 const     int    2                     <-- mul == 4
-              <<        int                                 <-- op1
-                 lclVar    int    V01 arg1              <-- idx
-
- * Here, we are planning to generate the address mode [edx+4*eax], where eax = idx and edx = the GT_COMMA expression.
- * To check adr equivalence with op2, we need to walk down the GT_ADD tree just like gtWalkOp() does.
- */
-GenTree* Compiler::gtWalkOpEffectiveVal(GenTree* op)
-{
-    for (;;)
-    {
-        op = op->SkipComma();
-
-        if ((op->gtOper != GT_ADD) || op->gtOverflow() || !op->AsOp()->gtOp2->IsCnsIntOrI())
-        {
-            break;
-        }
-
-        op = op->AsOp()->gtOp1;
-    }
-
-    return op;
-}
-#endif // DEBUG
-
-/*****************************************************************************
- *
- *  Given a tree, set the GetCostEx and GetCostSz() fields which
- *  are used to measure the relative costs of the codegen of the tree
- *
- */
-
 void Compiler::gtPrepareCost(GenTree* tree)
 {
     gtSetEvalOrder(tree);

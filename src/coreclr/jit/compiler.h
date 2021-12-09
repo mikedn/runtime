@@ -2145,11 +2145,7 @@ public:
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
 
-#ifdef DEBUG
-    unsigned gtHashValue(GenTree* tree);
-
-    GenTree* gtWalkOpEffectiveVal(GenTree* op);
-#endif
+    INDEBUG(unsigned gtHashValue(GenTree* tree);)
 
     void gtPrepareCost(GenTree* tree);
     bool gtIsLikelyRegVar(GenTree* tree);
