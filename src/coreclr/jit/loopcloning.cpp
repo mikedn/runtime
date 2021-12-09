@@ -2073,6 +2073,12 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
     {
         return false;
     }
+    // TODO-1stClassStructs: Remove this check to enable optimization of array bounds checks for struct
+    // type fields.
+    if (GetZeroOffsetFieldSeq(sibo) != nullptr)
+    {
+        return false;
+    }
     GenTree* base = sibo->gtGetOp1();
     GenTree* sio  = sibo->gtGetOp2(); // sio == scale*index + offset
     if (base->OperGet() != GT_LCL_VAR || base->AsLclVarCommon()->GetLclNum() != arrLcl)
