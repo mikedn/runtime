@@ -3900,7 +3900,14 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
             }
 #endif
 
-            ValueNum fldSeqVN = VNForFieldSeq(arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext());
+            FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
+
+            if (FieldSeqNode* zeroFieldSeq = m_pComp->GetZeroOffsetFieldSeq(add))
+            {
+                fieldSeq = m_pComp->GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
+            }
+
+            ValueNum fldSeqVN = VNForFieldSeq(fieldSeq);
 
             return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, indexVN, fldSeqVN);
         }
