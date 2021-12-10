@@ -4759,6 +4759,13 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         indir->ChangeOper(GT_IND);
     }
 
+    if (checkIndexRange)
+    {
+        // If there's a bounds check, the indir itself won't fault since
+        // the bounds check ensures that the address is not null.
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+
     // In minopts, we expand GT_INDEX to IND(INDEX_ADDR) in order to minimize the size of the IR. As minopts
     // compilation time is roughly proportional to the size of the IR, this helps keep compilation times down.
     // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
@@ -4874,21 +4881,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
     if (elemSize > 1)
     {
-        GenTree* size = gtNewIconNode(elemSize, TYP_I_IMPL);
-
-        // Fix 392756 WP7 Crossgen
-        //
-        // During codegen optGetArrayRefScaleAndIndex() makes the assumption that op2 of a GT_MUL node
-        // is a constant and is not capable of handling CSE'ing the elemSize constant into a lclvar.
-
-        // TODO-MIKE-Review: It's not clear what optGetArrayRefScaleAndIndex has to do with CSE. It's
-        // used to build address modes and of course that if the constant gets CSEd then address mode
-        // can't include the "constant". But was this a bug fix or a CQ fix? And why would the kind of
-        // constant that can participate in address modes get CSEd anyway?
-
-        size->SetDoNotCSE();
-
-        offset = gtNewOperNode(GT_MUL, TYP_I_IMPL, offset, size);
+        offset = gtNewOperNode(GT_MUL, TYP_I_IMPL, offset, gtNewIconNode(elemSize, TYP_I_IMPL));
     }
 
     // The element address is ADD(array, ADD(MUL(index, elemSize), dataOffs)). Compared to other possible
@@ -4907,8 +4900,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
     GenTree* addr = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
 
-    indir->gtFlags |= GTF_IND_ARR_INDEX;
-
     if (boundsCheck == nullptr)
     {
         addr = fgMorphTree(addr);
@@ -4920,9 +4911,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
     }
 
     indir->AsIndir()->SetAddr(addr);
-    // If there's a bounds check, the indir itself won't fault since
-    // the bounds check ensures that the address is not null.
-    indir->gtFlags |= GTF_IND_NONFAULTING;
     indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
 
     // Note that the original INDEX node may have GTF_DONOT_CSE set, either
@@ -8512,9 +8500,7 @@ GenTree* Compiler::fgMorphStructComma(GenTree* tree)
         return tree;
     }
 
-    // Note that we can't simply use indir's address due to the stupid GTF_IND_ARR_INDEX...
-    GenTree* effectiveValAddr = gtNewAddrNode(effectiveVal);
-    INDEBUG(effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    GenTree* effectiveValAddr = effectiveVal->AsIndir()->GetAddr();
     commas.Top()->SetOp(1, effectiveValAddr);
     GenTreeFlags sideEffects = tree->GetSideEffects();
 
@@ -9629,6 +9615,20 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif
             {
                 isQmarkColon = true;
+            }
+            break;
+
+        case GT_IND:
+        case GT_OBJ:
+            // TODO-MIKE-Cleanup: Ideally this should be done when the indir is created.
+            if (op1->OperIs(GT_ADDR) && op1->AsUnOp()->GetOp(0)->OperIs(GT_INDEX))
+            {
+                tree->gtFlags |= GTF_IND_NONFAULTING;
+            }
+
+            if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && ((op1->gtFlags & GTF_EXCEPT) == 0))
+            {
+                tree->gtFlags &= ~GTF_EXCEPT;
             }
             break;
 
@@ -11629,7 +11629,6 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_IND:
-        {
             // Can not remove a GT_IND if it is currently a CSE candidate.
             if (gtIsActiveCSE_Candidate(tree))
             {
@@ -11656,91 +11655,13 @@ DONE_MORPHING_CHILDREN:
 
             // Only do this optimization when we are in the global optimizer. Doing this after value numbering
             // could result in an invalid value number for the newly generated GT_IND node.
-            if ((op1->OperGet() == GT_COMMA) && fgGlobalMorph)
+            if (op1->OperIs(GT_COMMA) && fgGlobalMorph)
             {
                 // Perform the transform IND(COMMA(x, ..., z)) == COMMA(x, ..., IND(z)).
+                //
                 // TBD: this transformation is currently necessary for correctness -- it might
                 // be good to analyze the failures that result if we don't do this, and fix them
                 // in other ways.  Ideally, this should be optional.
-                GenTree*     commaNode = op1;
-                GenTreeFlags treeFlags = tree->gtFlags;
-                commaNode->gtType      = typ;
-                commaNode->gtFlags     = (treeFlags & ~GTF_REVERSE_OPS); // Bashing the GT_COMMA flags here is
-                                                                         // dangerous, clear the GTF_REVERSE_OPS at
-                                                                         // least.
-
-                INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-                while (commaNode->AsOp()->gtOp2->gtOper == GT_COMMA)
-                {
-                    commaNode         = commaNode->AsOp()->gtOp2;
-                    commaNode->gtType = typ;
-                    commaNode->gtFlags =
-                        (treeFlags & ~GTF_REVERSE_OPS & ~GTF_ASG & ~GTF_CALL); // Bashing the GT_COMMA flags here is
-                    // dangerous, clear the GTF_REVERSE_OPS, GT_ASG, and GT_CALL at
-                    // least.
-                    commaNode->gtFlags |= ((commaNode->AsOp()->gtOp1->gtFlags | commaNode->AsOp()->gtOp2->gtFlags) &
-                                           (GTF_ASG | GTF_CALL));
-
-                    INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-                }
-
-                tree          = op1;
-                GenTree* addr = commaNode->AsOp()->gtOp2;
-                op1           = gtNewIndir(typ, addr);
-                // This is very conservative
-                op1->gtFlags |= treeFlags & ~GTF_ALL_EFFECT & ~GTF_IND_NONFAULTING;
-                op1->gtFlags |= (addr->gtFlags & GTF_ALL_EFFECT);
-
-                INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-                commaNode->AsOp()->gtOp2 = op1;
-                commaNode->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-                return tree;
-            }
-
-            break;
-        }
-
-        case GT_ADDR:
-
-            // Can not remove op1 if it is currently a CSE candidate.
-            if (gtIsActiveCSE_Candidate(op1))
-            {
-                break;
-            }
-
-            if (op1->OperIs(GT_IND, GT_OBJ))
-            {
-                if ((op1->gtFlags & GTF_IND_ARR_INDEX) == 0)
-                {
-                    // Can not remove a GT_ADDR if it is currently a CSE candidate.
-                    if (gtIsActiveCSE_Candidate(tree))
-                    {
-                        break;
-                    }
-
-                    // Perform the transform ADDR(IND(...)) == (...).
-                    GenTree* addr = op1->AsIndir()->GetAddr();
-
-                    // If tree has a zero field sequence annotation, update the annotation
-                    // on addr node.
-                    if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
-                    {
-                        AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
-                    }
-
-                    noway_assert(varTypeIsGC(addr->gtType) || addr->gtType == TYP_I_IMPL);
-
-                    DEBUG_DESTROY_NODE(op1);
-                    DEBUG_DESTROY_NODE(tree);
-
-                    return addr;
-                }
-            }
-            else if (op1->OperIs(GT_COMMA) && !optValnumCSE_phase)
-            {
-                // Perform the transform ADDR(COMMA(x, ..., z)) == COMMA(x, ..., ADDR(z)).
 
                 ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
                 for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
@@ -11749,70 +11670,97 @@ DONE_MORPHING_CHILDREN:
                 }
 
                 GenTreeOp* lastComma = commas.Top();
-                GenTree*   location  = lastComma->GetOp(1);
-                GenTree*   addr      = nullptr;
+                GenTree*   addr      = lastComma->GetOp(1);
+                tree->AsIndir()->SetAddr(addr);
 
-                if (location->OperIs(GT_OBJ))
+                GenTreeFlags sideEffects = tree->GetSideEffects() & (GTF_GLOB_REF | GTF_ORDER_SIDEEFF);
+
+                if ((tree->gtFlags & GTF_IND_NONFAULTING) == 0)
                 {
-                    location->SetOper(GT_IND);
+                    sideEffects |= GTF_EXCEPT;
                 }
 
-                if (location->OperIs(GT_IND))
+                tree->SetSideEffects(sideEffects | addr->GetSideEffects());
+
+                lastComma->SetOp(1, tree);
+
+                while (!commas.Empty())
                 {
-                    if ((location->gtFlags & GTF_IND_ARR_INDEX) == 0)
-                    {
-                        addr = location->AsIndir()->GetAddr();
-
-                        // The morphed ADDR might be annotated with a zero offset field sequence.
-                        if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
-                        {
-                            AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
-                        }
-                    }
-                    else
-                    {
-                        // If the node we're about to put under a GT_ADDR is an indirection, it doesn't
-                        // need to be materialized, since we only want its address. Because of this, the
-                        // GT_IND is not a faulting indirection.
-
-                        // TODO: the flag update below is conservative and can be improved.
-                        // For example, if we made the ADDR(IND(x)) == x transformation, we may be able to
-                        // get rid of some other IND flags (e.g., GTF_GLOB_REF).
-
-                        location->gtFlags |= GTF_IND_NONFAULTING;
-                        location->gtFlags &= ~GTF_EXCEPT;
-                        location->gtFlags |= (location->AsIndir()->GetAddr()->gtFlags & GTF_EXCEPT);
-                    }
+                    GenTreeOp* comma = commas.Pop();
+                    comma->SetType(typ);
+                    comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
                 }
 
-                if (addr == nullptr)
-                {
-                    addr = tree;
-                    addr->AsUnOp()->SetOp(0, location);
-                    addr->SetSideEffects(location->GetSideEffects());
+                op1->gtFlags |= tree->gtFlags & (GTF_LATE_ARG | GTF_DONT_CSE);
+                tree->gtFlags &= ~GTF_LATE_ARG;
+                INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
-                    location->SetDoNotCSE();
+                return op1;
+            }
+
+            break;
+
+        case GT_ADDR:
+            // ADDR should not appear after global morph.
+            noway_assert(fgGlobalMorph);
+
+            if (op1->OperIs(GT_IND, GT_OBJ))
+            {
+                // Perform the transform ADDR(IND(x)) == x.
+
+                GenTree* addr = op1->AsIndir()->GetAddr();
+
+                if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
+                {
+                    AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
                 }
 
-                lastComma->SetOp(1, addr);
+                DEBUG_DESTROY_NODE(op1);
+                DEBUG_DESTROY_NODE(tree);
 
-                // TODO-MIKE-Cleanup: Like the similar transform in fgMorphStructComma, this doesn't update
-                // value numbers on COMMAs. It's likely that this transform doesn't happen past global
-                // morph so probabily this doesn't matter too much.
+                op1 = addr;
+            }
+            else
+            {
+                assert(op1->OperIs(GT_COMMA));
+
+                // Perform the transform ADDR(COMMA(..., IND(x))) == COMMA(..., x).
+
+                ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+                for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
+                {
+                    commas.Push(comma->AsOp());
+                }
+
+                GenTreeOp*    comma = commas.Pop();
+                GenTreeIndir* indir = comma->GetOp(1)->AsIndir();
+                GenTree*      addr  = indir->GetAddr();
+
+                comma->SetOp(1, addr);
+                comma->SetType(addr->GetType());
+                comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | addr->GetSideEffects());
 
                 // TODO-MIKE-CQ: The first COMMA has GTF_DONT_CSE set because it's under ADDR.
                 // GTF_DONT_CSE is no longer necessary and should be removed.
 
                 while (!commas.Empty())
                 {
-                    GenTreeOp* comma = commas.Pop();
-                    comma->SetType(addr->GetType());
+                    comma = commas.Pop();
+                    comma->SetType(comma->GetOp(1)->GetType());
                     comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
                 }
 
-                return op1;
+                if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
+                {
+                    AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
+                }
+
+                DEBUG_DESTROY_NODE(indir);
             }
-            break;
+
+            assert(varTypeIsI(op1->GetType()));
+
+            return op1;
 
         case GT_COLON:
             if (fgGlobalMorph)

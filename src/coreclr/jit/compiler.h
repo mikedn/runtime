@@ -2145,11 +2145,7 @@ public:
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
 
-#ifdef DEBUG
-    unsigned gtHashValue(GenTree* tree);
-
-    GenTree* gtWalkOpEffectiveVal(GenTree* op);
-#endif
+    INDEBUG(unsigned gtHashValue(GenTree* tree);)
 
     void gtPrepareCost(GenTree* tree);
     bool gtIsLikelyRegVar(GenTree* tree);
@@ -6240,8 +6236,6 @@ public:
                                               BasicBlock*       slow);
 
 protected:
-    ssize_t optGetArrayRefScaleAndIndex(GenTree* mul, GenTree** pIndex DEBUGARG(bool bRngChk));
-
     bool optReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
 
 protected:

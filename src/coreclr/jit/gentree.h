@@ -563,11 +563,10 @@ enum GenTreeFlags : unsigned int
     GTF_IND_UNALIGNED           = 0x02000000, // GT_IND   -- the load or store is unaligned (we assume worst case
                                               //             alignment of 1 byte)
     GTF_IND_INVARIANT           = 0x01000000, // GT_IND   -- the target is invariant (a prejit indirection)
-    GTF_IND_ARR_INDEX           = 0x00800000, // GT_IND   -- the indirection represents an (SZ) array index
     GTF_IND_NONNULL             = 0x00400000, // GT_IND   -- the indirection never returns null (zero)
 
     GTF_IND_FLAGS = GTF_IND_VOLATILE | GTF_IND_NONFAULTING | GTF_IND_TGT_HEAP | GTF_IND_NONNULL | \
-                    GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_ARR_INDEX | GTF_IND_TGT_NOT_HEAP,
+                    GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_TGT_NOT_HEAP,
 
     GTF_CLS_VAR_INITCLASS       = 0x20000000, // GT_CLS_VAR_ADDR
 
@@ -6391,7 +6390,7 @@ struct GenTreeIndir : public GenTreeOp
     void SetAddr(GenTree* addr)
     {
         assert(addr != nullptr);
-        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+        assert(varTypeIsI(addr->GetType()));
         gtOp1 = addr;
     }
 

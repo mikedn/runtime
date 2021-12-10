@@ -2366,54 +2366,6 @@ unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lat
     return level;
 }
 
-#ifdef DEBUG
-/*****************************************************************************
- * This is a workaround. It is to help implement an assert in gtSetEvalOrder() that the values
- * gtWalkOp() leaves in op1 and op2 correspond with the values of adr, idx, mul, and cns
- * that are returned by genCreateAddrMode(). It's essentially impossible to determine
- * what gtWalkOp() *should* return for all possible trees. This simply loosens one assert
- * to handle the following case:
-
-         indir     int
-                    const(h)  int    4 field
-                 +         byref
-                    lclVar    byref  V00 this               <-- op2
-              comma     byref                           <-- adr (base)
-                 indir     byte
-                    lclVar    byref  V00 this
-           +         byref
-                 const     int    2                     <-- mul == 4
-              <<        int                                 <-- op1
-                 lclVar    int    V01 arg1              <-- idx
-
- * Here, we are planning to generate the address mode [edx+4*eax], where eax = idx and edx = the GT_COMMA expression.
- * To check adr equivalence with op2, we need to walk down the GT_ADD tree just like gtWalkOp() does.
- */
-GenTree* Compiler::gtWalkOpEffectiveVal(GenTree* op)
-{
-    for (;;)
-    {
-        op = op->SkipComma();
-
-        if ((op->gtOper != GT_ADD) || op->gtOverflow() || !op->AsOp()->gtOp2->IsCnsIntOrI())
-        {
-            break;
-        }
-
-        op = op->AsOp()->gtOp1;
-    }
-
-    return op;
-}
-#endif // DEBUG
-
-/*****************************************************************************
- *
- *  Given a tree, set the GetCostEx and GetCostSz() fields which
- *  are used to measure the relative costs of the codegen of the tree
- *
- */
-
 void Compiler::gtPrepareCost(GenTree* tree)
 {
     gtSetEvalOrder(tree);
@@ -3239,20 +3191,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     level++;
                     break;
 
-                case GT_ADDR:
-
-                    costEx = 0;
-                    costSz = 1;
-
-                    // If we have a GT_ADDR of an GT_IND we can just copy the costs from indOp1
-                    if (op1->OperGet() == GT_IND)
-                    {
-                        GenTree* indOp1 = op1->AsOp()->gtOp1;
-                        costEx          = indOp1->GetCostEx();
-                        costSz          = indOp1->GetCostSz();
-                    }
-                    break;
-
                 case GT_ARR_LENGTH:
                     level++;
 
@@ -3334,6 +3272,26 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         {
                             while (op1 != addr)
                             {
+                                // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
+                                // redundant range check elimination done via CSE.
+                                // Normally CSE can't eliminate range checks because it uses liberal value numbers
+                                // and that makes it senstive to race conditions in user code. However, if the
+                                // entire array element address tree is CSEd, including the range check, then race
+                                // conditions aren't an issue.
+                                //
+                                // So we have a choice between blocking CSE to allow address mode formation and
+                                // allowing CSE in he hope that redundant range checks may get CSEd. We'll block
+                                // CSE for now.
+                                //
+                                // CSE is anyway not guaranteed while address mode formation more or less is. And
+                                // such address modes avoid slow 3 component LEAs.
+                                // Also, this is a rather rare case, involving arrays of structs. Normally the COMMA
+                                // is above the indir - COMMA(range check, IND(addr)) - and this avoids the whole
+                                // issue. Sort of, as placing the COMMA like that probably makes it less likely for
+                                // to be CSEd. But that's how it works in the typical case.
+                                // With structs we may end up with IND(COMMA(range check, addr)), thanks in part to
+                                // IND(COMMA(...)) morphing code not applying to OBJs as well.
+
                                 op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
                                 op1 = op1->AsOp()->GetOp(1);
                             }
@@ -3466,14 +3424,30 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 break;
 
             case GT_COMMA:
-
-                /* Comma tosses the result of the left operand */
                 gtSetEvalOrder(op1);
                 level = gtSetEvalOrder(op2);
 
-                /* GT_COMMA cost is the sum of op1 and op2 costs */
-                costEx = (op1->GetCostEx() + op2->GetCostEx());
-                costSz = (op1->GetCostSz() + op2->GetCostSz());
+                // TODO-MIKE-Cleanup: ADDR costing code was bogus, it managed to add operand's costs
+                // twice for ADDR(IND(x)) trees. Most ADDRs were removed during global morphing but
+                // the ones computing array element addresses were not. So, in order to reduce diffs,
+                // double op2's costs when the COMMA looks like an array element address.
+                //
+                // Also, address mode marking code managed to mark in ADDR(IND(x)) even though the
+                // IND is fake and disappears before codegen, so there isn't really an address mode
+                // to mark here. We'll mark it for now to reduce diffs, even if this increases the
+                // chance of producing 3 component LEAs that may be slow on many older CPUs.
+
+                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF) && op2->OperIs(GT_ADD) && !op2->gtOverflow())
+                {
+                    op2->SetCosts(op2->GetCostEx() * 2, op2->GetCostSz() * 2);
+
+                    int indirCostEx = 0;
+                    int indirCostSz = 0;
+                    gtMarkAddrMode(op2, &indirCostEx, &indirCostSz, TYP_STRUCT);
+                }
+
+                costEx = op1->GetCostEx() + op2->GetCostEx();
+                costSz = op1->GetCostSz() + op2->GetCostSz();
 
                 goto DONE;
 
@@ -3540,14 +3514,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         {
             GenTree* op1Val = op1;
 
-            // Skip over the GT_IND/GT_ADDR tree (if one exists)
-            //
-            if ((op1->gtOper == GT_IND) && (op1->AsOp()->gtOp1->gtOper == GT_ADDR))
-            {
-                op1Val = op1->AsOp()->gtOp1->AsOp()->gtOp1;
-            }
-
-            switch (op1Val->gtOper)
+            switch (op1Val->GetOper())
             {
                 case GT_IND:
                 case GT_BLK:
@@ -7860,12 +7827,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     if (tree->gtFlags & GTF_IND_INVARIANT)
                     {
                         printf("#");
-                        --msgLength;
-                        break;
-                    }
-                    if (tree->gtFlags & GTF_IND_ARR_INDEX)
-                    {
-                        printf("a");
                         --msgLength;
                         break;
                     }

@@ -3900,7 +3900,14 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
             }
 #endif
 
-            ValueNum fldSeqVN = VNForFieldSeq(arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext());
+            FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
+
+            if (FieldSeqNode* zeroFieldSeq = m_pComp->GetZeroOffsetFieldSeq(add))
+            {
+                fieldSeq = m_pComp->GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
+            }
+
+            ValueNum fldSeqVN = VNForFieldSeq(fieldSeq);
 
             return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, indexVN, fldSeqVN);
         }
@@ -3972,7 +3979,8 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
 
         // TODO-MIKE-Cleanup: Would be good to actually retrieve the field offset
         // from the field sequence but that currently requires calling the VM.
-        // Anyway, this path is pretty much never hit due to GTF_IND_ARR_INDEX.
+        // Anyway, this path is pretty much never hit due to the COMMA added by
+        // fgMorphArrayIndex.
 
         offset -= fieldOffset;
         assert(offset % elemSize == 0);
@@ -7578,44 +7586,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         }
         else if (oper == GT_ADDR)
         {
-            GenTree* arg = tree->AsUnOp()->GetOp(0);
-
-            if (arg->OperIs(GT_IND, GT_OBJ))
-            {
-                GenTree* addr = arg->AsIndir()->GetAddr();
-
-                // Usually the ADDR and IND just cancel out...
-                // except when this GT_ADDR has a valid zero-offset field sequence
-                FieldSeqNode* zeroOffsetFieldSeq = GetZeroOffsetFieldSeq(tree);
-
-                if ((zeroOffsetFieldSeq != nullptr) && (zeroOffsetFieldSeq != FieldSeqStore::NotAField()))
-                {
-                    ValueNum addrExtended = vnStore->ExtendPtrVN(addr, zeroOffsetFieldSeq);
-                    if (addrExtended != ValueNumStore::NoVN)
-                    {
-                        tree->gtVNPair.SetBoth(addrExtended); // We don't care about lib/cons differences for addresses.
-                    }
-                    else
-                    {
-                        // ExtendPtrVN returned a failure result
-                        // So give this address a new unique value
-                        tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, TYP_BYREF));
-                    }
-                }
-                else
-                {
-                    // They just cancel, so fetch the ValueNumber from the op1 of the GT_IND node.
-                    tree->gtVNPair = addr->gtVNPair;
-
-                    // For the CSE phase mark the address as GTF_DONT_CSE
-                    // because it will end up with the same value number as tree (the GT_ADDR).
-                    addr->gtFlags |= GTF_DONT_CSE;
-                }
-            }
-            else
-            {
-                tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
-            }
+            unreached();
         }
         else if ((oper == GT_IND) || GenTree::OperIsBlk(oper))
         {

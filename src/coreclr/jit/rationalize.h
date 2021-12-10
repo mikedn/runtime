@@ -37,7 +37,6 @@ private:
     void RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents);
     void RewriteAssignment(LIR::Use& use);
     void RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCommon* location);
-    void RewriteAddress(LIR::Use& use);
 
     // Root visitor
     Compiler::fgWalkResult RewriteNode(GenTree** useEdge, ArrayStack<GenTree*>& parents);
