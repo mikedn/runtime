@@ -203,27 +203,6 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
     }
 }
 
-void Rationalizer::RewriteAddress(LIR::Use& use)
-{
-    assert(use.IsInitialized());
-
-    GenTreeUnOp* address = use.Def()->AsUnOp();
-    assert(address->OperIs(GT_ADDR));
-
-    GenTree* location = address->AsUnOp()->GetOp(0);
-
-    noway_assert(location->OperIs(GT_IND, GT_OBJ));
-
-    use.ReplaceWith(comp, location->AsIndir()->GetAddr());
-    BlockRange().Remove(location);
-    BlockRange().Remove(address);
-
-    JITDUMP("Rewriting GT_ADDR(GT_IND(X)) to X:\n");
-
-    DISPTREERANGE(BlockRange(), use.Def());
-    JITDUMP("\n");
-}
-
 Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<GenTree*>& parentStack)
 {
     assert(useEdge != nullptr);
@@ -259,10 +238,6 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
             // GT_BOX at this level just passes through so get rid of it
             use.ReplaceWith(comp, node->gtGetOp1());
             BlockRange().Remove(node);
-            break;
-
-        case GT_ADDR:
-            RewriteAddress(use);
             break;
 
         case GT_OBJ:
@@ -355,8 +330,8 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
             break;
 
         default:
-            // These nodes should not be present in HIR.
-            assert(!node->OperIs(GT_CMP, GT_SETCC, GT_JCC, GT_JCMP, GT_LOCKADD, GT_INSTR));
+            // These nodes should not be present before rationalization.
+            assert(!node->OperIs(GT_CMP, GT_SETCC, GT_JCC, GT_JCMP, GT_LOCKADD, GT_INSTR, GT_ADDR));
             break;
     }
 

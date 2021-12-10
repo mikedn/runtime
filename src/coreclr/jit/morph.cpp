@@ -11701,42 +11701,30 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_ADDR:
-
-            // Can not remove op1 if it is currently a CSE candidate.
-            if (gtIsActiveCSE_Candidate(op1))
-            {
-                break;
-            }
+            // ADDR should not appear after global morph.
+            noway_assert(fgGlobalMorph);
 
             if (op1->OperIs(GT_IND, GT_OBJ))
             {
-                // Can not remove a GT_ADDR if it is currently a CSE candidate.
-                if (gtIsActiveCSE_Candidate(tree))
-                {
-                    break;
-                }
+                // Perform the transform ADDR(IND(x)) == x.
 
-                // Perform the transform ADDR(IND(...)) == (...).
                 GenTree* addr = op1->AsIndir()->GetAddr();
 
-                // If tree has a zero field sequence annotation, update the annotation
-                // on addr node.
                 if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
                 {
                     AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
                 }
 
-                noway_assert(varTypeIsI(addr->GetType()));
-
                 DEBUG_DESTROY_NODE(op1);
                 DEBUG_DESTROY_NODE(tree);
 
-                return addr;
+                op1 = addr;
             }
-
-            if (op1->OperIs(GT_COMMA) && !optValnumCSE_phase)
+            else
             {
-                // Perform the transform ADDR(COMMA(x, ..., z)) == COMMA(x, ..., ADDR(z)).
+                assert(op1->OperIs(GT_COMMA));
+
+                // Perform the transform ADDR(COMMA(..., IND(x))) == COMMA(..., x).
 
                 ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
                 for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
@@ -11744,54 +11732,35 @@ DONE_MORPHING_CHILDREN:
                     commas.Push(comma->AsOp());
                 }
 
-                GenTreeOp* lastComma = commas.Top();
-                GenTree*   location  = lastComma->GetOp(1);
-                GenTree*   addr      = nullptr;
+                GenTreeOp*    comma = commas.Pop();
+                GenTreeIndir* indir = comma->GetOp(1)->AsIndir();
+                GenTree*      addr  = indir->GetAddr();
 
-                if (location->OperIs(GT_OBJ))
-                {
-                    location->SetOper(GT_IND);
-                }
-
-                if (location->OperIs(GT_IND))
-                {
-                    addr = location->AsIndir()->GetAddr();
-
-                    // The morphed ADDR might be annotated with a zero offset field sequence.
-                    if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
-                    {
-                        AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
-                    }
-                }
-
-                if (addr == nullptr)
-                {
-                    addr = tree;
-                    addr->AsUnOp()->SetOp(0, location);
-                    addr->SetSideEffects(location->GetSideEffects());
-
-                    location->SetDoNotCSE();
-                }
-
-                lastComma->SetOp(1, addr);
-
-                // TODO-MIKE-Cleanup: Like the similar transform in fgMorphStructComma, this doesn't update
-                // value numbers on COMMAs. It's likely that this transform doesn't happen past global
-                // morph so probabily this doesn't matter too much.
+                comma->SetOp(1, addr);
+                comma->SetType(addr->GetType());
+                comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | addr->GetSideEffects());
 
                 // TODO-MIKE-CQ: The first COMMA has GTF_DONT_CSE set because it's under ADDR.
                 // GTF_DONT_CSE is no longer necessary and should be removed.
 
                 while (!commas.Empty())
                 {
-                    GenTreeOp* comma = commas.Pop();
-                    comma->SetType(addr->GetType());
+                    comma = commas.Pop();
+                    comma->SetType(comma->GetOp(1)->GetType());
                     comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
                 }
 
-                return op1;
+                if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
+                {
+                    AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
+                }
+
+                DEBUG_DESTROY_NODE(indir);
             }
-            break;
+
+            assert(varTypeIsI(op1->GetType()));
+
+            return op1;
 
         case GT_COLON:
             if (fgGlobalMorph)

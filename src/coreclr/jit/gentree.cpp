@@ -3191,20 +3191,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     level++;
                     break;
 
-                case GT_ADDR:
-
-                    costEx = 0;
-                    costSz = 1;
-
-                    // If we have a GT_ADDR of an GT_IND we can just copy the costs from indOp1
-                    if (op1->OperGet() == GT_IND)
-                    {
-                        GenTree* indOp1 = op1->AsOp()->gtOp1;
-                        costEx          = indOp1->GetCostEx();
-                        costSz          = indOp1->GetCostSz();
-                    }
-                    break;
-
                 case GT_ARR_LENGTH:
                     level++;
 
@@ -3508,14 +3494,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         {
             GenTree* op1Val = op1;
 
-            // Skip over the GT_IND/GT_ADDR tree (if one exists)
-            //
-            if ((op1->gtOper == GT_IND) && (op1->AsOp()->gtOp1->gtOper == GT_ADDR))
-            {
-                op1Val = op1->AsOp()->gtOp1->AsOp()->gtOp1;
-            }
-
-            switch (op1Val->gtOper)
+            switch (op1Val->GetOper())
             {
                 case GT_IND:
                 case GT_BLK:
