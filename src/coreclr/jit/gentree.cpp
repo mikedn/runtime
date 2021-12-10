@@ -3272,6 +3272,26 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         {
                             while (op1 != addr)
                             {
+                                // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
+                                // redundant range check elimination done via CSE.
+                                // Normally CSE can't eliminate range checks because it uses liberal value numbers
+                                // and that makes it senstive to race conditions in user code. However, if the
+                                // entire array element address tree is CSEd, including the range check, then race
+                                // conditions aren't an issue.
+                                //
+                                // So we have a choice between blocking CSE to allow address mode formation and
+                                // allowing CSE in he hope that redundant range checks may get CSEd. We'll block
+                                // CSE for now.
+                                //
+                                // CSE is anyway not guaranteed while address mode formation more or less is. And
+                                // such address modes avoid slow 3 component LEAs.
+                                // Also, this is a rather rare case, involving arrays of structs. Normally the COMMA
+                                // is above the indir - COMMA(range check, IND(addr)) - and this avoids the whole
+                                // issue. Sort of, as placing the COMMA like that probably makes it less likely for
+                                // to be CSEd. But that's how it works in the typical case.
+                                // With structs we may end up with IND(COMMA(range check, addr)), thanks in part to
+                                // IND(COMMA(...)) morphing code not applying to OBJs as well.
+
                                 op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
                                 op1 = op1->AsOp()->GetOp(1);
                             }
