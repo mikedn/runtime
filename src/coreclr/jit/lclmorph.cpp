@@ -492,15 +492,6 @@ public:
                 TopValue(0).Address(node->AsLclFld());
                 break;
 
-            case GT_ADDR:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
-                assert(!node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
-
-                TopValue(1).Address(TopValue(0));
-                PopValue();
-                break;
-
             case GT_CAST:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsCast()->GetOp(0));
@@ -3166,9 +3157,6 @@ public:
                 MorphVarargsStackParam(node->AsLclVarCommon());
 #endif
                 return Compiler::WALK_SKIP_SUBTREES;
-            case GT_ADDR:
-                assert(!node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-                FALLTHROUGH;
             default:
                 return Compiler::WALK_CONTINUE;
         }

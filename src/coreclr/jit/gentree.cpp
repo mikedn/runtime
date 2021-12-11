@@ -5792,15 +5792,6 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                     return nullptr;
                 }
             }
-            else if (tree->gtOper == GT_ADDR)
-            {
-                GenTree* op1 = gtClone(tree->AsOp()->gtOp1);
-                if (op1 == nullptr)
-                {
-                    return nullptr;
-                }
-                copy = gtNewAddrNode(op1, tree->GetType());
-            }
             else
             {
                 return nullptr;
@@ -6824,7 +6815,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_BITCAST:
         case GT_CKFINITE:
         case GT_LCLHEAP:
-        case GT_ADDR:
         case GT_FIELD_ADDR:
         case GT_IND:
         case GT_OBJ:
@@ -13303,18 +13293,6 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
                     return Compiler::WALK_SKIP_SUBTREES;
                 }
 
-                if ((m_flags & GTF_EXCEPT) != 0)
-                {
-                    // Special case - GT_ADDR of GT_IND nodes of TYP_STRUCT have to be kept together.
-                    if (node->OperIs(GT_ADDR) && node->gtGetOp1()->OperIsIndir() &&
-                        (node->gtGetOp1()->TypeGet() == TYP_STRUCT))
-                    {
-                        JITDUMP("Keep the GT_ADDR and GT_IND together:\n");
-                        m_sideEffects.Push(node);
-                        return Compiler::WALK_SKIP_SUBTREES;
-                    }
-                }
-
                 // Generally all GT_CALL nodes are considered to have side-effects.
                 // So if we get here it must be a helper call that we decided it does
                 // not have side effects that we needed to keep.
@@ -14922,14 +14900,7 @@ bool Compiler::optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo)
 {
     assert(indir->OperIs(GT_IND));
 
-    GenTree* addr = indir->GetAddr();
-
-    while (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_IND))
-    {
-        addr = addr->AsUnOp()->GetOp(0)->AsIndir()->GetAddr();
-    }
-
-    return optIsArrayElemAddr(addr, arrayInfo);
+    return optIsArrayElemAddr(indir->GetAddr(), arrayInfo);
 }
 
 bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)

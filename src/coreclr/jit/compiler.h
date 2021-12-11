@@ -1893,7 +1893,6 @@ public:
 
     // For unary opers.
     GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = true);
-    GenTree* gtNewAddrNode(GenTree* location, var_types type = TYP_BYREF);
 
     // For binary opers.
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
@@ -8876,7 +8875,6 @@ public:
             case GT_BITCAST:
             case GT_CKFINITE:
             case GT_LCLHEAP:
-            case GT_ADDR:
             case GT_FIELD_ADDR:
             case GT_IND:
             case GT_OBJ:

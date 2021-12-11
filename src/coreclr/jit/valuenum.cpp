@@ -5780,7 +5780,7 @@ static genTreeOps genTreeOpsIllegalAsVNFunc[] = {GT_IND, // When we do heap memo
 
                                                  // These need special semantics:
                                                  GT_COMMA, // == second argument (but with exception(s) from first).
-                                                 GT_ADDR, GT_ARR_BOUNDS_CHECK,
+                                                 GT_ARR_BOUNDS_CHECK,
                                                  GT_OBJ,      // May reference heap memory.
                                                  GT_BLK,      // May reference heap memory.
                                                  GT_INIT_VAL, // Not strictly a pass-through.
@@ -7583,10 +7583,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 default:
                     unreached();
             }
-        }
-        else if (oper == GT_ADDR)
-        {
-            unreached();
         }
         else if ((oper == GT_IND) || GenTree::OperIsBlk(oper))
         {

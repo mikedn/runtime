@@ -6289,9 +6289,9 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
 //         {args}
 //       GT_COMMA
 //         GT_CALL Dispatcher
-//           GT_ADDR ReturnAddress
+//           ReturnAddress address
 //           {CallTargetStub}
-//           GT_ADDR ReturnValue
+//           ReturnValue address
 //         GT_LCL ReturnValue
 // whenever the call node returns a value. If the call node does not return a
 // value the last comma will not be there.
@@ -9537,12 +9537,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             op1->gtFlags |= GTF_DONT_CSE;
             break;
 
-        case GT_ADDR:
-            assert(!op1->OperIsHWIntrinsic() && !op1->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-            // op1 of a ADDR is an l-value. Only r-values can be CSEed
-            op1->gtFlags |= GTF_DONT_CSE;
-            break;
-
         case GT_QMARK:
         case GT_JTRUE:
 
@@ -10179,15 +10173,15 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         }
 #endif // LOCAL_ASSERTION_PROP
 
-        MorphAddrContext  newOp1Mac(tree->OperIs(GT_ADDR));
+        MorphAddrContext  newOp1Mac(false);
         MorphAddrContext* op1Mac = mac;
 
-        if (op1->OperIsIndir() && !tree->OperIs(GT_ADDR))
+        if (op1->OperIsIndir())
         {
-            // An indirection gets a default address context if it isn't address taken.
+            // An indirection gets a default address context
             op1Mac = nullptr;
         }
-        else if (tree->OperIs(GT_ADDR, GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
+        else if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
         {
             if (op1Mac == nullptr)
             {
@@ -11587,16 +11581,6 @@ DONE_MORPHING_CHILDREN:
             fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_ARITH_EXCPN);
             break;
 
-        case GT_OBJ:
-            // If we have GT_OBJ(GT_ADDR(X)) and X has GTF_GLOB_REF, we must set GTF_GLOB_REF on
-            // the GT_OBJ. Note that the GTF_GLOB_REF will have been cleared on ADDR(X) where X
-            // is a local or clsVar, even if it has been address-exposed.
-            if (op1->OperGet() == GT_ADDR)
-            {
-                tree->gtFlags |= (op1->gtGetOp1()->gtFlags & GTF_GLOB_REF);
-            }
-            break;
-
         case GT_IND:
             // Can not remove a GT_IND if it is currently a CSE candidate.
             if (gtIsActiveCSE_Candidate(tree))
@@ -11668,68 +11652,6 @@ DONE_MORPHING_CHILDREN:
             }
 
             break;
-
-        case GT_ADDR:
-            // ADDR should not appear after global morph.
-            noway_assert(fgGlobalMorph);
-
-            if (op1->OperIs(GT_IND, GT_OBJ))
-            {
-                // Perform the transform ADDR(IND(x)) == x.
-
-                GenTree* addr = op1->AsIndir()->GetAddr();
-
-                if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
-                {
-                    AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
-                }
-
-                DEBUG_DESTROY_NODE(op1);
-                DEBUG_DESTROY_NODE(tree);
-
-                op1 = addr;
-            }
-            else
-            {
-                assert(op1->OperIs(GT_COMMA));
-
-                // Perform the transform ADDR(COMMA(..., IND(x))) == COMMA(..., x).
-
-                ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-                for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
-                {
-                    commas.Push(comma->AsOp());
-                }
-
-                GenTreeOp*    comma = commas.Pop();
-                GenTreeIndir* indir = comma->GetOp(1)->AsIndir();
-                GenTree*      addr  = indir->GetAddr();
-
-                comma->SetOp(1, addr);
-                comma->SetType(addr->GetType());
-                comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | addr->GetSideEffects());
-
-                // TODO-MIKE-CQ: The first COMMA has GTF_DONT_CSE set because it's under ADDR.
-                // GTF_DONT_CSE is no longer necessary and should be removed.
-
-                while (!commas.Empty())
-                {
-                    comma = commas.Pop();
-                    comma->SetType(comma->GetOp(1)->GetType());
-                    comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
-                }
-
-                if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(tree))
-                {
-                    AddZeroOffsetFieldSeq(addr, zeroFieldSeq);
-                }
-
-                DEBUG_DESTROY_NODE(indir);
-            }
-
-            assert(varTypeIsI(op1->GetType()));
-
-            return op1;
 
         case GT_COLON:
             if (fgGlobalMorph)

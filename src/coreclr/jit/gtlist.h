@@ -72,8 +72,6 @@ GTNODE(CKFINITE         , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // Che
 GTNODE(LCLHEAP          , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // alloca()
 GTNODE(JMP              , GenTreeVal         ,0,(GTK_LEAF|GTK_NOVALUE))   // Jump to another function
 
-GTNODE(ADDR             , GenTreeOp          ,0,(GTK_UNOP|GTK_NOTLIR))    // address of
-
 GTNODE(IND              , GenTreeIndir       ,0,GTK_UNOP)                // load indirection
 GTNODE(STOREIND         , GenTreeStoreInd    ,0,(GTK_BINOP|GTK_NOVALUE)) // store indirection
 

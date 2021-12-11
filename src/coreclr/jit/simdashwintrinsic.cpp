@@ -760,16 +760,6 @@ GenTree* Compiler::impPopStackAddrAsVector(var_types type)
         BADCODE("incompatible stack type");
     }
 
-    if (addr->OperIs(GT_ADDR))
-    {
-        GenTree* location = addr->AsUnOp()->GetOp(0);
-
-        if (location->GetType() == type)
-        {
-            return location;
-        }
-    }
-
     if (addr->OperIs(GT_LCL_VAR_ADDR))
     {
         LclVarDsc* lcl = lvaGetDesc(addr->AsLclVar());
@@ -2824,14 +2814,6 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
     auto AreValuesEqual = [](GenTree* v1, GenTree* v2) {
         while (v1->GetOper() == v2->GetOper())
         {
-            if (v1->OperIs(GT_ADDR))
-            {
-                v1 = v1->AsUnOp()->GetOp(0);
-                v2 = v2->AsUnOp()->GetOp(0);
-
-                continue;
-            }
-
             if (v1->OperIs(GT_FIELD_ADDR))
             {
                 if (v1->AsFieldAddr()->GetFieldHandle() == v2->AsFieldAddr()->GetFieldHandle())

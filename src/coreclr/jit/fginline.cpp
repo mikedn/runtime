@@ -386,12 +386,6 @@ private:
             case GT_LCL_VAR:
                 return m_compiler->gtNewLclVarAddrNode(tree->AsLclVar()->GetLclNum(), TYP_BYREF);
 
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                // TODO-MIKE-Cleanup: Bleah, more ADDR(SIMD|HWINTRINSIC) nonsense...
-                return m_compiler->gtNewAddrNode(tree);
-#endif
-
             default:
                 unreached();
         }
@@ -437,19 +431,9 @@ private:
 
     GenTree* GetStructAsgSrc(GenTree* src, ClassLayout* layout)
     {
-        if (!src->OperIs(GT_LCL_VAR) && !src->OperIsHWIntrinsic())
+        if (!src->OperIs(GT_LCL_VAR) && !varTypeIsSIMD(src->GetType()))
         {
-            GenTree* srcAddr = GetStructAddress(src);
-
-            if (srcAddr->OperIs(GT_ADDR) &&
-                (srcAddr->AsUnOp()->GetOp(0)->GetType() == m_compiler->typGetStructType(layout)))
-            {
-                src = srcAddr->AsUnOp()->GetOp(0);
-            }
-            else
-            {
-                src = m_compiler->gtNewObjNode(layout, srcAddr);
-            }
+            src = m_compiler->gtNewObjNode(layout, GetStructAddress(src));
         }
 
         // TODO-MIKE-CQ: This should probably be removed, it's here only because
@@ -1438,7 +1422,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
                 return false;
             }
 
-            assert(argNode->OperIs(GT_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+            assert(argNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
             argNode->SetType(TYP_I_IMPL);
 
             continue;

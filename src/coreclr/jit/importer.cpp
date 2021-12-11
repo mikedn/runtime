@@ -1174,26 +1174,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
     if (dest == nullptr)
     {
-        if (destAddr->OperIs(GT_ADDR))
-        {
-            GenTree* destLocation = destAddr->AsUnOp()->GetOp(0);
-
-            if (destLocation->GetType() == srcType)
-            {
-                if (destLocation->OperIs(GT_OBJ))
-                {
-                    if (varTypeIsSIMD(srcType))
-                    {
-                        dest = destLocation;
-                    }
-                    else if (destLocation->AsObj()->GetLayout() == layout)
-                    {
-                        dest = destLocation;
-                    }
-                }
-            }
-        }
-        else if (destAddr->OperIs(GT_LCL_VAR_ADDR))
+        if (destAddr->OperIs(GT_LCL_VAR_ADDR))
         {
             LclVarDsc* lcl = lvaGetDesc(destAddr->AsLclVar());
 
@@ -1308,9 +1289,9 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
         return value;
     }
 
-    if (value->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        value->SetOper(GT_LCL_VAR_ADDR);
+        value->SetOper(value->OperIs(GT_LCL_VAR) ? GT_LCL_VAR_ADDR : GT_LCL_FLD_ADDR);
         value->SetType(TYP_BYREF);
         return value;
     }
@@ -1321,16 +1302,9 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
         return value->AsObj()->GetAddr();
     }
 
-    if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsHWIntrinsic())
-    {
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"));
-        impAppendTempAssign(tmpNum, value, structHnd, curLevel);
-        return gtNewLclVarAddrNode(tmpNum, TYP_BYREF);
-    }
-
-    assert(value->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-    return gtNewAddrNode(value);
+    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"));
+    impAppendTempAssign(tmpNum, value, structHnd, curLevel);
+    return gtNewLclVarAddrNode(tmpNum, TYP_BYREF);
 }
 
 GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
@@ -17058,11 +17032,7 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayou
 
     GenTree* src = nullptr;
 
-    if (srcAddr->OperIs(GT_ADDR))
-    {
-        src = srcAddr->AsUnOp()->GetOp(0);
-    }
-    else if (srcAddr->OperIs(GT_LCL_VAR_ADDR))
+    if (srcAddr->OperIs(GT_LCL_VAR_ADDR))
     {
         src = srcAddr;
 

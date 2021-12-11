@@ -792,56 +792,7 @@ inline GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree
            0); // Can't use this to construct any types that extend unary/binary operator.
     assert(op1 != nullptr || oper == GT_RETFILT || oper == GT_NOP || (oper == GT_RETURN && type == TYP_VOID));
 
-    if (doSimplifications)
-    {
-        // We do some simplifications here.
-        // If this gets to be too many, try a switch...
-        // TODO-Cleanup: With the factoring out of array bounds checks, it should not be the
-        // case that we need to check for the array index case here, but without this check
-        // we get failures (see for example jit\Directed\Languages\Python\test_methods_d.exe)
-        if (oper == GT_IND)
-        {
-            // IND(ADDR(IND(x)) == IND(x)
-            if (op1->OperIs(GT_ADDR))
-            {
-                GenTree* indir = op1->AsUnOp()->GetOp(0);
-
-                if (indir->OperIs(GT_IND))
-                {
-                    op1 = indir->AsIndir()->Addr();
-                }
-            }
-        }
-        else if (oper == GT_ADDR)
-        {
-            // if "x" is not an array index, ADDR(IND(x)) == x
-            if (op1->OperIs(GT_IND))
-            {
-                return op1->AsIndir()->GetAddr();
-            }
-
-            // Addr source can't be CSE-ed.
-            op1->SetDoNotCSE();
-        }
-    }
-
-    GenTree* node = new (this, oper) GenTreeOp(oper, type, op1, nullptr);
-
-    return node;
-}
-
-inline GenTree* Compiler::gtNewAddrNode(GenTree* location, var_types type)
-{
-    assert(!location->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-    if (location->OperIs(GT_IND))
-    {
-        return location->AsIndir()->GetAddr();
-    }
-
-    location->SetDoNotCSE();
-
-    return new (this, GT_ADDR) GenTreeOp(GT_ADDR, type, location, nullptr);
+    return new (this, oper) GenTreeOp(oper, type, op1, nullptr);
 }
 
 // Returns an opcode that is of the largest node size in use.
@@ -3925,7 +3876,6 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_BITCAST:
         case GT_CKFINITE:
         case GT_LCLHEAP:
-        case GT_ADDR:
         case GT_FIELD_ADDR:
         case GT_IND:
         case GT_OBJ:
