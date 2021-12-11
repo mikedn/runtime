@@ -540,7 +540,7 @@ enum GenTreeFlags : unsigned int
 
     GTF_MEMORYBARRIER_LOAD      = 0x40000000, // GT_MEMORYBARRIER -- Load barrier
 
-    GTF_INX_RNGCHK              = 0x80000000, // GT_INDEX/GT_INDEX_ADDR -- the array reference should be range-checked.
+    GTF_INX_RNGCHK              = 0x80000000, // GT_INDEX_ADDR -- the array reference should be range-checked.
 
     GTF_IND_TGT_NOT_HEAP        = 0x80000000, // GT_IND   -- the target is known not to be on the heap
     GTF_IND_VOLATILE            = 0x40000000, // GT_IND   -- the load or store must use volatile sematics (this is a nop on X86)
@@ -5779,122 +5779,30 @@ public:
 };
 #endif // FEATURE_HW_INTRINSICS
 
-// Represents an array element access.
-struct GenTreeIndex : public GenTreeOp
-{
-private:
-    ClassLayout* m_layout;
-    uint8_t      m_dataOffs;
-    unsigned     m_elemSize;
-
-public:
-    GenTreeIndex(var_types type, GenTree* arr, GenTree* ind, uint8_t lenOffs, uint8_t dataOffs)
-        : GenTreeOp(GT_INDEX, type, arr, ind), m_layout(nullptr), m_dataOffs(dataOffs), m_elemSize(varTypeSize(type))
-    {
-        // The offset of length is always the same for both strings and arrays.
-        assert(lenOffs == TARGET_POINTER_SIZE);
-
-#ifdef DEBUG
-        if (JitConfig.JitSkipArrayBoundCheck() == 1)
-        {
-            // Skip bounds check
-        }
-        else
-#endif
-        {
-            // Do bounds check
-            gtFlags |= GTF_INX_RNGCHK;
-        }
-
-        gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-    }
-
-    GenTreeIndex(const GenTreeIndex* copyFrom)
-        : GenTreeOp(GT_INDEX, copyFrom->GetType(), copyFrom->gtOp1, copyFrom->gtOp2)
-        , m_layout(copyFrom->m_layout)
-        , m_dataOffs(copyFrom->m_dataOffs)
-        , m_elemSize(copyFrom->m_elemSize)
-    {
-    }
-
-    GenTree* GetArray() const
-    {
-        return gtOp1;
-    }
-
-    void SetArray(GenTree* array)
-    {
-        assert(array->TypeIs(TYP_REF));
-        gtOp1 = array;
-    }
-
-    GenTree* GetIndex() const
-    {
-        return gtOp2;
-    }
-
-    void SetIndex(GenTree* index)
-    {
-        assert(varTypeIsIntegral(index->GetType()));
-        gtOp2 = index;
-    }
-
-    ClassLayout* GetLayout() const
-    {
-        assert((m_layout == nullptr) || varTypeIsStruct(GetType()));
-        return m_layout;
-    }
-
-    void SetLayout(ClassLayout* layout)
-    {
-        assert((layout == nullptr) || varTypeIsStruct(GetType()));
-        m_layout = layout;
-    }
-
-    uint8_t GetLenOffs() const
-    {
-        return TARGET_POINTER_SIZE;
-    }
-
-    uint8_t GetDataOffs() const
-    {
-        return m_dataOffs;
-    }
-
-    unsigned GetElemSize() const
-    {
-        return m_elemSize;
-    }
-
-    void SetElemSize(unsigned size)
-    {
-        m_elemSize = size;
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeIndex() : GenTreeOp()
-    {
-    }
-#endif
-};
-
 // Computes the address of an array element. Also checks if the array index is valid.
 struct GenTreeIndexAddr : public GenTreeOp
 {
 private:
     BasicBlock* m_throwBlock;
     uint8_t     m_dataOffs;
+    uint16_t    m_elemTypeNum;
     unsigned    m_elemSize;
 
 public:
-    GenTreeIndexAddr(GenTree* array, GenTree* index, uint8_t lenOffs, uint8_t dataOffs, unsigned elemSize)
+    GenTreeIndexAddr(GenTree* array, GenTree* index, uint8_t lenOffs, uint8_t dataOffs, var_types elemType)
         : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, array, index)
         , m_throwBlock(nullptr)
         , m_dataOffs(dataOffs)
-        , m_elemSize(elemSize)
+        , m_elemTypeNum(static_cast<uint16_t>(elemType))
+        , m_elemSize(varTypeSize(elemType))
     {
         // The offset of length is always the same for both strings and arrays.
         assert(lenOffs == TARGET_POINTER_SIZE);
+
+        INDEBUG(if (!JitConfig.JitSkipArrayBoundCheck()))
+        {
+            gtFlags |= GTF_INX_RNGCHK | GTF_EXCEPT;
+        }
 
         gtFlags |= array->GetSideEffects() | index->GetSideEffects();
     }
@@ -5903,6 +5811,7 @@ public:
         : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, copyFrom->gtOp1, copyFrom->gtOp2)
         , m_throwBlock(copyFrom->m_throwBlock)
         , m_dataOffs(copyFrom->m_dataOffs)
+        , m_elemTypeNum(copyFrom->m_elemTypeNum)
         , m_elemSize(copyFrom->m_elemSize)
     {
     }
@@ -5953,6 +5862,24 @@ public:
     {
         return m_elemSize;
     }
+
+    void SetElemSize(unsigned size)
+    {
+        m_elemSize = size;
+    }
+
+    unsigned GetElemTypeNum() const
+    {
+        return m_elemTypeNum;
+    }
+
+    void SetElemTypeNum(unsigned typeNum)
+    {
+        assert(typeNum <= UINT16_MAX);
+        m_elemTypeNum = static_cast<uint16_t>(typeNum);
+    }
+
+    ClassLayout* GetLayout(Compiler* compiler) const;
 
 #if DEBUGGABLE_GENTREE
     GenTreeIndexAddr() : GenTreeOp()
@@ -7909,7 +7836,7 @@ inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
         case GT_RSZ:
         case GT_ROL:
         case GT_ROR:
-        case GT_INDEX:
+        case GT_INDEX_ADDR:
         case GT_ASG:
         case GT_EQ:
         case GT_NE:

@@ -177,7 +177,7 @@ public:
             // rest of the RET_EXPRs are basically empty return expressions so the IR summary
             // of their blocks isn't relevant.
             //
-            // We may also have cases like RET_EXPR-ADD(RET_EXPR, INDEX...), the first RET_EXPR
+            // We may also have cases like RET_EXPR-ADD(RET_EXPR, INDEX_ADDR...), the first RET_EXPR
             // is replaced now while the next one will be replaced in a subsequent call to
             // fgUpdateInlineReturnExpressionPlaceHolder. Each RET_EXPR will contribute its own
             // IR summary.
@@ -1144,7 +1144,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
         // If the inlinee has multiple blocks but a single return block then we'll insert
         // the inlinee blocks in the inliner and move the return expression to an existing
-        // inliner block. The return expression may contain nodes such as INDEX so the
+        // inliner block. The return expression may contain nodes such as INDEX_ADDR so the
         // inliner block needs to "inherit" the IR summary from inlinee's return block.
 
         if ((inlineInfo->retSpillTempLclNum == BAD_VAR_NUM) && (fgFirstBB->bbNext != nullptr))

@@ -311,7 +311,6 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
 
         case GT_QMARK:
         case GT_COLON:
-        case GT_INDEX:
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
         case GT_STORE_OBJ:

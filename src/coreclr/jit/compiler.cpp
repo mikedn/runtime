@@ -7756,7 +7756,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
             case GT_NO_OP:
                 break;
 
-            case GT_INDEX:
             case GT_INDEX_ADDR:
                 if (tree->gtFlags & GTF_INX_RNGCHK)
                 {

@@ -2807,7 +2807,7 @@ GenTree* Compiler::impVectorT256Compare(const HWIntrinsicSignature& sig,
 // Check whether two memory locations are contiguous.
 //
 // This recognizes trivial patterns such as IND(FIELD_ADDR(o, 4)) & IND(FIELD_ADDR(o, 8)) or
-// INDEX(a, 1) & INDEX(a, 2).
+// IND(INDEX_ADDR(a, 1)) & IND(INDEX_ADDR(a, 2)).
 // Pointer arithmetic isn't recognized (and probably not very useful anyway) and in the case of
 // arrays only constant indices are recognized. Might be useful to also recognize i, i+1, i+2...
 // If the locations are determined to be adjacent this also implies that the trees are also free
@@ -2869,19 +2869,25 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
                (i1->AsIntCon()->GetValue() + 1 == i2->AsIntCon()->GetValue());
     };
 
-    auto AreContiguosArrayElements = [&](GenTreeIndex* e1, GenTreeIndex* e2) {
-        return AreConsecutiveConstants(e1->GetIndex(), e2->GetIndex()) &&
+    auto AreContiguosArrayElementAddresses = [&](GenTreeIndexAddr* e1, GenTreeIndexAddr* e2, var_types indirType) {
+        return (varTypeSize(indirType) == e1->GetElemSize()) &&
+               AreConsecutiveConstants(e1->GetIndex(), e2->GetIndex()) &&
                AreValuesEqual(e1->GetArray(), e2->GetArray());
     };
 
-    auto AreContiguosFieldAddresses = [&](GenTreeFieldAddr* f1, GenTreeFieldAddr* f2, var_types fieldType) {
-        return (f1->GetOffset() + varTypeSize(fieldType) == f2->GetOffset()) &&
+    auto AreContiguosFieldAddresses = [&](GenTreeFieldAddr* f1, GenTreeFieldAddr* f2, var_types indirType) {
+        return (f1->GetOffset() + varTypeSize(indirType) == f2->GetOffset()) &&
                AreValuesEqual(f1->GetAddr(), f2->GetAddr());
     };
 
-    auto AreContiguosFieldIndirs = [&](GenTreeIndir* i1, GenTreeIndir* i2) {
-        return !i1->IsVolatile() && !i2->IsVolatile() && i1->GetAddr()->IsFieldAddr() && i2->GetAddr()->IsFieldAddr() &&
-               AreContiguosFieldAddresses(i1->GetAddr()->AsFieldAddr(), i2->GetAddr()->AsFieldAddr(), i1->GetType());
+    auto AreContiguosIndirs = [&](GenTreeIndir* i1, GenTreeIndir* i2) {
+        return !i1->IsVolatile() && !i2->IsVolatile() &&
+               ((i1->GetAddr()->IsFieldAddr() && i2->GetAddr()->IsFieldAddr() &&
+                 AreContiguosFieldAddresses(i1->GetAddr()->AsFieldAddr(), i2->GetAddr()->AsFieldAddr(),
+                                            i1->GetType())) ||
+                (i1->GetAddr()->IsIndexAddr() && i2->GetAddr()->IsIndexAddr() &&
+                 AreContiguosArrayElementAddresses(i1->GetAddr()->AsIndexAddr(), i2->GetAddr()->AsIndexAddr(),
+                                                   i1->GetType())));
     };
 
     auto AreContiguosLocalFields = [](GenTreeLclFld* f1, GenTreeLclFld* f2) {
@@ -2891,10 +2897,8 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
 
     switch (l1->GetOper())
     {
-        case GT_INDEX:
-            return AreContiguosArrayElements(l1->AsIndex(), l2->AsIndex());
         case GT_IND:
-            return AreContiguosFieldIndirs(l1->AsIndir(), l2->AsIndir());
+            return AreContiguosIndirs(l1->AsIndir(), l2->AsIndir());
         case GT_LCL_FLD:
             return AreContiguosLocalFields(l1->AsLclFld(), l2->AsLclFld());
         default:
@@ -2902,7 +2906,7 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
     }
 }
 
-// Change a FLOAT typed IND/INDEX/LCL_FLD node into a SIMD typed IND/LCL_FLD.
+// Change a FLOAT typed IND/LCL_FLD node into a SIMD typed IND/LCL_FLD.
 //
 void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType)
 {
@@ -2933,48 +2937,62 @@ void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree
     {
         assert(!indir->IsVolatile());
 
-        addr   = indir->GetAddr();
-        offset = addr->AsFieldAddr()->GetOffset();
+        addr = indir->GetAddr();
 
-        if (addr->OperIs(GT_LCL_VAR_ADDR))
+        if (GenTreeFieldAddr* field = addr->IsFieldAddr())
         {
-            // If this is the field of a local struct variable then set lvUsedInSIMDIntrinsic to prevent
-            // the local from being promoted. If it gets promoted then it will be dependent-promoted due
-            // to the indirection we're creating.
+            // TODO-MIKE-Fix: This code replaces FIELD_ADDR with and ADD(addr, offset) without adding
+            // a NULLCHECK when the field offset is large enough to require it. It's not worth fixing
+            // this until FIELD is replaced by FIELD_ADDR, otherwise we need to add ADDR on top of
+            // the existing FIELD and then use that as the address of the indir.
 
-            // TODO-MIKE-Cleanup: This is done only for SIMD locals but it really should be done for any
-            // struct local since the whole point is to block poor promotion.
+            addr   = field->GetAddr();
+            offset = field->GetOffset();
 
-            LclVarDsc* lcl = compiler->lvaGetDesc(addr->AsLclVar());
-
-            if (varTypeIsSIMD(lcl->GetType()))
+            if (addr->OperIs(GT_LCL_VAR_ADDR))
             {
-                lcl->lvUsedInSIMDIntrinsic = true;
+                // If this is the field of a local struct variable then set lvUsedInSIMDIntrinsic to prevent
+                // the local from being promoted. If it gets promoted then it will be dependent-promoted due
+                // to the indirection we're creating.
+
+                // TODO-MIKE-Cleanup: This is done only for SIMD locals but it really should be done for any
+                // struct local since the whole point is to block poor promotion.
+
+                LclVarDsc* lcl = compiler->lvaGetDesc(addr->AsLclVar());
+
+                if (varTypeIsSIMD(lcl->GetType()))
+                {
+                    lcl->lvUsedInSIMDIntrinsic = true;
+                }
             }
+
+            // TODO-MIKE-Fix: This code replaces FIELD_ADDR with and ADD(addr, offset) without adding
+            // a NULLCHECK when the field offset is large enough to require it. We need to keep the
+            // FIELD_ADDR node and retype retype the indir.
         }
+        else if (GenTreeIndexAddr* element = addr->IsIndexAddr())
+        {
+            GenTree* array = element->GetArray();
+            unsigned index = static_cast<unsigned>(element->GetIndex()->AsIntCon()->GetValue());
 
-        // TODO-MIKE-Fix: This code replaces FIELD_ADDR with and ADD(addr, offset) without adding
-        // a NULLCHECK when the field offset is large enough to require it. We need to keep the
-        // FIELD_ADDR node and retype retype the indir.
-    }
-    else if (GenTreeIndex* element = tree->IsIndex())
-    {
-        GenTree* array = element->GetArray();
-        unsigned index = static_cast<unsigned>(element->GetIndex()->AsIntCon()->GetValue());
+            // Generate a bounds check for the array access. We access multiple array elements but for
+            // bounds checking purposes it's sufficient to check if the last element index is valid,
+            // then all the element indices before it will also be valid.
 
-        // Generate a bounds check for the array access. We access multiple array elements but for
-        // bounds checking purposes it's sufficient to check if the last element index is valid,
-        // then all the element indices before it will also be valid.
+            unsigned simdElementCount = varTypeSize(simdType) / varTypeSize(TYP_FLOAT);
 
-        unsigned simdElementCount = varTypeSize(simdType) / varTypeSize(TYP_FLOAT);
+            GenTree* lastIndex = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
+            GenTree* arrLen    = compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length,
+                                                    compiler->compCurBB);
+            GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
 
-        GenTree* lastIndex = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
-        GenTree* arrLen =
-            compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length, compiler->compCurBB);
-        GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
-
-        addr   = compiler->gtNewCommaNode(arrBndsChk, array);
-        offset = OFFSETOF__CORINFO_Array__data + index * varTypeSize(TYP_FLOAT);
+            addr   = compiler->gtNewCommaNode(arrBndsChk, array);
+            offset = OFFSETOF__CORINFO_Array__data + index * varTypeSize(TYP_FLOAT);
+        }
+        else
+        {
+            unreached();
+        }
     }
     else
     {
@@ -3129,7 +3147,7 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt, Ge
 //
 // That said, SIMD coalescing (or any other kind of memory coalescing) is better done in lowering,
 // doing it in the frontend interferes with VN and anything it depends on it. Unfortunately after
-// global morph it's more difficult to recognize contiguous memory locations because INDEX gets
+// global morph it's more difficult to recognize contiguous memory locations because INDEX_ADDR gets
 // expanded into more complex trees. But then the coalescing code only recognizes constant array
 // indices and COMMAs aren't present in LIR so probably there's not much difference.
 //

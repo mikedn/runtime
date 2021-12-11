@@ -630,7 +630,7 @@ void Compiler::optPrintLoopInfo(unsigned lnum) const
 {
     noway_assert(lnum < optLoopCount);
 
-    const LoopDsc* ldsc = &optLoopTable[lnum]; // lnum is the INDEX to the loop table.
+    const LoopDsc* ldsc = &optLoopTable[lnum];
 
     optPrintLoopInfo(lnum, ldsc->lpHead, ldsc->lpFirst, ldsc->lpTop, ldsc->lpEntry, ldsc->lpBottom, ldsc->lpExitCnt,
                      ldsc->lpExit, ldsc->lpParent);

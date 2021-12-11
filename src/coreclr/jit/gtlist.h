@@ -161,9 +161,7 @@ GTNODE(COMMA            , GenTreeOp          ,0,(GTK_BINOP|GTK_NOTLIR))
 GTNODE(QMARK            , GenTreeQmark       ,0,(GTK_BINOP|GTK_EXOP|GTK_NOTLIR))
 GTNODE(COLON            , GenTreeColon       ,0,(GTK_BINOP|GTK_NOTLIR))
 
-GTNODE(INDEX            , GenTreeIndex       ,0,(GTK_BINOP|GTK_EXOP|GTK_NOTLIR))   // SZ-array-element
 GTNODE(INDEX_ADDR       , GenTreeIndexAddr   ,0,(GTK_BINOP|GTK_EXOP)) // addr of SZ-array-element;
-                                                                      // used when aiming to minimize compile times.
 
 GTNODE(MKREFANY         , GenTreeOp          ,0,GTK_BINOP|GTK_NOTLIR)
 

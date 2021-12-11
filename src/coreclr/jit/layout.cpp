@@ -599,7 +599,6 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
 #endif
             return nullptr;
         default:
-            // This is not intended to be used before global morph so INDEX is not handled.
             unreached();
     }
 }
@@ -633,7 +632,6 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
             return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSimdBaseType());
 #endif
         default:
-            // This is not intended to be used before global morph so INDEX is not handled.
             unreached();
     }
 #else

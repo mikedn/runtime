@@ -1161,11 +1161,6 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
         assert(src->GetType() == typGetStructType(layout));
         assert((src->AsObj()->GetLayout() == layout) || varTypeIsSIMD(src->GetType()));
     }
-    else if (src->OperIs(GT_INDEX))
-    {
-        assert(src->GetType() == typGetStructType(layout));
-        assert(src->AsIndex()->GetLayout() == layout);
-    }
     else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
     }
@@ -1192,17 +1187,6 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
                         dest = destLocation;
                     }
                     else if (destLocation->AsObj()->GetLayout() == layout)
-                    {
-                        dest = destLocation;
-                    }
-                }
-                else if (GenTreeIndex* index = destLocation->IsIndex())
-                {
-                    if (varTypeIsSIMD(srcType))
-                    {
-                        dest = destLocation;
-                    }
-                    else if (index->GetLayout() == layout)
                     {
                         dest = destLocation;
                     }
@@ -1381,7 +1365,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
         case GT_MKREFANY:
         case GT_LCL_FLD:
-        case GT_INDEX:
         case GT_OBJ:
             break;
 
@@ -3553,7 +3536,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             {
                 GenTree* op2 = impPopStack().val;
                 GenTree* op1 = impPopStack().val;
-                retNode      = gtNewStringIndex(op1, op2);
+                retNode      = gtNewIndexIndir(TYP_USHORT, gtNewStringIndexAddr(op1, op2));
                 break;
             }
 
@@ -10367,30 +10350,22 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                op1 = gtNewArrayIndex(lclTyp, op1, op2);
+                op1 = gtNewArrayIndexAddr(op1, op2, lclTyp);
 
                 if (lclTyp == TYP_STRUCT)
                 {
                     assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
-                    ClassLayout* layout = typGetObjLayout(clsHnd);
-                    op1->SetType(typGetStructType(layout));
-                    op1->AsIndex()->SetLayout(layout);
-                    op1->AsIndex()->SetElemSize(layout->GetSize());
+                    unsigned     layoutNum = typGetObjLayoutNum(clsHnd);
+                    ClassLayout* layout    = typGetLayoutByNum(layoutNum);
+
+                    op1->AsIndexAddr()->SetElemSize(layout->GetSize());
+                    op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
                 }
 
-                if ((opcode == CEE_LDELEMA) || (lclTyp == TYP_STRUCT))
+                if (opcode != CEE_LDELEMA)
                 {
-                    op1 = gtNewAddrNode(op1);
-                }
-
-                if (opcode == CEE_LDELEM)
-                {
-                    if (lclTyp == TYP_STRUCT)
-                    {
-                        op1 = gtNewObjNode(clsHnd, op1);
-                        op1->gtFlags |= GTF_EXCEPT;
-                    }
+                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
 
                     if (varTypeUsesFloatReg(op1->GetType()))
                     {
@@ -10507,22 +10482,23 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                op1 = gtNewArrayIndex(lclTyp, op3, op1);
+                op1 = gtNewArrayIndexAddr(op3, op1, lclTyp);
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    ClassLayout* layout = typGetObjLayout(clsHnd);
-                    op1->SetType(typGetStructType(layout));
-                    op1->AsIndex()->SetLayout(layout);
-                    op1->AsIndex()->SetElemSize(layout->GetSize());
+                    unsigned     layoutNum = typGetObjLayoutNum(clsHnd);
+                    ClassLayout* layout    = typGetLayoutByNum(layoutNum);
 
-                    op1 = impAssignStructAddr(gtNewAddrNode(op1), op2, layout, CHECK_SPILL_ALL);
+                    op1->AsIndexAddr()->SetElemSize(layout->GetSize());
+                    op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
+
+                    op1 = impAssignStructAddr(op1, op2, layout, CHECK_SPILL_ALL);
                 }
                 else
                 {
                     op2 = impImplicitR4orR8Cast(op2, lclTyp);
                     op2 = impImplicitIorI4Cast(op2, lclTyp);
-
+                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
                     op1 = gtNewAssignNode(op1, op2);
                 }
 
@@ -16933,9 +16909,9 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     assert(opts.OptimizationEnabled());
 
     // Check for assignment to same array, ie. arrLcl[i] = arrLcl[j]
-    if (value->OperIs(GT_INDEX) && array->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_IND) && value->AsIndir()->GetAddr()->IsIndexAddr() && array->OperIs(GT_LCL_VAR))
     {
-        GenTree* valueIndex = value->AsIndex()->GetArray();
+        GenTree* valueIndex = value->AsIndir()->GetAddr()->AsIndexAddr()->GetArray();
         if (valueIndex->OperIs(GT_LCL_VAR))
         {
             unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();
@@ -17214,8 +17190,8 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
                 addr = field->GetAddr();
             }
 
-            // Don't create NULLCHECK(ADDR(INDEX)), INDEX already checks for null.
-            if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_INDEX))
+            // Don't create NULLCHECK(INDEX_ADDR), INDEX_ADDR already checks for null.
+            if (addr->OperIs(GT_INDEX_ADDR))
             {
                 op1 = addr;
             }

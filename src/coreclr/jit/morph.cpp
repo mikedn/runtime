@@ -4698,20 +4698,19 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
 #endif
 
-GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
+GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index)
 {
     // Fold "cns_str"[cns_index] to ushort constant
-    if (opts.OptimizationEnabled() && tree->GetArray()->IsStrCon() && tree->GetIndex()->IsIntCnsFitsInI32())
+    if (index->GetIndex()->IsIntCnsFitsInI32())
     {
-        const int cnsIndex = static_cast<int>(tree->GetIndex()->AsIntCon()->GetValue());
+        const int cnsIndex = static_cast<int>(index->GetIndex()->AsIntCon()->GetValue());
         if (cnsIndex >= 0)
         {
             int             length;
-            const char16_t* str = info.compCompHnd->getStringLiteral(tree->GetArray()->AsStrCon()->gtScpHnd,
-                                                                     tree->GetArray()->AsStrCon()->gtSconCPX, &length);
+            const char16_t* str = info.compCompHnd->getStringLiteral(index->GetArray()->AsStrCon()->gtScpHnd,
+                                                                     index->GetArray()->AsStrCon()->gtSconCPX, &length);
             if ((cnsIndex < length) && (str != nullptr))
             {
-                assert(tree->TypeIs(TYP_USHORT));
                 GenTree* cnsCharNode = gtNewIconNode(str[cnsIndex], TYP_INT);
                 INDEBUG(cnsCharNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                 return cnsCharNode;
@@ -4719,55 +4718,16 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         }
     }
 
-    var_types    elemType   = tree->GetType();
-    ClassLayout* elemLayout = tree->GetLayout();
-    unsigned     elemSize   = tree->GetElemSize();
+    return nullptr;
+}
 
-    noway_assert((elemType != TYP_STRUCT) || (elemLayout != nullptr));
+GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
+{
+    GenTree* array = tree->GetArray();
+    GenTree* index = tree->GetIndex();
 
-    bool checkIndexRange = false;
-
-    if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
-    {
-        tree->gtFlags &= ~GTF_INX_RNGCHK;
-        checkIndexRange = true;
-    }
-
-    GenTree* array    = tree->GetArray();
-    GenTree* index    = tree->GetIndex();
-    uint8_t  lenOffs  = tree->GetLenOffs();
-    uint8_t  dataOffs = tree->GetDataOffs();
-    GenTree* indir    = tree;
-
-    unsigned elemTypeNum;
-
-    // TODO-MIKE-Review: It's not clear why the type information is discarded for SIMD types.
-    // This may have some CQ implications - all arrays having the same SIMD type are treated
-    // as aliased in VN (e.g. Vector128<float>[] & Vector128<int>[] & Vector4).
-    if (elemType == TYP_STRUCT)
-    {
-        elemTypeNum = typGetLayoutNum(elemLayout);
-
-        indir->ChangeOper(GT_OBJ);
-        indir->AsObj()->SetLayout(elemLayout);
-        indir->AsObj()->SetKind(StructStoreKind::Invalid);
-    }
-    else
-    {
-        elemTypeNum = static_cast<unsigned>(elemType);
-
-        indir->ChangeOper(GT_IND);
-    }
-
-    if (checkIndexRange)
-    {
-        // If there's a bounds check, the indir itself won't fault since
-        // the bounds check ensures that the address is not null.
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-    }
-
-    // In minopts, we expand GT_INDEX to IND(INDEX_ADDR) in order to minimize the size of the IR. As minopts
-    // compilation time is roughly proportional to the size of the IR, this helps keep compilation times down.
+    // In minopts, we don't expand INDEX_ADDR in order to minimize the size of the IR. As minopts compilation
+    // time is roughly proportional to the size of the IR, this helps keep compilation times down.
     // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
     // performed when optimizing, as it does not require LclVar nodes (which are always stack loads/stores in
     // minopts).
@@ -4777,22 +4737,20 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         array = fgMorphTree(array);
         index = fgMorphTree(index);
 
-        GenTreeIndexAddr* addr = new (this, GT_INDEX_ADDR) GenTreeIndexAddr(array, index, lenOffs, dataOffs, elemSize);
-        INDEBUG(addr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        tree->SetArray(array);
+        tree->SetIndex(index);
+        tree->SetSideEffects(array->GetSideEffects() | index->GetSideEffects());
 
-        if (checkIndexRange)
+        if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
         {
-            addr->gtFlags |= GTF_INX_RNGCHK | GTF_EXCEPT;
-            addr->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
+            tree->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
+            tree->AddSideEffects(GTF_EXCEPT);
         }
 
-        indir->AsIndir()->SetAddr(addr);
-        indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
-
-        return indir;
+        return tree;
     }
 
-    // When we are optimizing, we fully expand INDEX to something like:
+    // When we are optimizing, we fully expand INDEX_ADDR to something like:
     //
     //   COMMA(ARR_BOUNDS_CHK(index, ARR_LENGTH(array)), IND(ADD(array, ADD(MUL(index, elemSize), dataOffs))))
     //
@@ -4803,7 +4761,12 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
     GenTreeOp*        indexTmpAsg = nullptr;
     GenTreeBoundsChk* boundsCheck = nullptr;
 
-    if (checkIndexRange)
+    uint8_t  lenOffs     = tree->GetLenOffs();
+    uint8_t  dataOffs    = tree->GetDataOffs();
+    unsigned elemSize    = tree->GetElemSize();
+    unsigned elemTypeNum = tree->GetElemTypeNum();
+
+    if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
     {
         // The array and index will have multiple uses so we need to assign them to temps, unless they're
         // simple, side effect free expressions.
@@ -4900,27 +4863,21 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
     GenTree* addr = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
 
+    // TODO-MIKE-Cleanup: This field sequence should be attached to the array data offset.
+    // Doing so results in some diffs that need to be reviewed so do this separately.
+    if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(tree))
+    {
+        AddZeroOffsetFieldSeq(addr, fieldSeq);
+    }
+
     if (boundsCheck == nullptr)
     {
         addr = fgMorphTree(addr);
 
-        indir->AsIndir()->SetAddr(addr);
-        indir->SetSideEffects(GTF_GLOB_REF | GTF_EXCEPT | addr->GetSideEffects());
-
-        return indir;
+        return addr;
     }
 
-    indir->AsIndir()->SetAddr(addr);
-    indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
-
-    // Note that the original INDEX node may have GTF_DONOT_CSE set, either
-    // because it's the LHS of an ASG or because it is used by an ADDR. We
-    // leave the setting of GTF_DONOT_CSE to ASG/ADDR post-order morphing
-    // because attempting to set it here causes other problems (e.g. ADDR
-    // morphing actually transforms ADDR(COMMA(_, x)) into COMMA(_, ADDR(x))
-    // and forgets to clear GTF_DONOT_CSE from the COMMA node).
-
-    GenTreeOp* comma = gtNewCommaNode(boundsCheck, indir);
+    GenTreeOp* comma = gtNewCommaNode(boundsCheck, addr);
 
     if (indexTmpAsg != nullptr)
     {
@@ -7653,9 +7610,9 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
             fgWalkTreePost(&value, resetMorphedFlag);
 #endif // DEBUG
 
-            GenTree* const nullCheckedArr = impCheckForNullPointer(arr);
-            GenTree* const arrIndexNode   = gtNewArrayIndex(TYP_REF, nullCheckedArr, index);
-            GenTree* const arrStore       = gtNewAssignNode(arrIndexNode, value);
+            GenTree* nullCheckedArr = impCheckForNullPointer(arr);
+            GenTree* arrIndexNode   = gtNewIndexIndir(TYP_REF, gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF));
+            GenTree* arrStore       = gtNewAssignNode(arrIndexNode, value);
             arrStore->gtFlags |= GTF_ASG;
 
             GenTree* result = fgMorphTree(arrStore);
@@ -9627,9 +9584,19 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_IND:
         case GT_OBJ:
-            // TODO-MIKE-Cleanup: Ideally this should be done when the indir is created.
-            if (op1->OperIs(GT_ADDR) && op1->AsUnOp()->GetOp(0)->OperIs(GT_INDEX))
+            if (GenTreeIndexAddr* index = op1->IsIndexAddr())
             {
+                if ((typ == TYP_USHORT) && opts.OptimizationEnabled() && index->GetArray()->IsStrCon())
+                {
+                    GenTree* morphed = fgMorphStringIndexIndir(index);
+
+                    if (morphed != nullptr)
+                    {
+                        return morphed;
+                    }
+                }
+
+                // TODO-MIKE-Cleanup: Ideally this should be done when the indir is created.
                 tree->gtFlags |= GTF_IND_NONFAULTING;
             }
 
@@ -9639,8 +9606,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_INDEX:
-            return fgMorphArrayIndex(tree->AsIndex());
+        case GT_INDEX_ADDR:
+            return fgMorphIndexAddr(tree->AsIndexAddr());
 
         case GT_CAST:
             return fgMorphCast(tree->AsCast());

@@ -1104,22 +1104,57 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
     }
     else
     {
+        if (GenTreeIndexAddr* index = addr->IsIndexAddr())
+        {
+            if ((index->gtFlags & GTF_INX_RNGCHK) != 0)
+            {
+                indir->gtFlags |= GTF_IND_NONFAULTING;
+            }
+        }
+
         indir->gtFlags |= GTF_GLOB_REF;
     }
 
     return indir;
 }
 
-inline GenTreeIndex* Compiler::gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind)
+inline GenTreeIndexAddr* Compiler::gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType)
 {
-    return new (this, GT_INDEX)
-        GenTreeIndex(type, arr, ind, OFFSETOF__CORINFO_Array__length, OFFSETOF__CORINFO_Array__data);
+    return new (this, GT_INDEX_ADDR)
+        GenTreeIndexAddr(arr, ind, OFFSETOF__CORINFO_Array__length, OFFSETOF__CORINFO_Array__data, elemType);
 }
 
-inline GenTreeIndex* Compiler::gtNewStringIndex(GenTree* arr, GenTree* ind)
+inline GenTreeIndexAddr* Compiler::gtNewStringIndexAddr(GenTree* arr, GenTree* ind)
 {
-    return new (this, GT_INDEX)
-        GenTreeIndex(TYP_USHORT, arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars);
+    return new (this, GT_INDEX_ADDR)
+        GenTreeIndexAddr(arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars, TYP_USHORT);
+}
+
+inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr)
+{
+    GenTreeIndir* indir;
+
+    if (type != TYP_STRUCT)
+    {
+        indir = gtNewOperNode(GT_IND, type, indexAddr)->AsIndir();
+    }
+    else
+    {
+        indir = gtNewObjNode(indexAddr->GetLayout(this), indexAddr);
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF;
+
+    if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
+    {
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+    {
+        indir->gtFlags |= GTF_EXCEPT;
+    }
+
+    return indir;
 }
 
 inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block)

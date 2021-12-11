@@ -2055,8 +2055,9 @@ public:
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
 
-    GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
-    GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
+    GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
+    GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
+    GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block);
     GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
@@ -4661,7 +4662,8 @@ private:
     SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
 #endif // FEATURE_SIMD
 
-    GenTree* fgMorphArrayIndex(GenTreeIndex* tree);
+    GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
+    GenTree* fgMorphIndexAddr(GenTreeIndexAddr* tree);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);

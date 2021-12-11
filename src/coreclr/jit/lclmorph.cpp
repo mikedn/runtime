@@ -1228,8 +1228,6 @@ private:
             }
 
             // The LHS may be a LCL_VAR/LCL_FLD, these are not indirections so we need to handle them here.
-            // It can also be a GT_INDEX, this is an indirection but it never applies to lclvar addresses
-            // so it needs to be handled here as well.
 
             switch (indir->GetOper())
             {
@@ -1237,8 +1235,6 @@ private:
                     return m_compiler->lvaGetDesc(indir->AsLclVar())->GetLayout()->GetSize();
                 case GT_LCL_FLD:
                     return indir->AsLclFld()->GetLayout(m_compiler)->GetSize();
-                case GT_INDEX:
-                    return indir->AsIndex()->GetElemSize();
                 default:
                     break;
             }
@@ -1945,7 +1941,7 @@ private:
         }
         else
         {
-            structOp = RetypeStructIndir(structOp, type);
+            structOp = RetypeStructIndir(structOp->AsObj(), type);
         }
 
         asg->SetOp(isStructDef ? 0 : 1, structOp);
@@ -1977,7 +1973,7 @@ private:
         }
         else
         {
-            val = RetypeStructIndir(val, type);
+            val = RetypeStructIndir(val->AsObj(), type);
         }
 
         ret->SetOp(0, val);
@@ -2117,34 +2113,22 @@ private:
         return structLcl;
     }
 
-    GenTree* RetypeStructIndir(GenTree* structIndir, var_types type)
+    GenTreeIndir* RetypeStructIndir(GenTreeObj* structIndir, var_types type)
     {
-        assert(structIndir->TypeIs(TYP_STRUCT));
+        assert(structIndir->OperIs(GT_OBJ) && structIndir->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
-        GenTree*     addr       = nullptr;
+        GenTree* addr = structIndir->GetAddr();
+        ;
         ClassLayout* addrLayout = nullptr;
 
-        if (GenTreeIndex* index = structIndir->IsIndex())
+        if (GenTreeFieldAddr* field = addr->IsFieldAddr())
         {
-            addr       = m_compiler->gtNewAddrNode(index, TYP_BYREF);
-            addrLayout = index->GetLayout();
+            addrLayout = field->GetLayout(m_compiler);
         }
-        else
+        else if (GenTreeIndexAddr* index = addr->IsIndexAddr())
         {
-            addr = structIndir->AsObj()->GetAddr();
-
-            if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->TypeIs(TYP_STRUCT))
-            {
-                if (GenTreeIndex* index = addr->AsUnOp()->GetOp(0)->IsIndex())
-                {
-                    addrLayout = index->GetLayout();
-                }
-            }
-            else if (GenTreeFieldAddr* field = addr->IsFieldAddr())
-            {
-                addrLayout = field->GetLayout(m_compiler);
-            }
+            addrLayout = index->GetLayout(m_compiler);
         }
 
         if (addrLayout != nullptr)
@@ -2167,12 +2151,7 @@ private:
             }
         }
 
-        if (!structIndir->IsObj())
-        {
-            return m_compiler->gtNewOperNode(GT_IND, type, addr);
-        }
-
-        structIndir->ChangeOper(GT_IND);
+        structIndir->SetOper(GT_IND);
         structIndir->SetType(type);
         return structIndir;
     }

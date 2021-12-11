@@ -292,7 +292,6 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeIndex)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
@@ -1364,12 +1363,6 @@ AGAIN:
                         return false;
                     }
                     break;
-                case GT_INDEX:
-                    if (op1->AsIndex()->GetElemSize() != op2->AsIndex()->GetElemSize())
-                    {
-                        return false;
-                    }
-                    break;
                 case GT_INDEX_ADDR:
                     if (op1->AsIndexAddr()->GetElemSize() != op2->AsIndexAddr()->GetElemSize())
                     {
@@ -1922,9 +1915,6 @@ AGAIN:
                 case GT_CAST:
                     hash ^= tree->AsCast()->gtCastType;
                     break;
-                case GT_INDEX:
-                    hash += tree->AsIndex()->GetElemSize();
-                    break;
                 case GT_INDEX_ADDR:
                     hash += tree->AsIndexAddr()->GetElemSize();
                     break;
@@ -1989,7 +1979,6 @@ AGAIN:
                 // For the ones below no extra argument matters for comparison.
                 case GT_ARR_INDEX:
                 case GT_QMARK:
-                case GT_INDEX:
                 case GT_INDEX_ADDR:
                     break;
 
@@ -6013,10 +6002,6 @@ GenTree* Compiler::gtCloneExpr(
                 copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(tree->AsFieldAddr());
                 break;
 
-            case GT_INDEX:
-                copy = new (this, GT_INDEX) GenTreeIndex(tree->AsIndex());
-                break;
-
             case GT_INDEX_ADDR:
                 copy = new (this, GT_INDEX_ADDR) GenTreeIndexAddr(tree->AsIndexAddr());
                 break;
@@ -7855,8 +7840,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                         break;
                     }
                 }
-                FALLTHROUGH;
-            case GT_INDEX:
                 if (tree->gtFlags & GTF_IND_VOLATILE)
                 {
                     printf("V");
@@ -8117,6 +8100,10 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             {
                 layout = field->GetLayout(this);
             }
+            else if (GenTreeIndexAddr* index = tree->IsIndexAddr())
+            {
+                layout = index->GetLayout(this);
+            }
 
             if (layout != nullptr)
             {
@@ -8147,10 +8134,6 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             else if (GenTreeLclFld* lclFld = tree->IsLclFld())
             {
                 layout = tree->AsLclFld()->GetLayout(this);
-            }
-            else if (GenTreeIndex* index = tree->IsIndex())
-            {
-                layout = index->GetLayout();
             }
             else if (GenTreeCall* call = tree->IsCall())
             {
@@ -11114,21 +11097,21 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     // Get the address of the struct being boxed
     GenTree* const arg = call->gtCallArgs->GetNext()->GetNode();
 
-    if (arg->OperIs(GT_LCL_VAR_ADDR, GT_FIELD_ADDR, GT_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
+    if (arg->OperIs(GT_LCL_VAR_ADDR, GT_FIELD_ADDR, GT_INDEX_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
     {
         ClassLayout* nullableLayout;
 
-        if (arg->OperIs(GT_LCL_VAR_ADDR))
-        {
-            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
-        }
-        else if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
+        if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
         {
             nullableLayout = fieldAddr->GetLayout(this);
         }
+        else if (GenTreeIndexAddr* indexAddr = arg->IsIndexAddr())
+        {
+            nullableLayout = indexAddr->GetLayout(this);
+        }
         else
         {
-            nullableLayout = gtGetStructLayout(arg->AsUnOp()->GetOp(0));
+            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
         }
 
         if (nullableLayout == nullptr)
@@ -14168,6 +14151,11 @@ void GenTreeFieldAddr::SetLayout(ClassLayout* layout, Compiler* compiler)
     SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
 }
 
+ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
+{
+    return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
+}
+
 bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
 {
     FieldSeqNode* fieldSeq     = nullptr;
@@ -14381,8 +14369,6 @@ ClassLayout* Compiler::gtGetStructLayout(GenTree* tree)
             return tree->AsCall()->GetRetLayout();
         case GT_RET_EXPR:
             return tree->AsRetExpr()->GetLayout();
-        case GT_INDEX:
-            return tree->AsIndex()->GetLayout();
         case GT_LCL_VAR:
             return lvaGetDesc(tree->AsLclVar())->GetLayout();
         case GT_LCL_FLD:
@@ -14631,6 +14617,12 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             {
                 objClass = gtGetFieldClassHandle(field->GetFieldHandle(), pIsExact, pIsNonNull);
             }
+            else if (GenTreeIndexAddr* index = addr->IsIndexAddr())
+            {
+                objClass    = gtGetArrayElementClassHandle(index->GetArray());
+                *pIsExact   = false;
+                *pIsNonNull = false;
+            }
 
             break;
         }
@@ -14649,12 +14641,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             *pIsNonNull               = true;
             break;
         }
-
-        case GT_INDEX:
-            objClass    = gtGetArrayElementClassHandle(obj->AsIndex()->GetArray());
-            *pIsExact   = false;
-            *pIsNonNull = false;
-            break;
 
         default:
         {
