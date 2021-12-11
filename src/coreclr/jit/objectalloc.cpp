@@ -644,12 +644,12 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
             case GT_COLON:
             case GT_QMARK:
             case GT_ADD:
+            case GT_FIELD_ADDR:
                 // Check whether the local escapes via its grandparent.
                 ++parentIndex;
                 keepChecking = true;
                 break;
 
-            case GT_FIELD:
             case GT_IND:
             {
                 int grandParentIndex = parentIndex + 1;
@@ -749,6 +749,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
             case GT_COLON:
             case GT_QMARK:
             case GT_ADD:
+            case GT_FIELD_ADDR:
                 if (parent->TypeGet() == TYP_REF)
                 {
                     parent->ChangeType(newType);
@@ -757,7 +758,6 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
                 keepChecking = true;
                 break;
 
-            case GT_FIELD:
             case GT_IND:
             {
                 if (newType != TYP_BYREF)

@@ -15,24 +15,6 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
     //     actually produce values in IR) in order to support the invariant that every
     //     node produces a value.
     //
-    // The existence of GT_ADDR nodes and their use together with GT_FIELD to form
-    // FIELD/ADDR/FIELD/ADDR/LCL_VAR sequences complicate things a bit. A typical
-    // GT_FIELD node acts like an indirection and should produce an unknown value,
-    // local address analysis doesn't know or care what value the field stores.
-    // But a GT_FIELD can also be used as an operand for a GT_ADDR node and then
-    // the GT_FIELD node does not perform an indirection, it's just represents a
-    // location, similar to GT_LCL_VAR and GT_LCL_FLD.
-    //
-    // To avoid this issue, the semantics of GT_FIELD (and for simplicity's sake any other
-    // indirection) nodes slightly deviates from the IR semantics - an indirection does not
-    // actually produce an unknown value but a location value, if the indirection address
-    // operand is an address value.
-    //
-    // The actual indirection is performed when the indirection's user node is processed:
-    //   - A GT_ADDR user turns the location value produced by the indirection back
-    //     into an address value.
-    //   - Any other user node performs the indirection and produces an unknown value.
-    //
     class Value
     {
         GenTree*      m_node;
@@ -283,11 +265,11 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         }
 
         //------------------------------------------------------------------------
-        // Field: Produce a location value from an address value.
+        // FieldAddress: Produce a field address value from an address value.
         //
         // Arguments:
         //    val - the input value
-        //    field - the FIELD node that uses the input address value
+        //    field - the FIELD_ADDR node that uses the input address value
         //    fieldSeqStore - the compiler's field sequence store
         //
         // Return Value:
@@ -302,7 +284,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         //     if the offset overflows then location is not representable, must escape
         //   - UNKNOWN => UNKNOWN
         //
-        bool Field(Value& val, GenTreeField* field, FieldSeqStore* fieldSeqStore)
+        bool FieldAddress(Value& val, GenTreeFieldAddr* field, FieldSeqStore* fieldSeqStore)
         {
             assert(!IsLocation() && !IsAddress());
 
@@ -321,8 +303,9 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
                     return false;
                 }
 
-                m_lclNum = val.m_lclNum;
-                m_offset = newOffset.Value();
+                m_address = true;
+                m_lclNum  = val.m_lclNum;
+                m_offset  = newOffset.Value();
 
                 if (field->MayOverlap())
                 {
@@ -545,13 +528,13 @@ public:
                 PopValue();
                 break;
 
-            case GT_FIELD:
+            case GT_FIELD_ADDR:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsField()->GetAddr());
+                assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
 
-                if (!TopValue(1).Field(TopValue(0), node->AsField(), m_compiler->GetFieldSeqStore()))
+                if (!TopValue(1).FieldAddress(TopValue(0), node->AsFieldAddr(), m_compiler->GetFieldSeqStore()))
                 {
-                    // Either the address comes from a location value (e.g. FIELD(IND(...)))
+                    // Either the address comes from a location value (e.g. FIELD_ADDR(IND(...)))
                     // or the field offset has overflowed.
                     EscapeValue(TopValue(0), node);
                 }
@@ -1215,7 +1198,7 @@ private:
     //
     unsigned GetIndirSize(GenTree* indir, GenTree* user)
     {
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK, GT_FIELD));
+        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK));
 
         if (indir->GetType() != TYP_STRUCT)
         {
@@ -1259,11 +1242,6 @@ private:
                 default:
                     break;
             }
-        }
-
-        if (GenTreeField* field = indir->IsField())
-        {
-            return field->GetLayout(m_compiler)->GetSize();
         }
 
         return indir->AsBlk()->GetLayout()->GetSize();
@@ -1319,42 +1297,7 @@ private:
         assert(val.IsLocation());
 
         GenTree* node = val.Node();
-        GenTree* addr;
-
-        if (GenTreeField* field = node->IsField())
-        {
-            addr = field->GetAddr();
-
-            bool isVolatile  = field->IsVolatile();
-            bool isUnaligned = field->IsUnaligned();
-
-            if (field->TypeIs(TYP_STRUCT))
-            {
-                ClassLayout* layout = field->GetLayout(m_compiler);
-
-                node->ChangeOper(GT_OBJ);
-                node->AsObj()->SetLayout(layout);
-                node->AsObj()->SetKind(StructStoreKind::Invalid);
-            }
-            else
-            {
-                node->ChangeOper(GT_IND);
-            }
-
-            if (isVolatile)
-            {
-                node->AsIndir()->SetVolatile();
-            }
-
-            if (isUnaligned)
-            {
-                node->AsIndir()->SetUnaligned();
-            }
-        }
-        else
-        {
-            addr = node->AsIndir()->GetAddr();
-        }
+        GenTree* addr = node->AsIndir()->GetAddr();
 
         m_compiler->lvaSetVarAddrExposed(val.LclNum());
 
@@ -1382,7 +1325,7 @@ private:
         assert(val.IsLocation());
 
         GenTree* indir = val.Node();
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD));
+        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
         assert(!indir->OperIs(GT_IND) || !indir->TypeIs(TYP_STRUCT));
 
         if (val.Offset() > UINT16_MAX)
@@ -1393,12 +1336,12 @@ private:
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
-        if (indir->OperIs(GT_FIELD) ? indir->AsField()->IsVolatile() : indir->AsIndir()->IsVolatile())
+        if (indir->AsIndir()->IsVolatile())
         {
             // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
             // to avoid diffs due to old promotion code ignoring volatile as well.
 
-            if (!indir->OperIs(GT_FIELD) || !varDsc->IsPromotedField())
+            if (!indir->AsIndir()->GetAddr()->OperIs(GT_FIELD_ADDR) || !varDsc->IsPromotedField())
             {
                 CanonicalizeLocalIndir(val);
                 return;
@@ -1438,7 +1381,7 @@ private:
 
         if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT))
         {
-            ClassLayout* indirLayout = GetStructIndirLayout(indir);
+            ClassLayout* indirLayout = indir->AsObj()->GetLayout();
 
             switch (user->GetOper())
             {
@@ -1562,9 +1505,9 @@ private:
 
             // If we haven't been able to get rid of the indir until now then just use a LCL_FLD.
 
-            if (indir->OperIs(GT_IND, GT_OBJ, GT_FIELD))
+            if (indir->OperIs(GT_IND, GT_OBJ))
             {
-                ClassLayout* layout = varTypeIsStruct(indir->GetType()) ? GetStructIndirLayout(indir) : nullptr;
+                ClassLayout* layout = indir->IsObj() ? indir->AsObj()->GetLayout() : nullptr;
 
                 indir->ChangeOper(GT_LCL_FLD);
                 indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1595,7 +1538,7 @@ private:
                 m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
             }
 
-            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ, GT_FIELD);)
+            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ);)
 
             return;
         }
@@ -1662,12 +1605,7 @@ private:
         ClassLayout*  indirLayout = nullptr;
         FieldSeqNode* fieldSeq    = val.FieldSeq();
 
-        if ((fieldSeq != nullptr) && (fieldSeq != FieldSeqStore::NotAField()))
-        {
-            assert(!indir->OperIs(GT_FIELD) ||
-                   (indir->AsField()->GetFieldHandle() == fieldSeq->GetTail()->GetFieldHandle()));
-        }
-        else
+        if (fieldSeq == FieldSeqStore::NotAField())
         {
             // Normalize fieldSeq to null so we don't need to keep checking for both null and NotAField.
             fieldSeq = nullptr;
@@ -1675,7 +1613,7 @@ private:
 
         if (!varTypeIsStruct(indir->GetType()))
         {
-            if ((fieldSeq != nullptr) && !indir->OperIs(GT_FIELD))
+            if (fieldSeq != nullptr)
             {
                 // If we have an indirection node and a field sequence then they should have the same type.
                 // Otherwise it's best to forget the field sequence since the resulting LCL_FLD
@@ -1699,11 +1637,11 @@ private:
         }
         else
         {
-            indirLayout = GetStructIndirLayout(indir);
+            indirLayout = indir->AsObj()->GetLayout();
 
             assert(!indirLayout->IsBlockLayout());
 
-            if ((fieldSeq != nullptr) && !indir->OperIs(GT_FIELD) &&
+            if ((fieldSeq != nullptr) &&
                 (indirLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle())))
             {
                 fieldSeq = nullptr;
@@ -1808,7 +1746,7 @@ private:
     bool MorphLocalStructIndirReturn(const Value& val, GenTree* indir, ClassLayout* indirLayout, GenTreeUnOp* ret)
     {
         assert(val.Offset() == 0);
-        assert(indir->TypeIs(TYP_STRUCT));
+        assert(indir->OperIs(GT_OBJ) && indir->TypeIs(TYP_STRUCT));
         assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
         assert(m_compiler->info.GetRetLayout()->GetSize() == indirLayout->GetSize());
 
@@ -1909,7 +1847,7 @@ private:
         {
             assert(varTypeSize(bitcastType) <= REGSIZE_BYTES);
 
-            GenTree* addr = indir->IsField() ? indir->AsField()->GetAddr() : indir->AsObj()->GetAddr();
+            GenTree* addr = indir->AsObj()->GetAddr();
 
             addr->ChangeOper(GT_LCL_VAR);
             addr->SetType(lclType);
@@ -2187,12 +2125,7 @@ private:
         GenTree*     addr       = nullptr;
         ClassLayout* addrLayout = nullptr;
 
-        if (GenTreeField* field = structIndir->IsField())
-        {
-            addr       = m_compiler->gtNewAddrNode(field, varTypeAddrAdd(field->GetAddr()->GetType()));
-            addrLayout = field->GetLayout(m_compiler);
-        }
-        else if (GenTreeIndex* index = structIndir->IsIndex())
+        if (GenTreeIndex* index = structIndir->IsIndex())
         {
             addr       = m_compiler->gtNewAddrNode(index, TYP_BYREF);
             addrLayout = index->GetLayout();
@@ -2203,14 +2136,14 @@ private:
 
             if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->TypeIs(TYP_STRUCT))
             {
-                if (GenTreeField* field = addr->AsUnOp()->GetOp(0)->IsField())
-                {
-                    addrLayout = field->GetLayout(m_compiler);
-                }
-                else if (GenTreeIndex* index = addr->AsUnOp()->GetOp(0)->IsIndex())
+                if (GenTreeIndex* index = addr->AsUnOp()->GetOp(0)->IsIndex())
                 {
                     addrLayout = index->GetLayout();
                 }
+            }
+            else if (GenTreeFieldAddr* field = addr->IsFieldAddr())
+            {
+                addrLayout = field->GetLayout(m_compiler);
             }
         }
 
@@ -2220,13 +2153,17 @@ private:
 
             if (fieldSeq->IsField())
             {
-                for (; fieldSeq->GetNext() != nullptr; fieldSeq = fieldSeq->GetNext())
+                for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
                 {
-                    GenTree* field = m_compiler->gtNewFieldRef(TYP_STRUCT, fieldSeq->GetFieldHandle(), addr, 0);
-                    addr           = m_compiler->gtNewAddrNode(field, varTypeAddrAdd(addr->GetType()));
+                    // TODO-MIKE-Cleanup: It may be good to set the layout on these FIELD_ADDRs
+                    // for the sake of consistency, though at this point nothing needs it.
+                    // The problem is that we don't have an easy way to obtain it. We could get
+                    // it by querying the field type from the handle but that's not precise when
+                    // generics are involved.
+                    addr = m_compiler->gtNewFieldAddr(addr, fieldSeq->GetFieldHandle(), 0);
                 }
 
-                return m_compiler->gtNewFieldRef(type, fieldSeq->GetFieldHandle(), addr, 0);
+                return m_compiler->gtNewFieldIndir(type, addr->AsFieldAddr());
             }
         }
 
@@ -2245,16 +2182,6 @@ private:
         assert(ret->OperIs(GT_RETURN));
 
         return (m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0);
-    }
-
-    ClassLayout* GetStructIndirLayout(GenTree* indir)
-    {
-        if (GenTreeField* field = indir->IsField())
-        {
-            return field->GetLayout(m_compiler);
-        }
-
-        return indir->AsObj()->GetLayout();
     }
 
     CORINFO_CLASS_HANDLE GetStructFieldType(CORINFO_FIELD_HANDLE fieldHandle)

@@ -920,11 +920,15 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
             return false;
         }
     }
+    else if (addr->OperIs(GT_FIELD_ADDR))
+    {
+        return false;
+    }
     else if (addr->gtOper == GT_ADDR)
     {
         // If the address is a ADDR node then it cannot be null. The location whose address is
         // being taken is either a local or static variable, whose address is necessarily non-null,
-        // or else it is a FIELD or INDEX node, which will do its own null checking if necessary.
+        // or else it is a INDEX node, which will do its own null checking if necessary.
         return false;
     }
     else if (addr->gtOper == GT_ADD)

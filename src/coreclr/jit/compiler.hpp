@@ -1034,12 +1034,11 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
     return node;
 }
 
-inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
-                                             CORINFO_FIELD_HANDLE handle,
-                                             GenTree*             addr,
-                                             unsigned             offset)
+inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
 {
-    GenTreeField* tree = new (this, GT_FIELD) GenTreeField(type, addr, handle, offset);
+    var_types type = varTypeAddrAdd(addr->GetType());
+
+    GenTreeFieldAddr* tree = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, handle, offset);
 
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
     if (addr->OperIs(GT_LCL_VAR_ADDR))
@@ -1048,6 +1047,35 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
         LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
         varDsc->lvFieldAccessed = 1;
+    }
+
+    return tree;
+}
+
+inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
+{
+    GenTreeIndir* indir;
+
+    if (type != TYP_STRUCT)
+    {
+        indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+    }
+    else
+    {
+        indir = gtNewObjNode(typGetLayoutByNum(fieldAddr->GetLayoutNum()), fieldAddr);
+        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
+        // and add it back bellow according to the old field rules.
+        indir->gtFlags &= ~GTF_GLOB_REF;
+    }
+
+    GenTree* addr = fieldAddr->GetAddr();
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR))
+    {
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+
+        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
         // Some arguments may end up being accessed via indirections:
@@ -1070,16 +1098,16 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
 #endif
                 )
         {
-            tree->gtFlags |= GTF_GLOB_REF;
+            indir->gtFlags |= GTF_GLOB_REF;
         }
 #endif
     }
     else
     {
-        tree->gtFlags |= GTF_GLOB_REF;
+        indir->gtFlags |= GTF_GLOB_REF;
     }
 
-    return tree;
+    return indir;
 }
 
 inline GenTreeIndex* Compiler::gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind)
@@ -3863,7 +3891,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_ADDR:
-        case GT_FIELD:
+        case GT_FIELD_ADDR:
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:

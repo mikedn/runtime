@@ -4995,18 +4995,18 @@ unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
     return lclNum;
 }
 
-GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
+GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac)
 {
-    GenTreeField*  firstField    = field;
-    GenTree*       addr          = field->GetAddr();
-    target_size_t  offset        = field->GetOffset();
-    FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
-    FieldSeqNode*  fieldSeq =
+    GenTreeFieldAddr* firstField    = field;
+    GenTree*          addr          = field->GetAddr();
+    target_size_t     offset        = field->GetOffset();
+    FieldSeqStore*    fieldSeqStore = GetFieldSeqStore();
+    FieldSeqNode*     fieldSeq =
         field->MayOverlap() ? FieldSeqNode::NotAField() : fieldSeqStore->CreateSingleton(field->GetFieldHandle());
 
-    while (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_FIELD))
+    while (GenTreeFieldAddr* nextField = addr->IsFieldAddr())
     {
-        field = addr->AsUnOp()->GetOp(0)->AsField();
+        field = nextField;
         addr  = field->GetAddr();
         offset += field->GetOffset();
 
@@ -5024,7 +5024,7 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         {
             // R2R field lookup is used only for fields of reference
             // types so this must be the last field in the sequence.
-            assert(!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_FIELD));
+            assert(!addr->IsFieldAddr());
             break;
         }
 #endif
@@ -5068,11 +5068,10 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
     INDEBUG(GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();)
     assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
-    assert((firstField->gtFlags & GTF_GLOB_REF) != 0);
 
-    // null MAC means we encounter the FIELD first. This denotes a dereference of the field,
-    // and thus is equivalent to a MACK_Ind with zero offset.
-    MorphAddrContext defMAC(false);
+    // null MAC means we encounter the FIELD_ADDR first. This is equivalent to a MAC_Addr
+    // with zero offset.
+    MorphAddrContext defMAC(true);
     if (mac == nullptr)
     {
         mac = &defMAC;
@@ -5113,8 +5112,9 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
         }
     }
 
-    var_types addrType  = addr->GetType();
-    GenTree*  nullCheck = nullptr;
+    var_types      addrType      = addr->GetType();
+    GenTree*       nullCheck     = nullptr;
+    GenTreeLclVar* nullCheckAddr = nullptr;
 
     if (explicitNullCheckRequired)
     {
@@ -5123,7 +5123,8 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
 
         if (addr->OperIs(GT_LCL_VAR))
         {
-            lclNum = addr->AsLclVar()->GetLclNum();
+            nullCheckAddr = addr->AsLclVar();
+            lclNum        = nullCheckAddr->GetLclNum();
         }
         else
         {
@@ -5167,44 +5168,50 @@ GenTree* Compiler::fgMorphField(GenTreeField* field, MorphAddrContext* mac)
     if (nullCheck != nullptr)
     {
         addr = gtNewCommaNode(nullCheck, addr);
+
+        // TODO-MIKE-Cleanup: Workaround to reduce diffs when switching from FIELD to FIELD_ADDR.
+        // ADDR(FIELD) required FIELD to have DONT_CSE and this flag survived through a series of
+        // convoluted tranforms: ADDR(FIELD(x)) - ADDR(IND(COMMA(n, x))) - ADDR(COMMA(n, IND(x)))
+        // - COMMA(n, ADDR(IND(x))) - COMMA(n, x). So pretty much all field addresses that needed
+        // explicit null checks were not CSE candidates. Which isn't necessarily bad as CSE seems
+        // far too happy to CSE cheap constant additions, even if there's no good mechanism to
+        // ensure that such CSEing doesn't result in worse register allocation and/or spilling.
+        // But this didn't affect all explicit null checks - since the decision to insert the null
+        // check doesn't take into account local assertion propagation, sometimes the COMMA ended
+        // up being removed before having a chance to infect other nodes with DONT_CSE.
+        //
+        // So we're going to set DONT_CSE when we detect and address taken field case and if the
+        // null check cannot be eliminated by local assertion propagation. This almost matches
+        // the original behaviour with one exception: DONT_CSE was also applied if the field
+        // address was immediately used by an IND - IND(ADDR(FIELD)) - but we can't detect this
+        // case anymore because everything is IND(FIELD_ADDR) now. But since we have an IND the
+        // DONT_CSE should be set as part of address mode marking. And hey, that's bonkers too.
+        //
+        // Now, can we just skip adding the null check COMMA if assertion propagation tells that
+        // the address is not null? In theory yes, but it looks like there are other problems
+        // that are hidden in this convoluted morphing process. One is that eliminating a null
+        // check based on local assertion propagation would require us to set GTF_ORDER_SIDEEFF
+        // on some node and it's not quite clear which one. optAssertionProp sets it on the
+        // NULLCHECK node but then it looks like COMMA morphing code manages to drop it, likely
+        // by accident. In any case, attempting to skip NULLCHECK generation like this produces
+        // other diffs.
+
+        if (mac->isAddressTaken)
+        {
+#if LOCAL_ASSERTION_PROP
+            INDEBUG(bool vnBased;)
+            INDEBUG(AssertionIndex assertionIndex;)
+
+            if ((nullCheckAddr == nullptr) || !optLocalAssertionProp || (optAssertionCount == 0) ||
+                !optAssertionIsNonNull(nullCheckAddr, apFull DEBUGARG(&vnBased) DEBUGARG(&assertionIndex)))
+#endif
+            {
+                addr->SetDoNotCSE();
+            }
+        }
     }
 
-    GenTree* indir = firstField;
-
-    // TODO-MIKE-Cleanup: If the field is address taken then we don't really need an OBJ
-    // but it wouldn't hurt to use one for consistency. However, OBJ lacks the special
-    // IND(COMMA) morphing and that results in some diffs due to the removal of spurious
-    // GTF_DONT_CSE.
-
-    if (!firstField->TypeIs(TYP_STRUCT) || mac->isAddressTaken)
-    {
-        indir->SetOper(GT_IND);
-    }
-    else
-    {
-        ClassLayout* layout = firstField->GetLayout(this);
-
-        indir->SetOper(GT_OBJ);
-        indir->AsObj()->SetLayout(layout);
-    }
-
-    indir->AsIndir()->SetAddr(addr);
-
-    if ((nullCheck != nullptr) || !addrMayBeNull)
-    {
-        indir->gtFlags &= ~GTF_EXCEPT;
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-    }
-    else
-    {
-        indir->gtFlags |= GTF_EXCEPT;
-    }
-
-    indir->AddSideEffects(addr->GetSideEffects());
-
-    JITDUMPTREE(indir, "\nMorphed FIELD:\n");
-
-    return indir;
+    return addr;
 }
 
 //------------------------------------------------------------------------
@@ -10171,11 +10178,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 #endif
 
-        case GT_FIELD:
-            tree = fgMorphField(tree->AsField(), mac);
-            op1  = tree->AsIndir()->GetAddr();
-            break;
-
         default:
             break;
     }
@@ -10213,7 +10215,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         MorphAddrContext  newOp1Mac(tree->OperIs(GT_ADDR));
         MorphAddrContext* op1Mac = mac;
 
-        if ((op1->OperIs(GT_FIELD) || op1->OperIsIndir()) && !tree->OperIs(GT_ADDR))
+        if (op1->OperIsIndir() && !tree->OperIs(GT_ADDR))
         {
             // An indirection gets a default address context if it isn't address taken.
             op1Mac = nullptr;
@@ -10306,7 +10308,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         }
 #endif // LOCAL_ASSERTION_PROP
 
-        if (op2->OperIs(GT_FIELD) || op2->OperIsIndir())
+        if (op2->OperIsIndir())
         {
             // An indirection gets a default address context if it isn't address taken.
             mac = nullptr;
@@ -12910,6 +12912,13 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     if (fgGlobalMorph)
     {
+        // FIELD_ADDR sequences may collapse to nothing, deal with them first so that
+        // we can continue as if they didn't exist in the first place.
+        if (GenTreeFieldAddr* field = tree->IsFieldAddr())
+        {
+            tree = fgMorphFieldAddr(field, mac);
+        }
+
         /* Ensure that we haven't morphed this node already */
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
 

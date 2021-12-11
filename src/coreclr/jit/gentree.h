@@ -224,14 +224,11 @@ public:
     }
 };
 
-/*****************************************************************************/
-
-// GT_FIELD nodes will be lowered into more "code-gen-able" representations, like
-// GT_IND's of addresses, or GT_LCL_FLD nodes.  We'd like to preserve the more abstract
-// information, and will therefore annotate such lowered nodes with FieldSeq's.  A FieldSeq
-// represents a (possibly) empty sequence of fields.  The fields are in the order
-// in which they are dereferenced.  The first field may be an object field or a struct field;
-// all subsequent fields must be struct fields.
+// FIELD_ADDR nodes are morphed into ADDs. We'd like to preserve the more abstract
+// information, and will therefore annotate such lowered nodes with FieldSeq's.
+// A FieldSeq represents a (possibly) empty sequence of fields. The fields are
+// in the order in which they are dereferenced. The first field may be an object
+// field or a struct field; all subsequent fields must be struct fields.
 struct FieldSeqNode
 {
     friend class FieldSeqStore;
@@ -542,8 +539,6 @@ enum GenTreeFlags : unsigned int
     GTF_CALL_HOISTABLE          = 0x02000000, // GT_CALL -- call is hoistable
 
     GTF_MEMORYBARRIER_LOAD      = 0x40000000, // GT_MEMORYBARRIER -- Load barrier
-
-    GTF_FLD_VOLATILE            = 0x40000000, // GT_FIELD -- same as GTF_IND_VOLATILE
 
     GTF_INX_RNGCHK              = 0x80000000, // GT_INDEX/GT_INDEX_ADDR -- the array reference should be range-checked.
 
@@ -3700,7 +3695,7 @@ struct GenTreeBox : public GenTreeUnOp
 #endif
 };
 
-struct GenTreeField : public GenTreeUnOp
+struct GenTreeFieldAddr : public GenTreeUnOp
 {
     CORINFO_FIELD_HANDLE m_handle;
     unsigned             m_offset;
@@ -3711,8 +3706,8 @@ struct GenTreeField : public GenTreeUnOp
 #endif
 
 public:
-    GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
-        : GenTreeUnOp(GT_FIELD, type, addr)
+    GenTreeFieldAddr(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
+        : GenTreeUnOp(GT_FIELD_ADDR, type, addr)
         , m_handle(handle)
         , m_offset(offset)
         , m_mayOverlap(false)
@@ -3726,8 +3721,8 @@ public:
         gtFlags |= addr->GetSideEffects();
     }
 
-    GenTreeField(const GenTreeField* copyFrom)
-        : GenTreeUnOp(GT_FIELD, copyFrom->GetType(), copyFrom->GetAddr())
+    GenTreeFieldAddr(const GenTreeFieldAddr* copyFrom)
+        : GenTreeUnOp(GT_FIELD_ADDR, copyFrom->GetType(), copyFrom->GetAddr())
         , m_handle(copyFrom->m_handle)
         , m_offset(copyFrom->m_offset)
         , m_mayOverlap(copyFrom->m_mayOverlap)
@@ -3771,13 +3766,12 @@ public:
 
     uint16_t GetLayoutNum() const
     {
-        return varTypeIsStruct(GetType()) ? m_layoutNum : 0;
+        return m_layoutNum;
     }
 
     void SetLayoutNum(unsigned layoutNum)
     {
         assert(layoutNum <= UINT16_MAX);
-        assert((layoutNum == 0) || varTypeIsStruct(GetType()));
         m_layoutNum = static_cast<uint16_t>(layoutNum);
     }
 
@@ -3796,18 +3790,8 @@ public:
     }
 #endif
 
-    bool IsVolatile() const
-    {
-        return (gtFlags & GTF_FLD_VOLATILE) != 0;
-    }
-
-    bool IsUnaligned() const
-    {
-        return (gtFlags & GTF_IND_UNALIGNED) != 0;
-    }
-
 #if DEBUGGABLE_GENTREE
-    GenTreeField() : GenTreeUnOp()
+    GenTreeFieldAddr() : GenTreeUnOp()
     {
     }
 #endif

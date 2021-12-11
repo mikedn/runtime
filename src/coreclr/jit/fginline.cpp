@@ -386,12 +386,11 @@ private:
             case GT_LCL_VAR:
                 return m_compiler->gtNewLclVarAddrNode(tree->AsLclVar()->GetLclNum(), TYP_BYREF);
 
-            case GT_FIELD:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
-#endif
                 // TODO-MIKE-Cleanup: Bleah, more ADDR(SIMD|HWINTRINSIC) nonsense...
                 return m_compiler->gtNewAddrNode(tree);
+#endif
 
             default:
                 unreached();
@@ -438,7 +437,7 @@ private:
 
     GenTree* GetStructAsgSrc(GenTree* src, ClassLayout* layout)
     {
-        if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsHWIntrinsic())
+        if (!src->OperIs(GT_LCL_VAR) && !src->OperIsHWIntrinsic())
         {
             GenTree* srcAddr = GetStructAddress(src);
 
@@ -2391,7 +2390,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
 
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR, GT_LCL_VAR_ADDR));
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_FIELD_ADDR));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;
@@ -2403,30 +2402,43 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
             // TODO-MIKE-Cleanup: This seems like the wrong place for such special casing,
             // morph would probably make more sense. But the problem is that when we morph
-            // a FIELD we don't know if it is used or not and then we may end up adding
+            // FIELD_ADDR we don't know if it is used or not and then we may end up adding
             // a null check temp thinking that the address has multiple uses. But if the
-            // FIELD isn't used we only have one use of the address - the null check itself.
+            // FIELD_ADDR isn't used we only have one use of the address - the null check
+            // itself.
 
-            if (GenTreeField* field = argNode->IsField())
+            GenTree* fieldAddr = nullptr;
+
+            if (GenTreeIndir* indir = argNode->IsIndir())
             {
-                while (!field->IsVolatile() && field->GetAddr()->OperIs(GT_ADDR) &&
-                       field->GetAddr()->AsUnOp()->GetOp(0)->IsField())
+                if (!indir->IsVolatile())
                 {
-                    field = field->GetAddr()->AsUnOp()->GetOp(0)->AsField();
+                    fieldAddr = indir->GetAddr();
                 }
+            }
+            else
+            {
+                fieldAddr = argNode;
+            }
 
-                if (field->IsVolatile())
+            if (fieldAddr != nullptr)
+            {
+                if (GenTreeFieldAddr* field = fieldAddr->IsFieldAddr())
                 {
-                    argNode = field;
-                }
-                else if (fgAddrCouldBeNull(field->GetAddr()))
-                {
-                    gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
-                    argNode = field;
-                }
-                else
-                {
-                    argNode = field->GetAddr();
+                    while (GenTreeFieldAddr* nextField = field->GetAddr()->IsFieldAddr())
+                    {
+                        field = nextField;
+                    }
+
+                    if (fgAddrCouldBeNull(field->GetAddr()))
+                    {
+                        gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
+                        argNode = field;
+                    }
+                    else
+                    {
+                        argNode = field->GetAddr();
+                    }
                 }
             }
 

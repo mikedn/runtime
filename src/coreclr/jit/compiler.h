@@ -2052,7 +2052,8 @@ public:
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
-    GenTreeField* gtNewFieldRef(var_types type, CORINFO_FIELD_HANDLE handle, GenTree* addr, unsigned offset);
+    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
+    GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
 
     GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
     GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
@@ -4671,7 +4672,7 @@ public:
     bool fgAddrCouldBeNull(GenTree* addr);
 
 private:
-    GenTree* fgMorphField(GenTreeField* field, MorphAddrContext* mac);
+    GenTree* fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
 #if FEATURE_FASTTAILCALL
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
@@ -8874,7 +8875,7 @@ public:
             case GT_CKFINITE:
             case GT_LCLHEAP:
             case GT_ADDR:
-            case GT_FIELD:
+            case GT_FIELD_ADDR:
             case GT_IND:
             case GT_OBJ:
             case GT_BLK:

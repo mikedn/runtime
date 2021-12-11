@@ -7756,13 +7756,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
             case GT_NO_OP:
                 break;
 
-            case GT_FIELD:
-                if (tree->gtFlags & GTF_FLD_VOLATILE)
-                {
-                    chars += printf("[FLD_VOLATILE]");
-                }
-                break;
-
             case GT_INDEX:
             case GT_INDEX_ADDR:
                 if (tree->gtFlags & GTF_INX_RNGCHK)
@@ -8303,7 +8296,12 @@ bool Compiler::lvaIsOSRLocal(unsigned varNum)
 //
 void Compiler::gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block)
 {
-    assert(tree->OperIs(GT_FIELD, GT_IND, GT_OBJ, GT_BLK));
+    assert(tree->OperIs(GT_FIELD_ADDR, GT_IND, GT_OBJ, GT_BLK));
+
+    // TODO-MIKE-Cleanup: There are multiple places that have special handling for FIELD_ADDR.
+    // All that could probably done here instead. See impImportPop, inlInitInlineeArgs and
+    // gtTryRemoveBoxUpstreamEffects.
+
     tree->ChangeOper(GT_NULLCHECK);
     tree->SetType(TYP_INT);
     block->bbFlags |= BBF_HAS_NULLCHECK;
