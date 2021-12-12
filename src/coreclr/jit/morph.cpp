@@ -4723,32 +4723,13 @@ GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index)
 
 GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 {
-    GenTree* array = tree->GetArray();
-    GenTree* index = tree->GetIndex();
-
     // In minopts, we don't expand INDEX_ADDR in order to minimize the size of the IR. As minopts compilation
     // time is roughly proportional to the size of the IR, this helps keep compilation times down.
     // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
     // performed when optimizing, as it does not require LclVar nodes (which are always stack loads/stores in
     // minopts).
 
-    if (opts.MinOpts())
-    {
-        array = fgMorphTree(array);
-        index = fgMorphTree(index);
-
-        tree->SetArray(array);
-        tree->SetIndex(index);
-        tree->SetSideEffects(array->GetSideEffects() | index->GetSideEffects());
-
-        if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
-        {
-            tree->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
-            tree->AddSideEffects(GTF_EXCEPT);
-        }
-
-        return tree;
-    }
+    assert(!opts.MinOpts());
 
     // When we are optimizing, we fully expand INDEX_ADDR to something like:
     //
@@ -4761,6 +4742,8 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
     GenTreeOp*        indexTmpAsg = nullptr;
     GenTreeBoundsChk* boundsCheck = nullptr;
 
+    GenTree* array       = tree->GetArray();
+    GenTree* index       = tree->GetIndex();
     uint8_t  lenOffs     = tree->GetLenOffs();
     uint8_t  dataOffs    = tree->GetDataOffs();
     unsigned elemSize    = tree->GetElemSize();
@@ -4885,7 +4868,9 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         }
     }
 
-    return fgMorphTree(addr);
+    INDEBUG(addr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
+    return addr;
 }
 
 GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
@@ -9597,7 +9582,16 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_INDEX_ADDR:
-            return fgMorphIndexAddr(tree->AsIndexAddr());
+            if (!opts.MinOpts())
+            {
+                tree = fgMorphIndexAddr(tree->AsIndexAddr());
+                assert(tree->OperIs(GT_ADD, GT_COMMA));
+                oper = tree->GetOper();
+                typ  = tree->GetType();
+                op1  = tree->AsOp()->GetOp(0);
+                op2  = tree->AsOp()->GetOp(1);
+            }
+            break;
 
         case GT_CAST:
             return fgMorphCast(tree->AsCast());
@@ -11575,6 +11569,18 @@ DONE_MORPHING_CHILDREN:
             noway_assert(varTypeIsFloating(op1->TypeGet()));
 
             fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_ARITH_EXCPN);
+            break;
+
+        case GT_INDEX_ADDR:
+            assert(opts.MinOpts());
+
+            tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
+
+            if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
+            {
+                tree->AsIndexAddr()->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
+                tree->AddSideEffects(GTF_EXCEPT);
+            }
             break;
 
         case GT_IND:
