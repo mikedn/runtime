@@ -4662,7 +4662,6 @@ private:
 #endif // FEATURE_SIMD
 
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
-    GenTree* fgMorphIndexAddr(GenTreeIndexAddr* tree);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
@@ -4670,6 +4669,7 @@ private:
     GenTree* fgMorphLocalVar(GenTree* tree, bool forceRemorph);
 
 public:
+    GenTree* fgMorphIndexAddr(GenTreeIndexAddr* tree);
     bool fgAddrCouldBeNull(GenTree* addr);
 
 private:

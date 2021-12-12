@@ -23,10 +23,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //      Returns the gen tree representation for arrLen or MD Array node as defined by
 //      the "type" member
 //
-// Notes:
-//      This tree produces IND(INDEX_ADDR) tree, the caller is supposed to morph it appropriately
-//      so it can be codegen'ed.
-//
 GenTree* LC_Array::ToGenTree(Compiler* comp, BasicBlock* bb)
 {
     // If jagged array
@@ -37,13 +33,13 @@ GenTree* LC_Array::ToGenTree(Compiler* comp, BasicBlock* bb)
         int      rank = GetDimRank();
         for (int i = 0; i < rank; ++i)
         {
-            arr =
-                comp->gtNewIndexIndir(TYP_REF,
-                                      comp->gtNewArrayIndexAddr(arr,
-                                                                comp->gtNewLclvNode(arrIndex->indLcls[i],
-                                                                                    comp->lvaTable[arrIndex->indLcls[i]]
-                                                                                        .lvType),
-                                                                TYP_REF));
+            GenTreeIndexAddr* addr =
+                comp->gtNewArrayIndexAddr(arr, comp->gtNewLclvNode(arrIndex->indLcls[i],
+                                                                   comp->lvaGetDesc(arrIndex->indLcls[i])->GetType()),
+                                          TYP_REF);
+
+            arr = comp->gtNewIndexIndir(TYP_REF, addr);
+            arr->AsIndir()->SetAddr(comp->fgMorphIndexAddr(addr));
         }
         // If asked for arrlen invoke arr length operator.
         if (oper == ArrLen)

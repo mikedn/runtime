@@ -4868,8 +4868,6 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         }
     }
 
-    INDEBUG(addr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
     return addr;
 }
 
@@ -7591,9 +7589,14 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
             fgWalkTreePost(&value, resetMorphedFlag);
 #endif // DEBUG
 
-            GenTree* nullCheckedArr = impCheckForNullPointer(arr);
-            GenTree* arrIndexNode   = gtNewIndexIndir(TYP_REF, gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF));
-            GenTree* arrStore       = gtNewAssignNode(arrIndexNode, value);
+            GenTree*          nullCheckedArr = impCheckForNullPointer(arr);
+            GenTreeIndexAddr* addr           = gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF);
+            GenTreeIndir*     arrIndexNode   = gtNewIndexIndir(TYP_REF, addr);
+            if (!fgGlobalMorph && !opts.MinOpts())
+            {
+                arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
+            }
+            GenTree* arrStore = gtNewAssignNode(arrIndexNode, value);
             arrStore->gtFlags |= GTF_ASG;
 
             GenTree* result = fgMorphTree(arrStore);
@@ -9578,18 +9581,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && ((op1->gtFlags & GTF_EXCEPT) == 0))
             {
                 tree->gtFlags &= ~GTF_EXCEPT;
-            }
-            break;
-
-        case GT_INDEX_ADDR:
-            if (!opts.MinOpts())
-            {
-                tree = fgMorphIndexAddr(tree->AsIndexAddr());
-                assert(tree->OperIs(GT_ADD, GT_COMMA));
-                oper = tree->GetOper();
-                typ  = tree->GetType();
-                op1  = tree->AsOp()->GetOp(0);
-                op2  = tree->AsOp()->GetOp(1);
             }
             break;
 
@@ -12808,6 +12799,17 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         if (GenTreeFieldAddr* field = tree->IsFieldAddr())
         {
             tree = fgMorphFieldAddr(field, mac);
+        }
+
+        // INDEX_ADDR cannot just collapse to nothing but let's handle it in similar
+        // manner for the sake of consistency. These nodes are not supposed to appear
+        // after global morph.
+        if (GenTreeIndexAddr* index = tree->IsIndexAddr())
+        {
+            if (!opts.MinOpts())
+            {
+                tree = fgMorphIndexAddr(index);
+            }
         }
 
         /* Ensure that we haven't morphed this node already */
