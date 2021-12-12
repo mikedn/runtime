@@ -4870,26 +4870,22 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         AddZeroOffsetFieldSeq(addr, fieldSeq);
     }
 
-    if (boundsCheck == nullptr)
+    if (boundsCheck != nullptr)
     {
-        addr = fgMorphTree(addr);
+        addr = gtNewCommaNode(boundsCheck, addr);
 
-        return addr;
+        if (indexTmpAsg != nullptr)
+        {
+            addr = gtNewCommaNode(indexTmpAsg, addr);
+        }
+
+        if (arrayTmpAsg != nullptr)
+        {
+            addr = gtNewCommaNode(arrayTmpAsg, addr);
+        }
     }
 
-    GenTreeOp* comma = gtNewCommaNode(boundsCheck, addr);
-
-    if (indexTmpAsg != nullptr)
-    {
-        comma = gtNewCommaNode(indexTmpAsg, comma);
-    }
-
-    if (arrayTmpAsg != nullptr)
-    {
-        comma = gtNewCommaNode(arrayTmpAsg, comma);
-    }
-
-    return fgMorphTree(comma);
+    return fgMorphTree(addr);
 }
 
 GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
