@@ -4488,8 +4488,10 @@ bool GenTree::OperMayThrow(Compiler* comp)
         case GT_ARR_OFFSET:
         case GT_LCLHEAP:
         case GT_CKFINITE:
-        case GT_INDEX_ADDR:
             return true;
+
+        case GT_INDEX_ADDR:
+            return (gtFlags & GTF_INX_RNGCHK) != 0;
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
