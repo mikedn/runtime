@@ -4844,14 +4844,16 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 
     offset = gtNewOperNode(GT_ADD, TYP_I_IMPL, offset, gtNewIconNode(dataOffs, arrayElement));
 
-    GenTree* addr = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
+    GenTree* addr = tree;
 
-    // TODO-MIKE-Cleanup: This field sequence should be attached to the array data offset.
-    // Doing so results in some diffs that need to be reviewed so do this separately.
-    if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(tree))
-    {
-        AddZeroOffsetFieldSeq(addr, fieldSeq);
-    }
+    // TODO-MIKE-Cleanup: The tree may have a zero field sequence, is should be transferred to the
+    // offset node. Doing so results in some diffs that need to be reviewed so do this separately.
+
+    addr->SetOper(GT_ADD);
+    addr->AsOp()->SetOp(0, array);
+    addr->AsOp()->SetOp(1, offset);
+    addr->SetSideEffects(array->GetSideEffects() | offset->GetSideEffects());
+    addr->gtFlags &= ~GTF_INX_RNGCHK;
 
     if (boundsCheck != nullptr)
     {
