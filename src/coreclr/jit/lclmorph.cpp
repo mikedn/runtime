@@ -227,33 +227,6 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             m_address  = true;
         }
 
-        //------------------------------------------------------------------------
-        // Address: Produce an address value from a location value.
-        //
-        // Arguments:
-        //    val - the input value
-        //
-        // Notes:
-        //   - LOCATION(lclNum, offset) => ADDRESS(lclNum, offset)
-        //   - ADDRESS(lclNum, offset) => invalid, we should never encounter something like ADDR(ADDR(...))
-        //   - UNKNOWN => UNKNOWN
-        //
-        void Address(Value& val)
-        {
-            assert(!IsLocation() && !IsAddress());
-            assert(!val.IsAddress());
-
-            if (val.IsLocation())
-            {
-                m_address  = true;
-                m_lclNum   = val.m_lclNum;
-                m_offset   = val.m_offset;
-                m_fieldSeq = val.m_fieldSeq;
-            }
-
-            INDEBUG(val.Consume();)
-        }
-
         void Address(unsigned lclNum, unsigned lclOffs, FieldSeqNode* fieldSeq)
         {
             assert(!IsLocation() && !IsAddress());
