@@ -3288,12 +3288,9 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
             op3 = impPopStack().val; // comparand
             op2 = impPopStack().val; // value
-            op1 = impPopStack().val; // location
+            op1 = impPopStack().val; // location address
 
-            GenTree* node = new (this, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
-
-            node->AsCmpXchg()->gtOpLocation->gtFlags |= GTF_DONT_CSE;
-            retNode = node;
+            retNode = new (this, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
             break;
         }
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
