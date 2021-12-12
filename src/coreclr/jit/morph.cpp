@@ -5094,9 +5094,19 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
     }
 #endif
 
+    // TODO-MIKE-Cleanup: The ADD node should always be returned to avoid the zero offset field map crap.
+
     if (offset != 0)
     {
-        addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, gtNewIntConFieldOffset(offset, fieldSeq));
+        GenTree* addOffset = firstField;
+
+        addOffset->ChangeOper(GT_ADD);
+        addOffset->SetType(varTypeAddrAdd(addr->GetType()));
+        addOffset->AsOp()->SetOp(0, addr);
+        addOffset->AsOp()->SetOp(1, gtNewIntConFieldOffset(offset, fieldSeq));
+        addOffset->SetSideEffects(addr->GetSideEffects());
+
+        addr = addOffset;
     }
     else
     {
