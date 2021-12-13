@@ -1573,6 +1573,11 @@ private:
 
         if (!varTypeIsStruct(indir->GetType()))
         {
+#if 0
+            // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
+            // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
+            // generates less diffs.
+
             if (fieldSeq != nullptr)
             {
                 // If we have an indirection node and a field sequence then they should have the same type.
@@ -1587,6 +1592,7 @@ private:
                     fieldSeq = nullptr;
                 }
             }
+#endif
         }
         else if (indir->OperIs(GT_IND))
         {
