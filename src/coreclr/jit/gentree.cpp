@@ -9358,6 +9358,11 @@ void Compiler::gtDispTree(GenTree*     tree,
                        : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
                    tree->AsHWIntrinsic()->GetSimdSize());
 
+            if (tree->AsHWIntrinsic()->GetAuxiliaryType() != TYP_UNDEF)
+            {
+                printf(" %s", varTypeName(tree->AsHWIntrinsic()->GetAuxiliaryType()));
+            }
+
             gtDispCommonEndLine(tree);
 
             if (!topOnly)

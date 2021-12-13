@@ -5586,6 +5586,7 @@ public:
         SetSimdBaseType(simdBaseType);
         SetSimdSize(simdSize);
         SetNumOps(numOps);
+        SetAuxiliaryType(TYP_UNDEF);
     }
 
     var_types GetSimdBaseType() const
