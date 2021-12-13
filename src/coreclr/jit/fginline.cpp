@@ -177,7 +177,7 @@ public:
             // rest of the RET_EXPRs are basically empty return expressions so the IR summary
             // of their blocks isn't relevant.
             //
-            // We may also have cases like RET_EXPR-ADD(RET_EXPR, INDEX...), the first RET_EXPR
+            // We may also have cases like RET_EXPR-ADD(RET_EXPR, INDEX_ADDR...), the first RET_EXPR
             // is replaced now while the next one will be replaced in a subsequent call to
             // fgUpdateInlineReturnExpressionPlaceHolder. Each RET_EXPR will contribute its own
             // IR summary.
@@ -386,13 +386,6 @@ private:
             case GT_LCL_VAR:
                 return m_compiler->gtNewLclVarAddrNode(tree->AsLclVar()->GetLclNum(), TYP_BYREF);
 
-            case GT_FIELD:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-#endif
-                // TODO-MIKE-Cleanup: Bleah, more ADDR(SIMD|HWINTRINSIC) nonsense...
-                return m_compiler->gtNewAddrNode(tree);
-
             default:
                 unreached();
         }
@@ -438,19 +431,9 @@ private:
 
     GenTree* GetStructAsgSrc(GenTree* src, ClassLayout* layout)
     {
-        if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsHWIntrinsic())
+        if (!src->OperIs(GT_LCL_VAR) && !varTypeIsSIMD(src->GetType()))
         {
-            GenTree* srcAddr = GetStructAddress(src);
-
-            if (srcAddr->OperIs(GT_ADDR) &&
-                (srcAddr->AsUnOp()->GetOp(0)->GetType() == m_compiler->typGetStructType(layout)))
-            {
-                src = srcAddr->AsUnOp()->GetOp(0);
-            }
-            else
-            {
-                src = m_compiler->gtNewObjNode(layout, srcAddr);
-            }
+            src = m_compiler->gtNewObjNode(layout, GetStructAddress(src));
         }
 
         // TODO-MIKE-CQ: This should probably be removed, it's here only because
@@ -1145,7 +1128,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
         // If the inlinee has multiple blocks but a single return block then we'll insert
         // the inlinee blocks in the inliner and move the return expression to an existing
-        // inliner block. The return expression may contain nodes such as INDEX so the
+        // inliner block. The return expression may contain nodes such as INDEX_ADDR so the
         // inliner block needs to "inherit" the IR summary from inlinee's return block.
 
         if ((inlineInfo->retSpillTempLclNum == BAD_VAR_NUM) && (fgFirstBB->bbNext != nullptr))
@@ -1439,7 +1422,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
                 return false;
             }
 
-            assert(argNode->OperIs(GT_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+            assert(argNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
             argNode->SetType(TYP_I_IMPL);
 
             continue;
@@ -2391,7 +2374,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
 
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR, GT_LCL_VAR_ADDR));
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_FIELD_ADDR));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;
@@ -2403,30 +2386,43 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
             // TODO-MIKE-Cleanup: This seems like the wrong place for such special casing,
             // morph would probably make more sense. But the problem is that when we morph
-            // a FIELD we don't know if it is used or not and then we may end up adding
+            // FIELD_ADDR we don't know if it is used or not and then we may end up adding
             // a null check temp thinking that the address has multiple uses. But if the
-            // FIELD isn't used we only have one use of the address - the null check itself.
+            // FIELD_ADDR isn't used we only have one use of the address - the null check
+            // itself.
 
-            if (GenTreeField* field = argNode->IsField())
+            GenTree* fieldAddr = nullptr;
+
+            if (GenTreeIndir* indir = argNode->IsIndir())
             {
-                while (!field->IsVolatile() && field->GetAddr()->OperIs(GT_ADDR) &&
-                       field->GetAddr()->AsUnOp()->GetOp(0)->IsField())
+                if (!indir->IsVolatile())
                 {
-                    field = field->GetAddr()->AsUnOp()->GetOp(0)->AsField();
+                    fieldAddr = indir->GetAddr();
                 }
+            }
+            else
+            {
+                fieldAddr = argNode;
+            }
 
-                if (field->IsVolatile())
+            if (fieldAddr != nullptr)
+            {
+                if (GenTreeFieldAddr* field = fieldAddr->IsFieldAddr())
                 {
-                    argNode = field;
-                }
-                else if (fgAddrCouldBeNull(field->GetAddr()))
-                {
-                    gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
-                    argNode = field;
-                }
-                else
-                {
-                    argNode = field->GetAddr();
+                    while (GenTreeFieldAddr* nextField = field->GetAddr()->IsFieldAddr())
+                    {
+                        field = nextField;
+                    }
+
+                    if (fgAddrCouldBeNull(field->GetAddr()))
+                    {
+                        gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
+                        argNode = field;
+                    }
+                    else
+                    {
+                        argNode = field->GetAddr();
+                    }
                 }
             }
 

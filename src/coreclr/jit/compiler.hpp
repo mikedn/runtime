@@ -792,56 +792,7 @@ inline GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree
            0); // Can't use this to construct any types that extend unary/binary operator.
     assert(op1 != nullptr || oper == GT_RETFILT || oper == GT_NOP || (oper == GT_RETURN && type == TYP_VOID));
 
-    if (doSimplifications)
-    {
-        // We do some simplifications here.
-        // If this gets to be too many, try a switch...
-        // TODO-Cleanup: With the factoring out of array bounds checks, it should not be the
-        // case that we need to check for the array index case here, but without this check
-        // we get failures (see for example jit\Directed\Languages\Python\test_methods_d.exe)
-        if (oper == GT_IND)
-        {
-            // IND(ADDR(IND(x)) == IND(x)
-            if (op1->OperIs(GT_ADDR))
-            {
-                GenTree* indir = op1->AsUnOp()->GetOp(0);
-
-                if (indir->OperIs(GT_IND))
-                {
-                    op1 = indir->AsIndir()->Addr();
-                }
-            }
-        }
-        else if (oper == GT_ADDR)
-        {
-            // if "x" is not an array index, ADDR(IND(x)) == x
-            if (op1->OperIs(GT_IND))
-            {
-                return op1->AsIndir()->GetAddr();
-            }
-
-            // Addr source can't be CSE-ed.
-            op1->SetDoNotCSE();
-        }
-    }
-
-    GenTree* node = new (this, oper) GenTreeOp(oper, type, op1, nullptr);
-
-    return node;
-}
-
-inline GenTree* Compiler::gtNewAddrNode(GenTree* location, var_types type)
-{
-    assert(!location->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-    if (location->OperIs(GT_IND))
-    {
-        return location->AsIndir()->GetAddr();
-    }
-
-    location->SetDoNotCSE();
-
-    return new (this, GT_ADDR) GenTreeOp(GT_ADDR, type, location, nullptr);
+    return new (this, oper) GenTreeOp(oper, type, op1, nullptr);
 }
 
 // Returns an opcode that is of the largest node size in use.
@@ -1034,12 +985,11 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
     return node;
 }
 
-inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
-                                             CORINFO_FIELD_HANDLE handle,
-                                             GenTree*             addr,
-                                             unsigned             offset)
+inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
 {
-    GenTreeField* tree = new (this, GT_FIELD) GenTreeField(type, addr, handle, offset);
+    var_types type = varTypeAddrAdd(addr->GetType());
+
+    GenTreeFieldAddr* tree = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, handle, offset);
 
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
     if (addr->OperIs(GT_LCL_VAR_ADDR))
@@ -1048,6 +998,35 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
         LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
         varDsc->lvFieldAccessed = 1;
+    }
+
+    return tree;
+}
+
+inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
+{
+    GenTreeIndir* indir;
+
+    if (type != TYP_STRUCT)
+    {
+        indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+    }
+    else
+    {
+        indir = gtNewObjNode(typGetLayoutByNum(fieldAddr->GetLayoutNum()), fieldAddr);
+        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
+        // and add it back bellow according to the old field rules.
+        indir->gtFlags &= ~GTF_GLOB_REF;
+    }
+
+    GenTree* addr = fieldAddr->GetAddr();
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR))
+    {
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+
+        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
         // Some arguments may end up being accessed via indirections:
@@ -1070,28 +1049,63 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types            type,
 #endif
                 )
         {
-            tree->gtFlags |= GTF_GLOB_REF;
+            indir->gtFlags |= GTF_GLOB_REF;
         }
 #endif
     }
     else
     {
-        tree->gtFlags |= GTF_GLOB_REF;
+        if (GenTreeIndexAddr* index = addr->IsIndexAddr())
+        {
+            if ((index->gtFlags & GTF_INX_RNGCHK) != 0)
+            {
+                indir->gtFlags |= GTF_IND_NONFAULTING;
+            }
+        }
+
+        indir->gtFlags |= GTF_GLOB_REF;
     }
 
-    return tree;
+    return indir;
 }
 
-inline GenTreeIndex* Compiler::gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind)
+inline GenTreeIndexAddr* Compiler::gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType)
 {
-    return new (this, GT_INDEX)
-        GenTreeIndex(type, arr, ind, OFFSETOF__CORINFO_Array__length, OFFSETOF__CORINFO_Array__data);
+    return new (this, GT_INDEX_ADDR)
+        GenTreeIndexAddr(arr, ind, OFFSETOF__CORINFO_Array__length, OFFSETOF__CORINFO_Array__data, elemType);
 }
 
-inline GenTreeIndex* Compiler::gtNewStringIndex(GenTree* arr, GenTree* ind)
+inline GenTreeIndexAddr* Compiler::gtNewStringIndexAddr(GenTree* arr, GenTree* ind)
 {
-    return new (this, GT_INDEX)
-        GenTreeIndex(TYP_USHORT, arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars);
+    return new (this, GT_INDEX_ADDR)
+        GenTreeIndexAddr(arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars, TYP_USHORT);
+}
+
+inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr)
+{
+    GenTreeIndir* indir;
+
+    if (type != TYP_STRUCT)
+    {
+        indir = gtNewOperNode(GT_IND, type, indexAddr)->AsIndir();
+    }
+    else
+    {
+        indir = gtNewObjNode(indexAddr->GetLayout(this), indexAddr);
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF;
+
+    if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
+    {
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+    {
+        indir->gtFlags |= GTF_EXCEPT;
+    }
+
+    return indir;
 }
 
 inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block)
@@ -3862,8 +3876,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_BITCAST:
         case GT_CKFINITE:
         case GT_LCLHEAP:
-        case GT_ADDR:
-        case GT_FIELD:
+        case GT_FIELD_ADDR:
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:

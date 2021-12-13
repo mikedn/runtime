@@ -23,10 +23,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //      Returns the gen tree representation for arrLen or MD Array node as defined by
 //      the "type" member
 //
-// Notes:
-//      This tree produces GT_INDEX node, the caller is supposed to morph it appropriately
-//      so it can be codegen'ed.
-//
 GenTree* LC_Array::ToGenTree(Compiler* comp, BasicBlock* bb)
 {
     // If jagged array
@@ -37,8 +33,13 @@ GenTree* LC_Array::ToGenTree(Compiler* comp, BasicBlock* bb)
         int      rank = GetDimRank();
         for (int i = 0; i < rank; ++i)
         {
-            arr = comp->gtNewArrayIndex(TYP_REF, arr, comp->gtNewLclvNode(arrIndex->indLcls[i],
-                                                                          comp->lvaTable[arrIndex->indLcls[i]].lvType));
+            GenTreeIndexAddr* addr =
+                comp->gtNewArrayIndexAddr(arr, comp->gtNewLclvNode(arrIndex->indLcls[i],
+                                                                   comp->lvaGetDesc(arrIndex->indLcls[i])->GetType()),
+                                          TYP_REF);
+
+            arr = comp->gtNewIndexIndir(TYP_REF, addr);
+            arr->AsIndir()->SetAddr(comp->fgMorphIndexAddr(addr));
         }
         // If asked for arrlen invoke arr length operator.
         if (oper == ArrLen)
@@ -1966,7 +1967,7 @@ bool Compiler::optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum)
 //
 //  Arguments:
 //      tree        the tree to be checked if it is the array [] operation.
-//      result      the extracted GT_INDEX information is updated in result.
+//      result      the extracted GT_INDEX_ADDR information is updated in result.
 //      lhsNum      for the root level (function is recursive) callers should pass BAD_VAR_NUM.
 //
 //  Return Value:
@@ -1975,9 +1976,9 @@ bool Compiler::optIsStackLocalInvariant(unsigned loopNum, unsigned lclNum)
 //      dimension of [] encountered.
 //
 //  Operation:
-//      Given a "tree" extract the GT_INDEX node in "result" as ArrIndex. In FlowGraph morph
-//      we have converted a GT_INDEX tree into a scaled index base offset expression. We need
-//      to reconstruct this to be able to know if this is an array access.
+//      Given a "tree" extract the array and index in "result" as ArrIndex. In FlowGraph morph
+//      we have converted a GT_INDEX_ADDR tree into a scaled index base offset expression.
+//      We need to reconstruct this to be able to know if this is an array access.
 //
 //  Assumption:
 //      The method extracts only if the array base and indices are GT_LCL_VAR.
@@ -2140,7 +2141,7 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
 //
 //  Arguments:
 //      tree        the tree to be checked if it is an array [][][] operation.
-//      result      OUT: the extracted GT_INDEX information.
+//      result      OUT: the extracted GT_INDEX_ADDR information.
 //      lhsNum      for the root level (function is recursive) callers should pass BAD_VAR_NUM.
 //
 //  Return Value:

@@ -644,29 +644,15 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
             case GT_COLON:
             case GT_QMARK:
             case GT_ADD:
+            case GT_FIELD_ADDR:
                 // Check whether the local escapes via its grandparent.
                 ++parentIndex;
                 keepChecking = true;
                 break;
 
-            case GT_FIELD:
             case GT_IND:
-            {
-                int grandParentIndex = parentIndex + 1;
-                if ((parentStack->Height() > grandParentIndex) &&
-                    (parentStack->Top(grandParentIndex)->OperGet() == GT_ADDR))
-                {
-                    // Check if the address of the field/ind escapes.
-                    parentIndex += 2;
-                    keepChecking = true;
-                }
-                else
-                {
-                    // Address of the field/ind is not taken so the local doesn't escape.
-                    canLclVarEscapeViaParentStack = false;
-                }
+                canLclVarEscapeViaParentStack = false;
                 break;
-            }
 
             case GT_CALL:
             {
@@ -749,6 +735,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
             case GT_COLON:
             case GT_QMARK:
             case GT_ADD:
+            case GT_FIELD_ADDR:
                 if (parent->TypeGet() == TYP_REF)
                 {
                     parent->ChangeType(newType);
@@ -757,9 +744,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
                 keepChecking = true;
                 break;
 
-            case GT_FIELD:
             case GT_IND:
-            {
                 if (newType != TYP_BYREF)
                 {
                     // This indicates that a write barrier is not needed when writing
@@ -767,23 +752,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
                     // It's either null or points to inside a stack-allocated object.
                     parent->gtFlags |= GTF_IND_TGT_NOT_HEAP;
                 }
-                int grandParentIndex = parentIndex + 1;
-
-                if (parentStack->Height() > grandParentIndex)
-                {
-                    GenTree* grandParent = parentStack->Top(grandParentIndex);
-                    if (grandParent->OperGet() == GT_ADDR)
-                    {
-                        if (grandParent->TypeGet() == TYP_REF)
-                        {
-                            grandParent->ChangeType(newType);
-                        }
-                        parentIndex += 2;
-                        keepChecking = true;
-                    }
-                }
                 break;
-            }
 
             default:
                 unreached();

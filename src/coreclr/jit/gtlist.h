@@ -72,8 +72,6 @@ GTNODE(CKFINITE         , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // Che
 GTNODE(LCLHEAP          , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // alloca()
 GTNODE(JMP              , GenTreeVal         ,0,(GTK_LEAF|GTK_NOVALUE))   // Jump to another function
 
-GTNODE(ADDR             , GenTreeOp          ,0,(GTK_UNOP|GTK_NOTLIR))    // address of
-
 GTNODE(IND              , GenTreeIndir       ,0,GTK_UNOP)                // load indirection
 GTNODE(STOREIND         , GenTreeStoreInd    ,0,(GTK_BINOP|GTK_NOVALUE)) // store indirection
 
@@ -161,9 +159,7 @@ GTNODE(COMMA            , GenTreeOp          ,0,(GTK_BINOP|GTK_NOTLIR))
 GTNODE(QMARK            , GenTreeQmark       ,0,(GTK_BINOP|GTK_EXOP|GTK_NOTLIR))
 GTNODE(COLON            , GenTreeColon       ,0,(GTK_BINOP|GTK_NOTLIR))
 
-GTNODE(INDEX            , GenTreeIndex       ,0,(GTK_BINOP|GTK_EXOP|GTK_NOTLIR))   // SZ-array-element
 GTNODE(INDEX_ADDR       , GenTreeIndexAddr   ,0,(GTK_BINOP|GTK_EXOP)) // addr of SZ-array-element;
-                                                                      // used when aiming to minimize compile times.
 
 GTNODE(MKREFANY         , GenTreeOp          ,0,GTK_BINOP|GTK_NOTLIR)
 
@@ -235,7 +231,7 @@ GTNODE(JTRUE            , GenTreeOp          ,0,(GTK_UNOP|GTK_NOVALUE))
 //  Other nodes that have special structure:
 //-----------------------------------------------------------------------------
 
-GTNODE(FIELD            , GenTreeField       ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR)) // Member-field
+GTNODE(FIELD_ADDR       , GenTreeFieldAddr   ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR)) // Member-field address
 GTNODE(ARR_ELEM         , GenTreeArrElem     ,0,GTK_SPECIAL)            // Multi-dimensional array-element address
 GTNODE(ARR_INDEX        , GenTreeArrIndex    ,0,(GTK_BINOP|GTK_EXOP))     // Effective, bounds-checked index for one dimension of a multi-dimensional array element
 GTNODE(ARR_OFFSET       , GenTreeArrOffs     ,0,GTK_SPECIAL)              // Flattened offset of multi-dimensional array element

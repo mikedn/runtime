@@ -5301,7 +5301,7 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVarCommon* node)
 //    The new stmtExpr may be omitted if the <arrObj> is a lclVar.
 //    The new stmtExpr may be embedded if the <arrObj> is not the first tree in linear order for
 //    the statement containing the original arrMD.
-//    Note that the arrMDOffs is the INDEX of the lea, but is evaluated before the BASE (which is the second
+//    Note that the arrMDOffs is the index of the lea, but is evaluated before the base (which is the second
 //    reference to NewTemp), because that provides more accurate lifetimes.
 //    There may be 1, 2 or 3 dimensions, with 1, 2 or 3 arrMDIdx nodes, respectively.
 //

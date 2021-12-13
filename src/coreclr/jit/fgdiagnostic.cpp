@@ -2891,10 +2891,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
-            case GT_ADDR:
-                assert(!op1->CanCSE());
-                break;
-
             case GT_IND:
                 // Do we have a constant integer address as op1?
                 //
@@ -3029,13 +3025,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         if (tree->OperRequiresAsgFlag())
         {
             chkFlags |= GTF_ASG;
-        }
-
-        if ((oper == GT_ADDR) && (op1->OperIs(GT_IND) && op1->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
-        {
-            // &aliasedVar doesn't need GTF_GLOB_REF, though alisasedVar does.
-            // Similarly for clsVar
-            treeFlags |= GTF_GLOB_REF;
         }
     }
 

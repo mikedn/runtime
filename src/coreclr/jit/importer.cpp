@@ -977,7 +977,7 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
 
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
-    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
+    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
            (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
 
     if (src->OperIs(GT_COMMA))
@@ -1131,12 +1131,12 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
         // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
         // The field is accessed by TypedReference.IsNull, which is only called from
         // RtFieldInfo.Get/SetValueDirect so chances that this causes problems are slim.
-        GenTree* valueField =
-            gtNewFieldRef(TYP_BYREF, GetRefanyValueField(), destAddrUses[0], OFFSETOF__CORINFO_TypedReference__dataPtr);
+        GenTree* valueField = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(),
+                                                                        OFFSETOF__CORINFO_TypedReference__dataPtr));
         impAppendTree(gtNewAssignNode(valueField, src->AsOp()->GetOp(0)), curLevel, impCurStmtOffs);
 
-        GenTree* typeField =
-            gtNewFieldRef(TYP_I_IMPL, GetRefanyTypeField(), destAddrUses[1], OFFSETOF__CORINFO_TypedReference__type);
+        GenTree* typeField = gtNewFieldIndir(TYP_I_IMPL, gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(),
+                                                                        OFFSETOF__CORINFO_TypedReference__type));
         return gtNewAssignNode(typeField, src->AsOp()->GetOp(1));
     }
 
@@ -1161,17 +1161,12 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
         assert(src->GetType() == typGetStructType(layout));
         assert((src->AsObj()->GetLayout() == layout) || varTypeIsSIMD(src->GetType()));
     }
-    else if (src->OperIs(GT_INDEX))
-    {
-        assert(src->GetType() == typGetStructType(layout));
-        assert(src->AsIndex()->GetLayout() == layout);
-    }
     else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsHWIntrinsic());
+        assert(src->OperIs(GT_IND) || src->OperIsHWIntrinsic());
         assert((layout == nullptr) || (src->GetType() == typGetStructType(layout)));
     }
 
@@ -1179,48 +1174,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
     if (dest == nullptr)
     {
-        if (destAddr->OperIs(GT_ADDR))
-        {
-            GenTree* destLocation = destAddr->AsUnOp()->GetOp(0);
-
-            if (destLocation->GetType() == srcType)
-            {
-                if (destLocation->OperIs(GT_OBJ))
-                {
-                    if (varTypeIsSIMD(srcType))
-                    {
-                        dest = destLocation;
-                    }
-                    else if (destLocation->AsObj()->GetLayout() == layout)
-                    {
-                        dest = destLocation;
-                    }
-                }
-                else if (GenTreeIndex* index = destLocation->IsIndex())
-                {
-                    if (varTypeIsSIMD(srcType))
-                    {
-                        dest = destLocation;
-                    }
-                    else if (index->GetLayout() == layout)
-                    {
-                        dest = destLocation;
-                    }
-                }
-                else if (GenTreeField* field = destLocation->IsField())
-                {
-                    if (varTypeIsSIMD(srcType))
-                    {
-                        dest = destLocation;
-                    }
-                    else if (field->GetLayout(this) == layout)
-                    {
-                        dest = destLocation;
-                    }
-                }
-            }
-        }
-        else if (destAddr->OperIs(GT_LCL_VAR_ADDR))
+        if (destAddr->OperIs(GT_LCL_VAR_ADDR))
         {
             LclVarDsc* lcl = lvaGetDesc(destAddr->AsLclVar());
 
@@ -1335,9 +1289,9 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
         return value;
     }
 
-    if (value->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        value->SetOper(GT_LCL_VAR_ADDR);
+        value->SetOper(value->OperIs(GT_LCL_VAR) ? GT_LCL_VAR_ADDR : GT_LCL_FLD_ADDR);
         value->SetType(TYP_BYREF);
         return value;
     }
@@ -1348,16 +1302,9 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
         return value->AsObj()->GetAddr();
     }
 
-    if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsHWIntrinsic())
-    {
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"));
-        impAppendTempAssign(tmpNum, value, structHnd, curLevel);
-        return gtNewLclVarAddrNode(tmpNum, TYP_BYREF);
-    }
-
-    assert(value->OperIs(GT_LCL_FLD, GT_FIELD));
-
-    return gtNewAddrNode(value);
+    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"));
+    impAppendTempAssign(tmpNum, value, structHnd, curLevel);
+    return gtNewLclVarAddrNode(tmpNum, TYP_BYREF);
 }
 
 GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
@@ -1392,8 +1339,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
         case GT_MKREFANY:
         case GT_LCL_FLD:
-        case GT_FIELD:
-        case GT_INDEX:
         case GT_OBJ:
             break;
 
@@ -1411,11 +1356,6 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             }
 
             assert(commaValue->GetType() == arg->GetType());
-
-            if (commaValue->OperIs(GT_FIELD))
-            {
-                commaValue = gtNewObjNode(argLayout, gtNewAddrNode(commaValue));
-            }
 
 #ifdef FEATURE_SIMD
             if (commaValue->OperIsHWIntrinsic())
@@ -3348,12 +3288,9 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
             op3 = impPopStack().val; // comparand
             op2 = impPopStack().val; // value
-            op1 = impPopStack().val; // location
+            op1 = impPopStack().val; // location address
 
-            GenTree* node = new (this, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
-
-            node->AsCmpXchg()->gtOpLocation->gtFlags |= GTF_DONT_CSE;
-            retNode = node;
+            retNode = new (this, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
             break;
         }
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
@@ -3501,7 +3438,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             op1                                    = impPopStack().val;
             GenTree*             thisptr           = newobjThis;
             CORINFO_FIELD_HANDLE fldHnd            = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            GenTree*             field             = gtNewFieldRef(TYP_BYREF, fldHnd, thisptr, 0);
+            GenTree*             field             = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(thisptr, fldHnd, 0));
             GenTree*             assign            = gtNewAssignNode(field, op1);
             GenTree*             byReferenceStruct = gtCloneExpr(thisptr);
             assert(byReferenceStruct != nullptr);
@@ -3519,7 +3456,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
         {
             op1                         = impPopStack().val;
             CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            GenTree*             field  = gtNewFieldRef(TYP_BYREF, fldHnd, op1, 0);
+            GenTree*             field  = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(op1, fldHnd, 0));
             retNode                     = field;
             break;
         }
@@ -3570,7 +3507,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             {
                 GenTree* op2 = impPopStack().val;
                 GenTree* op1 = impPopStack().val;
-                retNode      = gtNewStringIndex(op1, op2);
+                retNode      = gtNewIndexIndir(TYP_USHORT, gtNewStringIndexAddr(op1, op2));
                 break;
             }
 
@@ -3648,8 +3585,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 // Bounds check
                 CORINFO_FIELD_HANDLE lengthHnd    = info.compCompHnd->getFieldInClass(clsHnd, 1);
                 const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
-                GenTree*             length       = gtNewFieldRef(TYP_INT, lengthHnd, spanAddrUses[0], lengthOffset);
-                GenTree*             boundsCheck  = gtNewArrBoundsChk(indexUses[0], length, SCK_RNGCHK_FAIL);
+                GenTree* length = gtNewFieldIndir(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
+                GenTree* boundsCheck = gtNewArrBoundsChk(indexUses[0], length, SCK_RNGCHK_FAIL);
 
                 // Element access
                 GenTree*             indexIntPtr = impImplicitIorI4Cast(indexUses[1], TYP_I_IMPL);
@@ -3657,8 +3594,10 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 GenTree*             mulNode     = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
                 CORINFO_FIELD_HANDLE ptrHnd      = info.compCompHnd->getFieldInClass(clsHnd, 0);
                 const unsigned       ptrOffset   = info.compCompHnd->getFieldOffset(ptrHnd);
-                GenTree*             data        = gtNewFieldRef(TYP_BYREF, ptrHnd, spanAddrUses[1], ptrOffset);
-                GenTree*             result      = gtNewOperNode(GT_ADD, TYP_BYREF, data, mulNode);
+                // TODO-MIKE-Fix: This isn't right, the _pointer field of Span is ByReference<T> so we need
+                // 2 FIELD_ADDRs, one for the _pointer field and one for ByReference<T>'s own _value field.
+                GenTree* pointer = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrHnd, ptrOffset));
+                GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, mulNode);
 
                 retNode = gtNewCommaNode(boundsCheck, result);
 
@@ -5119,7 +5058,8 @@ int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const B
                                         // Spill struct to get its address (to access hasValue field)
                                         objToBox = impGetStructAddr(objToBox, nullableCls, CHECK_SPILL_ALL, true);
 
-                                        impPushOnStack(gtNewFieldRef(TYP_BOOL, hasValueFldHnd, objToBox, 0),
+                                        impPushOnStack(gtNewFieldIndir(TYP_BOOL,
+                                                                       gtNewFieldAddr(objToBox, hasValueFldHnd, 0)),
                                                        typeInfo());
 
                                         JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as nullableVT.hasValue\n");
@@ -10381,30 +10321,22 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                op1 = gtNewArrayIndex(lclTyp, op1, op2);
+                op1 = gtNewArrayIndexAddr(op1, op2, lclTyp);
 
                 if (lclTyp == TYP_STRUCT)
                 {
                     assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
-                    ClassLayout* layout = typGetObjLayout(clsHnd);
-                    op1->SetType(typGetStructType(layout));
-                    op1->AsIndex()->SetLayout(layout);
-                    op1->AsIndex()->SetElemSize(layout->GetSize());
+                    unsigned     layoutNum = typGetObjLayoutNum(clsHnd);
+                    ClassLayout* layout    = typGetLayoutByNum(layoutNum);
+
+                    op1->AsIndexAddr()->SetElemSize(layout->GetSize());
+                    op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
                 }
 
-                if ((opcode == CEE_LDELEMA) || (lclTyp == TYP_STRUCT))
+                if (opcode != CEE_LDELEMA)
                 {
-                    op1 = gtNewAddrNode(op1);
-                }
-
-                if (opcode == CEE_LDELEM)
-                {
-                    if (lclTyp == TYP_STRUCT)
-                    {
-                        op1 = gtNewObjNode(clsHnd, op1);
-                        op1->gtFlags |= GTF_EXCEPT;
-                    }
+                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
 
                     if (varTypeUsesFloatReg(op1->GetType()))
                     {
@@ -10521,22 +10453,23 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                op1 = gtNewArrayIndex(lclTyp, op3, op1);
+                op1 = gtNewArrayIndexAddr(op3, op1, lclTyp);
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    ClassLayout* layout = typGetObjLayout(clsHnd);
-                    op1->SetType(typGetStructType(layout));
-                    op1->AsIndex()->SetLayout(layout);
-                    op1->AsIndex()->SetElemSize(layout->GetSize());
+                    unsigned     layoutNum = typGetObjLayoutNum(clsHnd);
+                    ClassLayout* layout    = typGetLayoutByNum(layoutNum);
 
-                    op1 = impAssignStructAddr(gtNewAddrNode(op1), op2, layout, CHECK_SPILL_ALL);
+                    op1->AsIndexAddr()->SetElemSize(layout->GetSize());
+                    op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
+
+                    op1 = impAssignStructAddr(op1, op2, layout, CHECK_SPILL_ALL);
                 }
                 else
                 {
                     op2 = impImplicitR4orR8Cast(op2, lclTyp);
                     op2 = impImplicitIorI4Cast(op2, lclTyp);
-
+                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
                     op1 = gtNewAssignNode(op1, op2);
                 }
 
@@ -12235,40 +12168,39 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         obj = impCheckForNullPointer(obj);
 
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
+                        GenTreeFieldAddr* addr = gtNewFieldAddr(obj, resolvedToken.hField, fieldInfo.offset);
 
                         if (lclTyp == TYP_STRUCT)
                         {
-                            unsigned layoutNum = typGetObjLayoutNum(fieldInfo.structType);
-                            op1->AsField()->SetLayoutNum(layoutNum);
-                            op1->AsField()->SetType(typGetStructType(typGetLayoutByNum(layoutNum)));
+                            addr->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
                         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
                         if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
                         {
                             noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
-                            op1->AsField()->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
+                            addr->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
                         }
 #endif
 
                         if (fgAddrCouldBeNull(obj))
                         {
-                            op1->gtFlags |= GTF_EXCEPT;
+                            addr->gtFlags |= GTF_EXCEPT;
                         }
 
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
-                            op1->AsField()->SetMayOverlap();
+                            addr->SetMayOverlap();
                         }
 
-                        // wrap it in a address of operator if necessary
                         if (isLoadAddress)
                         {
-                            op1 = gtNewAddrNode(op1, varTypeIsGC(obj->GetType()) ? TYP_BYREF : TYP_I_IMPL);
+                            op1 = addr;
                         }
                         else
                         {
+                            op1 = gtNewFieldIndir(lclTyp, addr);
+
                             if (compIsForInlining() &&
                                 impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
                             {
@@ -12330,18 +12262,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!isLoadAddress)
                 {
+                    assert(op1->OperIs(GT_IND, GT_OBJ));
+
                     if ((prefixFlags & PREFIX_VOLATILE) != 0)
                     {
                         op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                         op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
 
-                        assert(op1->OperIs(GT_FIELD, GT_IND, GT_OBJ));
                         op1->gtFlags |= GTF_IND_VOLATILE;
                     }
 
                     if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp) && (obj == nullptr))
                     {
-                        assert(op1->OperIs(GT_FIELD, GT_IND, GT_OBJ));
                         op1->gtFlags |= GTF_IND_UNALIGNED;
                     }
                 }
@@ -12515,31 +12447,29 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         obj = impCheckForNullPointer(obj);
 
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
+                        GenTreeFieldAddr* addr = gtNewFieldAddr(obj, resolvedToken.hField, fieldInfo.offset);
 
                         if (lclTyp == TYP_STRUCT)
                         {
-                            unsigned layoutNum = typGetObjLayoutNum(fieldInfo.structType);
-                            op1->AsField()->SetLayoutNum(layoutNum);
-                            op1->AsField()->SetType(typGetStructType(typGetLayoutByNum(layoutNum)));
+                            addr->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
                         }
 
                         if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
-                            op1->AsField()->SetMayOverlap();
+                            addr->SetMayOverlap();
                         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
                         if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
                         {
                             noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
-                            op1->AsField()->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
+                            addr->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
                         }
 #endif
 
                         if (fgAddrCouldBeNull(obj))
                         {
-                            op1->gtFlags |= GTF_EXCEPT;
+                            addr->gtFlags |= GTF_EXCEPT;
                         }
 
                         if (compIsForInlining() &&
@@ -12547,6 +12477,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         {
                             impInlineInfo->thisDereferencedFirst = true;
                         }
+
+                        op1 = gtNewFieldIndir(lclTyp, addr);
                     }
                     break;
 
@@ -12575,9 +12507,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!deferStructAssign)
                 {
+                    assert(op1->OperIs(GT_IND));
+
                     if (prefixFlags & PREFIX_VOLATILE)
                     {
-                        assert(op1->OperIs(GT_FIELD, GT_IND));
                         op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                         op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
                         op1->gtFlags |= GTF_IND_VOLATILE;
@@ -12585,7 +12518,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp) && (obj == nullptr))
                     {
-                        assert(op1->OperIs(GT_FIELD, GT_IND));
                         op1->gtFlags |= GTF_IND_UNALIGNED;
                     }
 
@@ -12715,12 +12647,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (op1->OperIs(GT_IND, GT_OBJ))
                     {
                         op1 = op1->AsIndir()->GetAddr();
-                    }
-                    else
-                    {
-                        assert(op1->OperIs(GT_FIELD));
-
-                        op1 = gtNewAddrNode(op1);
                     }
 
                     op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
@@ -14771,36 +14697,33 @@ GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
         return nullptr;
     }
 
-    while (tree->OperIs(GT_ADD, GT_SUB))
+    while (true)
     {
-        GenTree* op1 = tree->AsOp()->GetOp(0);
-        GenTree* op2 = tree->AsOp()->GetOp(1);
-
-        if (op2->IsIntCon())
+        if (tree->OperIs(GT_ADD, GT_SUB))
         {
-            tree = op1;
-        }
-        else if (op1->IsIntCon())
-        {
-            tree = op2;
-        }
-        else
-        {
-            return nullptr;
-        }
-    }
+            GenTree* op1 = tree->AsOp()->GetOp(0);
+            GenTree* op2 = tree->AsOp()->GetOp(1);
 
-    while (tree->OperIs(GT_ADDR))
-    {
-        GenTree* location = tree->AsUnOp()->GetOp(0);
-
-        if (GenTreeField* field = location->IsField())
+            if (op2->IsIntCon())
+            {
+                tree = op1;
+            }
+            else if (op1->IsIntCon())
+            {
+                tree = op2;
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+        else if (GenTreeFieldAddr* field = tree->IsFieldAddr())
         {
             tree = field->GetAddr();
         }
         else
         {
-            return nullptr;
+            break;
         }
     }
 
@@ -16957,9 +16880,9 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     assert(opts.OptimizationEnabled());
 
     // Check for assignment to same array, ie. arrLcl[i] = arrLcl[j]
-    if (value->OperIs(GT_INDEX) && array->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_IND) && value->AsIndir()->GetAddr()->IsIndexAddr() && array->OperIs(GT_LCL_VAR))
     {
-        GenTree* valueIndex = value->AsIndex()->GetArray();
+        GenTree* valueIndex = value->AsIndir()->GetAddr()->AsIndexAddr()->GetArray();
         if (valueIndex->OperIs(GT_LCL_VAR))
         {
             unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();
@@ -17106,11 +17029,7 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayou
 
     GenTree* src = nullptr;
 
-    if (srcAddr->OperIs(GT_ADDR))
-    {
-        src = srcAddr->AsUnOp()->GetOp(0);
-    }
-    else if (srcAddr->OperIs(GT_LCL_VAR_ADDR))
+    if (srcAddr->OperIs(GT_LCL_VAR_ADDR))
     {
         src = srcAddr;
 
@@ -17229,27 +17148,24 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
         // If the value being produced comes from loading
         // via an underlying address, just null check the address.
 
-        if (op1->OperIs(GT_FIELD, GT_IND, GT_OBJ))
+        if (op1->OperIs(GT_IND, GT_OBJ) && !op1->AsIndir()->IsVolatile())
         {
-            GenTree* addr;
+            GenTree* addr = op1->AsIndir()->GetAddr();
 
-            if (GenTreeField* field = op1->IsField())
+            while (GenTreeFieldAddr* field = addr->IsFieldAddr())
             {
                 addr = field->GetAddr();
             }
-            else
-            {
-                addr = op1->AsIndir()->GetAddr();
-            }
 
-            // Don't create NULLCHECK(ADDR(INDEX)), INDEX already checks for null.
-            if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_INDEX))
+            // Don't create NULLCHECK(INDEX_ADDR), INDEX_ADDR already checks for null.
+            if (addr->OperIs(GT_INDEX_ADDR))
             {
                 op1 = addr;
             }
             else
             {
                 gtChangeOperToNullCheck(op1, block);
+                op1->AsIndir()->SetAddr(addr);
             }
         }
         else

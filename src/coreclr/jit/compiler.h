@@ -1893,7 +1893,6 @@ public:
 
     // For unary opers.
     GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = true);
-    GenTree* gtNewAddrNode(GenTree* location, var_types type = TYP_BYREF);
 
     // For binary opers.
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
@@ -2052,10 +2051,12 @@ public:
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
-    GenTreeField* gtNewFieldRef(var_types type, CORINFO_FIELD_HANDLE handle, GenTree* addr, unsigned offset);
+    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
+    GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
 
-    GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
-    GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
+    GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
+    GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
+    GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block);
     GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
@@ -4660,7 +4661,7 @@ private:
     SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
 #endif // FEATURE_SIMD
 
-    GenTree* fgMorphArrayIndex(GenTreeIndex* tree);
+    GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
@@ -4668,10 +4669,11 @@ private:
     GenTree* fgMorphLocalVar(GenTree* tree, bool forceRemorph);
 
 public:
+    GenTree* fgMorphIndexAddr(GenTreeIndexAddr* tree);
     bool fgAddrCouldBeNull(GenTree* addr);
 
 private:
-    GenTree* fgMorphField(GenTreeField* field, MorphAddrContext* mac);
+    GenTree* fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
 #if FEATURE_FASTTAILCALL
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
@@ -8873,8 +8875,7 @@ public:
             case GT_BITCAST:
             case GT_CKFINITE:
             case GT_LCLHEAP:
-            case GT_ADDR:
-            case GT_FIELD:
+            case GT_FIELD_ADDR:
             case GT_IND:
             case GT_OBJ:
             case GT_BLK:

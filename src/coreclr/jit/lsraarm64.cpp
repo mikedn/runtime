@@ -686,7 +686,6 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildInstr(tree->AsInstr());
             break;
 
-        case GT_ADDR:
         case GT_ARGPLACE:
         case GT_ASG:
         case GT_DYN_BLK:

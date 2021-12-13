@@ -284,7 +284,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeField)        <= TREE_NODE_SZ_SMALL);
+    static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeColon)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
@@ -292,7 +292,6 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeIndex)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
@@ -1320,8 +1319,8 @@ AGAIN:
                         return false;
                     }
                     break;
-                case GT_FIELD:
-                    if (op1->AsField()->GetFieldHandle() != op2->AsField()->GetFieldHandle())
+                case GT_FIELD_ADDR:
+                    if (op1->AsFieldAddr()->GetFieldHandle() != op2->AsFieldAddr()->GetFieldHandle())
                     {
                         return false;
                     }
@@ -1360,12 +1359,6 @@ AGAIN:
                         return false;
                     }
                     if (op1->AsAddrMode()->Offset() != op2->AsAddrMode()->Offset())
-                    {
-                        return false;
-                    }
-                    break;
-                case GT_INDEX:
-                    if (op1->AsIndex()->GetElemSize() != op2->AsIndex()->GetElemSize())
                     {
                         return false;
                     }
@@ -1555,7 +1548,7 @@ AGAIN:
 
     if (kind & GTK_SMPOP)
     {
-        if (GenTreeField* field = tree->IsField())
+        if (GenTreeFieldAddr* field = tree->IsFieldAddr())
         {
             if (lclNum == reinterpret_cast<ssize_t>(field->GetFieldHandle()))
             {
@@ -1922,9 +1915,6 @@ AGAIN:
                 case GT_CAST:
                     hash ^= tree->AsCast()->gtCastType;
                     break;
-                case GT_INDEX:
-                    hash += tree->AsIndex()->GetElemSize();
-                    break;
                 case GT_INDEX_ADDR:
                     hash += tree->AsIndexAddr()->GetElemSize();
                     break;
@@ -1943,8 +1933,8 @@ AGAIN:
                         genTreeHashAdd(hash,
                                        static_cast<unsigned>(reinterpret_cast<uintptr_t>(tree->AsBlk()->GetLayout())));
                     break;
-                case GT_FIELD:
-                    hash = genTreeHashAdd(hash, gtHashValue(tree->AsField()->GetAddr()));
+                case GT_FIELD_ADDR:
+                    hash = genTreeHashAdd(hash, gtHashValue(tree->AsFieldAddr()->GetAddr()));
                     // TODO-MIKE-Review: Shouldn't the field handle be included in the hash?
                     break;
 
@@ -1989,7 +1979,6 @@ AGAIN:
                 // For the ones below no extra argument matters for comparison.
                 case GT_ARR_INDEX:
                 case GT_QMARK:
-                case GT_INDEX:
                 case GT_INDEX_ADDR:
                     break;
 
@@ -3529,7 +3518,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     // If we have an assignment involving a lclVar address, the LHS may be marked as having
                     // side-effects.
                     // However the side-effects won't require that we evaluate the LHS address first:
-                    // - The GTF_GLOB_REF might have been conservatively set on a FIELD of a local.
+                    // - The GTF_GLOB_REF might have been conservatively set on a field of a local.
                     // - The local might be address-exposed, but that side-effect happens at the actual assignment (not
                     //   when its address is "evaluated") so it doesn't change the side effect to "evaluate" the address
                     //   after the RHS (note that in this case it won't be renamed by SSA anyway, but the reordering is
@@ -4491,16 +4480,18 @@ bool GenTree::OperMayThrow(Compiler* comp)
         case GT_ARR_ELEM:
             return comp->fgAddrCouldBeNull(this->AsArrElem()->gtArrObj);
 
-        case GT_FIELD:
-            return comp->fgAddrCouldBeNull(AsField()->GetAddr());
+        case GT_FIELD_ADDR:
+            return comp->fgAddrCouldBeNull(AsFieldAddr()->GetAddr());
 
         case GT_ARR_BOUNDS_CHECK:
         case GT_ARR_INDEX:
         case GT_ARR_OFFSET:
         case GT_LCLHEAP:
         case GT_CKFINITE:
-        case GT_INDEX_ADDR:
             return true;
+
+        case GT_INDEX_ADDR:
+            return (gtFlags & GTF_INX_RNGCHK) != 0;
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -5753,7 +5744,13 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 return nullptr;
             }
 
-            if (GenTreeField* field = tree->IsField())
+            // TODO-MIKE-Review: This should check for IND(FIELD_ADDR) to be 100% equivalent
+            // to old FIELD code but then it looks like this is pointless. The address is
+            // cloned with "complexOK = false" so it's basically limited to a local or const
+            // node. In both cases the FIELD should have had GTF_GLOB_REF and most code that
+            // calls gtClone with "complexOK = true" does so only after checking that "tree"
+            // does not have side effects.
+            if (GenTreeFieldAddr* field = tree->IsFieldAddr())
             {
                 // TODO-MIKE-Cleanup: This exists mainly to match the behaviour of old code,
                 // which did not clone FIELD(ADDR(LCL_VAR)).
@@ -5769,8 +5766,8 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                     return nullptr;
                 }
 
-                copy = new (this, GT_FIELD) GenTreeField(field);
-                copy->AsField()->SetAddr(addr);
+                copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(field);
+                copy->AsFieldAddr()->SetAddr(addr);
             }
             else if (tree->OperIs(GT_ADD, GT_SUB))
             {
@@ -5796,15 +5793,6 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 {
                     return nullptr;
                 }
-            }
-            else if (tree->gtOper == GT_ADDR)
-            {
-                GenTree* op1 = gtClone(tree->AsOp()->gtOp1);
-                if (op1 == nullptr)
-                {
-                    return nullptr;
-                }
-                copy = gtNewAddrNode(op1, tree->GetType());
             }
             else
             {
@@ -6003,12 +5991,8 @@ GenTree* Compiler::gtCloneExpr(
 
             // The nodes below this are not bashed, so they can be allocated at their individual sizes.
 
-            case GT_FIELD:
-                copy = new (this, GT_FIELD) GenTreeField(tree->AsField());
-                break;
-
-            case GT_INDEX:
-                copy = new (this, GT_INDEX) GenTreeIndex(tree->AsIndex());
+            case GT_FIELD_ADDR:
+                copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(tree->AsFieldAddr());
                 break;
 
             case GT_INDEX_ADDR:
@@ -6833,8 +6817,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_BITCAST:
         case GT_CKFINITE:
         case GT_LCLHEAP:
-        case GT_ADDR:
-        case GT_FIELD:
+        case GT_FIELD_ADDR:
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
@@ -7849,9 +7832,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                         break;
                     }
                 }
-                FALLTHROUGH;
-            case GT_INDEX:
-            case GT_FIELD:
                 if (tree->gtFlags & GTF_IND_VOLATILE)
                 {
                     printf("V");
@@ -8106,7 +8086,25 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     {
         if (!varTypeIsStruct(tree->GetType()))
         {
-            printf(" %-6s", varTypeName(tree->GetType()));
+            ClassLayout* layout = nullptr;
+
+            if (GenTreeFieldAddr* field = tree->IsFieldAddr())
+            {
+                layout = field->GetLayout(this);
+            }
+            else if (GenTreeIndexAddr* index = tree->IsIndexAddr())
+            {
+                layout = index->GetLayout(this);
+            }
+
+            if (layout != nullptr)
+            {
+                printf(" %s<%s>", varTypeName(tree->GetType()), layout->GetClassName());
+            }
+            else
+            {
+                printf(" %-6s", varTypeName(tree->GetType()));
+            }
         }
         else
         {
@@ -8128,14 +8126,6 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             else if (GenTreeLclFld* lclFld = tree->IsLclFld())
             {
                 layout = tree->AsLclFld()->GetLayout(this);
-            }
-            else if (GenTreeIndex* index = tree->IsIndex())
-            {
-                layout = index->GetLayout();
-            }
-            else if (GenTreeField* field = tree->IsField())
-            {
-                layout = field->GetLayout(this);
             }
             else if (GenTreeCall* call = tree->IsCall())
             {
@@ -9368,6 +9358,11 @@ void Compiler::gtDispTree(GenTree*     tree,
                        : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
                    tree->AsHWIntrinsic()->GetSimdSize());
 
+            if (tree->AsHWIntrinsic()->GetAuxiliaryType() != TYP_UNDEF)
+            {
+                printf(" %s", varTypeName(tree->AsHWIntrinsic()->GetAuxiliaryType()));
+            }
+
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
@@ -9416,10 +9411,10 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
             break;
 
-        case GT_FIELD:
-            printf(" @%u %s::%s", tree->AsField()->GetOffset(),
-                   eeGetSimpleClassName(info.compCompHnd->getFieldClass(tree->AsField()->GetFieldHandle())),
-                   eeGetFieldName(tree->AsField()->GetFieldHandle()));
+        case GT_FIELD_ADDR:
+            printf(" @%u %s::%s", tree->AsFieldAddr()->GetOffset(),
+                   eeGetSimpleClassName(info.compCompHnd->getFieldClass(tree->AsFieldAddr()->GetFieldHandle())),
+                   eeGetFieldName(tree->AsFieldAddr()->GetFieldHandle()));
             break;
 
         case GT_CALL:
@@ -11099,17 +11094,21 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     // Get the address of the struct being boxed
     GenTree* const arg = call->gtCallArgs->GetNext()->GetNode();
 
-    if (arg->OperIs(GT_LCL_VAR_ADDR, GT_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
+    if (arg->OperIs(GT_LCL_VAR_ADDR, GT_FIELD_ADDR, GT_INDEX_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
     {
         ClassLayout* nullableLayout;
 
-        if (arg->OperIs(GT_LCL_VAR_ADDR))
+        if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
         {
-            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
+            nullableLayout = fieldAddr->GetLayout(this);
+        }
+        else if (GenTreeIndexAddr* indexAddr = arg->IsIndexAddr())
+        {
+            nullableLayout = indexAddr->GetLayout(this);
         }
         else
         {
-            nullableLayout = gtGetStructLayout(arg->AsUnOp()->GetOp(0));
+            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
         }
 
         if (nullableLayout == nullptr)
@@ -11132,7 +11131,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
         }
         else
         {
-            newOp = gtNewFieldRef(TYP_BOOL, fieldHnd, arg, fieldOffset);
+            newOp = gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(arg, fieldHnd, fieldOffset));
         }
 
         if (op == op1)
@@ -11376,7 +11375,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         {
             isStructCopy = true;
 
-            if ((copySrc->gtOper != GT_OBJ) && (copySrc->gtOper != GT_IND) && (copySrc->gtOper != GT_FIELD))
+            if (!copySrc->OperIs(GT_OBJ, GT_IND))
             {
                 // We don't know how to handle other cases, yet.
                 JITDUMP(" bailing; unexpected copy source struct op with side effect %s\n",
@@ -11428,13 +11427,27 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         // For struct types read the first byte of the
         // source struct; there's no need to read the
         // entire thing, and no place to put it.
-        assert(copySrc->OperIs(GT_OBJ, GT_IND, GT_FIELD));
+        assert(copySrc->OperIs(GT_OBJ, GT_IND));
         copyStmt->SetRootNode(copySrc);
 
         if (options == BR_REMOVE_AND_NARROW || options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE)
         {
             JITDUMP(" to read first byte of struct via modified [%06u]\n", dspTreeID(copySrc));
+
+            GenTree* addr = copySrc->AsIndir()->GetAddr();
+
+            if (GenTreeFieldAddr* field = addr->IsFieldAddr())
+            {
+                while (GenTreeFieldAddr* nextField = field->GetAddr()->IsFieldAddr())
+                {
+                    field = nextField;
+                }
+
+                copySrc = field;
+            }
+
             gtChangeOperToNullCheck(copySrc, compCurBB);
+            copyStmt->SetRootNode(copySrc);
         }
         else
         {
@@ -13287,18 +13300,6 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
                     return Compiler::WALK_SKIP_SUBTREES;
                 }
 
-                if ((m_flags & GTF_EXCEPT) != 0)
-                {
-                    // Special case - GT_ADDR of GT_IND nodes of TYP_STRUCT have to be kept together.
-                    if (node->OperIs(GT_ADDR) && node->gtGetOp1()->OperIsIndir() &&
-                        (node->gtGetOp1()->TypeGet() == TYP_STRUCT))
-                    {
-                        JITDUMP("Keep the GT_ADDR and GT_IND together:\n");
-                        m_sideEffects.Push(node);
-                        return Compiler::WALK_SKIP_SUBTREES;
-                    }
-                }
-
                 // Generally all GT_CALL nodes are considered to have side-effects.
                 // So if we get here it must be a helper call that we decided it does
                 // not have side effects that we needed to keep.
@@ -14125,14 +14126,19 @@ void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)
     SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
 }
 
-ClassLayout* GenTreeField::GetLayout(Compiler* compiler) const
+ClassLayout* GenTreeFieldAddr::GetLayout(Compiler* compiler) const
 {
     return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
 }
 
-void GenTreeField::SetLayout(ClassLayout* layout, Compiler* compiler)
+void GenTreeFieldAddr::SetLayout(ClassLayout* layout, Compiler* compiler)
 {
     SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
+}
+
+ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
+{
+    return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
 }
 
 bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
@@ -14348,10 +14354,6 @@ ClassLayout* Compiler::gtGetStructLayout(GenTree* tree)
             return tree->AsCall()->GetRetLayout();
         case GT_RET_EXPR:
             return tree->AsRetExpr()->GetLayout();
-        case GT_INDEX:
-            return tree->AsIndex()->GetLayout();
-        case GT_FIELD:
-            return tree->AsField()->GetLayout(this);
         case GT_LCL_VAR:
             return lvaGetDesc(tree->AsLclVar())->GetLayout();
         case GT_LCL_FLD:
@@ -14400,10 +14402,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             *pIsExact = lcl->lvClassIsExact;
             break;
         }
-
-        case GT_FIELD:
-            objClass = gtGetFieldClassHandle(obj->AsField()->GetFieldHandle(), pIsExact, pIsNonNull);
-            break;
 
         case GT_RET_EXPR:
             objClass = gtGetClassHandle(tree->AsRetExpr()->GetRetExpr(), pIsExact, pIsNonNull);
@@ -14600,6 +14598,16 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                 assert(info.compCompHnd->isFieldStatic(fieldHandle));
                 objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
             }
+            else if (GenTreeFieldAddr* field = addr->IsFieldAddr())
+            {
+                objClass = gtGetFieldClassHandle(field->GetFieldHandle(), pIsExact, pIsNonNull);
+            }
+            else if (GenTreeIndexAddr* index = addr->IsIndexAddr())
+            {
+                objClass    = gtGetArrayElementClassHandle(index->GetArray());
+                *pIsExact   = false;
+                *pIsNonNull = false;
+            }
 
             break;
         }
@@ -14618,12 +14626,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             *pIsNonNull               = true;
             break;
         }
-
-        case GT_INDEX:
-            objClass    = gtGetArrayElementClassHandle(obj->AsIndex()->GetArray());
-            *pIsExact   = false;
-            *pIsNonNull = false;
-            break;
 
         default:
         {
@@ -14905,14 +14907,7 @@ bool Compiler::optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo)
 {
     assert(indir->OperIs(GT_IND));
 
-    GenTree* addr = indir->GetAddr();
-
-    while (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_IND))
-    {
-        addr = addr->AsUnOp()->GetOp(0)->AsIndir()->GetAddr();
-    }
-
-    return optIsArrayElemAddr(addr, arrayInfo);
+    return optIsArrayElemAddr(indir->GetAddr(), arrayInfo);
 }
 
 bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
@@ -15224,15 +15219,15 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
     }
 
     // It really should be a value class but we may also get a primitive type due
-    // to the normed type mess. It's also possible do end up attempting to access
+    // to the normed type mess. It's also possible to end up attempting to access
     // the value field of a primtive struct (Int32, Double etc.) via the primitive
     // type itself, e.g. by calling GetHashCode on a Nullable<double> local.
     // Double.GetHashCode is inlined and due to inliner arg substitution we end up
     // with something like:
-    //   ADDR(FIELD.double Double.m_value (ADDR(FIELD.double Nullable.value))))
+    //   FIELD_ADDR Double.m_value (FIELD_ADDR Nullable.value)
     //
     // TODO-MIKE-Cleanup: Probably the importer should detect and discard the
-    // redundant FIELD node.
+    // redundant FIELD_ADDR node.
     // At least in the Double.GetHashCode case this doesn't seem to have any ill
     // side effects - either the Nullable<Double> local is promoted and then the
     // whole thing is replaced with a LCL_VAR or it is not promoted and then we

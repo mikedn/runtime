@@ -920,11 +920,8 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
             return false;
         }
     }
-    else if (addr->gtOper == GT_ADDR)
+    else if (addr->OperIs(GT_FIELD_ADDR))
     {
-        // If the address is a ADDR node then it cannot be null. The location whose address is
-        // being taken is either a local or static variable, whose address is necessarily non-null,
-        // or else it is a FIELD or INDEX node, which will do its own null checking if necessary.
         return false;
     }
     else if (addr->gtOper == GT_ADD)
@@ -3976,7 +3973,6 @@ Compiler::fgWalkResult Compiler::fgChkThrowCB(GenTree** pTree, fgWalkData* data)
             }
             break;
 
-        case GT_INDEX:
         case GT_INDEX_ADDR:
             // These two call CORINFO_HELP_RNGCHKFAIL for Debug code
             if (tree->gtFlags & GTF_INX_RNGCHK)
