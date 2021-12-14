@@ -7,13 +7,13 @@
 // file wanted to include gentree.h to get GT_COUNT, and gentree.h wanted ton include ValueNum.h to
 // the ValueNum type.
 
-/*****************************************************************************/
 #ifndef _VALUENUMTYPE_H_
 #define _VALUENUMTYPE_H_
-/*****************************************************************************/
 
-// We will represent ValueNum's as unsigned integers.
-typedef UINT32 ValueNum;
+typedef uint32_t ValueNum;
+
+// TODO-MIKE-Cleanup: Why the crap isn't NoVN 0?
+constexpr ValueNum NoVN = UINT32_MAX;
 
 // There are two "kinds" of value numbers, which differ in their modeling of the actions of other threads.
 // "Liberal" value numbers assume that the other threads change contents of memory locations only at
@@ -89,8 +89,9 @@ public:
         m_conservative = vn2.m_conservative;
     }
 
-    // Initializes both elements to "NoVN".  Defined in ValueNum.cpp.
-    ValueNumPair();
+    ValueNumPair() : m_liberal(NoVN), m_conservative(NoVN)
+    {
+    }
 
     explicit ValueNumPair(ValueNum vn) : m_liberal(vn), m_conservative(vn)
     {
@@ -100,8 +101,10 @@ public:
     {
     }
 
-    // True iff neither element is "NoVN".  Defined in ValueNum.cpp.
-    bool BothDefined() const;
+    bool BothDefined() const
+    {
+        return (m_liberal != NoVN) && (m_conservative != NoVN);
+    }
 
     bool BothEqual() const
     {

@@ -703,35 +703,19 @@ void* GenTree::operator new(size_t sz, Compiler* comp, genTreeOps oper)
     return comp->getAllocator(CMK_ASTNode).allocate<char>(size);
 }
 
-// GenTree constructor
 inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode))
-{
-    gtOper     = oper;
-    gtType     = type;
-    gtFlags    = GTF_EMPTY;
-    gtLIRFlags = 0;
+    : gtOper(oper)
+    , gtType(type)
 #ifdef DEBUG
-    gtDebugFlags = GTF_DEBUG_NONE;
-#endif // DEBUG
-    gtCSEnum = NO_CSE;
-#if ASSERTION_PROP
-    ClearAssertion();
+    , gtTreeID(JitTls::GetCompiler()->compGenTreeID++)
 #endif
-
-    gtNext = nullptr;
-    gtPrev = nullptr;
-    SetRegNum(REG_NA);
-    INDEBUG(gtRegTag = GT_REGTAG_NONE;)
-
-    INDEBUG(gtCostsInitialized = false;)
-
+{
 #ifdef DEBUG
-    size_t size = GenTree::s_gtNodeSizes[oper];
-    if (size == TREE_NODE_SZ_SMALL && !largeNode)
+    if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) && !largeNode)
     {
         gtDebugFlags |= GTF_DEBUG_NODE_SMALL;
     }
-    else if (size == TREE_NODE_SZ_LARGE || largeNode)
+    else if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE) || largeNode)
     {
         gtDebugFlags |= GTF_DEBUG_NODE_LARGE;
     }
@@ -743,14 +727,6 @@ inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode)
 
 #if COUNT_AST_OPERS
     InterlockedIncrement(&s_gtNodeCounts[oper]);
-#endif
-
-#ifdef DEBUG
-    gtSeqNum = 0;
-    gtTreeID = JitTls::GetCompiler()->compGenTreeID++;
-    gtVNPair.SetBoth(ValueNumStore::NoVN);
-    gtRegTag   = GT_REGTAG_NONE;
-    gtOperSave = GT_NONE;
 #endif
 }
 

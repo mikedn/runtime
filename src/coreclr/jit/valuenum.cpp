@@ -9624,13 +9624,3 @@ void Compiler::vnPrint(ValueNum vn, unsigned level)
 }
 
 #endif // DEBUG
-
-// Methods of ValueNumPair.
-ValueNumPair::ValueNumPair() : m_liberal(ValueNumStore::NoVN), m_conservative(ValueNumStore::NoVN)
-{
-}
-
-bool ValueNumPair::BothDefined() const
-{
-    return (m_liberal != ValueNumStore::NoVN) && (m_conservative != ValueNumStore::NoVN);
-}

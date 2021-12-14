@@ -805,9 +805,8 @@ struct GenTree
         gtType = type;
     }
 
-#ifdef DEBUG
-    genTreeOps gtOperSave; // Only used to save gtOper when we destroy a node, to aid debugging.
-#endif
+    // Only used to save gtOper when we destroy a node, to aid debugging.
+    INDEBUG(genTreeOps gtOperSave = GT_NONE;)
 
 #define NO_CSE (0)
 
@@ -817,10 +816,10 @@ struct GenTree
 #define GET_CSE_INDEX(x) (((x) > 0) ? x : -(x))
 #define TO_CSE_DEF(x) (-(x))
 
-    signed char gtCSEnum; // 0 or the CSE index (negated if def)
-                          // valid only for CSE expressions
-
-    unsigned char gtLIRFlags; // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
+    // Valid only for CSE expressions, 0 or the CSE index (negated if it's a def).
+    signed char gtCSEnum = NO_CSE;
+    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
+    unsigned char gtLIRFlags = 0;
 
 #if ASSERTION_PROP
     AssertionInfo gtAssertionInfo;
@@ -851,14 +850,11 @@ struct GenTree
     //
 
 public:
-#ifdef DEBUG
     // You are not allowed to read the cost values before they have been set in gtSetEvalOrder().
     // Keep track of whether the costs have been initialized, and assert if they are read before being initialized.
     // Obviously, this information does need to be initialized when a node is created.
     // This is public so the dumpers can see it.
-
-    bool gtCostsInitialized;
-#endif // DEBUG
+    INDEBUG(bool gtCostsInitialized = false;)
 
 #define MAX_COST UCHAR_MAX
 #define IND_COST_EX 3 // execution cost for an indirection
@@ -933,13 +929,13 @@ public:
     }
 
 private:
-    genRegTag gtRegTag; // What is in _gtRegNum?
+    genRegTag gtRegTag = GT_REGTAG_NONE; // What is in _gtRegNum?
 
 #endif // DEBUG
 
 private:
     // This stores the register assigned to the node. If a register is not assigned, _gtRegNum is set to REG_NA.
-    regNumberSmall _gtRegNum;
+    regNumberSmall _gtRegNum = static_cast<regNumberSmall>(REG_NA);
 
 public:
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
@@ -1038,9 +1034,9 @@ public:
 
     regMaskTP gtGetRegMask() const;
 
-    GenTreeFlags gtFlags;
+    GenTreeFlags gtFlags = GTF_EMPTY;
 
-    INDEBUG(GenTreeDebugFlags gtDebugFlags;)
+    INDEBUG(GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;)
 
     ValueNumPair gtVNPair;
 
@@ -1111,12 +1107,12 @@ public:
         gtFlags |= sideEffects;
     }
 
-    GenTree* gtNext;
-    GenTree* gtPrev;
+    GenTree* gtNext = nullptr;
+    GenTree* gtPrev = nullptr;
 
 #ifdef DEBUG
     unsigned gtTreeID;
-    unsigned gtSeqNum; // liveness traversal order within the current statement
+    unsigned gtSeqNum = 0; // liveness traversal order within the current statement
 
     int gtUseNum; // use-ordered traversal within the function
 #endif

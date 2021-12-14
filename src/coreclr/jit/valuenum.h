@@ -130,7 +130,7 @@ class ValueNumStore
 
 public:
     // We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
-    static const ValueNum NoVN = UINT32_MAX;
+    static const ValueNum NoVN = ::NoVN;
     // A second special value, used to indicate that a function evaluation would cause infinite recursion.
     static const ValueNum RecursiveVN = UINT32_MAX - 1;
 
