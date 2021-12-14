@@ -42,7 +42,7 @@ void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrSt
             }
             if (tree->gtFlags & GTF_VAR_DEF)
             {
-                GenTreePtrStack* stack = nullptr;
+                ArrayStack<GenTree*>* stack = nullptr;
                 curSsaName->Lookup(lclNum, &stack);
                 stack->Pop();
                 if (stack->Empty())
@@ -450,10 +450,10 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
 
             if ((tree->gtFlags & GTF_VAR_DEF) != 0)
             {
-                GenTreePtrStack* stack;
+                ArrayStack<GenTree*>* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
                 {
-                    stack = new (curSsaName->GetAllocator()) GenTreePtrStack(curSsaName->GetAllocator());
+                    stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
                 }
                 stack->Push(tree);
                 curSsaName->Set(lclNum, stack, LclNumToGenTreePtrStack::Overwrite);
@@ -462,10 +462,10 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
             // Since they are always live, do it only once.
             else if (tree->OperIs(GT_LCL_VAR) && (lvaTable[lclNum].lvIsParam || lvaTable[lclNum].lvIsThisPtr))
             {
-                GenTreePtrStack* stack;
+                ArrayStack<GenTree*>* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
                 {
-                    stack = new (curSsaName->GetAllocator()) GenTreePtrStack(curSsaName->GetAllocator());
+                    stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
                     stack->Push(tree);
                     curSsaName->Set(lclNum, stack);
                 }

@@ -64,11 +64,10 @@ static const char*  asciiIndents[IndentCharCount]   = {     "|",            "\\"
 static const char*  unicodeIndents[IndentCharCount] = { "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x8c", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c", "?"  };
 // clang-format on
 
-typedef ArrayStack<Compiler::IndentInfo> IndentInfoStack;
 struct IndentStack
 {
-    IndentInfoStack stack;
-    const char**    indents;
+    ArrayStack<Compiler::IndentInfo> stack;
+    const char**                     indents;
 
     // Constructor for IndentStack.  Uses 'compiler' to determine the mode of printing.
     IndentStack(Compiler* compiler) : stack(compiler->getAllocator(CMK_DebugOnly))
@@ -86,7 +85,7 @@ struct IndentStack
     // Return the depth of the current indentation.
     unsigned Depth()
     {
-        return stack.Height();
+        return stack.Size();
     }
 
     // Push a new indentation onto the stack, of the given type.
@@ -13538,7 +13537,7 @@ bool Compiler::gtHasCatchArg(GenTree* tree)
 //------------------------------------------------------------------------
 /* static */ bool Compiler::gtHasCallOnStack(GenTreeStack* parentStack)
 {
-    for (int i = 0; i < parentStack->Height(); i++)
+    for (unsigned i = 0; i < parentStack->Size(); i++)
     {
         GenTree* node = parentStack->Top(i);
         if (node->OperGet() == GT_CALL)

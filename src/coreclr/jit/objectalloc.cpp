@@ -565,14 +565,14 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
 bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parentStack, unsigned int lclNum)
 {
     assert(parentStack != nullptr);
-    int parentIndex = 1;
+    unsigned parentIndex = 1;
 
     bool keepChecking                  = true;
     bool canLclVarEscapeViaParentStack = true;
 
     while (keepChecking)
     {
-        if (parentStack->Height() <= parentIndex)
+        if (parentStack->Size() <= parentIndex)
         {
             canLclVarEscapeViaParentStack = false;
             break;
@@ -697,11 +697,11 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
 {
     assert(newType == TYP_BYREF || newType == TYP_I_IMPL);
     assert(parentStack != nullptr);
-    int parentIndex = 1;
+    unsigned parentIndex = 1;
 
     bool keepChecking = true;
 
-    while (keepChecking && (parentStack->Height() > parentIndex))
+    while (keepChecking && (parentStack->Size() > parentIndex))
     {
         GenTree* parent = parentStack->Top(parentIndex);
         keepChecking    = false;

@@ -39,7 +39,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     call = comp->fgMorphArgs(call);
 
     // Replace "tree" with "call"
-    if (parents.Height() > 1)
+    if (parents.Size() > 1)
     {
         parents.Top(1)->ReplaceOperand(use, call);
     }
@@ -55,7 +55,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 
     // Propagate flags of "call" to its parents.
     // 0 is current node, so start at 1
-    for (int i = 1; i < parents.Height(); i++)
+    for (unsigned i = 1; i < parents.Size(); i++)
     {
         parents.Top(i)->gtFlags |= (call->gtFlags & GTF_ALL_EFFECT) | GTF_CALL;
     }
@@ -218,7 +218,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
     node->gtFlags &= ~GTF_REVERSE_OPS;
 
     LIR::Use use;
-    if (parentStack.Height() < 2)
+    if (parentStack.Size() < 2)
     {
         use = LIR::Use::GetDummyUse(BlockRange(), *useEdge);
     }

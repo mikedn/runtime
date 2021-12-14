@@ -3891,7 +3891,7 @@ public:
         m_tail = node;
 
         // Now check if GenTree::Operands() returns the operands in the correct order.
-        m_operands.Reset();
+        m_operands.Clear();
 
         // The operands have been pushed by PreOrderVisit onto the node stack but they're
         // reversed, the last operand is on top of the stack. Move them to another stack

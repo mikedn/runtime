@@ -1568,7 +1568,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         //
         bool FindReg(GenTree* node, regNumber* pReg)
         {
-            for (int i = 0; i < args.Height(); i++)
+            for (unsigned i = 0; i < args.Size(); i++)
             {
                 NonStandardArg& nsa = args.TopRef(i);
                 if (node == nsa.node)
@@ -11996,7 +11996,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         {
             commas.Top()->SetOp(1, val);
 
-            for (int i = 0; i < commas.Height(); i++)
+            for (unsigned i = 0; i < commas.Size(); i++)
             {
                 GenTreeOp* comma = commas.Top(i);
                 comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());

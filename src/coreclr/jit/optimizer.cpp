@@ -5927,7 +5927,7 @@ void Compiler::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
         // If we didn't reach the entry block, give up and *just* push the entry block.
         if (cur != pLoopDsc->lpEntry)
         {
-            defExec.Reset();
+            defExec.Clear();
         }
         defExec.Push(pLoopDsc->lpEntry);
     }
@@ -6127,7 +6127,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                     m_compiler->optHoistCandidate(stmt->GetRootNode(), m_loopNum, m_hoistContext);
                 }
 
-                m_valueStack.Reset();
+                m_valueStack.Clear();
             }
 
             // Only uncondtionally executed blocks in the loop are visited (see optHoistThisLoop)
@@ -6416,7 +6416,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                 // cctor dependent node is initially not hoistable and may become hoistable later,
                 // when its parent comma node is visited.
                 //
-                for (int i = 0; i < m_valueStack.Height(); i++)
+                for (unsigned i = 0; i < m_valueStack.Size(); i++)
                 {
                     Value& value = m_valueStack.BottomRef(i);
 

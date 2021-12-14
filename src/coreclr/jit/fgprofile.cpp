@@ -736,7 +736,7 @@ void Compiler::WalkSpanningTree(SpanningTreeVisitor* visitor)
                     // have critical edges be tree edges, and
                     // edges from non-rare to rare be non-tree edges.
                     //
-                    scratch.Reset();
+                    scratch.Clear();
                     BlockSetOps::ClearD(comp, processed);
 
                     for (unsigned i = 0; i < numSucc; i++)

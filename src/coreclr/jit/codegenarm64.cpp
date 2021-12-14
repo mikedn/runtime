@@ -463,8 +463,7 @@ void CodeGen::genEpilogRestoreReg(regNumber reg1, int spOffset, int spDelta, reg
 // static
 void CodeGen::genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* regStack)
 {
-    assert(regStack != nullptr);
-    assert(regStack->Height() == 0);
+    assert(regStack->Empty());
 
     unsigned regsCount = genCountBits(regsMask);
 
@@ -529,7 +528,7 @@ void CodeGen::genBuildRegPairsStack(regMaskTP regsMask, ArrayStack<RegPair>* reg
 // static
 void CodeGen::genSetUseSaveNextPairs(ArrayStack<RegPair>* regStack)
 {
-    for (int i = 1; i < regStack->Height(); ++i)
+    for (unsigned i = 1; i < regStack->Size(); ++i)
     {
         RegPair& curr = regStack->BottomRef(i);
         RegPair  prev = regStack->Bottom(i - 1);
@@ -589,7 +588,7 @@ void CodeGen::genSaveCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta, i
     ArrayStack<RegPair> regStack(compiler->getAllocator(CMK_Codegen));
     genBuildRegPairsStack(regsMask, &regStack);
 
-    for (int i = 0; i < regStack.Height(); ++i)
+    for (unsigned i = 0; i < regStack.Size(); ++i)
     {
         RegPair regPair = regStack.Bottom(i);
         if (regPair.reg2 != REG_NA)
@@ -705,9 +704,9 @@ void CodeGen::genRestoreCalleeSavedRegisterGroup(regMaskTP regsMask, int spDelta
     genBuildRegPairsStack(regsMask, &regStack);
 
     int stackDelta = 0;
-    for (int i = 0; i < regStack.Height(); ++i)
+    for (unsigned i = 0; i < regStack.Size(); ++i)
     {
-        bool lastRestoreInTheGroup = (i == regStack.Height() - 1);
+        bool lastRestoreInTheGroup = (i == regStack.Size() - 1);
         bool updateStackDelta      = lastRestoreInTheGroup && (spDelta != 0);
         if (updateStackDelta)
         {
