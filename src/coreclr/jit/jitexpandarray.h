@@ -145,7 +145,11 @@ public:
     //
     T Get(unsigned idx)
     {
-        EnsureCoversInd(idx);
+        if (idx >= m_size)
+        {
+            EnsureCoversInd(idx);
+        }
+
         return m_members[idx];
     }
 
@@ -164,7 +168,11 @@ public:
     //
     T& GetRef(unsigned idx)
     {
-        EnsureCoversInd(idx);
+        if (idx >= m_size)
+        {
+            EnsureCoversInd(idx);
+        }
+
         return m_members[idx];
     }
 
@@ -180,7 +188,11 @@ public:
     //
     void Set(unsigned idx, T val)
     {
-        EnsureCoversInd(idx);
+        if (idx >= m_size)
+        {
+            EnsureCoversInd(idx);
+        }
+
         m_members[idx] = val;
     }
 
@@ -198,7 +210,11 @@ public:
     //
     T& operator[](unsigned idx)
     {
-        EnsureCoversInd(idx);
+        if (idx >= m_size)
+        {
+            EnsureCoversInd(idx);
+        }
+
         return m_members[idx];
     }
 };
@@ -385,17 +401,16 @@ public:
 template <class T>
 void JitExpandArray<T>::EnsureCoversInd(unsigned idx)
 {
-    if (idx >= m_size)
+    assert(idx >= m_size);
+
+    unsigned oldSize    = m_size;
+    T*       oldMembers = m_members;
+    m_size              = max(idx + 1, max(m_minSize, m_size * 2));
+    m_members           = m_alloc.allocate<T>(m_size);
+    if (oldMembers != nullptr)
     {
-        unsigned oldSize    = m_size;
-        T*       oldMembers = m_members;
-        m_size              = max(idx + 1, max(m_minSize, m_size * 2));
-        m_members           = m_alloc.allocate<T>(m_size);
-        if (oldMembers != nullptr)
-        {
-            memcpy(m_members, oldMembers, oldSize * sizeof(T));
-            m_alloc.deallocate(oldMembers);
-        }
-        InitializeRange(oldSize, m_size);
+        memcpy(m_members, oldMembers, oldSize * sizeof(T));
+        m_alloc.deallocate(oldMembers);
     }
+    InitializeRange(oldSize, m_size);
 }
