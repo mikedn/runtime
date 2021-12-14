@@ -399,7 +399,7 @@ public:
 //      - the newly added elements are value-initialized
 //
 template <class T>
-void JitExpandArray<T>::EnsureCoversInd(unsigned idx)
+NOINLINE void JitExpandArray<T>::EnsureCoversInd(unsigned idx)
 {
     assert(idx >= m_size);
 

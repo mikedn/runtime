@@ -60,7 +60,7 @@ ArenaAllocator::ArenaAllocator()
 //
 // Return Value:
 //    A pointer to the first usable byte of the newly allocated page.
-void* ArenaAllocator::allocateNewPage(size_t size)
+NOINLINE void* ArenaAllocator::allocateNewPage(size_t size)
 {
     size_t pageSize = sizeof(PageDescriptor) + size;
 

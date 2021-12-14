@@ -10,7 +10,7 @@ class ArrayStack
     CompAllocator m_alloc;
     char          m_inlineData[InlineCapacity * sizeof(T)];
 
-    void Realloc()
+    NOINLINE void Realloc()
     {
         unsigned newCapacity = m_capacity * 2;
         noway_assert(newCapacity > m_capacity);
