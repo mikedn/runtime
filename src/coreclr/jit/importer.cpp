@@ -3355,13 +3355,13 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             op1 = impStackTop(0).val;
 
             // If we're calling GetType on a boxed value, just get the type directly.
-            if (op1->IsBox())
+            if (GenTreeBox* box = op1->IsBox())
             {
                 JITDUMP("Attempting to optimize box(...).getType() to direct type construction\n");
 
                 // Try and clean up the box. Obtain the handle we
                 // were going to pass to the newobj.
-                GenTree* boxTypeHandle = gtTryRemoveBoxUpstreamEffects(op1, BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE);
+                GenTree* boxTypeHandle = gtTryRemoveBoxUpstreamEffects(box, BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE);
 
                 if (boxTypeHandle != nullptr)
                 {
@@ -9095,10 +9095,10 @@ GenTree* Compiler::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
                 GenTree* result = gtNewIconNode(0, TYP_REF);
 
                 // If the cast was fed by a box, we can remove that too.
-                if (op1->IsBox())
+                if (GenTreeBox* box = op1->IsBox())
                 {
                     JITDUMP("Also removing upstream box\n");
-                    gtTryRemoveBoxUpstreamEffects(op1);
+                    gtTryRemoveBoxUpstreamEffects(box);
                 }
 
                 return result;
@@ -16201,14 +16201,15 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                         //
                         JITDUMP("Unboxed entry needs method table arg...\n");
                         GenTree* methodTableArg =
-                            gtTryRemoveBoxUpstreamEffects(thisObj, BR_DONT_REMOVE_WANT_TYPE_HANDLE);
+                            gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_DONT_REMOVE_WANT_TYPE_HANDLE);
 
                         if (methodTableArg != nullptr)
                         {
                             // If that worked, turn the box into a copy to a local var
                             //
                             JITDUMP("Found suitable method table arg tree [%06u]\n", dspTreeID(methodTableArg));
-                            GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj, BR_MAKE_LOCAL_COPY);
+                            GenTree* localCopyThis =
+                                gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY);
 
                             if (localCopyThis != nullptr)
                             {
@@ -16271,7 +16272,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                     else
                     {
                         JITDUMP("Found unboxed entry point, trying to simplify box to a local copy\n");
-                        GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj, BR_MAKE_LOCAL_COPY);
+                        GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY);
 
                         if (localCopyThis != nullptr)
                         {

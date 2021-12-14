@@ -237,7 +237,6 @@ void GenTree::InitNodeSize()
 
     // clang-format off
     GenTree::s_gtNodeSizes[GT_CALL]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_BOX]              = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_ARR_ELEM]         = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_DYN_BLK]          = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_STORE_DYN_BLK]    = TREE_NODE_SZ_LARGE;
@@ -275,7 +274,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeLclFld)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeColon)        <= TREE_NODE_SZ_SMALL);
@@ -10819,10 +10818,10 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
                 {
                     // The tree under the box must be side effect free
                     // since we will drop it if we optimize.
-                    assert(!gtTreeHasSideEffects(op->AsBox()->BoxOp(), GTF_SIDE_EFFECT));
+                    assert(!gtTreeHasSideEffects(op->AsBox()->GetOp(0), GTF_SIDE_EFFECT));
 
                     // See if we can optimize away the box and related statements.
-                    GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op);
+                    GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op->AsBox());
                     bool     didOptimize   = (boxSourceTree != nullptr);
 
                     // If optimization succeeded, remove the box.
@@ -11176,19 +11175,15 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 //    return expression). So the box is perhaps best left as is to
 //    help trigger this re-examination.
 
-GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions options)
+GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options)
 {
-    assert(op->IsBox());
-
-    // grab related parts for the optimization
-    GenTreeBox* box      = op->AsBox();
-    Statement*  asgStmt  = box->gtAsgStmtWhenInlinedBoxValue;
-    Statement*  copyStmt = box->gtCopyStmtWhenInlinedBoxValue;
+    Statement* asgStmt  = box->gtAsgStmtWhenInlinedBoxValue;
+    Statement* copyStmt = box->gtCopyStmtWhenInlinedBoxValue;
 
     JITDUMP("gtTryRemoveBoxUpstreamEffects: %s to %s of BOX (valuetype)"
             " [%06u] (assign/newobj " FMT_STMT " copy " FMT_STMT "\n",
             (options == BR_DONT_REMOVE) ? "checking if it is possible" : "attempting",
-            (options == BR_MAKE_LOCAL_COPY) ? "make local unboxed version" : "remove side effects", dspTreeID(op),
+            (options == BR_MAKE_LOCAL_COPY) ? "make local unboxed version" : "remove side effects", box->GetID(),
             asgStmt->GetID(), copyStmt->GetID());
 
     DISPSTMT(asgStmt);
@@ -11267,7 +11262,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
     if (options == BR_MAKE_LOCAL_COPY)
     {
         // Drill into the box to get at the box temp local and the box type
-        GenTreeLclVar* boxTemp = box->BoxOp()->AsLclVar();
+        GenTreeLclVar* boxTemp = box->GetOp(0)->AsLclVar();
         assert(boxTemp->OperIs(GT_LCL_VAR));
         const unsigned boxTempLclNum = boxTemp->GetLclNum();
         LclVarDsc*     boxTempLclDsc = lvaGetDesc(boxTempLclNum);
@@ -11530,7 +11525,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     // Simulate removing the box for thisOP. We need to know that it can
     // be safely removed before we can optimize.
-    GenTree* thisVal = gtTryRemoveBoxUpstreamEffects(thisOp, BR_DONT_REMOVE);
+    GenTree* thisVal = gtTryRemoveBoxUpstreamEffects(thisOp->AsBox(), BR_DONT_REMOVE);
     if (thisVal == nullptr)
     {
         // Note we may fail here if the this operand comes from
@@ -11540,7 +11535,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
 
     // Do likewise with flagOp.
-    GenTree* flagVal = gtTryRemoveBoxUpstreamEffects(flagOp, BR_DONT_REMOVE);
+    GenTree* flagVal = gtTryRemoveBoxUpstreamEffects(flagOp->AsBox(), BR_DONT_REMOVE);
     if (flagVal == nullptr)
     {
         // Note we may fail here if the flag operand comes from
@@ -11562,8 +11557,8 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     // Undo the boxing of the Ops and prepare to operate directly
     // on the pre-boxed values.
-    thisVal = gtTryRemoveBoxUpstreamEffects(thisOp, BR_REMOVE_BUT_NOT_NARROW);
-    flagVal = gtTryRemoveBoxUpstreamEffects(flagOp, BR_REMOVE_BUT_NOT_NARROW);
+    thisVal = gtTryRemoveBoxUpstreamEffects(thisOp->AsBox(), BR_REMOVE_BUT_NOT_NARROW);
+    flagVal = gtTryRemoveBoxUpstreamEffects(flagOp->AsBox(), BR_REMOVE_BUT_NOT_NARROW);
 
     // Our trial removals above should guarantee successful removals here.
     assert(thisVal != nullptr);
@@ -14602,13 +14597,10 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             // Box should just wrap a local var reference which has
             // the type we're looking for. Also box only represents a
             // non-nullable value type so result cannot be null.
-            GenTreeBox* box     = obj->AsBox();
-            GenTree*    boxTemp = box->BoxOp();
-            assert(boxTemp->IsLocal());
-            const unsigned boxTempLcl = boxTemp->AsLclVar()->GetLclNum();
-            objClass                  = lvaTable[boxTempLcl].lvClassHnd;
-            *pIsExact                 = lvaTable[boxTempLcl].lvClassIsExact;
-            *pIsNonNull               = true;
+            LclVarDsc* boxTempLcl = lvaGetDesc(obj->AsBox()->GetOp(0)->AsLclVar());
+            objClass              = boxTempLcl->lvClassHnd;
+            *pIsExact             = boxTempLcl->lvClassIsExact;
+            *pIsNonNull           = true;
             break;
         }
 

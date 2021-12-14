@@ -2248,7 +2248,7 @@ public:
         BR_MAKE_LOCAL_COPY                     // revise box to copy to temp local and return local's address
     };
 
-    GenTree* gtTryRemoveBoxUpstreamEffects(GenTree* tree, BoxRemovalOptions options = BR_REMOVE_AND_NARROW);
+    GenTree* gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options = BR_REMOVE_AND_NARROW);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
 
     ClassLayout* gtGetStructLayout(GenTree* tree);

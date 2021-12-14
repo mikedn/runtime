@@ -3669,13 +3669,6 @@ struct GenTreeCast : public GenTreeOp
 // for most purposes is in gtBoxOp.
 struct GenTreeBox : public GenTreeUnOp
 {
-    // An expanded helper call to implement the "box" if we don't get
-    // rid of it any other way.  Must be in same position as op1.
-
-    GenTree*& BoxOp()
-    {
-        return gtOp1;
-    }
     // This is the statement that contains the assignment tree when the node is an inlined GT_BOX on a value
     // type
     Statement* gtAsgStmtWhenInlinedBoxValue;
@@ -3691,6 +3684,7 @@ struct GenTreeBox : public GenTreeUnOp
         , gtCopyStmtWhenInlinedBoxValue(copyStmtWhenInlinedBoxValue)
     {
     }
+
 #if DEBUGGABLE_GENTREE
     GenTreeBox() : GenTreeUnOp()
     {
