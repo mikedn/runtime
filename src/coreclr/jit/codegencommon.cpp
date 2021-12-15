@@ -136,11 +136,6 @@ CodeGen::CodeGen(Compiler* compiler)
 #endif // TARGET_ARM64
 }
 
-void CodeGenInterface::genMarkTreeInReg(GenTree* tree, regNumber reg)
-{
-    tree->SetRegNum(reg);
-}
-
 #if defined(TARGET_X86) || defined(TARGET_ARM)
 
 //---------------------------------------------------------------------
@@ -246,29 +241,6 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 }
 
 #endif // defined(TARGET_X86) || defined(TARGET_ARM)
-
-/*****************************************************************************
- * Should we round simple operations (assignments, arithmetic operations, etc.)
- */
-
-// inline
-// static
-bool CodeGen::genShouldRoundFP()
-{
-    RoundLevel roundLevel = getRoundFloatLevel();
-
-    switch (roundLevel)
-    {
-        case ROUND_NEVER:
-        case ROUND_CMP_CONST:
-        case ROUND_CMP:
-            return false;
-
-        default:
-            assert(roundLevel == ROUND_ALWAYS);
-            return true;
-    }
-}
 
 void CodeGen::genPrepForCompiler()
 {
@@ -643,15 +615,6 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
 void CodeGenInterface::spillReg(var_types type, TempDsc* tmp, regNumber reg)
 {
     GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), reg, tmp->tdTempNum(), 0);
-}
-
-/*****************************************************************************
- *
- *  Generate a reload.
- */
-void CodeGenInterface::reloadReg(var_types type, TempDsc* tmp, regNumber reg)
-{
-    GetEmitter()->emitIns_R_S(ins_Load(type), emitActualTypeSize(type), reg, tmp->tdTempNum(), 0);
 }
 
 // inline

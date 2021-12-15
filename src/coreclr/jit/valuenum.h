@@ -1204,18 +1204,6 @@ private:
     }
     ValueNum m_VNsForSmallIntConsts[SmallIntConstNum];
 
-    struct ValueNumList
-    {
-        ValueNum      vn;
-        ValueNumList* next;
-        ValueNumList(const ValueNum& v, ValueNumList* n = nullptr) : vn(v), next(n)
-        {
-        }
-    };
-
-    // Keeps track of value numbers that are integer constants and also handles (GTG_ICON_HDL_MASK.)
-    ValueNumList* m_intConHandles;
-
     typedef VNMap<INT32> IntToValueNumMap;
     IntToValueNumMap*    m_intCnsMap;
     IntToValueNumMap*    GetIntCnsMap()
