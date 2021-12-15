@@ -841,12 +841,12 @@ private:
                 if (c->m_attribs == CEA_Handle)
                 {
                     C_ASSERT(offsetof(VNHandle, m_cnsVal) == 0);
-                    return (T) reinterpret_cast<VNHandle*>(c->m_defs)[offset].m_cnsVal;
+                    return (T) static_cast<VNHandle*>(c->m_defs)[offset].m_cnsVal;
                 }
 #ifdef DEBUG
                 if (!coerce)
                 {
-                    T val1 = reinterpret_cast<T*>(c->m_defs)[offset];
+                    T val1 = static_cast<T*>(c->m_defs)[offset];
                     T val2 = SafeGetConstantValue<T>(c, offset);
 
                     // Detect if there is a mismatch between the VN storage type and explicitly
@@ -1447,15 +1447,15 @@ FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset)
         case TYP_REF:
             return CoerceTypRefToT<T>(c, offset);
         case TYP_BYREF:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
         case TYP_INT:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
         case TYP_LONG:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
         case TYP_FLOAT:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
         case TYP_DOUBLE:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
         default:
             assert(false);
             return (T)0;
@@ -1492,7 +1492,7 @@ inline bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
 template <>
 inline size_t ValueNumStore::CoerceTypRefToT(Chunk* c, unsigned offset)
 {
-    return reinterpret_cast<size_t>(reinterpret_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
+    return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
 }
 
 template <typename T>
