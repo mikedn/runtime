@@ -1079,10 +1079,6 @@ private:
         {
         }
 
-        VNDefFunc0Arg() : m_func(VNF_COUNT)
-        {
-        }
-
         bool operator==(const VNDefFunc0Arg& y) const
         {
             return m_func == y.m_func;
@@ -1093,10 +1089,6 @@ private:
     {
         ValueNum m_arg0;
         VNDefFunc1Arg(VNFunc func, ValueNum arg0) : VNDefFunc0Arg(func), m_arg0(arg0)
-        {
-        }
-
-        VNDefFunc1Arg() : VNDefFunc0Arg(), m_arg0(ValueNumStore::NoVN)
         {
         }
 
@@ -1113,10 +1105,6 @@ private:
         {
         }
 
-        VNDefFunc2Arg() : m_arg1(ValueNumStore::NoVN)
-        {
-        }
-
         bool operator==(const VNDefFunc2Arg& y) const
         {
             return VNDefFunc1Arg::operator==(y) && m_arg1 == y.m_arg1;
@@ -1128,9 +1116,6 @@ private:
         ValueNum m_arg2;
         VNDefFunc3Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2)
             : VNDefFunc2Arg(func, arg0, arg1), m_arg2(arg2)
-        {
-        }
-        VNDefFunc3Arg() : m_arg2(ValueNumStore::NoVN)
         {
         }
 
@@ -1145,9 +1130,6 @@ private:
         ValueNum m_arg3;
         VNDefFunc4Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3)
             : VNDefFunc3Arg(func, arg0, arg1, arg2), m_arg3(arg3)
-        {
-        }
-        VNDefFunc4Arg() : m_arg3(ValueNumStore::NoVN)
         {
         }
 

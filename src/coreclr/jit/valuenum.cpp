@@ -1517,19 +1517,19 @@ ValueNumStore::Chunk::Chunk(CompAllocator          alloc,
             switch (typ)
             {
                 case TYP_INT:
-                    m_defs = new (alloc) Alloc<TYP_INT>::Type[ChunkSize];
+                    m_defs = alloc.allocate<Alloc<TYP_INT>::Type>(ChunkSize);
                     break;
                 case TYP_FLOAT:
-                    m_defs = new (alloc) Alloc<TYP_FLOAT>::Type[ChunkSize];
+                    m_defs = alloc.allocate<Alloc<TYP_FLOAT>::Type>(ChunkSize);
                     break;
                 case TYP_LONG:
-                    m_defs = new (alloc) Alloc<TYP_LONG>::Type[ChunkSize];
+                    m_defs = alloc.allocate<Alloc<TYP_LONG>::Type>(ChunkSize);
                     break;
                 case TYP_DOUBLE:
-                    m_defs = new (alloc) Alloc<TYP_DOUBLE>::Type[ChunkSize];
+                    m_defs = alloc.allocate<Alloc<TYP_DOUBLE>::Type>(ChunkSize);
                     break;
                 case TYP_BYREF:
-                    m_defs = new (alloc) Alloc<TYP_BYREF>::Type[ChunkSize];
+                    m_defs = alloc.allocate<Alloc<TYP_BYREF>::Type>(ChunkSize);
                     break;
                 case TYP_REF:
                     // We allocate space for a single REF constant, NULL, so we can access these values uniformly.
@@ -1542,24 +1542,24 @@ ValueNumStore::Chunk::Chunk(CompAllocator          alloc,
             break;
 
         case CEA_Handle:
-            m_defs = new (alloc) VNHandle[ChunkSize];
+            m_defs = alloc.allocate<VNHandle>(ChunkSize);
             break;
 
         case CEA_Func0:
-            m_defs = new (alloc) VNFunc[ChunkSize];
+            m_defs = alloc.allocate<VNFunc>(ChunkSize);
             break;
 
         case CEA_Func1:
-            m_defs = new (alloc) VNDefFunc1Arg[ChunkSize];
+            m_defs = alloc.allocate<VNDefFunc1Arg>(ChunkSize);
             break;
         case CEA_Func2:
-            m_defs = new (alloc) VNDefFunc2Arg[ChunkSize];
+            m_defs = alloc.allocate<VNDefFunc2Arg>(ChunkSize);
             break;
         case CEA_Func3:
-            m_defs = new (alloc) VNDefFunc3Arg[ChunkSize];
+            m_defs = alloc.allocate<VNDefFunc3Arg>(ChunkSize);
             break;
         case CEA_Func4:
-            m_defs = new (alloc) VNDefFunc4Arg[ChunkSize];
+            m_defs = alloc.allocate<VNDefFunc4Arg>(ChunkSize);
             break;
         default:
             unreached();
