@@ -407,9 +407,9 @@ ValueNumStore::ValueNumStore(Compiler* comp, CompAllocator alloc)
     : m_pComp(comp)
     , m_alloc(alloc)
     , m_nextChunkBase(0)
-    , m_fixedPointMapSels(alloc, 8)
+    , m_fixedPointMapSels(alloc)
     , m_checkedBoundVNs(alloc)
-    , m_chunks(alloc, 8)
+    , m_chunks(alloc)
     , m_intCnsMap(nullptr)
     , m_longCnsMap(nullptr)
     , m_handleMap(nullptr)
@@ -441,10 +441,10 @@ ValueNumStore::ValueNumStore(Compiler* comp, CompAllocator alloc)
     // We will reserve chunk 0 to hold some special constants, like the constant NULL, the "exception" value, and the
     // "zero map."
     Chunk* specialConstChunk = new (m_alloc) Chunk(m_alloc, &m_nextChunkBase, TYP_REF, CEA_Const, MAX_LOOP_NUM);
-    specialConstChunk->m_numUsed +=
-        SRC_NumSpecialRefConsts; // Implicitly allocate 0 ==> NULL, and 1 ==> Exception, 2 ==> ZeroMap.
-    ChunkNum cn = m_chunks.Push(specialConstChunk);
-    assert(cn == 0);
+    // Implicitly allocate 0 ==> NULL, and 1 ==> Exception, 2 ==> ZeroMap.
+    specialConstChunk->m_numUsed += SRC_NumSpecialRefConsts;
+    assert(m_chunks.Size() == 0);
+    m_chunks.Push(specialConstChunk);
 
     m_mapSelectBudget = (int)JitConfig.JitVNMapSelBudget(); // We cast the unsigned DWORD to a signed int.
 
@@ -1571,7 +1571,6 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types              typ,
                                                    ChunkExtraAttribs      attribs,
                                                    BasicBlock::loopNumber loopNum)
 {
-    Chunk*   res;
     unsigned index;
     if (loopNum == MAX_LOOP_NUM)
     {
@@ -1589,17 +1588,17 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types              typ,
     ChunkNum cn = m_curAllocChunk[typ][index];
     if (cn != NoChunk)
     {
-        res = m_chunks.Get(cn);
-        if (res->m_numUsed < ChunkSize)
+        Chunk* chunk = m_chunks.Get(cn);
+        if (chunk->m_numUsed < ChunkSize)
         {
-            return res;
+            return chunk;
         }
     }
     // Otherwise, must allocate a new one.
-    res                         = new (m_alloc) Chunk(m_alloc, &m_nextChunkBase, typ, attribs, loopNum);
-    cn                          = m_chunks.Push(res);
-    m_curAllocChunk[typ][index] = cn;
-    return res;
+    Chunk* chunk = new (m_alloc) Chunk(m_alloc, &m_nextChunkBase, typ, attribs, loopNum);
+    m_curAllocChunk[typ][index] = m_chunks.Size();
+    m_chunks.Push(chunk);
+    return chunk;
 }
 
 //------------------------------------------------------------------------
@@ -3773,7 +3772,7 @@ ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode*
 
 bool ValueNumStore::IsVNNotAField(ValueNum vn)
 {
-    return m_chunks.GetNoExpand(GetChunkNum(vn))->m_attribs == CEA_NotAField;
+    return m_chunks.Get(GetChunkNum(vn))->m_attribs == CEA_NotAField;
 }
 
 ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
@@ -4383,7 +4382,7 @@ var_types ValueNumStore::TypeOfVN(ValueNum vn)
         return TYP_UNDEF;
     }
 
-    Chunk* c = m_chunks.GetNoExpand(GetChunkNum(vn));
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
     return c->m_typ;
 }
 
@@ -4407,7 +4406,7 @@ BasicBlock::loopNumber ValueNumStore::LoopOfVN(ValueNum vn)
         return MAX_LOOP_NUM;
     }
 
-    Chunk* c = m_chunks.GetNoExpand(GetChunkNum(vn));
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
     return c->m_loopNum;
 }
 
@@ -4417,7 +4416,7 @@ bool ValueNumStore::IsVNConstant(ValueNum vn)
     {
         return false;
     }
-    Chunk* c = m_chunks.GetNoExpand(GetChunkNum(vn));
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
     if (c->m_attribs == CEA_Const)
     {
         return vn != VNForVoid(); // Void is not a "real" constant -- in the sense that it represents no value.
@@ -4441,7 +4440,7 @@ bool ValueNumStore::IsVNInt32Constant(ValueNum vn)
 GenTreeFlags ValueNumStore::GetHandleFlags(ValueNum vn)
 {
     assert(IsVNHandle(vn));
-    Chunk*    c      = m_chunks.GetNoExpand(GetChunkNum(vn));
+    Chunk*    c      = m_chunks.Get(GetChunkNum(vn));
     unsigned  offset = ChunkOffset(vn);
     VNHandle* handle = &static_cast<VNHandle*>(c->m_defs)[offset];
     return handle->m_flags;
@@ -4454,7 +4453,7 @@ bool ValueNumStore::IsVNHandle(ValueNum vn)
         return false;
     }
 
-    Chunk* c = m_chunks.GetNoExpand(GetChunkNum(vn));
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
     return c->m_attribs == CEA_Handle;
 }
 
@@ -5321,7 +5320,7 @@ bool ValueNumStore::IsVNFunc(ValueNum vn)
     {
         return false;
     }
-    Chunk* c = m_chunks.GetNoExpand(GetChunkNum(vn));
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
     switch (c->m_attribs)
     {
         case CEA_NotAField:
@@ -5343,7 +5342,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
         return false;
     }
 
-    Chunk*   c      = m_chunks.GetNoExpand(GetChunkNum(vn));
+    Chunk*   c      = m_chunks.Get(GetChunkNum(vn));
     unsigned offset = ChunkOffset(vn);
     assert(offset < c->m_numUsed);
     switch (c->m_attribs)
@@ -5444,7 +5443,7 @@ bool ValueNumStore::VNIsValid(ValueNum vn)
         return false;
     }
     // Otherwise...
-    Chunk* c = m_chunks.GetNoExpand(cn);
+    Chunk* c = m_chunks.Get(cn);
     return ChunkOffset(vn) < c->m_numUsed;
 }
 
@@ -5984,8 +5983,6 @@ void ValueNumStore::RunTests(Compiler* comp)
 }
 #endif // DEBUG
 
-typedef JitExpandArrayStack<BasicBlock*> BlockStack;
-
 // This represents the "to do" state of the value number computation.
 struct ValueNumberState
 {
@@ -5995,8 +5992,8 @@ struct ValueNumberState
     // Blocks on "m_toDoNotAllPredsDone" have at least one predecessor that has not been processed.
     // Blocks are initially on "m_toDoNotAllPredsDone" may be moved to "m_toDoAllPredsDone" when their last
     // unprocessed predecessor is processed, thus maintaining the invariants.
-    BlockStack m_toDoAllPredsDone;
-    BlockStack m_toDoNotAllPredsDone;
+    ArrayStack<BasicBlock*> m_toDoAllPredsDone;
+    ArrayStack<BasicBlock*> m_toDoNotAllPredsDone;
 
     Compiler* m_comp;
 
@@ -6024,8 +6021,8 @@ struct ValueNumberState
     }
 
     ValueNumberState(Compiler* comp)
-        : m_toDoAllPredsDone(comp->getAllocator(CMK_ValueNumber), /*minSize*/ 4)
-        , m_toDoNotAllPredsDone(comp->getAllocator(CMK_ValueNumber), /*minSize*/ 4)
+        : m_toDoAllPredsDone(comp->getAllocator(CMK_ValueNumber))
+        , m_toDoNotAllPredsDone(comp->getAllocator(CMK_ValueNumber))
         , m_comp(comp)
         , m_visited(new (comp, CMK_ValueNumber) BYTE[comp->fgBBNumMax + 1]())
     {

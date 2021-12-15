@@ -96,6 +96,24 @@ public:
         return m_data[i];
     }
 
+    T Get(unsigned i) const
+    {
+        assert(i < m_size);
+        return m_data[i];
+    }
+
+    T& GetRef(unsigned i) const
+    {
+        assert(i < m_size);
+        return m_data[i];
+    }
+
+    void Set(unsigned i, const T& item)
+    {
+        assert(i < m_size);
+        m_data[i] = item;
+    }
+
     unsigned Size() const
     {
         return m_size;

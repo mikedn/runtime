@@ -813,7 +813,7 @@ private:
     template <typename T>
     T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce))
     {
-        Chunk* c = m_chunks.GetNoExpand(GetChunkNum(vn));
+        Chunk* c = m_chunks.Get(GetChunkNum(vn));
         assert(c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle);
 
         unsigned offset = ChunkOffset(vn);
@@ -1166,7 +1166,7 @@ private:
     // So we have to be careful about breaking infinite recursion.  We can ignore "recursive" results -- if all the
     // non-recursive results are the same, the recursion indicates that the loop structure didn't alter the result.
     // This stack represents the set of outer phis such that select(phi, ind) is being evaluated.
-    JitExpandArrayStack<VNDefFunc2Arg> m_fixedPointMapSels;
+    ArrayStack<VNDefFunc2Arg, 1> m_fixedPointMapSels;
 
 #ifdef DEBUG
     // Returns "true" iff "m_fixedPointMapSels" is non-empty, and it's top element is
@@ -1181,7 +1181,7 @@ private:
     CheckedBoundVNSet m_checkedBoundVNs;
 
     // This is a map from "chunk number" to the attributes of the chunk.
-    JitExpandArrayStack<Chunk*> m_chunks;
+    ArrayStack<Chunk*, 8> m_chunks;
 
     // These entries indicate the current allocation chunk, if any, for each valid combination of <var_types,
     // ChunkExtraAttribute, loopNumber>.  Valid combinations require attribs==CEA_None or loopNum==MAX_LOOP_NUM.
