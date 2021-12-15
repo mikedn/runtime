@@ -2590,7 +2590,9 @@ public:
 #define MAX_FrameSize 0x3FFFFFFF
     void lvaIncrementFrameSize(unsigned size);
 
+#ifdef TARGET_ARMARCH
     unsigned lvaFrameSize(FrameLayoutState curState);
+#endif
 
     // Returns the caller-SP-relative offset for the SP/FP relative offset determined by FP based.
     int lvaToCallerSPRelativeOffset(int offs, bool isFpBased) const;

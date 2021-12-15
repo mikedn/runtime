@@ -6360,6 +6360,8 @@ void Compiler::lvaTableDump(FrameLayoutState curState)
 }
 #endif // DEBUG
 
+#ifdef TARGET_ARMARCH
+
 /*****************************************************************************
  *
  *  Conservatively estimate the layout of the stack frame.
@@ -6433,6 +6435,8 @@ unsigned Compiler::lvaFrameSize(FrameLayoutState curState)
     result = compLclFrameSize + calleeSavedRegMaxSz;
     return result;
 }
+
+#endif // TARGET_ARMARCH
 
 // Return the caller-SP-relative stack offset of a local/parameter.
 // Requires the local to be on the stack and frame layout to be complete.
