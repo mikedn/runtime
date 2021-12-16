@@ -9107,14 +9107,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         {
             addr = src->AsIndir()->GetAddr();
         }
-        else if (fieldCount > 1)
-        {
-            // TODO-MIKE-CQ: Continue marking the unpromoted variable address exposed, to match the behavior
-            // of the previous implementation. This isn't needed and one might expect that not marking locals
-            // address exposed would be an improvement. However, the diffs are a bit of a grab bag so this
-            // should be investigated separately.
-            lvaSetVarAddrExposed(srcLclNum);
-        }
     }
     else
     {
@@ -9123,11 +9115,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         if (destLclVar == nullptr)
         {
             addr = dest->AsIndir()->GetAddr();
-        }
-        else if (fieldCount > 1)
-        {
-            // TODO-MIKE-CQ: Continue marking the unpromoted variable address exposed...
-            lvaSetVarAddrExposed(destLclNum);
         }
     }
 
