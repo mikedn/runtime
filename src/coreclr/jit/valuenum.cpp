@@ -7031,36 +7031,14 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
     {
         assert(varTypeIsStruct(src->GetType()));
 
-        if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (GenTreeLclFld* lclFld = dstLclNode->IsLclFld())
         {
-            assert(dstLclNode == dst);
+            dstFieldSeq = lclFld->GetFieldSeq();
 
-            if (GenTreeLclFld* lclFld = dst->IsLclFld())
+            if (dstFieldSeq == nullptr)
             {
-                dstFieldSeq = lclFld->GetFieldSeq();
-
-                if (dstFieldSeq == nullptr)
-                {
-                    dstFieldSeq = FieldSeqNode::NotAField();
-                }
+                dstFieldSeq = FieldSeqNode::NotAField();
             }
-        }
-        else
-        {
-            GenTree* dstAddr = dst->AsIndir()->GetAddr();
-
-            // For addr-of-local expressions lib/cons should be the same.
-            assert(dstAddr->gtVNPair.BothEqual());
-
-            VNFuncApp dstAddrFunc;
-            bool      isVNFunc = vnStore->GetVNFunc(dstAddr->GetVN(VNK_Liberal), &dstAddrFunc);
-
-            assert(isVNFunc);
-            assert(dstAddrFunc.m_func == VNF_PtrToLoc);
-            assert(vnStore->IsVNConstant(dstAddrFunc.m_args[0]) &&
-                   vnStore->ConstantValue<unsigned>(dstAddrFunc.m_args[0]) == dstLclNum);
-
-            dstFieldSeq = vnStore->FieldSeqVNToFieldSeq(dstAddrFunc.m_args[1]);
         }
 
         ValueNumPair vnp;
