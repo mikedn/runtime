@@ -13,7 +13,7 @@ ValueNumFuncDef(FieldSeq, 2, false, false, false)   // Sequence (VN of null == e
 ValueNumFuncDef(NotAField, 0, false, false, false)  // Value number function for FieldSeqStore::NotAField.
 ValueNumFuncDef(ZeroMap, 0, false, false, false)    // The "ZeroMap": indexing at any index yields "zero of the desired type".
 
-ValueNumFuncDef(PtrToLoc, 2, false, false, false)           // Pointer (byref) to a local variable.  Args: VN's of: 0: var num, 1: FieldSeq.
+ValueNumFuncDef(LclAddr, 3, false, true, false)           // Address of a local variable.  Args: VN's of: 0: var num, 1: offset, 2: FieldSeq.
 ValueNumFuncDef(PtrToArrElem, 4, false, false, false)       // Pointer (byref) to an array element.  Args: 0: array elem type eq class var_types value, VN's of: 1: array, 2: index, 3: FieldSeq.
 ValueNumFuncDef(PtrToStatic, 1, false, false, false)        // Pointer (byref) to a static variable (or possibly a field thereof, if the static variable is a struct).  Args: 0: FieldSeq, first element
                                                      // of which is the static var.

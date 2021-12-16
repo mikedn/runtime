@@ -652,8 +652,7 @@ public:
     ValueNum ExtendPtrVN(GenTreeOp* add);
     // If "opA" has a PtrToLoc, PtrToArrElem, or PtrToStatic application as its value numbers, returns the VN for the
     // pointer form extended with "fieldSeq"; or else NoVN.
-    ValueNum ExtendPtrVN(GenTree* opA, FieldSeqNode* fieldSeq);
-    ValueNum ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fieldSeq);
+    ValueNum ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fieldSeq, target_size_t offset);
 
     ValueNum ExtractArrayElementIndex(const struct ArrayInfo& arrayInfo);
 
@@ -951,6 +950,8 @@ public:
     // Requires "valWithExc" to be a value with an exeception set VNFuncApp.
     // Prints a representation of the exeception set on standard out.
     void vnDumpValWithExc(Compiler* comp, VNFuncApp* valWithExc);
+
+    void vnDumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
 
     // Requires "excSeq" to be a ExcSetCons sequence.
     // Prints a representation of the set of exceptions on standard out.
