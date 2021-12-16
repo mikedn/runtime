@@ -916,6 +916,10 @@ private:
             {
                 isWide = (endOffset.Value() > lcl->GetLayout()->GetSize());
             }
+            else if (lcl->GetType() == TYP_BLK)
+            {
+                isWide = (endOffset.Value() > lcl->GetBlockSize());
+            }
             else
             {
                 // For small int types use the real type size, not the stack slot size.
@@ -926,9 +930,6 @@ private:
                 //
                 // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
                 // stack location may have 16 bytes.
-                //
-                // For TYP_BLK variables the type size is 0 so they're always address
-                // exposed.
                 isWide = (endOffset.Value() > varTypeSize(lcl->GetType()));
             }
         }
@@ -1339,7 +1340,7 @@ private:
         // a struct value or a primitive type value, we just need to put the value in the correct
         // register or stack slot.
 
-        if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT))
+        if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
         {
             ClassLayout* indirLayout = indir->AsObj()->GetLayout();
 
@@ -1369,7 +1370,7 @@ private:
             }
         }
 
-        if (!varTypeIsStruct(lclType))
+        if (!varTypeIsStruct(lclType) && (lclType != TYP_BLK))
         {
             if ((val.Offset() == 0) && !varTypeIsStruct(indirType))
             {
@@ -1504,7 +1505,7 @@ private:
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(varDsc->GetType()) && varDsc->lvIsUsedInSIMDIntrinsic() && indir->TypeIs(TYP_FLOAT) &&
+        if (varTypeIsSIMD(lclType) && varDsc->lvIsUsedInSIMDIntrinsic() && indir->TypeIs(TYP_FLOAT) &&
             (val.Offset() % 4 == 0) && (!isDef || !varDsc->IsImplicitByRefParam()) && !varDsc->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
@@ -1633,8 +1634,8 @@ private:
         // Also, discarding type information is not that great in general and it may be
         // better to instead teach assertion propagation to deal with LCL_FLDs.
 
-        if ((val.Offset() == 0) && (indir->GetType() == varDsc->GetType()) &&
-            (!indir->TypeIs(TYP_STRUCT) || (indirLayout == varDsc->GetLayout()) ||
+        if ((val.Offset() == 0) && (indirType == lclType) &&
+            ((indirType != TYP_STRUCT) || (indirLayout == varDsc->GetLayout()) ||
              (varDsc->IsPromoted() && indirLayout->GetSize() == varDsc->GetLayout()->GetSize())))
         {
             indir->ChangeOper(GT_LCL_VAR);
