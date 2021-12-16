@@ -3092,14 +3092,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 #ifdef TARGET_64BIT
     void TruncateOrSignExtend32()
     {
-        if (gtFlags & GTF_UNSIGNED)
-        {
-            gtIconVal = UINT32(gtIconVal);
-        }
-        else
-        {
-            gtIconVal = INT32(gtIconVal);
-        }
+        gtIconVal = INT32(gtIconVal);
     }
 #endif // TARGET_64BIT
 
