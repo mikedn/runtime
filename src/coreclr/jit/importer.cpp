@@ -3598,6 +3598,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
                 GenTree* indexUses[2];
                 GenTree* spanAddrUses[2];
+
                 impMakeMultiUse(index, 2, indexUses, CHECK_SPILL_ALL DEBUGARG("span index temp"));
                 impMakeMultiUse(spanAddr, 2, spanAddrUses, CHECK_SPILL_ALL DEBUGARG("span addr temp"));
 
@@ -3606,17 +3607,26 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
                 GenTree* length = gtNewFieldIndir(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
                 GenTree* boundsCheck = gtNewArrBoundsChk(indexUses[0], length, SCK_RNGCHK_FAIL);
+                GenTree* indexOffset;
 
-                // Element access
-                GenTree*             indexIntPtr = impImplicitIorI4Cast(indexUses[1], TYP_I_IMPL);
-                GenTree*             sizeofNode  = gtNewIconNode(elemSize, TYP_I_IMPL);
-                GenTree*             mulNode     = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
-                CORINFO_FIELD_HANDLE ptrHnd      = info.compCompHnd->getFieldInClass(clsHnd, 0);
-                const unsigned       ptrOffset   = info.compCompHnd->getFieldOffset(ptrHnd);
+                if (GenTreeIntCon* indexConst = index->IsIntCon())
+                {
+                    indexOffset =
+                        gtNewIconNode(static_cast<target_ssize_t>(elemSize) * indexConst->GetInt32Value(), TYP_I_IMPL);
+                }
+                else
+                {
+                    GenTree* indexIntPtr = impImplicitIorI4Cast(indexUses[1], TYP_I_IMPL);
+                    GenTree* sizeofNode  = gtNewIconNode(elemSize, TYP_I_IMPL);
+                    indexOffset          = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
+                }
+
+                CORINFO_FIELD_HANDLE ptrHnd    = info.compCompHnd->getFieldInClass(clsHnd, 0);
+                const unsigned       ptrOffset = info.compCompHnd->getFieldOffset(ptrHnd);
                 // TODO-MIKE-Fix: This isn't right, the _pointer field of Span is ByReference<T> so we need
                 // 2 FIELD_ADDRs, one for the _pointer field and one for ByReference<T>'s own _value field.
                 GenTree* pointer = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrHnd, ptrOffset));
-                GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, mulNode);
+                GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, indexOffset);
 
                 retNode = gtNewCommaNode(boundsCheck, result);
 
