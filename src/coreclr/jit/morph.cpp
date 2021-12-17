@@ -10516,10 +10516,6 @@ DONE_MORPHING_CHILDREN:
             }
             else
             {
-                // TODO-MIKE-Review: Old code never checked for a LCL_VAR|FLD under
-                // a COMMA so presumably it can't happen.
-                assert(effectiveOp1 == op1);
-
                 gtAssignSetVarDef(effectiveOp1);
             }
 
