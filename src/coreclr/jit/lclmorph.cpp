@@ -492,6 +492,40 @@ public:
                 PopValue();
                 break;
 
+            case GT_SUB:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
+                assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
+
+                if (!node->gtOverflow() && node->TypeIs(TYP_I_IMPL))
+                {
+                    const Value& v1 = TopValue(1);
+                    const Value& v2 = TopValue(0);
+
+                    // We could handle SUB(local addr, constant) but those don't seem to exist nor
+                    // they're likley to be useful. Instead, handle SUB(local addr1, local addr2),
+                    // which also doesn't seem to exist but it could serve an useful purpose: to
+                    // obtain the offset of a struct field as a cheap constant.
+
+                    if (v1.IsAddress() && v2.IsAddress() && (v1.LclNum() == v2.LclNum()))
+                    {
+                        node->ChangeToIntCon(static_cast<ssize_t>(v1.Offset()) - static_cast<ssize_t>(v2.Offset()));
+
+                        INDEBUG(v1.Consume();)
+                        INDEBUG(v2.Consume();)
+                    }
+                }
+
+                if (node->OperIs(GT_SUB))
+                {
+                    EscapeValue(TopValue(1), node);
+                    EscapeValue(TopValue(0), node);
+                }
+
+                PopValue();
+                PopValue();
+                break;
+
             case GT_FIELD_ADDR:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
