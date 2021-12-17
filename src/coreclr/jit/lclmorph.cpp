@@ -2079,6 +2079,8 @@ private:
             FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type);
 
             structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
+
+            m_compiler->lvaSetVarDoNotEnregister(structLcl->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
         }
 
         return structLcl;
