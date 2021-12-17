@@ -3862,6 +3862,10 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
         genStoreSIMD12(store, src);
     }
 #endif
+    else if (src->isContained() && src->OperIsRMWMemOp())
+    {
+        GenStoreLclRMW(type, store->GetLclNum(), store->GetLclOffs(), src);
+    }
     else
     {
         assert(IsValidSourceType(type, src->GetType()));
@@ -3966,7 +3970,14 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
         if (src->isContained())
         {
-            GetEmitter()->emitIns_S_I(ins, attr, lclNum, 0, static_cast<int>(src->AsIntCon()->GetValue()));
+            if (src->OperIsRMWMemOp())
+            {
+                GenStoreLclRMW(lclRegType, lclNum, 0, src);
+            }
+            else
+            {
+                GetEmitter()->emitIns_S_I(ins, attr, lclNum, 0, static_cast<int>(src->AsIntCon()->GetValue()));
+            }
         }
         else
         {
@@ -4018,6 +4029,68 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
 
     genProduceReg(store);
+}
+
+void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src)
+{
+    assert(src->OperIsRMWMemOp());
+    assert(varTypeIsIntegral(type));
+
+    instruction ins  = genGetInsForOper(src->GetOper(), TYP_INT);
+    emitAttr    attr = emitTypeSize(type);
+
+    if (src->OperIsUnary())
+    {
+        assert(src->AsUnOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() == lclNum);
+
+        GetEmitter()->emitIns_S(ins, attr, lclNum, lclOffs);
+
+        return;
+    }
+
+    assert(src->AsOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() == lclNum);
+
+    src = src->AsOp()->GetOp(1);
+
+    bool isShift = (ins == INS_shl) || (ins == INS_shr) || (ins == INS_sar) || (ins == INS_rol) || (ins == INS_ror) ||
+                   (ins == INS_rcl) || (ins == INS_rcr);
+
+    if (!src->isUsedFromReg())
+    {
+        int imm = src->AsIntCon()->GetInt32Value();
+
+        if (isShift)
+        {
+            ins = genMapShiftInsToShiftByConstantIns(ins, imm);
+        }
+
+        if (isShift && (imm == 1))
+        {
+            GetEmitter()->emitIns_S(ins, attr, lclNum, lclOffs);
+        }
+        else
+        {
+            GetEmitter()->emitIns_S_I(ins, attr, lclNum, lclOffs, imm);
+        }
+
+        return;
+    }
+
+    regNumber srcReg = genConsumeReg(src);
+
+    if (isShift)
+    {
+        if (srcReg != REG_RCX)
+        {
+            GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_RCX, srcReg, true);
+        }
+
+        GetEmitter()->emitIns_S(ins, attr, lclNum, lclOffs);
+
+        return;
+    }
+
+    GetEmitter()->emitIns_S_R(ins, attr, srcReg, lclNum, lclOffs);
 }
 
 //------------------------------------------------------------------------

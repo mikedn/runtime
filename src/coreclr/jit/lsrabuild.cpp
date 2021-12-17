@@ -3333,8 +3333,25 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 #endif
     else if (src->isContained())
     {
-#if defined(TARGET_XARCH) && defined(FEATURE_SIMD)
-        if (varTypeIsSIMD(store->GetType()))
+        srcCount = 0;
+
+#ifdef TARGET_XARCH
+        if (src->OperIsRMWMemOp())
+        {
+            if (src->OperIsBinary() && !src->AsOp()->GetOp(1)->isContained())
+            {
+                regMaskTP regs = src->OperIsShiftOrRotate() ? RBM_RCX : RBM_NONE;
+                BuildUse(src->AsOp()->GetOp(1), regs);
+
+                if (src->OperIsShiftOrRotate())
+                {
+                    buildKillPositionsForNode(store, currentLoc + 1, RBM_RCX);
+                }
+
+                srcCount = 1;
+            }
+        }
+        else if (varTypeIsSIMD(store->GetType()))
         {
             // This is the zero-init case, and we need a register to hold the zero.
             // (On Arm64 we can just store REG_ZR.)
@@ -3343,11 +3360,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
             singleUseRef = BuildUse(src->AsHWIntrinsic()->GetOp(0));
             srcCount     = 1;
         }
-        else
-#endif
-        {
-            srcCount = 0;
-        }
+#endif // TARGET_XARCH
     }
     else
     {

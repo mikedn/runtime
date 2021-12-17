@@ -3353,6 +3353,60 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
     {
         src->SetContained();
+        return;
+    }
+
+    if (IsContainableMemoryOp(store) && varTypeIsIntegral(store->GetType()) && src->OperIsRMWMemOp() &&
+        !src->gtOverflowEx() && ((src->gtFlags & (GTF_SET_FLAGS | GTF_USE_FLAGS)) == 0))
+    {
+        // TODO-MIKE-CQ: This usually fails when address exposed small int LCL_VARs
+        // are involved due to useless casts. The load is hidden by a widening cast
+        // that's not really needed because LCL_VARs that load from memory do implicit
+        // widening. There may also be a narrowing cast on stores to such locals, even
+        // though it's not required due to load widening.
+
+        GenTree* op1     = src->OperIsBinary() ? src->AsOp()->GetOp(0) : src->AsUnOp()->GetOp(0);
+        GenTree* op2     = src->OperIsBinary() ? src->AsOp()->GetOp(1) : nullptr;
+        unsigned lclNum  = store->GetLclNum();
+        unsigned lclOffs = store->GetLclOffs();
+        GenTree* load    = nullptr;
+
+        if (op1->IsLclVarCommon() && (op1->AsLclVarCommon()->GetLclNum() == lclNum) &&
+            (op1->AsLclVarCommon()->GetLclOffs() == lclOffs))
+        {
+            load = op1;
+        }
+        else if ((op2 != nullptr) && src->OperIsCommutative() && op2->IsLclVarCommon() &&
+                 (op2->AsLclVarCommon()->GetLclNum() == lclNum) && (op2->AsLclVarCommon()->GetLclOffs() == lclOffs))
+        {
+            load = op2;
+        }
+
+        if ((load != nullptr) && (varTypeSize(load->GetType()) == varTypeSize(store->GetType())) &&
+            (!varTypeIsSmall(load->GetType()) || !src->OperIsRotate()) &&
+            (!varTypeIsSmallSigned(load->GetType()) || !src->OperIs(GT_RSZ)) && IsSafeToContainMem(store, load))
+        {
+            if (src->OperIs(GT_RSH) && varTypeIsSmallUnsigned(load->GetType()))
+            {
+                src->SetOper(GT_RSZ);
+            }
+
+            src->SetContained();
+            load->SetContained();
+
+            if (load == op2)
+            {
+                src->AsOp()->SetOp(0, load);
+                src->AsOp()->SetOp(1, op1);
+                op2 = op1;
+            }
+
+            if ((op2 != nullptr) && !op2->IsIntCon())
+            {
+                op2->ClearContained();
+                op2->ClearRegOptional();
+            }
+        }
     }
 }
 
