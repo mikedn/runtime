@@ -5397,8 +5397,8 @@ private:
             return false;
         }
 
-        // TODO-MIKE-Cleanup: If the user is an indir then it should probably be transformed into
-        // a LCL_FLD, instead of keeping it and the local address node.
+        // TODO-MIKE-Cleanup: If the user is an indir then we leave it to morph to change it to
+        // a LCL_FLD. Perhaps we should just do it here?
 
         // TODO-MIKE-CQ: But then it's not like doing this avoids local address exposure at this
         // stage. We'd need to eliminate local address containing temps that may now be dead due

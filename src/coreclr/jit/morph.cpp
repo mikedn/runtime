@@ -9561,6 +9561,24 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_IND:
         case GT_OBJ:
+            if (op1->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) && !tree->AsIndir()->IsVolatile())
+            {
+                ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
+
+                // Just change it to a LCL_FLD. Since these locals are already address exposed
+                // it's not worth the complication to figure out if the types match and change
+                // to a LCL_VAR instead. Also don't bother with field sequences for the same
+                // reason, VN doesn't do anything interesting for address exposed locals.
+
+                tree->ChangeOper(GT_LCL_FLD);
+                tree->SetSideEffects(GTF_GLOB_REF);
+                tree->AsLclFld()->SetLclNum(op1->AsLclVarCommon()->GetLclNum());
+                tree->AsLclFld()->SetLclOffs(op1->AsLclVarCommon()->GetLclOffs());
+                tree->AsLclFld()->SetLayout(layout, this);
+
+                return tree;
+            }
+
             if (GenTreeIndexAddr* index = op1->IsIndexAddr())
             {
                 if ((typ == TYP_USHORT) && opts.OptimizationEnabled() && index->GetArray()->IsStrCon())
