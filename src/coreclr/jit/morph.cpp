@@ -4873,7 +4873,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
     return addr;
 }
 
-GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
+GenTree* Compiler::fgMorphLocalVar(GenTree* tree)
 {
     assert(tree->OperIs(GT_LCL_VAR));
 
@@ -4886,16 +4886,12 @@ GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
         tree->gtFlags |= GTF_GLOB_REF;
     }
 
-    if (!fgGlobalMorph && !forceRemorph)
+    if (!fgGlobalMorph)
     {
         return tree;
     }
 
-    bool varAddr = (tree->gtFlags & GTF_DONT_CSE) != 0;
-
-    noway_assert(((tree->gtFlags & GTF_VAR_DEF) == 0) || varAddr); // GTF_VAR_DEF should always imply varAddr
-
-    if (!varAddr && varTypeIsSmall(lclType) && lcl->lvNormalizeOnLoad())
+    if (((tree->gtFlags & GTF_VAR_DEF) == 0) && varTypeIsSmall(lclType) && lcl->lvNormalizeOnLoad())
     {
 #if LOCAL_ASSERTION_PROP
         if (!optLocalAssertionProp || (optAssertionIsSubrange(tree, TYP_INT, lclType, apFull) == NO_ASSERTION_INDEX))
@@ -7840,8 +7836,7 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
 
     if (tree->gtOper == GT_LCL_VAR)
     {
-        const bool forceRemorph = false;
-        return fgMorphLocalVar(tree, forceRemorph);
+        return fgMorphLocalVar(tree);
     }
     else if (tree->gtOper == GT_LCL_FLD)
     {
@@ -9513,6 +9508,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR))
             {
                 op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
+            }
+
+            if (GenTreeLclVarCommon* lclVar = op1->SkipComma()->IsLclVarCommon())
+            {
+                lclVar->gtFlags |= GTF_VAR_DEF;
             }
 
             assert(!op1->OperIsHWIntrinsic());
