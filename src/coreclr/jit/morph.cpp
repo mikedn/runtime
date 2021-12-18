@@ -4873,46 +4873,42 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
     return addr;
 }
 
-GenTree* Compiler::fgMorphLocalVar(GenTree* tree)
+GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
 {
-    assert(tree->OperIs(GT_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_VAR));
 
-    unsigned   lclNum  = tree->AsLclVar()->GetLclNum();
-    LclVarDsc* lcl     = lvaGetDesc(lclNum);
-    var_types  lclType = lcl->GetType();
+    LclVarDsc* lcl = lvaGetDesc(lclVar);
 
-    if (lcl->lvAddrExposed)
+    if (lcl->IsAddressExposed())
     {
-        tree->gtFlags |= GTF_GLOB_REF;
+        lclVar->AddSideEffects(GTF_GLOB_REF);
     }
 
-    if (!fgGlobalMorph)
+    // Small int params, address exposed locals and promoted fields are widened on load.
+    // We may need to insert a widening cast, if assertion propagation doesn't tell us
+    // that the value previously stored in the local isn't already widened.
+
+    if (!fgGlobalMorph || ((lclVar->gtFlags & GTF_VAR_DEF) != 0) || !lcl->lvNormalizeOnLoad())
     {
-        return tree;
+        return lclVar;
     }
 
-    if (((tree->gtFlags & GTF_VAR_DEF) == 0) && varTypeIsSmall(lclType) && lcl->lvNormalizeOnLoad())
-    {
 #if LOCAL_ASSERTION_PROP
-        if (!optLocalAssertionProp || (optAssertionIsSubrange(tree, TYP_INT, lclType, apFull) == NO_ASSERTION_INDEX))
-        {
-#endif
-            // Small-typed arguments and aliased locals are normalized on load.
-            // Other small-typed locals are normalized on store.
-            // Also, under the debugger as the debugger could write to the variable.
-            // If this is one of the former, insert a narrowing cast on the load.
-            //         ie. Convert: var-short --> cast-short(var-int)
-
-            tree->SetType(TYP_INT);
-            fgMorphTreeDone(tree);
-            tree = gtNewCastNode(TYP_INT, tree, false, lclType);
-            fgMorphTreeDone(tree);
-#if LOCAL_ASSERTION_PROP
-        }
-#endif
+    if (optLocalAssertionProp && optAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType(), apFull))
+    {
+        return lclVar;
     }
+#endif
 
-    return tree;
+    // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. And this should not
+    // be needed for address exposed locals, we could just keeep the small int typed
+    // LCL_VAR as it performs implicit widening like LCL_FLD and INT do.
+    lclVar->SetType(TYP_INT);
+    fgMorphTreeDone(lclVar);
+
+    GenTreeCast* cast = gtNewCastNode(TYP_INT, lclVar, false, lcl->GetType());
+    fgMorphTreeDone(cast);
+    return cast;
 }
 
 unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
@@ -7836,7 +7832,7 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
 
     if (tree->gtOper == GT_LCL_VAR)
     {
-        return fgMorphLocalVar(tree);
+        return fgMorphLclVar(tree->AsLclVar());
     }
     else if (tree->gtOper == GT_LCL_FLD)
     {
