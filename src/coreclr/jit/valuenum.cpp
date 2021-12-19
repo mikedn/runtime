@@ -3918,7 +3918,7 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
         FieldSeqNode* fldSeq = intCon->GetFieldSeq();
         if ((fldSeq != nullptr) && !fldSeq->IsArrayElement())
         {
-            return ExtendPtrVN(add->GetOp(0), fldSeq);
+            return ExtendPtrVN(add->GetOp(0)->gtVNPair, fldSeq, intCon->GetValue());
         }
     }
 
@@ -4123,12 +4123,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
     return indexVN;
 }
 
-ValueNum ValueNumStore::ExtendPtrVN(GenTree* opA, FieldSeqNode* fldSeq)
-{
-    return ExtendPtrVN(opA->gtVNPair, fldSeq);
-}
-
-ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq)
+ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, target_size_t offset)
 {
     assert(fldSeq != nullptr);
 
@@ -4147,15 +4142,17 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq)
         return res;
     }
 
-    if (funcApp.m_func == VNF_PtrToLoc)
+    if (funcApp.m_func == VNF_LclAddr)
     {
 #ifdef DEBUG
         // For PtrToLoc, lib == cons.
         VNFuncApp consFuncApp;
         assert(GetVNFunc(VNNormalValue(addrVNP.GetConservative()), &consFuncApp) && consFuncApp.Equals(funcApp));
 #endif
-        ValueNum fldSeqVN = VNForFieldSeq(fldSeq);
-        res = VNForFunc(TYP_BYREF, VNF_PtrToLoc, funcApp.m_args[0], FieldSeqVNAppend(funcApp.m_args[1], fldSeqVN));
+
+        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], VNForFieldSeq(fldSeq));
+        res                    = VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
     }
     else if (funcApp.m_func == VNF_PtrToStatic)
     {
@@ -5602,6 +5599,9 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
             case VNF_ValWithExc:
                 vnDumpValWithExc(comp, &funcApp);
                 break;
+            case VNF_LclAddr:
+                vnDumpLclAddr(comp, &funcApp);
+                break;
             default:
                 printf("%s", VNFuncName(funcApp.m_func));
 #ifdef FEATURE_HW_INTRINSICS
@@ -5768,6 +5768,19 @@ void ValueNumStore::vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore)
     printf(" := ");
     comp->vnPrint(newValVN, 0);
     printf("]");
+}
+
+void ValueNumStore::vnDumpLclAddr(Compiler* comp, VNFuncApp* func)
+{
+    assert(func->m_func == VNF_LclAddr);
+
+    unsigned      lclNum     = ConstantValue<unsigned>(func->m_args[0]);
+    target_size_t offset     = ConstantValue<target_size_t>(func->m_args[1]);
+    ValueNum      fieldSeqVN = func->m_args[2];
+
+    printf("LclAddr(V%02u, @%u,", lclNum, static_cast<unsigned>(offset));
+    vnDump(comp, fieldSeqVN, false);
+    printf(")");
 }
 
 #endif // DEBUG
@@ -6774,6 +6787,7 @@ void Compiler::fgMutateGcHeap(GenTree* tree DEBUGARG(const char* msg))
 
 void Compiler::fgMutateAddressExposedLocal(GenTree* tree)
 {
+    // TODO-MIKE-CQ:
     // For stores to address exposed locals we could probably be more precise
     // and use a map store with the local number as the "index".
     // For now, just use a new opaque VN.
@@ -7031,36 +7045,14 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
     {
         assert(varTypeIsStruct(src->GetType()));
 
-        if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (GenTreeLclFld* lclFld = dstLclNode->IsLclFld())
         {
-            assert(dstLclNode == dst);
+            dstFieldSeq = lclFld->GetFieldSeq();
 
-            if (GenTreeLclFld* lclFld = dst->IsLclFld())
+            if (dstFieldSeq == nullptr)
             {
-                dstFieldSeq = lclFld->GetFieldSeq();
-
-                if (dstFieldSeq == nullptr)
-                {
-                    dstFieldSeq = FieldSeqNode::NotAField();
-                }
+                dstFieldSeq = FieldSeqNode::NotAField();
             }
-        }
-        else
-        {
-            GenTree* dstAddr = dst->AsIndir()->GetAddr();
-
-            // For addr-of-local expressions lib/cons should be the same.
-            assert(dstAddr->gtVNPair.BothEqual());
-
-            VNFuncApp dstAddrFunc;
-            bool      isVNFunc = vnStore->GetVNFunc(dstAddr->GetVN(VNK_Liberal), &dstAddrFunc);
-
-            assert(isVNFunc);
-            assert(dstAddrFunc.m_func == VNF_PtrToLoc);
-            assert(vnStore->IsVNConstant(dstAddrFunc.m_args[0]) &&
-                   vnStore->ConstantValue<unsigned>(dstAddrFunc.m_args[0]) == dstLclNum);
-
-            dstFieldSeq = vnStore->FieldSeqVNToFieldSeq(dstAddrFunc.m_args[1]);
         }
 
         ValueNumPair vnp;
@@ -7151,9 +7143,18 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         switch (oper)
         {
             case GT_LCL_VAR_ADDR:
+                assert(lvaGetDesc(tree->AsLclVar())->IsAddressExposed());
+                tree->gtVNPair.SetBoth(
+                    vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(tree->AsLclVar()->GetLclNum()),
+                                       vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
+                break;
+
             case GT_LCL_FLD_ADDR:
-                assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
-                tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
+                assert(lvaGetDesc(tree->AsLclFld())->IsAddressExposed());
+                tree->gtVNPair.SetBoth(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
+                                                          vnStore->VNForIntCon(tree->AsLclFld()->GetLclNum()),
+                                                          vnStore->VNForUPtrSizeIntCon(tree->AsLclFld()->GetLclOffs()),
+                                                          vnStore->VNForFieldSeq(tree->AsLclFld()->GetFieldSeq())));
                 break;
 
             case GT_CLS_VAR_ADDR:
@@ -7170,8 +7171,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     if (lcl->IsAddressExposed())
                     {
                         ValueNum addrVN =
-                            vnStore->VNForFunc(TYP_BYREF, VNF_PtrToLoc, vnStore->VNForIntCon(lclNode->GetLclNum()),
-                                               vnStore->VNForFieldSeq(nullptr));
+                            vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(lclNode->GetLclNum()),
+                                               vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
                         vnp.SetBoth(fgValueNumberByrefExposedLoad(lclNode->GetType(), addrVN));
                     }
@@ -7206,7 +7207,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         {
                             if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(tree))
                             {
-                                ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq);
+                                ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq, 0);
 
                                 if (extendVN != ValueNumStore::NoVN)
                                 {
@@ -7908,7 +7909,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                     // Check for the addition of a field offset constant
                     //
-                    if ((oper == GT_ADD) && (!tree->gtOverflowEx()))
+                    if ((oper == GT_ADD) && !tree->gtOverflowEx())
                     {
                         newVN = vnStore->ExtendPtrVN(tree->AsOp());
                     }

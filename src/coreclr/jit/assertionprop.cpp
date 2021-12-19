@@ -4970,16 +4970,25 @@ private:
             return;
         }
 
-        GenTree* addr = indir->GetAddr();
+        GenTree*  addr = indir->GetAddr();
+        VNFuncApp localAddr;
+        bool      isLocalAddr = false;
 
-        if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+        if (m_vnStore->GetVNFunc(addr->gtVNPair.GetConservative(), &localAddr) && (localAddr.m_func == VNF_LclAddr))
         {
-            addr = addr->AsOp()->GetOp(0);
+            isLocalAddr = true;
         }
-
-        if (!m_vnStore->IsKnownNonNull(addr->gtVNPair.GetConservative()))
+        else
         {
-            return;
+            if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+            {
+                addr = addr->AsOp()->GetOp(0);
+            }
+
+            if (!m_vnStore->IsKnownNonNull(addr->gtVNPair.GetConservative()))
+            {
+                return;
+            }
         }
 
         JITDUMP("\nIndir " FMT_TREEID " has non-null address, removing GTF_EXCEPT\n", indir->GetID());
@@ -4987,11 +4996,21 @@ private:
         indir->gtFlags &= ~GTF_EXCEPT;
         indir->gtFlags |= GTF_IND_NONFAULTING;
 
-        // Set this flag to prevent reordering, it may be that we were able to prove that the address
-        // is non-null due to a previous indirection or null check that prevent us from getting here
-        // with a null address.
-        // TODO-MIKE-Review: Hmm, that's probably only for local assertion propagation...
-        indir->gtFlags |= GTF_ORDER_SIDEEFF;
+        if (isLocalAddr)
+        {
+            if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+            {
+                ChangeToLocalAddress(addr, localAddr);
+            }
+        }
+        else
+        {
+            // Set this flag to prevent reordering, it may be that we were able to prove that the address
+            // is non-null due to a previous indirection or null check that prevent us from getting here
+            // with a null address. Of course, a local address is never null so it doesn't need this.
+            // TODO-MIKE-Review: Hmm, that's probably only for local assertion propagation...
+            indir->gtFlags |= GTF_ORDER_SIDEEFF;
+        }
 
         m_stmtMorphPending = true;
     }
@@ -5233,6 +5252,25 @@ private:
 
             m_stmtMorphPending = true;
         }
+        else if ((user != nullptr) && user->IsCall())
+        {
+            // Change call arguments that are VN local addresses to be local address nodes.
+            // We already changed indir addresses and it's unlikely that we'll get local
+            // addresses anywhere else. This is especially useful for call args, as it's more
+            // likely that the local address will be loaded directly into a call argument reg
+            // instead of being loaded into another reg and be moved later. In theory this can
+            // undo CSEs but we shouldn't be CSEing local addresses to begin with. They're
+            // pretty cheap to produce and doing CSE before calls is likely to make things
+            // worse by increasing register pressure, which can be pretty high around calls.
+
+            VNFuncApp lclAddr;
+
+            if (m_vnStore->GetVNFunc(tree->gtVNPair.GetConservative(), &lclAddr) && (lclAddr.m_func == VNF_LclAddr) &&
+                ChangeToLocalAddress(tree, lclAddr))
+            {
+                return Compiler::WALK_SKIP_SUBTREES;
+            }
+        }
 
         return Compiler::WALK_CONTINUE;
     }
@@ -5344,6 +5382,58 @@ private:
         GenTree* sideEffects = nullptr;
         m_compiler->gtExtractSideEffList(tree, &sideEffects, GTF_SIDE_EFFECT, /* ignoreRoot */ true);
         return sideEffects;
+    }
+
+    bool ChangeToLocalAddress(GenTree* node, const VNFuncApp& lclAddr)
+    {
+        assert(lclAddr.m_func == VNF_LclAddr);
+
+        // It doesn't seem to be worth the trouble dealing with side effects on local address trees,
+        // they do exist but they're usually COMMAs where the value operand is a LCL_VAR|FLD_ADDR
+        // node already.
+
+        if (node->GetSideEffects() != 0)
+        {
+            return false;
+        }
+
+        // TODO-MIKE-Cleanup: If the user is an indir then we leave it to morph to change it to
+        // a LCL_FLD. Perhaps we should just do it here?
+
+        // TODO-MIKE-CQ: But then it's not like doing this avoids local address exposure at this
+        // stage. We'd need to eliminate local address containing temps that may now be dead due
+        // to this transform then figure out if there are no more local address nodes left for a
+        // given local and reset lvAddressExposed. Doable, but possibly expensive for throughput
+        // and such cases aren't that common.
+        // This really should be done via SSA. But for now it's good enough to remove a bunch of
+        // LEAs that the JIT has been generating from the dawn of time.
+
+        unsigned      lclNum   = m_vnStore->ConstantValue<unsigned>(lclAddr.m_args[0]);
+        target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr.m_args[1]);
+        FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr.m_args[2]);
+
+        if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetSize()))
+        {
+            return false;
+        }
+
+        if ((offset == 0) && (fieldSeq == nullptr))
+        {
+            node->ChangeOper(GT_LCL_VAR_ADDR);
+        }
+        else
+        {
+            node->ChangeOper(GT_LCL_FLD_ADDR);
+            node->AsLclFld()->SetLclOffs(static_cast<unsigned>(offset));
+            node->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
+        }
+
+        node->AsLclVarCommon()->SetLclNum(lclNum);
+        node->SetType(TYP_I_IMPL);
+
+        m_stmtMorphPending = true;
+
+        return true;
     }
 };
 

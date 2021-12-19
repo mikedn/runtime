@@ -5752,13 +5752,6 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             // does not have side effects.
             if (GenTreeFieldAddr* field = tree->IsFieldAddr())
             {
-                // TODO-MIKE-Cleanup: This exists mainly to match the behaviour of old code,
-                // which did not clone FIELD(ADDR(LCL_VAR)).
-                if (field->GetAddr()->OperIs(GT_LCL_VAR_ADDR))
-                {
-                    return nullptr;
-                }
-
                 GenTree* addr = gtClone(field->GetAddr(), false);
 
                 if (addr == nullptr)

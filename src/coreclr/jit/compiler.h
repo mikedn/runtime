@@ -4666,7 +4666,7 @@ private:
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
 
-    GenTree* fgMorphLocalVar(GenTree* tree, bool forceRemorph);
+    GenTree* fgMorphLclVar(GenTreeLclVar* lclVar);
 
 public:
     GenTree* fgMorphIndexAddr(GenTreeIndexAddr* tree);

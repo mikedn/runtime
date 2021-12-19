@@ -3073,6 +3073,20 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         m_fieldSeq = FieldSeqStore::NotAField();
     }
 
+    void SetValue(var_types type, ssize_t value)
+    {
+#ifdef TARGET_64BIT
+        if (type == TYP_INT)
+        {
+            value = static_cast<int32_t>(value);
+        }
+#endif
+
+        gtType     = type;
+        gtIconVal  = value;
+        m_fieldSeq = FieldSeqStore::NotAField();
+    }
+
     void SetValue(unsigned offset, FieldSeqNode* fieldSeq)
     {
         gtIconVal  = offset;
@@ -3092,14 +3106,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 #ifdef TARGET_64BIT
     void TruncateOrSignExtend32()
     {
-        if (gtFlags & GTF_UNSIGNED)
-        {
-            gtIconVal = UINT32(gtIconVal);
-        }
-        else
-        {
-            gtIconVal = INT32(gtIconVal);
-        }
+        gtIconVal = INT32(gtIconVal);
     }
 #endif // TARGET_64BIT
 

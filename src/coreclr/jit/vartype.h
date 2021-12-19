@@ -230,6 +230,18 @@ inline bool varTypeIsSmallInt(T vt)
 }
 
 template <class T>
+inline bool varTypeIsSmallSigned(T vt)
+{
+    return (TypeGet(vt) == TYP_BYTE) || (TypeGet(vt) == TYP_SHORT);
+}
+
+template <class T>
+inline bool varTypeIsSmallUnsigned(T vt)
+{
+    return (TypeGet(vt) == TYP_BOOL) || (TypeGet(vt) == TYP_UBYTE) || (TypeGet(vt) == TYP_USHORT);
+}
+
+template <class T>
 inline bool varTypeIsIntOrI(T vt)
 {
     return ((TypeGet(vt) == TYP_INT)

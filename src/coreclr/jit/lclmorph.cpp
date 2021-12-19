@@ -492,6 +492,40 @@ public:
                 PopValue();
                 break;
 
+            case GT_SUB:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
+                assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
+
+                if (!node->gtOverflow() && node->TypeIs(TYP_I_IMPL))
+                {
+                    const Value& v1 = TopValue(1);
+                    const Value& v2 = TopValue(0);
+
+                    // We could handle SUB(local addr, constant) but those don't seem to exist nor
+                    // they're likley to be useful. Instead, handle SUB(local addr1, local addr2),
+                    // which also doesn't seem to exist but it could serve an useful purpose: to
+                    // obtain the offset of a struct field as a cheap constant.
+
+                    if (v1.IsAddress() && v2.IsAddress() && (v1.LclNum() == v2.LclNum()))
+                    {
+                        node->ChangeToIntCon(static_cast<ssize_t>(v1.Offset()) - static_cast<ssize_t>(v2.Offset()));
+
+                        INDEBUG(v1.Consume();)
+                        INDEBUG(v2.Consume();)
+                    }
+                }
+
+                if (node->OperIs(GT_SUB))
+                {
+                    EscapeValue(TopValue(1), node);
+                    EscapeValue(TopValue(0), node);
+                }
+
+                PopValue();
+                PopValue();
+                break;
+
             case GT_FIELD_ADDR:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
@@ -916,6 +950,10 @@ private:
             {
                 isWide = (endOffset.Value() > lcl->GetLayout()->GetSize());
             }
+            else if (lcl->GetType() == TYP_BLK)
+            {
+                isWide = (endOffset.Value() > lcl->GetBlockSize());
+            }
             else
             {
                 // For small int types use the real type size, not the stack slot size.
@@ -926,9 +964,6 @@ private:
                 //
                 // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
                 // stack location may have 16 bytes.
-                //
-                // For TYP_BLK variables the type size is 0 so they're always address
-                // exposed.
                 isWide = (endOffset.Value() > varTypeSize(lcl->GetType()));
             }
         }
@@ -1339,7 +1374,7 @@ private:
         // a struct value or a primitive type value, we just need to put the value in the correct
         // register or stack slot.
 
-        if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT))
+        if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
         {
             ClassLayout* indirLayout = indir->AsObj()->GetLayout();
 
@@ -1369,7 +1404,7 @@ private:
             }
         }
 
-        if (!varTypeIsStruct(lclType))
+        if (!varTypeIsStruct(lclType) && (lclType != TYP_BLK))
         {
             if ((val.Offset() == 0) && !varTypeIsStruct(indirType))
             {
@@ -1504,7 +1539,7 @@ private:
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(varDsc->GetType()) && varDsc->lvIsUsedInSIMDIntrinsic() && indir->TypeIs(TYP_FLOAT) &&
+        if (varTypeIsSIMD(lclType) && varDsc->lvIsUsedInSIMDIntrinsic() && indir->TypeIs(TYP_FLOAT) &&
             (val.Offset() % 4 == 0) && (!isDef || !varDsc->IsImplicitByRefParam()) && !varDsc->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
@@ -1633,8 +1668,8 @@ private:
         // Also, discarding type information is not that great in general and it may be
         // better to instead teach assertion propagation to deal with LCL_FLDs.
 
-        if ((val.Offset() == 0) && (indir->GetType() == varDsc->GetType()) &&
-            (!indir->TypeIs(TYP_STRUCT) || (indirLayout == varDsc->GetLayout()) ||
+        if ((val.Offset() == 0) && (indirType == lclType) &&
+            ((indirType != TYP_STRUCT) || (indirLayout == varDsc->GetLayout()) ||
              (varDsc->IsPromoted() && indirLayout->GetSize() == varDsc->GetLayout()->GetSize())))
         {
             indir->ChangeOper(GT_LCL_VAR);
@@ -2078,6 +2113,8 @@ private:
             FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type);
 
             structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
+
+            m_compiler->lvaSetVarDoNotEnregister(structLcl->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
         }
 
         return structLcl;

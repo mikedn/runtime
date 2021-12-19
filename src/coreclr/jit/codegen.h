@@ -1129,6 +1129,7 @@ protected:
     void genCodeForLclFld(GenTreeLclFld* tree);
     void GenStoreLclFld(GenTreeLclFld* store);
     void GenStoreLclVar(GenTreeLclVar* store);
+    void GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src);
 #ifndef TARGET_64BIT
     void GenStoreLclVarLong(GenTreeLclVar* store);
 #endif

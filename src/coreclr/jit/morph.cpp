@@ -4873,50 +4873,42 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
     return addr;
 }
 
-GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
+GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
 {
-    assert(tree->OperIs(GT_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_VAR));
 
-    unsigned   lclNum  = tree->AsLclVar()->GetLclNum();
-    LclVarDsc* lcl     = lvaGetDesc(lclNum);
-    var_types  lclType = lcl->GetType();
+    LclVarDsc* lcl = lvaGetDesc(lclVar);
 
-    if (lcl->lvAddrExposed)
+    if (lcl->IsAddressExposed())
     {
-        tree->gtFlags |= GTF_GLOB_REF;
+        lclVar->AddSideEffects(GTF_GLOB_REF);
     }
 
-    if (!fgGlobalMorph && !forceRemorph)
+    // Small int params, address exposed locals and promoted fields are widened on load.
+    // We may need to insert a widening cast, if assertion propagation doesn't tell us
+    // that the value previously stored in the local isn't already widened.
+
+    if (!fgGlobalMorph || ((lclVar->gtFlags & GTF_VAR_DEF) != 0) || !lcl->lvNormalizeOnLoad())
     {
-        return tree;
+        return lclVar;
     }
 
-    bool varAddr = (tree->gtFlags & GTF_DONT_CSE) != 0;
-
-    noway_assert(((tree->gtFlags & GTF_VAR_DEF) == 0) || varAddr); // GTF_VAR_DEF should always imply varAddr
-
-    if (!varAddr && varTypeIsSmall(lclType) && lcl->lvNormalizeOnLoad())
-    {
 #if LOCAL_ASSERTION_PROP
-        if (!optLocalAssertionProp || (optAssertionIsSubrange(tree, TYP_INT, lclType, apFull) == NO_ASSERTION_INDEX))
-        {
-#endif
-            // Small-typed arguments and aliased locals are normalized on load.
-            // Other small-typed locals are normalized on store.
-            // Also, under the debugger as the debugger could write to the variable.
-            // If this is one of the former, insert a narrowing cast on the load.
-            //         ie. Convert: var-short --> cast-short(var-int)
-
-            tree->SetType(TYP_INT);
-            fgMorphTreeDone(tree);
-            tree = gtNewCastNode(TYP_INT, tree, false, lclType);
-            fgMorphTreeDone(tree);
-#if LOCAL_ASSERTION_PROP
-        }
-#endif
+    if (optLocalAssertionProp && optAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType(), apFull))
+    {
+        return lclVar;
     }
+#endif
 
-    return tree;
+    // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. And this should not
+    // be needed for address exposed locals, we could just keeep the small int typed
+    // LCL_VAR as it performs implicit widening like LCL_FLD and INT do.
+    lclVar->SetType(TYP_INT);
+    fgMorphTreeDone(lclVar);
+
+    GenTreeCast* cast = gtNewCastNode(TYP_INT, lclVar, false, lcl->GetType());
+    fgMorphTreeDone(cast);
+    return cast;
 }
 
 unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
@@ -7840,8 +7832,7 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
 
     if (tree->gtOper == GT_LCL_VAR)
     {
-        const bool forceRemorph = false;
-        return fgMorphLocalVar(tree, forceRemorph);
+        return fgMorphLclVar(tree->AsLclVar());
     }
     else if (tree->gtOper == GT_LCL_FLD)
     {
@@ -9107,14 +9098,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         {
             addr = src->AsIndir()->GetAddr();
         }
-        else if (fieldCount > 1)
-        {
-            // TODO-MIKE-CQ: Continue marking the unpromoted variable address exposed, to match the behavior
-            // of the previous implementation. This isn't needed and one might expect that not marking locals
-            // address exposed would be an improvement. However, the diffs are a bit of a grab bag so this
-            // should be investigated separately.
-            lvaSetVarAddrExposed(srcLclNum);
-        }
     }
     else
     {
@@ -9123,11 +9106,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         if (destLclVar == nullptr)
         {
             addr = dest->AsIndir()->GetAddr();
-        }
-        else if (fieldCount > 1)
-        {
-            // TODO-MIKE-CQ: Continue marking the unpromoted variable address exposed...
-            lvaSetVarAddrExposed(destLclNum);
         }
     }
 
@@ -9528,6 +9506,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
             }
 
+            if (GenTreeLclVarCommon* lclVar = op1->SkipComma()->IsLclVarCommon())
+            {
+                lclVar->gtFlags |= GTF_VAR_DEF;
+            }
+
             assert(!op1->OperIsHWIntrinsic());
             // op1 of a ASG is an l-value. Only r-values can be CSEed
             op1->gtFlags |= GTF_DONT_CSE;
@@ -9574,6 +9557,24 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_IND:
         case GT_OBJ:
+            if (op1->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) && !tree->AsIndir()->IsVolatile())
+            {
+                ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
+
+                // Just change it to a LCL_FLD. Since these locals are already address exposed
+                // it's not worth the complication to figure out if the types match and change
+                // to a LCL_VAR instead. Also don't bother with field sequences for the same
+                // reason, VN doesn't do anything interesting for address exposed locals.
+
+                tree->ChangeOper(GT_LCL_FLD);
+                tree->SetSideEffects(GTF_GLOB_REF);
+                tree->AsLclFld()->SetLclNum(op1->AsLclVarCommon()->GetLclNum());
+                tree->AsLclFld()->SetLclOffs(op1->AsLclVarCommon()->GetLclOffs());
+                tree->AsLclFld()->SetLayout(layout, this);
+
+                return tree;
+            }
+
             if (GenTreeIndexAddr* index = op1->IsIndexAddr())
             {
                 if ((typ == TYP_USHORT) && opts.OptimizationEnabled() && index->GetArray()->IsStrCon())
@@ -10511,10 +10512,6 @@ DONE_MORPHING_CHILDREN:
             }
             else
             {
-                // TODO-MIKE-Review: Old code never checked for a LCL_VAR|FLD under
-                // a COMMA so presumably it can't happen.
-                assert(effectiveOp1 == op1);
-
                 gtAssignSetVarDef(effectiveOp1);
             }
 

@@ -367,16 +367,22 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
     {
         // For an assignment to a local variable, all references of that
         // variable have to be spilled. If it is aliased, all calls and
-        // indirect accesses have to be spilled
+        // indirect accesses have to be spilled.
 
-        if (tree->AsOp()->gtOp1->gtOper == GT_LCL_VAR)
+        // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
+        // it's rarely set during import.
+
+        if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            unsigned lclNum = tree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
+            unsigned   lclNum = tree->AsOp()->gtOp1->AsLclVar()->GetLclNum();
+            LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
             for (unsigned level = 0; level < chkLevel; level++)
             {
-                assert(!gtHasRef(verCurrentState.esStack[level].val, lclNum));
-                assert(!lvaTable[lclNum].lvAddrExposed ||
-                       (verCurrentState.esStack[level].val->gtFlags & GTF_SIDE_EFFECT) == 0);
+                GenTree* val = verCurrentState.esStack[level].val;
+
+                assert(!gtHasRef(val, lclNum) || impIsAddressInLocal(val));
+                assert(!lcl->IsAddressExposed() || ((val->gtFlags & GTF_SIDE_EFFECT) == 0));
             }
         }
 
@@ -1853,7 +1859,12 @@ void Compiler::impImportDup()
     GenTree*   op1 = se.val;
     GenTree*   op2 = nullptr;
 
-    if (op1->IsIntegralConst(0) || op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (impIsAddressInLocal(op1))
+    {
+        // Always clone local addresses, otherwise the local will end up being address exposed.
+        op2 = gtCloneExpr(op1);
+    }
+    else if (op1->IsIntegralConst(0) || op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         if ((op1->gtFlags & GTF_GLOB_EFFECT) == 0)
         {
@@ -1932,11 +1943,11 @@ void Compiler::impSpillStackEnsure(bool spillLeaves)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
 
-        // TODO-MIKE-Cleanup: CLS|LCL_VAR_ADDR never needs spilling, it is
-        // blocked here only because ADDR(CLS|LCL_VAR) was not a leaf before.
+        // TODO-MIKE-Cleanup: CLS_VAR_ADDR never needs spilling, it is
+        // blocked here only because ADDR(CLS_VAR) was not a leaf before.
         // The whole "spill leaves" thing is bonkers.
 
-        if (!spillLeaves && tree->OperIsLeaf() && !tree->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR))
+        if (!spillLeaves && tree->OperIsLeaf() && !tree->OperIs(GT_CLS_VAR_ADDR))
         {
             continue;
         }
@@ -1959,6 +1970,12 @@ void Compiler::impSpillEvalStack()
 {
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
+        // Local address trees never need to be spilled.
+        if (!impIsAddressInLocal(verCurrentState.esStack[level].val))
+        {
+            continue;
+        }
+
         impSpillStackEntry(level DEBUGARG("impSpillEvalStack"));
     }
 }
@@ -2061,10 +2078,7 @@ void Compiler::impSpillValueClasses()
     auto visitor = [](GenTree** pTree, fgWalkData* data) {
         GenTree* node = *pTree;
 
-        if (node->TypeIs(TYP_STRUCT) ||
-            // TODO-MIKE-Cleanup: This is dubious. Old code spilled ADDR(LCL_VAR)
-            // even though no struct value was actually involved.
-            (node->OperIs(GT_LCL_VAR_ADDR) && data->compiler->lvaGetDesc(node->AsLclVar())->TypeIs(TYP_STRUCT)))
+        if (node->TypeIs(TYP_STRUCT))
         {
             // Abort the walk and indicate that we found a value class
             return WALK_ABORT;
@@ -2101,6 +2115,11 @@ void Compiler::impSpillLclRefs(ssize_t lclNum)
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
+
+        if (tree->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        {
+            continue;
+        }
 
         /* If the tree may throw an exception, and the block has a handler,
            then we need to spill assignments to the local if the local is
@@ -3579,6 +3598,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
                 GenTree* indexUses[2];
                 GenTree* spanAddrUses[2];
+
                 impMakeMultiUse(index, 2, indexUses, CHECK_SPILL_ALL DEBUGARG("span index temp"));
                 impMakeMultiUse(spanAddr, 2, spanAddrUses, CHECK_SPILL_ALL DEBUGARG("span addr temp"));
 
@@ -3587,17 +3607,26 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
                 GenTree* length = gtNewFieldIndir(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
                 GenTree* boundsCheck = gtNewArrBoundsChk(indexUses[0], length, SCK_RNGCHK_FAIL);
+                GenTree* indexOffset;
 
-                // Element access
-                GenTree*             indexIntPtr = impImplicitIorI4Cast(indexUses[1], TYP_I_IMPL);
-                GenTree*             sizeofNode  = gtNewIconNode(elemSize, TYP_I_IMPL);
-                GenTree*             mulNode     = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
-                CORINFO_FIELD_HANDLE ptrHnd      = info.compCompHnd->getFieldInClass(clsHnd, 0);
-                const unsigned       ptrOffset   = info.compCompHnd->getFieldOffset(ptrHnd);
+                if (GenTreeIntCon* indexConst = index->IsIntCon())
+                {
+                    indexOffset =
+                        gtNewIconNode(static_cast<target_ssize_t>(elemSize) * indexConst->GetInt32Value(), TYP_I_IMPL);
+                }
+                else
+                {
+                    GenTree* indexIntPtr = impImplicitIorI4Cast(indexUses[1], TYP_I_IMPL);
+                    GenTree* sizeofNode  = gtNewIconNode(elemSize, TYP_I_IMPL);
+                    indexOffset          = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
+                }
+
+                CORINFO_FIELD_HANDLE ptrHnd    = info.compCompHnd->getFieldInClass(clsHnd, 0);
+                const unsigned       ptrOffset = info.compCompHnd->getFieldOffset(ptrHnd);
                 // TODO-MIKE-Fix: This isn't right, the _pointer field of Span is ByReference<T> so we need
                 // 2 FIELD_ADDRs, one for the _pointer field and one for ByReference<T>'s own _value field.
                 GenTree* pointer = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrHnd, ptrOffset));
-                GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, mulNode);
+                GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, indexOffset);
 
                 retNode = gtNewCommaNode(boundsCheck, result);
 
@@ -10571,6 +10600,28 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     impPushOnStack(op1, typeInfo());
                     break;
+                }
+
+                if ((oper == GT_MUL) && !ovfl && ((type == TYP_INT) || (type == TYP_LONG)))
+                {
+                    GenTreeIntCon* i1 = op1->IsIntCon();
+                    GenTreeIntCon* i2 = op2->IsIntCon();
+
+                    // In general IL generated by Rosly (and hopefully any other sane compiler)
+                    // doesn't generate constant expressions. However, it does happen sometimes,
+                    // due to the use of sizeof or when stackalloc is used, for unclear reasons.
+                    // Fold it now to avoid interfering with local address expression recognition.
+
+                    if ((i1 != nullptr) && (i2 != nullptr))
+                    {
+                        assert(i1->TypeIs(TYP_INT, TYP_LONG));
+                        assert(i2->TypeIs(TYP_INT, TYP_LONG));
+
+                        i1->SetValue(type, i1->GetValue() * i2->GetValue());
+
+                        impPushOnStack(i1, typeInfo());
+                        break;
+                    }
                 }
 
                 if (callNode)
