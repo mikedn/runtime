@@ -3918,7 +3918,7 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
         FieldSeqNode* fldSeq = intCon->GetFieldSeq();
         if ((fldSeq != nullptr) && !fldSeq->IsArrayElement())
         {
-            return ExtendPtrVN(add->GetOp(0)->gtVNPair, fldSeq, intCon->GetValue());
+            return ExtendPtrVN(add->GetOp(0)->gtVNPair, fldSeq, static_cast<target_size_t>(intCon->GetValue()));
         }
     }
 
