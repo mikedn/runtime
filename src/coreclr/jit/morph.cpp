@@ -9080,8 +9080,10 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     assert(!destPromote || (destLclNum != BAD_VAR_NUM) && (destLclVar != nullptr));
     assert(!srcPromote || (srcLclNum != BAD_VAR_NUM) && (srcLclVar != nullptr));
 
-    GenTree* addr = nullptr;
-    unsigned fieldCount;
+    GenTree*     indir  = nullptr;
+    GenTree*     addr   = nullptr;
+    ClassLayout* layout = nullptr;
+    unsigned     fieldCount;
 
     if (destPromote && srcPromote)
     {
@@ -9093,27 +9095,51 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     else if (destPromote)
     {
         fieldCount = destLclVar->GetPromotedFieldCount();
+        layout     = destLclVar->GetLayout();
 
         if (srcLclVar == nullptr)
         {
-            addr = src->AsIndir()->GetAddr();
+            indir = src;
+            addr  = src->AsIndir()->GetAddr();
         }
     }
     else
     {
         fieldCount = srcLclVar->GetPromotedFieldCount();
+        layout     = srcLclVar->GetLayout();
 
         if (destLclVar == nullptr)
         {
-            addr = dest->AsIndir()->GetAddr();
+            indir = dest;
+            addr  = dest->AsIndir()->GetAddr();
         }
     }
 
-    GenTree* asgFieldCommaTree = nullptr;
-    unsigned addrSpillLclNum   = BAD_VAR_NUM;
+    GenTree*      asgFieldCommaTree = nullptr;
+    unsigned      addrSpillLclNum   = BAD_VAR_NUM;
+    unsigned      addrOffset        = 0;
+    FieldSeqNode* addrFieldSeq      = FieldSeqNode::NotAField();
 
     if (addr != nullptr)
     {
+        if (addr->OperIs(GT_ADD) && !addr->gtOverflow())
+        {
+            if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
+            {
+                if ((offset->GetValue() > 0) && (offset->GetValue() <= INT32_MAX))
+                {
+                    addrOffset   = offset->GetUInt32Value();
+                    addrFieldSeq = offset->GetFieldSeq();
+                    addr         = addr->AsOp()->GetOp(0);
+
+                    if (!indir->IsObj() || (indir->AsObj()->GetLayout() != layout))
+                    {
+                        addrFieldSeq = FieldSeqNode::NotAField();
+                    }
+                }
+            }
+        }
+
         if (gtClone(addr) != nullptr)
         {
             // addr is a simple expression, no need to spill.
@@ -9200,20 +9226,27 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
             unsigned   srcFieldLclNum = srcLclVar->GetPromotedFieldLclNum(i);
             LclVarDsc* srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
+            unsigned   srcFieldOffset = srcFieldLclVar->GetPromotedFieldOffset();
 
             // TODO-MIKE-Review: This looks fishy - it's only correct if the destination has the same type as the
             // source. If reinterpretation has ocurred then it would likely be wiser to use NotAField.
 
             FieldSeqNode* srcFieldSeq = srcFieldLclVar->GetPromotedFieldSeq();
 
-            if (srcFieldLclVar->GetPromotedFieldOffset() == 0)
+            if (addrOffset != 0)
+            {
+                srcFieldOffset += addrOffset;
+                srcFieldSeq = GetFieldSeqStore()->Append(addrFieldSeq, srcFieldSeq);
+            }
+
+            if (srcFieldOffset == 0)
             {
                 AddZeroOffsetFieldSeq(destFieldAddr, srcFieldSeq);
             }
             else
             {
-                destFieldAddr = gtNewOperNode(GT_ADD, TYP_BYREF, destFieldAddr,
-                                              gtNewIconNode(srcFieldLclVar->GetPromotedFieldOffset(), srcFieldSeq));
+                destFieldAddr =
+                    gtNewOperNode(GT_ADD, TYP_BYREF, destFieldAddr, gtNewIconNode(srcFieldOffset, srcFieldSeq));
             }
 
             destField = gtNewIndir(srcFieldLclVar->GetType(), destFieldAddr);
@@ -9267,15 +9300,22 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             unsigned      destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
             LclVarDsc*    destFieldLclVar = lvaGetDesc(destFieldLclNum);
             FieldSeqNode* destFieldSeq    = destFieldLclVar->GetPromotedFieldSeq();
+            unsigned      destFieldOffset = destFieldLclVar->GetPromotedFieldOffset();
 
-            if (destFieldLclVar->GetPromotedFieldOffset() == 0)
+            if (addrOffset != 0)
+            {
+                destFieldOffset += addrOffset;
+                destFieldSeq = GetFieldSeqStore()->Append(addrFieldSeq, destFieldSeq);
+            }
+
+            if (destFieldOffset == 0)
             {
                 AddZeroOffsetFieldSeq(srcFieldAddr, destFieldSeq);
             }
             else
             {
-                srcFieldAddr = gtNewOperNode(GT_ADD, TYP_BYREF, srcFieldAddr,
-                                             gtNewIconNode(destFieldLclVar->GetPromotedFieldOffset(), destFieldSeq));
+                srcFieldAddr =
+                    gtNewOperNode(GT_ADD, TYP_BYREF, srcFieldAddr, gtNewIconNode(destFieldOffset, destFieldSeq));
             }
 
             srcField = gtNewIndir(destFieldLclVar->GetType(), srcFieldAddr);
