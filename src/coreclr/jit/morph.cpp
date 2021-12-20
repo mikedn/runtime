@@ -9131,47 +9131,50 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         FieldSeqNode* addrFieldSeq    = FieldSeqNode::NotAField();
         GenTree*      addrAssign      = nullptr;
 
-        if (addr->OperIs(GT_ADD) && !addr->gtOverflow())
+        if (promotedLcl->GetPromotedFieldCount() > 1)
         {
-            if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
+            if (addr->OperIs(GT_ADD) && !addr->gtOverflow())
             {
-                if ((offset->GetValue() > 0) && (offset->GetValue() <= INT32_MAX))
+                if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
                 {
-                    addrOffset   = offset->GetUInt32Value();
-                    addrFieldSeq = offset->GetFieldSeq();
-                    addr         = addr->AsOp()->GetOp(0);
-
-                    if (!indir->IsObj() || (indir->AsObj()->GetLayout() != promotedLcl->GetLayout()))
+                    if ((offset->GetValue() > 0) && (offset->GetValue() <= INT32_MAX))
                     {
-                        addrFieldSeq = FieldSeqNode::NotAField();
+                        addrOffset   = offset->GetUInt32Value();
+                        addrFieldSeq = offset->GetFieldSeq();
+                        addr         = addr->AsOp()->GetOp(0);
+
+                        if (!indir->IsObj() || (indir->AsObj()->GetLayout() != promotedLcl->GetLayout()))
+                        {
+                            addrFieldSeq = FieldSeqNode::NotAField();
+                        }
                     }
                 }
             }
-        }
 
-        if (gtClone(addr) != nullptr)
-        {
-            // addr is a simple expression, no need to spill.
-            noway_assert((addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
-        }
-        else if (promotedLcl->GetPromotedFieldCount() > 1)
-        {
-            // addr is a complex expression and we need to use it multiple times, spill it.
+            if (gtClone(addr) != nullptr)
+            {
+                // addr is a simple expression, no need to spill.
+                noway_assert((addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
+            }
+            else
+            {
+                // addr is a complex expression and we need to use it multiple times, spill it.
 
-            // A part of the address tree was already morphed and we're morphing
-            // it again, GTF_DEBUG_NODE_MORPHED seems pretty useless...
-            INDEBUG(fgMorphClearDebugNodeMorphed(addr);)
+                // A part of the address tree was already morphed and we're morphing
+                // it again, GTF_DEBUG_NODE_MORPHED seems pretty useless...
+                INDEBUG(fgMorphClearDebugNodeMorphed(addr);)
 
-            // We'll introduce a new temp, that may invalidate promotedLcl so we need the number.
-            unsigned promotedLclNum = static_cast<unsigned>(promotedLcl - lvaTable);
+                // We'll introduce a new temp, that may invalidate promotedLcl so we need the number.
+                unsigned promotedLclNum = static_cast<unsigned>(promotedLcl - lvaTable);
 
-            // Simplify the address if possible, and mark as DONT_CSE as needed.
-            addr = fgMorphTree(addr);
+                // Simplify the address if possible, and mark as DONT_CSE as needed.
+                addr = fgMorphTree(addr);
 
-            addrSpillLclNum = lvaNewTemp(TYP_BYREF, true DEBUGARG("BlockOp address local"));
-            addrAssign      = gtNewAssignNode(gtNewLclvNode(addrSpillLclNum, TYP_BYREF), addr);
+                addrSpillLclNum = lvaNewTemp(TYP_BYREF, true DEBUGARG("BlockOp address local"));
+                addrAssign      = gtNewAssignNode(gtNewLclvNode(addrSpillLclNum, TYP_BYREF), addr);
 
-            promotedLcl = lvaGetDesc(promotedLclNum);
+                promotedLcl = lvaGetDesc(promotedLclNum);
+            }
         }
 
         for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
