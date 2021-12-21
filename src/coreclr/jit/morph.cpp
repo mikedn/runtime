@@ -9110,6 +9110,11 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
         if (promotedLcl->GetPromotedFieldCount() > 1)
         {
+            // TODO-MIKE-CQ: This doesn't handle the array case. The array data offset (or the entire
+            // element offset if the index is constant) is hidden under a COMMA and another ADD. We
+            // could try to extract the offset from that tree but then optIsArrayElemAddr will have
+            // a difficult time recovering array element information.
+
             if (addr->OperIs(GT_ADD) && !addr->gtOverflow())
             {
                 if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
