@@ -8898,14 +8898,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     {
         assert(varTypeIsStruct(destLclVar->GetType()));
 
-        // We may decide later that a copyblk is required when this struct has holes
         destPromote = true;
 
-        JITDUMP(" (destPromote=true)");
-    }
-    else
-    {
-        JITDUMP(" with mismatched dest offset/size");
+        JITDUMP("dest is promoted local\n");
     }
 
     if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) && (srcLclVar->GetSize() == destSize) &&
@@ -8913,14 +8908,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     {
         assert(varTypeIsStruct(srcLclVar->GetType()));
 
-        // We may decide later that a copyblk is required when this struct has holes
         srcPromote = true;
 
-        JITDUMP(" (srcPromote=true)");
-    }
-    else
-    {
-        JITDUMP(" with mismatched src offset/size");
+        JITDUMP("src is promoted local\n");
     }
 
 #ifdef FEATURE_SIMD
@@ -8936,43 +8926,42 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
 #endif // FEATURE_SIMD
 
-    bool requiresCopyBlock = false;
+    bool promote = true;
 
     if (!destPromote && !srcPromote)
     {
-        JITDUMP(" with no promoted structs");
-        requiresCopyBlock = true;
+        promote = false;
     }
     else if (destPromote && destLclVar->lvCustomLayout && destLclVar->lvContainsHoles)
     {
-        JITDUMP(" dest has custom layout and contains holes");
-        requiresCopyBlock = true;
+        JITDUMP("dest has custom layout and contains holes\n");
+        promote = false;
     }
     else if (srcPromote && srcLclVar->lvCustomLayout && srcLclVar->lvContainsHoles)
     {
-        JITDUMP(" src has custom layout and contains holes");
-        requiresCopyBlock = true;
+        JITDUMP("src has custom layout and contains holes\n");
+        promote = false;
     }
     else if (src->OperIs(GT_CALL))
     {
-        JITDUMP(" src is a call");
-        requiresCopyBlock = true;
+        JITDUMP("src is a call\n");
+        promote = false;
     }
     else if (src->OperIsHWIntrinsic())
     {
-        JITDUMP(" src is a HWINTRINSIC node");
-        requiresCopyBlock = true;
+        JITDUMP("src is a HWINTRINSIC node\n");
+        promote = false;
     }
 #if defined(TARGET_ARM)
     else if (src->OperIsIndir() && src->AsIndir()->IsUnaligned())
     {
-        JITDUMP(" src is unaligned");
-        requiresCopyBlock = true;
+        JITDUMP("src is unaligned\n");
+        promote = false;
     }
     else if (dest->OperIsIndir() && dest->AsIndir()->IsUnaligned())
     {
-        JITDUMP(" dest is unaligned");
-        requiresCopyBlock = true;
+        JITDUMP("dest is unaligned\n");
+        promote = false;
     }
 #endif // TARGET_ARM
     else if (destPromote && srcPromote)
@@ -9002,16 +8991,14 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
             if (!sameLayout)
             {
-                requiresCopyBlock = true;
-                JITDUMP(" with mismatched types");
+                promote = false;
+                JITDUMP("dest and src have different layout\n");
             }
         }
     }
 
-    if (requiresCopyBlock)
+    if (!promote)
     {
-        JITDUMP(" this requires a CopyBlock.\n");
-
         if (asg->TypeIs(TYP_STRUCT))
         {
             if (srcLclVar != nullptr)
@@ -9049,8 +9036,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
         return asg;
     }
-
-    JITDUMP(" using field by field assignments.\n");
 
     assert(destPromote || srcPromote);
     assert(!destPromote || (destLclNum != BAD_VAR_NUM) && (destLclVar != nullptr));
