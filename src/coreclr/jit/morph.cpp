@@ -9151,10 +9151,10 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
                 }
             }
 
-            if (gtClone(addr) != nullptr)
+            if (addr->OperIs(GT_LCL_VAR) && !lvaGetDesc(addr->AsLclVar())->lvDoNotEnregister)
             {
-                // addr is a simple expression, no need to spill.
-                noway_assert((addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
+                // TODO-MIKE-Review: What if the address is a promoted destination field?
+                assert(addr->GetSideEffects() == 0);
             }
             else
             {
@@ -9195,9 +9195,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             }
             else
             {
-                fieldAddr = (i == 0) ? addr : gtClone(addr);
-
-                noway_assert(fieldAddr != nullptr);
+                fieldAddr = (i == 0) ? addr : gtNewLclvNode(addr->AsLclVar()->GetLclNum(), addr->GetType());
             }
 
             if (addrOffset != 0)
