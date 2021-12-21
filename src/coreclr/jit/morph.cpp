@@ -9173,9 +9173,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             }
             else
             {
-                addrSpillLclNum = lvaNewTemp(TYP_BYREF, true DEBUGARG("BlockOp address local"));
+                addrSpillLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("promoted struct address"));
                 promotedLcl     = lvaGetDesc(promotedLclNum);
-                addrAssign      = gtNewAssignNode(gtNewLclvNode(addrSpillLclNum, TYP_BYREF), addr);
+                addrAssign      = gtNewAssignNode(gtNewLclvNode(addrSpillLclNum, addr->GetType()), addr);
             }
         }
 
@@ -9193,7 +9193,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
             if (addrSpillLclNum != BAD_VAR_NUM)
             {
-                fieldAddr = gtNewLclvNode(addrSpillLclNum, TYP_BYREF);
+                fieldAddr = gtNewLclvNode(addrSpillLclNum, addr->GetType());
             }
             else
             {
