@@ -9158,17 +9158,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             }
             else
             {
-                // addr is a complex expression and we need to use it multiple times, spill it.
-
-                // A part of the address tree was already morphed and we're morphing
-                // it again, GTF_DEBUG_NODE_MORPHED seems pretty useless...
-                INDEBUG(fgMorphClearDebugNodeMorphed(addr);)
-
                 // We'll introduce a new temp, that may invalidate promotedLcl so we need the number.
                 unsigned promotedLclNum = static_cast<unsigned>(promotedLcl - lvaTable);
-
-                // Simplify the address if possible, and mark as DONT_CSE as needed.
-                addr = fgMorphTree(addr);
 
                 addrSpillLclNum = lvaNewTemp(TYP_BYREF, true DEBUGARG("BlockOp address local"));
                 addrAssign      = gtNewAssignNode(gtNewLclvNode(addrSpillLclNum, TYP_BYREF), addr);
