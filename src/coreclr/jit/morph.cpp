@@ -9215,8 +9215,19 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
                 fieldAddr = gtNewOperNode(GT_ADD, TYP_BYREF, fieldAddr, gtNewIconNode(fieldOffset, fieldSeq));
             }
 
-            GenTree* field = gtNewIndir(promotedFieldLcl->GetType(), fieldAddr);
-            field->gtFlags |= GTF_GLOB_REF;
+            // TODO-MIKE-Fix: This ignores volatile. It's not clear how volatile should be handled,
+            // block promotion, transfer volatile to all field indirs, transfer volatile only to the
+            // first/last field indir? Luckily volatile is unusual on struct indirs.
+
+            GenTree* field = gtNewOperNode(GT_IND, promotedFieldLcl->GetType(), fieldAddr);
+            field->gtFlags |=
+                (indir->gtFlags & (GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP | GTF_IND_TGT_HEAP));
+
+            if ((indir->gtFlags & GTF_IND_NONFAULTING) == 0)
+            {
+                field->gtFlags |= GTF_EXCEPT;
+            }
+
             fields[i] = field;
         }
 
