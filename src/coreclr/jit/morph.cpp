@@ -9119,7 +9119,17 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             {
                 if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
                 {
-                    if ((offset->GetValue() > 0) && (offset->GetValue() <= INT32_MAX))
+#ifdef TARGET_XARCH
+                    unsigned maxOffset = INT32_MAX;
+#else
+                    unsigned maxOffset = 4095;
+#endif
+                    // The maximum offset depends on the last promoted field offset, not the struct
+                    // size. But such cases are so rare that it's not worth the trouble to get the
+                    // last field offset.
+                    maxOffset -= promotedLcl->GetSize();
+
+                    if ((offset->GetValue() > 0) && (offset->GetValue() <= maxOffset))
                     {
                         addrOffset   = offset->GetUInt32Value();
                         addrFieldSeq = offset->GetFieldSeq();
