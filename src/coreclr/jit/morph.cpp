@@ -9138,7 +9138,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
     };
 
-    auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, unsigned promotedLclNum) -> GenTree* {
+    auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, unsigned promotedLclNum,
+                             bool isPromotedLclStore) -> GenTree* {
         GenTree*      addr            = indir->GetAddr();
         LclVarDsc*    promotedLcl     = lvaGetDesc(promotedLclNum);
         unsigned      addrSpillLclNum = BAD_VAR_NUM;
@@ -9166,16 +9167,28 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
                 }
             }
 
-            if (addr->OperIs(GT_LCL_VAR) && !lvaGetDesc(addr->AsLclVar())->lvDoNotEnregister)
+            if (addr->OperIs(GT_LCL_VAR))
             {
-                // TODO-MIKE-Review: What if the address is a promoted destination field?
-                assert(addr->GetSideEffects() == 0);
+                LclVarDsc* addrLcl = lvaGetDesc(addr->AsLclVar());
+
+                bool isMemoryLoadOrAliased = addrLcl->lvDoNotEnregister || addrLcl->IsAddressExposed();
+                bool isStoredPromotedField = isPromotedLclStore && addrLcl->IsPromotedField() &&
+                                             (addrLcl->GetPromotedFieldParentLclNum() == promotedLclNum);
+
+                if (!isMemoryLoadOrAliased && !isStoredPromotedField)
+                {
+                    assert(addr->GetSideEffects() == 0);
+
+                    addrSpillLclNum = addr->AsLclVar()->GetLclNum();
+                }
             }
-            else
+
+            if (addrSpillLclNum == BAD_VAR_NUM)
             {
                 addrSpillLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("promoted struct address"));
                 promotedLcl     = lvaGetDesc(promotedLclNum);
                 addrAssign      = gtNewAssignNode(gtNewLclvNode(addrSpillLclNum, addr->GetType()), addr);
+                addr            = gtNewLclvNode(addrSpillLclNum, addr->GetType());
             }
         }
 
@@ -9189,22 +9202,13 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             // source. If reinterpretation has ocurred then it would likely be wiser to use NotAField.
             FieldSeqNode* fieldSeq = promotedFieldLcl->GetPromotedFieldSeq();
 
-            GenTree* fieldAddr = nullptr;
-
-            if (addrSpillLclNum != BAD_VAR_NUM)
-            {
-                fieldAddr = gtNewLclvNode(addrSpillLclNum, addr->GetType());
-            }
-            else
-            {
-                fieldAddr = (i == 0) ? addr : gtNewLclvNode(addr->AsLclVar()->GetLclNum(), addr->GetType());
-            }
-
             if (addrOffset != 0)
             {
                 fieldOffset += addrOffset;
                 fieldSeq = GetFieldSeqStore()->Append(addrFieldSeq, fieldSeq);
             }
+
+            GenTree* fieldAddr = (i == 0) ? addr : gtNewLclvNode(addrSpillLclNum, addr->GetType());
 
             if (fieldOffset == 0)
             {
@@ -9276,7 +9280,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         }
         else
         {
-            asgFieldCommaTree = SplitIndir(splitNodeFields, splitNode->AsIndir(), promotedLclNum);
+            asgFieldCommaTree = SplitIndir(splitNodeFields, splitNode->AsIndir(), promotedLclNum, destPromote);
         }
     }
 
