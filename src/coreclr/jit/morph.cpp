@@ -9093,10 +9093,11 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         }
     };
 
-    auto SplitLocal = [this](GenTree* fields[], GenTreeLclVarCommon* lclNode, LclVarDsc* promotedLcl) {
-        unsigned   lclNum  = lclNode->GetLclNum();
-        unsigned   lclOffs = lclNode->GetLclOffs();
-        LclVarDsc* lcl     = lvaGetDesc(lclNum);
+    auto SplitLocal = [this](GenTree* fields[], GenTreeLclVarCommon* lclNode, unsigned promotedLclNum) {
+        unsigned   lclNum      = lclNode->GetLclNum();
+        unsigned   lclOffs     = lclNode->GetLclOffs();
+        LclVarDsc* lcl         = lvaGetDesc(lclNum);
+        LclVarDsc* promotedLcl = lvaGetDesc(promotedLclNum);
 
         for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
         {
@@ -9137,8 +9138,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
     };
 
-    auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, LclVarDsc* promotedLcl) -> GenTree* {
+    auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, unsigned promotedLclNum) -> GenTree* {
         GenTree*      addr            = indir->GetAddr();
+        LclVarDsc*    promotedLcl     = lvaGetDesc(promotedLclNum);
         unsigned      addrSpillLclNum = BAD_VAR_NUM;
         unsigned      addrOffset      = 0;
         FieldSeqNode* addrFieldSeq    = FieldSeqNode::NotAField();
@@ -9171,13 +9173,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             }
             else
             {
-                // We'll introduce a new temp, that may invalidate promotedLcl so we need the number.
-                unsigned promotedLclNum = static_cast<unsigned>(promotedLcl - lvaTable);
-
                 addrSpillLclNum = lvaNewTemp(TYP_BYREF, true DEBUGARG("BlockOp address local"));
+                promotedLcl     = lvaGetDesc(promotedLclNum);
                 addrAssign      = gtNewAssignNode(gtNewLclvNode(addrSpillLclNum, TYP_BYREF), addr);
-
-                promotedLcl = lvaGetDesc(promotedLclNum);
             }
         }
 
@@ -9246,38 +9244,40 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         fieldCount = destLclVar->GetPromotedFieldCount();
         PromoteLocal(destFields, destLclVar);
     }
-    else if (destLclVar != nullptr)
-    {
-        SplitLocal(destFields, dest->AsLclVarCommon(), srcLclVar);
-    }
-    else
-    {
-        asgFieldCommaTree = SplitIndir(destFields, dest->AsIndir(), srcLclVar);
-
-        // Update destLclVar and srcLclVar in case they were invalidated by SplitIndir creating a new temp.
-        if (destLclNum != BAD_VAR_NUM)
-        {
-            destLclVar = lvaGetDesc(destLclNum);
-        }
-
-        if (srcLclNum != BAD_VAR_NUM)
-        {
-            srcLclVar = lvaGetDesc(srcLclNum);
-        }
-    }
 
     if (srcPromote)
     {
         fieldCount = srcLclVar->GetPromotedFieldCount();
         PromoteLocal(srcFields, srcLclVar);
     }
-    else if (srcLclVar != nullptr)
+
+    if (!destPromote || !srcPromote)
     {
-        SplitLocal(srcFields, src->AsLclVarCommon(), destLclVar);
-    }
-    else
-    {
-        asgFieldCommaTree = SplitIndir(srcFields, src->AsIndir(), destLclVar);
+        unsigned  promotedLclNum;
+        GenTree*  splitNode;
+        GenTree** splitNodeFields;
+
+        if (destPromote)
+        {
+            promotedLclNum  = destLclNum;
+            splitNode       = src;
+            splitNodeFields = srcFields;
+        }
+        else
+        {
+            promotedLclNum  = srcLclNum;
+            splitNode       = dest;
+            splitNodeFields = destFields;
+        }
+
+        if (splitNode->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            SplitLocal(splitNodeFields, splitNode->AsLclVarCommon(), promotedLclNum);
+        }
+        else
+        {
+            asgFieldCommaTree = SplitIndir(splitNodeFields, splitNode->AsIndir(), promotedLclNum);
+        }
     }
 
     for (unsigned i = 0; i < fieldCount; ++i)
