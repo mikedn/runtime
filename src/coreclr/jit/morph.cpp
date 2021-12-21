@@ -9093,8 +9093,11 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         }
     };
 
-    auto SplitLocal = [this](GenTree* fields[], LclVarDsc* lcl, unsigned lclNum, unsigned lclOffs,
-                             FieldSeqNode* fieldSeq, LclVarDsc* promotedLcl) {
+    auto SplitLocal = [this](GenTree* fields[], GenTreeLclVarCommon* lclNode, LclVarDsc* promotedLcl) {
+        unsigned   lclNum  = lclNode->GetLclNum();
+        unsigned   lclOffs = lclNode->GetLclOffs();
+        LclVarDsc* lcl     = lvaGetDesc(lclNum);
+
         for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
         {
             unsigned   promotedFieldLclNum = promotedLcl->GetPromotedFieldLclNum(i);
@@ -9108,14 +9111,24 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             // the source field if the destination and source have the same type. Of course, other
             // cases could be handled by querying the VM for destination fields and trying to find
             // ones that are suitable for the current offset and type but this should be a rare case.
-            //
-            // TODO-MIKE-CQ: Currently this is only done if the destination is not itself a field,
-            // otherwise we could combine the two field sequences if they match. Doesn't seem to be
-            // worth the trouble, even the currently implemented trivial case has only a minor impact.
-            if ((lclOffs == 0) && (fieldSeq == nullptr) && varTypeIsStruct(lcl->GetType()) &&
-                (lcl->GetLayout() == promotedLcl->GetLayout()))
+
+            if (lclNode->OperIs(GT_LCL_VAR))
             {
-                field->SetFieldSeq(promotedFieldLcl->GetPromotedFieldSeq());
+                if (lcl->GetLayout() == promotedLcl->GetLayout())
+                {
+                    field->SetFieldSeq(promotedFieldLcl->GetPromotedFieldSeq());
+                }
+            }
+            else if (GenTreeLclFld* lclFldNode = lclNode->IsLclFld())
+            {
+                FieldSeqNode* fieldSeq = lclFldNode->GetFieldSeq();
+
+                if ((lclFldNode->GetLayout(this) == promotedLcl->GetLayout()) && (fieldSeq != nullptr) &&
+                    fieldSeq->IsField())
+                {
+                    fieldSeq = GetFieldSeqStore()->Append(fieldSeq, promotedFieldLcl->GetPromotedFieldSeq());
+                    field->SetFieldSeq(fieldSeq);
+                }
             }
 
             fields[i] = field;
@@ -9235,7 +9248,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
     else if (destLclVar != nullptr)
     {
-        SplitLocal(destFields, destLclVar, destLclNum, destLclOffs, destFieldSeq, srcLclVar);
+        SplitLocal(destFields, dest->AsLclVarCommon(), srcLclVar);
     }
     else
     {
@@ -9260,7 +9273,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
     else if (srcLclVar != nullptr)
     {
-        SplitLocal(srcFields, srcLclVar, srcLclNum, srcLclOffs, srcFieldSeq, destLclVar);
+        SplitLocal(srcFields, src->AsLclVarCommon(), destLclVar);
     }
     else
     {
