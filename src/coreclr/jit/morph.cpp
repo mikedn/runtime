@@ -8811,86 +8811,43 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
     JITDUMPTREE(asg, "fgMorphCopyStruct: (after fgMorphStructComma)\n");
 
-    unsigned             destSize     = 0;
-    GenTreeLclVarCommon* destLclNode  = nullptr;
-    unsigned             destLclNum   = BAD_VAR_NUM;
-    LclVarDsc*           destLclVar   = nullptr;
-    unsigned             destLclOffs  = 0;
-    FieldSeqNode*        destFieldSeq = nullptr;
-    ClassLayout*         destLayout   = nullptr;
-    bool                 destPromote  = false;
+    GenTreeLclVarCommon* destLclNode = nullptr;
+    unsigned             destLclNum  = BAD_VAR_NUM;
+    LclVarDsc*           destLclVar  = nullptr;
+    unsigned             destLclOffs = 0;
+    bool                 destPromote = false;
 
     if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         destLclNode = dest->AsLclVarCommon();
         destLclNum  = destLclNode->GetLclNum();
+        destLclOffs = destLclNode->GetLclOffs();
         destLclVar  = lvaGetDesc(destLclNum);
 
-        if (dest->OperIs(GT_LCL_VAR))
+#if LOCAL_ASSERTION_PROP
+        if (optLocalAssertionProp && (optAssertionCount > 0))
         {
-            if (dest->TypeIs(TYP_STRUCT))
-            {
-                destLayout = destLclVar->GetLayout();
-                destSize   = destLayout->GetSize();
-            }
-            else
-            {
-                destSize = varTypeSize(destLclVar->GetType());
-            }
+            fgKillDependentAssertions(destLclNum DEBUGARG(asg));
         }
-        else
-        {
-            if (dest->TypeIs(TYP_STRUCT))
-            {
-                destLayout = dest->AsLclFld()->GetLayout(this);
-                destSize   = destLayout->GetSize();
-            }
-            else
-            {
-                destSize = varTypeSize(dest->GetType());
-            }
-
-            destLclOffs  = dest->AsLclFld()->GetLclOffs();
-            destFieldSeq = dest->AsLclFld()->GetFieldSeq();
-        }
-    }
-    else if (dest->OperIs(GT_IND))
-    {
-        assert(varTypeIsSIMD(dest->GetType()));
-
-        destSize = varTypeSize(dest->GetType());
+#endif
     }
     else
     {
-        destLayout = dest->AsObj()->GetLayout();
-        destSize   = destLayout->GetSize();
+        assert(dest->OperIs(GT_OBJ) || (dest->OperIs(GT_IND) && varTypeIsSIMD(dest->GetType())));
     }
 
-#if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && (destLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
-    {
-        fgKillDependentAssertions(destLclNum DEBUGARG(asg));
-    }
-#endif
-
-    GenTreeLclVarCommon* srcLclNode  = nullptr;
-    unsigned             srcLclNum   = BAD_VAR_NUM;
-    LclVarDsc*           srcLclVar   = nullptr;
-    unsigned             srcLclOffs  = 0;
-    FieldSeqNode*        srcFieldSeq = nullptr;
-    bool                 srcPromote  = false;
+    GenTreeLclVarCommon* srcLclNode = nullptr;
+    unsigned             srcLclNum  = BAD_VAR_NUM;
+    LclVarDsc*           srcLclVar  = nullptr;
+    unsigned             srcLclOffs = 0;
+    bool                 srcPromote = false;
 
     if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         srcLclNode = src->AsLclVarCommon();
         srcLclNum  = srcLclNode->GetLclNum();
+        srcLclOffs = srcLclNode->GetLclOffs();
         srcLclVar  = lvaGetDesc(srcLclNum);
-
-        if (src->OperIs(GT_LCL_FLD))
-        {
-            srcLclOffs  = src->AsLclFld()->GetLclOffs();
-            srcFieldSeq = src->AsLclFld()->GetFieldSeq();
-        }
     }
     else if (src->OperIs(GT_COMMA))
     {
@@ -8914,6 +8871,25 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         GenTree* nop = gtNewNothingNode();
         INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
         return nop;
+    }
+
+    unsigned destSize;
+
+    if (!dest->TypeIs(TYP_STRUCT))
+    {
+        destSize = varTypeSize(dest->GetType());
+    }
+    else if (dest->OperIs(GT_LCL_VAR))
+    {
+        destSize = destLclVar->GetLayout()->GetSize();
+    }
+    else if (dest->OperIs(GT_LCL_FLD))
+    {
+        destSize = dest->AsLclFld()->GetLayout(this)->GetSize();
+    }
+    else
+    {
+        destSize = dest->AsObj()->GetLayout()->GetSize();
     }
 
     if ((destLclVar != nullptr) && destLclVar->IsPromoted() && (destLclOffs == 0) &&
