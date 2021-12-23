@@ -217,47 +217,29 @@ LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
 #endif // COUNT_AST_OPERS
 
 template <typename T>
-constexpr uint8_t GetNodeAllocationSize()
+constexpr uint8_t GetNodeAllocationSize(genTreeOps oper)
 {
     static_assert(sizeof(T) <= TREE_NODE_SZ_LARGE, "Node struct is too large");
-    return sizeof(T) <= TREE_NODE_SZ_SMALL ? TREE_NODE_SZ_SMALL : TREE_NODE_SZ_LARGE;
+
+    return (sizeof(T) > TREE_NODE_SZ_SMALL) ||
+                   // Ensure that these are always large since they often get transformed into calls.
+                   (oper == GT_INTRINSIC) || (oper == GT_ALLOCOBJ)
+#if USE_HELPERS_FOR_INT_DIV
+                   || (oper == GT_DIV) || (oper == GT_UDIV) || (oper == GT_MOD) || (oper = GT_UMOD)
+#endif
+               ? TREE_NODE_SZ_LARGE
+               : TREE_NODE_SZ_SMALL;
 }
 
 /* static */
 void GenTree::InitNodeSize()
 {
-    /* Set all sizes to 'small' first */
-
-    for (unsigned op = 0; op <= GT_COUNT; op++)
-    {
-        GenTree::s_gtNodeSizes[op] = TREE_NODE_SZ_SMALL;
-    }
-
-    // Now set all of the appropriate entries to 'large'
+#define GTNODE(en, st, cm, ok) s_gtNodeSizes[GT_##en] = GetNodeAllocationSize<st>(GT_##en);
+#include "gtlist.h"
+    s_gtNodeSizes[GT_COUNT] = TREE_NODE_SZ_SMALL;
 
     // clang-format off
-    GenTree::s_gtNodeSizes[GT_CALL]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_ARR_ELEM]         = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_DYN_BLK]          = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_STORE_DYN_BLK]    = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_INTRINSIC]        = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_ALLOCOBJ]         = TREE_NODE_SZ_LARGE;
-#if USE_HELPERS_FOR_INT_DIV
-    GenTree::s_gtNodeSizes[GT_DIV]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_UDIV]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_MOD]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_UMOD]             = TREE_NODE_SZ_LARGE;
-#endif
-#if FEATURE_ARG_SPLIT
-    GenTree::s_gtNodeSizes[GT_PUTARG_SPLIT] = GetNodeAllocationSize<GenTreePutArgSplit>();
-#endif
-
     assert(GenTree::s_gtNodeSizes[GT_RETURN] == GenTree::s_gtNodeSizes[GT_ASG]);
-
-    // This list of assertions should come to contain all GenTree subtypes that are declared
-    // "small".
-    assert(sizeof(GenTreeLclFld) <= GenTree::s_gtNodeSizes[GT_LCL_FLD]);
-    assert(sizeof(GenTreeLclVar) <= GenTree::s_gtNodeSizes[GT_LCL_VAR]);
 
     static_assert_no_msg(sizeof(GenTree)             <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeUnOp)         <= TREE_NODE_SZ_SMALL);

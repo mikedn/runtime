@@ -13,7 +13,7 @@
 //                                           ,commutative
 //                                             ,operKind
 
-GTNODE(NONE             , char               ,0,GTK_SPECIAL)
+GTNODE(NONE             , GenTree            ,0,GTK_SPECIAL)
 
 //-----------------------------------------------------------------------------
 //  Leaf nodes (i.e. these nodes have no sub-operands):
