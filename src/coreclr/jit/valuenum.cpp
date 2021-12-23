@@ -1595,7 +1595,7 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types              typ,
         }
     }
     // Otherwise, must allocate a new one.
-    Chunk* chunk = new (m_alloc) Chunk(m_alloc, &m_nextChunkBase, typ, attribs, loopNum);
+    Chunk* chunk                = new (m_alloc) Chunk(m_alloc, &m_nextChunkBase, typ, attribs, loopNum);
     m_curAllocChunk[typ][index] = m_chunks.Size();
     m_chunks.Push(chunk);
     return chunk;

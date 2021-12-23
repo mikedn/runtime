@@ -216,6 +216,13 @@ unsigned char GenTree::s_gtTrueSizes[GT_COUNT + 1]{
 LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
 #endif // COUNT_AST_OPERS
 
+template <typename T>
+constexpr uint8_t GetNodeAllocationSize()
+{
+    static_assert(sizeof(T) <= TREE_NODE_SZ_LARGE, "Node struct is too large");
+    return sizeof(T) <= TREE_NODE_SZ_SMALL ? TREE_NODE_SZ_SMALL : TREE_NODE_SZ_LARGE;
+}
+
 /* static */
 void GenTree::InitNodeSize()
 {
@@ -257,7 +264,7 @@ void GenTree::InitNodeSize()
     GenTree::s_gtNodeSizes[GT_UMOD]             = TREE_NODE_SZ_LARGE;
 #endif
 #if FEATURE_ARG_SPLIT
-    GenTree::s_gtNodeSizes[GT_PUTARG_SPLIT]     = TREE_NODE_SZ_LARGE;
+    GenTree::s_gtNodeSizes[GT_PUTARG_SPLIT] = GetNodeAllocationSize<GenTreePutArgSplit>();
 #endif
 
     assert(GenTree::s_gtNodeSizes[GT_RETURN] == GenTree::s_gtNodeSizes[GT_ASG]);
