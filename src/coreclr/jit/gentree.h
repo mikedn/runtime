@@ -87,16 +87,13 @@ enum genTreeOps : BYTE
  *
  *  The following enum defines a set of bit flags that can be used
  *  to classify expression tree nodes. Note that some operators will
- *  have more than one bit set, as follows:
- *
- *          GTK_CONST    implies    GTK_LEAF
+ *  have more than one bit set, e.g. BINOP | EXOP.
  */
 
 enum genTreeKinds
 {
     GTK_SPECIAL = 0x0000, // unclassified operator (special handling reqd)
 
-    GTK_CONST = 0x0001, // constant     operator
     GTK_LEAF  = 0x0002, // leaf         operator
     GTK_UNOP  = 0x0004, // unary        operator
     GTK_BINOP = 0x0008, // binary       operator
@@ -1223,12 +1220,12 @@ public:
 
     static bool OperIsConst(genTreeOps gtOper)
     {
-        return (OperKind(gtOper) & GTK_CONST) != 0;
+        return (gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG) || (gtOper == GT_CNS_DBL) || (gtOper == GT_CNS_STR);
     }
 
     bool OperIsConst() const
     {
-        return (OperKind(gtOper) & GTK_CONST) != 0;
+        return OperIsConst(gtOper);
     }
 
     static bool OperIsLeaf(genTreeOps gtOper)

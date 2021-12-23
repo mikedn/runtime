@@ -1192,7 +1192,7 @@ AGAIN:
 
     /* Is this a constant node? */
 
-    if (kind & GTK_CONST)
+    if (op1->OperIsConst())
     {
         switch (oper)
         {
@@ -1488,7 +1488,7 @@ AGAIN:
 
     /* Is this a constant node? */
 
-    if (kind & GTK_CONST)
+    if (tree->OperIsConst())
     {
         return false;
     }
@@ -1802,7 +1802,7 @@ AGAIN:
 
     /* Is this a constant or leaf node? */
 
-    if (kind & (GTK_CONST | GTK_LEAF))
+    if (kind & GTK_LEAF)
     {
         size_t add;
 
@@ -2578,7 +2578,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
     /* Is this a constant or a leaf node? */
 
-    if (kind & (GTK_LEAF | GTK_CONST))
+    if (kind & GTK_LEAF)
     {
         switch (oper)
         {
@@ -3607,7 +3607,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
            such cases, both sides have a level of 0. So encourage constants
            to be evaluated last in such cases */
 
-        if ((level == 0) && (level == lvl2) && (op1->OperKind() & GTK_CONST) &&
+        if ((level == 0) && (level == lvl2) && op1->OperIsConst() &&
             (tree->OperIsCommutative() || tree->OperIsCompare()))
         {
             lvl2++;
@@ -3659,7 +3659,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             // Try to force extra swapping when in the stress mode:
             if (compStressCompile(STRESS_REVERSE_FLAG, 60) && ((tree->gtFlags & GTF_REVERSE_OPS) == 0) &&
-                ((op2->OperKind() & GTK_CONST) == 0))
+                !op2->OperIsConst())
             {
                 tryToSwap = true;
             }
@@ -5810,7 +5810,7 @@ GenTree* Compiler::gtCloneExpr(
 
     /* Is this a constant or leaf node? */
 
-    if (kind & (GTK_CONST | GTK_LEAF))
+    if (kind & GTK_LEAF)
     {
         switch (oper)
         {
@@ -6597,7 +6597,7 @@ bool Compiler::gtCompareTree(GenTree* op1, GenTree* op2)
 
     /* Is this a constant or leaf node? */
 
-    if (kind & (GTK_CONST | GTK_LEAF))
+    if (kind & GTK_LEAF)
     {
         switch (oper)
         {
@@ -8538,8 +8538,6 @@ void Compiler::gtDispClassLayout(ClassLayout* layout, var_types type)
 /*****************************************************************************/
 void Compiler::gtDispConst(GenTree* tree)
 {
-    assert(tree->OperKind() & GTK_CONST);
-
     switch (tree->gtOper)
     {
         case GT_CNS_INT:
@@ -8780,7 +8778,7 @@ void Compiler::dmpFieldSeqFields(FieldSeqNode* fieldSeq)
 
 void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
 {
-    if (tree->OperKind() & GTK_CONST)
+    if (tree->OperIsConst())
     {
         gtDispConst(tree);
         return;
@@ -10047,7 +10045,7 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
 
     if ((kind & GTK_UNOP) && op1)
     {
-        if (op1->OperKind() & GTK_CONST)
+        if (op1->OperIsConst())
         {
             return gtFoldExprConst(tree);
         }
@@ -10060,12 +10058,12 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
 
         // The atomic operations are exempted here because they are never computable statically;
         // one of their arguments is an address.
-        if (((op1->OperKind() & op2->OperKind()) & GTK_CONST) && !tree->OperIsAtomicOp())
+        if (op1->OperIsConst() && op2->OperIsConst() && !tree->OperIsAtomicOp())
         {
             /* both nodes are constants - fold the expression */
             return gtFoldExprConst(tree);
         }
-        else if ((op1->OperKind() | op2->OperKind()) & GTK_CONST)
+        else if (op1->OperIsConst() || op2->OperIsConst())
         {
             /* at least one is a constant - see if we have a
              * special operator that can use only one constant
@@ -10866,14 +10864,14 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
 
         case GT_DIV:
         case GT_UDIV:
-            if ((op2 == cons) && (val == 1) && !(op1->OperKind() & GTK_CONST))
+            if ((op2 == cons) && (val == 1) && !op1->OperIsConst())
             {
                 goto DONE_FOLD;
             }
             break;
 
         case GT_SUB:
-            if ((op2 == cons) && (val == 0) && !(op1->OperKind() & GTK_CONST))
+            if ((op2 == cons) && (val == 0) && !op1->OperIsConst())
             {
                 goto DONE_FOLD;
             }
@@ -11650,7 +11648,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
     if (kind & GTK_UNOP)
     {
-        assert(op1->OperKind() & GTK_CONST);
+        assert(op1->OperIsConst());
 
         switch (op1->gtType)
         {
@@ -12070,8 +12068,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
     assert(kind & GTK_BINOP);
     assert(op2);
-    assert(op1->OperKind() & GTK_CONST);
-    assert(op2->OperKind() & GTK_CONST);
+    assert(op1->OperIsConst());
+    assert(op2->OperIsConst());
 
     if (tree->gtOper == GT_COMMA)
     {
