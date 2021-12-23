@@ -192,29 +192,10 @@ const char* GenTree::OpStructName(genTreeOps op)
 
 #endif
 
-//
 //  We allocate tree nodes in 2 different sizes:
 //  - TREE_NODE_SZ_SMALL for most nodes
 //  - TREE_NODE_SZ_LARGE for the few nodes (such as calls) that have
 //    more fields and take up a lot more space.
-//
-
-/* GT_COUNT'th oper is overloaded as 'undefined oper', so allocate storage for GT_COUNT'th oper also */
-/* static */
-unsigned char GenTree::s_gtNodeSizes[GT_COUNT + 1];
-
-#if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
-
-unsigned char GenTree::s_gtTrueSizes[GT_COUNT + 1]{
-#define GTNODE(en, st, cm, ok) sizeof(st),
-#include "gtlist.h"
-};
-
-#endif // NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
-
-#if COUNT_AST_OPERS
-LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
-#endif // COUNT_AST_OPERS
 
 template <typename T>
 constexpr uint8_t GetNodeAllocationSize(genTreeOps oper)
@@ -231,13 +212,28 @@ constexpr uint8_t GetNodeAllocationSize(genTreeOps oper)
                : TREE_NODE_SZ_SMALL;
 }
 
+// GT_COUNT'th oper is overloaded as 'undefined oper', so allocate storage for GT_COUNT'th oper also
+const uint8_t GenTree::s_gtNodeSizes[GT_COUNT + 1]{
+#define GTNODE(en, st, cm, ok) GetNodeAllocationSize<st>(GT_##en),
+#include "gtlist.h"
+    GetNodeAllocationSize<GenTree>(GT_COUNT)};
+
+#if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
+
+const uint8_t GenTree::s_gtTrueSizes[GT_COUNT + 1]{
+#define GTNODE(en, st, cm, ok) sizeof(st),
+#include "gtlist.h"
+};
+
+#endif // NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
+
+#if COUNT_AST_OPERS
+LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
+#endif // COUNT_AST_OPERS
+
 /* static */
 void GenTree::InitNodeSize()
 {
-#define GTNODE(en, st, cm, ok) s_gtNodeSizes[GT_##en] = GetNodeAllocationSize<st>(GT_##en);
-#include "gtlist.h"
-    s_gtNodeSizes[GT_COUNT] = TREE_NODE_SZ_SMALL;
-
     // clang-format off
     assert(GenTree::s_gtNodeSizes[GT_RETURN] == GenTree::s_gtNodeSizes[GT_ASG]);
 

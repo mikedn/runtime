@@ -1781,9 +1781,9 @@ public:
     bool OperMayThrow(Compiler* comp);
 
 public:
-    static unsigned char s_gtNodeSizes[];
+    static const uint8_t s_gtNodeSizes[];
 #if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
-    static unsigned char s_gtTrueSizes[];
+    static const uint8_t s_gtTrueSizes[];
 #endif
 #if COUNT_AST_OPERS
     static LONG s_gtNodeCounts[];
