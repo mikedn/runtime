@@ -9299,7 +9299,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 // FP architectures
 GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 {
-    if (tree->OperIsArithmetic())
+    if (tree->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_DIV, GT_MOD))
     {
         if (varTypeIsFloating(tree))
         {
