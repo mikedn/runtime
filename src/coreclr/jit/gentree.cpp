@@ -15807,14 +15807,12 @@ bool GenTree::HasTempReg(regNumber reg) const
 //
 uint16_t GenTreeLclVarCommon::GetLclOffs() const
 {
-    if (OperIsLocalField())
+    if (const GenTreeLclFld* lclFld = IsLclFld())
     {
-        return AsLclFld()->GetLclOffs();
+        return lclFld->GetLclOffs();
     }
-    else
-    {
-        return 0;
-    }
+
+    return 0;
 }
 
 #ifdef TARGET_ARM

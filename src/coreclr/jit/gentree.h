@@ -108,8 +108,6 @@ enum genTreeKinds
     GTK_EXOP = 0x0100, // Indicates that an oper for a node type that extends GenTreeOp (or GenTreeUnOp)
                        // by adding non-node fields to unary or binary operator.
 
-    GTK_LOCAL = 0x0200, // is a local access (load, store, phi)
-
     GTK_NOVALUE = 0x0400, // node does not produce a value
     GTK_NOTLIR  = 0x0800, // node is not allowed in LIR
 
@@ -1251,45 +1249,33 @@ public:
 
     static bool OperIsLocal(genTreeOps gtOper)
     {
-        bool result = (OperKind(gtOper) & GTK_LOCAL) != 0;
-        assert(result == (gtOper == GT_LCL_VAR || gtOper == GT_PHI_ARG || gtOper == GT_LCL_FLD ||
-                          gtOper == GT_STORE_LCL_VAR || gtOper == GT_STORE_LCL_FLD));
-        return result;
+        return OperIsNonPhiLocal(gtOper) || (gtOper == GT_PHI_ARG);
     }
 
     static bool OperIsLocalAddr(genTreeOps gtOper)
     {
-        return (gtOper == GT_LCL_VAR_ADDR || gtOper == GT_LCL_FLD_ADDR);
-    }
-
-    static bool OperIsLocalField(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_FLD || gtOper == GT_LCL_FLD_ADDR || gtOper == GT_STORE_LCL_FLD);
-    }
-
-    inline bool OperIsLocalField() const
-    {
-        return OperIsLocalField(gtOper);
+        return (gtOper == GT_LCL_VAR_ADDR) || (gtOper == GT_LCL_FLD_ADDR);
     }
 
     static bool OperIsScalarLocal(genTreeOps gtOper)
     {
-        return (gtOper == GT_LCL_VAR || gtOper == GT_STORE_LCL_VAR);
+        return (gtOper == GT_LCL_VAR) || (gtOper == GT_STORE_LCL_VAR);
     }
 
     static bool OperIsNonPhiLocal(genTreeOps gtOper)
     {
-        return OperIsLocal(gtOper) && (gtOper != GT_PHI_ARG);
+        return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_STORE_LCL_VAR) ||
+               (gtOper == GT_STORE_LCL_FLD);
     }
 
     static bool OperIsLocalRead(genTreeOps gtOper)
     {
-        return (OperIsLocal(gtOper) && !OperIsLocalStore(gtOper));
+        return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_PHI_ARG);
     }
 
     static bool OperIsLocalStore(genTreeOps gtOper)
     {
-        return (gtOper == GT_STORE_LCL_VAR || gtOper == GT_STORE_LCL_FLD);
+        return (gtOper == GT_STORE_LCL_VAR) || (gtOper == GT_STORE_LCL_FLD);
     }
 
     static bool OperIsAddrMode(genTreeOps gtOper)
