@@ -3104,7 +3104,7 @@ void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, G
         return;
     }
 
-    assert(addr->OperIsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
+    assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
     instrDesc* id = emitNewInstrAmd(attr, mem->Offset());
     id->idIns(ins);
     id->idReg1(dstReg);
@@ -3139,7 +3139,7 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
         return;
     }
 
-    assert(addr->OperIsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
+    assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
     instrDesc* id = emitNewInstrAmd(attr, indir->Offset());
     id->idIns(ins);
     emitHandleMemOp(indir, id, IF_ARD, ins);

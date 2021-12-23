@@ -173,7 +173,7 @@ void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* 
         return;
     }
 
-    if (!addr->OperIsAddrMode() && !TryCreateAddrMode(addr, true))
+    if (!addr->IsAddrMode() && !TryCreateAddrMode(addr, true))
     {
         return;
     }

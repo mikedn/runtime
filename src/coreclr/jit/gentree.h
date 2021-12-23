@@ -1259,11 +1259,6 @@ public:
         return (gtOper == GT_STORE_LCL_VAR) || (gtOper == GT_STORE_LCL_FLD);
     }
 
-    static bool OperIsAddrMode(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LEA);
-    }
-
     bool IsConstInitVal()
     {
         return OperIs(GT_CNS_INT) || (OperIs(GT_INIT_VAL) && gtGetOp1()->OperIs(GT_CNS_INT));
@@ -1324,11 +1319,6 @@ public:
 #endif // TARGET_ARM
 #endif // TARGET_64BIT
         return false;
-    }
-
-    bool OperIsAddrMode() const
-    {
-        return OperIsAddrMode(OperGet());
     }
 
     bool OperIsLocal() const

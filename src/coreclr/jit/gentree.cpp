@@ -2958,7 +2958,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         costEx = 0;
         costSz = 0;
 
-        if (tree->OperIsAddrMode())
+        if (tree->IsAddrMode())
         {
             if (op1 == nullptr)
             {
@@ -13872,7 +13872,7 @@ bool GenTree::isContainedIndir() const
 
 bool GenTree::isIndirAddrMode()
 {
-    return OperIsIndir() && AsIndir()->Addr()->OperIsAddrMode() && AsIndir()->Addr()->isContained();
+    return OperIsIndir() && AsIndir()->GetAddr()->IsAddrMode() && AsIndir()->GetAddr()->isContained();
 }
 
 bool GenTree::isIndir() const
