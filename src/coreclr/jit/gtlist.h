@@ -88,14 +88,6 @@ GTNODE(STORE_DYN_BLK    , GenTreeDynBlk      ,0,(GTK_SPECIAL|GTK_NOVALUE)) // Dy
 
 GTNODE(BOX              , GenTreeBox         ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR))
 
-#ifdef FEATURE_SIMD
-GTNODE(SIMD_CHK         , GenTreeBoundsChk   ,0,(GTK_SPECIAL|GTK_NOVALUE))// Compare whether an index is less than the given SIMD vector length, and call CORINFO_HELP_RNGCHKFAIL if not.
-                                                                        // TODO-CQ: In future may want to add a field that specifies different exceptions but we'll
-                                                                        // need VM assistance for that.
-                                                                        // TODO-CQ: It would actually be very nice to make this an unconditional throw, and expose the control flow that
-                                                                        // does the compare, so that it can be more easily optimized.  But that involves generating qmarks at import time...
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 GTNODE(HW_INTRINSIC_CHK  , GenTreeBoundsChk   ,0,(GTK_SPECIAL|GTK_NOVALUE))// Compare whether an imm8 argument is in the valid range, and throw ArgumentOutOfRangeException if not.
 #endif
