@@ -82,7 +82,7 @@ bool Compiler::optRedundantBranch(BasicBlock* const block)
 
     GenTree* const tree = jumpTree->AsOp()->gtOp1;
 
-    if (!(tree->OperKind() & GTK_RELOP))
+    if (!tree->OperIsCompare())
     {
         return false;
     }
@@ -110,7 +110,7 @@ bool Compiler::optRedundantBranch(BasicBlock* const block)
             assert(domJumpTree->OperIs(GT_JTRUE));
             GenTree* const domCmpTree = domJumpTree->AsOp()->gtGetOp1();
 
-            if (domCmpTree->OperKind() & GTK_RELOP)
+            if (domCmpTree->OperIsCompare())
             {
                 // We can use liberal VNs as bounds checks are not yet
                 // manifest explicitly as relops.

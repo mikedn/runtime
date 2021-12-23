@@ -137,12 +137,12 @@ GTNODE(MULHI            , GenTreeOp          ,1,GTK_BINOP) // returns high bits 
                                                            // results of the high register, and we drop the low results.
 
 GTNODE(ASG              , GenTreeOp          ,0,(GTK_BINOP|GTK_NOTLIR))
-GTNODE(EQ               , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
-GTNODE(NE               , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
-GTNODE(LT               , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
-GTNODE(LE               , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
-GTNODE(GE               , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
-GTNODE(GT               , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
+GTNODE(EQ               , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(NE               , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(LT               , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(LE               , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(GE               , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(GT               , GenTreeOp          ,0,GTK_BINOP)
 
 // These are similar to GT_EQ/GT_NE but they generate "test" instead of "cmp" instructions.
 // Currently these are generated during lowering for code like ((x & y) eq|ne 0) only on
@@ -151,8 +151,8 @@ GTNODE(GT               , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
 // codegen which emits a "test reg, reg" instruction, that would be more difficult to do
 // during lowering because the source operand is used twice so it has to be a lclvar.
 // Because of this there is no need to also add GT_TEST_LT/LE/GE/GT opers.
-GTNODE(TEST_EQ          , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
-GTNODE(TEST_NE          , GenTreeOp          ,0,(GTK_BINOP|GTK_RELOP))
+GTNODE(TEST_EQ          , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(TEST_NE          , GenTreeOp          ,0,GTK_BINOP)
 
 GTNODE(COMMA            , GenTreeOp          ,0,(GTK_BINOP|GTK_NOTLIR))
 

@@ -90,7 +90,6 @@ enum genTreeOps : BYTE
  *  have more than one bit set, as follows:
  *
  *          GTK_CONST    implies    GTK_LEAF
- *          GTK_RELOP    implies    GTK_BINOP
  */
 
 enum genTreeKinds
@@ -101,7 +100,6 @@ enum genTreeKinds
     GTK_LEAF  = 0x0002, // leaf         operator
     GTK_UNOP  = 0x0004, // unary        operator
     GTK_BINOP = 0x0008, // binary       operator
-    GTK_RELOP = 0x0010, // comparison   operator
 
     GTK_KINDMASK = 0x007F, // operator kind mask
 
@@ -119,7 +117,7 @@ enum genTreeKinds
 
     /* Define composite value(s) */
 
-    GTK_SMPOP = (GTK_UNOP | GTK_BINOP | GTK_RELOP)
+    GTK_SMPOP = (GTK_UNOP | GTK_BINOP)
 };
 
 /*****************************************************************************/
@@ -1247,7 +1245,8 @@ public:
 
     static bool OperIsCompare(genTreeOps gtOper)
     {
-        return (OperKind(gtOper) & GTK_RELOP) != 0;
+        return (gtOper == GT_EQ) || (gtOper == GT_NE) || (gtOper == GT_LT) || (gtOper == GT_LE) || (gtOper == GT_GE) ||
+               (gtOper == GT_GT) || (gtOper == GT_TEST_EQ) || (gtOper == GT_TEST_NE);
     }
 
     static bool OperIsLocal(genTreeOps gtOper)
@@ -1397,7 +1396,7 @@ public:
 
     bool OperIsCompare() const
     {
-        return (OperKind(gtOper) & GTK_RELOP) != 0;
+        return OperIsCompare(gtOper);
     }
 
     static bool OperIsLogical(genTreeOps gtOper)

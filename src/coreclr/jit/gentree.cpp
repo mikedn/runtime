@@ -3533,7 +3533,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     break;
             }
         }
-        else if (kind & GTK_RELOP)
+        else if (GenTree::OperIsCompare(oper))
         {
             /* Float compares remove both operands from the FP stack */
             /* Also FP comparison uses EAX for flags */
@@ -6243,7 +6243,7 @@ DONE:
 #endif
         // Some other flags depend on the context of the expression, and should not be preserved.
         // For example, GTF_RELOP_QMARK:
-        if (copy->OperKind() & GTK_RELOP)
+        if (copy->OperIsCompare())
         {
             addFlags &= ~GTF_RELOP_QMARK;
         }
@@ -12853,7 +12853,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             {
                 JITDUMP("Double operator(s) is NaN\n");
 
-                if (tree->OperKind() & GTK_RELOP)
+                if (tree->OperIsCompare())
                 {
                     if (tree->gtFlags & GTF_RELOP_NAN_UN)
                     {
@@ -13852,7 +13852,7 @@ bool GenTree::isContained() const
     // these actually produce a register (the flags reg, we just don't model it)
     // and are a separate instruction from the branch that consumes the result.
     // They can only produce a result if the child is a SIMD equality comparison.
-    else if (OperKind() & GTK_RELOP)
+    else if (OperIsCompare())
     {
         assert(isMarkedContained == false);
     }
