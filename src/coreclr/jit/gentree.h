@@ -83,36 +83,20 @@ enum genTreeOps : BYTE
 #endif
 };
 
-/*****************************************************************************
- *
- *  The following enum defines a set of bit flags that can be used
- *  to classify expression tree nodes. Note that some operators will
- *  have more than one bit set, e.g. BINOP | EXOP.
- */
-
-enum genTreeKinds
+enum GenTreeKinds
 {
-    GTK_SPECIAL = 0x0000, // unclassified operator (special handling reqd)
+    GTK_SPECIAL  = 0x0000, // Node may have operands and does not use GenTree(Un)Op
+    GTK_LEAF     = 0x0001, // Node has no operands
+    GTK_UNOP     = 0x0002, // Node struct is GenTreeUnOp or a derived struct that does not add new operands
+    GTK_BINOP    = 0x0004, // Node struct is GenTreeOp or a derived struct that doesn't add new operands
+    GTK_SMPOP    = GTK_UNOP | GTK_BINOP,
+    GTK_KINDMASK = GTK_LEAF | GTK_UNOP | GTK_BINOP,
+    GTK_EXOP     = 0x0008, // Node uses a GenTree(Un)Op derived struct that does not add new operands
 
-    GTK_LEAF  = 0x0002, // leaf         operator
-    GTK_UNOP  = 0x0004, // unary        operator
-    GTK_BINOP = 0x0008, // binary       operator
-
-    GTK_KINDMASK = 0x007F, // operator kind mask
-
-    GTK_COMMUTE = 0x0080, // commutative  operator
-
-    GTK_EXOP = 0x0100, // Indicates that an oper for a node type that extends GenTreeOp (or GenTreeUnOp)
-                       // by adding non-node fields to unary or binary operator.
-
-    GTK_NOVALUE = 0x0400, // node does not produce a value
-    GTK_NOTLIR  = 0x0800, // node is not allowed in LIR
-
-    GTK_NOCONTAIN = 0x1000, // this node is a value, but may not be contained
-
-    /* Define composite value(s) */
-
-    GTK_SMPOP = (GTK_UNOP | GTK_BINOP)
+    GTK_COMMUTE   = 0x0010, // Node is commutative
+    GTK_NOVALUE   = 0x0020, // Node does not produce a value
+    GTK_NOTLIR    = 0x0040, // Node is not allowed in LIR
+    GTK_NOCONTAIN = 0x0080, // Node cannot be contained
 };
 
 /*****************************************************************************/
