@@ -4026,9 +4026,24 @@ void GenTree::VisitOperands(TVisitor visitor)
             return;
         }
 
-        // Binary nodes
+        case GT_LEA:
+        case GT_INTRINSIC:
+        {
+            GenTreeOp* const op = AsOp();
+
+            if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
+            {
+                return;
+            }
+
+            if (op->gtOp2 != nullptr)
+            {
+                visitor(op->gtOp2);
+            }
+            return;
+        }
+
         default:
-            assert(this->OperIsBinary());
             VisitBinOpOperands<TVisitor>(visitor);
             return;
     }
@@ -4037,16 +4052,13 @@ void GenTree::VisitOperands(TVisitor visitor)
 template <typename TVisitor>
 void GenTree::VisitBinOpOperands(TVisitor visitor)
 {
-    assert(this->OperIsBinary());
+    assert(OperIsBinary());
 
-    GenTreeOp* const op = this->AsOp();
+    GenTreeOp* const op = AsOp();
+    assert(op->gtOp1 != nullptr);
+    assert(op->gtOp2 != nullptr);
 
-    if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
-    {
-        return;
-    }
-
-    if (op->gtOp2 != nullptr)
+    if (visitor(op->gtOp1) != VisitResult::Abort)
     {
         visitor(op->gtOp2);
     }

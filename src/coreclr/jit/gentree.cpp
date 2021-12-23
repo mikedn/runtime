@@ -6825,19 +6825,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             }
             return;
 
-        // LEA, which may have no first operand
-        case GT_LEA:
-            if (m_node->AsAddrMode()->gtOp1 == nullptr)
-            {
-                m_edge    = &m_node->AsAddrMode()->gtOp2;
-                m_advance = &GenTreeUseEdgeIterator::Terminate;
-            }
-            else
-            {
-                SetEntryStateForBinOp();
-            }
-            return;
-
         // Special nodes
         case GT_FIELD_LIST:
             m_statePtr = m_node->AsFieldList()->Uses().GetHead();
@@ -6930,9 +6917,24 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvanceCall<CALL_INSTANCE>();
             return;
 
-        // Binary nodes
+        case GT_LEA:
+            if (m_node->AsAddrMode()->gtOp1 == nullptr)
+            {
+                m_edge    = &m_node->AsAddrMode()->gtOp2;
+                m_advance = &GenTreeUseEdgeIterator::Terminate;
+                return;
+            }
+            FALLTHROUGH;
+        case GT_INTRINSIC:
+            assert(m_node->AsOp()->gtOp1 != nullptr);
+            if (m_node->AsOp()->gtOp2 == nullptr)
+            {
+                m_edge    = &m_node->AsOp()->gtOp1;
+                m_advance = &GenTreeUseEdgeIterator::Terminate;
+                return;
+            }
+            FALLTHROUGH;
         default:
-            assert(m_node->OperIsBinary());
             SetEntryStateForBinOp();
             return;
     }
@@ -7174,19 +7176,9 @@ void           GenTreeUseEdgeIterator::AdvanceBinOp()
 //
 void GenTreeUseEdgeIterator::SetEntryStateForBinOp()
 {
-    assert(m_node != nullptr);
     assert(m_node->OperIsBinary());
 
-    GenTreeOp* const node = m_node->AsOp();
-
-    if (node->gtOp2 == nullptr)
-    {
-        assert(node->gtOp1 != nullptr);
-        assert(node->NullOp2Legal());
-        m_edge    = &node->gtOp1;
-        m_advance = &GenTreeUseEdgeIterator::Terminate;
-    }
-    else if ((node->gtFlags & GTF_REVERSE_OPS) != 0)
+    if (m_node->IsReverseOp())
     {
         m_edge    = &m_node->AsOp()->gtOp2;
         m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp<true>;

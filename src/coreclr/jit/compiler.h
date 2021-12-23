@@ -8851,7 +8851,6 @@ public:
             case GT_IL_OFFSET:
                 break;
 
-            // Lclvar unary operators
             case GT_STORE_LCL_VAR:
             case GT_STORE_LCL_FLD:
                 if (TVisitor::DoLclVarsOnly)
@@ -8862,9 +8861,22 @@ public:
                         return result;
                     }
                 }
-                FALLTHROUGH;
+                result = WalkTree(&node->AsUnOp()->gtOp1, node);
+                if (result == fgWalkResult::WALK_ABORT)
+                {
+                    return result;
+                }
+                break;
 
-            // Standard unary operators
+            case GT_NOP:
+            case GT_RETURN:
+            case GT_RETFILT:
+                // These are not always unary.
+                if (node->AsUnOp()->gtOp1 == nullptr)
+                {
+                    break;
+                }
+                FALLTHROUGH;
             case GT_NOT:
             case GT_NEG:
             case GT_BSWAP:
@@ -8889,9 +8901,6 @@ public:
             case GT_PUTARG_REG:
             case GT_PUTARG_STK:
             case GT_RETURNTRAP:
-            case GT_NOP:
-            case GT_RETURN:
-            case GT_RETFILT:
             case GT_RUNTIMELOOKUP:
             case GT_KEEPALIVE:
             case GT_INC_SATURATE:
@@ -8899,18 +8908,13 @@ public:
             case GT_SIMD_UPPER_SPILL:
             case GT_SIMD_UPPER_UNSPILL:
 #endif
-            {
-                GenTreeUnOp* const unOp = node->AsUnOp();
-                if (unOp->gtOp1 != nullptr)
+                assert(node->AsUnOp()->gtOp1 != nullptr);
+                result = WalkTree(&node->AsUnOp()->gtOp1, node);
+                if (result == fgWalkResult::WALK_ABORT)
                 {
-                    result = WalkTree(&unOp->gtOp1, unOp);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
+                    return result;
                 }
                 break;
-            }
 
             // Special nodes
             case GT_PHI:
@@ -9182,15 +9186,14 @@ public:
                 break;
             }
 
-            // Binary nodes
-            default:
+            case GT_LEA:
+            case GT_INTRINSIC:
             {
-                assert(node->OperIsBinary());
-
-                GenTreeOp* const op = node->AsOp();
-
-                GenTree** op1Use = &op->gtOp1;
-                GenTree** op2Use = &op->gtOp2;
+                // LEA and INTRINSIC are fake BINOPs. For LEA either operand may be null,
+                // and for INTRINSIC the second operand may be null, makeing it unary.
+                // Handle them separately so that real BINOPs do not need extra null checks.
+                GenTree** op1Use = &node->AsOp()->gtOp1;
+                GenTree** op2Use = &node->AsOp()->gtOp2;
 
                 if (TVisitor::UseExecutionOrder && node->IsReverseOp())
                 {
@@ -9199,7 +9202,7 @@ public:
 
                 if (*op1Use != nullptr)
                 {
-                    result = WalkTree(op1Use, op);
+                    result = WalkTree(op1Use, node);
                     if (result == fgWalkResult::WALK_ABORT)
                     {
                         return result;
@@ -9208,11 +9211,40 @@ public:
 
                 if (*op2Use != nullptr)
                 {
-                    result = WalkTree(op2Use, op);
+                    result = WalkTree(op2Use, node);
                     if (result == fgWalkResult::WALK_ABORT)
                     {
                         return result;
                     }
+                }
+                break;
+            }
+
+            // Binary nodes
+            default:
+            {
+                assert(node->OperIsBinary());
+
+                GenTree** op1Use = &node->AsOp()->gtOp1;
+                GenTree** op2Use = &node->AsOp()->gtOp2;
+                assert(*op1Use != nullptr);
+                assert(*op2Use != nullptr);
+
+                if (TVisitor::UseExecutionOrder && node->IsReverseOp())
+                {
+                    std::swap(op1Use, op2Use);
+                }
+
+                result = WalkTree(op1Use, node);
+                if (result == fgWalkResult::WALK_ABORT)
+                {
+                    return result;
+                }
+
+                result = WalkTree(op2Use, node);
+                if (result == fgWalkResult::WALK_ABORT)
+                {
+                    return result;
                 }
                 break;
             }
