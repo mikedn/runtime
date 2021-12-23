@@ -91,7 +91,6 @@ enum genTreeOps : BYTE
  *
  *          GTK_CONST    implies    GTK_LEAF
  *          GTK_RELOP    implies    GTK_BINOP
- *          GTK_LOGOP    implies    GTK_BINOP
  */
 
 enum genTreeKinds
@@ -103,7 +102,6 @@ enum genTreeKinds
     GTK_UNOP  = 0x0004, // unary        operator
     GTK_BINOP = 0x0008, // binary       operator
     GTK_RELOP = 0x0010, // comparison   operator
-    GTK_LOGOP = 0x0020, // logical      operator
 
     GTK_KINDMASK = 0x007F, // operator kind mask
 
@@ -121,7 +119,7 @@ enum genTreeKinds
 
     /* Define composite value(s) */
 
-    GTK_SMPOP = (GTK_UNOP | GTK_BINOP | GTK_RELOP | GTK_LOGOP)
+    GTK_SMPOP = (GTK_UNOP | GTK_BINOP | GTK_RELOP)
 };
 
 /*****************************************************************************/
@@ -1404,12 +1402,12 @@ public:
 
     static bool OperIsLogical(genTreeOps gtOper)
     {
-        return (OperKind(gtOper) & GTK_LOGOP) != 0;
+        return (gtOper == GT_AND) || (gtOper == GT_OR) || (gtOper == GT_XOR);
     }
 
     bool OperIsLogical() const
     {
-        return (OperKind(gtOper) & GTK_LOGOP) != 0;
+        return OperIsLogical(gtOper);
     }
 
     static bool OperIsShift(genTreeOps gtOper)
