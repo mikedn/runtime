@@ -1264,17 +1264,6 @@ public:
         return OperIs(GT_CNS_INT) || (OperIs(GT_INIT_VAL) && gtGetOp1()->OperIs(GT_CNS_INT));
     }
 
-    static bool OperIsBlk(genTreeOps gtOper)
-    {
-        return ((gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_DYN_BLK) || (gtOper == GT_STORE_BLK) ||
-                (gtOper == GT_STORE_OBJ) || (gtOper == GT_STORE_DYN_BLK));
-    }
-
-    bool OperIsBlk() const
-    {
-        return OperIsBlk(OperGet());
-    }
-
     bool OperIsPutArgSplit() const
     {
 #if FEATURE_ARG_SPLIT
@@ -1530,12 +1519,20 @@ public:
         return OperMayOverflow(gtOper);
     }
 
-    // This returns true only for GT_IND and GT_STOREIND, and is used in contexts where a "true"
-    // indirection is expected (i.e. either a load to or a store from a single register).
-    // OperIsIndir() returns true also for indirection nodes such as GT_BLK, etc. as well as GT_NULLCHECK.
+    static bool OperIsBlk(genTreeOps gtOper)
+    {
+        return (gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_DYN_BLK) || (gtOper == GT_STORE_BLK) ||
+               (gtOper == GT_STORE_OBJ) || (gtOper == GT_STORE_DYN_BLK);
+    }
+
+    bool OperIsBlk() const
+    {
+        return OperIsBlk(gtOper);
+    }
+
     static bool OperIsIndir(genTreeOps gtOper)
     {
-        return gtOper == GT_IND || gtOper == GT_STOREIND || gtOper == GT_NULLCHECK || OperIsBlk(gtOper);
+        return (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_NULLCHECK) || OperIsBlk(gtOper);
     }
 
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
