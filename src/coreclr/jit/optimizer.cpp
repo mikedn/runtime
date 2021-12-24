@@ -7816,30 +7816,6 @@ void Compiler::optOptimizeBools()
             t1->AsOp()->gtOp1         = cmpOp1;
             t1->AsOp()->gtOp2->gtType = foldType; // Could have been varTypeIsGC()
 
-#if FEATURE_SET_FLAGS
-            // For comparisons against zero we will have the GTF_SET_FLAGS set
-            // and this can cause an assert to fire in fgMoveOpsLeft(GenTree* tree)
-            // during the CSE phase.
-            //
-            // So make sure to clear any GTF_SET_FLAGS bit on these operations
-            // as they are no longer feeding directly into a comparisons against zero
-
-            // Make sure that the GTF_SET_FLAGS bit is cleared.
-            // Fix 388436 ARM JitStress WP7
-            c1->gtFlags &= ~GTF_SET_FLAGS;
-            c2->gtFlags &= ~GTF_SET_FLAGS;
-
-            // The new top level node that we just created does feed directly into
-            // a comparison against zero, so set the GTF_SET_FLAGS bit so that
-            // we generate an instruction that sets the flags, which allows us
-            // to omit the cmp with zero instruction.
-
-            // Request that the codegen for cmpOp1 sets the condition flags
-            // when it generates the code for cmpOp1.
-            //
-            cmpOp1->gtRequestSetFlags();
-#endif
-
             flowList* edge1 = fgGetPredForBlock(b1->bbJumpDest, b1);
             flowList* edge2;
 

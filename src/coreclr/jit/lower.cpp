@@ -165,13 +165,20 @@ GenTree* Lowering::LowerNode(GenTree* node)
         }
         break;
 
-#if !defined(TARGET_64BIT)
+        case GT_SUB:
+#ifdef TARGET_ARM
+            if (varTypeIsIntegralOrI(node->GetType()) && node->gtOverflow())
+            {
+                node->gtFlags |= GTF_SET_FLAGS;
+            }
+#endif
+            FALLTHROUGH;
+#ifndef TARGET_64BIT
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
         case GT_SUB_HI:
 #endif
-        case GT_SUB:
         case GT_AND:
         case GT_OR:
         case GT_XOR:
@@ -4481,7 +4488,7 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
             return next;
         }
 
-#ifndef TARGET_ARMARCH
+#ifdef TARGET_XARCH
         if (BlockRange().TryGetUse(node, &use))
         {
             // If this is a child of an indir, let the parent handle it.
@@ -4492,7 +4499,13 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
                 TryCreateAddrMode(node, false);
             }
         }
-#endif // !TARGET_ARMARCH
+#endif
+#ifdef TARGET_ARM
+        if (node->gtOverflow())
+        {
+            node->gtFlags |= GTF_SET_FLAGS;
+        }
+#endif
     }
 
     if (node->OperIs(GT_ADD))
