@@ -1544,18 +1544,10 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
         // so R0 is likewise not in use.
         r0InUse = false;
     }
-    else if (compiler->info.compRetType == TYP_VOID)
-    {
-        r0InUse = false;
-    }
-    else if (varTypeIsFloating(compiler->info.GetRetSigType()) ||
-             ((compiler->info.GetRetLayout() != nullptr) && compiler->info.GetRetLayout()->IsHfa()))
-    {
-        r0InUse = compiler->info.compIsVarArgs || compiler->opts.compUseSoftFP;
-    }
     else
     {
-        r0InUse = true;
+        r0InUse =
+            (compiler->info.retDesc.GetRegCount() > 0) && !varTypeUsesFloatReg(compiler->info.retDesc.GetRegType(0));
     }
 
     if (r0InUse)

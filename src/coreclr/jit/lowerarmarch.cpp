@@ -67,7 +67,7 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
         emitAttr       attr   = emitActualTypeSize(childNode->TypeGet());
         emitAttr       size   = EA_SIZE(attr);
 #ifdef TARGET_ARM
-        insFlags flags = parentNode->gtSetFlags() ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE;
+        insFlags flags = ((parentNode->gtFlags & GTF_SET_FLAGS) != 0) ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE;
 #endif
 
         switch (parentNode->OperGet())
@@ -373,6 +373,27 @@ void Lowering::LowerRotate(GenTree* tree)
     }
     ContainCheckShiftRotate(tree->AsOp());
 }
+
+#ifdef TARGET_ARM
+GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
+{
+    if (cmp->GetOp(0)->TypeIs(TYP_LONG))
+    {
+        return DecomposeLongCompare(cmp);
+    }
+
+    ContainCheckCompare(cmp);
+    return cmp->gtNext;
+}
+
+GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
+{
+    ContainCheckJTrue(jtrue);
+
+    assert(jtrue->gtNext == nullptr);
+    return nullptr;
+}
+#endif // TARGET_ARM
 
 #ifdef FEATURE_HW_INTRINSICS
 

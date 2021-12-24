@@ -883,7 +883,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     }
     // now we know there are 3 different operands so attempt to use LEA
     else if (oper == GT_ADD && !varTypeIsFloating(treeNode) && !treeNode->gtOverflowEx() // LEA does not set flags
-             && (op2->isContainedIntOrIImmed() || op2->isUsedFromReg()) && !treeNode->gtSetFlags())
+             && (op2->isContainedIntOrIImmed() || op2->isUsedFromReg()) && ((treeNode->gtFlags & GTF_SET_FLAGS) == 0))
     {
         if (op2->isContainedIntOrIImmed())
         {
@@ -3605,7 +3605,8 @@ void CodeGen::genCodeForShift(GenTree* tree)
         emitAttr size = emitTypeSize(tree);
 
         // Optimize "X<<1" to "lea [reg+reg]" or "add reg, reg"
-        if (tree->OperIs(GT_LSH) && !tree->gtOverflowEx() && !tree->gtSetFlags() && shiftBy->IsIntegralConst(1))
+        if (tree->OperIs(GT_LSH) && !tree->gtOverflowEx() && ((tree->gtFlags & GTF_SET_FLAGS) == 0) &&
+            shiftBy->IsIntegralConst(1))
         {
             if (tree->GetRegNum() == operandReg)
             {

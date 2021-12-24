@@ -8098,7 +8098,7 @@ regNumber emitter::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
         }
     }
 
-    if (dst->gtSetFlags())
+    if ((dst->gtFlags & GTF_SET_FLAGS) != 0)
     {
         assert((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc) || (ins == INS_and) ||
                (ins == INS_orr) || (ins == INS_eor) || (ins == INS_orn));

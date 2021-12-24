@@ -174,8 +174,6 @@ public:
         GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
         LclVarDsc*           lcl     = compiler->lvaGetDesc(lclNode);
 
-        assert(!lcl->IsPromoted() || lcl->IsDependentPromoted() || lcl->lvIsMultiRegRet);
-
         if (!lcl->IsInSsa())
         {
             return;
