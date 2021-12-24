@@ -141,10 +141,12 @@ private:
 #endif
 #ifndef TARGET_ARM64
     GenTree* OptimizeConstCompare(GenTree* cmp);
-    GenTree* LowerCompare(GenTree* cmp);
+    GenTree* LowerCompare(GenTreeOp* cmp);
 #endif
     GenTree* LowerJTrue(GenTreeUnOp* jtrue);
+#ifdef TARGET_XARCH
     GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
+#endif
     void LowerJmpMethod(GenTree* jmp);
     void LowerRet(GenTreeUnOp* ret);
     void LowerLclVar(GenTreeLclVar* lclVar);

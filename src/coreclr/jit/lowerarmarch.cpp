@@ -374,6 +374,27 @@ void Lowering::LowerRotate(GenTree* tree)
     ContainCheckShiftRotate(tree->AsOp());
 }
 
+#ifdef TARGET_ARM
+GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
+{
+    if (cmp->GetOp(0)->TypeIs(TYP_LONG))
+    {
+        return DecomposeLongCompare(cmp);
+    }
+
+    ContainCheckCompare(cmp);
+    return cmp->gtNext;
+}
+
+GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
+{
+    ContainCheckJTrue(jtrue);
+
+    assert(jtrue->gtNext == nullptr);
+    return nullptr;
+}
+#endif // TARGET_ARM
+
 #ifdef FEATURE_HW_INTRINSICS
 
 //----------------------------------------------------------------------------------------------
