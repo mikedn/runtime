@@ -206,7 +206,7 @@ constexpr uint8_t GetNodeAllocationSize(genTreeOps oper)
                    // Ensure that these are always large since they often get transformed into calls.
                    (oper == GT_INTRINSIC) || (oper == GT_ALLOCOBJ)
 #if USE_HELPERS_FOR_INT_DIV
-                   || (oper == GT_DIV) || (oper == GT_UDIV) || (oper == GT_MOD) || (oper = GT_UMOD)
+                   || (oper == GT_DIV) || (oper == GT_UDIV) || (oper == GT_MOD) || (oper == GT_UMOD)
 #endif
                ? TREE_NODE_SZ_LARGE
                : TREE_NODE_SZ_SMALL;
