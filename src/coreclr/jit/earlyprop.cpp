@@ -307,23 +307,19 @@ GenTree* Compiler::optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheck
         return nullptr;
     }
 
-    if (!objectRefPtr->OperIsScalarLocal() || !lvaInSsa(objectRefPtr->AsLclVarCommon()->GetLclNum()))
+    if (!objectRefPtr->OperIs(GT_LCL_VAR) || !lvaInSsa(objectRefPtr->AsLclVar()->GetLclNum()))
     {
         return nullptr;
     }
 #ifdef DEBUG
-    else
+    if (propKind == optPropKind::OPK_ARRAYLEN)
     {
-        if (propKind == optPropKind::OPK_ARRAYLEN)
-        {
-            optCheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree,
-                                compCurBB);
-        }
+        optCheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree, compCurBB);
     }
 #endif
 
-    unsigned lclNum    = objectRefPtr->AsLclVarCommon()->GetLclNum();
-    unsigned ssaNum    = objectRefPtr->AsLclVarCommon()->GetSsaNum();
+    unsigned lclNum    = objectRefPtr->AsLclVar()->GetLclNum();
+    unsigned ssaNum    = objectRefPtr->AsLclVar()->GetSsaNum();
     GenTree* actualVal = optPropGetValue(lclNum, ssaNum, propKind);
 
     if (actualVal != nullptr)
@@ -486,11 +482,11 @@ GenTree* Compiler::optPropGetValueRec(unsigned lclNum, unsigned ssaNum, optPropK
 
         GenTree* treeRhs = ssaDefAsg->gtGetOp2();
 
-        if (treeRhs->OperIsScalarLocal() && lvaInSsa(treeRhs->AsLclVarCommon()->GetLclNum()))
+        if (treeRhs->OperIs(GT_LCL_VAR) && lvaInSsa(treeRhs->AsLclVar()->GetLclNum()))
         {
             // Recursively track the Rhs
-            unsigned rhsLclNum = treeRhs->AsLclVarCommon()->GetLclNum();
-            unsigned rhsSsaNum = treeRhs->AsLclVarCommon()->GetSsaNum();
+            unsigned rhsLclNum = treeRhs->AsLclVar()->GetLclNum();
+            unsigned rhsSsaNum = treeRhs->AsLclVar()->GetSsaNum();
 
             value = optPropGetValueRec(rhsLclNum, rhsSsaNum, valueKind, walkDepth + 1);
         }

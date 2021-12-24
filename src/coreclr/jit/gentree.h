@@ -83,45 +83,20 @@ enum genTreeOps : BYTE
 #endif
 };
 
-/*****************************************************************************
- *
- *  The following enum defines a set of bit flags that can be used
- *  to classify expression tree nodes. Note that some operators will
- *  have more than one bit set, as follows:
- *
- *          GTK_CONST    implies    GTK_LEAF
- *          GTK_RELOP    implies    GTK_BINOP
- *          GTK_LOGOP    implies    GTK_BINOP
- */
-
-enum genTreeKinds
+enum GenTreeKinds
 {
-    GTK_SPECIAL = 0x0000, // unclassified operator (special handling reqd)
+    GTK_SPECIAL  = 0x0000, // Node may have operands and does not use GenTree(Un)Op
+    GTK_LEAF     = 0x0001, // Node has no operands
+    GTK_UNOP     = 0x0002, // Node struct is GenTreeUnOp or a derived struct that does not add new operands
+    GTK_BINOP    = 0x0004, // Node struct is GenTreeOp or a derived struct that doesn't add new operands
+    GTK_SMPOP    = GTK_UNOP | GTK_BINOP,
+    GTK_KINDMASK = GTK_LEAF | GTK_UNOP | GTK_BINOP,
+    GTK_EXOP     = 0x0008, // Node uses a GenTree(Un)Op derived struct that does not add new operands
 
-    GTK_CONST = 0x0001, // constant     operator
-    GTK_LEAF  = 0x0002, // leaf         operator
-    GTK_UNOP  = 0x0004, // unary        operator
-    GTK_BINOP = 0x0008, // binary       operator
-    GTK_RELOP = 0x0010, // comparison   operator
-    GTK_LOGOP = 0x0020, // logical      operator
-
-    GTK_KINDMASK = 0x007F, // operator kind mask
-
-    GTK_COMMUTE = 0x0080, // commutative  operator
-
-    GTK_EXOP = 0x0100, // Indicates that an oper for a node type that extends GenTreeOp (or GenTreeUnOp)
-                       // by adding non-node fields to unary or binary operator.
-
-    GTK_LOCAL = 0x0200, // is a local access (load, store, phi)
-
-    GTK_NOVALUE = 0x0400, // node does not produce a value
-    GTK_NOTLIR  = 0x0800, // node is not allowed in LIR
-
-    GTK_NOCONTAIN = 0x1000, // this node is a value, but may not be contained
-
-    /* Define composite value(s) */
-
-    GTK_SMPOP = (GTK_UNOP | GTK_BINOP | GTK_RELOP | GTK_LOGOP)
+    GTK_COMMUTE   = 0x0010, // Node is commutative
+    GTK_NOVALUE   = 0x0020, // Node does not produce a value
+    GTK_NOTLIR    = 0x0040, // Node is not allowed in LIR
+    GTK_NOCONTAIN = 0x0080, // Node cannot be contained
 };
 
 /*****************************************************************************/
@@ -805,9 +780,8 @@ struct GenTree
         gtType = type;
     }
 
-#ifdef DEBUG
-    genTreeOps gtOperSave; // Only used to save gtOper when we destroy a node, to aid debugging.
-#endif
+    // Only used to save gtOper when we destroy a node, to aid debugging.
+    INDEBUG(genTreeOps gtOperSave = GT_NONE;)
 
 #define NO_CSE (0)
 
@@ -817,10 +791,10 @@ struct GenTree
 #define GET_CSE_INDEX(x) (((x) > 0) ? x : -(x))
 #define TO_CSE_DEF(x) (-(x))
 
-    signed char gtCSEnum; // 0 or the CSE index (negated if def)
-                          // valid only for CSE expressions
-
-    unsigned char gtLIRFlags; // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
+    // Valid only for CSE expressions, 0 or the CSE index (negated if it's a def).
+    signed char gtCSEnum = NO_CSE;
+    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
+    unsigned char gtLIRFlags = 0;
 
 #if ASSERTION_PROP
     AssertionInfo gtAssertionInfo;
@@ -851,14 +825,11 @@ struct GenTree
     //
 
 public:
-#ifdef DEBUG
     // You are not allowed to read the cost values before they have been set in gtSetEvalOrder().
     // Keep track of whether the costs have been initialized, and assert if they are read before being initialized.
     // Obviously, this information does need to be initialized when a node is created.
     // This is public so the dumpers can see it.
-
-    bool gtCostsInitialized;
-#endif // DEBUG
+    INDEBUG(bool gtCostsInitialized = false;)
 
 #define MAX_COST UCHAR_MAX
 #define IND_COST_EX 3 // execution cost for an indirection
@@ -933,13 +904,13 @@ public:
     }
 
 private:
-    genRegTag gtRegTag; // What is in _gtRegNum?
+    genRegTag gtRegTag = GT_REGTAG_NONE; // What is in _gtRegNum?
 
 #endif // DEBUG
 
 private:
     // This stores the register assigned to the node. If a register is not assigned, _gtRegNum is set to REG_NA.
-    regNumberSmall _gtRegNum;
+    regNumberSmall _gtRegNum = static_cast<regNumberSmall>(REG_NA);
 
 public:
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
@@ -1038,9 +1009,9 @@ public:
 
     regMaskTP gtGetRegMask() const;
 
-    GenTreeFlags gtFlags;
+    GenTreeFlags gtFlags = GTF_EMPTY;
 
-    INDEBUG(GenTreeDebugFlags gtDebugFlags;)
+    INDEBUG(GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;)
 
     ValueNumPair gtVNPair;
 
@@ -1111,12 +1082,12 @@ public:
         gtFlags |= sideEffects;
     }
 
-    GenTree* gtNext;
-    GenTree* gtPrev;
+    GenTree* gtNext = nullptr;
+    GenTree* gtPrev = nullptr;
 
 #ifdef DEBUG
     unsigned gtTreeID;
-    unsigned gtSeqNum; // liveness traversal order within the current statement
+    unsigned gtSeqNum = 0; // liveness traversal order within the current statement
 
     int gtUseNum; // use-ordered traversal within the function
 #endif
@@ -1233,12 +1204,12 @@ public:
 
     static bool OperIsConst(genTreeOps gtOper)
     {
-        return (OperKind(gtOper) & GTK_CONST) != 0;
+        return (gtOper == GT_CNS_INT) || (gtOper == GT_CNS_LNG) || (gtOper == GT_CNS_DBL) || (gtOper == GT_CNS_STR);
     }
 
     bool OperIsConst() const
     {
-        return (OperKind(gtOper) & GTK_CONST) != 0;
+        return OperIsConst(gtOper);
     }
 
     static bool OperIsLeaf(genTreeOps gtOper)
@@ -1253,71 +1224,44 @@ public:
 
     static bool OperIsCompare(genTreeOps gtOper)
     {
-        return (OperKind(gtOper) & GTK_RELOP) != 0;
+        return (gtOper == GT_EQ) || (gtOper == GT_NE) || (gtOper == GT_LT) || (gtOper == GT_LE) || (gtOper == GT_GE) ||
+               (gtOper == GT_GT) || (gtOper == GT_TEST_EQ) || (gtOper == GT_TEST_NE);
     }
 
     static bool OperIsLocal(genTreeOps gtOper)
     {
-        bool result = (OperKind(gtOper) & GTK_LOCAL) != 0;
-        assert(result == (gtOper == GT_LCL_VAR || gtOper == GT_PHI_ARG || gtOper == GT_LCL_FLD ||
-                          gtOper == GT_STORE_LCL_VAR || gtOper == GT_STORE_LCL_FLD));
-        return result;
+        return OperIsNonPhiLocal(gtOper) || (gtOper == GT_PHI_ARG);
     }
 
     static bool OperIsLocalAddr(genTreeOps gtOper)
     {
-        return (gtOper == GT_LCL_VAR_ADDR || gtOper == GT_LCL_FLD_ADDR);
-    }
-
-    static bool OperIsLocalField(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_FLD || gtOper == GT_LCL_FLD_ADDR || gtOper == GT_STORE_LCL_FLD);
-    }
-
-    inline bool OperIsLocalField() const
-    {
-        return OperIsLocalField(gtOper);
+        return (gtOper == GT_LCL_VAR_ADDR) || (gtOper == GT_LCL_FLD_ADDR);
     }
 
     static bool OperIsScalarLocal(genTreeOps gtOper)
     {
-        return (gtOper == GT_LCL_VAR || gtOper == GT_STORE_LCL_VAR);
+        return (gtOper == GT_LCL_VAR) || (gtOper == GT_STORE_LCL_VAR);
     }
 
     static bool OperIsNonPhiLocal(genTreeOps gtOper)
     {
-        return OperIsLocal(gtOper) && (gtOper != GT_PHI_ARG);
+        return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_STORE_LCL_VAR) ||
+               (gtOper == GT_STORE_LCL_FLD);
     }
 
     static bool OperIsLocalRead(genTreeOps gtOper)
     {
-        return (OperIsLocal(gtOper) && !OperIsLocalStore(gtOper));
+        return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_PHI_ARG);
     }
 
     static bool OperIsLocalStore(genTreeOps gtOper)
     {
-        return (gtOper == GT_STORE_LCL_VAR || gtOper == GT_STORE_LCL_FLD);
-    }
-
-    static bool OperIsAddrMode(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LEA);
+        return (gtOper == GT_STORE_LCL_VAR) || (gtOper == GT_STORE_LCL_FLD);
     }
 
     bool IsConstInitVal()
     {
         return OperIs(GT_CNS_INT) || (OperIs(GT_INIT_VAL) && gtGetOp1()->OperIs(GT_CNS_INT));
-    }
-
-    static bool OperIsBlk(genTreeOps gtOper)
-    {
-        return ((gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_DYN_BLK) || (gtOper == GT_STORE_BLK) ||
-                (gtOper == GT_STORE_OBJ) || (gtOper == GT_STORE_DYN_BLK));
-    }
-
-    bool OperIsBlk() const
-    {
-        return OperIsBlk(OperGet());
     }
 
     bool OperIsPutArgSplit() const
@@ -1366,11 +1310,6 @@ public:
         return false;
     }
 
-    bool OperIsAddrMode() const
-    {
-        return OperIsAddrMode(OperGet());
-    }
-
     bool OperIsLocal() const
     {
         return OperIsLocal(OperGet());
@@ -1403,17 +1342,17 @@ public:
 
     bool OperIsCompare() const
     {
-        return (OperKind(gtOper) & GTK_RELOP) != 0;
+        return OperIsCompare(gtOper);
     }
 
     static bool OperIsLogical(genTreeOps gtOper)
     {
-        return (OperKind(gtOper) & GTK_LOGOP) != 0;
+        return (gtOper == GT_AND) || (gtOper == GT_OR) || (gtOper == GT_XOR);
     }
 
     bool OperIsLogical() const
     {
-        return (OperKind(gtOper) & GTK_LOGOP) != 0;
+        return OperIsLogical(gtOper);
     }
 
     static bool OperIsShift(genTreeOps gtOper)
@@ -1472,18 +1411,6 @@ public:
     bool OperIsMul() const
     {
         return OperIsMul(gtOper);
-    }
-
-    bool OperIsArithmetic() const
-    {
-        genTreeOps op = OperGet();
-        return op == GT_ADD || op == GT_SUB || op == GT_MUL || op == GT_DIV || op == GT_MOD
-
-               || op == GT_UDIV || op == GT_UMOD
-
-               || op == GT_OR || op == GT_XOR || op == GT_AND
-
-               || OperIsShiftOrRotate(op);
     }
 
 #ifdef TARGET_XARCH
@@ -1580,12 +1507,20 @@ public:
         return OperMayOverflow(gtOper);
     }
 
-    // This returns true only for GT_IND and GT_STOREIND, and is used in contexts where a "true"
-    // indirection is expected (i.e. either a load to or a store from a single register).
-    // OperIsIndir() returns true also for indirection nodes such as GT_BLK, etc. as well as GT_NULLCHECK.
+    static bool OperIsBlk(genTreeOps gtOper)
+    {
+        return (gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_DYN_BLK) || (gtOper == GT_STORE_BLK) ||
+               (gtOper == GT_STORE_OBJ) || (gtOper == GT_STORE_DYN_BLK);
+    }
+
+    bool OperIsBlk() const
+    {
+        return OperIsBlk(gtOper);
+    }
+
     static bool OperIsIndir(genTreeOps gtOper)
     {
-        return gtOper == GT_IND || gtOper == GT_STOREIND || gtOper == GT_NULLCHECK || OperIsBlk(gtOper);
+        return (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_NULLCHECK) || OperIsBlk(gtOper);
     }
 
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
@@ -1785,9 +1720,9 @@ public:
     bool OperMayThrow(Compiler* comp);
 
 public:
-    static unsigned char s_gtNodeSizes[];
+    static const uint8_t s_gtNodeSizes[];
 #if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
-    static unsigned char s_gtTrueSizes[];
+    static const uint8_t s_gtTrueSizes[];
 #endif
 #if COUNT_AST_OPERS
     static LONG s_gtNodeCounts[];
@@ -3673,13 +3608,6 @@ struct GenTreeCast : public GenTreeOp
 // for most purposes is in gtBoxOp.
 struct GenTreeBox : public GenTreeUnOp
 {
-    // An expanded helper call to implement the "box" if we don't get
-    // rid of it any other way.  Must be in same position as op1.
-
-    GenTree*& BoxOp()
-    {
-        return gtOp1;
-    }
     // This is the statement that contains the assignment tree when the node is an inlined GT_BOX on a value
     // type
     Statement* gtAsgStmtWhenInlinedBoxValue;
@@ -3695,6 +3623,7 @@ struct GenTreeBox : public GenTreeUnOp
         , gtCopyStmtWhenInlinedBoxValue(copyStmtWhenInlinedBoxValue)
     {
     }
+
 #if DEBUGGABLE_GENTREE
     GenTreeBox() : GenTreeUnOp()
     {

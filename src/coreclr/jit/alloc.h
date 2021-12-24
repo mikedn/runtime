@@ -238,6 +238,14 @@ public:
         // Ensure that the allocator returned sizeof(size_t) aligned memory.
         assert((size_t(p) & (sizeof(size_t) - 1)) == 0);
 
+#ifdef _MSC_VER
+        // MSVC still hasn't learned that the throwing new operator is not supposed
+        // to return null, nor can it deduce on its own that this function never
+        // returns null. The result is lots of null checks to prevent constructors
+        // running with a null this pointer.
+        __assume(p != nullptr);
+#endif
+
         return static_cast<T*>(p);
     }
 

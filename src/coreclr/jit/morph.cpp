@@ -1568,7 +1568,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         //
         bool FindReg(GenTree* node, regNumber* pReg)
         {
-            for (int i = 0; i < args.Height(); i++)
+            for (unsigned i = 0; i < args.Size(); i++)
             {
                 NonStandardArg& nsa = args.TopRef(i);
                 if (node == nsa.node)
@@ -7764,7 +7764,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
 
 GenTree* Compiler::fgMorphConst(GenTree* tree)
 {
-    assert(tree->OperKind() & GTK_CONST);
+    assert(tree->OperIsConst());
 
     /* Clear any exception flags or other unnecessary flags
      * that may have been set before folding this node to a constant */
@@ -9299,7 +9299,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 // FP architectures
 GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 {
-    if (tree->OperIsArithmetic())
+    if (tree->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_DIV, GT_MOD))
     {
         if (varTypeIsFloating(tree))
         {
@@ -9504,7 +9504,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             noway_assert(op1);
 
-            if (op1->OperKind() & GTK_RELOP)
+            if (op1->OperIsCompare())
             {
                 noway_assert((oper == GT_JTRUE) || (op1->gtFlags & GTF_RELOP_QMARK));
                 /* Mark the comparison node with GTF_RELOP_JMP_USED so it knows that it does
@@ -9657,12 +9657,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                     // If the GT_MUL can be altogether folded away, we should do that.
 
-                    if ((op1->AsCast()->CastOp()->OperKind() & op2->AsCast()->CastOp()->OperKind() & GTK_CONST) &&
+                    if (op1->AsCast()->CastOp()->OperIsConst() && op2->AsCast()->CastOp()->OperIsConst() &&
                         opts.OptEnabled(CLFLG_CONSTANTFOLD))
                     {
                         tree->AsOp()->gtOp1 = op1 = gtFoldExprConst(op1);
                         tree->AsOp()->gtOp2 = op2 = gtFoldExprConst(op2);
-                        noway_assert(op1->OperKind() & op2->OperKind() & GTK_CONST);
+                        noway_assert(op1->OperIsConst() && op2->OperIsConst());
                         tree = gtFoldExprConst(tree);
                         noway_assert(tree->OperIsConst());
                         return tree;
@@ -10444,7 +10444,7 @@ DONE_MORPHING_CHILDREN:
 
         return tree;
     }
-    else if (tree->OperKind() & GTK_CONST)
+    else if (tree->OperIsConst())
     {
         return tree;
     }
@@ -11036,7 +11036,7 @@ DONE_MORPHING_CHILDREN:
 
         COMPARE:
 
-            noway_assert(tree->OperKind() & GTK_RELOP);
+            noway_assert(tree->OperIsCompare());
             break;
 
         case GT_MUL:
@@ -11710,7 +11710,7 @@ DONE_MORPHING_CHILDREN:
                     return throwNode;
                 }
 
-                noway_assert(op1->OperKind() & GTK_RELOP);
+                noway_assert(op1->OperIsCompare());
                 noway_assert(op1->gtFlags & GTF_EXCEPT);
 
                 // We need to keep op1 for the side-effects. Hang it off
@@ -11996,7 +11996,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         {
             commas.Top()->SetOp(1, val);
 
-            for (int i = 0; i < commas.Height(); i++)
+            for (unsigned i = 0; i < commas.Size(); i++)
             {
                 GenTreeOp* comma = commas.Top(i);
                 comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
@@ -12839,7 +12839,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     /* Is this a constant node? */
 
-    if (kind & GTK_CONST)
+    if (tree->OperIsConst())
     {
         tree = fgMorphConst(tree);
         goto DONE;
@@ -13161,7 +13161,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
     }
 
-    if (tree->OperKind() & GTK_CONST)
+    if (tree->OperIsConst())
     {
         goto DONE;
     }
@@ -13250,7 +13250,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
         GenTree* cond;
         cond = condTree->SkipComma();
 
-        if (cond->OperKind() & GTK_CONST)
+        if (cond->OperIsConst())
         {
             /* Yupee - we folded the conditional!
              * Remove the conditional statement */
@@ -13477,7 +13477,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
         GenTree* cond;
         cond = condTree->SkipComma();
 
-        if (cond->OperKind() & GTK_CONST)
+        if (cond->OperIsConst())
         {
             /* Yupee - we folded the conditional!
              * Remove the conditional statement */
@@ -13871,7 +13871,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             {
                 GenTree* op1 = last->AsOp()->gtOp1;
 
-                if (op1->OperKind() & GTK_RELOP)
+                if (op1->OperIsCompare())
                 {
                     /* Unmark the comparison node with GTF_RELOP_JMP_USED */
                     op1->gtFlags &= ~GTF_RELOP_JMP_USED;

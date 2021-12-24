@@ -2304,9 +2304,9 @@ private:
         // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
         // longer wraps struct args in OBJs.
 
-        if (((m_ancestors.Height() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR_ADDR) &&
+        if (((m_ancestors.Size() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR_ADDR) &&
              m_ancestors.Top(1)->OperIs(GT_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
-            ((m_ancestors.Height() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+            ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
             JITDUMP("LocalAddressVisitor incrementing weighted ref count from %f to %f"

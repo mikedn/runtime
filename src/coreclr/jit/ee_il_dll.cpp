@@ -178,29 +178,26 @@ DLLEXPORT ICorJitCompiler* getJit()
     return (ILJitter);
 }
 
-/*****************************************************************************/
-
 // Information kept in thread-local storage. This is used in the noway_assert exceptional path.
 // If you are using it more broadly in retail code, you would need to understand the
 // performance implications of accessing TLS.
 
-thread_local void* gJitTls = nullptr;
+#ifdef DEBUG
 
-static void* GetJitTls()
+thread_local JitTls* gJitTls = nullptr;
+
+static JitTls* GetJitTls()
 {
     return gJitTls;
 }
 
-void SetJitTls(void* value)
+void SetJitTls(JitTls* value)
 {
     gJitTls = value;
 }
 
-#if defined(DEBUG)
-
-JitTls::JitTls(ICorJitInfo* jitInfo) : m_compiler(nullptr), m_logEnv(jitInfo)
+JitTls::JitTls(ICorJitInfo* jitInfo) : m_compiler(nullptr), m_logEnv(jitInfo), m_next(GetJitTls())
 {
-    m_next = reinterpret_cast<JitTls*>(GetJitTls());
     SetJitTls(this);
 }
 
@@ -211,20 +208,32 @@ JitTls::~JitTls()
 
 LogEnv* JitTls::GetLogEnv()
 {
-    return &reinterpret_cast<JitTls*>(GetJitTls())->m_logEnv;
+    return &GetJitTls()->m_logEnv;
 }
 
 Compiler* JitTls::GetCompiler()
 {
-    return reinterpret_cast<JitTls*>(GetJitTls())->m_compiler;
+    return GetJitTls()->m_compiler;
 }
 
 void JitTls::SetCompiler(Compiler* compiler)
 {
-    reinterpret_cast<JitTls*>(GetJitTls())->m_compiler = compiler;
+    GetJitTls()->m_compiler = compiler;
 }
 
 #else // !defined(DEBUG)
+
+thread_local Compiler* gJitTls = nullptr;
+
+static Compiler* GetJitTls()
+{
+    return gJitTls;
+}
+
+void SetJitTls(Compiler* value)
+{
+    gJitTls = value;
+}
 
 JitTls::JitTls(ICorJitInfo* jitInfo)
 {
@@ -236,7 +245,7 @@ JitTls::~JitTls()
 
 Compiler* JitTls::GetCompiler()
 {
-    return reinterpret_cast<Compiler*>(GetJitTls());
+    return GetJitTls();
 }
 
 void JitTls::SetCompiler(Compiler* compiler)

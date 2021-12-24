@@ -1605,7 +1605,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         // incoming args that live in that area. If we have later uses of those args, this
         // is a problem. We introduce a defensive copy into a temp here of those args that
         // potentially may cause problems.
-        for (int i = 0; i < putargs.Height(); i++)
+        for (unsigned i = 0; i < putargs.Size(); i++)
         {
             GenTreePutArgStk* put = putargs.Bottom(i)->AsPutArgStk();
 

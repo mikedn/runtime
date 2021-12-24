@@ -1777,7 +1777,7 @@ AssertionIndex Compiler::optCreateJtrueAssertions(GenTree*                   op1
 AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
 {
     GenTree* relop = tree->gtGetOp1();
-    if ((relop->OperKind() & GTK_RELOP) == 0)
+    if (!relop->OperIsCompare())
     {
         return NO_ASSERTION_INDEX;
     }
@@ -1937,7 +1937,7 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
     }
 
     GenTree* relop = tree->AsOp()->gtOp1;
-    if ((relop->OperKind() & GTK_RELOP) == 0)
+    if (!relop->OperIsCompare())
     {
         return NO_ASSERTION_INDEX;
     }
@@ -1980,8 +1980,7 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
     ValueNum op1VN = vnStore->VNConservativeNormalValue(op1->gtVNPair);
     ValueNum op2VN = vnStore->VNConservativeNormalValue(op2->gtVNPair);
     // If op1 is lcl and op2 is const or lcl, create assertion.
-    if ((op1->gtOper == GT_LCL_VAR) &&
-        ((op2->OperKind() & GTK_CONST) || (op2->gtOper == GT_LCL_VAR))) // Fix for Dev10 851483
+    if (op1->OperIs(GT_LCL_VAR) && (op2->OperIsConst() || op2->OperIs(GT_LCL_VAR)))
     {
         return optCreateJtrueAssertions(op1, op2, assertionKind);
     }
@@ -2960,7 +2959,7 @@ AssertionIndex Compiler::optGlobalAssertionIsEqualOrNotEqualZero(ASSERT_VALARG_T
 
 GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
 {
-    assert(tree->OperKind() & GTK_RELOP);
+    assert(tree->OperIsCompare());
 
     if (!optLocalAssertionProp)
     {

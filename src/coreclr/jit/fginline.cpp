@@ -2469,11 +2469,11 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         JITDUMP("Argument %u is not used\n", argNum);
 
-        if (argNode->IsBox())
+        if (GenTreeBox* box = argNode->IsBox())
         {
             // BOX doesn't have side effects and can be removed and there's
             // more code associated with it that could be removed as well.
-            gtTryRemoveBoxUpstreamEffects(argNode);
+            gtTryRemoveBoxUpstreamEffects(box);
 
             continue;
         }

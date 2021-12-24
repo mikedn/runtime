@@ -64,11 +64,10 @@ static const char*  asciiIndents[IndentCharCount]   = {     "|",            "\\"
 static const char*  unicodeIndents[IndentCharCount] = { "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x8c", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c", "?"  };
 // clang-format on
 
-typedef ArrayStack<Compiler::IndentInfo> IndentInfoStack;
 struct IndentStack
 {
-    IndentInfoStack stack;
-    const char**    indents;
+    ArrayStack<Compiler::IndentInfo> stack;
+    const char**                     indents;
 
     // Constructor for IndentStack.  Uses 'compiler' to determine the mode of printing.
     IndentStack(Compiler* compiler) : stack(compiler->getAllocator(CMK_DebugOnly))
@@ -86,7 +85,7 @@ struct IndentStack
     // Return the depth of the current indentation.
     unsigned Depth()
     {
-        return stack.Height();
+        return stack.Size();
     }
 
     // Push a new indentation onto the stack, of the given type.
@@ -193,20 +192,35 @@ const char* GenTree::OpStructName(genTreeOps op)
 
 #endif
 
-//
 //  We allocate tree nodes in 2 different sizes:
 //  - TREE_NODE_SZ_SMALL for most nodes
 //  - TREE_NODE_SZ_LARGE for the few nodes (such as calls) that have
 //    more fields and take up a lot more space.
-//
 
-/* GT_COUNT'th oper is overloaded as 'undefined oper', so allocate storage for GT_COUNT'th oper also */
-/* static */
-unsigned char GenTree::s_gtNodeSizes[GT_COUNT + 1];
+template <typename T>
+constexpr uint8_t GetNodeAllocationSize(genTreeOps oper)
+{
+    static_assert(sizeof(T) <= TREE_NODE_SZ_LARGE, "Node struct is too large");
+
+    return (sizeof(T) > TREE_NODE_SZ_SMALL) ||
+                   // Ensure that these are always large since they often get transformed into calls.
+                   (oper == GT_INTRINSIC) || (oper == GT_ALLOCOBJ)
+#if USE_HELPERS_FOR_INT_DIV
+                   || (oper == GT_DIV) || (oper == GT_UDIV) || (oper == GT_MOD) || (oper = GT_UMOD)
+#endif
+               ? TREE_NODE_SZ_LARGE
+               : TREE_NODE_SZ_SMALL;
+}
+
+// GT_COUNT'th oper is overloaded as 'undefined oper', so allocate storage for GT_COUNT'th oper also
+const uint8_t GenTree::s_gtNodeSizes[GT_COUNT + 1]{
+#define GTNODE(en, st, cm, ok) GetNodeAllocationSize<st>(GT_##en),
+#include "gtlist.h"
+    GetNodeAllocationSize<GenTree>(GT_COUNT)};
 
 #if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
 
-unsigned char GenTree::s_gtTrueSizes[GT_COUNT + 1]{
+const uint8_t GenTree::s_gtTrueSizes[GT_COUNT + 1]{
 #define GTNODE(en, st, cm, ok) sizeof(st),
 #include "gtlist.h"
 };
@@ -220,53 +234,8 @@ LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
 /* static */
 void GenTree::InitNodeSize()
 {
-    /* Set all sizes to 'small' first */
-
-    for (unsigned op = 0; op <= GT_COUNT; op++)
-    {
-        GenTree::s_gtNodeSizes[op] = TREE_NODE_SZ_SMALL;
-    }
-
-    // Now set all of the appropriate entries to 'large'
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
     // clang-format off
-    if (GlobalJitOptions::compFeatureHfa
-#if defined(UNIX_AMD64_ABI)
-        || true
-#endif // defined(UNIX_AMD64_ABI)
-        )
-    {
-        // On ARM32, ARM64 and System V for struct returning
-        // there is code that does GT_ASG-tree.CopyObj call.
-        // CopyObj is a large node and the GT_ASG is small, which triggers an exception.
-        GenTree::s_gtNodeSizes[GT_ASG]              = TREE_NODE_SZ_LARGE;
-        GenTree::s_gtNodeSizes[GT_RETURN]           = TREE_NODE_SZ_LARGE;
-    }
-
-    GenTree::s_gtNodeSizes[GT_CALL]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_BOX]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_ARR_ELEM]         = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_DYN_BLK]          = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_STORE_DYN_BLK]    = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_INTRINSIC]        = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_ALLOCOBJ]         = TREE_NODE_SZ_LARGE;
-#if USE_HELPERS_FOR_INT_DIV
-    GenTree::s_gtNodeSizes[GT_DIV]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_UDIV]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_MOD]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_UMOD]             = TREE_NODE_SZ_LARGE;
-#endif
-#if FEATURE_ARG_SPLIT
-    GenTree::s_gtNodeSizes[GT_PUTARG_SPLIT]     = TREE_NODE_SZ_LARGE;
-#endif
-
     assert(GenTree::s_gtNodeSizes[GT_RETURN] == GenTree::s_gtNodeSizes[GT_ASG]);
-
-    // This list of assertions should come to contain all GenTree subtypes that are declared
-    // "small".
-    assert(sizeof(GenTreeLclFld) <= GenTree::s_gtNodeSizes[GT_LCL_FLD]);
-    assert(sizeof(GenTreeLclVar) <= GenTree::s_gtNodeSizes[GT_LCL_VAR]);
 
     static_assert_no_msg(sizeof(GenTree)             <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeUnOp)         <= TREE_NODE_SZ_SMALL);
@@ -283,7 +252,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeLclFld)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeColon)        <= TREE_NODE_SZ_SMALL);
@@ -1223,7 +1192,7 @@ AGAIN:
 
     /* Is this a constant node? */
 
-    if (kind & GTK_CONST)
+    if (op1->OperIsConst())
     {
         switch (oper)
         {
@@ -1519,7 +1488,7 @@ AGAIN:
 
     /* Is this a constant node? */
 
-    if (kind & GTK_CONST)
+    if (tree->OperIsConst())
     {
         return false;
     }
@@ -1833,7 +1802,7 @@ AGAIN:
 
     /* Is this a constant or leaf node? */
 
-    if (kind & (GTK_CONST | GTK_LEAF))
+    if (kind & GTK_LEAF)
     {
         size_t add;
 
@@ -2609,7 +2578,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
     /* Is this a constant or a leaf node? */
 
-    if (kind & (GTK_LEAF | GTK_CONST))
+    if (kind & GTK_LEAF)
     {
         switch (oper)
         {
@@ -2989,7 +2958,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         costEx = 0;
         costSz = 0;
 
-        if (tree->OperIsAddrMode())
+        if (tree->IsAddrMode())
         {
             if (op1 == nullptr)
             {
@@ -3564,7 +3533,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     break;
             }
         }
-        else if (kind & GTK_RELOP)
+        else if (GenTree::OperIsCompare(oper))
         {
             /* Float compares remove both operands from the FP stack */
             /* Also FP comparison uses EAX for flags */
@@ -3638,7 +3607,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
            such cases, both sides have a level of 0. So encourage constants
            to be evaluated last in such cases */
 
-        if ((level == 0) && (level == lvl2) && (op1->OperKind() & GTK_CONST) &&
+        if ((level == 0) && (level == lvl2) && op1->OperIsConst() &&
             (tree->OperIsCommutative() || tree->OperIsCompare()))
         {
             lvl2++;
@@ -3690,7 +3659,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             // Try to force extra swapping when in the stress mode:
             if (compStressCompile(STRESS_REVERSE_FLAG, 60) && ((tree->gtFlags & GTF_REVERSE_OPS) == 0) &&
-                ((op2->OperKind() & GTK_CONST) == 0))
+                !op2->OperIsConst())
             {
                 tryToSwap = true;
             }
@@ -5841,7 +5810,7 @@ GenTree* Compiler::gtCloneExpr(
 
     /* Is this a constant or leaf node? */
 
-    if (kind & (GTK_CONST | GTK_LEAF))
+    if (kind & GTK_LEAF)
     {
         switch (oper)
         {
@@ -6274,7 +6243,7 @@ DONE:
 #endif
         // Some other flags depend on the context of the expression, and should not be preserved.
         // For example, GTF_RELOP_QMARK:
-        if (copy->OperKind() & GTK_RELOP)
+        if (copy->OperIsCompare())
         {
             addFlags &= ~GTF_RELOP_QMARK;
         }
@@ -6628,7 +6597,7 @@ bool Compiler::gtCompareTree(GenTree* op1, GenTree* op2)
 
     /* Is this a constant or leaf node? */
 
-    if (kind & (GTK_CONST | GTK_LEAF))
+    if (kind & GTK_LEAF)
     {
         switch (oper)
         {
@@ -6856,19 +6825,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             }
             return;
 
-        // LEA, which may have no first operand
-        case GT_LEA:
-            if (m_node->AsAddrMode()->gtOp1 == nullptr)
-            {
-                m_edge    = &m_node->AsAddrMode()->gtOp2;
-                m_advance = &GenTreeUseEdgeIterator::Terminate;
-            }
-            else
-            {
-                SetEntryStateForBinOp();
-            }
-            return;
-
         // Special nodes
         case GT_FIELD_LIST:
             m_statePtr = m_node->AsFieldList()->Uses().GetHead();
@@ -6961,9 +6917,24 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvanceCall<CALL_INSTANCE>();
             return;
 
-        // Binary nodes
+        case GT_LEA:
+            if (m_node->AsAddrMode()->gtOp1 == nullptr)
+            {
+                m_edge    = &m_node->AsAddrMode()->gtOp2;
+                m_advance = &GenTreeUseEdgeIterator::Terminate;
+                return;
+            }
+            FALLTHROUGH;
+        case GT_INTRINSIC:
+            assert(m_node->AsOp()->gtOp1 != nullptr);
+            if (m_node->AsOp()->gtOp2 == nullptr)
+            {
+                m_edge    = &m_node->AsOp()->gtOp1;
+                m_advance = &GenTreeUseEdgeIterator::Terminate;
+                return;
+            }
+            FALLTHROUGH;
         default:
-            assert(m_node->OperIsBinary());
             SetEntryStateForBinOp();
             return;
     }
@@ -7205,19 +7176,9 @@ void           GenTreeUseEdgeIterator::AdvanceBinOp()
 //
 void GenTreeUseEdgeIterator::SetEntryStateForBinOp()
 {
-    assert(m_node != nullptr);
     assert(m_node->OperIsBinary());
 
-    GenTreeOp* const node = m_node->AsOp();
-
-    if (node->gtOp2 == nullptr)
-    {
-        assert(node->gtOp1 != nullptr);
-        assert(node->NullOp2Legal());
-        m_edge    = &node->gtOp1;
-        m_advance = &GenTreeUseEdgeIterator::Terminate;
-    }
-    else if ((node->gtFlags & GTF_REVERSE_OPS) != 0)
+    if (m_node->IsReverseOp())
     {
         m_edge    = &m_node->AsOp()->gtOp2;
         m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp<true>;
@@ -8047,7 +8008,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
         if (tree->IsValue())
         {
             const size_t bufLength = msgLength - 1;
-            msg                    = reinterpret_cast<char*>(alloca(bufLength * sizeof(char)));
+            msg                    = static_cast<char*>(alloca(bufLength * sizeof(char)));
             sprintf_s(const_cast<char*>(msg), bufLength, "t%d = %s", tree->gtTreeID, hasOperands ? "" : " ");
         }
     }
@@ -8569,8 +8530,6 @@ void Compiler::gtDispClassLayout(ClassLayout* layout, var_types type)
 /*****************************************************************************/
 void Compiler::gtDispConst(GenTree* tree)
 {
-    assert(tree->OperKind() & GTK_CONST);
-
     switch (tree->gtOper)
     {
         case GT_CNS_INT:
@@ -8811,7 +8770,7 @@ void Compiler::dmpFieldSeqFields(FieldSeqNode* fieldSeq)
 
 void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
 {
-    if (tree->OperKind() & GTK_CONST)
+    if (tree->OperIsConst())
     {
         gtDispConst(tree);
         return;
@@ -10078,7 +10037,7 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
 
     if ((kind & GTK_UNOP) && op1)
     {
-        if (op1->OperKind() & GTK_CONST)
+        if (op1->OperIsConst())
         {
             return gtFoldExprConst(tree);
         }
@@ -10091,12 +10050,12 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
 
         // The atomic operations are exempted here because they are never computable statically;
         // one of their arguments is an address.
-        if (((op1->OperKind() & op2->OperKind()) & GTK_CONST) && !tree->OperIsAtomicOp())
+        if (op1->OperIsConst() && op2->OperIsConst() && !tree->OperIsAtomicOp())
         {
             /* both nodes are constants - fold the expression */
             return gtFoldExprConst(tree);
         }
-        else if ((op1->OperKind() | op2->OperKind()) & GTK_CONST)
+        else if (op1->OperIsConst() || op2->OperIsConst())
         {
             /* at least one is a constant - see if we have a
              * special operator that can use only one constant
@@ -10827,10 +10786,10 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
                 {
                     // The tree under the box must be side effect free
                     // since we will drop it if we optimize.
-                    assert(!gtTreeHasSideEffects(op->AsBox()->BoxOp(), GTF_SIDE_EFFECT));
+                    assert(!gtTreeHasSideEffects(op->AsBox()->GetOp(0), GTF_SIDE_EFFECT));
 
                     // See if we can optimize away the box and related statements.
-                    GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op);
+                    GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op->AsBox());
                     bool     didOptimize   = (boxSourceTree != nullptr);
 
                     // If optimization succeeded, remove the box.
@@ -10897,14 +10856,14 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
 
         case GT_DIV:
         case GT_UDIV:
-            if ((op2 == cons) && (val == 1) && !(op1->OperKind() & GTK_CONST))
+            if ((op2 == cons) && (val == 1) && !op1->OperIsConst())
             {
                 goto DONE_FOLD;
             }
             break;
 
         case GT_SUB:
-            if ((op2 == cons) && (val == 0) && !(op1->OperKind() & GTK_CONST))
+            if ((op2 == cons) && (val == 0) && !op1->OperIsConst())
             {
                 goto DONE_FOLD;
             }
@@ -11184,19 +11143,15 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 //    return expression). So the box is perhaps best left as is to
 //    help trigger this re-examination.
 
-GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions options)
+GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options)
 {
-    assert(op->IsBox());
-
-    // grab related parts for the optimization
-    GenTreeBox* box      = op->AsBox();
-    Statement*  asgStmt  = box->gtAsgStmtWhenInlinedBoxValue;
-    Statement*  copyStmt = box->gtCopyStmtWhenInlinedBoxValue;
+    Statement* asgStmt  = box->gtAsgStmtWhenInlinedBoxValue;
+    Statement* copyStmt = box->gtCopyStmtWhenInlinedBoxValue;
 
     JITDUMP("gtTryRemoveBoxUpstreamEffects: %s to %s of BOX (valuetype)"
             " [%06u] (assign/newobj " FMT_STMT " copy " FMT_STMT "\n",
             (options == BR_DONT_REMOVE) ? "checking if it is possible" : "attempting",
-            (options == BR_MAKE_LOCAL_COPY) ? "make local unboxed version" : "remove side effects", dspTreeID(op),
+            (options == BR_MAKE_LOCAL_COPY) ? "make local unboxed version" : "remove side effects", box->GetID(),
             asgStmt->GetID(), copyStmt->GetID());
 
     DISPSTMT(asgStmt);
@@ -11275,7 +11230,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
     if (options == BR_MAKE_LOCAL_COPY)
     {
         // Drill into the box to get at the box temp local and the box type
-        GenTreeLclVar* boxTemp = box->BoxOp()->AsLclVar();
+        GenTreeLclVar* boxTemp = box->GetOp(0)->AsLclVar();
         assert(boxTemp->OperIs(GT_LCL_VAR));
         const unsigned boxTempLclNum = boxTemp->GetLclNum();
         LclVarDsc*     boxTempLclDsc = lvaGetDesc(boxTempLclNum);
@@ -11538,7 +11493,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     // Simulate removing the box for thisOP. We need to know that it can
     // be safely removed before we can optimize.
-    GenTree* thisVal = gtTryRemoveBoxUpstreamEffects(thisOp, BR_DONT_REMOVE);
+    GenTree* thisVal = gtTryRemoveBoxUpstreamEffects(thisOp->AsBox(), BR_DONT_REMOVE);
     if (thisVal == nullptr)
     {
         // Note we may fail here if the this operand comes from
@@ -11548,7 +11503,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
 
     // Do likewise with flagOp.
-    GenTree* flagVal = gtTryRemoveBoxUpstreamEffects(flagOp, BR_DONT_REMOVE);
+    GenTree* flagVal = gtTryRemoveBoxUpstreamEffects(flagOp->AsBox(), BR_DONT_REMOVE);
     if (flagVal == nullptr)
     {
         // Note we may fail here if the flag operand comes from
@@ -11570,8 +11525,8 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     // Undo the boxing of the Ops and prepare to operate directly
     // on the pre-boxed values.
-    thisVal = gtTryRemoveBoxUpstreamEffects(thisOp, BR_REMOVE_BUT_NOT_NARROW);
-    flagVal = gtTryRemoveBoxUpstreamEffects(flagOp, BR_REMOVE_BUT_NOT_NARROW);
+    thisVal = gtTryRemoveBoxUpstreamEffects(thisOp->AsBox(), BR_REMOVE_BUT_NOT_NARROW);
+    flagVal = gtTryRemoveBoxUpstreamEffects(flagOp->AsBox(), BR_REMOVE_BUT_NOT_NARROW);
 
     // Our trial removals above should guarantee successful removals here.
     assert(thisVal != nullptr);
@@ -11685,7 +11640,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
     if (kind & GTK_UNOP)
     {
-        assert(op1->OperKind() & GTK_CONST);
+        assert(op1->OperIsConst());
 
         switch (op1->gtType)
         {
@@ -12105,8 +12060,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
     assert(kind & GTK_BINOP);
     assert(op2);
-    assert(op1->OperKind() & GTK_CONST);
-    assert(op2->OperKind() & GTK_CONST);
+    assert(op1->OperIsConst());
+    assert(op2->OperIsConst());
 
     if (tree->gtOper == GT_COMMA)
     {
@@ -12888,7 +12843,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             {
                 JITDUMP("Double operator(s) is NaN\n");
 
-                if (tree->OperKind() & GTK_RELOP)
+                if (tree->OperIsCompare())
                 {
                     if (tree->gtFlags & GTF_RELOP_NAN_UN)
                     {
@@ -13538,7 +13493,7 @@ bool Compiler::gtHasCatchArg(GenTree* tree)
 //------------------------------------------------------------------------
 /* static */ bool Compiler::gtHasCallOnStack(GenTreeStack* parentStack)
 {
-    for (int i = 0; i < parentStack->Height(); i++)
+    for (unsigned i = 0; i < parentStack->Size(); i++)
     {
         GenTree* node = parentStack->Top(i);
         if (node->OperGet() == GT_CALL)
@@ -13887,7 +13842,7 @@ bool GenTree::isContained() const
     // these actually produce a register (the flags reg, we just don't model it)
     // and are a separate instruction from the branch that consumes the result.
     // They can only produce a result if the child is a SIMD equality comparison.
-    else if (OperKind() & GTK_RELOP)
+    else if (OperIsCompare())
     {
         assert(isMarkedContained == false);
     }
@@ -13909,7 +13864,7 @@ bool GenTree::isContainedIndir() const
 
 bool GenTree::isIndirAddrMode()
 {
-    return OperIsIndir() && AsIndir()->Addr()->OperIsAddrMode() && AsIndir()->Addr()->isContained();
+    return OperIsIndir() && AsIndir()->GetAddr()->IsAddrMode() && AsIndir()->GetAddr()->isContained();
 }
 
 bool GenTree::isIndir() const
@@ -14610,13 +14565,10 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             // Box should just wrap a local var reference which has
             // the type we're looking for. Also box only represents a
             // non-nullable value type so result cannot be null.
-            GenTreeBox* box     = obj->AsBox();
-            GenTree*    boxTemp = box->BoxOp();
-            assert(boxTemp->IsLocal());
-            const unsigned boxTempLcl = boxTemp->AsLclVar()->GetLclNum();
-            objClass                  = lvaTable[boxTempLcl].lvClassHnd;
-            *pIsExact                 = lvaTable[boxTempLcl].lvClassIsExact;
-            *pIsNonNull               = true;
+            LclVarDsc* boxTempLcl = lvaGetDesc(obj->AsBox()->GetOp(0)->AsLclVar());
+            objClass              = boxTempLcl->lvClassHnd;
+            *pIsExact             = boxTempLcl->lvClassIsExact;
+            *pIsNonNull           = true;
             break;
         }
 
@@ -15845,14 +15797,12 @@ bool GenTree::HasTempReg(regNumber reg) const
 //
 uint16_t GenTreeLclVarCommon::GetLclOffs() const
 {
-    if (OperIsLocalField())
+    if (const GenTreeLclFld* lclFld = IsLclFld())
     {
-        return AsLclFld()->GetLclOffs();
+        return lclFld->GetLclOffs();
     }
-    else
-    {
-        return 0;
-    }
+
+    return 0;
 }
 
 #ifdef TARGET_ARM

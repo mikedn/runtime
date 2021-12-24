@@ -3243,48 +3243,6 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(int              argCnt,
     }
 }
 
-/*****************************************************************************/
-#ifdef DEBUG
-/*****************************************************************************
- *
- *  Return a string with the name of the given class field (blank string (not
- *  NULL) is returned when the name isn't available).
- */
-
-const char* emitter::emitFldName(CORINFO_FIELD_HANDLE fieldVal)
-{
-    if (emitComp->opts.varNames)
-    {
-        const char* memberName;
-        const char* className;
-
-        const int   TEMP_BUFFER_LEN = 1024;
-        static char buff[TEMP_BUFFER_LEN];
-
-        memberName = emitComp->eeGetFieldName(fieldVal, &className);
-
-        sprintf_s(buff, TEMP_BUFFER_LEN, "'<%s>.%s'", className, memberName);
-        return buff;
-    }
-    else
-    {
-        return "";
-    }
-}
-
-/*****************************************************************************
- *
- *  Return a string with the name of the given function (blank string (not
- *  NULL) is returned when the name isn't available).
- */
-
-const char* emitter::emitFncName(CORINFO_METHOD_HANDLE methHnd)
-{
-    return emitComp->eeGetMethodFullName(methHnd);
-}
-
-#endif // DEBUG
-
 /*****************************************************************************
  *
  *  Be very careful, some instruction descriptors are allocated as "tiny" and

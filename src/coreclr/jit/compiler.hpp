@@ -56,27 +56,6 @@ inline UINT32 forceCastToUInt32(double d)
     return u;
 }
 
-enum RoundLevel
-{
-    ROUND_NEVER     = 0, // Never round
-    ROUND_CMP_CONST = 1, // Round values compared against constants
-    ROUND_CMP       = 2, // Round comparands and return values
-    ROUND_ALWAYS    = 3, // Round always
-
-    COUNT_ROUND_LEVEL,
-    DEFAULT_ROUND_LEVEL = ROUND_NEVER
-};
-
-inline RoundLevel getRoundFloatLevel()
-{
-#ifdef DEBUG
-    return (RoundLevel)JitConfig.JitRoundFloat();
-#else
-    return DEFAULT_ROUND_LEVEL;
-#endif
-}
-
-/*****************************************************************************/
 /*****************************************************************************
  *
  *  Return the lowest bit that is set
@@ -724,35 +703,19 @@ void* GenTree::operator new(size_t sz, Compiler* comp, genTreeOps oper)
     return comp->getAllocator(CMK_ASTNode).allocate<char>(size);
 }
 
-// GenTree constructor
 inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode))
-{
-    gtOper     = oper;
-    gtType     = type;
-    gtFlags    = GTF_EMPTY;
-    gtLIRFlags = 0;
+    : gtOper(oper)
+    , gtType(type)
 #ifdef DEBUG
-    gtDebugFlags = GTF_DEBUG_NONE;
-#endif // DEBUG
-    gtCSEnum = NO_CSE;
-#if ASSERTION_PROP
-    ClearAssertion();
+    , gtTreeID(JitTls::GetCompiler()->compGenTreeID++)
 #endif
-
-    gtNext = nullptr;
-    gtPrev = nullptr;
-    SetRegNum(REG_NA);
-    INDEBUG(gtRegTag = GT_REGTAG_NONE;)
-
-    INDEBUG(gtCostsInitialized = false;)
-
+{
 #ifdef DEBUG
-    size_t size = GenTree::s_gtNodeSizes[oper];
-    if (size == TREE_NODE_SZ_SMALL && !largeNode)
+    if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) && !largeNode)
     {
         gtDebugFlags |= GTF_DEBUG_NODE_SMALL;
     }
-    else if (size == TREE_NODE_SZ_LARGE || largeNode)
+    else if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE) || largeNode)
     {
         gtDebugFlags |= GTF_DEBUG_NODE_LARGE;
     }
@@ -764,14 +727,6 @@ inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode)
 
 #if COUNT_AST_OPERS
     InterlockedIncrement(&s_gtNodeCounts[oper]);
-#endif
-
-#ifdef DEBUG
-    gtSeqNum = 0;
-    gtTreeID = JitTls::GetCompiler()->compGenTreeID++;
-    gtVNPair.SetBoth(ValueNumStore::NoVN);
-    gtRegTag   = GT_REGTAG_NONE;
-    gtOperSave = GT_NONE;
 #endif
 }
 
@@ -4071,9 +4026,24 @@ void GenTree::VisitOperands(TVisitor visitor)
             return;
         }
 
-        // Binary nodes
+        case GT_LEA:
+        case GT_INTRINSIC:
+        {
+            GenTreeOp* const op = AsOp();
+
+            if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
+            {
+                return;
+            }
+
+            if (op->gtOp2 != nullptr)
+            {
+                visitor(op->gtOp2);
+            }
+            return;
+        }
+
         default:
-            assert(this->OperIsBinary());
             VisitBinOpOperands<TVisitor>(visitor);
             return;
     }
@@ -4082,16 +4052,13 @@ void GenTree::VisitOperands(TVisitor visitor)
 template <typename TVisitor>
 void GenTree::VisitBinOpOperands(TVisitor visitor)
 {
-    assert(this->OperIsBinary());
+    assert(OperIsBinary());
 
-    GenTreeOp* const op = this->AsOp();
+    GenTreeOp* const op = AsOp();
+    assert(op->gtOp1 != nullptr);
+    assert(op->gtOp2 != nullptr);
 
-    if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
-    {
-        return;
-    }
-
-    if (op->gtOp2 != nullptr)
+    if (visitor(op->gtOp1) != VisitResult::Abort)
     {
         visitor(op->gtOp2);
     }

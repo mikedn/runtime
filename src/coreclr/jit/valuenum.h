@@ -130,7 +130,7 @@ class ValueNumStore
 
 public:
     // We will reserve "max unsigned" to represent "not a value number", for maps that might start uninitialized.
-    static const ValueNum NoVN = UINT32_MAX;
+    static const ValueNum NoVN = ::NoVN;
     // A second special value, used to indicate that a function evaluation would cause infinite recursion.
     static const ValueNum RecursiveVN = UINT32_MAX - 1;
 
@@ -813,7 +813,7 @@ private:
     template <typename T>
     T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce))
     {
-        Chunk* c = m_chunks.GetNoExpand(GetChunkNum(vn));
+        Chunk* c = m_chunks.Get(GetChunkNum(vn));
         assert(c->m_attribs == CEA_Const || c->m_attribs == CEA_Handle);
 
         unsigned offset = ChunkOffset(vn);
@@ -841,12 +841,12 @@ private:
                 if (c->m_attribs == CEA_Handle)
                 {
                     C_ASSERT(offsetof(VNHandle, m_cnsVal) == 0);
-                    return (T) reinterpret_cast<VNHandle*>(c->m_defs)[offset].m_cnsVal;
+                    return (T) static_cast<VNHandle*>(c->m_defs)[offset].m_cnsVal;
                 }
 #ifdef DEBUG
                 if (!coerce)
                 {
-                    T val1 = reinterpret_cast<T*>(c->m_defs)[offset];
+                    T val1 = static_cast<T*>(c->m_defs)[offset];
                     T val2 = SafeGetConstantValue<T>(c, offset);
 
                     // Detect if there is a mismatch between the VN storage type and explicitly
@@ -1079,10 +1079,6 @@ private:
         {
         }
 
-        VNDefFunc0Arg() : m_func(VNF_COUNT)
-        {
-        }
-
         bool operator==(const VNDefFunc0Arg& y) const
         {
             return m_func == y.m_func;
@@ -1093,10 +1089,6 @@ private:
     {
         ValueNum m_arg0;
         VNDefFunc1Arg(VNFunc func, ValueNum arg0) : VNDefFunc0Arg(func), m_arg0(arg0)
-        {
-        }
-
-        VNDefFunc1Arg() : VNDefFunc0Arg(), m_arg0(ValueNumStore::NoVN)
         {
         }
 
@@ -1113,10 +1105,6 @@ private:
         {
         }
 
-        VNDefFunc2Arg() : m_arg1(ValueNumStore::NoVN)
-        {
-        }
-
         bool operator==(const VNDefFunc2Arg& y) const
         {
             return VNDefFunc1Arg::operator==(y) && m_arg1 == y.m_arg1;
@@ -1128,9 +1116,6 @@ private:
         ValueNum m_arg2;
         VNDefFunc3Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2)
             : VNDefFunc2Arg(func, arg0, arg1), m_arg2(arg2)
-        {
-        }
-        VNDefFunc3Arg() : m_arg2(ValueNumStore::NoVN)
         {
         }
 
@@ -1145,9 +1130,6 @@ private:
         ValueNum m_arg3;
         VNDefFunc4Arg(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3)
             : VNDefFunc3Arg(func, arg0, arg1, arg2), m_arg3(arg3)
-        {
-        }
-        VNDefFunc4Arg() : m_arg3(ValueNumStore::NoVN)
         {
         }
 
@@ -1166,7 +1148,7 @@ private:
     // So we have to be careful about breaking infinite recursion.  We can ignore "recursive" results -- if all the
     // non-recursive results are the same, the recursion indicates that the loop structure didn't alter the result.
     // This stack represents the set of outer phis such that select(phi, ind) is being evaluated.
-    JitExpandArrayStack<VNDefFunc2Arg> m_fixedPointMapSels;
+    ArrayStack<VNDefFunc2Arg, 1> m_fixedPointMapSels;
 
 #ifdef DEBUG
     // Returns "true" iff "m_fixedPointMapSels" is non-empty, and it's top element is
@@ -1181,7 +1163,7 @@ private:
     CheckedBoundVNSet m_checkedBoundVNs;
 
     // This is a map from "chunk number" to the attributes of the chunk.
-    JitExpandArrayStack<Chunk*> m_chunks;
+    ArrayStack<Chunk*, 8> m_chunks;
 
     // These entries indicate the current allocation chunk, if any, for each valid combination of <var_types,
     // ChunkExtraAttribute, loopNumber>.  Valid combinations require attribs==CEA_None or loopNum==MAX_LOOP_NUM.
@@ -1203,18 +1185,6 @@ private:
         return SmallIntConstMin <= i && i <= SmallIntConstMax;
     }
     ValueNum m_VNsForSmallIntConsts[SmallIntConstNum];
-
-    struct ValueNumList
-    {
-        ValueNum      vn;
-        ValueNumList* next;
-        ValueNumList(const ValueNum& v, ValueNumList* n = nullptr) : vn(v), next(n)
-        {
-        }
-    };
-
-    // Keeps track of value numbers that are integer constants and also handles (GTG_ICON_HDL_MASK.)
-    ValueNumList* m_intConHandles;
 
     typedef VNMap<INT32> IntToValueNumMap;
     IntToValueNumMap*    m_intCnsMap;
@@ -1459,15 +1429,15 @@ FORCEINLINE T ValueNumStore::SafeGetConstantValue(Chunk* c, unsigned offset)
         case TYP_REF:
             return CoerceTypRefToT<T>(c, offset);
         case TYP_BYREF:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
         case TYP_INT:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
         case TYP_LONG:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
         case TYP_FLOAT:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
         case TYP_DOUBLE:
-            return static_cast<T>(reinterpret_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
+            return static_cast<T>(static_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
         default:
             assert(false);
             return (T)0;
@@ -1504,7 +1474,7 @@ inline bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
 template <>
 inline size_t ValueNumStore::CoerceTypRefToT(Chunk* c, unsigned offset)
 {
-    return reinterpret_cast<size_t>(reinterpret_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
+    return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
 }
 
 template <typename T>
