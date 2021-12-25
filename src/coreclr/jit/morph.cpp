@@ -9515,8 +9515,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 #if LOCAL_ASSERTION_PROP
     AssertionIndex origAssertionCount = 0;
     AssertionDsc*  origAssertionTab   = nullptr;
-    AssertionIndex thenAssertionCount = 0;
-    AssertionDsc*  thenAssertionTab   = nullptr;
 
     // If we are entering the "then" part of a Qmark-Colon we must
     // save the state of the current copy assignment table
@@ -9531,11 +9529,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
             origAssertionCount = optAssertionCount;
             memcpy(origAssertionTab, optAssertionTabPrivate, tabSize);
         }
-        else
-        {
-            origAssertionCount = 0;
-            origAssertionTab   = nullptr;
-        }
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -9544,6 +9537,9 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
+    AssertionIndex thenAssertionCount = 0;
+    AssertionDsc*  thenAssertionTab   = nullptr;
+
     if (optLocalAssertionProp)
     {
         // If we are exiting the "then" part of a Qmark-Colon we must
@@ -9556,11 +9552,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
             thenAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
             thenAssertionCount = optAssertionCount;
             memcpy(thenAssertionTab, optAssertionTabPrivate, tabSize);
-        }
-        else
-        {
-            thenAssertionCount = 0;
-            thenAssertionTab   = nullptr;
         }
 
         // If we are entering the "else" part of a Qmark-Colon we must
