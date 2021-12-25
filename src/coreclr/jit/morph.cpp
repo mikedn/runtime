@@ -9518,6 +9518,12 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     INDEBUG(colon->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
+    // If only one of the then/else expressions throws then the rest of the block is
+    // still reachable. We have to ignore the setting of fgRemoveRestOfBlock during
+    // then/else morphing. We could also handle the case of both then/else throwing
+    // but that doesn't seem to ever happen currently.
+    bool removeRestOfBlock = fgRemoveRestOfBlock;
+
 #if LOCAL_ASSERTION_PROP
     AssertionIndex origAssertionCount = 0;
     AssertionDsc*  origAssertionTab   = nullptr;
@@ -9547,6 +9553,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     elseExpr = fgMorphTree(elseExpr, mac);
     colon->SetOp(0, elseExpr);
+    fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
     if (optLocalAssertionProp)
@@ -9583,6 +9590,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     thenExpr = fgMorphTree(thenExpr, mac);
     colon->SetOp(1, thenExpr);
+    fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
     // Merge assertions after COLON morphing.
@@ -9640,9 +9648,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     // Mark the nodes that are conditionally executed
     GenTree* temp = colon;
     fgWalkTreePre(&temp, gtMarkColonCond);
-
-    // Since we're doing this postorder we clear this if it got set by a child
-    fgRemoveRestOfBlock = false;
 
     return qmark;
 }
