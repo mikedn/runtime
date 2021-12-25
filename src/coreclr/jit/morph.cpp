@@ -9705,50 +9705,22 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
         tree->gtType = genActualType(op1->TypeGet());
     }
 
-    GenTree* oldTree = tree;
-
-    GenTree* qmarkOp1 = nullptr;
-    GenTree* qmarkOp2 = nullptr;
-
-    if ((tree->OperGet() == GT_QMARK) && (tree->AsOp()->gtOp2->OperGet() == GT_COLON))
+    if (GenTreeQmark* qmark = tree->IsQmark())
     {
-        qmarkOp1 = oldTree->AsOp()->gtOp2->AsOp()->gtOp1;
-        qmarkOp2 = oldTree->AsOp()->gtOp2->AsOp()->gtOp2;
-    }
-
-    // Try to fold it, maybe we get lucky,
-    tree = gtFoldExpr(tree);
-
-    if (oldTree != tree)
-    {
-        /* if gtFoldExpr returned op1 or op2 then we are done */
-        if ((tree == op1) || (tree == op2) || (tree == qmarkOp1) || (tree == qmarkOp2))
+        if (GenTreeIntCon* cond = qmark->GetOp(0)->IsIntCon())
         {
-            return tree;
+            GenTreeColon* colon  = qmark->GetOp(1)->AsColon();
+            GenTree*      result = cond->GetValue() != 0 ? colon->ThenNode() : colon->ElseNode();
+
+            // Clear colon flags only if the qmark itself is not conditionaly executed
+            if ((tree->gtFlags & GTF_COLON_COND) == 0)
+            {
+                fgWalkTreePre(&result, gtClearColonCond);
+            }
+
+            return result;
         }
-
-        /* If we created a comma-throw tree then we need to morph op1 */
-        if (fgIsCommaThrow(tree))
-        {
-            tree->AsOp()->gtOp1 = fgMorphTree(tree->AsOp()->gtOp1);
-            fgMorphTreeDone(tree);
-            return tree;
-        }
-
-        return tree;
     }
-    else if (tree->OperIsConst())
-    {
-        return tree;
-    }
-
-    /* gtFoldExpr could have used setOper to change the oper */
-    oper = tree->OperGet();
-    typ  = tree->TypeGet();
-
-    /* gtFoldExpr could have changed op1 and op2 */
-    op1 = tree->AsOp()->gtOp1;
-    op2 = tree->gtGetOp2IfPresent();
 
     /*-------------------------------------------------------------------------
      * Perform the required oper-specific postorder morphing
