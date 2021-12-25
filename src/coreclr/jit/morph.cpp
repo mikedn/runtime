@@ -9470,6 +9470,52 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         return fgMorphTree(result);
     }
 
+    if (fgIsCommaThrow(condExpr, true))
+    {
+        // We can remove the rest of the block if the qmark itself is not conditionaly executed
+        if ((qmark->gtFlags & GTF_COLON_COND) == 0)
+        {
+            fgRemoveRestOfBlock = true;
+        }
+
+        assert(condExpr->OperIs(GT_COMMA));
+
+        if (varActualType(qmark->GetType()) == varActualType(condExpr->GetType()))
+        {
+            return condExpr;
+        }
+
+        if (qmark->TypeIs(TYP_VOID))
+        {
+            return condExpr->AsOp()->GetOp(0);
+        }
+
+        GenTree* value = condExpr->AsOp()->GetOp(1);
+
+        if (varTypeIsFloating(qmark->GetType()))
+        {
+            value->ChangeOperConst(GT_CNS_DBL);
+            value->AsDblCon()->SetValue(0.0);
+        }
+        else if (qmark->TypeIs(TYP_LONG))
+        {
+            value->ChangeOperConst(GT_CNS_NATIVELONG);
+            value->AsIntConCommon()->SetLngValue(0);
+        }
+        else
+        {
+            assert(varTypeIsIntOrI(qmark->GetType()));
+
+            value->ChangeOperConst(GT_CNS_INT);
+            value->AsIntConCommon()->SetIconValue(0);
+        }
+
+        value->SetType(varActualType(qmark->GetType()));
+        condExpr->SetType(value->GetType());
+
+        return condExpr;
+    }
+
     INDEBUG(colon->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
 #if LOCAL_ASSERTION_PROP
@@ -9598,54 +9644,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     // Since we're doing this postorder we clear this if it got set by a child
     fgRemoveRestOfBlock = false;
 
-    if (!fgIsCommaThrow(condExpr, true))
-    {
-        return qmark;
-    }
-
-    if ((condExpr->gtFlags & GTF_COLON_COND) == 0)
-    {
-        // We can safely throw out the rest of the statements
-        fgRemoveRestOfBlock = true;
-    }
-
-    GenTree* throwNode = condExpr->AsOp()->GetOp(0);
-
-    if (varActualType(qmark->GetType()) == varActualType(condExpr->GetType()))
-    {
-        return condExpr;
-    }
-
-    if (qmark->TypeIs(TYP_VOID))
-    {
-        return throwNode;
-    }
-
-    GenTree* commaOp2 = condExpr->AsOp()->GetOp(1);
-
-    if (qmark->TypeIs(TYP_LONG))
-    {
-        commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
-        commaOp2->AsIntConCommon()->SetLngValue(0);
-        condExpr->SetType(TYP_LONG);
-        commaOp2->SetType(TYP_LONG);
-    }
-    else if (varTypeIsFloating(qmark->GetType()))
-    {
-        commaOp2->ChangeOperConst(GT_CNS_DBL);
-        commaOp2->AsDblCon()->SetValue(0.0);
-        condExpr->SetType(TYP_DOUBLE);
-        commaOp2->SetType(TYP_DOUBLE);
-    }
-    else
-    {
-        commaOp2->ChangeOperConst(GT_CNS_INT);
-        commaOp2->AsIntConCommon()->SetIconValue(0);
-        condExpr->SetType(TYP_INT);
-        commaOp2->SetType(TYP_INT);
-    }
-
-    return condExpr;
+    return qmark;
 }
 
 /*****************************************************************************
