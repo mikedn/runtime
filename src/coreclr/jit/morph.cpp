@@ -9487,11 +9487,11 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
     tree->SetOp(0, op1);
 
 #if LOCAL_ASSERTION_PROP
-    // If we are exiting the "then" part of a Qmark-Colon we must
-    // save the state of the current copy assignment table
-    // so that we can merge this state with the "else" part exit
     if (optLocalAssertionProp && tree->OperIs(GT_COLON))
     {
+        // If we are exiting the "then" part of a Qmark-Colon we must
+        // save the state of the current copy assignment table
+        // so that we can merge this state with the "else" part exit
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
@@ -9505,12 +9505,9 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
             thenAssertionCount = 0;
             thenAssertionTab   = nullptr;
         }
-    }
 
-    // If we are entering the "else" part of a Qmark-Colon we must
-    // reset the state of the current copy assignment table
-    if (optLocalAssertionProp && tree->OperIs(GT_COLON))
-    {
+        // If we are entering the "else" part of a Qmark-Colon we must
+        // reset the state of the current copy assignment table
         optAssertionReset(0);
 
         if (origAssertionCount != 0)
@@ -9575,23 +9572,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
         tree->SetType(varActualType(op1->GetType()));
     }
 
-    if (GenTreeQmark* qmark = tree->IsQmark())
-    {
-        if (GenTreeIntCon* cond = qmark->GetOp(0)->IsIntCon())
-        {
-            GenTreeColon* colon  = qmark->GetOp(1)->AsColon();
-            GenTree*      result = cond->GetValue() != 0 ? colon->ThenNode() : colon->ElseNode();
-
-            // Clear colon flags only if the qmark itself is not conditionaly executed
-            if ((tree->gtFlags & GTF_COLON_COND) == 0)
-            {
-                fgWalkTreePre(&result, gtClearColonCond);
-            }
-
-            return result;
-        }
-    }
-
     if (tree->OperIs(GT_COLON))
     {
         // Mark the nodes that are conditionally executed
@@ -9604,7 +9584,21 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
         return tree;
     }
 
-    assert(tree->OperIs(GT_QMARK));
+    GenTreeQmark* qmark = tree->AsQmark();
+
+    if (GenTreeIntCon* cond = op1->IsIntCon())
+    {
+        GenTreeColon* colon  = op2->AsColon();
+        GenTree*      result = cond->GetValue() != 0 ? colon->ThenNode() : colon->ElseNode();
+
+        // Clear colon flags only if the qmark itself is not conditionaly executed
+        if ((tree->gtFlags & GTF_COLON_COND) == 0)
+        {
+            fgWalkTreePre(&result, gtClearColonCond);
+        }
+
+        return result;
+    }
 
     if (!fgIsCommaThrow(op1, true))
     {
