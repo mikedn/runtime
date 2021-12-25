@@ -9631,6 +9631,7 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
                 while (index <= optAssertionCount)
                 {
                     AssertionDsc* curAssertion = optGetAssertion(index);
+                    bool          keep         = false;
 
                     for (unsigned j = 0; j < thenAssertionCount; j++)
                     {
@@ -9644,35 +9645,39 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
                             if ((curAssertion->op2.kind == thenAssertion->op2.kind) &&
                                 (curAssertion->op2.lconVal == thenAssertion->op2.lconVal))
                             {
-                                goto KEEP;
+                                keep = true;
+                                break;
                             }
                             else
                             {
-                                goto REMOVE;
+                                break;
                             }
                         }
                     }
-                //
-                // If we fall out of the loop above then we didn't find
-                // any matching entry in the thenAssertionTab so it must
-                // have been killed on that path so we remove it here
-                //
-                REMOVE:
-                    // The data at optAssertionTabPrivate[i] is to be removed
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef DEBUG
-                    if (verbose)
+
+                    // If we fall out of the loop above then we didn't find
+                    // any matching entry in the thenAssertionTab so it must
+                    // have been killed on that path so we remove it here
+                    if (!keep)
                     {
-                        printf("The QMARK-COLON ");
-                        printTreeID(tree);
-                        printf(" removes assertion candidate #%d\n", index);
-                    }
+                        // The data at optAssertionTabPrivate[i] is to be removed
+                        CLANG_FORMAT_COMMENT_ANCHOR;
+#ifdef DEBUG
+                        if (verbose)
+                        {
+                            printf("The QMARK-COLON ");
+                            printTreeID(tree);
+                            printf(" removes assertion candidate #%d\n", index);
+                        }
 #endif
-                    optAssertionRemove(index);
-                    continue;
-                KEEP:
-                    // The data at optAssertionTabPrivate[i] is to be kept
-                    index++;
+                        optAssertionRemove(index);
+                        continue;
+                    }
+                    else
+                    {
+                        // The data at optAssertionTabPrivate[i] is to be kept
+                        index++;
+                    }
                 }
             }
         }
