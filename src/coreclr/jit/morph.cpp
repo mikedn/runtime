@@ -9483,16 +9483,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    MorphAddrContext  newOp1Mac(false);
-    MorphAddrContext* op1Mac = mac;
-
-    if (op1->OperIsIndir())
-    {
-        // An indirection gets a default address context
-        op1Mac = nullptr;
-    }
-
-    op1 = fgMorphTree(op1, op1Mac);
+    op1 = fgMorphTree(op1, mac);
     tree->SetOp(0, op1);
 
 #if LOCAL_ASSERTION_PROP
@@ -9530,12 +9521,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
         }
     }
 #endif // LOCAL_ASSERTION_PROP
-
-    if (op2->OperIsIndir())
-    {
-        // An indirection gets a default address context if it isn't address taken.
-        mac = nullptr;
-    }
 
     op2 = fgMorphTree(op2, mac);
     tree->SetOp(1, op2);
@@ -10337,32 +10322,31 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         MorphAddrContext  newOp1Mac(false);
         MorphAddrContext* op1Mac = mac;
 
-        if (op1->OperIsIndir())
+        if (!op1->OperIsIndir())
         {
-            // An indirection gets a default address context
-            op1Mac = nullptr;
-        }
-        else if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
-        {
-            if (op1Mac == nullptr)
+            if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
             {
-                op1Mac = &newOp1Mac;
+                if (op1Mac == nullptr)
+                {
+                    op1Mac = &newOp1Mac;
+                }
             }
-        }
-        else if (op1Mac != nullptr)
-        {
-            if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(1)->IsIntCon())
+            else if (op1Mac != nullptr)
             {
-                op1Mac->offset += static_cast<target_size_t>(tree->AsOp()->GetOp(1)->AsIntCon()->GetUnsignedValue());
-            }
-            else if (tree->OperIs(GT_COMMA))
-            {
-                // COMMA's first operand has nothing to do with any existing address context.
-                op1Mac = nullptr;
-            }
-            else
-            {
-                op1Mac->isOffsetConstant = false;
+                if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(1)->IsIntCon())
+                {
+                    op1Mac->offset +=
+                        static_cast<target_size_t>(tree->AsOp()->GetOp(1)->AsIntCon()->GetUnsignedValue());
+                }
+                else if (tree->OperIs(GT_COMMA))
+                {
+                    // COMMA's first operand has nothing to do with any existing address context.
+                    op1Mac = nullptr;
+                }
+                else
+                {
+                    op1Mac->isOffsetConstant = false;
+                }
             }
         }
 
@@ -10390,12 +10374,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
     if (op2)
     {
-        if (op2->OperIsIndir())
-        {
-            // An indirection gets a default address context if it isn't address taken.
-            mac = nullptr;
-        }
-        else if (mac != nullptr)
+        if (!op2->OperIsIndir() && (mac != nullptr))
         {
             if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(0)->IsIntCon())
             {
@@ -12833,6 +12812,12 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             {
                 tree = fgMorphIndexAddr(index);
             }
+        }
+
+        if (tree->OperIsIndir())
+        {
+            // An indirection gets a default address context if it isn't address taken.
+            mac = nullptr;
         }
 
         /* Ensure that we haven't morphed this node already */
