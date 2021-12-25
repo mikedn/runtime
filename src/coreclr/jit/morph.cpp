@@ -9436,7 +9436,9 @@ GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
 GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
 {
     ALLOCA_CHECK();
-    assert(tree->OperKind() & GTK_SMPOP);
+    assert(tree->OperIs(GT_QMARK, GT_COLON));
+    assert(fgGlobalMorph);
+    assert(!optValnumCSE_phase);
 
     /* The steps in this function are :
        o Perform required preorder processing
@@ -9455,11 +9457,6 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
     AssertionDsc*  thenAssertionTab   = DUMMY_INIT(NULL);
 #endif
 
-    if (fgGlobalMorph)
-    {
-        tree = fgMorphForRegisterFP(tree);
-    }
-
     genTreeOps oper = tree->OperGet();
     var_types  typ  = tree->TypeGet();
     GenTree*   op1  = tree->AsOp()->gtOp1;
@@ -9471,33 +9468,13 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
 
     switch (oper)
     {
-        // Some arithmetic operators need to use a helper call to the EE
-        int helper;
-
-        case GT_ASG:
-            if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR))
-            {
-                op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
-            }
-
-            if (GenTreeLclVarCommon* lclVar = op1->SkipComma()->IsLclVarCommon())
-            {
-                lclVar->gtFlags |= GTF_VAR_DEF;
-            }
-
-            assert(!op1->OperIsHWIntrinsic());
-            // op1 of a ASG is an l-value. Only r-values can be CSEed
-            op1->gtFlags |= GTF_DONT_CSE;
-            break;
-
         case GT_QMARK:
-        case GT_JTRUE:
 
             noway_assert(op1);
 
             if (op1->OperIsCompare())
             {
-                noway_assert((oper == GT_JTRUE) || (op1->gtFlags & GTF_RELOP_QMARK));
+                noway_assert(op1->gtFlags & GTF_RELOP_QMARK);
                 /* Mark the comparison node with GTF_RELOP_JMP_USED so it knows that it does
                    not need to materialize the result as a 0 or 1. */
 
@@ -9521,878 +9498,211 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_IND:
-        case GT_OBJ:
-            if (op1->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) && !tree->AsIndir()->IsVolatile())
-            {
-                ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
-
-                // Just change it to a LCL_FLD. Since these locals are already address exposed
-                // it's not worth the complication to figure out if the types match and change
-                // to a LCL_VAR instead. Also don't bother with field sequences for the same
-                // reason, VN doesn't do anything interesting for address exposed locals.
-
-                tree->ChangeOper(GT_LCL_FLD);
-                tree->SetSideEffects(GTF_GLOB_REF);
-                tree->AsLclFld()->SetLclNum(op1->AsLclVarCommon()->GetLclNum());
-                tree->AsLclFld()->SetLclOffs(op1->AsLclVarCommon()->GetLclOffs());
-                tree->AsLclFld()->SetLayout(layout, this);
-
-                return tree;
-            }
-
-            if (GenTreeIndexAddr* index = op1->IsIndexAddr())
-            {
-                if ((typ == TYP_USHORT) && opts.OptimizationEnabled() && index->GetArray()->IsStrCon())
-                {
-                    GenTree* morphed = fgMorphStringIndexIndir(index);
-
-                    if (morphed != nullptr)
-                    {
-                        return morphed;
-                    }
-                }
-
-                // TODO-MIKE-Cleanup: Ideally this should be done when the indir is created.
-                tree->gtFlags |= GTF_IND_NONFAULTING;
-            }
-
-            if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && ((op1->gtFlags & GTF_EXCEPT) == 0))
-            {
-                tree->gtFlags &= ~GTF_EXCEPT;
-            }
-            break;
-
-        case GT_CAST:
-            return fgMorphCast(tree->AsCast());
-
-        case GT_MUL:
-            if (opts.OptimizationEnabled() && !optValnumCSE_phase && !tree->gtOverflow())
-            {
-                // MUL(NEG(a), C) => MUL(a, NEG(C))
-                if (op1->OperIs(GT_NEG) && !op1->gtGetOp1()->IsCnsIntOrI() && op2->IsCnsIntOrI() &&
-                    !op2->IsIconHandle())
-                {
-                    GenTree* newOp1   = op1->gtGetOp1();
-                    GenTree* newConst = gtNewIconNode(-op2->AsIntCon()->IconValue(), op2->TypeGet());
-                    DEBUG_DESTROY_NODE(op1);
-                    DEBUG_DESTROY_NODE(op2);
-                    tree->AsOp()->gtOp1 = newOp1;
-                    tree->AsOp()->gtOp2 = newConst;
-                    return fgMorphSmpOp(tree, mac);
-                }
-            }
-
-#ifndef TARGET_64BIT
-            if (typ == TYP_LONG)
-            {
-                /* For (long)int1 * (long)int2, we dont actually do the
-                   casts, and just multiply the 32 bit values, which will
-                   give us the 64 bit result in edx:eax */
-
-                noway_assert(op2);
-                if ((op1->gtOper == GT_CAST && op2->gtOper == GT_CAST &&
-                     genActualType(op1->CastFromType()) == TYP_INT && genActualType(op2->CastFromType()) == TYP_INT) &&
-                    !op1->gtOverflow() && !op2->gtOverflow())
-                {
-                    // The casts have to be of the same signedness.
-                    if ((op1->gtFlags & GTF_UNSIGNED) != (op2->gtFlags & GTF_UNSIGNED))
-                    {
-                        // We see if we can force an int constant to change its signedness
-                        GenTree* constOp;
-                        if (op1->AsCast()->CastOp()->gtOper == GT_CNS_INT)
-                            constOp = op1;
-                        else if (op2->AsCast()->CastOp()->gtOper == GT_CNS_INT)
-                            constOp = op2;
-                        else
-                            goto NO_MUL_64RSLT;
-
-                        if (((unsigned)(constOp->AsCast()->CastOp()->AsIntCon()->gtIconVal) < (unsigned)(0x80000000)))
-                            constOp->gtFlags ^= GTF_UNSIGNED;
-                        else
-                            goto NO_MUL_64RSLT;
-                    }
-
-                    // The only combination that can overflow
-                    if (tree->gtOverflow() && (tree->gtFlags & GTF_UNSIGNED) && !(op1->gtFlags & GTF_UNSIGNED))
-                        goto NO_MUL_64RSLT;
-
-                    /* Remaining combinations can never overflow during long mul. */
-
-                    tree->gtFlags &= ~GTF_OVERFLOW;
-
-                    /* Do unsigned mul only if the casts were unsigned */
-
-                    tree->gtFlags &= ~GTF_UNSIGNED;
-                    tree->gtFlags |= op1->gtFlags & GTF_UNSIGNED;
-
-                    /* Since we are committing to GTF_MUL_64RSLT, we don't want
-                       the casts to be folded away. So morph the castees directly */
-
-                    op1->AsOp()->gtOp1 = fgMorphTree(op1->AsOp()->gtOp1);
-                    op2->AsOp()->gtOp1 = fgMorphTree(op2->AsOp()->gtOp1);
-
-                    // Propagate side effect flags up the tree
-                    op1->gtFlags &= ~GTF_ALL_EFFECT;
-                    op1->gtFlags |= (op1->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
-                    op2->gtFlags &= ~GTF_ALL_EFFECT;
-                    op2->gtFlags |= (op2->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
-
-                    // If the GT_MUL can be altogether folded away, we should do that.
-
-                    if (op1->AsCast()->CastOp()->OperIsConst() && op2->AsCast()->CastOp()->OperIsConst() &&
-                        opts.OptEnabled(CLFLG_CONSTANTFOLD))
-                    {
-                        tree->AsOp()->gtOp1 = op1 = gtFoldExprConst(op1);
-                        tree->AsOp()->gtOp2 = op2 = gtFoldExprConst(op2);
-                        noway_assert(op1->OperIsConst() && op2->OperIsConst());
-                        tree = gtFoldExprConst(tree);
-                        noway_assert(tree->OperIsConst());
-                        return tree;
-                    }
-
-                    tree->gtFlags |= GTF_MUL_64RSLT;
-
-                    // If op1 and op2 are unsigned casts, we need to do an unsigned mult
-                    tree->gtFlags |= (op1->gtFlags & GTF_UNSIGNED);
-
-                    // Insert GT_NOP nodes for the cast operands so that they do not get folded
-                    // And propagate the new flags. We don't want to CSE the casts because
-                    // codegen expects GTF_MUL_64RSLT muls to have a certain layout.
-
-                    if (op1->AsCast()->CastOp()->OperGet() != GT_NOP)
-                    {
-                        op1->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op1->AsCast()->CastOp());
-                        op1->gtFlags &= ~GTF_ALL_EFFECT;
-                        op1->gtFlags |= (op1->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
-                    }
-
-                    if (op2->AsCast()->CastOp()->OperGet() != GT_NOP)
-                    {
-                        op2->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op2->AsCast()->CastOp());
-                        op2->gtFlags &= ~GTF_ALL_EFFECT;
-                        op2->gtFlags |= (op2->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
-                    }
-
-                    op1->gtFlags |= GTF_DONT_CSE;
-                    op2->gtFlags |= GTF_DONT_CSE;
-
-                    tree->gtFlags &= ~GTF_ALL_EFFECT;
-                    tree->gtFlags |= ((op1->gtFlags | op2->gtFlags) & GTF_ALL_EFFECT);
-
-                    goto DONE_MORPHING_CHILDREN;
-                }
-                else if ((tree->gtFlags & GTF_MUL_64RSLT) == 0)
-                {
-                NO_MUL_64RSLT:
-                    if (tree->gtOverflow())
-                        helper = (tree->gtFlags & GTF_UNSIGNED) ? CORINFO_HELP_ULMUL_OVF : CORINFO_HELP_LMUL_OVF;
-                    else
-                        helper = CORINFO_HELP_LMUL;
-
-                    goto USE_HELPER_FOR_ARITH;
-                }
-                else
-                {
-                    // We are seeing this node again. We have decided to use
-                    // GTF_MUL_64RSLT, so leave it alone.
-
-                    assert(tree->gtIsValid64RsltMul());
-                }
-            }
-#endif // !TARGET_64BIT
-            break;
-
-        case GT_ARR_LENGTH:
-            if (op1->OperIs(GT_CNS_STR))
-            {
-                // Optimize `ldstr + String::get_Length()` to CNS_INT
-                // e.g. "Hello".Length => 5
-                GenTreeIntCon* iconNode = gtNewStringLiteralLength(op1->AsStrCon());
-                if (iconNode != nullptr)
-                {
-                    INDEBUG(iconNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                    return iconNode;
-                }
-            }
-            break;
-
-        case GT_DIV:
-            // Replace "val / dcon" with "val * (1.0 / dcon)" if dcon is a power of two.
-            // Powers of two within range are always exactly represented,
-            // so multiplication by the reciprocal is safe in this scenario
-            if (fgGlobalMorph && op2->IsCnsFltOrDbl())
-            {
-                double divisor = op2->AsDblCon()->gtDconVal;
-                if (((typ == TYP_DOUBLE) && FloatingPointUtils::hasPreciseReciprocal(divisor)) ||
-                    ((typ == TYP_FLOAT) && FloatingPointUtils::hasPreciseReciprocal(forceCastToFloat(divisor))))
-                {
-                    oper = GT_MUL;
-                    tree->ChangeOper(oper);
-                    op2->AsDblCon()->gtDconVal = 1.0 / divisor;
-                }
-            }
-
-            // array.Length is always positive so GT_DIV can be changed to GT_UDIV
-            // if op2 is a positive cns
-            if (!optValnumCSE_phase && op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
-                op2->AsIntCon()->IconValue() >= 2) // for 0 and 1 it doesn't matter if it's UDIV or DIV
-            {
-                assert(tree->OperIs(GT_DIV));
-                tree->ChangeOper(GT_UDIV);
-                return fgMorphSmpOp(tree, mac);
-            }
-
-            if (opts.OptimizationEnabled() && !optValnumCSE_phase)
-            {
-                // DIV(NEG(a), C) => DIV(a, NEG(C))
-                if (op1->OperIs(GT_NEG) && !op1->gtGetOp1()->IsCnsIntOrI() && op2->IsCnsIntOrI() &&
-                    !op2->IsIconHandle())
-                {
-                    ssize_t op2Value = op2->AsIntCon()->IconValue();
-                    if (op2Value != 1 && op2Value != -1) // Div must throw exception for int(long).MinValue / -1.
-                    {
-                        tree->AsOp()->gtOp1 = op1->gtGetOp1();
-                        DEBUG_DESTROY_NODE(op1);
-                        tree->AsOp()->gtOp2 = gtNewIconNode(-op2Value, op2->TypeGet());
-                        DEBUG_DESTROY_NODE(op2);
-                        return fgMorphSmpOp(tree, mac);
-                    }
-                }
-            }
-
-#ifndef TARGET_64BIT
-            if (typ == TYP_LONG)
-            {
-                helper = CORINFO_HELP_LDIV;
-                goto USE_HELPER_FOR_ARITH;
-            }
-
-#if USE_HELPERS_FOR_INT_DIV
-            if (typ == TYP_INT)
-            {
-                helper = CORINFO_HELP_DIV;
-                goto USE_HELPER_FOR_ARITH;
-            }
-#endif
-#endif // !TARGET_64BIT
-
-            if (op2->gtOper == GT_CAST && op2->AsOp()->gtOp1->IsCnsIntOrI())
-            {
-                op2 = gtFoldExprConst(op2);
-            }
-            break;
-
-        case GT_UDIV:
-
-#ifndef TARGET_64BIT
-            if (typ == TYP_LONG)
-            {
-                helper = CORINFO_HELP_ULDIV;
-                goto USE_HELPER_FOR_ARITH;
-            }
-#if USE_HELPERS_FOR_INT_DIV
-            if (typ == TYP_INT)
-            {
-                helper = CORINFO_HELP_UDIV;
-                goto USE_HELPER_FOR_ARITH;
-            }
-#endif
-#endif // TARGET_64BIT
-            break;
-
-        case GT_MOD:
-
-            if (varTypeIsFloating(typ))
-            {
-                helper = CORINFO_HELP_DBLREM;
-                noway_assert(op2);
-                if (op1->TypeGet() == TYP_FLOAT)
-                {
-                    if (op2->TypeGet() == TYP_FLOAT)
-                    {
-                        helper = CORINFO_HELP_FLTREM;
-                    }
-                    else
-                    {
-                        tree->AsOp()->gtOp1 = op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
-                    }
-                }
-                else if (op2->TypeGet() == TYP_FLOAT)
-                {
-                    tree->AsOp()->gtOp2 = op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
-                }
-                goto USE_HELPER_FOR_ARITH;
-            }
-
-            // array.Length is always positive so GT_DIV can be changed to GT_UDIV
-            // if op2 is a positive cns
-            if (!optValnumCSE_phase && op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
-                op2->AsIntCon()->IconValue() >= 2) // for 0 and 1 it doesn't matter if it's UMOD or MOD
-            {
-                assert(tree->OperIs(GT_MOD));
-                tree->ChangeOper(GT_UMOD);
-                return fgMorphSmpOp(tree, mac);
-            }
-
-            // Do not use optimizations (unlike UMOD's idiv optimizing during codegen) for signed mod.
-            // A similar optimization for signed mod will not work for a negative perfectly divisible
-            // HI-word. To make it correct, we would need to divide without the sign and then flip the
-            // result sign after mod. This requires 18 opcodes + flow making it not worthy to inline.
-            goto ASSIGN_HELPER_FOR_MOD;
-
-        case GT_UMOD:
-
-#ifdef TARGET_ARMARCH
-//
-// Note for TARGET_ARMARCH we don't have  a remainder instruction, so we don't do this optimization
-//
-#else  // TARGET_XARCH
-            /* If this is an unsigned long mod with op2 which is a cast to long from a
-               constant int, then don't morph to a call to the helper.  This can be done
-               faster inline using idiv.
-            */
-
-            noway_assert(op2);
-            if ((typ == TYP_LONG) && opts.OptEnabled(CLFLG_CONSTANTFOLD) &&
-                ((tree->gtFlags & GTF_UNSIGNED) == (op1->gtFlags & GTF_UNSIGNED)) &&
-                ((tree->gtFlags & GTF_UNSIGNED) == (op2->gtFlags & GTF_UNSIGNED)))
-            {
-                if (op2->gtOper == GT_CAST && op2->AsCast()->CastOp()->gtOper == GT_CNS_INT &&
-                    op2->AsCast()->CastOp()->AsIntCon()->gtIconVal >= 2 &&
-                    op2->AsCast()->CastOp()->AsIntCon()->gtIconVal <= 0x3fffffff &&
-                    (tree->gtFlags & GTF_UNSIGNED) == (op2->AsCast()->CastOp()->gtFlags & GTF_UNSIGNED))
-                {
-                    tree->AsOp()->gtOp2 = op2 = fgMorphCast(op2->AsCast());
-                    noway_assert(op2->gtOper == GT_CNS_NATIVELONG);
-                }
-
-                if (op2->gtOper == GT_CNS_NATIVELONG && op2->AsIntConCommon()->LngValue() >= 2 &&
-                    op2->AsIntConCommon()->LngValue() <= 0x3fffffff)
-                {
-                    tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1);
-                    noway_assert(op1->TypeGet() == TYP_LONG);
-
-                    // Update flags for op1 morph
-                    tree->gtFlags &= ~GTF_ALL_EFFECT;
-
-                    tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT); // Only update with op1 as op2 is a constant
-
-                    // If op1 is a constant, then do constant folding of the division operator
-                    if (op1->gtOper == GT_CNS_NATIVELONG)
-                    {
-                        tree = gtFoldExpr(tree);
-                    }
-
-                    // We may fail to fold
-                    if (!tree->OperIsConst())
-                    {
-                        tree->AsOp()->CheckDivideByConstOptimized(this);
-                    }
-
-                    return tree;
-                }
-            }
-#endif // TARGET_XARCH
-
-        ASSIGN_HELPER_FOR_MOD:
-
-            // For "val % 1", return 0 if op1 doesn't have any side effects
-            // and we are not in the CSE phase, we cannot discard 'tree'
-            // because it may contain CSE expressions that we haven't yet examined.
-            //
-            if (((op1->gtFlags & GTF_SIDE_EFFECT) == 0) && !optValnumCSE_phase)
-            {
-                if (op2->IsIntegralConst(1))
-                {
-                    GenTree* zeroNode = gtNewZeroConNode(typ);
-#ifdef DEBUG
-                    zeroNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
-                    DEBUG_DESTROY_NODE(tree);
-                    return zeroNode;
-                }
-            }
-
-#ifndef TARGET_64BIT
-            if (typ == TYP_LONG)
-            {
-                helper = (oper == GT_UMOD) ? CORINFO_HELP_ULMOD : CORINFO_HELP_LMOD;
-                goto USE_HELPER_FOR_ARITH;
-            }
-
-#if USE_HELPERS_FOR_INT_DIV
-            if (typ == TYP_INT)
-            {
-                if (oper == GT_UMOD)
-                {
-                    helper = CORINFO_HELP_UMOD;
-                    goto USE_HELPER_FOR_ARITH;
-                }
-                else if (oper == GT_MOD)
-                {
-                    helper = CORINFO_HELP_MOD;
-                    goto USE_HELPER_FOR_ARITH;
-                }
-            }
-#endif
-#endif // !TARGET_64BIT
-
-            if (op2->gtOper == GT_CAST && op2->AsOp()->gtOp1->IsCnsIntOrI())
-            {
-                op2 = gtFoldExprConst(op2);
-            }
-
-#ifdef TARGET_ARM64
-            // For ARM64 we don't have a remainder instruction,
-            // The architecture manual suggests the following transformation to
-            // generate code for such operator:
-            //
-            // a % b = a - (a / b) * b;
-            //
-            // TODO: there are special cases where it can be done better, for example
-            // when the modulo operation is unsigned and the divisor is a
-            // integer constant power of two.  In this case, we can make the transform:
-            //
-            // a % b = a & (b - 1);
-            //
-            // Lower supports it for all cases except when `a` is constant, but
-            // in Morph we can't guarantee that `a` won't be transformed into a constant,
-            // so can't guarantee that lower will be able to do this optimization.
-            {
-                // Do "a % b = a - (a / b) * b" morph always, see TODO before this block.
-                bool doMorphModToSubMulDiv = true;
-
-                if (doMorphModToSubMulDiv)
-                {
-                    assert(!optValnumCSE_phase);
-
-                    tree = fgMorphModToSubMulDiv(tree->AsOp());
-                    op1  = tree->AsOp()->gtOp1;
-                    op2  = tree->AsOp()->gtOp2;
-                }
-            }
-#else  // !TARGET_ARM64
-            // If b is not a power of 2 constant then lowering replaces a % b
-            // with a - (a / b) * b and applies magic division optimization to
-            // a / b. The code may already contain an a / b expression (e.g.
-            // x = a / 10; y = a % 10;) and then we end up with redundant code.
-            // If we convert % to / here we give CSE the opportunity to eliminate
-            // the redundant division. If there's no redundant division then
-            // nothing is lost, lowering would have done this transform anyway.
-
-            if (!optValnumCSE_phase && ((tree->OperGet() == GT_MOD) && op2->IsIntegralConst()))
-            {
-                ssize_t divisorValue    = op2->AsIntCon()->IconValue();
-                size_t  absDivisorValue = (divisorValue == SSIZE_T_MIN) ? static_cast<size_t>(divisorValue)
-                                                                       : static_cast<size_t>(abs(divisorValue));
-
-                if (!isPow2(absDivisorValue))
-                {
-                    tree = fgMorphModToSubMulDiv(tree->AsOp());
-                    op1  = tree->AsOp()->gtOp1;
-                    op2  = tree->AsOp()->gtOp2;
-                }
-            }
-#endif // !TARGET_ARM64
-            break;
-
-        USE_HELPER_FOR_ARITH:
-        {
-            // TODO: this comment is wrong now, do an appropriate fix.
-            /* We have to morph these arithmetic operations into helper calls
-               before morphing the arguments (preorder), else the arguments
-               won't get correct values of fgPtrArgCntCur.
-               However, try to fold the tree first in case we end up with a
-               simple node which won't need a helper call at all */
-
-            noway_assert(tree->OperIsBinary());
-
-            GenTree* oldTree = tree;
-
-            tree = gtFoldExpr(tree);
-
-            // Were we able to fold it ?
-            // Note that gtFoldExpr may return a non-leaf even if successful
-            // e.g. for something like "expr / 1" - see also bug #290853
-            if (tree->OperIsLeaf() || (oldTree != tree))
-            {
-                return (oldTree != tree) ? fgMorphTree(tree) : fgMorphLeaf(tree);
-            }
-
-            // Did we fold it into a comma node with throw?
-            if (tree->gtOper == GT_COMMA)
-            {
-                noway_assert(fgIsCommaThrow(tree));
-                return fgMorphTree(tree);
-            }
-        }
-            return fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(op1, op2));
-
-        case GT_RETURN:
-            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && gtIsSmallIntCastNeeded(op1, info.compRetType))
-            {
-                // Small-typed return values are extended by the callee.
-
-                op1 = gtNewCastNode(TYP_INT, op1, false, info.compRetType);
-                op1->gtFlags |= (tree->gtFlags & GTF_COLON_COND);
-                op1 = fgMorphCast(op1->AsCast());
-
-                tree->AsUnOp()->SetOp(0, op1);
-                tree->gtFlags &= ~GTF_ALL_EFFECT;
-                tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-
-                return tree;
-            }
-            break;
-
-        case GT_EQ:
-        case GT_NE:
-        {
-            GenTree* optimizedTree = gtFoldTypeCompare(tree);
-
-            if (optimizedTree != tree)
-            {
-                return fgMorphTree(optimizedTree);
-            }
-        }
-
-            FALLTHROUGH;
-
-        case GT_GT:
-        {
-            // Try and optimize nullable boxes feeding compares
-            GenTree* optimizedTree = gtFoldBoxNullable(tree->AsOp());
-
-            if (optimizedTree->OperGet() != tree->OperGet())
-            {
-                return optimizedTree;
-            }
-            else
-            {
-                tree = optimizedTree;
-            }
-
-            op1 = tree->AsOp()->gtOp1;
-            op2 = tree->gtGetOp2IfPresent();
-
-            break;
-        }
-
-        case GT_RUNTIMELOOKUP:
-            return fgMorphTree(op1);
-
-#ifdef TARGET_ARM
-        case GT_INTRINSIC:
-            if (tree->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Round)
-            {
-                switch (tree->TypeGet())
-                {
-                    case TYP_DOUBLE:
-                        return fgMorphIntoHelperCall(tree, CORINFO_HELP_DBLROUND, gtNewCallArgs(op1));
-                    case TYP_FLOAT:
-                        return fgMorphIntoHelperCall(tree, CORINFO_HELP_FLTROUND, gtNewCallArgs(op1));
-                    default:
-                        unreached();
-                }
-            }
-            break;
-#endif
-
         default:
             break;
     }
 
-    /*-------------------------------------------------------------------------
-     * Process the first operand, if any
-     */
-
-    if (op1)
-    {
-
 #if LOCAL_ASSERTION_PROP
-        // If we are entering the "then" part of a Qmark-Colon we must
-        // save the state of the current copy assignment table
-        // so that we can restore this state when entering the "else" part
-        if (isQmarkColon)
-        {
-            noway_assert(optLocalAssertionProp);
-            if (optAssertionCount)
-            {
-                noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-                unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
-                origAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
-                origAssertionCount = optAssertionCount;
-                memcpy(origAssertionTab, optAssertionTabPrivate, tabSize);
-            }
-            else
-            {
-                origAssertionCount = 0;
-                origAssertionTab   = nullptr;
-            }
-        }
-#endif // LOCAL_ASSERTION_PROP
-
-        MorphAddrContext  newOp1Mac(false);
-        MorphAddrContext* op1Mac = mac;
-
-        if (op1->OperIsIndir())
-        {
-            // An indirection gets a default address context
-            op1Mac = nullptr;
-        }
-        else if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
-        {
-            if (op1Mac == nullptr)
-            {
-                op1Mac = &newOp1Mac;
-            }
-        }
-        else if (op1Mac != nullptr)
-        {
-            if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(1)->IsIntCon())
-            {
-                op1Mac->offset += static_cast<target_size_t>(tree->AsOp()->GetOp(1)->AsIntCon()->GetUnsignedValue());
-            }
-            else if (tree->OperIs(GT_COMMA))
-            {
-                // COMMA's first operand has nothing to do with any existing address context.
-                op1Mac = nullptr;
-            }
-            else
-            {
-                op1Mac->isOffsetConstant = false;
-            }
-        }
-
-        tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1, op1Mac);
-
-#if LOCAL_ASSERTION_PROP
-        // If we are exiting the "then" part of a Qmark-Colon we must
-        // save the state of the current copy assignment table
-        // so that we can merge this state with the "else" part exit
-        if (isQmarkColon)
-        {
-            noway_assert(optLocalAssertionProp);
-            if (optAssertionCount)
-            {
-                noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-                unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
-                thenAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
-                thenAssertionCount = optAssertionCount;
-                memcpy(thenAssertionTab, optAssertionTabPrivate, tabSize);
-            }
-            else
-            {
-                thenAssertionCount = 0;
-                thenAssertionTab   = nullptr;
-            }
-        }
-#endif // LOCAL_ASSERTION_PROP
-
-        /* Morphing along with folding and inlining may have changed the
-         * side effect flags, so we have to reset them
-         *
-         * NOTE: Don't reset the exception flags on nodes that may throw */
-
-        assert(tree->gtOper != GT_CALL);
-
-        if (!tree->OperRequiresCallFlag(this))
-        {
-            tree->gtFlags &= ~GTF_CALL;
-        }
-
-        /* Propagate the new flags */
-        tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-    } // if (op1)
-
-    /*-------------------------------------------------------------------------
-     * Process the second operand, if any
-     */
-
-    if (op2)
+    // If we are entering the "then" part of a Qmark-Colon we must
+    // save the state of the current copy assignment table
+    // so that we can restore this state when entering the "else" part
+    if (isQmarkColon)
     {
-
-#if LOCAL_ASSERTION_PROP
-        // If we are entering the "else" part of a Qmark-Colon we must
-        // reset the state of the current copy assignment table
-        if (isQmarkColon)
+        noway_assert(optLocalAssertionProp);
+        if (optAssertionCount)
         {
-            noway_assert(optLocalAssertionProp);
-            optAssertionReset(0);
-            if (origAssertionCount)
-            {
-                size_t tabSize = origAssertionCount * sizeof(AssertionDsc);
-                memcpy(optAssertionTabPrivate, origAssertionTab, tabSize);
-                optAssertionReset(origAssertionCount);
-            }
-        }
-#endif // LOCAL_ASSERTION_PROP
-
-        if (op2->OperIsIndir())
-        {
-            // An indirection gets a default address context if it isn't address taken.
-            mac = nullptr;
-        }
-        else if (mac != nullptr)
-        {
-            if (tree->OperIs(GT_ADD) && tree->AsOp()->GetOp(0)->IsIntCon())
-            {
-                mac->offset += static_cast<target_size_t>(tree->AsOp()->GetOp(0)->AsIntCon()->GetUnsignedValue());
-            }
-            else if (!tree->OperIs(GT_COMMA))
-            {
-                mac->isOffsetConstant = false;
-            }
-        }
-
-        tree->AsOp()->gtOp2 = op2 = fgMorphTree(op2, mac);
-
-        /* Propagate the side effect flags from op2 */
-
-        tree->gtFlags |= (op2->gtFlags & GTF_ALL_EFFECT);
-
-#if LOCAL_ASSERTION_PROP
-        // If we are exiting the "else" part of a Qmark-Colon we must
-        // merge the state of the current copy assignment table with
-        // that of the exit of the "then" part.
-        if (isQmarkColon)
-        {
-            noway_assert(optLocalAssertionProp);
-            // If either exit table has zero entries then
-            // the merged table also has zero entries
-            if (optAssertionCount == 0 || thenAssertionCount == 0)
-            {
-                optAssertionReset(0);
-            }
-            else
-            {
-                size_t tabSize = optAssertionCount * sizeof(AssertionDsc);
-                if ((optAssertionCount != thenAssertionCount) ||
-                    (memcmp(thenAssertionTab, optAssertionTabPrivate, tabSize) != 0))
-                {
-                    // Yes they are different so we have to find the merged set
-                    // Iterate over the copy asgn table removing any entries
-                    // that do not have an exact match in the thenAssertionTab
-                    AssertionIndex index = 1;
-                    while (index <= optAssertionCount)
-                    {
-                        AssertionDsc* curAssertion = optGetAssertion(index);
-
-                        for (unsigned j = 0; j < thenAssertionCount; j++)
-                        {
-                            AssertionDsc* thenAssertion = &thenAssertionTab[j];
-
-                            // Do the left sides match?
-                            if ((curAssertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum) &&
-                                (curAssertion->assertionKind == thenAssertion->assertionKind))
-                            {
-                                // Do the right sides match?
-                                if ((curAssertion->op2.kind == thenAssertion->op2.kind) &&
-                                    (curAssertion->op2.lconVal == thenAssertion->op2.lconVal))
-                                {
-                                    goto KEEP;
-                                }
-                                else
-                                {
-                                    goto REMOVE;
-                                }
-                            }
-                        }
-                    //
-                    // If we fall out of the loop above then we didn't find
-                    // any matching entry in the thenAssertionTab so it must
-                    // have been killed on that path so we remove it here
-                    //
-                    REMOVE:
-                        // The data at optAssertionTabPrivate[i] is to be removed
-                        CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("The QMARK-COLON ");
-                            printTreeID(tree);
-                            printf(" removes assertion candidate #%d\n", index);
-                        }
-#endif
-                        optAssertionRemove(index);
-                        continue;
-                    KEEP:
-                        // The data at optAssertionTabPrivate[i] is to be kept
-                        index++;
-                    }
-                }
-            }
-        }
-#endif // LOCAL_ASSERTION_PROP
-    }  // if (op2)
-
-DONE_MORPHING_CHILDREN:
-
-    if (tree->OperIsIndirOrArrLength())
-    {
-        tree->SetIndirExceptionFlags(this);
-    }
-    else
-    {
-        if (tree->OperMayThrow(this))
-        {
-            // Mark the tree node as potentially throwing an exception
-            tree->gtFlags |= GTF_EXCEPT;
+            noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
+            unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
+            origAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
+            origAssertionCount = optAssertionCount;
+            memcpy(origAssertionTab, optAssertionTabPrivate, tabSize);
         }
         else
         {
-            if (((op1 == nullptr) || ((op1->gtFlags & GTF_EXCEPT) == 0)) &&
-                ((op2 == nullptr) || ((op2->gtFlags & GTF_EXCEPT) == 0)))
+            origAssertionCount = 0;
+            origAssertionTab   = nullptr;
+        }
+    }
+#endif // LOCAL_ASSERTION_PROP
+
+    MorphAddrContext  newOp1Mac(false);
+    MorphAddrContext* op1Mac = mac;
+
+    if (op1->OperIsIndir())
+    {
+        // An indirection gets a default address context
+        op1Mac = nullptr;
+    }
+    else if (op1Mac != nullptr)
+    {
+        op1Mac->isOffsetConstant = false;
+    }
+
+    tree->AsOp()->gtOp1 = op1 = fgMorphTree(op1, op1Mac);
+
+#if LOCAL_ASSERTION_PROP
+    // If we are exiting the "then" part of a Qmark-Colon we must
+    // save the state of the current copy assignment table
+    // so that we can merge this state with the "else" part exit
+    if (isQmarkColon)
+    {
+        noway_assert(optLocalAssertionProp);
+        if (optAssertionCount)
+        {
+            noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
+            unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
+            thenAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
+            thenAssertionCount = optAssertionCount;
+            memcpy(thenAssertionTab, optAssertionTabPrivate, tabSize);
+        }
+        else
+        {
+            thenAssertionCount = 0;
+            thenAssertionTab   = nullptr;
+        }
+    }
+#endif // LOCAL_ASSERTION_PROP
+
+    /* Morphing along with folding and inlining may have changed the
+     * side effect flags, so we have to reset them
+     *
+     * NOTE: Don't reset the exception flags on nodes that may throw */
+
+    tree->gtFlags &= ~GTF_CALL;
+
+    /* Propagate the new flags */
+    tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
+
+#if LOCAL_ASSERTION_PROP
+    // If we are entering the "else" part of a Qmark-Colon we must
+    // reset the state of the current copy assignment table
+    if (isQmarkColon)
+    {
+        noway_assert(optLocalAssertionProp);
+        optAssertionReset(0);
+        if (origAssertionCount)
+        {
+            size_t tabSize = origAssertionCount * sizeof(AssertionDsc);
+            memcpy(optAssertionTabPrivate, origAssertionTab, tabSize);
+            optAssertionReset(origAssertionCount);
+        }
+    }
+#endif // LOCAL_ASSERTION_PROP
+
+    if (op2->OperIsIndir())
+    {
+        // An indirection gets a default address context if it isn't address taken.
+        mac = nullptr;
+    }
+    else if (mac != nullptr)
+    {
+        mac->isOffsetConstant = false;
+    }
+
+    tree->AsOp()->gtOp2 = op2 = fgMorphTree(op2, mac);
+
+    /* Propagate the side effect flags from op2 */
+
+    tree->gtFlags |= (op2->gtFlags & GTF_ALL_EFFECT);
+
+#if LOCAL_ASSERTION_PROP
+    // If we are exiting the "else" part of a Qmark-Colon we must
+    // merge the state of the current copy assignment table with
+    // that of the exit of the "then" part.
+    if (isQmarkColon)
+    {
+        noway_assert(optLocalAssertionProp);
+        // If either exit table has zero entries then
+        // the merged table also has zero entries
+        if (optAssertionCount == 0 || thenAssertionCount == 0)
+        {
+            optAssertionReset(0);
+        }
+        else
+        {
+            size_t tabSize = optAssertionCount * sizeof(AssertionDsc);
+            if ((optAssertionCount != thenAssertionCount) ||
+                (memcmp(thenAssertionTab, optAssertionTabPrivate, tabSize) != 0))
             {
-                tree->gtFlags &= ~GTF_EXCEPT;
+                // Yes they are different so we have to find the merged set
+                // Iterate over the copy asgn table removing any entries
+                // that do not have an exact match in the thenAssertionTab
+                AssertionIndex index = 1;
+                while (index <= optAssertionCount)
+                {
+                    AssertionDsc* curAssertion = optGetAssertion(index);
+
+                    for (unsigned j = 0; j < thenAssertionCount; j++)
+                    {
+                        AssertionDsc* thenAssertion = &thenAssertionTab[j];
+
+                        // Do the left sides match?
+                        if ((curAssertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum) &&
+                            (curAssertion->assertionKind == thenAssertion->assertionKind))
+                        {
+                            // Do the right sides match?
+                            if ((curAssertion->op2.kind == thenAssertion->op2.kind) &&
+                                (curAssertion->op2.lconVal == thenAssertion->op2.lconVal))
+                            {
+                                goto KEEP;
+                            }
+                            else
+                            {
+                                goto REMOVE;
+                            }
+                        }
+                    }
+                //
+                // If we fall out of the loop above then we didn't find
+                // any matching entry in the thenAssertionTab so it must
+                // have been killed on that path so we remove it here
+                //
+                REMOVE:
+                    // The data at optAssertionTabPrivate[i] is to be removed
+                    CLANG_FORMAT_COMMENT_ANCHOR;
+#ifdef DEBUG
+                    if (verbose)
+                    {
+                        printf("The QMARK-COLON ");
+                        printTreeID(tree);
+                        printf(" removes assertion candidate #%d\n", index);
+                    }
+#endif
+                    optAssertionRemove(index);
+                    continue;
+                KEEP:
+                    // The data at optAssertionTabPrivate[i] is to be kept
+                    index++;
+                }
             }
         }
     }
+#endif // LOCAL_ASSERTION_PROP
 
-    if (tree->OperRequiresAsgFlag())
+    if (((op1->gtFlags & GTF_EXCEPT) == 0) && ((op2->gtFlags & GTF_EXCEPT) == 0))
     {
-        tree->gtFlags |= GTF_ASG;
-    }
-    else
-    {
-        if (((op1 == nullptr) || ((op1->gtFlags & GTF_ASG) == 0)) &&
-            ((op2 == nullptr) || ((op2->gtFlags & GTF_ASG) == 0)))
-        {
-            tree->gtFlags &= ~GTF_ASG;
-        }
+        tree->gtFlags &= ~GTF_EXCEPT;
     }
 
-    if (tree->OperRequiresCallFlag(this))
+    if (((op1->gtFlags & GTF_ASG) == 0) && ((op2->gtFlags & GTF_ASG) == 0))
     {
-        tree->gtFlags |= GTF_CALL;
+        tree->gtFlags &= ~GTF_ASG;
     }
-    else
+
+    if (((op1->gtFlags & GTF_CALL) == 0) && ((op2->gtFlags & GTF_CALL) == 0))
     {
-        if (((op1 == nullptr) || ((op1->gtFlags & GTF_CALL) == 0)) &&
-            ((op2 == nullptr) || ((op2->gtFlags & GTF_CALL) == 0)))
-        {
-            tree->gtFlags &= ~GTF_CALL;
-        }
+        tree->gtFlags &= ~GTF_CALL;
     }
     /*-------------------------------------------------------------------------
      * Now do POST-ORDER processing
      */
 
-    if (varTypeIsGC(tree->TypeGet()) && (op1 && !varTypeIsGC(op1->TypeGet())) && (op2 && !varTypeIsGC(op2->TypeGet())))
+    if (varTypeIsGC(tree->TypeGet()) && !varTypeIsGC(op1->TypeGet()) && !varTypeIsGC(op2->TypeGet()))
     {
         // The tree is really not GC but was marked as such. Now that the
         // children have been unmarked, unmark the tree too.
 
-        // Remember that GT_COMMA inherits it's type only from op2
-        if (tree->gtOper == GT_COMMA)
-        {
-            tree->gtType = genActualType(op2->TypeGet());
-        }
-        else
-        {
-            tree->gtType = genActualType(op1->TypeGet());
-        }
+        tree->gtType = genActualType(op1->TypeGet());
     }
 
     GenTree* oldTree = tree;
@@ -10444,1271 +9754,24 @@ DONE_MORPHING_CHILDREN:
      * Perform the required oper-specific postorder morphing
      */
 
-    GenTree*      cns1;
-    GenTree*      cns2;
-    size_t        ival1, ival2;
-    GenTree*      effectiveOp1;
-    FieldSeqNode* fieldSeq = nullptr;
-
     switch (oper)
     {
-        case GT_ASG:
-            effectiveOp1 = op1->gtEffectiveVal();
-
-            if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
-            {
-                effectiveOp1->gtFlags |= GTF_IND_ASG_LHS;
-            }
-            else
-            {
-                gtAssignSetVarDef(effectiveOp1);
-            }
-
-            // If we are storing a small type, we might be able to omit a cast.
-            // We may also omit a cast when storing to a "normalize on load"
-            // local since we know that a load from that local has to cast anyway.
-            if (varTypeIsSmall(effectiveOp1->TypeGet()) &&
-                (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) ||
-                 (effectiveOp1->OperIs(GT_LCL_VAR) && lvaGetDesc(effectiveOp1->AsLclVar())->lvNormalizeOnLoad())))
-            {
-                if (!gtIsActiveCSE_Candidate(op2) && (op2->gtOper == GT_CAST) && !op2->gtOverflow())
-                {
-                    var_types castType = op2->CastToType();
-
-                    // If we are performing a narrowing cast and
-                    // castType is larger or the same as op1's type
-                    // then we can discard the cast.
-
-                    if (varTypeIsSmall(castType) && (genTypeSize(castType) >= genTypeSize(effectiveOp1->TypeGet())))
-                    {
-                        tree->AsOp()->gtOp2 = op2 = op2->AsCast()->CastOp();
-                    }
-                }
-            }
-
-            /* We can't CSE the LHS of an assignment */
-            /* We also must set in the pre-morphing phase, otherwise assertionProp doesn't see it */
-            if (op1->IsLocal() || (op1->TypeGet() != TYP_STRUCT))
-            {
-                op1->gtFlags |= GTF_DONT_CSE;
-            }
-
-            if (varTypeIsStruct(typ) && !op2->OperIs(GT_PHI))
-            {
-                return fgMorphStructAssignment(tree->AsOp());
-            }
-
-            break;
-
-        case GT_RETURN:
-            if (varTypeIsStruct(tree->GetType()))
-            {
-                // If we have merged returns then we only need to transform the one that returns
-                // the merged return temp, the rest will be transformed into assignments to that
-                // temp when block morphing is complete.
-
-                if ((genReturnLocal == BAD_VAR_NUM) || ((tree->gtFlags & GTF_RET_MERGED) != 0))
-                {
-                    abiMorphStructReturn(tree->AsUnOp(), op1);
-                    op1 = tree->AsUnOp()->GetOp(0);
-                }
-            }
-            break;
-
-        case GT_EQ:
-        case GT_NE:
-
-            /* Make sure we're allowed to do this */
-
-            if (optValnumCSE_phase)
-            {
-                // It is not safe to reorder/delete CSE's
-                break;
-            }
-
-            // Pattern-matching optimization:
-            //    (a % c) ==/!= 0
-            // for power-of-2 constant `c`
-            // =>
-            //    a & (c - 1) ==/!= 0
-            // For integer `a`, even if negative.
-            if (opts.OptimizationEnabled())
-            {
-                GenTree* op1 = tree->AsOp()->gtOp1;
-                GenTree* op2 = tree->AsOp()->gtOp2;
-                if (op1->OperIs(GT_MOD) && varTypeIsIntegral(op1->TypeGet()) && op2->IsIntegralConst(0))
-                {
-                    GenTree* op1op2 = op1->AsOp()->gtOp2;
-                    if (op1op2->IsCnsIntOrI())
-                    {
-                        ssize_t modValue = op1op2->AsIntCon()->IconValue();
-                        if (isPow2(modValue))
-                        {
-                            op1->SetOper(GT_AND);                                 // Change % => &
-                            op1op2->AsIntConCommon()->SetIconValue(modValue - 1); // Change c => c - 1
-                        }
-                    }
-                }
-            }
-
-            cns2 = op2;
-
-            /* Check for "(expr +/- icon1) ==/!= (non-zero-icon2)" */
-
-            if (cns2->gtOper == GT_CNS_INT && cns2->AsIntCon()->gtIconVal != 0)
-            {
-                op1 = tree->AsOp()->gtOp1;
-
-                /* Since this can occur repeatedly we use a while loop */
-
-                while ((op1->gtOper == GT_ADD || op1->gtOper == GT_SUB) && (op1->AsOp()->gtOp2->gtOper == GT_CNS_INT) &&
-                       (op1->gtType == TYP_INT) && (op1->gtOverflow() == false))
-                {
-                    /* Got it; change "x+icon1==icon2" to "x==icon2-icon1" */
-
-                    ival1 = op1->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-                    ival2 = cns2->AsIntCon()->gtIconVal;
-
-                    if (op1->gtOper == GT_ADD)
-                    {
-                        ival2 -= ival1;
-                    }
-                    else
-                    {
-                        ival2 += ival1;
-                    }
-                    cns2->AsIntCon()->gtIconVal = ival2;
-
-#ifdef TARGET_64BIT
-                    // we need to properly re-sign-extend or truncate as needed.
-                    cns2->AsIntCon()->TruncateOrSignExtend32();
-#endif // TARGET_64BIT
-
-                    op1 = tree->AsOp()->gtOp1 = op1->AsOp()->gtOp1;
-                }
-            }
-
-            //
-            // Here we look for the following tree
-            //
-            //                        EQ/NE
-            //                        /  \.
-            //                      op1   CNS 0/1
-            //
-            ival2 = INT_MAX; // The value of INT_MAX for ival2 just means that the constant value is not 0 or 1
-
-            // cast to unsigned allows test for both 0 and 1
-            if ((cns2->gtOper == GT_CNS_INT) && (((size_t)cns2->AsIntConCommon()->IconValue()) <= 1U))
-            {
-                ival2 = (size_t)cns2->AsIntConCommon()->IconValue();
-            }
-            else // cast to UINT64 allows test for both 0 and 1
-                if ((cns2->gtOper == GT_CNS_LNG) && (((UINT64)cns2->AsIntConCommon()->LngValue()) <= 1ULL))
-            {
-                ival2 = (size_t)cns2->AsIntConCommon()->LngValue();
-            }
-
-            if (ival2 != INT_MAX)
-            {
-                // If we don't have a comma and relop, we can't do this optimization
-                //
-                if ((op1->gtOper == GT_COMMA) && (op1->AsOp()->gtOp2->OperIsCompare()))
-                {
-                    // Here we look for the following transformation
-                    //
-                    //                  EQ/NE                    Possible REVERSE(RELOP)
-                    //                  /  \                           /      \.
-                    //               COMMA CNS 0/1             ->   COMMA   relop_op2
-                    //              /   \                          /    \.
-                    //             x  RELOP                       x     relop_op1
-                    //               /    \.
-                    //         relop_op1  relop_op2
-                    //
-                    //
-                    //
-                    GenTree* comma = op1;
-                    GenTree* relop = comma->AsOp()->gtOp2;
-
-                    GenTree* relop_op1 = relop->AsOp()->gtOp1;
-
-                    bool reverse = ((ival2 == 0) == (oper == GT_EQ));
-
-                    if (reverse)
-                    {
-                        gtReverseCond(relop);
-                    }
-
-                    relop->AsOp()->gtOp1 = comma;
-                    comma->AsOp()->gtOp2 = relop_op1;
-
-                    // Comma now has fewer nodes underneath it, so we need to regenerate its flags
-                    comma->gtFlags &= ~GTF_ALL_EFFECT;
-                    comma->gtFlags |= (comma->AsOp()->gtOp1->gtFlags) & GTF_ALL_EFFECT;
-                    comma->gtFlags |= (comma->AsOp()->gtOp2->gtFlags) & GTF_ALL_EFFECT;
-
-                    noway_assert((relop->gtFlags & GTF_RELOP_JMP_USED) == 0);
-                    noway_assert((relop->gtFlags & GTF_REVERSE_OPS) == 0);
-                    relop->gtFlags |=
-                        tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_RELOP_QMARK | GTF_DONT_CSE | GTF_ALL_EFFECT);
-
-                    return relop;
-                }
-
-                if (op1->gtOper == GT_COMMA)
-                {
-                    // Here we look for the following tree
-                    // and when the LCL_VAR is a temp we can fold the tree:
-                    //
-                    //                        EQ/NE                  EQ/NE
-                    //                        /  \                   /  \.
-                    //                     COMMA  CNS 0/1  ->     RELOP CNS 0/1
-                    //                     /   \                   / \.
-                    //                   ASG  LCL_VAR
-                    //                  /  \.
-                    //           LCL_VAR   RELOP
-                    //                      / \.
-                    //
-
-                    GenTree* asg = op1->AsOp()->gtOp1;
-                    GenTree* lcl = op1->AsOp()->gtOp2;
-
-                    /* Make sure that the left side of the comma is the assignment of the LCL_VAR */
-                    if (asg->gtOper != GT_ASG)
-                    {
-                        goto SKIP;
-                    }
-
-                    /* The right side of the comma must be a LCL_VAR temp */
-                    if (lcl->gtOper != GT_LCL_VAR)
-                    {
-                        goto SKIP;
-                    }
-
-                    unsigned lclNum = lcl->AsLclVarCommon()->GetLclNum();
-                    noway_assert(lclNum < lvaCount);
-
-                    /* If the LCL_VAR is not a temp then bail, a temp has a single def */
-                    if (!lvaTable[lclNum].lvIsTemp)
-                    {
-                        goto SKIP;
-                    }
-
-                    /* If the LCL_VAR is a CSE temp then bail, it could have multiple defs/uses */
-                    // Fix 383856 X86/ARM ILGEN
-                    if (lclNumIsCSE(lclNum))
-                    {
-                        goto SKIP;
-                    }
-
-                    /* We also must be assigning the result of a RELOP */
-                    if (asg->AsOp()->gtOp1->gtOper != GT_LCL_VAR)
-                    {
-                        goto SKIP;
-                    }
-
-                    /* Both of the LCL_VAR must match */
-                    if (asg->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() != lclNum)
-                    {
-                        goto SKIP;
-                    }
-
-                    /* If right side of asg is not a RELOP then skip */
-                    if (!asg->AsOp()->gtOp2->OperIsCompare())
-                    {
-                        goto SKIP;
-                    }
-
-                    /* Set op1 to the right side of asg, (i.e. the RELOP) */
-                    op1 = asg->AsOp()->gtOp2;
-
-                    DEBUG_DESTROY_NODE(asg->AsOp()->gtOp1);
-                    DEBUG_DESTROY_NODE(lcl);
-                }
-
-                if (op1->OperIsCompare())
-                {
-                    // Here we look for the following tree
-                    //
-                    //                        EQ/NE           ->      RELOP/!RELOP
-                    //                        /  \                       /    \.
-                    //                     RELOP  CNS 0/1
-                    //                     /   \.
-                    //
-                    // Note that we will remove/destroy the EQ/NE node and move
-                    // the RELOP up into it's location.
-
-                    /* Here we reverse the RELOP if necessary */
-
-                    bool reverse = ((ival2 == 0) == (oper == GT_EQ));
-
-                    if (reverse)
-                    {
-                        gtReverseCond(op1);
-                    }
-
-                    /* Propagate gtType of tree into op1 in case it is TYP_BYTE for setcc optimization */
-                    op1->gtType = tree->gtType;
-
-                    noway_assert((op1->gtFlags & GTF_RELOP_JMP_USED) == 0);
-                    op1->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_RELOP_QMARK | GTF_DONT_CSE);
-
-                    DEBUG_DESTROY_NODE(tree);
-                    return op1;
-                }
-
-                //
-                // Now we check for a compare with the result of an '&' operator
-                //
-                // Here we look for the following transformation:
-                //
-                //                        EQ/NE                  EQ/NE
-                //                        /  \                   /  \.
-                //                      AND   CNS 0/1  ->      AND   CNS 0
-                //                     /   \                  /   \.
-                //                RSZ/RSH   CNS 1            x     CNS (1 << y)
-                //                  /  \.
-                //                 x   CNS_INT +y
-
-                if (op1->gtOper == GT_AND)
-                {
-                    GenTree* andOp    = op1;
-                    GenTree* rshiftOp = andOp->AsOp()->gtOp1;
-
-                    if ((rshiftOp->gtOper != GT_RSZ) && (rshiftOp->gtOper != GT_RSH))
-                    {
-                        goto SKIP;
-                    }
-
-                    if (!rshiftOp->AsOp()->gtOp2->IsCnsIntOrI())
-                    {
-                        goto SKIP;
-                    }
-
-                    ssize_t shiftAmount = rshiftOp->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-
-                    if (shiftAmount < 0)
-                    {
-                        goto SKIP;
-                    }
-
-                    if (!andOp->AsOp()->gtOp2->IsIntegralConst(1))
-                    {
-                        goto SKIP;
-                    }
-
-                    if (andOp->gtType == TYP_INT)
-                    {
-                        if (shiftAmount > 31)
-                        {
-                            goto SKIP;
-                        }
-
-                        UINT32 newAndOperand = ((UINT32)1) << shiftAmount;
-
-                        andOp->AsOp()->gtOp2->AsIntCon()->gtIconVal = newAndOperand;
-
-                        // Reverse the cond if necessary
-                        if (ival2 == 1)
-                        {
-                            gtReverseCond(tree);
-                            cns2->AsIntCon()->gtIconVal = 0;
-                            oper                        = tree->gtOper;
-                        }
-                    }
-                    else if (andOp->gtType == TYP_LONG)
-                    {
-                        if (shiftAmount > 63)
-                        {
-                            goto SKIP;
-                        }
-
-                        UINT64 newAndOperand = ((UINT64)1) << shiftAmount;
-
-                        andOp->AsOp()->gtOp2->AsIntConCommon()->SetLngValue(newAndOperand);
-
-                        // Reverse the cond if necessary
-                        if (ival2 == 1)
-                        {
-                            gtReverseCond(tree);
-                            cns2->AsIntConCommon()->SetLngValue(0);
-                            oper = tree->gtOper;
-                        }
-                    }
-
-                    andOp->AsOp()->gtOp1 = rshiftOp->AsOp()->gtOp1;
-
-                    DEBUG_DESTROY_NODE(rshiftOp->AsOp()->gtOp2);
-                    DEBUG_DESTROY_NODE(rshiftOp);
-                }
-            } // END if (ival2 != INT_MAX)
-
-        SKIP:
-            /* Now check for compares with small constant longs that can be cast to int */
-
-            if (!cns2->OperIsConst())
-            {
-                goto COMPARE;
-            }
-
-            if (cns2->TypeGet() != TYP_LONG)
-            {
-                goto COMPARE;
-            }
-
-            /* Is the constant 31 bits or smaller? */
-
-            if ((cns2->AsIntConCommon()->LngValue() >> 31) != 0)
-            {
-                goto COMPARE;
-            }
-
-            /* Is the first comparand mask operation of type long ? */
-
-            if (op1->gtOper != GT_AND)
-            {
-                /* Another interesting case: cast from int */
-
-                if (op1->gtOper == GT_CAST && op1->CastFromType() == TYP_INT &&
-                    !gtIsActiveCSE_Candidate(op1) && // op1 cannot be a CSE candidate
-                    !op1->gtOverflow())              // cannot be an overflow checking cast
-                {
-                    /* Simply make this into an integer comparison */
-
-                    tree->AsOp()->gtOp1 = op1->AsCast()->CastOp();
-                    tree->AsOp()->gtOp2 = gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT);
-                }
-
-                goto COMPARE;
-            }
-
-            noway_assert(op1->TypeGet() == TYP_LONG && op1->OperGet() == GT_AND);
-
-            /* Is the result of the mask effectively an INT ? */
-
-            GenTree* andMask;
-            andMask = op1->AsOp()->gtOp2;
-            if (andMask->gtOper != GT_CNS_NATIVELONG)
-            {
-                goto COMPARE;
-            }
-            if ((andMask->AsIntConCommon()->LngValue() >> 32) != 0)
-            {
-                goto COMPARE;
-            }
-
-            /* Now we know that we can cast AsOp()->gtOp1 of AND to int */
-
-            op1->AsOp()->gtOp1 = gtNewCastNode(TYP_INT, op1->AsOp()->gtOp1, false, TYP_INT);
-
-            /* now replace the mask node (AsOp()->gtOp2 of AND node) */
-
-            noway_assert(andMask == op1->AsOp()->gtOp2);
-
-            ival1 = (int)andMask->AsIntConCommon()->LngValue();
-            andMask->SetOper(GT_CNS_INT);
-            andMask->gtType                = TYP_INT;
-            andMask->AsIntCon()->gtIconVal = ival1;
-
-            /* now change the type of the AND node */
-
-            op1->gtType = TYP_INT;
-
-            /* finally we replace the comparand */
-
-            ival2 = (int)cns2->AsIntConCommon()->LngValue();
-            cns2->SetOper(GT_CNS_INT);
-            cns2->gtType = TYP_INT;
-
-            noway_assert(cns2 == op2);
-            cns2->AsIntCon()->gtIconVal = ival2;
-
-            goto COMPARE;
-
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-
-            if (op2->gtOper == GT_CNS_INT)
-            {
-                cns2 = op2;
-                /* Check for "expr relop 1" */
-                if (cns2->IsIntegralConst(1))
-                {
-                    /* Check for "expr >= 1" */
-                    if (oper == GT_GE)
-                    {
-                        /* Change to "expr != 0" for unsigned and "expr > 0" for signed */
-                        oper = (tree->IsUnsigned()) ? GT_NE : GT_GT;
-                        goto SET_OPER;
-                    }
-                    /* Check for "expr < 1" */
-                    else if (oper == GT_LT)
-                    {
-                        /* Change to "expr == 0" for unsigned and "expr <= 0" for signed */
-                        oper = (tree->IsUnsigned()) ? GT_EQ : GT_LE;
-                        goto SET_OPER;
-                    }
-                }
-                /* Check for "expr relop -1" */
-                else if (!tree->IsUnsigned() && cns2->IsIntegralConst(-1))
-                {
-                    /* Check for "expr <= -1" */
-                    if (oper == GT_LE)
-                    {
-                        /* Change to "expr < 0" */
-                        oper = GT_LT;
-                        goto SET_OPER;
-                    }
-                    /* Check for "expr > -1" */
-                    else if (oper == GT_GT)
-                    {
-                        /* Change to "expr >= 0" */
-                        oper = GT_GE;
-
-                    SET_OPER:
-                        // IF we get here we should be changing 'oper'
-                        assert(tree->OperGet() != oper);
-
-                        // Keep the old ValueNumber for 'tree' as the new expr
-                        // will still compute the same value as before
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
-                        cns2->AsIntCon()->gtIconVal = 0;
-
-                        // vnStore is null before the ValueNumber phase has run
-                        if (vnStore != nullptr)
-                        {
-                            // Update the ValueNumber for 'cns2', as we just changed it to 0
-                            fgValueNumberTreeConst(cns2);
-                        }
-                        op2 = tree->AsOp()->gtOp2 = gtFoldExpr(op2);
-                    }
-                }
-                else if (tree->IsUnsigned() && op2->IsIntegralConst(0))
-                {
-                    if ((oper == GT_GT) || (oper == GT_LE))
-                    {
-                        // IL doesn't have a cne instruction so compilers use cgt.un instead. The JIT
-                        // recognizes certain patterns that involve GT_NE (e.g (x & 4) != 0) and fails
-                        // if GT_GT is used instead. Transform (x GT_GT.unsigned 0) into (x GT_NE 0)
-                        // and (x GT_LE.unsigned 0) into (x GT_EQ 0). The later case is rare, it sometimes
-                        // occurs as a result of branch inversion.
-                        oper = (oper == GT_LE) ? GT_EQ : GT_NE;
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
-                        tree->gtFlags &= ~GTF_UNSIGNED;
-                    }
-                }
-            }
-
-        COMPARE:
-
-            noway_assert(tree->OperIsCompare());
-            break;
-
-        case GT_MUL:
-#ifndef TARGET_64BIT
-            if (typ == TYP_LONG)
-            {
-                // This must be GTF_MUL_64RSLT
-                assert(tree->gtIsValid64RsltMul());
-                return tree;
-            }
-#endif
-            goto CM_OVF_OP;
-
-        case GT_SUB:
-
-            if (tree->gtOverflow())
-            {
-                goto CM_OVF_OP;
-            }
-
-            // TODO #4104: there are a lot of other places where
-            // this condition is not checked before transformations.
-            if (fgGlobalMorph)
-            {
-                /* Check for "op1 - cns2" , we change it to "op1 + (-cns2)" */
-
-                noway_assert(op2);
-                if (op2->IsIntCon() && !op2->IsIconHandle())
-                {
-                    // Negate the constant and change the node to be "+",
-                    // except when `op2` is a const byref.
-
-                    op2->AsIntCon()->SetValue(-op2->AsIntCon()->GetValue());
-                    oper = GT_ADD;
-                    tree->ChangeOper(oper);
-                    goto CM_ADD_OP;
-                }
-
-                /* Check for "cns1 - op2" , we change it to "(cns1 + (-op2))" */
-
-                noway_assert(op1);
-                if (op1->IsCnsIntOrI())
-                {
-                    noway_assert(varTypeIsIntOrI(tree));
-
-                    // The type of the new GT_NEG node cannot just be op2->TypeGet().
-                    // Otherwise we may sign-extend incorrectly in cases where the GT_NEG
-                    // node ends up feeding directly into a cast, for example in
-                    // GT_CAST<ubyte>(GT_SUB(0, s_1.ubyte))
-                    tree->AsOp()->gtOp2 = op2 = gtNewOperNode(GT_NEG, genActualType(op2->TypeGet()), op2);
-                    fgMorphTreeDone(op2);
-
-                    oper = GT_ADD;
-                    tree->ChangeOper(oper);
-                    goto CM_ADD_OP;
-                }
-
-                /* No match - exit */
-            }
-
-            // Skip optimization if non-NEG operand is constant.
-            // Both op1 and op2 are not constant because it was already checked above.
-            if (opts.OptimizationEnabled() && fgGlobalMorph &&
-                (((op1->gtFlags & GTF_EXCEPT) == 0) || ((op2->gtFlags & GTF_EXCEPT) == 0)))
-            {
-                // a - -b = > a + b
-                // SUB(a, (NEG(b)) => ADD(a, b)
-
-                if (!op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG))
-                {
-                    // tree: SUB
-                    // op1: a
-                    // op2: NEG
-                    // op2Child: b
-
-                    GenTree* op2Child = op2->AsOp()->gtOp1; // b
-                    oper              = GT_ADD;
-                    tree->SetOper(oper, GenTree::PRESERVE_VN);
-                    tree->AsOp()->gtOp2 = op2Child;
-
-                    DEBUG_DESTROY_NODE(op2);
-
-                    op2 = op2Child;
-                }
-
-                // -a - -b = > b - a
-                // SUB(NEG(a), (NEG(b)) => SUB(b, a)
-
-                if (op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG))
-                {
-                    // tree: SUB
-                    // op1: NEG
-                    // op1Child: a
-                    // op2: NEG
-                    // op2Child: b
-
-                    GenTree* op1Child   = op1->AsOp()->gtOp1; // a
-                    GenTree* op2Child   = op2->AsOp()->gtOp1; // b
-                    tree->AsOp()->gtOp1 = op2Child;
-                    tree->AsOp()->gtOp2 = op1Child;
-
-                    DEBUG_DESTROY_NODE(op1);
-                    DEBUG_DESTROY_NODE(op2);
-
-                    op1 = op2Child;
-                    op2 = op1Child;
-                }
-            }
-
-            break;
-
-#ifdef TARGET_ARM64
-        case GT_DIV:
-            if (!varTypeIsFloating(tree->gtType))
-            {
-                // Codegen for this instruction needs to be able to throw two exceptions:
-                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
-                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
-            }
-            break;
-        case GT_UDIV:
-            // Codegen for this instruction needs to be able to throw one exception:
-            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
-            break;
-#endif
-
-        case GT_ADD:
-
-        CM_OVF_OP:
-            if (tree->gtOverflow())
-            {
-                // Add the excptn-throwing basic block to jump to on overflow
-                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
-
-                // We can't do any commutative morphing for overflow instructions
-
-                break;
-            }
-
-        CM_ADD_OP:
-
-        case GT_OR:
-        case GT_XOR:
-        case GT_AND:
-
-            /* Commute any non-REF constants to the right */
-
-            noway_assert(op1);
-            if (op1->OperIsConst() && (op1->gtType != TYP_REF))
-            {
-                // TODO-Review: We used to assert here that
-                // noway_assert(!op2->OperIsConst() || !opts.OptEnabled(CLFLG_CONSTANTFOLD));
-                // With modifications to AddrTaken==>AddrExposed, we did more assertion propagation,
-                // and would sometimes hit this assertion.  This may indicate a missed "remorph".
-                // Task is to re-enable this assertion and investigate.
-
-                /* Swap the operands */
-                tree->AsOp()->gtOp1 = op2;
-                tree->AsOp()->gtOp2 = op1;
-
-                op1 = op2;
-                op2 = tree->AsOp()->gtOp2;
-            }
-
-            // Fold "cmp & 1" to just "cmp"
-            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsCompare() && op2->IsIntegralConst(1) &&
-                !gtIsActiveCSE_Candidate(tree) && !gtIsActiveCSE_Candidate(op2))
-            {
-                DEBUG_DESTROY_NODE(op2);
-                DEBUG_DESTROY_NODE(tree);
-                return op1;
-            }
-
-            // See if we can fold floating point operations (can regress minopts mode)
-            if (opts.OptimizationEnabled() && varTypeIsFloating(tree->TypeGet()) && !optValnumCSE_phase)
-            {
-                if ((oper == GT_MUL) && !op1->IsCnsFltOrDbl() && op2->IsCnsFltOrDbl())
-                {
-                    if (op2->AsDblCon()->gtDconVal == 2.0)
-                    {
-                        bool needsComma = !op1->OperIsLeaf() && !op1->IsLocal();
-                        // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
-                        // Unfortunately, it's not optHoistLoopCode-friendly yet so let's do it later.
-                        if (!needsComma || (fgOrder == FGOrderLinear))
-                        {
-                            // Fold "x*2.0" to "x+x"
-                            op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);
-                            op1  = tree->AsOp()->gtOp1;
-                            oper = GT_ADD;
-                            tree = gtNewOperNode(oper, tree->TypeGet(), op1, op2);
-                            INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                        }
-                    }
-                    else if (op2->AsDblCon()->gtDconVal == 1.0)
-                    {
-                        // Fold "x*1.0" to "x"
-                        DEBUG_DESTROY_NODE(op2);
-                        DEBUG_DESTROY_NODE(tree);
-                        return op1;
-                    }
-                }
-            }
-
-            /* See if we can fold GT_ADD nodes. */
-
-            if (oper == GT_ADD)
-            {
-                /* Fold "((x+icon1)+(y+icon2)) to ((x+y)+(icon1+icon2))" */
-
-                if (op1->gtOper == GT_ADD && op2->gtOper == GT_ADD && !gtIsActiveCSE_Candidate(op2) &&
-                    op1->AsOp()->gtOp2->gtOper == GT_CNS_INT && op2->AsOp()->gtOp2->gtOper == GT_CNS_INT &&
-                    !op1->gtOverflow() && !op2->gtOverflow())
-                {
-                    // Don't create a byref pointer that may point outside of the ref object.
-                    // If a GC happens, the byref won't get updated. This can happen if one
-                    // of the int components is negative. It also requires the address generation
-                    // be in a fully-interruptible code region.
-                    if (!varTypeIsGC(op1->AsOp()->gtOp1->TypeGet()) && !varTypeIsGC(op2->AsOp()->gtOp1->TypeGet()))
-                    {
-                        cns1 = op1->AsOp()->gtOp2;
-                        cns2 = op2->AsOp()->gtOp2;
-                        cns1->AsIntCon()->gtIconVal += cns2->AsIntCon()->gtIconVal;
-#ifdef TARGET_64BIT
-                        if (cns1->TypeGet() == TYP_INT)
-                        {
-                            // we need to properly re-sign-extend or truncate after adding two int constants above
-                            cns1->AsIntCon()->TruncateOrSignExtend32();
-                        }
-#endif // TARGET_64BIT
-
-                        tree->AsOp()->gtOp2 = cns1;
-                        DEBUG_DESTROY_NODE(cns2);
-
-                        op1->AsOp()->gtOp2 = op2->AsOp()->gtOp1;
-                        op1->gtFlags |= (op1->AsOp()->gtOp2->gtFlags & GTF_ALL_EFFECT);
-                        DEBUG_DESTROY_NODE(op2);
-                        op2 = tree->AsOp()->gtOp2;
-                    }
-                }
-
-                if (op2->IsCnsIntOrI() && varTypeIsIntegralOrI(typ))
-                {
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-
-                    // Fold (x + 0).
-
-                    if ((op2->AsIntConCommon()->IconValue() == 0) && !gtIsActiveCSE_Candidate(tree))
-                    {
-
-                        // If this addition is adding an offset to a null pointer,
-                        // avoid the work and yield the null pointer immediately.
-                        // Dereferencing the pointer in either case will have the
-                        // same effect.
-
-                        if (!optValnumCSE_phase && varTypeIsGC(op2->TypeGet()) &&
-                            ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
-                        {
-                            op2->gtType = tree->gtType;
-                            DEBUG_DESTROY_NODE(op1);
-                            DEBUG_DESTROY_NODE(tree);
-                            return op2;
-                        }
-
-                        // Remove the addition iff it won't change the tree type
-                        // to TYP_REF.
-
-                        if (!gtIsActiveCSE_Candidate(op2) &&
-                            ((op1->TypeGet() == tree->TypeGet()) || (op1->TypeGet() != TYP_REF)))
-                        {
-                            if (fgGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
-                                (op2->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
-                            {
-                                AddZeroOffsetFieldSeq(op1, op2->AsIntCon()->GetFieldSeq());
-                            }
-
-                            DEBUG_DESTROY_NODE(op2);
-                            DEBUG_DESTROY_NODE(tree);
-
-                            return op1;
-                        }
-                    }
-                }
-
-                if (opts.OptimizationEnabled() && fgGlobalMorph &&
-                    (((op1->gtFlags & GTF_EXCEPT) == 0) || ((op2->gtFlags & GTF_EXCEPT) == 0)))
-                {
-                    // - a + b = > b - a
-                    // ADD((NEG(a), b) => SUB(b, a)
-
-                    // Skip optimization if non-NEG operand is constant.
-                    if (op1->OperIs(GT_NEG) && !op2->OperIs(GT_NEG) &&
-                        !(op2->IsCnsIntOrI() && varTypeIsIntegralOrI(typ)))
-                    {
-                        // tree: ADD
-                        // op1: NEG
-                        // op2: b
-                        // op1Child: a
-
-                        GenTree* op1Child = op1->AsOp()->gtOp1; // a
-                        oper              = GT_SUB;
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
-                        tree->AsOp()->gtOp1 = op2;
-                        tree->AsOp()->gtOp2 = op1Child;
-
-                        DEBUG_DESTROY_NODE(op1);
-
-                        op1 = op2;
-                        op2 = op1Child;
-                    }
-
-                    // a + -b = > a - b
-                    // ADD(a, (NEG(b)) => SUB(a, b)
-
-                    if (!op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG))
-                    {
-                        // a is non cosntant because it was already canonicalized to have
-                        // variable on the left and constant on the right.
-
-                        // tree: ADD
-                        // op1: a
-                        // op2: NEG
-                        // op2Child: b
-
-                        GenTree* op2Child = op2->AsOp()->gtOp1; // a
-                        oper              = GT_SUB;
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
-                        tree->AsOp()->gtOp2 = op2Child;
-
-                        DEBUG_DESTROY_NODE(op2);
-
-                        op2 = op2Child;
-                    }
-                }
-            }
-            /* See if we can fold GT_MUL by const nodes */
-            else if (oper == GT_MUL && op2->IsCnsIntOrI() && !optValnumCSE_phase)
-            {
-#ifndef TARGET_64BIT
-                noway_assert(typ <= TYP_UINT);
-#endif // TARGET_64BIT
-                noway_assert(!tree->gtOverflow());
-
-                ssize_t mult = op2->AsIntConCommon()->IconValue();
-
-                if (mult == 0)
-                {
-                    // We may be able to throw away op1 (unless it has side-effects)
-
-                    if ((op1->gtFlags & GTF_SIDE_EFFECT) == 0)
-                    {
-                        DEBUG_DESTROY_NODE(op1);
-                        DEBUG_DESTROY_NODE(tree);
-                        return op2; // Just return the "0" node
-                    }
-
-                    // We need to keep op1 for the side-effects. Hang it off
-                    // a GT_COMMA node
-
-                    tree->ChangeOper(GT_COMMA);
-                    return tree;
-                }
-
-                size_t abs_mult      = (mult >= 0) ? mult : -mult;
-                size_t lowestBit     = genFindLowestBit(abs_mult);
-                bool   changeToShift = false;
-
-                // is it a power of two? (positive or negative)
-                if (abs_mult == lowestBit)
-                {
-                    // if negative negate (min-int does not need negation)
-                    if (mult < 0 && mult != SSIZE_T_MIN)
-                    {
-                        // The type of the new GT_NEG node cannot just be op1->TypeGet().
-                        // Otherwise we may sign-extend incorrectly in cases where the GT_NEG
-                        // node ends up feeding directly a cast, for example in
-                        // GT_CAST<ubyte>(GT_MUL(-1, s_1.ubyte))
-                        tree->AsOp()->gtOp1 = op1 = gtNewOperNode(GT_NEG, genActualType(op1->TypeGet()), op1);
-                        fgMorphTreeDone(op1);
-                    }
-
-                    if (abs_mult == 1)
-                    {
-                        DEBUG_DESTROY_NODE(op2);
-                        DEBUG_DESTROY_NODE(tree);
-                        return op1;
-                    }
-
-                    /* Change the multiplication into a shift by log2(val) bits */
-                    op2->AsIntConCommon()->SetIconValue(genLog2(abs_mult));
-                    changeToShift = true;
-                }
-#if LEA_AVAILABLE
-                else if ((lowestBit > 1) && AddrMode::IsIndexScale(lowestBit) && optAvoidIntMult())
-                {
-                    int     shift  = genLog2(lowestBit);
-                    ssize_t factor = abs_mult >> shift;
-
-                    if (factor == 3 || factor == 5 || factor == 9)
-                    {
-                        // if negative negate (min-int does not need negation)
-                        if (mult < 0 && mult != SSIZE_T_MIN)
-                        {
-                            tree->AsOp()->gtOp1 = op1 = gtNewOperNode(GT_NEG, genActualType(op1->TypeGet()), op1);
-                            fgMorphTreeDone(op1);
-                        }
-
-                        GenTree* factorIcon = gtNewIconNode(factor, TYP_I_IMPL);
-
-                        // change the multiplication into a smaller multiplication (by 3, 5 or 9) and a shift
-                        tree->AsOp()->gtOp1 = op1 = gtNewOperNode(GT_MUL, tree->gtType, op1, factorIcon);
-                        fgMorphTreeDone(op1);
-
-                        op2->AsIntConCommon()->SetIconValue(shift);
-                        changeToShift = true;
-                    }
-                }
-#endif // LEA_AVAILABLE
-                if (changeToShift)
-                {
-                    // vnStore is null before the ValueNumber phase has run
-                    if (vnStore != nullptr)
-                    {
-                        // Update the ValueNumber for 'op2', as we just changed the constant
-                        fgValueNumberTreeConst(op2);
-                    }
-                    oper = GT_LSH;
-                    // Keep the old ValueNumber for 'tree' as the new expr
-                    // will still compute the same value as before
-                    tree->ChangeOper(oper, GenTree::PRESERVE_VN);
-
-                    goto DONE_MORPHING_CHILDREN;
-                }
-            }
-            else if (fgOperIsBitwiseRotationRoot(oper))
-            {
-                tree = fgRecognizeAndMorphBitwiseRotation(tree);
-
-                // fgRecognizeAndMorphBitwiseRotation may return a new tree
-                oper = tree->OperGet();
-                typ  = tree->TypeGet();
-                op1  = tree->AsOp()->gtOp1;
-                op2  = tree->AsOp()->gtOp2;
-            }
-
-            if (varTypeIsIntegralOrI(tree->TypeGet()) && tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
-            {
-                GenTree* foldedTree = fgMorphAssociative(tree->AsOp());
-                if (foldedTree != nullptr)
-                {
-                    tree = foldedTree;
-                    op1  = tree->gtGetOp1();
-                    op2  = tree->gtGetOp2();
-                    if (!tree->OperIs(oper))
-                    {
-                        return tree;
-                    }
-                }
-            }
-
-            break;
-
-        case GT_NOT:
-        case GT_NEG:
-            // Remove double negation/not.
-            // Note: this is not a safe tranformation if "tree" is a CSE candidate.
-            // Consider for example the following expression: NEG(NEG(OP)), where the top-level
-            // NEG is a CSE candidate. Were we to morph this to just OP, CSE would fail to find
-            // the original NEG in the statement.
-            if (op1->OperIs(oper) && opts.OptimizationEnabled() && !gtIsActiveCSE_Candidate(tree))
-            {
-                GenTree* child = op1->AsOp()->gtGetOp1();
-                return child;
-            }
-
-            // Distribute negation over simple multiplication/division expressions
-            if (opts.OptimizationEnabled() && !optValnumCSE_phase && tree->OperIs(GT_NEG) &&
-                op1->OperIs(GT_MUL, GT_DIV))
-            {
-                GenTreeOp* mulOrDiv = op1->AsOp();
-                GenTree*   op1op1   = mulOrDiv->gtGetOp1();
-                GenTree*   op1op2   = mulOrDiv->gtGetOp2();
-
-                if (!op1op1->IsCnsIntOrI() && op1op2->IsCnsIntOrI() && !op1op2->IsIconHandle())
-                {
-                    // NEG(MUL(a, C)) => MUL(a, -C)
-                    // NEG(DIV(a, C)) => DIV(a, -C), except when C = {-1, 1}
-                    ssize_t constVal = op1op2->AsIntCon()->IconValue();
-                    if ((mulOrDiv->OperIs(GT_DIV) && (constVal != -1) && (constVal != 1)) ||
-                        (mulOrDiv->OperIs(GT_MUL) && !mulOrDiv->gtOverflow()))
-                    {
-                        GenTree* newOp1 = op1op1;                                      // a
-                        GenTree* newOp2 = gtNewIconNode(-constVal, op1op2->TypeGet()); // -C
-                        mulOrDiv->gtOp1 = newOp1;
-                        mulOrDiv->gtOp2 = newOp2;
-
-                        DEBUG_DESTROY_NODE(tree);
-                        DEBUG_DESTROY_NODE(op1op2);
-
-                        return mulOrDiv;
-                    }
-                }
-            }
-
-            /* Any constant cases should have been folded earlier */
-            noway_assert(!op1->OperIsConst() || !opts.OptEnabled(CLFLG_CONSTANTFOLD) || optValnumCSE_phase);
-            break;
-
-        case GT_CKFINITE:
-
-            noway_assert(varTypeIsFloating(op1->TypeGet()));
-
-            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_ARITH_EXCPN);
-            break;
-
-        case GT_INDEX_ADDR:
-            assert(opts.MinOpts());
-
-            tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
-
-            if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
-            {
-                tree->AsIndexAddr()->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
-                tree->AddSideEffects(GTF_EXCEPT);
-            }
-            break;
-
-        case GT_IND:
-            // Can not remove a GT_IND if it is currently a CSE candidate.
-            if (gtIsActiveCSE_Candidate(tree))
-            {
-                break;
-            }
-
-#ifdef TARGET_ARM
-            // Check for a misalignment floating point indirection.
-            // TODO-MIKE-Cleanup: This should be moved to lowering
-            // (or perhaps decomposition to deal with DOUBLE).
-            if (op1->OperIs(GT_ADD) && varTypeIsFloating(typ))
-            {
-                GenTree* addOp2 = op1->AsOp()->gtGetOp2();
-                if (addOp2->IsCnsIntOrI())
-                {
-                    ssize_t offset = addOp2->AsIntCon()->gtIconVal;
-                    if ((offset % emitTypeSize(TYP_FLOAT)) != 0)
-                    {
-                        tree->gtFlags |= GTF_IND_UNALIGNED;
-                    }
-                }
-            }
-#endif // TARGET_ARM
-
-            // Only do this optimization when we are in the global optimizer. Doing this after value numbering
-            // could result in an invalid value number for the newly generated GT_IND node.
-            if (op1->OperIs(GT_COMMA) && fgGlobalMorph)
-            {
-                // Perform the transform IND(COMMA(x, ..., z)) == COMMA(x, ..., IND(z)).
-                //
-                // TBD: this transformation is currently necessary for correctness -- it might
-                // be good to analyze the failures that result if we don't do this, and fix them
-                // in other ways.  Ideally, this should be optional.
-
-                ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-                for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
-                {
-                    commas.Push(comma->AsOp());
-                }
-
-                GenTreeOp* lastComma = commas.Top();
-                GenTree*   addr      = lastComma->GetOp(1);
-                tree->AsIndir()->SetAddr(addr);
-
-                GenTreeFlags sideEffects = tree->GetSideEffects() & (GTF_GLOB_REF | GTF_ORDER_SIDEEFF);
-
-                if ((tree->gtFlags & GTF_IND_NONFAULTING) == 0)
-                {
-                    sideEffects |= GTF_EXCEPT;
-                }
-
-                tree->SetSideEffects(sideEffects | addr->GetSideEffects());
-
-                lastComma->SetOp(1, tree);
-
-                while (!commas.Empty())
-                {
-                    GenTreeOp* comma = commas.Pop();
-                    comma->SetType(typ);
-                    comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
-                }
-
-                op1->gtFlags |= tree->gtFlags & (GTF_LATE_ARG | GTF_DONT_CSE);
-                tree->gtFlags &= ~GTF_LATE_ARG;
-                INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-                return op1;
-            }
-
-            break;
-
         case GT_COLON:
-            if (fgGlobalMorph)
-            {
-                /* Mark the nodes that are conditionally executed */
-                fgWalkTreePre(&tree, gtMarkColonCond);
-            }
+            /* Mark the nodes that are conditionally executed */
+            fgWalkTreePre(&tree, gtMarkColonCond);
             /* Since we're doing this postorder we clear this if it got set by a child */
             fgRemoveRestOfBlock = false;
             break;
 
-        case GT_COMMA:
-
-            /* Special case: trees that don't produce a value */
-            if (op2->OperIs(GT_ASG) || (op2->OperGet() == GT_COMMA && op2->TypeGet() == TYP_VOID) || fgIsThrow(op2))
-            {
-                typ = tree->gtType = TYP_VOID;
-            }
-
-            // If we are in the Valuenum CSE phase then don't morph away anything as these
-            // nodes may have CSE defs/uses in them.
-            //
-            if (!optValnumCSE_phase)
-            {
-                // Extract the side effects from the left side of the comma.  Since they don't "go" anywhere, this
-                // is all we need.
-
-                GenTree* op1SideEffects = nullptr;
-                // The addition of "GTF_MAKE_CSE" below prevents us from throwing away (for example)
-                // hoisted expressions in loops.
-                gtExtractSideEffList(op1, &op1SideEffects, (GTF_SIDE_EFFECT | GTF_MAKE_CSE));
-                if (op1SideEffects)
-                {
-                    // Replace the left hand side with the side effect list.
-                    tree->AsOp()->gtOp1 = op1SideEffects;
-                    gtUpdateNodeSideEffects(tree);
-                }
-                else
-                {
-                    op2->gtFlags |= (tree->gtFlags & (GTF_DONT_CSE | GTF_LATE_ARG));
-                    DEBUG_DESTROY_NODE(tree);
-                    DEBUG_DESTROY_NODE(op1);
-                    return op2;
-                }
-
-                /* If the right operand is just a void nop node, throw it away */
-                if (op2->IsNothingNode() && op1->gtType == TYP_VOID)
-                {
-                    op1->gtFlags |= (tree->gtFlags & (GTF_DONT_CSE | GTF_LATE_ARG));
-                    DEBUG_DESTROY_NODE(tree);
-                    DEBUG_DESTROY_NODE(op2);
-                    return op1;
-                }
-            }
-
-            break;
-
-        case GT_JTRUE:
-
-            /* Special case if fgRemoveRestOfBlock is set to true */
-            if (fgRemoveRestOfBlock)
-            {
-                if (fgIsCommaThrow(op1, true))
-                {
-                    GenTree* throwNode = op1->AsOp()->gtOp1;
-
-                    JITDUMP("Removing [%06d] GT_JTRUE as the block now unconditionally throws an exception.\n",
-                            dspTreeID(tree));
-                    DEBUG_DESTROY_NODE(tree);
-
-                    return throwNode;
-                }
-
-                noway_assert(op1->OperIsCompare());
-                noway_assert(op1->gtFlags & GTF_EXCEPT);
-
-                // We need to keep op1 for the side-effects. Hang it off
-                // a GT_COMMA node
-
-                JITDUMP("Keeping side-effects by bashing [%06d] GT_JTRUE into a GT_COMMA.\n", dspTreeID(tree));
-
-                tree->ChangeOper(GT_COMMA);
-                tree->AsOp()->gtOp2 = op2 = gtNewNothingNode();
-
-                // Additionally since we're eliminating the JTRUE
-                // codegen won't like it if op1 is a RELOP of longs, floats or doubles.
-                // So we change it into a GT_COMMA as well.
-                JITDUMP("Also bashing [%06d] (a relop) into a GT_COMMA.\n", dspTreeID(op1));
-                op1->ChangeOper(GT_COMMA);
-                op1->gtFlags &= ~GTF_UNSIGNED; // Clear the unsigned flag if it was set on the relop
-                op1->gtType = op1->AsOp()->gtOp1->gtType;
-
-                return tree;
-            }
-            break;
-
         default:
+            assert(oper == GT_QMARK);
             break;
     }
 
-    assert(oper == tree->gtOper);
-
-    // If we are in the Valuenum CSE phase then don't morph away anything as these
-    // nodes may have CSE defs/uses in them.
-    //
-    if (!optValnumCSE_phase && (oper != GT_ASG) && (oper != GT_COLON))
+    if (oper == GT_QMARK)
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
-        if (op1 && fgIsCommaThrow(op1, true))
+        if (fgIsCommaThrow(op1, true))
         {
             if ((op1->gtFlags & GTF_COLON_COND) == 0)
             {
@@ -11718,159 +9781,51 @@ DONE_MORPHING_CHILDREN:
 
             GenTree* throwNode = op1->AsOp()->gtOp1;
 
-            if (oper == GT_COMMA)
+            if (genActualType(typ) == genActualType(op1->gtType))
             {
-                /* Both tree and op1 are GT_COMMA nodes */
-                /* Change the tree's op1 to the throw node: op1->AsOp()->gtOp1 */
-                tree->AsOp()->gtOp1 = throwNode;
-
-                // Possibly reset the assignment flag
-                if (((throwNode->gtFlags & GTF_ASG) == 0) && ((op2 == nullptr) || ((op2->gtFlags & GTF_ASG) == 0)))
-                {
-                    tree->gtFlags &= ~GTF_ASG;
-                }
-
-                return tree;
+                /* The types match so, return the comma throw node as the new tree */
+                return op1;
             }
-            else if (oper != GT_NOP)
+            else
             {
-                if (genActualType(typ) == genActualType(op1->gtType))
+                if (typ == TYP_VOID)
                 {
-                    /* The types match so, return the comma throw node as the new tree */
-                    return op1;
+                    // Return the throw node
+                    return throwNode;
                 }
                 else
                 {
-                    if (typ == TYP_VOID)
+                    GenTree* commaOp2 = op1->AsOp()->gtOp2;
+
+                    // need type of oper to be same as tree
+                    if (typ == TYP_LONG)
                     {
-                        // Return the throw node
-                        return throwNode;
+                        commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
+                        commaOp2->AsIntConCommon()->SetLngValue(0);
+                        /* Change the types of oper and commaOp2 to TYP_LONG */
+                        op1->gtType = commaOp2->gtType = TYP_LONG;
+                    }
+                    else if (varTypeIsFloating(typ))
+                    {
+                        commaOp2->ChangeOperConst(GT_CNS_DBL);
+                        commaOp2->AsDblCon()->gtDconVal = 0.0;
+                        /* Change the types of oper and commaOp2 to TYP_DOUBLE */
+                        op1->gtType = commaOp2->gtType = TYP_DOUBLE;
                     }
                     else
                     {
-                        GenTree* commaOp2 = op1->AsOp()->gtOp2;
-
-                        // need type of oper to be same as tree
-                        if (typ == TYP_LONG)
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
-                            commaOp2->AsIntConCommon()->SetLngValue(0);
-                            /* Change the types of oper and commaOp2 to TYP_LONG */
-                            op1->gtType = commaOp2->gtType = TYP_LONG;
-                        }
-                        else if (varTypeIsFloating(typ))
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_DBL);
-                            commaOp2->AsDblCon()->gtDconVal = 0.0;
-                            /* Change the types of oper and commaOp2 to TYP_DOUBLE */
-                            op1->gtType = commaOp2->gtType = TYP_DOUBLE;
-                        }
-                        else
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_INT);
-                            commaOp2->AsIntConCommon()->SetIconValue(0);
-                            /* Change the types of oper and commaOp2 to TYP_INT */
-                            op1->gtType = commaOp2->gtType = TYP_INT;
-                        }
-
-                        /* Return the GT_COMMA node as the new tree */
-                        return op1;
+                        commaOp2->ChangeOperConst(GT_CNS_INT);
+                        commaOp2->AsIntConCommon()->SetIconValue(0);
+                        /* Change the types of oper and commaOp2 to TYP_INT */
+                        op1->gtType = commaOp2->gtType = TYP_INT;
                     }
+
+                    /* Return the GT_COMMA node as the new tree */
+                    return op1;
                 }
             }
         }
-
-        /* Check for op2 as a GT_COMMA with a unconditional throw */
-
-        if (op2 && fgIsCommaThrow(op2, true))
-        {
-            if ((op2->gtFlags & GTF_COLON_COND) == 0)
-            {
-                /* We can safely throw out the rest of the statements */
-                fgRemoveRestOfBlock = true;
-            }
-
-            // If op1 has no side-effects
-            if ((op1->gtFlags & GTF_ALL_EFFECT) == 0)
-            {
-                // If tree is an asg node
-                if (tree->OperIs(GT_ASG))
-                {
-                    /* Return the throw node as the new tree */
-                    return op2->AsOp()->gtOp1;
-                }
-
-                if (tree->OperGet() == GT_ARR_BOUNDS_CHECK)
-                {
-                    /* Return the throw node as the new tree */
-                    return op2->AsOp()->gtOp1;
-                }
-
-                // If tree is a comma node
-                if (tree->OperGet() == GT_COMMA)
-                {
-                    /* Return the throw node as the new tree */
-                    return op2->AsOp()->gtOp1;
-                }
-
-                /* for the shift nodes the type of op2 can differ from the tree type */
-                if ((typ == TYP_LONG) && (genActualType(op2->gtType) == TYP_INT))
-                {
-                    noway_assert(GenTree::OperIsShiftOrRotate(oper));
-
-                    GenTree* commaOp2 = op2->AsOp()->gtOp2;
-
-                    commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
-                    commaOp2->AsIntConCommon()->SetLngValue(0);
-
-                    /* Change the types of oper and commaOp2 to TYP_LONG */
-                    op2->gtType = commaOp2->gtType = TYP_LONG;
-                }
-
-                if ((genActualType(typ) == TYP_INT) &&
-                    (genActualType(op2->gtType) == TYP_LONG || varTypeIsFloating(op2->TypeGet())))
-                {
-                    // An example case is comparison (say GT_GT) of two longs or floating point values.
-
-                    GenTree* commaOp2 = op2->AsOp()->gtOp2;
-
-                    commaOp2->ChangeOperConst(GT_CNS_INT);
-                    commaOp2->AsIntCon()->gtIconVal = 0;
-                    /* Change the types of oper and commaOp2 to TYP_INT */
-                    op2->gtType = commaOp2->gtType = TYP_INT;
-                }
-
-                if ((typ == TYP_BYREF) && (genActualType(op2->gtType) == TYP_I_IMPL))
-                {
-                    noway_assert(tree->OperGet() == GT_ADD);
-
-                    GenTree* commaOp2 = op2->AsOp()->gtOp2;
-
-                    commaOp2->ChangeOperConst(GT_CNS_INT);
-                    commaOp2->AsIntCon()->gtIconVal = 0;
-                    /* Change the types of oper and commaOp2 to TYP_BYREF */
-                    op2->gtType = commaOp2->gtType = TYP_BYREF;
-                }
-
-                /* types should now match */
-                noway_assert((genActualType(typ) == genActualType(op2->gtType)));
-
-                /* Return the GT_COMMA node as the new tree */
-                return op2;
-            }
-        }
     }
-
-    /*-------------------------------------------------------------------------
-     * Optional morphing is done if tree transformations is permitted
-     */
-
-    if ((opts.compFlags & CLFLG_TREETRANS) == 0)
-    {
-        return tree;
-    }
-
-    tree = fgMorphSmpOpOptional(tree->AsOp());
 
     return tree;
 }
