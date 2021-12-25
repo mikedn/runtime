@@ -9647,7 +9647,10 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     // Mark the nodes that are conditionally executed
     GenTree* temp = colon;
-    fgWalkTreePre(&temp, gtMarkColonCond);
+    fgWalkTreePre(&temp, [](GenTree** use, fgWalkData* data) {
+        (*use)->gtFlags |= GTF_COLON_COND;
+        return WALK_CONTINUE;
+    });
 
     return qmark;
 }

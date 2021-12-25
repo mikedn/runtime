@@ -2341,7 +2341,6 @@ public:
 #ifdef DEBUG
     static fgWalkPreFn gtAssertColonCond;
 #endif
-    static fgWalkPreFn gtMarkColonCond;
     static fgWalkPreFn gtClearColonCond;
 
     struct FindLinkData
