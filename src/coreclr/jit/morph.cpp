@@ -9491,10 +9491,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
         // An indirection gets a default address context
         op1Mac = nullptr;
     }
-    else if (op1Mac != nullptr)
-    {
-        op1Mac->isOffsetConstant = false;
-    }
 
     op1 = fgMorphTree(op1, op1Mac);
     tree->SetOp(0, op1);
@@ -9539,10 +9535,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeOp* tree, MorphAddrContext* mac)
     {
         // An indirection gets a default address context if it isn't address taken.
         mac = nullptr;
-    }
-    else if (mac != nullptr)
-    {
-        mac->isOffsetConstant = false;
     }
 
     op2 = fgMorphTree(op2, mac);
