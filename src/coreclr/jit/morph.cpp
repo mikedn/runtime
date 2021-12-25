@@ -9563,16 +9563,6 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    /* Morphing along with folding and inlining may have changed the
-     * side effect flags, so we have to reset them
-     *
-     * NOTE: Don't reset the exception flags on nodes that may throw */
-
-    tree->gtFlags &= ~GTF_CALL;
-
-    /* Propagate the new flags */
-    tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
-
 #if LOCAL_ASSERTION_PROP
     // If we are entering the "else" part of a Qmark-Colon we must
     // reset the state of the current copy assignment table
@@ -9600,10 +9590,6 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
     }
 
     tree->AsOp()->gtOp2 = op2 = fgMorphTree(op2, mac);
-
-    /* Propagate the side effect flags from op2 */
-
-    tree->gtFlags |= (op2->gtFlags & GTF_ALL_EFFECT);
 
 #if LOCAL_ASSERTION_PROP
     // If we are exiting the "else" part of a Qmark-Colon we must
@@ -9684,20 +9670,8 @@ GenTree* Compiler::fgMorphQmark(GenTree* tree, MorphAddrContext* mac)
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    if (((op1->gtFlags & GTF_EXCEPT) == 0) && ((op2->gtFlags & GTF_EXCEPT) == 0))
-    {
-        tree->gtFlags &= ~GTF_EXCEPT;
-    }
+    tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
 
-    if (((op1->gtFlags & GTF_ASG) == 0) && ((op2->gtFlags & GTF_ASG) == 0))
-    {
-        tree->gtFlags &= ~GTF_ASG;
-    }
-
-    if (((op1->gtFlags & GTF_CALL) == 0) && ((op2->gtFlags & GTF_CALL) == 0))
-    {
-        tree->gtFlags &= ~GTF_CALL;
-    }
     /*-------------------------------------------------------------------------
      * Now do POST-ORDER processing
      */
