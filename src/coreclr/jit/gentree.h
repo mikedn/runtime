@@ -431,9 +431,8 @@ enum GenTreeFlags : unsigned int
 
     GTF_MAKE_CSE    = 0x00000800, // Hoisted expression: try hard to make this into CSE (see optPerformHoistExpr)
     GTF_DONT_CSE    = 0x00001000, // Don't bother CSE'ing this expr
-    GTF_COLON_COND  = 0x00002000, // This node is conditionally executed (part of ? :)
 
-    GTF_NODE_MASK   = GTF_COLON_COND,
+    GTF_NODE_MASK   = 0,
 
     GTF_BOOLEAN     = 0x00004000, // value is known to be 0/1
 

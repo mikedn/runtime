@@ -2126,14 +2126,6 @@ void Compiler::optAssertionGen(GenTree* tree)
 {
     tree->ClearAssertion();
 
-    // If there are QMARKs in the IR, we won't generate assertions
-    // for conditionally executed code.
-    //
-    if (optLocalAssertionProp && ((tree->gtFlags & GTF_COLON_COND) != 0))
-    {
-        return;
-    }
-
 #ifdef DEBUG
     optAssertionPropCurrentTree = tree;
 #endif

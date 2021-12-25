@@ -8049,7 +8049,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
             //
             //     So to sum it up - this is pretty much restricted to INT now to minimize diffs.
 
-            GenTreeFlags destFlags = dest->gtFlags & GTF_COLON_COND;
+            GenTreeFlags destFlags = GTF_EMPTY;
 
             var_types initType     = TYP_UNDEF;
             var_types initBaseType = TYP_UNDEF;
@@ -9424,7 +9424,6 @@ GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
             if (gtIsSmallIntCastNeeded(op2, lcl->GetType()))
             {
                 op2 = gtNewCastNode(TYP_INT, op2, false, lcl->GetType());
-                op2->gtFlags |= asg->gtFlags & GTF_COLON_COND;
                 asg->SetOp(1, op2);
             }
         }
@@ -9461,23 +9460,12 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     {
         GenTree* result = cond->GetValue() != 0 ? thenExpr : elseExpr;
 
-        // Clear colon flags only if the qmark itself is not conditionaly executed
-        if ((qmark->gtFlags & GTF_COLON_COND) == 0)
-        {
-            fgWalkTreePre(&result, gtClearColonCond);
-        }
-
         return fgMorphTree(result);
     }
 
     if (fgIsCommaThrow(condExpr, true))
     {
-        // We can remove the rest of the block if the qmark itself is not conditionaly executed
-        if ((qmark->gtFlags & GTF_COLON_COND) == 0)
-        {
-            fgRemoveRestOfBlock = true;
-        }
-
+        fgRemoveRestOfBlock = true;
         assert(condExpr->OperIs(GT_COMMA));
 
         if (varActualType(qmark->GetType()) == varActualType(condExpr->GetType()))
@@ -9644,13 +9632,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         qmark->SetType(type);
         colon->SetType(type);
     }
-
-    // Mark the nodes that are conditionally executed
-    GenTree* temp = colon;
-    fgWalkTreePre(&temp, [](GenTree** use, fgWalkData* data) {
-        (*use)->gtFlags |= GTF_COLON_COND;
-        return WALK_CONTINUE;
-    });
 
     return qmark;
 }
@@ -10244,7 +10225,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 // Small-typed return values are extended by the callee.
 
                 op1 = gtNewCastNode(TYP_INT, op1, false, info.compRetType);
-                op1->gtFlags |= (tree->gtFlags & GTF_COLON_COND);
                 op1 = fgMorphCast(op1->AsCast());
 
                 tree->AsUnOp()->SetOp(0, op1);
@@ -11756,11 +11736,8 @@ DONE_MORPHING_CHILDREN:
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
         if (op1 && fgIsCommaThrow(op1, true))
         {
-            if ((op1->gtFlags & GTF_COLON_COND) == 0)
-            {
-                /* We can safely throw out the rest of the statements */
-                fgRemoveRestOfBlock = true;
-            }
+            /* We can safely throw out the rest of the statements */
+            fgRemoveRestOfBlock = true;
 
             GenTree* throwNode = op1->AsOp()->gtOp1;
 
@@ -11830,11 +11807,8 @@ DONE_MORPHING_CHILDREN:
 
         if (op2 && fgIsCommaThrow(op2, true))
         {
-            if ((op2->gtFlags & GTF_COLON_COND) == 0)
-            {
-                /* We can safely throw out the rest of the statements */
-                fgRemoveRestOfBlock = true;
-            }
+            /* We can safely throw out the rest of the statements */
+            fgRemoveRestOfBlock = true;
 
             // If op1 has no side-effects
             if ((op1->gtFlags & GTF_ALL_EFFECT) == 0)
@@ -13641,7 +13615,6 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
                 printf("Removing the rest of block as unreachable:\n");
             }
 #endif
-            noway_assert((morph->gtFlags & GTF_COLON_COND) == 0);
             fgRemoveRestOfBlock = true;
         }
     }
@@ -13846,7 +13819,6 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             /* Use the call as the new stmt */
             morphedTree = morphedTree->AsOp()->gtOp1;
             noway_assert(morphedTree->gtOper == GT_CALL);
-            noway_assert((morphedTree->gtFlags & GTF_COLON_COND) == 0);
 
             fgRemoveRestOfBlock = true;
         }

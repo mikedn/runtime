@@ -2338,8 +2338,6 @@ public:
     typedef fgWalkResult(fgWalkPreFn)(GenTree** pTree, fgWalkData* data);
     typedef fgWalkResult(fgWalkPostFn)(GenTree** pTree, fgWalkData* data);
 
-    static fgWalkPreFn gtClearColonCond;
-
     struct FindLinkData
     {
         GenTree*  nodeToFind;

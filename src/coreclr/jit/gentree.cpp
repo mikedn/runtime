@@ -6239,9 +6239,6 @@ DONE:
         gtUpdateNodeSideEffects(copy);
     }
 
-    /* GTF_COLON_COND should be propagated from 'tree' to 'copy' */
-    copy->gtFlags |= (tree->gtFlags & GTF_COLON_COND);
-
 #if defined(DEBUG)
     // Non-node debug flags should be propagated from 'tree' to 'copy'
     copy->gtDebugFlags |= (tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
@@ -7302,7 +7299,7 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
     printf("%c", (flags & GTF_GLOB_REF) ? 'G' : '-');
     printf("%c", (debugFlags & GTF_DEBUG_NODE_MORPHED) ? '+' : // First print '+' if GTF_DEBUG_NODE_MORPHED is set
                      (flags & GTF_ORDER_SIDEEFF) ? 'O' : '-'); // otherwise print 'O' or '-'
-    printf("%c", (flags & GTF_COLON_COND) ? '?' : '-');
+    printf("%c", (flags & GTF_SET_FLAGS) ? 'S' : ((flags & GTF_USE_FLAGS) ? 'U' : '-'));
     printf("%c", (flags & GTF_DONT_CSE) ? 'N' :           // N is for No cse
                      (flags & GTF_MAKE_CSE) ? 'H' : '-'); // H is for Hoist this expr
     printf("%c", (flags & GTF_REVERSE_OPS) ? 'R' : '-');
@@ -10793,12 +10790,6 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
             {
                 op = op2->AsColon()->ElseNode();
             }
-
-            // Clear colon flags only if the qmark itself is not conditionaly executed
-            if ((tree->gtFlags & GTF_COLON_COND) == 0)
-            {
-                fgWalkTreePre(&op, gtClearColonCond);
-            }
         }
 
             goto DONE_FOLD;
@@ -13208,30 +13199,6 @@ void dispNodeList(GenTree* list, bool verbose)
 }
 
 #endif // DEBUG
-
-/*****************************************************************************
- * Callback to clear the conditionally executed flags of nodes that no longer
-   will be conditionally executed. Note that when we find another colon we must
-   stop, as the nodes below this one WILL be conditionally executed. This callback
-   is called when folding a qmark condition (ie the condition is constant).
- */
-
-/* static */
-Compiler::fgWalkResult Compiler::gtClearColonCond(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-
-    assert(data->pCallbackData == nullptr);
-
-    if (tree->OperGet() == GT_COLON)
-    {
-        // Nodes below this will be conditionally executed.
-        return WALK_SKIP_SUBTREES;
-    }
-
-    tree->gtFlags &= ~GTF_COLON_COND;
-    return WALK_CONTINUE;
-}
 
 /*****************************************************************************
  *
