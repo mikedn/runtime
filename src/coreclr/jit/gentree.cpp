@@ -3409,25 +3409,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 goto DONE;
 
-            case GT_COLON:
-
-                level = gtSetEvalOrder(op1);
-                lvl2  = gtSetEvalOrder(op2);
-
-                if (level < lvl2)
-                {
-                    level = lvl2;
-                }
-                else if (level == lvl2)
-                {
-                    level += 1;
-                }
-
-                costEx = op1->GetCostEx() + op2->GetCostEx();
-                costSz = op1->GetCostSz() + op2->GetCostSz();
-
-                goto DONE;
-
             case GT_ASG:
                 /* Assignments need a bit of special handling */
                 /* Process the target */
@@ -3701,8 +3682,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         tree->AsOp()->gtOp2 = op1;
                         break;
 
-                    case GT_QMARK:
-                    case GT_COLON:
                     case GT_MKREFANY:
                         break;
 
@@ -9508,10 +9487,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                 if (tree->gtOper == GT_COLON)
                 {
                     childMsg = "else";
-                }
-                else if (tree->gtOper == GT_QMARK)
-                {
-                    childMsg = "   if";
                 }
                 gtDispChild(tree->AsOp()->gtOp1, indentStack,
                             (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg);
