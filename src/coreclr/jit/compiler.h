@@ -4731,6 +4731,7 @@ private:
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
+    GenTree* fgMorphQmark(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
