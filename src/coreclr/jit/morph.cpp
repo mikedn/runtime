@@ -9441,8 +9441,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     GenTree*      condExpr = qmark->GetOp(0);
     GenTreeColon* colon    = qmark->GetOp(1)->AsColon();
-    GenTree*      op1      = colon->GetOp(0);
-    GenTree*      op2      = colon->GetOp(1);
+    GenTree*      thenExpr = colon->ThenNode();
+    GenTree*      elseExpr = colon->ElseNode();
 
     if (condExpr->OperIsCompare())
     {
@@ -9486,8 +9486,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    op1 = fgMorphTree(op1, mac);
-    colon->SetOp(0, op1);
+    elseExpr = fgMorphTree(elseExpr, mac);
+    colon->SetOp(0, elseExpr);
 
 #if LOCAL_ASSERTION_PROP
     if (optLocalAssertionProp)
@@ -9522,8 +9522,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    op2 = fgMorphTree(op2, mac);
-    colon->SetOp(1, op2);
+    thenExpr = fgMorphTree(thenExpr, mac);
+    colon->SetOp(1, thenExpr);
 
 #if LOCAL_ASSERTION_PROP
     // Merge assertions after COLON morphing.
@@ -9568,12 +9568,12 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    colon->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
+    colon->SetSideEffects(elseExpr->GetSideEffects() | thenExpr->GetSideEffects());
     qmark->SetSideEffects(condExpr->GetSideEffects() | colon->GetSideEffects());
 
-    if (varTypeIsGC(qmark->GetType()) && !varTypeIsGC(op1->GetType()) && !varTypeIsGC(op2->GetType()))
+    if (varTypeIsGC(qmark->GetType()) && !varTypeIsGC(elseExpr->GetType()) && !varTypeIsGC(thenExpr->GetType()))
     {
-        var_types type = varActualType(op1->GetType());
+        var_types type = varActualType(elseExpr->GetType());
         qmark->SetType(type);
         colon->SetType(type);
     }
@@ -9587,7 +9587,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     if (GenTreeIntCon* cond = condExpr->IsIntCon())
     {
-        GenTree* result = cond->GetValue() != 0 ? op2 : op1;
+        GenTree* result = cond->GetValue() != 0 ? thenExpr : elseExpr;
 
         // Clear colon flags only if the qmark itself is not conditionaly executed
         if ((qmark->gtFlags & GTF_COLON_COND) == 0)
@@ -13614,7 +13614,7 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
             if (verbose)
             {
                 printf("Folding a top-level fgIsCommaThrow stmt\n");
-                printf("Removing op2 as unreachable:\n");
+                printf("Removing thenExpr as unreachable:\n");
                 gtDispTree(morph->AsOp()->gtOp2);
                 printf("\n");
             }
