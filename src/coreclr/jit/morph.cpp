@@ -9457,6 +9457,19 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     condExpr = fgMorphTree(condExpr, mac);
     qmark->SetOp(0, condExpr);
 
+    if (GenTreeIntCon* cond = condExpr->IsIntCon())
+    {
+        GenTree* result = cond->GetValue() != 0 ? thenExpr : elseExpr;
+
+        // Clear colon flags only if the qmark itself is not conditionaly executed
+        if ((qmark->gtFlags & GTF_COLON_COND) == 0)
+        {
+            fgWalkTreePre(&result, gtClearColonCond);
+        }
+
+        return fgMorphTree(result);
+    }
+
     INDEBUG(colon->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
 #if LOCAL_ASSERTION_PROP
@@ -9584,19 +9597,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     // Since we're doing this postorder we clear this if it got set by a child
     fgRemoveRestOfBlock = false;
-
-    if (GenTreeIntCon* cond = condExpr->IsIntCon())
-    {
-        GenTree* result = cond->GetValue() != 0 ? thenExpr : elseExpr;
-
-        // Clear colon flags only if the qmark itself is not conditionaly executed
-        if ((qmark->gtFlags & GTF_COLON_COND) == 0)
-        {
-            fgWalkTreePre(&result, gtClearColonCond);
-        }
-
-        return result;
-    }
 
     if (!fgIsCommaThrow(condExpr, true))
     {
