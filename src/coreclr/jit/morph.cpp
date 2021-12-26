@@ -9583,22 +9583,21 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
             for (AssertionIndex index = 1; index <= optAssertionCount;)
             {
                 AssertionDsc* thenAssertion = optGetAssertion(index);
-                bool          keep          = false;
+                AssertionDsc* elseAssertion = nullptr;
 
                 for (unsigned j = 0; j < elseAssertionCount; j++)
                 {
-                    AssertionDsc* elseAssertion = &elseAssertionTab[j];
+                    AssertionDsc* assertion = &elseAssertionTab[j];
 
-                    if ((thenAssertion->op1.lcl.lclNum == elseAssertion->op1.lcl.lclNum) &&
-                        (thenAssertion->assertionKind == elseAssertion->assertionKind))
+                    if ((assertion->assertionKind == thenAssertion->assertionKind) &&
+                        (assertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum))
                     {
-                        keep = (thenAssertion->op2.kind == elseAssertion->op2.kind) &&
-                               (thenAssertion->op2.lconVal == elseAssertion->op2.lconVal);
+                        elseAssertion = assertion;
                         break;
                     }
                 }
 
-                if (keep)
+                if ((elseAssertion != nullptr) && elseAssertion->HasSameOp2(thenAssertion, false))
                 {
                     index++;
                 }
