@@ -9520,6 +9520,14 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         // The local assertion propagation state after morphing the condition expression
         // applies to both then and else expressions, we need to save it before morphing
         // one expression and restore it before morphing the other expression.
+
+        // TODO-MIKE-Cleanup: We should not need to make a copy of the assertion table
+        // here. We could just remember the assertion count and reset it before morphing
+        // the other branch. But the local assertion propagation code is such a mess that
+        // it's difficult to be sure if somewhere it doesn't do something stupid, like
+        // modifying existing assertions.
+        // Anyway, the table is usually fairly small - less than 8 in corelib.
+
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
