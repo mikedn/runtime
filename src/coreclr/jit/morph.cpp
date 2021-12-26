@@ -9573,41 +9573,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     // Merge assertions after COLON morphing.
     if (optLocalAssertionProp)
     {
-        if ((optAssertionCount == 0) || (elseAssertionCount == 0))
-        {
-            optAssertionReset(0);
-        }
-        else if ((optAssertionCount != elseAssertionCount) ||
-                 (memcmp(elseAssertionTab, optAssertionTabPrivate, optAssertionCount * sizeof(AssertionDsc)) != 0))
-        {
-            for (AssertionIndex index = 1; index <= optAssertionCount;)
-            {
-                AssertionDsc* thenAssertion = optGetAssertion(index);
-                AssertionDsc* elseAssertion = nullptr;
-
-                for (unsigned j = 0; j < elseAssertionCount; j++)
-                {
-                    AssertionDsc* assertion = &elseAssertionTab[j];
-
-                    if ((assertion->assertionKind == thenAssertion->assertionKind) &&
-                        (assertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum))
-                    {
-                        elseAssertion = assertion;
-                        break;
-                    }
-                }
-
-                if ((elseAssertion != nullptr) && elseAssertion->HasSameOp2(thenAssertion, false))
-                {
-                    index++;
-                }
-                else
-                {
-                    JITDUMP("The QMARK-COLON [%06u] removes assertion candidate #%d\n", colon->GetID(), index);
-                    optAssertionRemove(index);
-                }
-            }
-        }
+        optAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(colon));
     }
 #endif // LOCAL_ASSERTION_PROP
 

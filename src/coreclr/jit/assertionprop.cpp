@@ -663,6 +663,56 @@ void Compiler::optAssertionRemove(AssertionIndex index)
         optAssertionReset(newAssertionCount);
     }
 }
+
+void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
+                                 AssertionDsc* elseAssertionTab DEBUGARG(GenTreeColon* colon))
+{
+    if (optAssertionCount == 0)
+    {
+        return;
+    }
+
+    if (elseAssertionCount == 0)
+    {
+        optAssertionReset(0);
+        return;
+    }
+
+    if ((optAssertionCount == elseAssertionCount) &&
+        (memcmp(elseAssertionTab, optAssertionTabPrivate, optAssertionCount * sizeof(AssertionDsc)) == 0))
+    {
+        return;
+    }
+
+    for (AssertionIndex index = 1; index <= optAssertionCount;)
+    {
+        AssertionDsc* thenAssertion = optGetAssertion(index);
+        AssertionDsc* elseAssertion = nullptr;
+
+        for (unsigned j = 0; j < elseAssertionCount; j++)
+        {
+            AssertionDsc* assertion = &elseAssertionTab[j];
+
+            if ((assertion->assertionKind == thenAssertion->assertionKind) &&
+                (assertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum))
+            {
+                elseAssertion = assertion;
+                break;
+            }
+        }
+
+        if ((elseAssertion != nullptr) && elseAssertion->HasSameOp2(thenAssertion, false))
+        {
+            index++;
+        }
+        else
+        {
+            JITDUMP("The QMARK-COLON [%06u] removes assertion candidate #%d\n", colon->GetID(), index);
+            optAssertionRemove(index);
+        }
+    }
+}
+
 #endif // LOCAL_ASSERTION_PROP
 
 #ifdef DEBUG

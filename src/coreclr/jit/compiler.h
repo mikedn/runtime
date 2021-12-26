@@ -6104,6 +6104,7 @@ public:
 #if LOCAL_ASSERTION_PROP
     void optAssertionReset(AssertionIndex limit);
     void optAssertionRemove(AssertionIndex index);
+    void optAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeColon* colon));
 #endif
 
     // Assertion prop data flow functions.
