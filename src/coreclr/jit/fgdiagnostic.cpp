@@ -7,8 +7,6 @@
 #pragma hdrstop
 #endif
 
-#include "allocacheck.h" // for alloca
-
 // Flowgraph Check and Dump Support
 
 #ifdef DEBUG
