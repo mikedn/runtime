@@ -9445,7 +9445,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     if (condExpr->OperIsCompare())
     {
-        noway_assert((condExpr->gtFlags & GTF_RELOP_QMARK) != 0);
         condExpr->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
     }
     else
@@ -10638,8 +10637,7 @@ DONE_MORPHING_CHILDREN:
 
                     noway_assert((relop->gtFlags & GTF_RELOP_JMP_USED) == 0);
                     noway_assert((relop->gtFlags & GTF_REVERSE_OPS) == 0);
-                    relop->gtFlags |=
-                        tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_RELOP_QMARK | GTF_DONT_CSE | GTF_ALL_EFFECT);
+                    relop->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_DONT_CSE | GTF_ALL_EFFECT);
 
                     return relop;
                 }
@@ -10740,7 +10738,7 @@ DONE_MORPHING_CHILDREN:
                     op1->gtType = tree->gtType;
 
                     noway_assert((op1->gtFlags & GTF_RELOP_JMP_USED) == 0);
-                    op1->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_RELOP_QMARK | GTF_DONT_CSE);
+                    op1->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_DONT_CSE);
 
                     DEBUG_DESTROY_NODE(tree);
                     return op1;
@@ -14428,9 +14426,6 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         cond2Expr  = nestedQmark->gtGetOp1();
         true2Expr  = nestedQmark->gtGetOp2()->AsColon()->ThenNode();
         false2Expr = nestedQmark->gtGetOp2()->AsColon()->ElseNode();
-
-        assert(cond2Expr->gtFlags & GTF_RELOP_QMARK);
-        cond2Expr->gtFlags &= ~GTF_RELOP_QMARK;
     }
     else
     {
@@ -14447,10 +14442,6 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         false2Expr = gtNewIconNode(0, TYP_I_IMPL);
     }
     assert(false2Expr->OperGet() == trueExpr->OperGet());
-
-    // Clear flags as they are now going to be part of JTRUE.
-    assert(condExpr->gtFlags & GTF_RELOP_QMARK);
-    condExpr->gtFlags &= ~GTF_RELOP_QMARK;
 
     // Create the chain of blocks. See method header comment.
     // The order of blocks after this is the following:
@@ -14626,9 +14617,6 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     GenTree* condExpr  = qmark->gtGetOp1();
     GenTree* trueExpr  = qmark->gtGetOp2()->AsColon()->ThenNode();
     GenTree* falseExpr = qmark->gtGetOp2()->AsColon()->ElseNode();
-
-    assert(condExpr->gtFlags & GTF_RELOP_QMARK);
-    condExpr->gtFlags &= ~GTF_RELOP_QMARK;
 
     assert(!varTypeIsFloating(condExpr->TypeGet()));
 
