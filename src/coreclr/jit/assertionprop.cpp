@@ -555,6 +555,166 @@ void Compiler::optAssertionInit(bool isLocalProp)
     bbJtrueAssertionOut = nullptr;
 }
 
+#if LOCAL_ASSERTION_PROP
+
+// The following resets the value assignment table
+// used only during local assertion prop
+void Compiler::optAssertionReset(AssertionIndex limit)
+{
+    PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
+
+    while (optAssertionCount > limit)
+    {
+        AssertionIndex index        = optAssertionCount;
+        AssertionDsc*  curAssertion = optGetAssertion(index);
+        optAssertionCount--;
+        unsigned lclNum = curAssertion->op1.lcl.lclNum;
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+
+        //
+        // Find the Copy assertions
+        //
+        if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op1.kind == O1K_LCLVAR) &&
+            (curAssertion->op2.kind == O2K_LCLVAR_COPY))
+        {
+            //
+            //  op2.lcl.lclNum no longer depends upon this assertion
+            //
+            lclNum = curAssertion->op2.lcl.lclNum;
+            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+        }
+    }
+    while (optAssertionCount < limit)
+    {
+        AssertionIndex index        = ++optAssertionCount;
+        AssertionDsc*  curAssertion = optGetAssertion(index);
+        unsigned       lclNum       = curAssertion->op1.lcl.lclNum;
+        BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+
+        //
+        // Check for Copy assertions
+        //
+        if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op1.kind == O1K_LCLVAR) &&
+            (curAssertion->op2.kind == O2K_LCLVAR_COPY))
+        {
+            //
+            //  op2.lcl.lclNum now depends upon this assertion
+            //
+            lclNum = curAssertion->op2.lcl.lclNum;
+            BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+        }
+    }
+}
+
+/*****************************************************************************
+ *
+ *  The following removes the i-th entry in the value assignment table
+ *  used only during local assertion prop
+ */
+
+void Compiler::optAssertionRemove(AssertionIndex index)
+{
+    assert(index > 0);
+    assert(index <= optAssertionCount);
+    PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
+
+    AssertionDsc* curAssertion = optGetAssertion(index);
+
+    //  Two cases to consider if (index == optAssertionCount) then the last
+    //  entry in the table is to be removed and that happens automatically when
+    //  optAssertionCount is decremented and we can just clear the optAssertionDep bits
+    //  The other case is when index < optAssertionCount and here we overwrite the
+    //  index-th entry in the table with the data found at the end of the table
+    //  Since we are reordering the rable the optAssertionDep bits need to be recreated
+    //  using optAssertionReset(0) and optAssertionReset(newAssertionCount) will
+    //  correctly update the optAssertionDep bits
+    //
+    if (index == optAssertionCount)
+    {
+        unsigned lclNum = curAssertion->op1.lcl.lclNum;
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+
+        //
+        // Check for Copy assertions
+        //
+        if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op1.kind == O1K_LCLVAR) &&
+            (curAssertion->op2.kind == O2K_LCLVAR_COPY))
+        {
+            //
+            //  op2.lcl.lclNum no longer depends upon this assertion
+            //
+            lclNum = curAssertion->op2.lcl.lclNum;
+            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+        }
+
+        optAssertionCount--;
+    }
+    else
+    {
+        AssertionDsc*  lastAssertion     = optGetAssertion(optAssertionCount);
+        AssertionIndex newAssertionCount = optAssertionCount - 1;
+
+        optAssertionReset(0); // This make optAssertionCount equal 0
+
+        memcpy(curAssertion,  // the entry to be removed
+               lastAssertion, // last entry in the table
+               sizeof(AssertionDsc));
+
+        optAssertionReset(newAssertionCount);
+    }
+}
+
+void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
+                                 AssertionDsc* elseAssertionTab DEBUGARG(GenTreeColon* colon))
+{
+    if (optAssertionCount == 0)
+    {
+        return;
+    }
+
+    if (elseAssertionCount == 0)
+    {
+        optAssertionReset(0);
+        return;
+    }
+
+    if ((optAssertionCount == elseAssertionCount) &&
+        (memcmp(elseAssertionTab, optAssertionTabPrivate, optAssertionCount * sizeof(AssertionDsc)) == 0))
+    {
+        return;
+    }
+
+    for (AssertionIndex index = 1; index <= optAssertionCount;)
+    {
+        AssertionDsc* thenAssertion = optGetAssertion(index);
+        AssertionDsc* elseAssertion = nullptr;
+
+        for (unsigned j = 0; j < elseAssertionCount; j++)
+        {
+            AssertionDsc* assertion = &elseAssertionTab[j];
+
+            if ((assertion->assertionKind == thenAssertion->assertionKind) &&
+                (assertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum))
+            {
+                elseAssertion = assertion;
+                break;
+            }
+        }
+
+        if ((elseAssertion != nullptr) && elseAssertion->HasSameOp2(thenAssertion, false))
+        {
+            index++;
+        }
+        else
+        {
+            JITDUMP("The QMARK-COLON [%06u] removes assertion candidate #%d\n", colon->GetID(), index);
+            optAssertionRemove(index);
+        }
+    }
+}
+
+#endif // LOCAL_ASSERTION_PROP
+
 #ifdef DEBUG
 void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* =0 */)
 {
@@ -2125,14 +2285,6 @@ AssertionIndex Compiler::optAssertionGenPhiDefn(GenTree* tree)
 void Compiler::optAssertionGen(GenTree* tree)
 {
     tree->ClearAssertion();
-
-    // If there are QMARKs in the IR, we won't generate assertions
-    // for conditionally executed code.
-    //
-    if (optLocalAssertionProp && ((tree->gtFlags & GTF_COLON_COND) != 0))
-    {
-        return;
-    }
 
 #ifdef DEBUG
     optAssertionPropCurrentTree = tree;

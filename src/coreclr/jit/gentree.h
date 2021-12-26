@@ -431,9 +431,13 @@ enum GenTreeFlags : unsigned int
 
     GTF_MAKE_CSE    = 0x00000800, // Hoisted expression: try hard to make this into CSE (see optPerformHoistExpr)
     GTF_DONT_CSE    = 0x00001000, // Don't bother CSE'ing this expr
-    GTF_COLON_COND  = 0x00002000, // This node is conditionally executed (part of ? :)
 
-    GTF_NODE_MASK   = GTF_COLON_COND,
+    GTF_NODE_MASK   = 0,          // TODO-MIKE-Cleanup: This should be LATE_ARG but a lot of code used it to deal with the old COLON_COND.
+                                  // The problem is now that it's not clear where it should be used. For example, gtCloneExpr used it to
+                                  // remove COLON_COND from the clone (why, the clone could have been used in a COLON tree too) and at the
+                                  // same time gtCloneExpr did not remove LATE_ARG, even if it's far less likely that the clone would have
+                                  // been a late arg too. Probably it's not worth the trouble to deal with LATE_ARG at this point, just
+                                  // remove that stupid flag.
 
     GTF_BOOLEAN     = 0x00004000, // value is known to be 0/1
 
@@ -549,7 +553,6 @@ enum GenTreeFlags : unsigned int
 
     GTF_RELOP_NAN_UN            = 0x80000000, // GT_<relop> -- Is branch taken if ops are NaN?
     GTF_RELOP_JMP_USED          = 0x40000000, // GT_<relop> -- result of compare used for jump or ?:
-    GTF_RELOP_QMARK             = 0x20000000, // GT_<relop> -- the node is the condition for ?:
     GTF_RELOP_ZTT               = 0x08000000, // GT_<relop> -- Loop test cloned for converting while-loops into do-while
                                               //               with explicit "loop test" in the header block.
 

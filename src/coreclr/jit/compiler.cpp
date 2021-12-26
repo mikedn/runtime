@@ -7711,11 +7711,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         }
 #endif // defined(DEBUG)
 
-        if (tree->gtFlags & GTF_COLON_COND)
-        {
-            chars += printf("[COLON_COND]");
-        }
-
         // Operator flags
 
         genTreeOps op = tree->OperGet();
@@ -7833,10 +7828,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 if (tree->gtFlags & GTF_RELOP_JMP_USED)
                 {
                     chars += printf("[RELOP_JMP_USED]");
-                }
-                if (tree->gtFlags & GTF_RELOP_QMARK)
-                {
-                    chars += printf("[RELOP_QMARK]");
                 }
                 break;
 
