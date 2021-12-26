@@ -9516,11 +9516,11 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     AssertionIndex origAssertionCount = 0;
     AssertionDsc*  origAssertionTab   = nullptr;
 
-    // If we are entering the "then" part of a Qmark-Colon we must
-    // save the state of the current copy assignment table
-    // so that we can restore this state when entering the "else" part
     if (optLocalAssertionProp)
     {
+        // The local assertion propagation state after morphing the condition expression
+        // applies to both then and else expressions, we need to save it before morphing
+        // one expression and restore it before morphing the other expression.
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
@@ -9537,26 +9537,24 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    AssertionIndex thenAssertionCount = 0;
-    AssertionDsc*  thenAssertionTab   = nullptr;
+    AssertionIndex elseAssertionCount = 0;
+    AssertionDsc*  elseAssertionTab   = nullptr;
 
     if (optLocalAssertionProp)
     {
-        // If we are exiting the "then" part of a Qmark-Colon we must
-        // save the state of the current copy assignment table
-        // so that we can merge this state with the "else" part exit
+        // We also need to save the local assertion propagation state after morphing the
+        // first of the then/else expressions. Later we need to merge the two states by
+        // removing assertions that are not present in both states.
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
             unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
-            thenAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
-            thenAssertionCount = optAssertionCount;
-            memcpy(thenAssertionTab, optAssertionTabPrivate, tabSize);
-        }
+            elseAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
+            elseAssertionCount = optAssertionCount;
+            memcpy(elseAssertionTab, optAssertionTabPrivate, tabSize);
 
-        // If we are entering the "else" part of a Qmark-Colon we must
-        // reset the state of the current copy assignment table
-        optAssertionReset(0);
+            optAssertionReset(0);
+        }
 
         if (origAssertionCount != 0)
         {
@@ -9575,27 +9573,27 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     // Merge assertions after COLON morphing.
     if (optLocalAssertionProp)
     {
-        if ((optAssertionCount == 0) || (thenAssertionCount == 0))
+        if ((optAssertionCount == 0) || (elseAssertionCount == 0))
         {
             optAssertionReset(0);
         }
-        else if ((optAssertionCount != thenAssertionCount) ||
-                 (memcmp(thenAssertionTab, optAssertionTabPrivate, optAssertionCount * sizeof(AssertionDsc)) != 0))
+        else if ((optAssertionCount != elseAssertionCount) ||
+                 (memcmp(elseAssertionTab, optAssertionTabPrivate, optAssertionCount * sizeof(AssertionDsc)) != 0))
         {
             for (AssertionIndex index = 1; index <= optAssertionCount;)
             {
-                AssertionDsc* curAssertion = optGetAssertion(index);
-                bool          keep         = false;
+                AssertionDsc* thenAssertion = optGetAssertion(index);
+                bool          keep          = false;
 
-                for (unsigned j = 0; j < thenAssertionCount; j++)
+                for (unsigned j = 0; j < elseAssertionCount; j++)
                 {
-                    AssertionDsc* thenAssertion = &thenAssertionTab[j];
+                    AssertionDsc* elseAssertion = &elseAssertionTab[j];
 
-                    if ((curAssertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum) &&
-                        (curAssertion->assertionKind == thenAssertion->assertionKind))
+                    if ((thenAssertion->op1.lcl.lclNum == elseAssertion->op1.lcl.lclNum) &&
+                        (thenAssertion->assertionKind == elseAssertion->assertionKind))
                     {
-                        keep = (curAssertion->op2.kind == thenAssertion->op2.kind) &&
-                               (curAssertion->op2.lconVal == thenAssertion->op2.lconVal);
+                        keep = (thenAssertion->op2.kind == elseAssertion->op2.kind) &&
+                               (thenAssertion->op2.lconVal == elseAssertion->op2.lconVal);
                         break;
                     }
                 }
