@@ -7582,7 +7582,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     unreached();
             }
         }
-        else if ((oper == GT_IND) || GenTree::OperIsBlk(oper))
+        else if ((oper == GT_IND) || (oper == GT_OBJ) || (oper == GT_BLK))
         {
             // So far, we handle cases in which the address is a ptr-to-local, or if it's
             // a pointer to an object field or array element.  Other cases become uses of

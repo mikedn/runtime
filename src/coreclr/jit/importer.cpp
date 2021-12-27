@@ -9663,7 +9663,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         lclVar = lhs->AsLclVar();
                     }
-                    else if (lhs->OperIsBlk())
+                    else if (lhs->OperIs(GT_OBJ, GT_BLK))
                     {
                         // Check if LHS address is within some struct local, to catch
                         // cases where we're updating the struct by something other than a stfld

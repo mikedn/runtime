@@ -1510,19 +1510,10 @@ public:
         return OperMayOverflow(gtOper);
     }
 
-    static bool OperIsBlk(genTreeOps gtOper)
-    {
-        return (gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ);
-    }
-
-    bool OperIsBlk() const
-    {
-        return OperIsBlk(gtOper);
-    }
-
     static bool OperIsIndir(genTreeOps gtOper)
     {
-        return (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_NULLCHECK) || OperIsBlk(gtOper);
+        return (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_NULLCHECK) || (gtOper == GT_BLK) ||
+               (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ);
     }
 
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
@@ -1628,7 +1619,7 @@ public:
 
     bool NullOp2Legal() const
     {
-        assert(OperIsSimple(gtOper) || OperIsBlk(gtOper));
+        assert(OperIsSimple(gtOper));
         if (!OperIsBinary(gtOper))
         {
             return true;
@@ -2765,7 +2756,7 @@ struct GenTreeOp : public GenTreeUnOp
         : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
     {
         // Unary operators with optional arguments:
-        assert(oper == GT_NOP || oper == GT_RETURN || oper == GT_RETFILT || OperIsBlk(oper));
+        assert((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT));
     }
 
     GenTreeOp(GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
@@ -6342,14 +6333,14 @@ protected:
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
         : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert(OperIsBlk(oper));
+        assert((oper == GT_OBJ) || (oper == GT_BLK));
         assert(layout != nullptr);
     }
 
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
         : GenTreeIndir(oper, type, addr, value), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert(OperIsBlk(oper));
+        assert((oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK));
         assert(layout != nullptr);
     }
 
