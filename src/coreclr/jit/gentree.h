@@ -1512,8 +1512,7 @@ public:
 
     static bool OperIsBlk(genTreeOps gtOper)
     {
-        return (gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_DYN_BLK) || (gtOper == GT_STORE_BLK) ||
-               (gtOper == GT_STORE_OBJ) || (gtOper == GT_STORE_DYN_BLK);
+        return (gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ);
     }
 
     bool OperIsBlk() const
@@ -1572,7 +1571,8 @@ public:
     static bool OperIsStore(genTreeOps oper)
     {
         return (oper == GT_STOREIND) || (oper == GT_STORE_LCL_VAR) || (oper == GT_STORE_LCL_FLD) ||
-               (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK) || (oper == GT_STORE_DYN_BLK) || OperIsAtomicOp(oper);
+               (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK) || (oper == GT_COPY_BLK) || (oper == GT_INIT_BLK) ||
+               OperIsAtomicOp(oper);
     }
 
     static bool OperIsHWIntrinsic(genTreeOps gtOper)
@@ -2570,7 +2570,6 @@ class GenTreeUseEdgeIterator final
     void AdvanceArrElem();
     void AdvanceArrOffset();
     void AdvanceDynBlk();
-    void AdvanceStoreDynBlk();
     void AdvanceFieldList();
     void AdvancePhi();
 #ifdef FEATURE_HW_INTRINSICS
@@ -6223,9 +6222,6 @@ protected:
 // Indir is just an op, no additional data, but some additional abstractions
 struct GenTreeIndir : public GenTreeOp
 {
-    // The address for the indirection.
-    // Since GenTreeDynBlk derives from this, but is an "EXOP" (i.e. it has extra fields),
-    // we can't access Op1 and Op2 in the normal manner if we may have a DynBlk.
     GenTree*& Addr()
     {
         return gtOp1;
@@ -6250,7 +6246,7 @@ struct GenTreeIndir : public GenTreeOp
 
     void SetValue(GenTree* value)
     {
-        assert(OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
+        assert(OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
         assert(value != nullptr);
         gtOp2 = value;
     }
@@ -6347,21 +6343,21 @@ protected:
         : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(OperIsBlk(oper));
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+        assert(layout != nullptr);
     }
 
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
         : GenTreeIndir(oper, type, addr, value), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(OperIsBlk(oper));
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+        assert(layout != nullptr);
     }
 
 public:
     GenTreeBlk(GenTree* addr, ClassLayout* layout)
         : GenTreeIndir(GT_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert((layout != nullptr) && layout->IsBlockLayout());
+        assert(layout->IsBlockLayout());
     }
 
     GenTreeBlk(GenTreeBlk* copyFrom)
@@ -6376,7 +6372,7 @@ public:
 
     void SetLayout(ClassLayout* layout)
     {
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+        assert(layout != nullptr);
         m_layout = layout;
     }
 
@@ -6394,8 +6390,7 @@ public:
     // The size of the buffer to be copied.
     unsigned Size() const
     {
-        assert((m_layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
-        return (m_layout != nullptr) ? m_layout->GetSize() : 0;
+        return m_layout->GetSize();
     }
 
     StructStoreKind GetKind() const
@@ -6448,22 +6443,46 @@ struct GenTreeObj : public GenTreeBlk
 // This node is used for block values that have a dynamic size.
 // Note that such a value can never have GC pointers.
 
-struct GenTreeDynBlk : public GenTreeBlk
+struct GenTreeDynBlk : public GenTreeOp
 {
     GenTree* gtDynamicSize;
-    bool     gtEvalSizeFirst;
 
-    GenTreeDynBlk(GenTree* addr, GenTree* size)
-        : GenTreeBlk(GT_DYN_BLK, TYP_STRUCT, addr, nullptr), gtDynamicSize(size), gtEvalSizeFirst(false)
+    GenTreeDynBlk(genTreeOps oper, GenTree* addr, GenTree* value, GenTree* size)
+        : GenTreeOp(oper, TYP_VOID, addr, value), gtDynamicSize(size)
     {
-        // Conservatively the 'addr' could be null or point into the global heap.
-        gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-        gtFlags |= (size->gtFlags & GTF_ALL_EFFECT);
+        assert((oper == GT_COPY_BLK) || (oper == GT_INIT_BLK));
+        assert(varTypeIsIntegralOrI(addr->GetType()));
+        assert(oper == GT_COPY_BLK ? varTypeIsIntegralOrI(value->GetType()) : varTypeIsIntegral(value->GetType()));
+        assert(varTypeIsIntegral(size->GetType()));
+
+        gtFlags |= GTF_ASG | GTF_EXCEPT | GTF_GLOB_REF;
+        gtFlags |= size->GetSideEffects();
     }
 
-    GenTreeDynBlk(GenTreeDynBlk* copyFrom)
-        : GenTreeBlk(copyFrom), gtDynamicSize(copyFrom->gtDynamicSize), gtEvalSizeFirst(false)
+    GenTreeDynBlk(GenTreeDynBlk* copyFrom) : GenTreeOp(copyFrom), gtDynamicSize(copyFrom->gtDynamicSize)
     {
+    }
+
+    GenTree* GetAddr() const
+    {
+        return gtOp1;
+    }
+
+    void SetAddr(GenTree* addr)
+    {
+        assert(varTypeIsIntOrI(addr->GetType()));
+        gtOp1 = addr;
+    }
+
+    GenTree* GetValue() const
+    {
+        return gtOp2;
+    }
+
+    void SetValue(GenTree* value)
+    {
+        assert(varTypeIsIntOrI(value->GetType()));
+        gtOp2 = value;
     }
 
     GenTree* GetSize() const
@@ -6477,11 +6496,40 @@ struct GenTreeDynBlk : public GenTreeBlk
         gtDynamicSize = size;
     }
 
+    bool IsVolatile() const
+    {
+        return (gtFlags & GTF_IND_VOLATILE) != 0;
+    }
+
+    void SetVolatile(bool isVolatile)
+    {
+        gtFlags = isVolatile ? (gtFlags | GTF_IND_VOLATILE) : (gtFlags & ~GTF_IND_VOLATILE);
+    }
+
+    bool IsUnaligned() const
+    {
+        return (gtFlags & GTF_IND_UNALIGNED) != 0;
+    }
+
+    void SetUnaligned(bool isUnaligned)
+    {
+        gtFlags = isUnaligned ? (gtFlags | GTF_IND_UNALIGNED) : (gtFlags & ~GTF_IND_UNALIGNED);
+    }
+
+    StructStoreKind GetKind() const
+    {
+#ifdef TARGET_X86
+        return gtOper == GT_INIT_BLK ? StructStoreKind::RepStos : StructStoreKind::RepMovs;
+#else
+        return gtOper == GT_INIT_BLK ? StructStoreKind::MemSet : StructStoreKind::MemCpy;
+#endif
+    }
+
 #if DEBUGGABLE_GENTREE
-    GenTreeDynBlk() : GenTreeBlk()
+    GenTreeDynBlk() : GenTreeOp()
     {
     }
-#endif // DEBUGGABLE_GENTREE
+#endif
 };
 
 // Read-modify-write status of a RMW memory op rooted at a storeInd

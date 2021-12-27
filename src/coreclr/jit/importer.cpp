@@ -17105,25 +17105,24 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayou
 
 GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
 {
-    ClassLayout*  layout = nullptr;
-    GenTreeIndir* dst;
+    GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
-    if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
+    // TODO-MIKE-Review: Currently INITBLK ignores the unaligned prefix.
+
+    if (sizeIntCon == nullptr)
     {
-        layout = typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue()));
-        dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
+        GenTreeDynBlk* init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
+        init->SetVolatile(isVolatile);
+        return init;
     }
-    else
-    {
-        dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
-    }
+
+    ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
+    GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
 
     if (isVolatile)
     {
         dst->SetVolatile();
     }
-
-    // TODO-MIKE-Review: Currently INITBLK ignores the unaligned prefix.
 
     if (!initValue->IsIntegralConst(0))
     {
@@ -17135,44 +17134,26 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
 
 GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
 {
-    ClassLayout* layout = nullptr;
-    GenTreeBlk*  dst;
+    GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
-    if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
+    // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
+
+    if (sizeIntCon == nullptr)
     {
-        layout = typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue()));
-        dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
+        GenTreeDynBlk* copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
+        copy->SetVolatile(isVolatile);
+        return copy;
     }
-    else
-    {
-        dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
-    }
+
+    ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
+    GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
 
     if (isVolatile)
     {
         dst->SetVolatile();
     }
 
-    // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
-
-    GenTreeIndir* src;
-
-    if (layout != nullptr)
-    {
-        src = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
-    }
-    else
-    {
-        // STRUCT typed IND aren't normally used, we'll use it here as a special case, to denote
-        // a "load" of unknown size. Maybe using DYN_BLK as source would make more sense.
-        // We'd need to spill the size tree so it can have multiple uses but such copies are
-        // rare so getting an extra local shouldn't be a problem.
-
-        // TODO-MIKE-Consider: Replace GT_DYN_BLK with GT_COPY_BLK. Using load/store semantics
-        // for untyped, arbitrary sized copies is kind of nonsense.
-
-        src = new (this, GT_IND) GenTreeIndir(GT_IND, TYP_STRUCT, srcAddr);
-    }
+    GenTreeBlk* src = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
 
     if (isVolatile)
     {

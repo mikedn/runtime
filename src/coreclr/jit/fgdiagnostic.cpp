@@ -3187,20 +3187,17 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 chkFlags |= (cmpXchg->gtOpComparand->gtFlags & GTF_ALL_EFFECT);
                 break;
 
-            case GT_STORE_DYN_BLK:
-            case GT_DYN_BLK:
-
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
+                chkFlags |= (GTF_GLOB_REF | GTF_ASG);
                 GenTreeDynBlk* dynBlk;
                 dynBlk = tree->AsDynBlk();
                 fgDebugCheckFlags(dynBlk->gtDynamicSize);
                 chkFlags |= (dynBlk->gtDynamicSize->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(dynBlk->Addr());
-                chkFlags |= (dynBlk->Addr()->gtFlags & GTF_ALL_EFFECT);
-                if (tree->OperGet() == GT_STORE_DYN_BLK)
-                {
-                    fgDebugCheckFlags(dynBlk->Data());
-                    chkFlags |= (dynBlk->Data()->gtFlags & GTF_ALL_EFFECT);
-                }
+                fgDebugCheckFlags(dynBlk->gtOp1);
+                chkFlags |= (dynBlk->gtOp1->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(dynBlk->gtOp2);
+                chkFlags |= (dynBlk->gtOp2->gtFlags & GTF_ALL_EFFECT);
                 break;
 
             default:

@@ -509,9 +509,13 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_STORE_OBJ:
-        case GT_STORE_DYN_BLK:
         case GT_STORE_BLK:
             GenStructStore(treeNode->AsBlk(), treeNode->AsBlk()->GetKind(), treeNode->AsBlk()->GetLayout());
+            break;
+
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            GenDynBlk(treeNode->AsDynBlk());
             break;
 
         case GT_JMPTABLE:
@@ -1728,6 +1732,23 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     genProduceReg(tree);
 }
 
+void CodeGen::GenDynBlk(GenTreeDynBlk* store)
+{
+    ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+
+    if (store->IsVolatile())
+    {
+        instGen_MemoryBarrier();
+    }
+
+    genEmitHelperCall(store->OperIs(GT_COPY_BLK) ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+
+    if (store->IsVolatile() && store->OperIs(GT_COPY_BLK))
+    {
+        instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
+    }
+}
+
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src)
 {
     assert(!layout->IsBlockLayout());
@@ -1755,7 +1776,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 
 void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     switch (kind)
     {
@@ -1793,7 +1814,7 @@ void CodeGen::GenStructStoreMemSet(GenTree* store, ClassLayout* layout)
 
 void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
 {
-    assert((layout == nullptr) || !layout->HasGCPtr());
+    assert(!layout->HasGCPtr());
 
     ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
 

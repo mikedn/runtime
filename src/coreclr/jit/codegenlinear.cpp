@@ -1744,7 +1744,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 void CodeGen::ConsumeStructStore(
     GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     // We have to consume the registers, and perform any copies, in the actual execution order: dst, src, size.
     //
@@ -1795,11 +1795,6 @@ void CodeGen::ConsumeStructStore(
         genConsumeReg(src);
     }
 
-    if (store->OperIs(GT_STORE_DYN_BLK))
-    {
-        genConsumeReg(store->AsDynBlk()->GetSize());
-    }
-
     // Copy registers as needed
 
     if (dstAddr != nullptr)
@@ -1810,11 +1805,6 @@ void CodeGen::ConsumeStructStore(
     if (!src->isContained())
     {
         genCopyRegIfNeeded(src, srcReg);
-    }
-
-    if (store->OperIs(GT_STORE_DYN_BLK))
-    {
-        genCopyRegIfNeeded(store->AsDynBlk()->GetSize(), sizeReg);
     }
 
     if (dstAddr == nullptr)
@@ -1837,12 +1827,27 @@ void CodeGen::ConsumeStructStore(
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNum, lclOffs);
     }
 
-    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeReg != REG_NA))
+    if (sizeReg != REG_NA)
     {
         assert(store->HasTempReg(sizeReg));
 
         genSetRegToIcon(sizeReg, layout->GetSize());
     }
+}
+
+void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
+{
+    GenTree* addr  = store->GetAddr();
+    GenTree* value = store->GetValue();
+    GenTree* size  = store->GetSize();
+
+    genConsumeReg(addr);
+    genConsumeReg(value);
+    genConsumeReg(size);
+
+    genCopyRegIfNeeded(addr, dstReg);
+    genCopyRegIfNeeded(value, srcReg);
+    genCopyRegIfNeeded(size, sizeReg);
 }
 
 //-------------------------------------------------------------------------

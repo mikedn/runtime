@@ -159,7 +159,6 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
 
         case GT_BLK:
         case GT_OBJ:
-        case GT_DYN_BLK:
         {
             assert(varTypeIsStruct(location));
             GenTreeBlk* storeBlk = location->AsBlk();
@@ -171,10 +170,6 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
                     break;
                 case GT_OBJ:
                     storeOper = GT_STORE_OBJ;
-                    break;
-                case GT_DYN_BLK:
-                    storeOper                             = GT_STORE_DYN_BLK;
-                    storeBlk->AsDynBlk()->gtEvalSizeFirst = false;
                     break;
                 default:
                     unreached();

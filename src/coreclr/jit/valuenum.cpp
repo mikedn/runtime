@@ -7815,6 +7815,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
             }
         }
+        else if ((oper == GT_COPY_BLK) || (oper == GT_INIT_BLK))
+        {
+            fgMutateGcHeap(tree DEBUGARG("dynamic sized block init/copy"));
+            tree->gtVNPair.SetBoth(vnStore->VNForVoid());
+        }
         else if (tree->OperGet() == GT_CAST)
         {
             fgValueNumberCastTree(tree);
@@ -9547,7 +9552,6 @@ void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
 
             case GT_BLK:
             case GT_OBJ:
-            case GT_DYN_BLK:
             case GT_NULLCHECK:
                 fgValueNumberAddExceptionSetForIndirection(tree, tree->AsIndir()->Addr());
                 break;

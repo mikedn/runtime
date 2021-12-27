@@ -4722,6 +4722,7 @@ private:
     GenTreeOp* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
     GenTreeOp* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
 #endif
+    GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
@@ -9057,51 +9058,14 @@ public:
                 break;
             }
 
-            case GT_DYN_BLK:
-            {
-                GenTreeDynBlk* const dynBlock = node->AsDynBlk();
-
-                GenTree** op1Use = &dynBlock->gtOp1;
-                GenTree** op2Use = &dynBlock->gtDynamicSize;
-
-                if (TVisitor::UseExecutionOrder && dynBlock->gtEvalSizeFirst)
-                {
-                    std::swap(op1Use, op2Use);
-                }
-
-                result = WalkTree(op1Use, dynBlock);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                result = WalkTree(op2Use, dynBlock);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                break;
-            }
-
-            case GT_STORE_DYN_BLK:
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
             {
                 GenTreeDynBlk* const dynBlock = node->AsDynBlk();
 
                 GenTree** op1Use = &dynBlock->gtOp1;
                 GenTree** op2Use = &dynBlock->gtOp2;
                 GenTree** op3Use = &dynBlock->gtDynamicSize;
-
-                if (TVisitor::UseExecutionOrder)
-                {
-                    if (dynBlock->IsReverseOp())
-                    {
-                        std::swap(op1Use, op2Use);
-                    }
-                    if (dynBlock->gtEvalSizeFirst)
-                    {
-                        std::swap(op3Use, op2Use);
-                        std::swap(op2Use, op1Use);
-                    }
-                }
 
                 result = WalkTree(op1Use, dynBlock);
                 if (result == fgWalkResult::WALK_ABORT)

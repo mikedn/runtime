@@ -7934,14 +7934,24 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 FALLTHROUGH;
 
             case GT_BLK:
-            case GT_DYN_BLK:
             case GT_STORE_BLK:
-            case GT_STORE_DYN_BLK:
                 if (tree->AsIndir()->IsVolatile())
                 {
                     chars += printf("[IND_VOLATILE]");
                 }
                 if (tree->AsBlk()->IsUnaligned())
+                {
+                    chars += printf("[BLK_UNALIGNED]");
+                }
+                break;
+
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
+                if (tree->AsDynBlk()->IsVolatile())
+                {
+                    chars += printf("[IND_VOLATILE]");
+                }
+                if (tree->AsDynBlk()->IsUnaligned())
                 {
                     chars += printf("[BLK_UNALIGNED]");
                 }

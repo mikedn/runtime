@@ -293,7 +293,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerStoreBlk(node->AsBlk());
             break;
 
-        case GT_STORE_DYN_BLK:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
             LowerStoreDynBlk(node->AsDynBlk());
             break;
 
@@ -6041,46 +6042,14 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
 
 void Lowering::LowerStoreDynBlk(GenTreeDynBlk* store)
 {
-    assert(store->OperIs(GT_STORE_DYN_BLK));
-
 #ifdef TARGET_XARCH
     TryCreateAddrMode(store->GetAddr(), false);
-#endif
 
-    GenTree* src = store->GetValue();
-
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    if (store->OperIs(GT_COPY_BLK))
     {
-        if (src->OperIs(GT_INIT_VAL))
-        {
-            src->SetContained();
-        }
-
-#ifdef TARGET_X86
-        // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-        store->SetKind(StructStoreKind::RepStos);
-#else
-        store->SetKind(StructStoreKind::MemSet);
-#endif
+        TryCreateAddrMode(store->GetValue(), false);
     }
-    else
-    {
-        assert(src->OperIs(GT_IND) && src->TypeIs(TYP_STRUCT));
-        assert(!src->AsIndir()->GetAddr()->isContained());
-
-        src->SetContained();
-
-#ifdef TARGET_XARCH
-        TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
 #endif
-
-#ifdef TARGET_X86
-        // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-        store->SetKind(StructStoreKind::RepMovs);
-#else
-        store->SetKind(StructStoreKind::MemCpy);
-#endif
-    }
 }
 
 bool Lowering::TryTransformStoreObjToStoreInd(GenTreeObj* store)

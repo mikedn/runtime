@@ -185,7 +185,6 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
-        case GT_DYN_BLK:
             // For Volatile indirection, first mutate GcHeap/ByrefExposed
             // see comments in ValueNum.cpp (under case GT_IND)
             // This models Volatile reads as def-then-use of memory.
@@ -223,6 +222,8 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         case GT_XADD:
         case GT_XCHG:
         case GT_CMPXCHG:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
             fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
             fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
             fgCurMemoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
@@ -315,7 +316,6 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         case GT_STORE_LCL_FLD:
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
-        case GT_STORE_DYN_BLK:
         case GT_STOREIND:
             unreached();
 
@@ -1890,7 +1890,8 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 #endif
             case GT_STORE_OBJ:
             case GT_STORE_BLK:
-            case GT_STORE_DYN_BLK:
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
             case GT_JCMP:
             case GT_CMP:
             case GT_JCC:
@@ -1935,12 +1936,11 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
             case GT_BLK:
             case GT_OBJ:
-            case GT_DYN_BLK:
             {
                 bool removed = fgTryRemoveNonLocal(node, &blockRange);
                 if (!removed && node->IsUnusedValue())
                 {
-                    // IR doesn't expect dummy uses of `GT_OBJ/BLK/DYN_BLK`.
+                    // IR doesn't expect dummy uses of `GT_OBJ/BLK`.
                     JITDUMP("Transform an unused OBJ/BLK node [%06d]\n", dspTreeID(node));
                     Lowering::TransformUnusedIndirection(node->AsIndir(), this, block);
                 }

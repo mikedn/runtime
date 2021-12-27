@@ -1094,6 +1094,7 @@ protected:
     void genConsumeAddress(GenTree* addr);
     void genConsumeAddrMode(GenTreeAddrMode* mode);
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
+    void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
 
 #if FEATURE_ARG_SPLIT
     void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
@@ -1205,6 +1206,7 @@ protected:
 #endif
                             );
 
+    void GenDynBlk(GenTreeDynBlk* store);
     void GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout);
 #ifndef TARGET_X86
