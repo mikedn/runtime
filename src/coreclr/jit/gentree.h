@@ -2556,11 +2556,9 @@ class GenTreeUseEdgeIterator final
     GenTreeUseEdgeIterator(GenTree* node);
 
     // Advance functions for special nodes
-    void AdvanceCmpXchg();
+    void AdvanceTernaryOp();
     void AdvanceBoundsChk();
     void AdvanceArrElem();
-    void AdvanceArrOffset();
-    void AdvanceDynBlk();
     void AdvanceFieldList();
     void AdvancePhi();
 #ifdef FEATURE_HW_INTRINSICS
@@ -5186,6 +5184,16 @@ struct GenTreeTernaryOp : public GenTreeOp
                Compare(x->gtOp2, y->gtOp2) && Compare(x->gtOp3, y->gtOp3);
     }
 
+    // Delete some inherited functions to avoid accidental use, at least when
+    // the node is accessed via GenTreeTernaryOp* rather than GenTree/Un/Op*.
+    GenTree*           gtGetOp1() const          = delete;
+    GenTree*           gtGetOp2() const          = delete;
+    GenTree*           gtGetOp2IfPresent() const = delete;
+    GenTreeUnOp*       AsUnOp()                  = delete;
+    const GenTreeUnOp* AsUnOp() const            = delete;
+    GenTreeOp*         AsOp()                    = delete;
+    const GenTreeOp*   AsOp() const              = delete;
+
 #if DEBUGGABLE_GENTREE
     GenTreeTernaryOp() : GenTreeOp()
     {
@@ -5204,14 +5212,20 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
         gtFlags |= GTF_GLOB_REF | GTF_ASG;
     }
 
+    GenTreeCmpXchg(GenTreeCmpXchg* copyFrom) : GenTreeTernaryOp(copyFrom)
+    {
+    }
+
     GenTree* GetAddr() const
     {
         return gtOp1;
     }
+
     GenTree* GetValue() const
     {
         return gtOp2;
     }
+
     GenTree* GetCompareValue() const
     {
         return gtOp3;
@@ -6159,6 +6173,14 @@ struct GenTreeArrOffs : public GenTreeTernaryOp
     {
         assert(index->gtFlags & GTF_EXCEPT);
         gtFlags |= GTF_EXCEPT;
+    }
+
+    GenTreeArrOffs(GenTreeArrOffs* copyFrom)
+        : GenTreeTernaryOp(copyFrom)
+        , gtCurrDim(copyFrom->gtCurrDim)
+        , gtArrRank(copyFrom->gtArrRank)
+        , gtArrElemType(copyFrom->gtArrElemType)
+    {
     }
 
     // The accumulated offset for lower dimensions

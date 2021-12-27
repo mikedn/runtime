@@ -12921,20 +12921,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_ARR_OFFSET:
-            // GT_ARR_OFFSET nodes are created during lowering.
-            noway_assert(!fgGlobalMorph);
-
-            tree->AsArrOffs()->SetOp(0, fgMorphTree(tree->AsArrOffs()->GetOp(0)));
-            tree->AsArrOffs()->SetOp(1, fgMorphTree(tree->AsArrOffs()->GetOp(1)));
-            tree->AsArrOffs()->SetOp(2, fgMorphTree(tree->AsArrOffs()->GetOp(2)));
-
-            tree->gtFlags &= ~GTF_CALL;
-            tree->gtFlags |= tree->AsArrOffs()->GetOp(0)->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsArrOffs()->GetOp(1)->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsArrOffs()->GetOp(2)->gtFlags & GTF_ALL_EFFECT;
-            break;
-
         case GT_PHI:
             tree->gtFlags &= ~GTF_ALL_EFFECT;
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
@@ -12967,40 +12953,42 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
+        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
-            tree->AsCmpXchg()->SetOp(0, fgMorphTree(tree->AsCmpXchg()->GetOp(0)));
-            tree->AsCmpXchg()->SetOp(1, fgMorphTree(tree->AsCmpXchg()->GetOp(1)));
-            tree->AsCmpXchg()->SetOp(2, fgMorphTree(tree->AsCmpXchg()->GetOp(2)));
-
-            tree->gtFlags &= (~GTF_EXCEPT & ~GTF_CALL);
-
-            tree->gtFlags |= tree->AsCmpXchg()->GetOp(0)->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsCmpXchg()->GetOp(1)->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsCmpXchg()->GetOp(2)->gtFlags & GTF_ALL_EFFECT;
-            break;
-
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            tree->AsDynBlk()->gtOp1 = fgMorphTree(tree->AsDynBlk()->gtOp1);
-            tree->AsDynBlk()->gtOp2 = fgMorphTree(tree->AsDynBlk()->gtOp2);
-            tree->AsDynBlk()->gtOp3 = fgMorphTree(tree->AsDynBlk()->gtOp3);
+            tree->AsTernaryOp()->SetOp(0, fgMorphTree(tree->AsTernaryOp()->GetOp(0)));
+            tree->AsTernaryOp()->SetOp(1, fgMorphTree(tree->AsTernaryOp()->GetOp(1)));
+            tree->AsTernaryOp()->SetOp(2, fgMorphTree(tree->AsTernaryOp()->GetOp(2)));
 
-            tree->gtFlags &= ~GTF_CALL;
-
-            if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
+            if (tree->OperIs(GT_ARR_OFFSET))
             {
-                tree->gtFlags |= GTF_EXCEPT;
+                // GT_ARR_OFFSET nodes are created during lowering.
+                noway_assert(!fgGlobalMorph);
+
+                tree->gtFlags &= ~GTF_CALL;
+            }
+            else if (tree->OperIs(GT_CMPXCHG))
+            {
+                tree->gtFlags &= (~GTF_EXCEPT & ~GTF_CALL);
+            }
+            else
+            {
+                tree->gtFlags &= ~GTF_CALL;
+
+                if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
+                {
+                    tree->gtFlags |= GTF_EXCEPT;
+                }
             }
 
-            tree->gtFlags |= tree->AsDynBlk()->gtOp1->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsDynBlk()->gtOp2->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsDynBlk()->gtOp3->gtFlags & GTF_ALL_EFFECT;
+            tree->gtFlags |= tree->AsTernaryOp()->GetOp(0)->GetSideEffects();
+            tree->gtFlags |= tree->AsTernaryOp()->GetOp(1)->GetSideEffects();
+            tree->gtFlags |= tree->AsTernaryOp()->GetOp(2)->GetSideEffects();
             break;
 
         default:
-#ifdef DEBUG
-            gtDispTree(tree);
-#endif
+            INDEBUG(gtDispTree(tree);)
             noway_assert(!"unexpected operator");
     }
 DONE:

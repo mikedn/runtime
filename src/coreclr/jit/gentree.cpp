@@ -1421,16 +1421,6 @@ AGAIN:
             op2 = op2->AsArrElem()->gtArrObj;
             goto AGAIN;
 
-        case GT_ARR_OFFSET:
-            if (op1->AsArrOffs()->gtCurrDim != op2->AsArrOffs()->gtCurrDim ||
-                op1->AsArrOffs()->gtArrRank != op2->AsArrOffs()->gtArrRank)
-            {
-                return false;
-            }
-            return (Compare(op1->AsArrOffs()->GetOp(0), op2->AsArrOffs()->GetOp(0)) &&
-                    Compare(op1->AsArrOffs()->GetOp(1), op2->AsArrOffs()->GetOp(1)) &&
-                    Compare(op1->AsArrOffs()->GetOp(2), op2->AsArrOffs()->GetOp(2)));
-
         case GT_PHI:
             return GenTreePhi::Equals(op1->AsPhi(), op2->AsPhi());
 
@@ -1445,20 +1435,23 @@ AGAIN:
         case GT_INSTR:
             return GenTreeInstr::Equals(op1->AsInstr(), op2->AsInstr());
 
+        case GT_ARR_OFFSET:
+            if ((op1->AsArrOffs()->gtCurrDim != op2->AsArrOffs()->gtCurrDim) ||
+                (op1->AsArrOffs()->gtArrRank != op2->AsArrOffs()->gtArrRank))
+            {
+                return false;
+            }
+            FALLTHROUGH;
         case GT_CMPXCHG:
-            return GenTreeCmpXchg::Equals(op1->AsCmpXchg(), op2->AsCmpXchg());
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            return GenTreeTernaryOp::Equals(op1->AsTernaryOp(), op2->AsTernaryOp());
 
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
             return GenTreeBoundsChk::Equals(op1->AsBoundsChk(), op2->AsBoundsChk());
-
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            return Compare(op1->AsDynBlk()->gtOp1, op2->AsDynBlk()->gtOp1) &&
-                   Compare(op1->AsDynBlk()->gtOp2, op2->AsDynBlk()->gtOp2) &&
-                   Compare(op1->AsDynBlk()->gtOp3, op2->AsDynBlk()->gtOp3);
 
         default:
             assert(!"unexpected operator");
@@ -1620,14 +1613,6 @@ AGAIN:
 
             break;
 
-        case GT_ARR_OFFSET:
-            if (gtHasRef(tree->AsArrOffs()->GetOp(0), lclNum) || gtHasRef(tree->AsArrOffs()->GetOp(1), lclNum) ||
-                gtHasRef(tree->AsArrOffs()->GetOp(2), lclNum))
-            {
-                return true;
-            }
-            break;
-
         case GT_PHI:
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
@@ -1670,21 +1655,6 @@ AGAIN:
             }
             break;
 
-        case GT_CMPXCHG:
-            if (gtHasRef(tree->AsCmpXchg()->GetOp(0), lclNum))
-            {
-                return true;
-            }
-            if (gtHasRef(tree->AsCmpXchg()->GetOp(1), lclNum))
-            {
-                return true;
-            }
-            if (gtHasRef(tree->AsCmpXchg()->GetOp(2), lclNum))
-            {
-                return true;
-            }
-            break;
-
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -1699,26 +1669,21 @@ AGAIN:
             }
             break;
 
+        case GT_ARR_OFFSET:
+        case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            if (gtHasRef(tree->AsDynBlk()->gtOp1, lclNum))
+            for (unsigned i = 0; i < 3; i++)
             {
-                return true;
-            }
-            if (gtHasRef(tree->AsDynBlk()->gtOp2, lclNum))
-            {
-                return true;
-            }
-            if (gtHasRef(tree->AsDynBlk()->gtOp3, lclNum))
-            {
-                return true;
+                if (gtHasRef(tree->AsTernaryOp()->GetOp(i), lclNum))
+                {
+                    return true;
+                }
             }
             break;
 
         default:
-#ifdef DEBUG
-            gtDispTree(tree);
-#endif
+            INDEBUG(gtDispTree(tree);)
             assert(!"unexpected operator");
     }
 
@@ -2000,12 +1965,6 @@ AGAIN:
 
             break;
 
-        case GT_ARR_OFFSET:
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->GetOp(0)));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->GetOp(1)));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->GetOp(2)));
-            break;
-
         case GT_CALL:
             if ((tree->AsCall()->gtCallThisArg != nullptr) && !tree->AsCall()->gtCallThisArg->GetNode()->OperIs(GT_NOP))
             {
@@ -2074,12 +2033,6 @@ AGAIN:
             }
             break;
 
-        case GT_CMPXCHG:
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsCmpXchg()->GetOp(0)));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsCmpXchg()->GetOp(1)));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsCmpXchg()->GetOp(2)));
-            break;
-
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -2089,17 +2042,19 @@ AGAIN:
             hash = genTreeHashAdd(hash, tree->AsBoundsChk()->GetThrowKind());
             break;
 
+        case GT_ARR_OFFSET:
+        case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsDynBlk()->gtOp1));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsDynBlk()->gtOp2));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsDynBlk()->gtOp3));
+            // TODO-MIKE-Review: The hash does not include non operand data from ARR_OFFSET
+            for (unsigned i = 0; i < 3; i++)
+            {
+                hash = genTreeHashAdd(hash, gtHashValue(tree->AsTernaryOp()->GetOp(i)));
+            }
             break;
 
         default:
-#ifdef DEBUG
-            gtDispTree(tree);
-#endif
+            INDEBUG(gtDispTree(tree);)
             assert(!"unexpected operator");
             break;
     }
@@ -3873,20 +3828,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         }
         break;
 
-        case GT_ARR_OFFSET:
-            level  = gtSetEvalOrder(tree->AsArrOffs()->GetOp(0));
-            costEx = tree->AsArrOffs()->GetOp(0)->GetCostEx();
-            costSz = tree->AsArrOffs()->GetOp(0)->GetCostSz();
-            lvl2   = gtSetEvalOrder(tree->AsArrOffs()->GetOp(1));
-            level  = max(level, lvl2);
-            costEx += tree->AsArrOffs()->GetOp(1)->GetCostEx();
-            costSz += tree->AsArrOffs()->GetOp(1)->GetCostSz();
-            lvl2  = gtSetEvalOrder(tree->AsArrOffs()->GetOp(2));
-            level = max(level, lvl2);
-            costEx += tree->AsArrOffs()->GetOp(2)->GetCostEx();
-            costSz += tree->AsArrOffs()->GetOp(2)->GetCostSz();
-            break;
-
         case GT_PHI:
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
@@ -4010,29 +3951,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             level++;
             break;
 
-        case GT_CMPXCHG:
-
-            level  = gtSetEvalOrder(tree->AsCmpXchg()->GetOp(0));
-            costSz = tree->AsCmpXchg()->GetOp(0)->GetCostSz();
-
-            lvl2 = gtSetEvalOrder(tree->AsCmpXchg()->GetOp(1));
-            if (level < lvl2)
-            {
-                level = lvl2;
-            }
-            costSz += tree->AsCmpXchg()->GetOp(1)->GetCostSz();
-
-            lvl2 = gtSetEvalOrder(tree->AsCmpXchg()->GetOp(2));
-            if (level < lvl2)
-            {
-                level = lvl2;
-            }
-            costSz += tree->AsCmpXchg()->GetOp(2)->GetCostSz();
-
-            costEx = MAX_COST; // Seriously, what could be more expensive than lock cmpxchg?
-            costSz += 5;       // size of lock cmpxchg [reg+C], reg
-            break;
-
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -4053,24 +3971,36 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
             break;
 
+        case GT_ARR_OFFSET:
+        case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-        {
-            level  = gtSetEvalOrder(tree->AsDynBlk()->gtOp1);
-            costEx = tree->AsDynBlk()->gtOp1->GetCostEx();
-            costSz = tree->AsDynBlk()->gtOp1->GetCostSz();
+            level = 0;
 
-            lvl2  = gtSetEvalOrder(tree->AsDynBlk()->gtOp2);
-            level = max(level, lvl2);
-            costEx += tree->AsDynBlk()->gtOp2->GetCostEx();
-            costSz += tree->AsDynBlk()->gtOp2->GetCostSz();
+            if (tree->OperIs(GT_CMPXCHG))
+            {
+                costEx = MAX_COST; // Seriously, what could be more expensive than lock cmpxchg?
+                costSz = 5;        // size of lock cmpxchg [reg+C], reg
+            }
+            else
+            {
+                // TODO-MIKE-Cleanup: We should some set costs on ARR_OFFSET and COPY|INIT_BLK
+                // for the sake of clarity. It's unlikely to matter otherwise.
+                costEx = 0;
+                costSz = 0;
+            }
 
-            unsigned sizeLevel = gtSetEvalOrder(tree->AsDynBlk()->gtOp3);
-            level              = max(level, sizeLevel);
-            costEx += tree->AsDynBlk()->gtOp3->GetCostEx();
-            costSz += tree->AsDynBlk()->gtOp3->GetCostSz();
-        }
-        break;
+            for (unsigned i = 0; i < 3; i++)
+            {
+                level = Max(level, gtSetEvalOrder(tree->AsTernaryOp()->GetOp(i)));
+            }
+
+            for (unsigned i = 0; i < 3; i++)
+            {
+                costEx += tree->AsTernaryOp()->GetOp(i)->GetCostEx();
+                costSz += tree->AsTernaryOp()->GetOp(i)->GetCostSz();
+            }
+            break;
 
         case GT_INDEX_ADDR:
             costEx = 6; // cmp reg,reg; jae throw; mov reg, [addrmode]  (not taken)
@@ -6072,18 +6002,6 @@ GenTree* Compiler::gtCloneExpr(
         }
         break;
 
-        case GT_ARR_OFFSET:
-        {
-            copy = new (this, GT_ARR_OFFSET)
-                GenTreeArrOffs(tree->TypeGet(),
-                               gtCloneExpr(tree->AsArrOffs()->GetOp(0), addFlags, deepVarNum, deepVarVal),
-                               gtCloneExpr(tree->AsArrOffs()->GetOp(1), addFlags, deepVarNum, deepVarVal),
-                               gtCloneExpr(tree->AsArrOffs()->GetOp(2), addFlags, deepVarNum, deepVarVal),
-                               tree->AsArrOffs()->gtCurrDim, tree->AsArrOffs()->gtArrRank,
-                               tree->AsArrOffs()->gtArrElemType);
-        }
-        break;
-
         case GT_PHI:
         {
             copy                      = new (this, GT_PHI) GenTreePhi(tree->TypeGet());
@@ -6121,14 +6039,6 @@ GenTree* Compiler::gtCloneExpr(
             copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
             break;
 
-        case GT_CMPXCHG:
-            copy = new (this, GT_CMPXCHG)
-                GenTreeCmpXchg(tree->TypeGet(),
-                               gtCloneExpr(tree->AsCmpXchg()->GetOp(0), addFlags, deepVarNum, deepVarVal),
-                               gtCloneExpr(tree->AsCmpXchg()->GetOp(1), addFlags, deepVarNum, deepVarVal),
-                               gtCloneExpr(tree->AsCmpXchg()->GetOp(2), addFlags, deepVarNum, deepVarVal));
-            break;
-
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -6140,18 +6050,25 @@ GenTree* Compiler::gtCloneExpr(
                 gtCloneExpr(tree->AsBoundsChk()->GetLength(), addFlags, deepVarNum, deepVarVal));
             break;
 
+        case GT_ARR_OFFSET:
+            copy = new (this, GT_ARR_OFFSET) GenTreeArrOffs(tree->AsArrOffs());
+            goto CLONE_TERNARY;
+        case GT_CMPXCHG:
+            copy = new (this, GT_CMPXCHG) GenTreeCmpXchg(tree->AsCmpXchg());
+            goto CLONE_TERNARY;
         case GT_COPY_BLK:
         case GT_INIT_BLK:
             copy = new (this, oper) GenTreeDynBlk(tree->AsDynBlk());
-            copy->AsDynBlk()->SetAddr(gtCloneExpr(copy->AsDynBlk()->GetAddr(), addFlags, deepVarNum, deepVarVal));
-            copy->AsDynBlk()->SetValue(gtCloneExpr(copy->AsDynBlk()->GetValue(), addFlags, deepVarNum, deepVarVal));
-            copy->AsDynBlk()->SetSize(gtCloneExpr(copy->AsDynBlk()->GetSize(), addFlags, deepVarNum, deepVarVal));
+        CLONE_TERNARY:
+            for (unsigned i = 0; i < 3; i++)
+            {
+                copy->AsTernaryOp()->SetOp(i, gtCloneExpr(copy->AsTernaryOp()->GetOp(i), addFlags, deepVarNum,
+                                                          deepVarVal));
+            }
             break;
 
         default:
-#ifdef DEBUG
-            gtDispTree(tree);
-#endif
+            INDEBUG(gtDispTree(tree);)
             NO_WAY("unexpected operator");
     }
 
@@ -6702,12 +6619,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvancePhi();
             return;
 
-        case GT_CMPXCHG:
-            m_edge = &m_node->AsCmpXchg()->gtOp1;
-            assert(*m_edge != nullptr);
-            m_advance = &GenTreeUseEdgeIterator::AdvanceCmpXchg;
-            return;
-
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -6724,16 +6635,12 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_ARR_OFFSET:
-            m_edge = &m_node->AsArrOffs()->gtOp1;
-            assert(*m_edge != nullptr);
-            m_advance = &GenTreeUseEdgeIterator::AdvanceArrOffset;
-            return;
-
+        case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            m_edge = &m_node->AsDynBlk()->gtOp1;
+            m_edge = &m_node->AsTernaryOp()->gtOp1;
             assert(*m_edge != nullptr);
-            m_advance = &GenTreeUseEdgeIterator::AdvanceDynBlk;
+            m_advance = &GenTreeUseEdgeIterator::AdvanceTernaryOp;
             return;
 
         case GT_CALL:
@@ -6763,19 +6670,16 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
     }
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceCmpXchg: produces the next operand of a CmpXchg node and advances the state.
-//
-void GenTreeUseEdgeIterator::AdvanceCmpXchg()
+void GenTreeUseEdgeIterator::AdvanceTernaryOp()
 {
     switch (m_state)
     {
         case 0:
-            m_edge  = &m_node->AsCmpXchg()->gtOp2;
+            m_edge  = &m_node->AsTernaryOp()->gtOp2;
             m_state = 1;
             break;
         case 1:
-            m_edge    = &m_node->AsCmpXchg()->gtOp3;
+            m_edge    = &m_node->AsTernaryOp()->gtOp3;
             m_advance = &GenTreeUseEdgeIterator::Terminate;
             break;
         default:
@@ -6812,49 +6716,6 @@ void GenTreeUseEdgeIterator::AdvanceArrElem()
     {
         m_state = -1;
     }
-}
-
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceArrOffset: produces the next operand of a ArrOffset node and advances the state.
-//
-void GenTreeUseEdgeIterator::AdvanceArrOffset()
-{
-    switch (m_state)
-    {
-        case 0:
-            m_edge  = &m_node->AsArrOffs()->gtOp2;
-            m_state = 1;
-            break;
-        case 1:
-            m_edge    = &m_node->AsArrOffs()->gtOp3;
-            m_advance = &GenTreeUseEdgeIterator::Terminate;
-            break;
-        default:
-            unreached();
-    }
-
-    assert(*m_edge != nullptr);
-}
-
-void GenTreeUseEdgeIterator::AdvanceDynBlk()
-{
-    GenTreeDynBlk* const dynBlock = m_node->AsDynBlk();
-
-    switch (m_state)
-    {
-        case 0:
-            m_edge  = &dynBlock->gtOp2;
-            m_state = 1;
-            break;
-        case 1:
-            m_edge    = &dynBlock->gtOp3;
-            m_advance = &GenTreeUseEdgeIterator::Terminate;
-            break;
-        default:
-            unreached();
-    }
-
-    assert(*m_edge != nullptr);
 }
 
 //------------------------------------------------------------------------
@@ -9257,28 +9118,6 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
             break;
 
-        case GT_ARR_OFFSET:
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                gtDispChild(tree->AsArrOffs()->GetOp(0), indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsArrOffs()->GetOp(1), indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsArrOffs()->GetOp(2), indentStack, IIArcBottom, nullptr, topOnly);
-            }
-            break;
-
-        case GT_CMPXCHG:
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                gtDispChild(tree->AsCmpXchg()->GetOp(0), indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsCmpXchg()->GetOp(1), indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsCmpXchg()->GetOp(2), indentStack, IIArcBottom, nullptr, topOnly);
-            }
-            break;
-
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -9340,15 +9179,17 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
             return;
 
+        case GT_ARR_OFFSET:
+        case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
             {
-                gtDispChild(tree->AsDynBlk()->GetAddr(), indentStack, IIArc);
-                gtDispChild(tree->AsDynBlk()->GetValue(), indentStack, IIArc);
-                gtDispChild(tree->AsDynBlk()->GetSize(), indentStack, IIArcBottom);
+                gtDispChild(tree->AsTernaryOp()->GetOp(0), indentStack, IIArc);
+                gtDispChild(tree->AsTernaryOp()->GetOp(1), indentStack, IIArc);
+                gtDispChild(tree->AsTernaryOp()->GetOp(2), indentStack, IIArcBottom);
             }
             break;
 

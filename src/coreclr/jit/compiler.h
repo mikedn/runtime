@@ -8976,28 +8976,6 @@ public:
                 }
                 break;
 
-            case GT_CMPXCHG:
-            {
-                GenTreeCmpXchg* const cmpXchg = node->AsCmpXchg();
-
-                result = WalkTree(&cmpXchg->gtOp1, cmpXchg);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                result = WalkTree(&cmpXchg->gtOp2, cmpXchg);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                result = WalkTree(&cmpXchg->gtOp3, cmpXchg);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                break;
-            }
-
             case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
@@ -9037,53 +9015,25 @@ public:
             }
 
             case GT_ARR_OFFSET:
-            {
-                GenTreeArrOffs* const arrOffs = node->AsArrOffs();
-
-                result = WalkTree(&arrOffs->gtOp1, arrOffs);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                result = WalkTree(&arrOffs->gtOp2, arrOffs);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                result = WalkTree(&arrOffs->gtOp3, arrOffs);
-                if (result == fgWalkResult::WALK_ABORT)
-                {
-                    return result;
-                }
-                break;
-            }
-
+            case GT_CMPXCHG:
             case GT_COPY_BLK:
             case GT_INIT_BLK:
-            {
-                GenTreeDynBlk* const dynBlock = node->AsDynBlk();
-
-                GenTree** op1Use = &dynBlock->gtOp1;
-                GenTree** op2Use = &dynBlock->gtOp2;
-                GenTree** op3Use = &dynBlock->gtOp3;
-
-                result = WalkTree(op1Use, dynBlock);
+                result = WalkTree(&node->AsTernaryOp()->gtOp1, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
-                result = WalkTree(op2Use, dynBlock);
+                result = WalkTree(&node->AsTernaryOp()->gtOp2, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
-                result = WalkTree(op3Use, dynBlock);
+                result = WalkTree(&node->AsTernaryOp()->gtOp3, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
                 break;
-            }
 
             case GT_CALL:
             {

@@ -3122,16 +3122,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
-            case GT_ARR_OFFSET:
-
-                fgDebugCheckFlags(tree->AsArrOffs()->GetOp(0));
-                chkFlags |= (tree->AsArrOffs()->GetOp(0)->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(tree->AsArrOffs()->GetOp(1));
-                chkFlags |= (tree->AsArrOffs()->GetOp(1)->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(tree->AsArrOffs()->GetOp(2));
-                chkFlags |= (tree->AsArrOffs()->GetOp(2)->gtFlags & GTF_ALL_EFFECT);
-                break;
-
             case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
@@ -3174,30 +3164,20 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 break;
 #endif
 
+            case GT_ARR_OFFSET:
             case GT_CMPXCHG:
-
-                chkFlags |= (GTF_GLOB_REF | GTF_ASG);
-                GenTreeCmpXchg* cmpXchg;
-                cmpXchg = tree->AsCmpXchg();
-                fgDebugCheckFlags(cmpXchg->gtOp1);
-                chkFlags |= (cmpXchg->gtOp1->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(cmpXchg->gtOp2);
-                chkFlags |= (cmpXchg->gtOp2->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(cmpXchg->gtOp3);
-                chkFlags |= (cmpXchg->gtOp3->gtFlags & GTF_ALL_EFFECT);
-                break;
-
             case GT_COPY_BLK:
             case GT_INIT_BLK:
-                chkFlags |= (GTF_GLOB_REF | GTF_ASG);
-                GenTreeDynBlk* dynBlk;
-                dynBlk = tree->AsDynBlk();
-                fgDebugCheckFlags(dynBlk->gtOp3);
-                chkFlags |= (dynBlk->gtOp3->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(dynBlk->gtOp1);
-                chkFlags |= (dynBlk->gtOp1->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(dynBlk->gtOp2);
-                chkFlags |= (dynBlk->gtOp2->gtFlags & GTF_ALL_EFFECT);
+                if (tree->OperIs(GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK))
+                {
+                    chkFlags |= GTF_GLOB_REF | GTF_ASG;
+                }
+
+                for (unsigned i = 0; i < 3; i++)
+                {
+                    fgDebugCheckFlags(tree->AsTernaryOp()->GetOp(i));
+                    chkFlags |= tree->AsTernaryOp()->GetOp(i)->GetSideEffects();
+                }
                 break;
 
             default:

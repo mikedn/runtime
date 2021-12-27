@@ -114,6 +114,7 @@ GTSTRUCT_1(MultiRegOp  , GT_MUL_LONG)
 GTSTRUCT_3(MultiRegOp  , GT_MUL_LONG, GT_PUTARG_REG, GT_BITCAST)
 #endif
 GTSTRUCT_1(Instr       , GT_INSTR)
+GTSTRUCT_N(TernaryOp   , GT_ARR_OFFSET, GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK)
 /*****************************************************************************/
 #undef  GTSTRUCT_0
 #undef  GTSTRUCT_1
