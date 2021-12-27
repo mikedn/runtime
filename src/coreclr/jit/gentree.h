@@ -5123,6 +5123,76 @@ public:
 
 typedef CallInfo fgArgInfo;
 
+struct GenTreeTernaryOp : public GenTreeOp
+{
+    GenTree* gtOp3;
+
+    GenTreeTernaryOp(
+        genTreeOps oper, var_types type, GenTree* op1, GenTree* op2, GenTree* op3 DEBUGARG(bool largeNode = false))
+        : GenTreeOp(oper, type, op1, op2 DEBUGARG(largeNode)), gtOp3(op3)
+    {
+        assert(op1 != nullptr);
+        assert(op2 != nullptr);
+        assert(op3 != nullptr);
+
+        gtFlags |= op3->GetSideEffects();
+    }
+
+    GenTreeTernaryOp(GenTreeTernaryOp* copyFrom) : GenTreeOp(copyFrom), gtOp3(copyFrom->gtOp3)
+    {
+    }
+
+    GenTree* GetOp(unsigned index) const
+    {
+        switch (index)
+        {
+            case 0:
+                assert(gtOp1 != nullptr);
+                return gtOp1;
+            case 1:
+                assert(gtOp2 != nullptr);
+                return gtOp2;
+            case 2:
+                assert(gtOp3 != nullptr);
+                return gtOp3;
+            default:
+                unreached();
+        }
+    }
+
+    void SetOp(unsigned index, GenTree* op)
+    {
+        assert(op != nullptr);
+
+        switch (index)
+        {
+            case 0:
+                gtOp1 = op;
+                return;
+            case 1:
+                gtOp2 = op;
+                return;
+            case 2:
+                gtOp3 = op;
+                return;
+            default:
+                unreached();
+        }
+    }
+
+    static bool Equals(GenTreeTernaryOp* x, GenTreeTernaryOp* y)
+    {
+        return (x->GetOper() == y->GetOper()) && (x->GetType() == y->GetType()) && Compare(x->gtOp1, y->gtOp1) &&
+               Compare(x->gtOp2, y->gtOp2) && Compare(x->gtOp3, y->gtOp3);
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeTernaryOp() : GenTreeOp()
+    {
+    }
+#endif
+};
+
 struct GenTreeCmpXchg : public GenTree
 {
     GenTree* gtOpLocation;
