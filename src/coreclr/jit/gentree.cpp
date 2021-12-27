@@ -255,7 +255,6 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeColon)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
@@ -1673,6 +1672,7 @@ AGAIN:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
+        case GT_QMARK:
             for (unsigned i = 0; i < 3; i++)
             {
                 if (gtHasRef(tree->AsTernaryOp()->GetOp(i), lclNum))
@@ -1909,7 +1909,6 @@ AGAIN:
 
                 // For the ones below no extra argument matters for comparison.
                 case GT_ARR_INDEX:
-                case GT_QMARK:
                 case GT_INDEX_ADDR:
                     break;
 
@@ -2046,6 +2045,7 @@ AGAIN:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
+        case GT_QMARK:
             // TODO-MIKE-Review: The hash does not include non operand data from ARR_OFFSET
             for (unsigned i = 0; i < 3; i++)
             {
@@ -4546,9 +4546,8 @@ GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* o
 {
     assert(!compQmarkRationalized);
 
-    compQmarkUsed       = true;
-    GenTreeColon* colon = new (this, GT_COLON) GenTreeColon(type, op1, op2);
-    return new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
+    compQmarkUsed = true;
+    return new (this, GT_QMARK) GenTreeQmark(type, cond, op1, op2);
 }
 
 GenTreeIntCon* Compiler::gtNewIconNode(ssize_t value, var_types type)
@@ -5862,10 +5861,6 @@ GenTree* Compiler::gtCloneExpr(
                                     tree->AsArrIndex()->gtArrElemType);
                 break;
 
-            case GT_QMARK:
-                copy = new (this, GT_QMARK) GenTreeQmark(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
-                break;
-
             case GT_OBJ:
                 copy = new (this, GT_OBJ) GenTreeObj(tree->AsObj());
                 break;
@@ -6050,6 +6045,9 @@ GenTree* Compiler::gtCloneExpr(
                 gtCloneExpr(tree->AsBoundsChk()->GetLength(), addFlags, deepVarNum, deepVarVal));
             break;
 
+        case GT_QMARK:
+            copy = new (this, GT_QMARK) GenTreeQmark(tree->AsQmark());
+            goto CLONE_TERNARY;
         case GT_ARR_OFFSET:
             copy = new (this, GT_ARR_OFFSET) GenTreeArrOffs(tree->AsArrOffs());
             goto CLONE_TERNARY;
@@ -6638,6 +6636,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
+        case GT_QMARK:
             m_edge = &m_node->AsTernaryOp()->gtOp1;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::AdvanceTernaryOp;
@@ -9183,6 +9182,7 @@ void Compiler::gtDispTree(GenTree*     tree,
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
+        case GT_QMARK:
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
@@ -9210,31 +9210,13 @@ void Compiler::gtDispTree(GenTree*     tree,
         {
             if (tree->AsOp()->gtOp1 != nullptr)
             {
-                const char* childMsg = nullptr;
-
-                // Label the child of the GT_COLON operator
-                // op1 is the else part
-
-                if (tree->gtOper == GT_COLON)
-                {
-                    childMsg = "else";
-                }
                 gtDispChild(tree->AsOp()->gtOp1, indentStack,
-                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg);
+                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc);
             }
 
             if (tree->gtGetOp2IfPresent())
             {
-                const char* childMsg = nullptr;
-
-                // Label the childMsgs of the GT_COLON operator
-                // op2 is the then part
-
-                if (tree->gtOper == GT_COLON)
-                {
-                    childMsg = "then";
-                }
-                gtDispChild(tree->AsOp()->gtOp2, indentStack, IIArcBottom, childMsg);
+                gtDispChild(tree->AsOp()->gtOp2, indentStack, IIArcBottom);
             }
         }
     }
@@ -10226,6 +10208,19 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperArgClassHandle(GenTree* tree)
 //
 GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
 {
+    if (GenTreeQmark* qmark = tree->IsQmark())
+    {
+        if (GenTreeIntCon* cond = qmark->GetCondition()->IsIntCon())
+        {
+            JITDUMPTREE(tree, "Folding QMARK \n");
+            GenTree* result = cond->GetValue() != 0 ? qmark->GetThen() : qmark->GetElse();
+            JITDUMPTREE(result, "to \n");
+            return result;
+        }
+
+        return qmark;
+    }
+
     GenTree*   op1  = tree->AsOp()->gtOp1;
     GenTree*   op2  = tree->AsOp()->gtOp2;
     genTreeOps oper = tree->OperGet();
@@ -10496,25 +10491,6 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
                 }
             }
             break;
-
-        case GT_QMARK:
-        {
-            assert(op1 == cons && op2 == op && op2->gtOper == GT_COLON);
-            assert(op2->AsOp()->gtOp1 && op2->AsOp()->gtOp2);
-
-            assert(val == 0 || val == 1);
-
-            if (val)
-            {
-                op = op2->AsColon()->ThenNode();
-            }
-            else
-            {
-                op = op2->AsColon()->ElseNode();
-            }
-        }
-
-            goto DONE_FOLD;
 
         default:
             break;

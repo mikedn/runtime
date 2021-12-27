@@ -9459,10 +9459,9 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     assert(fgGlobalMorph);
     assert(!optValnumCSE_phase);
 
-    GenTree*      condExpr = qmark->GetOp(0);
-    GenTreeColon* colon    = qmark->GetOp(1)->AsColon();
-    GenTree*      thenExpr = colon->ThenNode();
-    GenTree*      elseExpr = colon->ElseNode();
+    GenTree* condExpr = qmark->GetCondition();
+    GenTree* thenExpr = qmark->GetThen();
+    GenTree* elseExpr = qmark->GetElse();
 
     if (condExpr->OperIsCompare())
     {
@@ -9474,7 +9473,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     }
 
     condExpr = fgMorphTree(condExpr, mac);
-    qmark->SetOp(0, condExpr);
+    qmark->SetCondition(condExpr);
 
     if (GenTreeIntCon* cond = condExpr->IsIntCon())
     {
@@ -9524,8 +9523,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         return condExpr;
     }
 
-    INDEBUG(colon->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
     // If only one of the then/else expressions throws then the rest of the block is
     // still reachable. We have to ignore the setting of fgRemoveRestOfBlock during
     // then/else morphing. We could also handle the case of both then/else throwing
@@ -9561,7 +9558,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 #endif // LOCAL_ASSERTION_PROP
 
     elseExpr = fgMorphTree(elseExpr, mac);
-    colon->SetOp(0, elseExpr);
+    qmark->SetElse(elseExpr);
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
@@ -9594,25 +9591,22 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 #endif // LOCAL_ASSERTION_PROP
 
     thenExpr = fgMorphTree(thenExpr, mac);
-    colon->SetOp(1, thenExpr);
+    qmark->SetThen(thenExpr);
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    // Merge assertions after COLON morphing.
+    // Merge assertions after then/else morphing.
     if (optLocalAssertionProp)
     {
-        optAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(colon));
+        optAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(qmark));
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    colon->SetSideEffects(elseExpr->GetSideEffects() | thenExpr->GetSideEffects());
-    qmark->SetSideEffects(condExpr->GetSideEffects() | colon->GetSideEffects());
+    qmark->SetSideEffects(condExpr->GetSideEffects() | thenExpr->GetSideEffects() | elseExpr->GetSideEffects());
 
     if (varTypeIsGC(qmark->GetType()) && !varTypeIsGC(elseExpr->GetType()) && !varTypeIsGC(thenExpr->GetType()))
     {
-        var_types type = varActualType(elseExpr->GetType());
-        qmark->SetType(type);
-        colon->SetType(type);
+        qmark->SetType(varActualType(elseExpr->GetType()));
     }
 
     return qmark;
@@ -12831,14 +12825,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     if (kind & GTK_SMPOP)
     {
-        if (tree->OperIs(GT_QMARK, GT_COLON))
-        {
-            tree = fgMorphQmark(tree->AsQmark(), mac);
-        }
-        else
-        {
-            tree = fgMorphSmpOp(tree, mac);
-        }
+        tree = fgMorphSmpOp(tree, mac);
         goto DONE;
     }
 
@@ -12846,6 +12833,10 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     switch (tree->OperGet())
     {
+        case GT_QMARK:
+            tree = fgMorphQmark(tree->AsQmark(), mac);
+            break;
+
         case GT_CALL:
             if (tree->OperMayThrow(this))
             {
@@ -14343,7 +14334,7 @@ Compiler::fgWalkResult Compiler::fgAssertNoQmark(GenTree** tree, fgWalkData* dat
 void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
 {
     GenTreeLclVar* destLclVar = nullptr;
-    GenTree*       topQmark   = fgGetTopLevelQmark(expr, &destLclVar);
+    GenTreeQmark*  topQmark   = fgGetTopLevelQmark(expr, &destLclVar);
 
     // If the top level Qmark is null, then scan the tree to make sure
     // there are no qmarks within it.
@@ -14355,10 +14346,9 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
     {
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
         // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
-        fgWalkTreePre(&topQmark->AsOp()->gtOp1, fgAssertNoQmark, nullptr);
-
-        fgPreExpandQmarkChecks(topQmark->AsOp()->gtOp2->AsOp()->gtOp1);
-        fgPreExpandQmarkChecks(topQmark->AsOp()->gtOp2->AsOp()->gtOp2);
+        fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark, nullptr);
+        fgPreExpandQmarkChecks(topQmark->gtOp2);
+        fgPreExpandQmarkChecks(topQmark->gtOp3);
     }
 }
 #endif // DEBUG
@@ -14429,10 +14419,9 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     assert(qmark->gtFlags & GTF_QMARK_CAST_INSTOF);
 
-    // Get cond, true, false exprs for the qmark.
-    GenTree* condExpr  = qmark->gtGetOp1();
-    GenTree* trueExpr  = qmark->gtGetOp2()->AsColon()->ThenNode();
-    GenTree* falseExpr = qmark->gtGetOp2()->AsColon()->ElseNode();
+    GenTree* condExpr  = qmark->GetCondition();
+    GenTree* trueExpr  = qmark->GetThen();
+    GenTree* falseExpr = qmark->GetElse();
 
     // Get cond, true, false exprs for the nested qmark.
     GenTree* nestedQmark = falseExpr;
@@ -14442,9 +14431,9 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     if (nestedQmark->gtOper == GT_QMARK)
     {
-        cond2Expr  = nestedQmark->gtGetOp1();
-        true2Expr  = nestedQmark->gtGetOp2()->AsColon()->ThenNode();
-        false2Expr = nestedQmark->gtGetOp2()->AsColon()->ElseNode();
+        cond2Expr  = nestedQmark->AsQmark()->GetCondition();
+        true2Expr  = nestedQmark->AsQmark()->GetThen();
+        false2Expr = nestedQmark->AsQmark()->GetElse();
     }
     else
     {
@@ -14632,10 +14621,9 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     }
 #endif // DEBUG
 
-    // Retrieve the operands.
-    GenTree* condExpr  = qmark->gtGetOp1();
-    GenTree* trueExpr  = qmark->gtGetOp2()->AsColon()->ThenNode();
-    GenTree* falseExpr = qmark->gtGetOp2()->AsColon()->ElseNode();
+    GenTree* condExpr  = qmark->GetCondition();
+    GenTree* trueExpr  = qmark->GetThen();
+    GenTree* falseExpr = qmark->GetElse();
 
     assert(!varTypeIsFloating(condExpr->TypeGet()));
 
@@ -14734,7 +14722,7 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
         elseBlock->inheritWeightPercentage(condBlock, 50);
     }
 
-    GenTree*   jmpTree = gtNewOperNode(GT_JTRUE, TYP_VOID, qmark->gtGetOp1());
+    GenTree*   jmpTree = gtNewOperNode(GT_JTRUE, TYP_VOID, qmark->GetCondition());
     Statement* jmpStmt = fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(condBlock, jmpStmt);
 

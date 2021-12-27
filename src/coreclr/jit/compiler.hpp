@@ -3822,6 +3822,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
+        case GT_QMARK:
             if (visitor(AsTernaryOp()->gtOp1) == VisitResult::Abort)
             {
                 return;

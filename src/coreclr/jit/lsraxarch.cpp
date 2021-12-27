@@ -161,10 +161,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_BOX:
         case GT_COMMA:
         case GT_QMARK:
-        case GT_COLON:
-            srcCount = 0;
             unreached();
-            break;
 
         case GT_RETURN:
             srcCount = BuildReturn(tree->AsUnOp());

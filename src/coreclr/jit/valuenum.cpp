@@ -5787,8 +5787,8 @@ void ValueNumStore::vnDumpLclAddr(Compiler* comp, VNFuncApp* func)
 // Static fields, methods.
 static UINT8      vnfOpAttribs[VNF_COUNT];
 static genTreeOps genTreeOpsIllegalAsVNFunc[] = {GT_IND, // When we do heap memory.
-                                                 GT_NULLCHECK, GT_QMARK, GT_COLON, GT_LOCKADD, GT_XADD, GT_XCHG,
-                                                 GT_CMPXCHG, GT_LCLHEAP, GT_BOX, GT_XORR, GT_XAND,
+                                                 GT_NULLCHECK, GT_QMARK, GT_LOCKADD, GT_XADD, GT_XCHG, GT_CMPXCHG,
+                                                 GT_LCLHEAP, GT_BOX, GT_XORR, GT_XAND,
 
                                                  // These need special semantics:
                                                  GT_COMMA, // == second argument (but with exception(s) from first).

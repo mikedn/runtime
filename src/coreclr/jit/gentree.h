@@ -3720,33 +3720,6 @@ public:
 #endif
 };
 
-// There was quite a bit of confusion in the code base about which of gtOp1 and gtOp2 was the
-// 'then' and 'else' clause of a colon node.  Adding these accessors, while not enforcing anything,
-// at least *allows* the programmer to be obviously correct.
-// However, these conventions seem backward.
-// TODO-Cleanup: If we could get these accessors used everywhere, then we could switch them.
-struct GenTreeColon : public GenTreeOp
-{
-    GenTree*& ThenNode()
-    {
-        return gtOp2;
-    }
-    GenTree*& ElseNode()
-    {
-        return gtOp1;
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeColon() : GenTreeOp()
-    {
-    }
-#endif
-
-    GenTreeColon(var_types typ, GenTree* thenNode, GenTree* elseNode) : GenTreeOp(GT_COLON, typ, elseNode, thenNode)
-    {
-    }
-};
-
 // gtCall   -- method call      (GT_CALL)
 enum class InlineObservation;
 
@@ -5361,16 +5334,51 @@ struct GenTreeFptrVal : public GenTree
 #endif
 };
 
-struct GenTreeQmark : public GenTreeOp
+struct GenTreeQmark : public GenTreeTernaryOp
 {
-    GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp) : GenTreeOp(GT_QMARK, type, cond, colonOp)
+    GenTreeQmark(var_types type, GenTree* condExpr, GenTree* thenExpr, GenTree* elseExpr)
+        : GenTreeTernaryOp(GT_QMARK, type, condExpr, elseExpr, thenExpr)
     {
-        assert((cond != nullptr) && cond->TypeIs(TYP_INT));
-        assert((colonOp != nullptr) && colonOp->OperIs(GT_COLON));
+        assert(condExpr->TypeIs(TYP_INT));
+    }
+
+    GenTreeQmark(GenTreeQmark* copyFrom) : GenTreeTernaryOp(copyFrom)
+    {
+    }
+
+    GenTree* GetCondition() const
+    {
+        return gtOp1;
+    }
+
+    void SetCondition(GenTree* condExpr)
+    {
+        assert(condExpr->TypeIs(TYP_INT));
+        gtOp1 = condExpr;
+    }
+
+    GenTree* GetThen() const
+    {
+        return gtOp3;
+    }
+
+    void SetThen(GenTree* thenExpr)
+    {
+        gtOp3 = thenExpr;
+    }
+
+    GenTree* GetElse() const
+    {
+        return gtOp2;
+    }
+
+    void SetElse(GenTree* elseExpr)
+    {
+        gtOp2 = elseExpr;
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeQmark() : GenTreeOp(GT_QMARK, TYP_INT, nullptr, nullptr)
+    GenTreeQmark() : GenTreeTernaryOp()
     {
     }
 #endif
@@ -7924,8 +7932,6 @@ inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
         case GT_GE:
         case GT_GT:
         case GT_COMMA:
-        case GT_QMARK:
-        case GT_COLON:
         case GT_MKREFANY:
             return true;
         default:

@@ -3332,34 +3332,20 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
         }
         else if (tree->OperIsBinary() && tree->AsOp()->gtOp1)
         {
-            switch (tree->gtOper)
+            if (tree->AsOp()->gtOp2)
             {
-                case GT_QMARK:
-                    // "then" operand of the GT_COLON (generated second).
-                    expectedPrevTree = tree->AsOp()->gtOp2->AsColon()->ThenNode();
-                    break;
-
-                case GT_COLON:
-                    expectedPrevTree = tree->AsColon()->ElseNode(); // "else" branch result (generated first).
-                    break;
-
-                default:
-                    if (tree->AsOp()->gtOp2)
-                    {
-                        if (tree->gtFlags & GTF_REVERSE_OPS)
-                        {
-                            expectedPrevTree = tree->AsOp()->gtOp1;
-                        }
-                        else
-                        {
-                            expectedPrevTree = tree->AsOp()->gtOp2;
-                        }
-                    }
-                    else
-                    {
-                        expectedPrevTree = tree->AsOp()->gtOp1;
-                    }
-                    break;
+                if (tree->gtFlags & GTF_REVERSE_OPS)
+                {
+                    expectedPrevTree = tree->AsOp()->gtOp1;
+                }
+                else
+                {
+                    expectedPrevTree = tree->AsOp()->gtOp2;
+                }
+            }
+            else
+            {
+                expectedPrevTree = tree->AsOp()->gtOp1;
             }
         }
 

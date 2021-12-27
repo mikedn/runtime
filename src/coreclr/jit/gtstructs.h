@@ -68,7 +68,6 @@ GTSTRUCT_1(Box         , GT_BOX)
 GTSTRUCT_1(FieldAddr   , GT_FIELD_ADDR)
 GTSTRUCT_1(Call        , GT_CALL)
 GTSTRUCT_1(FieldList   , GT_FIELD_LIST)
-GTSTRUCT_1(Colon       , GT_COLON)
 GTSTRUCT_1(FptrVal     , GT_FTN_ADDR)
 GTSTRUCT_1(Intrinsic   , GT_INTRINSIC)
 GTSTRUCT_1(IndexAddr   , GT_INDEX_ADDR)
@@ -114,7 +113,7 @@ GTSTRUCT_1(MultiRegOp  , GT_MUL_LONG)
 GTSTRUCT_3(MultiRegOp  , GT_MUL_LONG, GT_PUTARG_REG, GT_BITCAST)
 #endif
 GTSTRUCT_1(Instr       , GT_INSTR)
-GTSTRUCT_N(TernaryOp   , GT_ARR_OFFSET, GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK)
+GTSTRUCT_N(TernaryOp   , GT_ARR_OFFSET, GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK, GT_QMARK)
 /*****************************************************************************/
 #undef  GTSTRUCT_0
 #undef  GTSTRUCT_1

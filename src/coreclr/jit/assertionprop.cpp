@@ -665,7 +665,7 @@ void Compiler::optAssertionRemove(AssertionIndex index)
 }
 
 void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
-                                 AssertionDsc* elseAssertionTab DEBUGARG(GenTreeColon* colon))
+                                 AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
 {
     if (optAssertionCount == 0)
     {
@@ -707,7 +707,7 @@ void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
         }
         else
         {
-            JITDUMP("The QMARK-COLON [%06u] removes assertion candidate #%d\n", colon->GetID(), index);
+            JITDUMP("The QMARK [%06u] removes assertion candidate #%d\n", qmark->GetID(), index);
             optAssertionRemove(index);
         }
     }
