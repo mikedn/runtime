@@ -2514,9 +2514,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     if (target != nullptr)
     {
-        // A call target can not be a contained indirection
-        assert(!target->isContainedIndir());
-
         genConsumeReg(target);
 
         // We have already generated code for gtControlExpr evaluating it into a register.

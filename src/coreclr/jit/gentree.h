@@ -924,8 +924,6 @@ public:
     // for codegen purposes, is this node a subnode of its parent
     bool isContained() const;
 
-    bool isContainedIndir() const;
-
     bool isIndirAddrMode();
 
     // This returns true only for GT_IND and GT_STOREIND, and is used in contexts where a "true"

@@ -4799,8 +4799,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
             assert(compiler->virtualStubParamInfo->GetReg() == REG_VIRTUAL_STUB_TARGET);
 
-            assert(target->isContainedIndir());
-            assert(target->OperGet() == GT_IND);
+            assert(target->OperIs(GT_IND) && target->isContained());
 
             GenTree* addr = target->AsIndir()->Addr();
             assert(addr->isUsedFromReg());
@@ -4826,7 +4825,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
         else
 #endif
-            if (target->isContainedIndir())
+            if (target->isContained())
         {
             if (target->AsIndir()->HasBase() && target->AsIndir()->Base()->isContainedIntOrIImmed())
             {
