@@ -8697,6 +8697,7 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
         ClassLayout* layout = typGetBlkLayout(constSize->GetUInt32Value());
 
         GenTreeBlk* dst = new (this, GT_BLK) GenTreeBlk(dynBlk->GetAddr(), layout);
+        dst->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
 
         if (dynBlk->IsVolatile())
         {
@@ -8708,6 +8709,7 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
         if (dynBlk->OperIs(GT_COPY_BLK))
         {
             src = new (this, GT_BLK) GenTreeBlk(src, layout);
+            src->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
 
             if (dynBlk->IsVolatile())
             {
@@ -8720,6 +8722,7 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
         }
 
         dynBlk->ChangeOper(GT_ASG);
+        dynBlk->SetType(TYP_STRUCT);
         dynBlk->SetOp(0, dst);
         dynBlk->SetOp(1, src);
         dynBlk->SetSideEffects(dst->GetSideEffects() | src->GetSideEffects() | GTF_ASG);
@@ -10511,10 +10514,6 @@ DONE_MORPHING_CHILDREN:
             }
 
             break;
-
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            return fgMorphDynBlk(tree->AsDynBlk());
 
         case GT_RETURN:
             if (varTypeIsStruct(tree->GetType()))
@@ -12965,6 +12964,13 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             else
             {
+                tree = fgMorphDynBlk(tree->AsDynBlk());
+
+                if (!tree->IsDynBlk())
+                {
+                    goto DONE;
+                }
+
                 tree->gtFlags &= ~GTF_CALL;
 
                 if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
