@@ -6395,9 +6395,6 @@ struct GenTreeIndir : public GenTreeOp
     }
 
 #if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
-    // Used only for GenTree::GetVtableForOper()
     GenTreeIndir() : GenTreeOp()
     {
     }
@@ -6478,17 +6475,6 @@ public:
     {
         assert(layout != nullptr);
         m_layout = layout;
-    }
-
-    // The data to be stored (null for GT_BLK)
-    GenTree*& Data()
-    {
-        return gtOp2;
-    }
-
-    void SetData(GenTree* dataNode)
-    {
-        gtOp2 = dataNode;
     }
 
     StructStoreKind GetKind() const

@@ -158,11 +158,6 @@ int LinearScan::BuildNode(GenTree* tree)
 
 #endif // !defined(TARGET_64BIT)
 
-        case GT_BOX:
-        case GT_COMMA:
-        case GT_QMARK:
-            unreached();
-
         case GT_RETURN:
             srcCount = BuildReturn(tree->AsUnOp());
             BuildKills(tree, getKillSetForReturn());
@@ -626,6 +621,9 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_BLK:
         case GT_FIELD_LIST:
         case GT_INIT_VAL:
+        case GT_BOX:
+        case GT_COMMA:
+        case GT_QMARK:
             unreached();
 
         default:

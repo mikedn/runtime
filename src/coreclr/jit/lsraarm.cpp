@@ -750,6 +750,9 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_BLK:
         case GT_FIELD_LIST:
         case GT_INIT_VAL:
+        case GT_BOX:
+        case GT_COMMA:
+        case GT_QMARK:
             unreached();
 
         default:

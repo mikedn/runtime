@@ -293,11 +293,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerStoreBlk(node->AsBlk());
             break;
 
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            LowerStoreDynBlk(node->AsDynBlk());
-            break;
-
         case GT_LCLHEAP:
             ContainCheckLclHeap(node->AsOp());
             break;
@@ -6040,18 +6035,6 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
             ContainBlockStoreAddress(store, size, dstAddr);
         }
     }
-}
-
-void Lowering::LowerStoreDynBlk(GenTreeDynBlk* store)
-{
-#ifdef TARGET_XARCH
-    TryCreateAddrMode(store->GetAddr(), false);
-
-    if (store->OperIs(GT_COPY_BLK))
-    {
-        TryCreateAddrMode(store->GetValue(), false);
-    }
-#endif
 }
 
 bool Lowering::TryTransformStoreObjToStoreInd(GenTreeObj* store)

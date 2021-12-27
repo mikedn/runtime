@@ -307,7 +307,6 @@ private:
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void LowerStoreObj(GenTreeObj* store);
     void LowerStoreBlk(GenTreeBlk* store);
-    void LowerStoreDynBlk(GenTreeDynBlk* store);
     void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
 

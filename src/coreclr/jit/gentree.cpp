@@ -9499,8 +9499,6 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
     const int bufLength = 256;
     char      buf[bufLength];
 
-    const bool nodeIsCall = node->IsCall();
-
     // Visit operands
     IndentInfo operandArc = IIArcTop;
     for (GenTree* operand : node->Operands())
@@ -9511,10 +9509,8 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
             continue;
         }
 
-        if (nodeIsCall)
+        if (GenTreeCall* call = node->IsCall())
         {
-            GenTreeCall* call = node->AsCall();
-
             if (operand == call->gtCallAddr)
             {
                 displayOperand(operand, "calli tgt", operandArc, indentStack, prefixIndent);
@@ -9532,33 +9528,6 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
                 CallArgInfo* argInfo = call->GetArgInfoByArgNode(operand);
                 gtGetCallArgMsg(call, argInfo, operand, buf, sizeof(buf));
                 displayOperand(operand, buf, operandArc, indentStack, prefixIndent);
-            }
-        }
-        else if (GenTreeDynBlk* dynBlk = node->IsDynBlk())
-        {
-            if (operand == dynBlk->GetAddr())
-            {
-                displayOperand(operand, "addr", operandArc, indentStack, prefixIndent);
-            }
-            else if (operand == dynBlk->GetValue())
-            {
-                displayOperand(operand, "value", operandArc, indentStack, prefixIndent);
-            }
-            else
-            {
-                assert(operand == dynBlk->GetSize());
-                displayOperand(operand, "size", operandArc, indentStack, prefixIndent);
-            }
-        }
-        else if (node->OperIs(GT_ASG))
-        {
-            if (operand == node->gtGetOp1())
-            {
-                displayOperand(operand, "lhs", operandArc, indentStack, prefixIndent);
-            }
-            else
-            {
-                displayOperand(operand, "rhs", operandArc, indentStack, prefixIndent);
             }
         }
         else
