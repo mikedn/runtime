@@ -3179,12 +3179,12 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 chkFlags |= (GTF_GLOB_REF | GTF_ASG);
                 GenTreeCmpXchg* cmpXchg;
                 cmpXchg = tree->AsCmpXchg();
-                fgDebugCheckFlags(cmpXchg->gtOpLocation);
-                chkFlags |= (cmpXchg->gtOpLocation->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(cmpXchg->gtOpValue);
-                chkFlags |= (cmpXchg->gtOpValue->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(cmpXchg->gtOpComparand);
-                chkFlags |= (cmpXchg->gtOpComparand->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(cmpXchg->gtOp1);
+                chkFlags |= (cmpXchg->gtOp1->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(cmpXchg->gtOp2);
+                chkFlags |= (cmpXchg->gtOp2->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(cmpXchg->gtOp3);
+                chkFlags |= (cmpXchg->gtOp3->gtFlags & GTF_ALL_EFFECT);
                 break;
 
             case GT_COPY_BLK:

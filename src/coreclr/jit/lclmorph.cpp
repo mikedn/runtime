@@ -800,7 +800,7 @@ private:
                 assert(!user->TypeIs(TYP_STRUCT) && !lcl->TypeIs(TYP_STRUCT));
 
                 if ((varTypeSize(user->GetType()) <= varTypeSize(lcl->GetType())) &&
-                    (val.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->gtOpLocation : user->AsOp()->GetOp(0))))
+                    (val.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->GetAddr() : user->AsOp()->GetOp(0))))
                 {
                     exposeParentLcl = false;
                 }

@@ -5193,26 +5193,32 @@ struct GenTreeTernaryOp : public GenTreeOp
 #endif
 };
 
-struct GenTreeCmpXchg : public GenTree
+struct GenTreeCmpXchg : public GenTreeTernaryOp
 {
-    GenTree* gtOpLocation;
-    GenTree* gtOpValue;
-    GenTree* gtOpComparand;
-
-    GenTreeCmpXchg(var_types type, GenTree* loc, GenTree* val, GenTree* comparand)
-        : GenTree(GT_CMPXCHG, type), gtOpLocation(loc), gtOpValue(val), gtOpComparand(comparand)
+    GenTreeCmpXchg(var_types type, GenTree* addr, GenTree* value, GenTree* compareValue)
+        : GenTreeTernaryOp(GT_CMPXCHG, type, addr, value, compareValue)
     {
-        // There's no reason to do a compare-exchange on a local location, so we'll assume that all of these
-        // have global effects.
-        gtFlags |= (GTF_GLOB_REF | GTF_ASG);
-
-        // Merge in flags from operands
-        gtFlags |= gtOpLocation->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= gtOpValue->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= gtOpComparand->gtFlags & GTF_ALL_EFFECT;
+        // There's no reason to do a compare-exchange on a local location,
+        // so we'll assume that all of these have global effects.
+        // TODO-MIKE-Review: Shouldn't this also have GTF_EXCEPT?
+        gtFlags |= GTF_GLOB_REF | GTF_ASG;
     }
+
+    GenTree* GetAddr() const
+    {
+        return gtOp1;
+    }
+    GenTree* GetValue() const
+    {
+        return gtOp2;
+    }
+    GenTree* GetCompareValue() const
+    {
+        return gtOp3;
+    }
+
 #if DEBUGGABLE_GENTREE
-    GenTreeCmpXchg() : GenTree()
+    GenTreeCmpXchg() : GenTreeTernaryOp()
     {
     }
 #endif

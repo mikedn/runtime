@@ -354,7 +354,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_CMPXCHG:
         {
             GenTreeCmpXchg* cmpXchgNode = tree->AsCmpXchg();
-            srcCount                    = cmpXchgNode->gtOpComparand->isContained() ? 2 : 3;
+            srcCount                    = cmpXchgNode->GetCompareValue()->isContained() ? 2 : 3;
             assert(dstCount == 1);
 
             if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
@@ -369,13 +369,13 @@ int LinearScan::BuildNode(GenTree* tree)
             // For ARMv8.1 atomic cas the lifetime of the addr and data must be extended to prevent
             // them being reused as the target register which must be destroyed early
 
-            RefPosition* locationUse = BuildUse(tree->AsCmpXchg()->gtOpLocation);
+            RefPosition* locationUse = BuildUse(tree->AsCmpXchg()->GetOp(0));
             setDelayFree(locationUse);
-            RefPosition* valueUse = BuildUse(tree->AsCmpXchg()->gtOpValue);
+            RefPosition* valueUse = BuildUse(tree->AsCmpXchg()->GetOp(1));
             setDelayFree(valueUse);
-            if (!cmpXchgNode->gtOpComparand->isContained())
+            if (!cmpXchgNode->GetOp(2)->isContained())
             {
-                RefPosition* comparandUse = BuildUse(tree->AsCmpXchg()->gtOpComparand);
+                RefPosition* comparandUse = BuildUse(tree->AsCmpXchg()->GetOp(2));
 
                 // For ARMv8 exclusives the lifetime of the comparand must be extended because
                 // it may be used used multiple during retries
