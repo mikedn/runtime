@@ -17109,7 +17109,7 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
 
     // TODO-MIKE-Review: Currently INITBLK ignores the unaligned prefix.
 
-    if (sizeIntCon == nullptr)
+    if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
         GenTreeDynBlk* init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
         init->SetVolatile(isVolatile);
@@ -17138,7 +17138,7 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
 
     // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
 
-    if (sizeIntCon == nullptr)
+    if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
         GenTreeDynBlk* copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
         copy->SetVolatile(isVolatile);

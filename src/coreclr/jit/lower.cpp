@@ -5930,7 +5930,9 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
 
     GenTree* dstAddr = store->GetAddr();
     GenTree* src     = store->GetValue();
-    unsigned size    = store->Size();
+    unsigned size    = store->GetLayout()->GetSize();
+
+    assert(size != 0);
 
 #ifdef TARGET_XARCH
     TryCreateAddrMode(dstAddr, false);

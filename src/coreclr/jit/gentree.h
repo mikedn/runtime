@@ -6491,12 +6491,6 @@ public:
         gtOp2 = dataNode;
     }
 
-    // The size of the buffer to be copied.
-    unsigned Size() const
-    {
-        return m_layout->GetSize();
-    }
-
     StructStoreKind GetKind() const
     {
         return m_kind;

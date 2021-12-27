@@ -8692,43 +8692,55 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
 
 GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
 {
-    if (GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon())
-    {
-        ClassLayout* layout = typGetBlkLayout(constSize->GetUInt32Value());
+    assert(dynBlk->TypeIs(TYP_VOID));
+    assert((dynBlk->gtFlags & GTF_LATE_ARG) == 0);
 
-        GenTreeBlk* dst = new (this, GT_BLK) GenTreeBlk(dynBlk->GetAddr(), layout);
-        dst->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+    GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon();
+
+    if (constSize == nullptr)
+    {
+        return dynBlk;
+    }
+
+    if (constSize->GetUInt32Value() == 0)
+    {
+        GenTree* nop = gtNewNothingNode();
+        INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+        return nop;
+    }
+
+    ClassLayout* layout = typGetBlkLayout(constSize->GetUInt32Value());
+
+    GenTreeBlk* dst = new (this, GT_BLK) GenTreeBlk(dynBlk->GetAddr(), layout);
+    dst->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+
+    if (dynBlk->IsVolatile())
+    {
+        dst->SetVolatile();
+    }
+
+    GenTree* src = dynBlk->GetValue();
+
+    if (dynBlk->OperIs(GT_COPY_BLK))
+    {
+        src = new (this, GT_BLK) GenTreeBlk(src, layout);
+        src->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
 
         if (dynBlk->IsVolatile())
         {
-            dst->SetVolatile();
+            src->AsBlk()->SetVolatile();
         }
-
-        GenTree* src = dynBlk->GetValue();
-
-        if (dynBlk->OperIs(GT_COPY_BLK))
-        {
-            src = new (this, GT_BLK) GenTreeBlk(src, layout);
-            src->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
-
-            if (dynBlk->IsVolatile())
-            {
-                src->AsBlk()->SetVolatile();
-            }
-        }
-        else if (!src->IsIntegralConst(0))
-        {
-            src = gtNewOperNode(GT_INIT_VAL, TYP_INT, src);
-        }
-
-        dynBlk->ChangeOper(GT_ASG);
-        dynBlk->SetType(TYP_STRUCT);
-        dynBlk->SetOp(0, dst);
-        dynBlk->SetOp(1, src);
-        dynBlk->SetSideEffects(dst->GetSideEffects() | src->GetSideEffects() | GTF_ASG);
-
-        return fgMorphBlockAssignment(dynBlk);
     }
+    else if (!src->IsIntegralConst(0))
+    {
+        src = gtNewOperNode(GT_INIT_VAL, TYP_INT, src);
+    }
+
+    dynBlk->ChangeOper(GT_ASG);
+    dynBlk->SetType(TYP_STRUCT);
+    dynBlk->SetOp(0, dst);
+    dynBlk->SetOp(1, src);
+    dynBlk->SetSideEffects(dst->GetSideEffects() | src->GetSideEffects() | GTF_ASG);
 
     return dynBlk;
 }
@@ -8738,30 +8750,19 @@ GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
     assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
     assert((asg->gtFlags & GTF_LATE_ARG) == 0);
 
-    GenTree* dst = asg->GetOp(0);
-    GenTree* src = asg->GetOp(1);
+    GenTreeBlk* dst = asg->GetOp(0)->AsBlk();
+    GenTree*    src = asg->GetOp(1);
 
-    assert(!src->IsIndir() || src->TypeIs(TYP_STRUCT));
+    assert(dst->GetLayout()->IsBlockLayout());
+    assert(dst->GetLayout()->GetSize() != 0);
 
-    if (dst->OperIs(GT_BLK))
+    if (src->OperIs(GT_BLK))
     {
-        if (src->OperIs(GT_BLK))
-        {
-            assert(src->AsBlk()->Size() == dst->AsBlk()->Size());
-        }
-        else
-        {
-            assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
-        }
-
-        assert(dst->AsBlk()->GetLayout()->IsBlockLayout());
-
-        if (dst->AsBlk()->GetLayout()->GetSize() == 0)
-        {
-            GenTree* nop = gtNewNothingNode();
-            INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-            return nop;
-        }
+        assert(src->AsBlk()->GetLayout()->GetSize() == dst->GetLayout()->GetSize());
+    }
+    else
+    {
+        assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
     }
 
     return asg;
