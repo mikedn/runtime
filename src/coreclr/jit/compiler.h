@@ -9065,7 +9065,7 @@ public:
 
                 GenTree** op1Use = &dynBlock->gtOp1;
                 GenTree** op2Use = &dynBlock->gtOp2;
-                GenTree** op3Use = &dynBlock->gtDynamicSize;
+                GenTree** op3Use = &dynBlock->gtOp3;
 
                 result = WalkTree(op1Use, dynBlock);
                 if (result == fgWalkResult::WALK_ABORT)

@@ -3860,7 +3860,7 @@ void GenTree::VisitOperands(TVisitor visitor)
             {
                 return;
             }
-            visitor(dynBlock->gtDynamicSize);
+            visitor(dynBlock->gtOp3);
             return;
         }
 

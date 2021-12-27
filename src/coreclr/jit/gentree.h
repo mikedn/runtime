@@ -6519,12 +6519,10 @@ struct GenTreeObj : public GenTreeBlk
 // This node is used for block values that have a dynamic size.
 // Note that such a value can never have GC pointers.
 
-struct GenTreeDynBlk : public GenTreeOp
+struct GenTreeDynBlk : public GenTreeTernaryOp
 {
-    GenTree* gtDynamicSize;
-
     GenTreeDynBlk(genTreeOps oper, GenTree* addr, GenTree* value, GenTree* size)
-        : GenTreeOp(oper, TYP_VOID, addr, value), gtDynamicSize(size)
+        : GenTreeTernaryOp(oper, TYP_VOID, addr, value, size)
     {
         assert((oper == GT_COPY_BLK) || (oper == GT_INIT_BLK));
         assert(varTypeIsIntegralOrI(addr->GetType()));
@@ -6532,10 +6530,9 @@ struct GenTreeDynBlk : public GenTreeOp
         assert(varTypeIsIntegral(size->GetType()));
 
         gtFlags |= GTF_ASG | GTF_EXCEPT | GTF_GLOB_REF;
-        gtFlags |= size->GetSideEffects();
     }
 
-    GenTreeDynBlk(GenTreeDynBlk* copyFrom) : GenTreeOp(copyFrom), gtDynamicSize(copyFrom->gtDynamicSize)
+    GenTreeDynBlk(GenTreeDynBlk* copyFrom) : GenTreeTernaryOp(copyFrom)
     {
     }
 
@@ -6563,13 +6560,13 @@ struct GenTreeDynBlk : public GenTreeOp
 
     GenTree* GetSize() const
     {
-        return gtDynamicSize;
+        return gtOp3;
     }
 
     void SetSize(GenTree* size)
     {
         assert(varTypeIsIntegral(size->GetType()));
-        gtDynamicSize = size;
+        gtOp3 = size;
     }
 
     bool IsVolatile() const
@@ -6602,7 +6599,7 @@ struct GenTreeDynBlk : public GenTreeOp
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeDynBlk() : GenTreeOp()
+    GenTreeDynBlk() : GenTreeTernaryOp()
     {
     }
 #endif

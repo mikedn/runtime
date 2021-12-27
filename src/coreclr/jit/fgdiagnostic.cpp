@@ -3192,8 +3192,8 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 chkFlags |= (GTF_GLOB_REF | GTF_ASG);
                 GenTreeDynBlk* dynBlk;
                 dynBlk = tree->AsDynBlk();
-                fgDebugCheckFlags(dynBlk->gtDynamicSize);
-                chkFlags |= (dynBlk->gtDynamicSize->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(dynBlk->gtOp3);
+                chkFlags |= (dynBlk->gtOp3->gtFlags & GTF_ALL_EFFECT);
                 fgDebugCheckFlags(dynBlk->gtOp1);
                 chkFlags |= (dynBlk->gtOp1->gtFlags & GTF_ALL_EFFECT);
                 fgDebugCheckFlags(dynBlk->gtOp2);

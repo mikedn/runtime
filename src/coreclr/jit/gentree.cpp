@@ -1458,7 +1458,7 @@ AGAIN:
         case GT_INIT_BLK:
             return Compare(op1->AsDynBlk()->gtOp1, op2->AsDynBlk()->gtOp1) &&
                    Compare(op1->AsDynBlk()->gtOp2, op2->AsDynBlk()->gtOp2) &&
-                   Compare(op1->AsDynBlk()->gtDynamicSize, op2->AsDynBlk()->gtDynamicSize);
+                   Compare(op1->AsDynBlk()->gtOp3, op2->AsDynBlk()->gtOp3);
 
         default:
             assert(!"unexpected operator");
@@ -1709,7 +1709,7 @@ AGAIN:
             {
                 return true;
             }
-            if (gtHasRef(tree->AsDynBlk()->gtDynamicSize, lclNum))
+            if (gtHasRef(tree->AsDynBlk()->gtOp3, lclNum))
             {
                 return true;
             }
@@ -2093,7 +2093,7 @@ AGAIN:
         case GT_INIT_BLK:
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsDynBlk()->gtOp1));
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsDynBlk()->gtOp2));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsDynBlk()->gtDynamicSize));
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsDynBlk()->gtOp3));
             break;
 
         default:
@@ -4065,10 +4065,10 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costEx += tree->AsDynBlk()->gtOp2->GetCostEx();
             costSz += tree->AsDynBlk()->gtOp2->GetCostSz();
 
-            unsigned sizeLevel = gtSetEvalOrder(tree->AsDynBlk()->gtDynamicSize);
+            unsigned sizeLevel = gtSetEvalOrder(tree->AsDynBlk()->gtOp3);
             level              = max(level, sizeLevel);
-            costEx += tree->AsDynBlk()->gtDynamicSize->GetCostEx();
-            costSz += tree->AsDynBlk()->gtDynamicSize->GetCostSz();
+            costEx += tree->AsDynBlk()->gtOp3->GetCostEx();
+            costSz += tree->AsDynBlk()->gtOp3->GetCostSz();
         }
         break;
 
@@ -6847,7 +6847,7 @@ void GenTreeUseEdgeIterator::AdvanceDynBlk()
             m_state = 1;
             break;
         case 1:
-            m_edge    = &dynBlock->gtDynamicSize;
+            m_edge    = &dynBlock->gtOp3;
             m_advance = &GenTreeUseEdgeIterator::Terminate;
             break;
         default:

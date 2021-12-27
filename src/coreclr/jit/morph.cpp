@@ -12981,9 +12981,9 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            tree->AsDynBlk()->gtOp1         = fgMorphTree(tree->AsDynBlk()->gtOp1);
-            tree->AsDynBlk()->gtOp2         = fgMorphTree(tree->AsDynBlk()->gtOp2);
-            tree->AsDynBlk()->gtDynamicSize = fgMorphTree(tree->AsDynBlk()->gtDynamicSize);
+            tree->AsDynBlk()->gtOp1 = fgMorphTree(tree->AsDynBlk()->gtOp1);
+            tree->AsDynBlk()->gtOp2 = fgMorphTree(tree->AsDynBlk()->gtOp2);
+            tree->AsDynBlk()->gtOp3 = fgMorphTree(tree->AsDynBlk()->gtOp3);
 
             tree->gtFlags &= ~GTF_CALL;
 
@@ -12994,7 +12994,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             tree->gtFlags |= tree->AsDynBlk()->gtOp1->gtFlags & GTF_ALL_EFFECT;
             tree->gtFlags |= tree->AsDynBlk()->gtOp2->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsDynBlk()->gtDynamicSize->gtFlags & GTF_ALL_EFFECT;
+            tree->gtFlags |= tree->AsDynBlk()->gtOp3->gtFlags & GTF_ALL_EFFECT;
             break;
 
         default:
