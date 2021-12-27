@@ -3449,9 +3449,9 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
 
 void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 {
-    GenTree* offsetNode = arrOffset->gtOffset;
-    GenTree* indexNode  = arrOffset->gtIndex;
-    GenTree* arrObj     = arrOffset->gtArrObj;
+    GenTree* offsetNode = arrOffset->GetOffset();
+    GenTree* indexNode  = arrOffset->GetIndex();
+    GenTree* arrObj     = arrOffset->GetArray();
 
     regNumber tgtReg = arrOffset->GetRegNum();
     assert(tgtReg != REG_NA);

@@ -12925,14 +12925,14 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             // GT_ARR_OFFSET nodes are created during lowering.
             noway_assert(!fgGlobalMorph);
 
-            tree->AsArrOffs()->gtOffset = fgMorphTree(tree->AsArrOffs()->gtOffset);
-            tree->AsArrOffs()->gtIndex  = fgMorphTree(tree->AsArrOffs()->gtIndex);
-            tree->AsArrOffs()->gtArrObj = fgMorphTree(tree->AsArrOffs()->gtArrObj);
+            tree->AsArrOffs()->SetOp(0, fgMorphTree(tree->AsArrOffs()->GetOp(0)));
+            tree->AsArrOffs()->SetOp(1, fgMorphTree(tree->AsArrOffs()->GetOp(1)));
+            tree->AsArrOffs()->SetOp(2, fgMorphTree(tree->AsArrOffs()->GetOp(2)));
 
             tree->gtFlags &= ~GTF_CALL;
-            tree->gtFlags |= tree->AsArrOffs()->gtOffset->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsArrOffs()->gtIndex->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsArrOffs()->gtArrObj->gtFlags & GTF_ALL_EFFECT;
+            tree->gtFlags |= tree->AsArrOffs()->GetOp(0)->gtFlags & GTF_ALL_EFFECT;
+            tree->gtFlags |= tree->AsArrOffs()->GetOp(1)->gtFlags & GTF_ALL_EFFECT;
+            tree->gtFlags |= tree->AsArrOffs()->GetOp(2)->gtFlags & GTF_ALL_EFFECT;
             break;
 
         case GT_PHI:

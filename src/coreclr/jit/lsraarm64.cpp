@@ -591,13 +591,13 @@ int LinearScan::BuildNode(GenTree* tree)
             // This consumes the offset, if any, the arrObj and the effective index,
             // and produces the flattened offset for this dimension.
             srcCount = 2;
-            if (!tree->AsArrOffs()->gtOffset->isContained())
+            if (!tree->AsArrOffs()->GetOp(0)->isContained())
             {
-                BuildUse(tree->AsArrOffs()->gtOffset);
+                BuildUse(tree->AsArrOffs()->GetOp(0));
                 srcCount++;
             }
-            BuildUse(tree->AsArrOffs()->gtIndex);
-            BuildUse(tree->AsArrOffs()->gtArrObj);
+            BuildUse(tree->AsArrOffs()->GetOp(1));
+            BuildUse(tree->AsArrOffs()->GetOp(2));
             assert(dstCount == 1);
             buildInternalIntRegisterDefForNode(tree);
             buildInternalRegisterUses();

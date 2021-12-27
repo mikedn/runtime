@@ -9040,17 +9040,17 @@ public:
             {
                 GenTreeArrOffs* const arrOffs = node->AsArrOffs();
 
-                result = WalkTree(&arrOffs->gtOffset, arrOffs);
+                result = WalkTree(&arrOffs->gtOp1, arrOffs);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
-                result = WalkTree(&arrOffs->gtIndex, arrOffs);
+                result = WalkTree(&arrOffs->gtOp2, arrOffs);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
-                result = WalkTree(&arrOffs->gtArrObj, arrOffs);
+                result = WalkTree(&arrOffs->gtOp3, arrOffs);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;

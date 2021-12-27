@@ -1467,8 +1467,8 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
 
 void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 {
-    GenTree*  offsetNode = arrOffset->gtOffset;
-    GenTree*  indexNode  = arrOffset->gtIndex;
+    GenTree*  offsetNode = arrOffset->GetOffset();
+    GenTree*  indexNode  = arrOffset->GetIndex();
     regNumber tgtReg     = arrOffset->GetRegNum();
 
     noway_assert(tgtReg != REG_NA);
@@ -1478,7 +1478,7 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
         emitter*  emit      = GetEmitter();
         regNumber offsetReg = genConsumeReg(offsetNode);
         regNumber indexReg  = genConsumeReg(indexNode);
-        regNumber arrReg    = genConsumeReg(arrOffset->gtArrObj);
+        regNumber arrReg    = genConsumeReg(arrOffset->GetArray());
         noway_assert(offsetReg != REG_NA);
         noway_assert(indexReg != REG_NA);
         noway_assert(arrReg != REG_NA);

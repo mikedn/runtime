@@ -6139,15 +6139,8 @@ protected:
 //    is done, we will also want to replace the <arrObj> argument to arrOffs with the
 //    ArrLen as for GenTreeArrIndex.
 //
-struct GenTreeArrOffs : public GenTree
+struct GenTreeArrOffs : public GenTreeTernaryOp
 {
-    GenTree* gtOffset;           // The accumulated offset for lower dimensions - must be TYP_I_IMPL, and
-                                 // will either be a CSE temp, the constant 0, or another GenTreeArrOffs node.
-    GenTree* gtIndex;            // The effective index for the current dimension - must be non-negative
-                                 // and can be any expression (though it is likely to be either a GenTreeArrIndex,
-                                 // node, a lclVar, or a constant).
-    GenTree* gtArrObj;           // The array object - may be any expression producing an Array reference,
-                                 // but is likely to be a lclVar.
     unsigned char gtCurrDim;     // The current dimension
     unsigned char gtArrRank;     // Rank of the array
     var_types     gtArrElemType; // The array element type
@@ -6159,10 +6152,7 @@ struct GenTreeArrOffs : public GenTree
                    unsigned char currDim,
                    unsigned char rank,
                    var_types     elemType)
-        : GenTree(GT_ARR_OFFSET, type)
-        , gtOffset(offset)
-        , gtIndex(index)
-        , gtArrObj(arrObj)
+        : GenTreeTernaryOp(GT_ARR_OFFSET, type, offset, index, arrObj)
         , gtCurrDim(currDim)
         , gtArrRank(rank)
         , gtArrElemType(elemType)
@@ -6170,8 +6160,27 @@ struct GenTreeArrOffs : public GenTree
         assert(index->gtFlags & GTF_EXCEPT);
         gtFlags |= GTF_EXCEPT;
     }
+
+    // The accumulated offset for lower dimensions
+    GenTree* GetOffset() const
+    {
+        return gtOp1;
+    }
+
+    // The effective index for the current dimension
+    GenTree* GetIndex() const
+    {
+        return gtOp2;
+    }
+
+    // The array object reference
+    GenTree* GetArray() const
+    {
+        return gtOp3;
+    }
+
 #if DEBUGGABLE_GENTREE
-    GenTreeArrOffs() : GenTree()
+    GenTreeArrOffs() : GenTreeTernaryOp()
     {
     }
 #endif

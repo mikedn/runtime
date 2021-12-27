@@ -3124,12 +3124,12 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
             case GT_ARR_OFFSET:
 
-                fgDebugCheckFlags(tree->AsArrOffs()->gtOffset);
-                chkFlags |= (tree->AsArrOffs()->gtOffset->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(tree->AsArrOffs()->gtIndex);
-                chkFlags |= (tree->AsArrOffs()->gtIndex->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(tree->AsArrOffs()->gtArrObj);
-                chkFlags |= (tree->AsArrOffs()->gtArrObj->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(tree->AsArrOffs()->GetOp(0));
+                chkFlags |= (tree->AsArrOffs()->GetOp(0)->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(tree->AsArrOffs()->GetOp(1));
+                chkFlags |= (tree->AsArrOffs()->GetOp(1)->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(tree->AsArrOffs()->GetOp(2));
+                chkFlags |= (tree->AsArrOffs()->GetOp(2)->gtFlags & GTF_ALL_EFFECT);
                 break;
 
             case GT_ARR_BOUNDS_CHECK:

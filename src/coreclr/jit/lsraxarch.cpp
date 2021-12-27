@@ -506,7 +506,7 @@ int LinearScan::BuildNode(GenTree* tree)
             assert(dstCount == 1);
             srcCount                 = 0;
             RefPosition* internalDef = nullptr;
-            if (tree->AsArrOffs()->gtOffset->isContained())
+            if (tree->AsArrOffs()->GetOp(0)->isContained())
             {
                 srcCount = 2;
             }
@@ -516,10 +516,10 @@ int LinearScan::BuildNode(GenTree* tree)
                 // from any of the operand's registers, but may be the same as targetReg.
                 srcCount    = 3;
                 internalDef = buildInternalIntRegisterDefForNode(tree);
-                BuildUse(tree->AsArrOffs()->gtOffset);
+                BuildUse(tree->AsArrOffs()->GetOp(0));
             }
-            BuildUse(tree->AsArrOffs()->gtIndex);
-            BuildUse(tree->AsArrOffs()->gtArrObj);
+            BuildUse(tree->AsArrOffs()->GetOp(1));
+            BuildUse(tree->AsArrOffs()->GetOp(2));
             if (internalDef != nullptr)
             {
                 buildInternalRegisterUses();

@@ -3836,15 +3836,15 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_ARR_OFFSET:
         {
             GenTreeArrOffs* const arrOffs = this->AsArrOffs();
-            if (visitor(arrOffs->gtOffset) == VisitResult::Abort)
+            if (visitor(arrOffs->gtOp1) == VisitResult::Abort)
             {
                 return;
             }
-            if (visitor(arrOffs->gtIndex) == VisitResult::Abort)
+            if (visitor(arrOffs->gtOp2) == VisitResult::Abort)
             {
                 return;
             }
-            visitor(arrOffs->gtArrObj);
+            visitor(arrOffs->gtOp3);
             return;
         }
 

@@ -526,7 +526,7 @@ int LinearScan::BuildNode(GenTree* tree)
             // and produces the flattened offset for this dimension.
             assert(dstCount == 1);
 
-            if (tree->AsArrOffs()->gtOffset->isContained())
+            if (tree->AsArrOffs()->GetOp(0)->isContained())
             {
                 srcCount = 2;
             }
@@ -536,10 +536,10 @@ int LinearScan::BuildNode(GenTree* tree)
                 // from any of the operand's registers, but may be the same as targetReg.
                 buildInternalIntRegisterDefForNode(tree);
                 srcCount = 3;
-                BuildUse(tree->AsArrOffs()->gtOffset);
+                BuildUse(tree->AsArrOffs()->GetOp(0));
             }
-            BuildUse(tree->AsArrOffs()->gtIndex);
-            BuildUse(tree->AsArrOffs()->gtArrObj);
+            BuildUse(tree->AsArrOffs()->GetOp(1));
+            BuildUse(tree->AsArrOffs()->GetOp(2));
             buildInternalRegisterUses();
             BuildDef(tree);
             break;

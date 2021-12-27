@@ -1427,9 +1427,9 @@ AGAIN:
             {
                 return false;
             }
-            return (Compare(op1->AsArrOffs()->gtOffset, op2->AsArrOffs()->gtOffset) &&
-                    Compare(op1->AsArrOffs()->gtIndex, op2->AsArrOffs()->gtIndex) &&
-                    Compare(op1->AsArrOffs()->gtArrObj, op2->AsArrOffs()->gtArrObj));
+            return (Compare(op1->AsArrOffs()->GetOp(0), op2->AsArrOffs()->GetOp(0)) &&
+                    Compare(op1->AsArrOffs()->GetOp(1), op2->AsArrOffs()->GetOp(1)) &&
+                    Compare(op1->AsArrOffs()->GetOp(2), op2->AsArrOffs()->GetOp(2)));
 
         case GT_PHI:
             return GenTreePhi::Equals(op1->AsPhi(), op2->AsPhi());
@@ -1621,8 +1621,8 @@ AGAIN:
             break;
 
         case GT_ARR_OFFSET:
-            if (gtHasRef(tree->AsArrOffs()->gtOffset, lclNum) || gtHasRef(tree->AsArrOffs()->gtIndex, lclNum) ||
-                gtHasRef(tree->AsArrOffs()->gtArrObj, lclNum))
+            if (gtHasRef(tree->AsArrOffs()->GetOp(0), lclNum) || gtHasRef(tree->AsArrOffs()->GetOp(1), lclNum) ||
+                gtHasRef(tree->AsArrOffs()->GetOp(2), lclNum))
             {
                 return true;
             }
@@ -2001,9 +2001,9 @@ AGAIN:
             break;
 
         case GT_ARR_OFFSET:
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->gtOffset));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->gtIndex));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->gtArrObj));
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->GetOp(0)));
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->GetOp(1)));
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrOffs()->GetOp(2)));
             break;
 
         case GT_CALL:
@@ -3874,17 +3874,17 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
         break;
 
         case GT_ARR_OFFSET:
-            level  = gtSetEvalOrder(tree->AsArrOffs()->gtOffset);
-            costEx = tree->AsArrOffs()->gtOffset->GetCostEx();
-            costSz = tree->AsArrOffs()->gtOffset->GetCostSz();
-            lvl2   = gtSetEvalOrder(tree->AsArrOffs()->gtIndex);
+            level  = gtSetEvalOrder(tree->AsArrOffs()->GetOp(0));
+            costEx = tree->AsArrOffs()->GetOp(0)->GetCostEx();
+            costSz = tree->AsArrOffs()->GetOp(0)->GetCostSz();
+            lvl2   = gtSetEvalOrder(tree->AsArrOffs()->GetOp(1));
             level  = max(level, lvl2);
-            costEx += tree->AsArrOffs()->gtIndex->GetCostEx();
-            costSz += tree->AsArrOffs()->gtIndex->GetCostSz();
-            lvl2  = gtSetEvalOrder(tree->AsArrOffs()->gtArrObj);
+            costEx += tree->AsArrOffs()->GetOp(1)->GetCostEx();
+            costSz += tree->AsArrOffs()->GetOp(1)->GetCostSz();
+            lvl2  = gtSetEvalOrder(tree->AsArrOffs()->GetOp(2));
             level = max(level, lvl2);
-            costEx += tree->AsArrOffs()->gtArrObj->GetCostEx();
-            costSz += tree->AsArrOffs()->gtArrObj->GetCostSz();
+            costEx += tree->AsArrOffs()->GetOp(2)->GetCostEx();
+            costSz += tree->AsArrOffs()->GetOp(2)->GetCostSz();
             break;
 
         case GT_PHI:
@@ -6076,9 +6076,9 @@ GenTree* Compiler::gtCloneExpr(
         {
             copy = new (this, GT_ARR_OFFSET)
                 GenTreeArrOffs(tree->TypeGet(),
-                               gtCloneExpr(tree->AsArrOffs()->gtOffset, addFlags, deepVarNum, deepVarVal),
-                               gtCloneExpr(tree->AsArrOffs()->gtIndex, addFlags, deepVarNum, deepVarVal),
-                               gtCloneExpr(tree->AsArrOffs()->gtArrObj, addFlags, deepVarNum, deepVarVal),
+                               gtCloneExpr(tree->AsArrOffs()->GetOp(0), addFlags, deepVarNum, deepVarVal),
+                               gtCloneExpr(tree->AsArrOffs()->GetOp(1), addFlags, deepVarNum, deepVarVal),
+                               gtCloneExpr(tree->AsArrOffs()->GetOp(2), addFlags, deepVarNum, deepVarVal),
                                tree->AsArrOffs()->gtCurrDim, tree->AsArrOffs()->gtArrRank,
                                tree->AsArrOffs()->gtArrElemType);
         }
@@ -6724,7 +6724,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_ARR_OFFSET:
-            m_edge = &m_node->AsArrOffs()->gtOffset;
+            m_edge = &m_node->AsArrOffs()->gtOp1;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::AdvanceArrOffset;
             return;
@@ -6822,11 +6822,11 @@ void GenTreeUseEdgeIterator::AdvanceArrOffset()
     switch (m_state)
     {
         case 0:
-            m_edge  = &m_node->AsArrOffs()->gtIndex;
+            m_edge  = &m_node->AsArrOffs()->gtOp2;
             m_state = 1;
             break;
         case 1:
-            m_edge    = &m_node->AsArrOffs()->gtArrObj;
+            m_edge    = &m_node->AsArrOffs()->gtOp3;
             m_advance = &GenTreeUseEdgeIterator::Terminate;
             break;
         default:
@@ -9262,9 +9262,9 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             if (!topOnly)
             {
-                gtDispChild(tree->AsArrOffs()->gtOffset, indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsArrOffs()->gtIndex, indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsArrOffs()->gtArrObj, indentStack, IIArcBottom, nullptr, topOnly);
+                gtDispChild(tree->AsArrOffs()->GetOp(0), indentStack, IIArc, nullptr, topOnly);
+                gtDispChild(tree->AsArrOffs()->GetOp(1), indentStack, IIArc, nullptr, topOnly);
+                gtDispChild(tree->AsArrOffs()->GetOp(2), indentStack, IIArcBottom, nullptr, topOnly);
             }
             break;
 
