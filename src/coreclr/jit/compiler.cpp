@@ -7760,10 +7760,17 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
 
             case GT_IND:
             case GT_STOREIND:
-
-                if (tree->gtFlags & GTF_IND_VOLATILE)
+            case GT_OBJ:
+            case GT_STORE_OBJ:
+            case GT_BLK:
+            case GT_STORE_BLK:
+                if (tree->AsIndir()->IsVolatile())
                 {
                     chars += printf("[IND_VOLATILE]");
+                }
+                if (tree->AsIndir()->IsUnaligned())
+                {
+                    chars += printf("[IND_UNALIGNED]");
                 }
                 if (tree->gtFlags & GTF_IND_TGT_HEAP)
                 {
@@ -7777,10 +7784,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[IND_ASG_LHS]");
                 }
-                if (tree->gtFlags & GTF_IND_UNALIGNED)
-                {
-                    chars += printf("[IND_UNALIGNED]");
-                }
                 if (tree->gtFlags & GTF_IND_INVARIANT)
                 {
                     chars += printf("[IND_INVARIANT]");
@@ -7788,6 +7791,18 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 if (tree->gtFlags & GTF_IND_NONNULL)
                 {
                     chars += printf("[IND_NONNULL]");
+                }
+                break;
+
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
+                if (tree->AsDynBlk()->IsVolatile())
+                {
+                    chars += printf("[IND_VOLATILE]");
+                }
+                if (tree->AsDynBlk()->IsUnaligned())
+                {
+                    chars += printf("[BLK_UNALIGNED]");
                 }
                 break;
 
@@ -7924,28 +7939,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
             }
             break;
-
-            case GT_OBJ:
-            case GT_STORE_OBJ:
-                if (tree->AsObj()->GetLayout()->HasGCPtr())
-                {
-                    chars += printf("[BLK_HASGCPTR]");
-                }
-                FALLTHROUGH;
-
-            case GT_BLK:
-            case GT_DYN_BLK:
-            case GT_STORE_BLK:
-            case GT_STORE_DYN_BLK:
-                if (tree->AsIndir()->IsVolatile())
-                {
-                    chars += printf("[IND_VOLATILE]");
-                }
-                if (tree->AsBlk()->IsUnaligned())
-                {
-                    chars += printf("[BLK_UNALIGNED]");
-                }
-                break;
 
             case GT_CALL:
 

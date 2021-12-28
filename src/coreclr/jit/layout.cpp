@@ -281,6 +281,8 @@ private:
 
     unsigned GetBlkLayoutIndex(Compiler* compiler, unsigned blockSize)
     {
+        assert(blockSize != 0);
+
         if (HasSmallCapacity())
         {
             for (unsigned i = 0; i < m_layoutCount; i++)

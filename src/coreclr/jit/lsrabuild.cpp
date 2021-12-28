@@ -1040,8 +1040,12 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
-        case GT_STORE_DYN_BLK:
             killMask = getKillSetForStructStore(tree->AsBlk()->GetKind());
+            break;
+
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            killMask = getKillSetForStructStore(tree->AsDynBlk()->GetKind());
             break;
 
         case GT_RETURNTRAP:
@@ -3415,23 +3419,9 @@ int LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
     regMaskTP sizeRegMask = RBM_ARG_2;
 #endif
 
-    GenTree* src = store->GetValue();
-
-    if (src->OperIs(GT_INIT_VAL))
-    {
-        assert(src->isContained());
-        src = src->AsUnOp()->GetOp(0);
-    }
-    else if (!src->OperIs(GT_CNS_INT))
-    {
-        assert(src->isContained());
-        src = src->AsIndir()->GetAddr();
-    }
-
     BuildUse(store->GetAddr(), dstRegMask);
-    BuildUse(src, srcRegMask);
+    BuildUse(store->GetValue(), srcRegMask);
     BuildUse(store->GetSize(), sizeRegMask);
-    BuildInternalUses();
     BuildKills(store, getKillSetForStructStore(store->GetKind()));
 
     return 3;

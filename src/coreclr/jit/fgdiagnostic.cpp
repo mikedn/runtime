@@ -3122,16 +3122,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
-            case GT_ARR_OFFSET:
-
-                fgDebugCheckFlags(tree->AsArrOffs()->gtOffset);
-                chkFlags |= (tree->AsArrOffs()->gtOffset->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(tree->AsArrOffs()->gtIndex);
-                chkFlags |= (tree->AsArrOffs()->gtIndex->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(tree->AsArrOffs()->gtArrObj);
-                chkFlags |= (tree->AsArrOffs()->gtArrObj->gtFlags & GTF_ALL_EFFECT);
-                break;
-
             case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
@@ -3174,32 +3164,19 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 break;
 #endif
 
+            case GT_ARR_OFFSET:
             case GT_CMPXCHG:
-
-                chkFlags |= (GTF_GLOB_REF | GTF_ASG);
-                GenTreeCmpXchg* cmpXchg;
-                cmpXchg = tree->AsCmpXchg();
-                fgDebugCheckFlags(cmpXchg->gtOpLocation);
-                chkFlags |= (cmpXchg->gtOpLocation->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(cmpXchg->gtOpValue);
-                chkFlags |= (cmpXchg->gtOpValue->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(cmpXchg->gtOpComparand);
-                chkFlags |= (cmpXchg->gtOpComparand->gtFlags & GTF_ALL_EFFECT);
-                break;
-
-            case GT_STORE_DYN_BLK:
-            case GT_DYN_BLK:
-
-                GenTreeDynBlk* dynBlk;
-                dynBlk = tree->AsDynBlk();
-                fgDebugCheckFlags(dynBlk->gtDynamicSize);
-                chkFlags |= (dynBlk->gtDynamicSize->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(dynBlk->Addr());
-                chkFlags |= (dynBlk->Addr()->gtFlags & GTF_ALL_EFFECT);
-                if (tree->OperGet() == GT_STORE_DYN_BLK)
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
+                if (tree->OperIs(GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK))
                 {
-                    fgDebugCheckFlags(dynBlk->Data());
-                    chkFlags |= (dynBlk->Data()->gtFlags & GTF_ALL_EFFECT);
+                    chkFlags |= GTF_GLOB_REF | GTF_ASG;
+                }
+
+                for (unsigned i = 0; i < 3; i++)
+                {
+                    fgDebugCheckFlags(tree->AsTernaryOp()->GetOp(i));
+                    chkFlags |= tree->AsTernaryOp()->GetOp(i)->GetSideEffects();
                 }
                 break;
 
@@ -3355,34 +3332,20 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
         }
         else if (tree->OperIsBinary() && tree->AsOp()->gtOp1)
         {
-            switch (tree->gtOper)
+            if (tree->AsOp()->gtOp2)
             {
-                case GT_QMARK:
-                    // "then" operand of the GT_COLON (generated second).
-                    expectedPrevTree = tree->AsOp()->gtOp2->AsColon()->ThenNode();
-                    break;
-
-                case GT_COLON:
-                    expectedPrevTree = tree->AsColon()->ElseNode(); // "else" branch result (generated first).
-                    break;
-
-                default:
-                    if (tree->AsOp()->gtOp2)
-                    {
-                        if (tree->gtFlags & GTF_REVERSE_OPS)
-                        {
-                            expectedPrevTree = tree->AsOp()->gtOp1;
-                        }
-                        else
-                        {
-                            expectedPrevTree = tree->AsOp()->gtOp2;
-                        }
-                    }
-                    else
-                    {
-                        expectedPrevTree = tree->AsOp()->gtOp1;
-                    }
-                    break;
+                if (tree->gtFlags & GTF_REVERSE_OPS)
+                {
+                    expectedPrevTree = tree->AsOp()->gtOp1;
+                }
+                else
+                {
+                    expectedPrevTree = tree->AsOp()->gtOp2;
+                }
+            }
+            else
+            {
+                expectedPrevTree = tree->AsOp()->gtOp1;
             }
         }
 

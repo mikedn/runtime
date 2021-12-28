@@ -5787,8 +5787,8 @@ void ValueNumStore::vnDumpLclAddr(Compiler* comp, VNFuncApp* func)
 // Static fields, methods.
 static UINT8      vnfOpAttribs[VNF_COUNT];
 static genTreeOps genTreeOpsIllegalAsVNFunc[] = {GT_IND, // When we do heap memory.
-                                                 GT_NULLCHECK, GT_QMARK, GT_COLON, GT_LOCKADD, GT_XADD, GT_XCHG,
-                                                 GT_CMPXCHG, GT_LCLHEAP, GT_BOX, GT_XORR, GT_XAND,
+                                                 GT_NULLCHECK, GT_QMARK, GT_LOCKADD, GT_XADD, GT_XCHG, GT_CMPXCHG,
+                                                 GT_LCLHEAP, GT_BOX, GT_XORR, GT_XAND,
 
                                                  // These need special semantics:
                                                  GT_COMMA, // == second argument (but with exception(s) from first).
@@ -7582,7 +7582,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     unreached();
             }
         }
-        else if ((oper == GT_IND) || GenTree::OperIsBlk(oper))
+        else if ((oper == GT_IND) || (oper == GT_OBJ) || (oper == GT_BLK))
         {
             // So far, we handle cases in which the address is a ptr-to-local, or if it's
             // a pointer to an object field or array element.  Other cases become uses of
@@ -7814,6 +7814,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     tree->gtVNPair = vnStore->VNPWithExc(tree->gtVNPair, addrXvnp);
                 }
             }
+        }
+        else if ((oper == GT_COPY_BLK) || (oper == GT_INIT_BLK))
+        {
+            fgMutateGcHeap(tree DEBUGARG("dynamic sized block init/copy"));
+            tree->gtVNPair.SetBoth(vnStore->VNForVoid());
         }
         else if (tree->OperGet() == GT_CAST)
         {
@@ -8073,9 +8078,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                 assert(tree->OperIsImplicitIndir()); // special node with an implicit indirections
 
-                GenTree* location  = cmpXchg->gtOpLocation;  // arg1
-                GenTree* value     = cmpXchg->gtOpValue;     // arg2
-                GenTree* comparand = cmpXchg->gtOpComparand; // arg3
+                GenTree* location  = cmpXchg->GetAddr();
+                GenTree* value     = cmpXchg->GetValue();
+                GenTree* comparand = cmpXchg->GetCompareValue();
 
                 ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
 
@@ -9547,7 +9552,6 @@ void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
 
             case GT_BLK:
             case GT_OBJ:
-            case GT_DYN_BLK:
             case GT_NULLCHECK:
                 fgValueNumberAddExceptionSetForIndirection(tree, tree->AsIndir()->Addr());
                 break;
@@ -9565,7 +9569,7 @@ void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
                 break;
 
             case GT_ARR_OFFSET:
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrOffs()->gtArrObj);
+                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrOffs()->GetArray());
                 break;
 
             case GT_CKFINITE:

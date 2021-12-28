@@ -7117,7 +7117,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         }
                     }
                 }
-                else if (lhs->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
+                else if (lhs->OperIs(GT_OBJ, GT_BLK))
                 {
                     if (GenTreeLclVarCommon* lclNode = lhs->AsIndir()->GetAddr()->IsLocalAddrExpr())
                     {
@@ -7181,11 +7181,11 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     case GT_XCHG:
                     case GT_CMPXCHG:
                     case GT_MEMORYBARRIER:
-                    {
+                    case GT_COPY_BLK:
+                    case GT_INIT_BLK:
                         assert(!tree->OperIs(GT_LOCKADD) && "LOCKADD should not appear before lowering");
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
-                    }
-                    break;
+                        break;
 
                     case GT_CALL:
                     {

@@ -665,7 +665,7 @@ void Compiler::optAssertionRemove(AssertionIndex index)
 }
 
 void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
-                                 AssertionDsc* elseAssertionTab DEBUGARG(GenTreeColon* colon))
+                                 AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
 {
     if (optAssertionCount == 0)
     {
@@ -707,7 +707,7 @@ void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
         }
         else
         {
-            JITDUMP("The QMARK-COLON [%06u] removes assertion candidate #%d\n", colon->GetID(), index);
+            JITDUMP("The QMARK [%06u] removes assertion candidate #%d\n", qmark->GetID(), index);
             optAssertionRemove(index);
         }
     }
@@ -2309,12 +2309,9 @@ void Compiler::optAssertionGen(GenTree* tree)
             break;
 
         case GT_BLK:
-            if (tree->AsBlk()->GetLayout()->GetSize() == 0)
-            {
-                break;
-            }
-            __fallthrough;
         case GT_OBJ:
+            assert(tree->AsBlk()->GetLayout()->GetSize() != 0);
+            FALLTHROUGH;
         case GT_IND:
         case GT_NULLCHECK:
             // All indirections create non-null assertions
@@ -4148,7 +4145,6 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
 
         case GT_OBJ:
         case GT_BLK:
-        case GT_DYN_BLK:
         case GT_IND:
         case GT_NULLCHECK:
             return optAssertionProp_Ind(assertions, tree, stmt);

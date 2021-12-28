@@ -1708,9 +1708,13 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_STORE_OBJ:
-        case GT_STORE_DYN_BLK:
         case GT_STORE_BLK:
             GenStructStore(treeNode->AsBlk(), treeNode->AsBlk()->GetKind(), treeNode->AsBlk()->GetLayout());
+            break;
+
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            GenDynBlk(treeNode->AsDynBlk());
             break;
 
         case GT_JMPTABLE:
@@ -2436,6 +2440,33 @@ BAILOUT:
     genProduceReg(tree);
 }
 
+void CodeGen::GenDynBlk(GenTreeDynBlk* store)
+{
+    switch (store->GetKind())
+    {
+#ifdef TARGET_AMD64
+        case StructStoreKind::MemSet:
+            ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+            genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+            break;
+        case StructStoreKind::MemCpy:
+            ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+            genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
+            break;
+#endif
+        case StructStoreKind::RepStos:
+            ConsumeDynBlk(store, REG_RDI, REG_RAX, REG_RCX);
+            instGen(INS_r_stosb);
+            break;
+        case StructStoreKind::RepMovs:
+            ConsumeDynBlk(store, REG_RDI, REG_RSI, REG_RCX);
+            instGen(INS_r_movsb);
+            break;
+        default:
+            unreached();
+    }
+}
+
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src)
 {
     assert(!layout->IsBlockLayout());
@@ -2503,7 +2534,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 
 void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
     switch (kind)
     {
@@ -2546,7 +2577,7 @@ void CodeGen::GenStructStoreMemSet(GenTree* store, ClassLayout* layout)
 
 void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
 {
-    assert((layout == nullptr) || !layout->HasGCPtr());
+    assert(!layout->HasGCPtr());
 
     ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
     genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
@@ -2562,7 +2593,7 @@ void CodeGen::GenStructStoreRepStos(GenTree* store, ClassLayout* layout)
 
 void CodeGen::GenStructStoreRepMovs(GenTree* store, ClassLayout* layout)
 {
-    assert((layout == nullptr) || !layout->HasGCPtr());
+    assert(!layout->HasGCPtr());
 
     ConsumeStructStore(store, layout, REG_RDI, REG_RSI, REG_RCX);
     instGen(INS_r_movsb);
@@ -3188,9 +3219,9 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
     var_types targetType = tree->TypeGet();
     regNumber targetReg  = tree->GetRegNum();
 
-    GenTree* location  = tree->gtOpLocation;  // arg1
-    GenTree* value     = tree->gtOpValue;     // arg2
-    GenTree* comparand = tree->gtOpComparand; // arg3
+    GenTree* location  = tree->GetAddr();
+    GenTree* value     = tree->GetValue();
+    GenTree* comparand = tree->GetCompareValue();
 
     assert(location->GetRegNum() != REG_NA && location->GetRegNum() != REG_RAX);
     assert(value->GetRegNum() != REG_NA && value->GetRegNum() != REG_RAX);
@@ -3418,9 +3449,9 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
 
 void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 {
-    GenTree* offsetNode = arrOffset->gtOffset;
-    GenTree* indexNode  = arrOffset->gtIndex;
-    GenTree* arrObj     = arrOffset->gtArrObj;
+    GenTree* offsetNode = arrOffset->GetOffset();
+    GenTree* indexNode  = arrOffset->GetIndex();
+    GenTree* arrObj     = arrOffset->GetArray();
 
     regNumber tgtReg = arrOffset->GetRegNum();
     assert(tgtReg != REG_NA);
@@ -4768,8 +4799,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
             assert(compiler->virtualStubParamInfo->GetReg() == REG_VIRTUAL_STUB_TARGET);
 
-            assert(target->isContainedIndir());
-            assert(target->OperGet() == GT_IND);
+            assert(target->OperIs(GT_IND) && target->isContained());
 
             GenTree* addr = target->AsIndir()->Addr();
             assert(addr->isUsedFromReg());
@@ -4795,7 +4825,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
         else
 #endif
-            if (target->isContainedIndir())
+            if (target->isContained())
         {
             if (target->AsIndir()->HasBase() && target->AsIndir()->Base()->isContainedIntOrIImmed())
             {

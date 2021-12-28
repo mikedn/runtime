@@ -293,10 +293,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerStoreBlk(node->AsBlk());
             break;
 
-        case GT_STORE_DYN_BLK:
-            LowerStoreDynBlk(node->AsDynBlk());
-            break;
-
         case GT_LCLHEAP:
             ContainCheckLclHeap(node->AsOp());
             break;
@@ -333,7 +329,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
 #if defined(TARGET_ARM64)
         case GT_CMPXCHG:
-            CheckImmedAndMakeContained(node, node->AsCmpXchg()->gtOpComparand);
+            CheckImmedAndMakeContained(node, node->AsCmpXchg()->GetCompareValue());
             break;
 
         case GT_XORR:
@@ -5522,9 +5518,9 @@ void Lowering::ContainCheckArrOffset(GenTreeArrOffs* node)
 {
     assert(node->OperIs(GT_ARR_OFFSET));
     // we don't want to generate code for this
-    if (node->gtOffset->IsIntegralConst(0))
+    if (node->GetOffset()->IsIntegralConst(0))
     {
-        MakeSrcContained(node, node->AsArrOffs()->gtOffset);
+        MakeSrcContained(node, node->AsArrOffs()->GetOffset());
     }
 }
 
@@ -5929,7 +5925,9 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
 
     GenTree* dstAddr = store->GetAddr();
     GenTree* src     = store->GetValue();
-    unsigned size    = store->Size();
+    unsigned size    = store->GetLayout()->GetSize();
+
+    assert(size != 0);
 
 #ifdef TARGET_XARCH
     TryCreateAddrMode(dstAddr, false);
@@ -6036,50 +6034,6 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
 
             ContainBlockStoreAddress(store, size, dstAddr);
         }
-    }
-}
-
-void Lowering::LowerStoreDynBlk(GenTreeDynBlk* store)
-{
-    assert(store->OperIs(GT_STORE_DYN_BLK));
-
-#ifdef TARGET_XARCH
-    TryCreateAddrMode(store->GetAddr(), false);
-#endif
-
-    GenTree* src = store->GetValue();
-
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
-    {
-        if (src->OperIs(GT_INIT_VAL))
-        {
-            src->SetContained();
-        }
-
-#ifdef TARGET_X86
-        // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-        store->SetKind(StructStoreKind::RepStos);
-#else
-        store->SetKind(StructStoreKind::MemSet);
-#endif
-    }
-    else
-    {
-        assert(src->OperIs(GT_IND) && src->TypeIs(TYP_STRUCT));
-        assert(!src->AsIndir()->GetAddr()->isContained());
-
-        src->SetContained();
-
-#ifdef TARGET_XARCH
-        TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
-#endif
-
-#ifdef TARGET_X86
-        // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-        store->SetKind(StructStoreKind::RepMovs);
-#else
-        store->SetKind(StructStoreKind::MemCpy);
-#endif
     }
 }
 

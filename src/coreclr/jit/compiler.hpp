@@ -3790,21 +3790,6 @@ void GenTree::VisitOperands(TVisitor visitor)
             }
             return;
 
-        case GT_CMPXCHG:
-        {
-            GenTreeCmpXchg* const cmpXchg = this->AsCmpXchg();
-            if (visitor(cmpXchg->gtOpLocation) == VisitResult::Abort)
-            {
-                return;
-            }
-            if (visitor(cmpXchg->gtOpValue) == VisitResult::Abort)
-            {
-                return;
-            }
-            visitor(cmpXchg->gtOpComparand);
-            return;
-        }
-
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
@@ -3834,45 +3819,20 @@ void GenTree::VisitOperands(TVisitor visitor)
         }
 
         case GT_ARR_OFFSET:
-        {
-            GenTreeArrOffs* const arrOffs = this->AsArrOffs();
-            if (visitor(arrOffs->gtOffset) == VisitResult::Abort)
+        case GT_CMPXCHG:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+        case GT_QMARK:
+            if (visitor(AsTernaryOp()->gtOp1) == VisitResult::Abort)
             {
                 return;
             }
-            if (visitor(arrOffs->gtIndex) == VisitResult::Abort)
+            if (visitor(AsTernaryOp()->gtOp2) == VisitResult::Abort)
             {
                 return;
             }
-            visitor(arrOffs->gtArrObj);
+            visitor(AsTernaryOp()->gtOp3);
             return;
-        }
-
-        case GT_DYN_BLK:
-        {
-            GenTreeDynBlk* const dynBlock = this->AsDynBlk();
-            if (visitor(dynBlock->gtOp1) == VisitResult::Abort)
-            {
-                return;
-            }
-            visitor(dynBlock->gtDynamicSize);
-            return;
-        }
-
-        case GT_STORE_DYN_BLK:
-        {
-            GenTreeDynBlk* const dynBlock = this->AsDynBlk();
-            if (visitor(dynBlock->gtOp1) == VisitResult::Abort)
-            {
-                return;
-            }
-            if (visitor(dynBlock->gtOp2) == VisitResult::Abort)
-            {
-                return;
-            }
-            visitor(dynBlock->gtDynamicSize);
-            return;
-        }
 
         case GT_CALL:
         {

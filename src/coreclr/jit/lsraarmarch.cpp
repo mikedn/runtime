@@ -491,8 +491,6 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
         src     = store->AsBlk()->GetValue();
     }
 
-    unsigned size = layout->GetSize();
-
     GenTree* srcAddrOrFill = nullptr;
 
     if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
@@ -546,7 +544,7 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
         case StructStoreKind::UnrollCopy:
             BuildInternalIntDef(store, internalIntRegMask);
 #ifdef TARGET_ARM64
-            if (size >= 2 * REGSIZE_BYTES)
+            if (layout->GetSize() >= 2 * REGSIZE_BYTES)
             {
                 // Reserve an additional temp register for LDP/STP.
                 BuildInternalIntDef(store, internalIntRegMask);

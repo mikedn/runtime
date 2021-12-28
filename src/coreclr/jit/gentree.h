@@ -924,8 +924,6 @@ public:
     // for codegen purposes, is this node a subnode of its parent
     bool isContained() const;
 
-    bool isContainedIndir() const;
-
     bool isIndirAddrMode();
 
     // This returns true only for GT_IND and GT_STOREIND, and is used in contexts where a "true"
@@ -1510,20 +1508,10 @@ public:
         return OperMayOverflow(gtOper);
     }
 
-    static bool OperIsBlk(genTreeOps gtOper)
-    {
-        return (gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_DYN_BLK) || (gtOper == GT_STORE_BLK) ||
-               (gtOper == GT_STORE_OBJ) || (gtOper == GT_STORE_DYN_BLK);
-    }
-
-    bool OperIsBlk() const
-    {
-        return OperIsBlk(gtOper);
-    }
-
     static bool OperIsIndir(genTreeOps gtOper)
     {
-        return (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_NULLCHECK) || OperIsBlk(gtOper);
+        return (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_NULLCHECK) || (gtOper == GT_BLK) ||
+               (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ);
     }
 
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
@@ -1572,7 +1560,8 @@ public:
     static bool OperIsStore(genTreeOps oper)
     {
         return (oper == GT_STOREIND) || (oper == GT_STORE_LCL_VAR) || (oper == GT_STORE_LCL_FLD) ||
-               (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK) || (oper == GT_STORE_DYN_BLK) || OperIsAtomicOp(oper);
+               (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK) || (oper == GT_COPY_BLK) || (oper == GT_INIT_BLK) ||
+               OperIsAtomicOp(oper);
     }
 
     static bool OperIsHWIntrinsic(genTreeOps gtOper)
@@ -1628,7 +1617,7 @@ public:
 
     bool NullOp2Legal() const
     {
-        assert(OperIsSimple(gtOper) || OperIsBlk(gtOper));
+        assert(OperIsSimple(gtOper));
         if (!OperIsBinary(gtOper))
         {
             return true;
@@ -2565,12 +2554,9 @@ class GenTreeUseEdgeIterator final
     GenTreeUseEdgeIterator(GenTree* node);
 
     // Advance functions for special nodes
-    void AdvanceCmpXchg();
+    void AdvanceTernaryOp();
     void AdvanceBoundsChk();
     void AdvanceArrElem();
-    void AdvanceArrOffset();
-    void AdvanceDynBlk();
-    void AdvanceStoreDynBlk();
     void AdvanceFieldList();
     void AdvancePhi();
 #ifdef FEATURE_HW_INTRINSICS
@@ -2766,7 +2752,7 @@ struct GenTreeOp : public GenTreeUnOp
         : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
     {
         // Unary operators with optional arguments:
-        assert(oper == GT_NOP || oper == GT_RETURN || oper == GT_RETFILT || OperIsBlk(oper));
+        assert((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT));
     }
 
     GenTreeOp(GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
@@ -3732,33 +3718,6 @@ public:
     {
     }
 #endif
-};
-
-// There was quite a bit of confusion in the code base about which of gtOp1 and gtOp2 was the
-// 'then' and 'else' clause of a colon node.  Adding these accessors, while not enforcing anything,
-// at least *allows* the programmer to be obviously correct.
-// However, these conventions seem backward.
-// TODO-Cleanup: If we could get these accessors used everywhere, then we could switch them.
-struct GenTreeColon : public GenTreeOp
-{
-    GenTree*& ThenNode()
-    {
-        return gtOp2;
-    }
-    GenTree*& ElseNode()
-    {
-        return gtOp1;
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeColon() : GenTreeOp()
-    {
-    }
-#endif
-
-    GenTreeColon(var_types typ, GenTree* thenNode, GenTree* elseNode) : GenTreeOp(GT_COLON, typ, elseNode, thenNode)
-    {
-    }
 };
 
 // gtCall   -- method call      (GT_CALL)
@@ -5133,26 +5092,118 @@ public:
 
 typedef CallInfo fgArgInfo;
 
-struct GenTreeCmpXchg : public GenTree
+struct GenTreeTernaryOp : public GenTreeOp
 {
-    GenTree* gtOpLocation;
-    GenTree* gtOpValue;
-    GenTree* gtOpComparand;
+    GenTree* gtOp3;
 
-    GenTreeCmpXchg(var_types type, GenTree* loc, GenTree* val, GenTree* comparand)
-        : GenTree(GT_CMPXCHG, type), gtOpLocation(loc), gtOpValue(val), gtOpComparand(comparand)
+    GenTreeTernaryOp(
+        genTreeOps oper, var_types type, GenTree* op1, GenTree* op2, GenTree* op3 DEBUGARG(bool largeNode = false))
+        : GenTreeOp(oper, type, op1, op2 DEBUGARG(largeNode)), gtOp3(op3)
     {
-        // There's no reason to do a compare-exchange on a local location, so we'll assume that all of these
-        // have global effects.
-        gtFlags |= (GTF_GLOB_REF | GTF_ASG);
+        assert(op1 != nullptr);
+        assert(op2 != nullptr);
+        assert(op3 != nullptr);
 
-        // Merge in flags from operands
-        gtFlags |= gtOpLocation->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= gtOpValue->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= gtOpComparand->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op3->GetSideEffects();
     }
+
+    GenTreeTernaryOp(GenTreeTernaryOp* copyFrom) : GenTreeOp(copyFrom), gtOp3(copyFrom->gtOp3)
+    {
+    }
+
+    GenTree* GetOp(unsigned index) const
+    {
+        switch (index)
+        {
+            case 0:
+                assert(gtOp1 != nullptr);
+                return gtOp1;
+            case 1:
+                assert(gtOp2 != nullptr);
+                return gtOp2;
+            case 2:
+                assert(gtOp3 != nullptr);
+                return gtOp3;
+            default:
+                unreached();
+        }
+    }
+
+    void SetOp(unsigned index, GenTree* op)
+    {
+        assert(op != nullptr);
+
+        switch (index)
+        {
+            case 0:
+                gtOp1 = op;
+                return;
+            case 1:
+                gtOp2 = op;
+                return;
+            case 2:
+                gtOp3 = op;
+                return;
+            default:
+                unreached();
+        }
+    }
+
+    static bool Equals(GenTreeTernaryOp* x, GenTreeTernaryOp* y)
+    {
+        return (x->GetOper() == y->GetOper()) && (x->GetType() == y->GetType()) && Compare(x->gtOp1, y->gtOp1) &&
+               Compare(x->gtOp2, y->gtOp2) && Compare(x->gtOp3, y->gtOp3);
+    }
+
+    // Delete some inherited functions to avoid accidental use, at least when
+    // the node is accessed via GenTreeTernaryOp* rather than GenTree/Un/Op*.
+    GenTree*           gtGetOp1() const          = delete;
+    GenTree*           gtGetOp2() const          = delete;
+    GenTree*           gtGetOp2IfPresent() const = delete;
+    GenTreeUnOp*       AsUnOp()                  = delete;
+    const GenTreeUnOp* AsUnOp() const            = delete;
+    GenTreeOp*         AsOp()                    = delete;
+    const GenTreeOp*   AsOp() const              = delete;
+
 #if DEBUGGABLE_GENTREE
-    GenTreeCmpXchg() : GenTree()
+    GenTreeTernaryOp() : GenTreeOp()
+    {
+    }
+#endif
+};
+
+struct GenTreeCmpXchg : public GenTreeTernaryOp
+{
+    GenTreeCmpXchg(var_types type, GenTree* addr, GenTree* value, GenTree* compareValue)
+        : GenTreeTernaryOp(GT_CMPXCHG, type, addr, value, compareValue)
+    {
+        // There's no reason to do a compare-exchange on a local location,
+        // so we'll assume that all of these have global effects.
+        // TODO-MIKE-Review: Shouldn't this also have GTF_EXCEPT?
+        gtFlags |= GTF_GLOB_REF | GTF_ASG;
+    }
+
+    GenTreeCmpXchg(GenTreeCmpXchg* copyFrom) : GenTreeTernaryOp(copyFrom)
+    {
+    }
+
+    GenTree* GetAddr() const
+    {
+        return gtOp1;
+    }
+
+    GenTree* GetValue() const
+    {
+        return gtOp2;
+    }
+
+    GenTree* GetCompareValue() const
+    {
+        return gtOp3;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeCmpXchg() : GenTreeTernaryOp()
     {
     }
 #endif
@@ -5283,16 +5334,51 @@ struct GenTreeFptrVal : public GenTree
 #endif
 };
 
-struct GenTreeQmark : public GenTreeOp
+struct GenTreeQmark : public GenTreeTernaryOp
 {
-    GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp) : GenTreeOp(GT_QMARK, type, cond, colonOp)
+    GenTreeQmark(var_types type, GenTree* condExpr, GenTree* thenExpr, GenTree* elseExpr)
+        : GenTreeTernaryOp(GT_QMARK, type, condExpr, elseExpr, thenExpr)
     {
-        assert((cond != nullptr) && cond->TypeIs(TYP_INT));
-        assert((colonOp != nullptr) && colonOp->OperIs(GT_COLON));
+        assert(condExpr->TypeIs(TYP_INT));
+    }
+
+    GenTreeQmark(GenTreeQmark* copyFrom) : GenTreeTernaryOp(copyFrom)
+    {
+    }
+
+    GenTree* GetCondition() const
+    {
+        return gtOp1;
+    }
+
+    void SetCondition(GenTree* condExpr)
+    {
+        assert(condExpr->TypeIs(TYP_INT));
+        gtOp1 = condExpr;
+    }
+
+    GenTree* GetThen() const
+    {
+        return gtOp3;
+    }
+
+    void SetThen(GenTree* thenExpr)
+    {
+        gtOp3 = thenExpr;
+    }
+
+    GenTree* GetElse() const
+    {
+        return gtOp2;
+    }
+
+    void SetElse(GenTree* elseExpr)
+    {
+        gtOp2 = elseExpr;
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeQmark() : GenTreeOp(GT_QMARK, TYP_INT, nullptr, nullptr)
+    GenTreeQmark() : GenTreeTernaryOp()
     {
     }
 #endif
@@ -6073,15 +6159,8 @@ protected:
 //    is done, we will also want to replace the <arrObj> argument to arrOffs with the
 //    ArrLen as for GenTreeArrIndex.
 //
-struct GenTreeArrOffs : public GenTree
+struct GenTreeArrOffs : public GenTreeTernaryOp
 {
-    GenTree* gtOffset;           // The accumulated offset for lower dimensions - must be TYP_I_IMPL, and
-                                 // will either be a CSE temp, the constant 0, or another GenTreeArrOffs node.
-    GenTree* gtIndex;            // The effective index for the current dimension - must be non-negative
-                                 // and can be any expression (though it is likely to be either a GenTreeArrIndex,
-                                 // node, a lclVar, or a constant).
-    GenTree* gtArrObj;           // The array object - may be any expression producing an Array reference,
-                                 // but is likely to be a lclVar.
     unsigned char gtCurrDim;     // The current dimension
     unsigned char gtArrRank;     // Rank of the array
     var_types     gtArrElemType; // The array element type
@@ -6093,10 +6172,7 @@ struct GenTreeArrOffs : public GenTree
                    unsigned char currDim,
                    unsigned char rank,
                    var_types     elemType)
-        : GenTree(GT_ARR_OFFSET, type)
-        , gtOffset(offset)
-        , gtIndex(index)
-        , gtArrObj(arrObj)
+        : GenTreeTernaryOp(GT_ARR_OFFSET, type, offset, index, arrObj)
         , gtCurrDim(currDim)
         , gtArrRank(rank)
         , gtArrElemType(elemType)
@@ -6104,8 +6180,35 @@ struct GenTreeArrOffs : public GenTree
         assert(index->gtFlags & GTF_EXCEPT);
         gtFlags |= GTF_EXCEPT;
     }
+
+    GenTreeArrOffs(GenTreeArrOffs* copyFrom)
+        : GenTreeTernaryOp(copyFrom)
+        , gtCurrDim(copyFrom->gtCurrDim)
+        , gtArrRank(copyFrom->gtArrRank)
+        , gtArrElemType(copyFrom->gtArrElemType)
+    {
+    }
+
+    // The accumulated offset for lower dimensions
+    GenTree* GetOffset() const
+    {
+        return gtOp1;
+    }
+
+    // The effective index for the current dimension
+    GenTree* GetIndex() const
+    {
+        return gtOp2;
+    }
+
+    // The array object reference
+    GenTree* GetArray() const
+    {
+        return gtOp3;
+    }
+
 #if DEBUGGABLE_GENTREE
-    GenTreeArrOffs() : GenTree()
+    GenTreeArrOffs() : GenTreeTernaryOp()
     {
     }
 #endif
@@ -6223,9 +6326,6 @@ protected:
 // Indir is just an op, no additional data, but some additional abstractions
 struct GenTreeIndir : public GenTreeOp
 {
-    // The address for the indirection.
-    // Since GenTreeDynBlk derives from this, but is an "EXOP" (i.e. it has extra fields),
-    // we can't access Op1 and Op2 in the normal manner if we may have a DynBlk.
     GenTree*& Addr()
     {
         return gtOp1;
@@ -6250,7 +6350,7 @@ struct GenTreeIndir : public GenTreeOp
 
     void SetValue(GenTree* value)
     {
-        assert(OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
+        assert(OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
         assert(value != nullptr);
         gtOp2 = value;
     }
@@ -6295,9 +6395,6 @@ struct GenTreeIndir : public GenTreeOp
     }
 
 #if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
-    // Used only for GenTree::GetVtableForOper()
     GenTreeIndir() : GenTreeOp()
     {
     }
@@ -6346,22 +6443,22 @@ protected:
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
         : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert(OperIsBlk(oper));
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+        assert((oper == GT_OBJ) || (oper == GT_BLK));
+        assert(layout != nullptr);
     }
 
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
         : GenTreeIndir(oper, type, addr, value), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert(OperIsBlk(oper));
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+        assert((oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK));
+        assert(layout != nullptr);
     }
 
 public:
     GenTreeBlk(GenTree* addr, ClassLayout* layout)
         : GenTreeIndir(GT_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert((layout != nullptr) && layout->IsBlockLayout());
+        assert(layout->IsBlockLayout());
     }
 
     GenTreeBlk(GenTreeBlk* copyFrom)
@@ -6376,26 +6473,8 @@ public:
 
     void SetLayout(ClassLayout* layout)
     {
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+        assert(layout != nullptr);
         m_layout = layout;
-    }
-
-    // The data to be stored (null for GT_BLK)
-    GenTree*& Data()
-    {
-        return gtOp2;
-    }
-
-    void SetData(GenTree* dataNode)
-    {
-        gtOp2 = dataNode;
-    }
-
-    // The size of the buffer to be copied.
-    unsigned Size() const
-    {
-        assert((m_layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
-        return (m_layout != nullptr) ? m_layout->GetSize() : 0;
     }
 
     StructStoreKind GetKind() const
@@ -6448,40 +6527,90 @@ struct GenTreeObj : public GenTreeBlk
 // This node is used for block values that have a dynamic size.
 // Note that such a value can never have GC pointers.
 
-struct GenTreeDynBlk : public GenTreeBlk
+struct GenTreeDynBlk : public GenTreeTernaryOp
 {
-    GenTree* gtDynamicSize;
-    bool     gtEvalSizeFirst;
-
-    GenTreeDynBlk(GenTree* addr, GenTree* size)
-        : GenTreeBlk(GT_DYN_BLK, TYP_STRUCT, addr, nullptr), gtDynamicSize(size), gtEvalSizeFirst(false)
+    GenTreeDynBlk(genTreeOps oper, GenTree* addr, GenTree* value, GenTree* size)
+        : GenTreeTernaryOp(oper, TYP_VOID, addr, value, size)
     {
-        // Conservatively the 'addr' could be null or point into the global heap.
-        gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-        gtFlags |= (size->gtFlags & GTF_ALL_EFFECT);
+        assert((oper == GT_COPY_BLK) || (oper == GT_INIT_BLK));
+        assert(varTypeIsIntegralOrI(addr->GetType()));
+        assert(oper == GT_COPY_BLK ? varTypeIsIntegralOrI(value->GetType()) : varTypeIsIntegral(value->GetType()));
+        assert(varTypeIsIntegral(size->GetType()));
+
+        gtFlags |= GTF_ASG | GTF_EXCEPT | GTF_GLOB_REF;
     }
 
-    GenTreeDynBlk(GenTreeDynBlk* copyFrom)
-        : GenTreeBlk(copyFrom), gtDynamicSize(copyFrom->gtDynamicSize), gtEvalSizeFirst(false)
+    GenTreeDynBlk(GenTreeDynBlk* copyFrom) : GenTreeTernaryOp(copyFrom)
     {
+    }
+
+    GenTree* GetAddr() const
+    {
+        return gtOp1;
+    }
+
+    void SetAddr(GenTree* addr)
+    {
+        assert(varTypeIsIntOrI(addr->GetType()));
+        gtOp1 = addr;
+    }
+
+    GenTree* GetValue() const
+    {
+        return gtOp2;
+    }
+
+    void SetValue(GenTree* value)
+    {
+        assert(varTypeIsIntOrI(value->GetType()));
+        gtOp2 = value;
     }
 
     GenTree* GetSize() const
     {
-        return gtDynamicSize;
+        return gtOp3;
     }
 
     void SetSize(GenTree* size)
     {
         assert(varTypeIsIntegral(size->GetType()));
-        gtDynamicSize = size;
+        gtOp3 = size;
+    }
+
+    bool IsVolatile() const
+    {
+        return (gtFlags & GTF_IND_VOLATILE) != 0;
+    }
+
+    void SetVolatile(bool isVolatile)
+    {
+        gtFlags = isVolatile ? (gtFlags | GTF_IND_VOLATILE) : (gtFlags & ~GTF_IND_VOLATILE);
+    }
+
+    bool IsUnaligned() const
+    {
+        return (gtFlags & GTF_IND_UNALIGNED) != 0;
+    }
+
+    void SetUnaligned(bool isUnaligned)
+    {
+        gtFlags = isUnaligned ? (gtFlags | GTF_IND_UNALIGNED) : (gtFlags & ~GTF_IND_UNALIGNED);
+    }
+
+    StructStoreKind GetKind() const
+    {
+#ifdef TARGET_X86
+        return gtOper == GT_INIT_BLK ? StructStoreKind::RepStos : StructStoreKind::RepMovs;
+#else
+        return gtOper == GT_INIT_BLK ? StructStoreKind::MemSet : StructStoreKind::MemCpy;
+#endif
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeDynBlk() : GenTreeBlk()
+    GenTreeDynBlk() : GenTreeTernaryOp()
     {
     }
-#endif // DEBUGGABLE_GENTREE
+#endif
 };
 
 // Read-modify-write status of a RMW memory op rooted at a storeInd
@@ -7783,8 +7912,6 @@ inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
         case GT_GE:
         case GT_GT:
         case GT_COMMA:
-        case GT_QMARK:
-        case GT_COLON:
         case GT_MKREFANY:
             return true;
         default:

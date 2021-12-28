@@ -8483,7 +8483,7 @@ GenTree* Compiler::fgMorphStructAssignment(GenTreeOp* asg)
     assert(asg->OperIs(GT_ASG));
     assert(varTypeIsStruct(asg->GetOp(0)->GetType()));
 
-    if (asg->GetOp(0)->OperIs(GT_BLK, GT_DYN_BLK))
+    if (asg->GetOp(0)->OperIs(GT_BLK))
     {
         return fgMorphBlockAssignment(asg);
     }
@@ -8690,54 +8690,79 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
 
 #endif // FEATURE_SIMD
 
+GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
+{
+    assert(dynBlk->TypeIs(TYP_VOID));
+    assert((dynBlk->gtFlags & GTF_LATE_ARG) == 0);
+
+    GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon();
+
+    if (constSize == nullptr)
+    {
+        return dynBlk;
+    }
+
+    if (constSize->GetUInt32Value() == 0)
+    {
+        GenTree* nop = gtNewNothingNode();
+        INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+        return nop;
+    }
+
+    ClassLayout* layout = typGetBlkLayout(constSize->GetUInt32Value());
+
+    GenTreeBlk* dst = new (this, GT_BLK) GenTreeBlk(dynBlk->GetAddr(), layout);
+    dst->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+
+    if (dynBlk->IsVolatile())
+    {
+        dst->SetVolatile();
+    }
+
+    GenTree* src = dynBlk->GetValue();
+
+    if (dynBlk->OperIs(GT_COPY_BLK))
+    {
+        src = new (this, GT_BLK) GenTreeBlk(src, layout);
+        src->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+
+        if (dynBlk->IsVolatile())
+        {
+            src->AsBlk()->SetVolatile();
+        }
+    }
+    else if (!src->IsIntegralConst(0))
+    {
+        src = gtNewOperNode(GT_INIT_VAL, TYP_INT, src);
+    }
+
+    dynBlk->ChangeOper(GT_ASG);
+    dynBlk->SetType(TYP_STRUCT);
+    dynBlk->SetOp(0, dst);
+    dynBlk->SetOp(1, src);
+    dynBlk->SetSideEffects(dst->GetSideEffects() | src->GetSideEffects() | GTF_ASG);
+
+    return dynBlk;
+}
+
 GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
     assert((asg->gtFlags & GTF_LATE_ARG) == 0);
 
-    GenTree* dst = asg->GetOp(0);
-    GenTree* src = asg->GetOp(1);
+    GenTreeBlk* dst = asg->GetOp(0)->AsBlk();
+    GenTree*    src = asg->GetOp(1);
 
-    assert(!src->IsIndir() || src->TypeIs(TYP_STRUCT));
+    assert(dst->GetLayout()->IsBlockLayout());
+    assert(dst->GetLayout()->GetSize() != 0);
 
-    if (dst->OperIs(GT_DYN_BLK))
+    if (src->OperIs(GT_BLK))
     {
-        assert(src->OperIs(GT_IND, GT_INIT_VAL) || src->IsIntegralConst(0));
-
-        if (GenTreeIntCon* constSize = dst->AsDynBlk()->GetSize()->IsIntCon())
-        {
-            ClassLayout* layout = typGetBlkLayout(constSize->GetUInt32Value());
-
-            dst->ChangeOper(GT_BLK);
-            dst->AsBlk()->SetLayout(layout);
-
-            if (src->OperIs(GT_IND))
-            {
-                src->ChangeOper(GT_BLK);
-                src->AsBlk()->SetLayout(layout);
-            }
-        }
+        assert(src->AsBlk()->GetLayout()->GetSize() == dst->GetLayout()->GetSize());
     }
-
-    if (dst->OperIs(GT_BLK))
+    else
     {
-        if (src->OperIs(GT_BLK))
-        {
-            assert(src->AsBlk()->Size() == dst->AsBlk()->Size());
-        }
-        else
-        {
-            assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
-        }
-
-        assert(dst->AsBlk()->GetLayout()->IsBlockLayout());
-
-        if (dst->AsBlk()->GetLayout()->GetSize() == 0)
-        {
-            GenTree* nop = gtNewNothingNode();
-            INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-            return nop;
-        }
+        assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
     }
 
     return asg;
@@ -9438,10 +9463,9 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     assert(fgGlobalMorph);
     assert(!optValnumCSE_phase);
 
-    GenTree*      condExpr = qmark->GetOp(0);
-    GenTreeColon* colon    = qmark->GetOp(1)->AsColon();
-    GenTree*      thenExpr = colon->ThenNode();
-    GenTree*      elseExpr = colon->ElseNode();
+    GenTree* condExpr = qmark->GetCondition();
+    GenTree* thenExpr = qmark->GetThen();
+    GenTree* elseExpr = qmark->GetElse();
 
     if (condExpr->OperIsCompare())
     {
@@ -9453,7 +9477,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     }
 
     condExpr = fgMorphTree(condExpr, mac);
-    qmark->SetOp(0, condExpr);
+    qmark->SetCondition(condExpr);
 
     if (GenTreeIntCon* cond = condExpr->IsIntCon())
     {
@@ -9503,8 +9527,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         return condExpr;
     }
 
-    INDEBUG(colon->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
     // If only one of the then/else expressions throws then the rest of the block is
     // still reachable. We have to ignore the setting of fgRemoveRestOfBlock during
     // then/else morphing. We could also handle the case of both then/else throwing
@@ -9540,7 +9562,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 #endif // LOCAL_ASSERTION_PROP
 
     elseExpr = fgMorphTree(elseExpr, mac);
-    colon->SetOp(0, elseExpr);
+    qmark->SetElse(elseExpr);
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
@@ -9573,25 +9595,22 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 #endif // LOCAL_ASSERTION_PROP
 
     thenExpr = fgMorphTree(thenExpr, mac);
-    colon->SetOp(1, thenExpr);
+    qmark->SetThen(thenExpr);
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    // Merge assertions after COLON morphing.
+    // Merge assertions after then/else morphing.
     if (optLocalAssertionProp)
     {
-        optAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(colon));
+        optAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(qmark));
     }
 #endif // LOCAL_ASSERTION_PROP
 
-    colon->SetSideEffects(elseExpr->GetSideEffects() | thenExpr->GetSideEffects());
-    qmark->SetSideEffects(condExpr->GetSideEffects() | colon->GetSideEffects());
+    qmark->SetSideEffects(condExpr->GetSideEffects() | thenExpr->GetSideEffects() | elseExpr->GetSideEffects());
 
     if (varTypeIsGC(qmark->GetType()) && !varTypeIsGC(elseExpr->GetType()) && !varTypeIsGC(thenExpr->GetType()))
     {
-        var_types type = varActualType(elseExpr->GetType());
-        qmark->SetType(type);
-        colon->SetType(type);
+        qmark->SetType(varActualType(elseExpr->GetType()));
     }
 
     return qmark;
@@ -10264,7 +10283,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         if (!op1->OperIsIndir())
         {
-            if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
+            if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
                 if (op1Mac == nullptr)
                 {
@@ -10452,7 +10471,7 @@ DONE_MORPHING_CHILDREN:
         case GT_ASG:
             effectiveOp1 = op1->gtEffectiveVal();
 
-            if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK))
+            if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
                 effectiveOp1->gtFlags |= GTF_IND_ASG_LHS;
             }
@@ -12806,14 +12825,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     if (kind & GTK_SMPOP)
     {
-        if (tree->OperIs(GT_QMARK, GT_COLON))
-        {
-            tree = fgMorphQmark(tree->AsQmark(), mac);
-        }
-        else
-        {
-            tree = fgMorphSmpOp(tree, mac);
-        }
+        tree = fgMorphSmpOp(tree, mac);
         goto DONE;
     }
 
@@ -12821,6 +12833,10 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     switch (tree->OperGet())
     {
+        case GT_QMARK:
+            tree = fgMorphQmark(tree->AsQmark(), mac);
+            break;
+
         case GT_CALL:
             if (tree->OperMayThrow(this))
             {
@@ -12896,20 +12912,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_ARR_OFFSET:
-            // GT_ARR_OFFSET nodes are created during lowering.
-            noway_assert(!fgGlobalMorph);
-
-            tree->AsArrOffs()->gtOffset = fgMorphTree(tree->AsArrOffs()->gtOffset);
-            tree->AsArrOffs()->gtIndex  = fgMorphTree(tree->AsArrOffs()->gtIndex);
-            tree->AsArrOffs()->gtArrObj = fgMorphTree(tree->AsArrOffs()->gtArrObj);
-
-            tree->gtFlags &= ~GTF_CALL;
-            tree->gtFlags |= tree->AsArrOffs()->gtOffset->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsArrOffs()->gtIndex->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsArrOffs()->gtArrObj->gtFlags & GTF_ALL_EFFECT;
-            break;
-
         case GT_PHI:
             tree->gtFlags &= ~GTF_ALL_EFFECT;
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
@@ -12942,42 +12944,49 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
+        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
-            tree->AsCmpXchg()->gtOpLocation  = fgMorphTree(tree->AsCmpXchg()->gtOpLocation);
-            tree->AsCmpXchg()->gtOpValue     = fgMorphTree(tree->AsCmpXchg()->gtOpValue);
-            tree->AsCmpXchg()->gtOpComparand = fgMorphTree(tree->AsCmpXchg()->gtOpComparand);
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            tree->AsTernaryOp()->SetOp(0, fgMorphTree(tree->AsTernaryOp()->GetOp(0)));
+            tree->AsTernaryOp()->SetOp(1, fgMorphTree(tree->AsTernaryOp()->GetOp(1)));
+            tree->AsTernaryOp()->SetOp(2, fgMorphTree(tree->AsTernaryOp()->GetOp(2)));
 
-            tree->gtFlags &= (~GTF_EXCEPT & ~GTF_CALL);
-
-            tree->gtFlags |= tree->AsCmpXchg()->gtOpLocation->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsCmpXchg()->gtOpValue->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsCmpXchg()->gtOpComparand->gtFlags & GTF_ALL_EFFECT;
-            break;
-
-        case GT_STORE_DYN_BLK:
-        case GT_DYN_BLK:
-            if (tree->OperGet() == GT_STORE_DYN_BLK)
+            if (tree->OperIs(GT_ARR_OFFSET))
             {
-                tree->AsDynBlk()->Data() = fgMorphTree(tree->AsDynBlk()->Data());
+                // GT_ARR_OFFSET nodes are created during lowering.
+                noway_assert(!fgGlobalMorph);
+
+                tree->gtFlags &= ~GTF_CALL;
             }
-            tree->AsDynBlk()->Addr()        = fgMorphTree(tree->AsDynBlk()->Addr());
-            tree->AsDynBlk()->gtDynamicSize = fgMorphTree(tree->AsDynBlk()->gtDynamicSize);
-
-            tree->gtFlags &= ~GTF_CALL;
-            tree->SetIndirExceptionFlags(this);
-
-            if (tree->OperGet() == GT_STORE_DYN_BLK)
+            else if (tree->OperIs(GT_CMPXCHG))
             {
-                tree->gtFlags |= tree->AsDynBlk()->Data()->gtFlags & GTF_ALL_EFFECT;
+                tree->gtFlags &= (~GTF_EXCEPT & ~GTF_CALL);
             }
-            tree->gtFlags |= tree->AsDynBlk()->Addr()->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= tree->AsDynBlk()->gtDynamicSize->gtFlags & GTF_ALL_EFFECT;
+            else
+            {
+                tree = fgMorphDynBlk(tree->AsDynBlk());
+
+                if (!tree->IsDynBlk())
+                {
+                    goto DONE;
+                }
+
+                tree->gtFlags &= ~GTF_CALL;
+
+                if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
+                {
+                    tree->gtFlags |= GTF_EXCEPT;
+                }
+            }
+
+            tree->gtFlags |= tree->AsTernaryOp()->GetOp(0)->GetSideEffects();
+            tree->gtFlags |= tree->AsTernaryOp()->GetOp(1)->GetSideEffects();
+            tree->gtFlags |= tree->AsTernaryOp()->GetOp(2)->GetSideEffects();
             break;
 
         default:
-#ifdef DEBUG
-            gtDispTree(tree);
-#endif
+            INDEBUG(gtDispTree(tree);)
             noway_assert(!"unexpected operator");
     }
 DONE:
@@ -14332,7 +14341,7 @@ Compiler::fgWalkResult Compiler::fgAssertNoQmark(GenTree** tree, fgWalkData* dat
 void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
 {
     GenTreeLclVar* destLclVar = nullptr;
-    GenTree*       topQmark   = fgGetTopLevelQmark(expr, &destLclVar);
+    GenTreeQmark*  topQmark   = fgGetTopLevelQmark(expr, &destLclVar);
 
     // If the top level Qmark is null, then scan the tree to make sure
     // there are no qmarks within it.
@@ -14344,10 +14353,9 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
     {
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
         // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
-        fgWalkTreePre(&topQmark->AsOp()->gtOp1, fgAssertNoQmark, nullptr);
-
-        fgPreExpandQmarkChecks(topQmark->AsOp()->gtOp2->AsOp()->gtOp1);
-        fgPreExpandQmarkChecks(topQmark->AsOp()->gtOp2->AsOp()->gtOp2);
+        fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark, nullptr);
+        fgPreExpandQmarkChecks(topQmark->gtOp2);
+        fgPreExpandQmarkChecks(topQmark->gtOp3);
     }
 }
 #endif // DEBUG
@@ -14418,10 +14426,9 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     assert(qmark->gtFlags & GTF_QMARK_CAST_INSTOF);
 
-    // Get cond, true, false exprs for the qmark.
-    GenTree* condExpr  = qmark->gtGetOp1();
-    GenTree* trueExpr  = qmark->gtGetOp2()->AsColon()->ThenNode();
-    GenTree* falseExpr = qmark->gtGetOp2()->AsColon()->ElseNode();
+    GenTree* condExpr  = qmark->GetCondition();
+    GenTree* trueExpr  = qmark->GetThen();
+    GenTree* falseExpr = qmark->GetElse();
 
     // Get cond, true, false exprs for the nested qmark.
     GenTree* nestedQmark = falseExpr;
@@ -14431,9 +14438,9 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     if (nestedQmark->gtOper == GT_QMARK)
     {
-        cond2Expr  = nestedQmark->gtGetOp1();
-        true2Expr  = nestedQmark->gtGetOp2()->AsColon()->ThenNode();
-        false2Expr = nestedQmark->gtGetOp2()->AsColon()->ElseNode();
+        cond2Expr  = nestedQmark->AsQmark()->GetCondition();
+        true2Expr  = nestedQmark->AsQmark()->GetThen();
+        false2Expr = nestedQmark->AsQmark()->GetElse();
     }
     else
     {
@@ -14621,10 +14628,9 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     }
 #endif // DEBUG
 
-    // Retrieve the operands.
-    GenTree* condExpr  = qmark->gtGetOp1();
-    GenTree* trueExpr  = qmark->gtGetOp2()->AsColon()->ThenNode();
-    GenTree* falseExpr = qmark->gtGetOp2()->AsColon()->ElseNode();
+    GenTree* condExpr  = qmark->GetCondition();
+    GenTree* trueExpr  = qmark->GetThen();
+    GenTree* falseExpr = qmark->GetElse();
 
     assert(!varTypeIsFloating(condExpr->TypeGet()));
 
@@ -14723,7 +14729,7 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
         elseBlock->inheritWeightPercentage(condBlock, 50);
     }
 
-    GenTree*   jmpTree = gtNewOperNode(GT_JTRUE, TYP_VOID, qmark->gtGetOp1());
+    GenTree*   jmpTree = gtNewOperNode(GT_JTRUE, TYP_VOID, qmark->GetCondition());
     Statement* jmpStmt = fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(condBlock, jmpStmt);
 

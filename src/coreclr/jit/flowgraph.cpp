@@ -1031,7 +1031,7 @@ GenTree* Compiler::fgOptimizeDelegateConstructor(GenTreeCall*            call,
     {
         qmarkNode = targetMethod;
     }
-    if (qmarkNode)
+    if (qmarkNode != nullptr)
     {
         noway_assert(qmarkNode->OperGet() == GT_QMARK);
         // The argument is actually a generic dictionary lookup.  For delegate creation it looks
@@ -1045,9 +1045,9 @@ GenTree* Compiler::fgOptimizeDelegateConstructor(GenTreeCall*            call,
         //
         // In this case I can find the token (which is a method handle) and that is the compile time
         // handle.
-        noway_assert(qmarkNode->AsOp()->gtOp2->OperGet() == GT_COLON);
-        noway_assert(qmarkNode->AsOp()->gtOp2->AsOp()->gtOp1->OperGet() == GT_CALL);
-        GenTreeCall* runtimeLookupCall = qmarkNode->AsOp()->gtOp2->AsOp()->gtOp1->AsCall();
+        noway_assert(qmarkNode->AsQmark()->GetThen()->IsCall());
+
+        GenTreeCall* runtimeLookupCall = qmarkNode->AsQmark()->GetThen()->AsCall();
 
         // This could be any of CORINFO_HELP_RUNTIMEHANDLE_(METHOD|CLASS)(_LOG?)
         GenTree* tokenNode = runtimeLookupCall->gtCallArgs->GetNext()->GetNode();

@@ -151,15 +151,6 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-        case GT_BOX:
-        case GT_COMMA:
-        case GT_QMARK:
-        case GT_COLON:
-            srcCount = 0;
-            assert(dstCount == 0);
-            unreached();
-            break;
-
         case GT_RETURN:
             srcCount = BuildReturn(tree->AsUnOp());
             BuildKills(tree, getKillSetForReturn());
@@ -354,7 +345,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_CMPXCHG:
         {
             GenTreeCmpXchg* cmpXchgNode = tree->AsCmpXchg();
-            srcCount                    = cmpXchgNode->gtOpComparand->isContained() ? 2 : 3;
+            srcCount                    = cmpXchgNode->GetCompareValue()->isContained() ? 2 : 3;
             assert(dstCount == 1);
 
             if (!compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
@@ -369,13 +360,13 @@ int LinearScan::BuildNode(GenTree* tree)
             // For ARMv8.1 atomic cas the lifetime of the addr and data must be extended to prevent
             // them being reused as the target register which must be destroyed early
 
-            RefPosition* locationUse = BuildUse(tree->AsCmpXchg()->gtOpLocation);
+            RefPosition* locationUse = BuildUse(tree->AsCmpXchg()->GetOp(0));
             setDelayFree(locationUse);
-            RefPosition* valueUse = BuildUse(tree->AsCmpXchg()->gtOpValue);
+            RefPosition* valueUse = BuildUse(tree->AsCmpXchg()->GetOp(1));
             setDelayFree(valueUse);
-            if (!cmpXchgNode->gtOpComparand->isContained())
+            if (!cmpXchgNode->GetOp(2)->isContained())
             {
-                RefPosition* comparandUse = BuildUse(tree->AsCmpXchg()->gtOpComparand);
+                RefPosition* comparandUse = BuildUse(tree->AsCmpXchg()->GetOp(2));
 
                 // For ARMv8 exclusives the lifetime of the comparand must be extended because
                 // it may be used used multiple during retries
@@ -475,7 +466,8 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
-        case GT_STORE_DYN_BLK:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
             srcCount = BuildStoreDynBlk(tree->AsDynBlk());
             break;
 
@@ -590,13 +582,13 @@ int LinearScan::BuildNode(GenTree* tree)
             // This consumes the offset, if any, the arrObj and the effective index,
             // and produces the flattened offset for this dimension.
             srcCount = 2;
-            if (!tree->AsArrOffs()->gtOffset->isContained())
+            if (!tree->AsArrOffs()->GetOp(0)->isContained())
             {
-                BuildUse(tree->AsArrOffs()->gtOffset);
+                BuildUse(tree->AsArrOffs()->GetOp(0));
                 srcCount++;
             }
-            BuildUse(tree->AsArrOffs()->gtIndex);
-            BuildUse(tree->AsArrOffs()->gtArrObj);
+            BuildUse(tree->AsArrOffs()->GetOp(1));
+            BuildUse(tree->AsArrOffs()->GetOp(2));
             assert(dstCount == 1);
             buildInternalIntRegisterDefForNode(tree);
             buildInternalRegisterUses();
@@ -688,10 +680,12 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_ARGPLACE:
         case GT_ASG:
-        case GT_DYN_BLK:
         case GT_BLK:
         case GT_FIELD_LIST:
         case GT_INIT_VAL:
+        case GT_BOX:
+        case GT_COMMA:
+        case GT_QMARK:
             unreached();
 
         default:

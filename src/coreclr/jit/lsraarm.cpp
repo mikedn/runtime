@@ -526,7 +526,7 @@ int LinearScan::BuildNode(GenTree* tree)
             // and produces the flattened offset for this dimension.
             assert(dstCount == 1);
 
-            if (tree->AsArrOffs()->gtOffset->isContained())
+            if (tree->AsArrOffs()->GetOp(0)->isContained())
             {
                 srcCount = 2;
             }
@@ -536,10 +536,10 @@ int LinearScan::BuildNode(GenTree* tree)
                 // from any of the operand's registers, but may be the same as targetReg.
                 buildInternalIntRegisterDefForNode(tree);
                 srcCount = 3;
-                BuildUse(tree->AsArrOffs()->gtOffset);
+                BuildUse(tree->AsArrOffs()->GetOp(0));
             }
-            BuildUse(tree->AsArrOffs()->gtIndex);
-            BuildUse(tree->AsArrOffs()->gtArrObj);
+            BuildUse(tree->AsArrOffs()->GetOp(1));
+            BuildUse(tree->AsArrOffs()->GetOp(2));
             buildInternalRegisterUses();
             BuildDef(tree);
             break;
@@ -626,7 +626,8 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
-        case GT_STORE_DYN_BLK:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
             srcCount = BuildStoreDynBlk(tree->AsDynBlk());
             break;
 
@@ -746,10 +747,12 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_ARGPLACE:
         case GT_ASG:
-        case GT_DYN_BLK:
         case GT_BLK:
         case GT_FIELD_LIST:
         case GT_INIT_VAL:
+        case GT_BOX:
+        case GT_COMMA:
+        case GT_QMARK:
             unreached();
 
         default:

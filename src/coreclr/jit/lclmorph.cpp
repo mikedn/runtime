@@ -556,26 +556,6 @@ public:
                 PopValue();
                 break;
 
-            case GT_DYN_BLK:
-                assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsDynBlk()->Addr());
-                assert(TopValue(0).Node() == node->AsDynBlk()->gtDynamicSize);
-
-                // The block size may be the result of an indirection so we need
-                // to escape the location that may be associated with it.
-                EscapeValue(TopValue(0), node);
-
-                if (!TopValue(2).Indir(TopValue(1)))
-                {
-                    // If the address comes from another indirection (e.g. DYN_BLK(IND(...))
-                    // then we need to escape the location.
-                    EscapeLocation(TopValue(1), node);
-                }
-
-                PopValue();
-                PopValue();
-                break;
-
             case GT_RETURN:
                 if (TopValue(0).Node() != node)
                 {
@@ -820,7 +800,7 @@ private:
                 assert(!user->TypeIs(TYP_STRUCT) && !lcl->TypeIs(TYP_STRUCT));
 
                 if ((varTypeSize(user->GetType()) <= varTypeSize(lcl->GetType())) &&
-                    (val.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->gtOpLocation : user->AsOp()->GetOp(0))))
+                    (val.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->GetAddr() : user->AsOp()->GetOp(0))))
                 {
                     exposeParentLcl = false;
                 }
@@ -1197,20 +1177,14 @@ private:
     //
     unsigned GetIndirSize(GenTree* indir, GenTree* user)
     {
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK));
+        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
 
         if (indir->GetType() != TYP_STRUCT)
         {
             return varTypeSize(indir->GetType());
         }
 
-        if (indir->OperIs(GT_IND, GT_DYN_BLK))
-        {
-            // STRUCT typed IND nodes are only used as the source of DYN_BLK
-            // so their size is unknown.
-
-            return 0;
-        }
+        assert(!indir->OperIs(GT_IND));
 
         if (user->OperIs(GT_ASG) && (indir == user->AsOp()->GetOp(1)))
         {

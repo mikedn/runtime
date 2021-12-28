@@ -80,8 +80,9 @@ GTNODE(OBJ              , GenTreeObj         ,0,(GTK_UNOP|GTK_EXOP))            
 GTNODE(STORE_OBJ        , GenTreeObj         ,0,(GTK_BINOP|GTK_EXOP|GTK_NOVALUE)) // Object that MAY have gc pointers, and thus includes the relevant gc layout info.
 GTNODE(BLK              , GenTreeBlk         ,0,(GTK_UNOP|GTK_EXOP))              // Block/object with no gc pointers, and with a known size (e.g. a struct with no gc fields)
 GTNODE(STORE_BLK        , GenTreeBlk         ,0,(GTK_BINOP|GTK_EXOP|GTK_NOVALUE)) // Block/object with no gc pointers, and with a known size (e.g. a struct with no gc fields)
-GTNODE(DYN_BLK          , GenTreeDynBlk      ,0,GTK_SPECIAL|GTK_NOTLIR)           // Dynamically sized block object
-GTNODE(STORE_DYN_BLK    , GenTreeDynBlk      ,0,(GTK_SPECIAL|GTK_NOVALUE)) // Dynamically sized block object
+
+GTNODE(COPY_BLK         , GenTreeDynBlk      ,0,GTK_SPECIAL|GTK_NOVALUE)           // Dynamically sized block copy
+GTNODE(INIT_BLK         , GenTreeDynBlk      ,0,GTK_SPECIAL|GTK_NOVALUE) // Dynamically sized block init
 
 GTNODE(BOX              , GenTreeBox         ,0,(GTK_UNOP|GTK_EXOP|GTK_NOTLIR))
 
@@ -148,8 +149,7 @@ GTNODE(TEST_NE          , GenTreeOp          ,0,GTK_BINOP)
 
 GTNODE(COMMA            , GenTreeOp          ,0,(GTK_BINOP|GTK_NOTLIR))
 
-GTNODE(QMARK            , GenTreeQmark       ,0,(GTK_BINOP|GTK_EXOP|GTK_NOTLIR))
-GTNODE(COLON            , GenTreeColon       ,0,(GTK_BINOP|GTK_NOTLIR))
+GTNODE(QMARK            , GenTreeQmark       ,0,(GTK_SPECIAL|GTK_NOTLIR))
 
 GTNODE(INDEX_ADDR       , GenTreeIndexAddr   ,0,(GTK_BINOP|GTK_EXOP)) // addr of SZ-array-element;
 

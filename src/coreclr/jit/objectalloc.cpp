@@ -641,7 +641,6 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
                     break;
                 }
                 FALLTHROUGH;
-            case GT_COLON:
             case GT_QMARK:
             case GT_ADD:
             case GT_FIELD_ADDR:
@@ -732,7 +731,6 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
                     break;
                 }
                 FALLTHROUGH;
-            case GT_COLON:
             case GT_QMARK:
             case GT_ADD:
             case GT_FIELD_ADDR:

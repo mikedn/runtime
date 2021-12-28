@@ -158,14 +158,6 @@ int LinearScan::BuildNode(GenTree* tree)
 
 #endif // !defined(TARGET_64BIT)
 
-        case GT_BOX:
-        case GT_COMMA:
-        case GT_QMARK:
-        case GT_COLON:
-            srcCount = 0;
-            unreached();
-            break;
-
         case GT_RETURN:
             srcCount = BuildReturn(tree->AsUnOp());
             BuildKills(tree, getKillSetForReturn());
@@ -409,9 +401,9 @@ int LinearScan::BuildNode(GenTree* tree)
 
             // Comparand is preferenced to RAX.
             // The remaining two operands can be in any reg other than RAX.
-            BuildUse(tree->AsCmpXchg()->gtOpLocation, allRegs(TYP_INT) & ~RBM_RAX);
-            BuildUse(tree->AsCmpXchg()->gtOpValue, allRegs(TYP_INT) & ~RBM_RAX);
-            BuildUse(tree->AsCmpXchg()->gtOpComparand, RBM_RAX);
+            BuildUse(tree->AsCmpXchg()->GetOp(0), allRegs(TYP_INT) & ~RBM_RAX);
+            BuildUse(tree->AsCmpXchg()->GetOp(1), allRegs(TYP_INT) & ~RBM_RAX);
+            BuildUse(tree->AsCmpXchg()->GetOp(2), RBM_RAX);
             BuildDef(tree, RBM_RAX);
         }
         break;
@@ -460,7 +452,8 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
-        case GT_STORE_DYN_BLK:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
             srcCount = BuildStoreDynBlk(tree->AsDynBlk());
             break;
 
@@ -505,7 +498,7 @@ int LinearScan::BuildNode(GenTree* tree)
             assert(dstCount == 1);
             srcCount                 = 0;
             RefPosition* internalDef = nullptr;
-            if (tree->AsArrOffs()->gtOffset->isContained())
+            if (tree->AsArrOffs()->GetOp(0)->isContained())
             {
                 srcCount = 2;
             }
@@ -515,10 +508,10 @@ int LinearScan::BuildNode(GenTree* tree)
                 // from any of the operand's registers, but may be the same as targetReg.
                 srcCount    = 3;
                 internalDef = buildInternalIntRegisterDefForNode(tree);
-                BuildUse(tree->AsArrOffs()->gtOffset);
+                BuildUse(tree->AsArrOffs()->GetOp(0));
             }
-            BuildUse(tree->AsArrOffs()->gtIndex);
-            BuildUse(tree->AsArrOffs()->gtArrObj);
+            BuildUse(tree->AsArrOffs()->GetOp(1));
+            BuildUse(tree->AsArrOffs()->GetOp(2));
             if (internalDef != nullptr)
             {
                 buildInternalRegisterUses();
@@ -625,10 +618,12 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_ARGPLACE:
         case GT_ASG:
-        case GT_DYN_BLK:
         case GT_BLK:
         case GT_FIELD_LIST:
         case GT_INIT_VAL:
+        case GT_BOX:
+        case GT_COMMA:
+        case GT_QMARK:
             unreached();
 
         default:
