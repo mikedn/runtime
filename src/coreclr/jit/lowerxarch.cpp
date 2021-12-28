@@ -2720,7 +2720,7 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
     var_types eltType = node->GetSimdBaseType();
     unsigned  size    = node->GetSimdSize();
 
-    assert(varTypeIsFloating(eltType) || (eltType == TYP_INT) || (eltType == TYP_LONG));
+    assert(varTypeIsFloating(eltType) || (eltType == TYP_INT) || (eltType == TYP_LONG) || (eltType == TYP_SHORT));
     assert((size == 16) || ((eltType == TYP_FLOAT) && ((size == 8) || (size == 12))));
 
     NamedIntrinsic hadd = NI_Illegal;
@@ -2744,7 +2744,7 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
     // temps (though it may be possible to allocate only 1 but the code will be more
     // complicated).
 
-    if ((eltType == TYP_INT) && comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
+    if (((eltType == TYP_INT) || (eltType == TYP_SHORT)) && comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
     {
         hadd = NI_SSSE3_HorizontalAdd;
     }
@@ -2754,7 +2754,7 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
     }
 
     unsigned haddCount = genLog2(roundUp(size, 8) / varTypeSize(eltType));
-    assert(haddCount <= 2);
+    assert(haddCount <= 3);
 
     LIR::Use       vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
     GenTreeLclVar* vec = ReplaceWithLclVar(vecUse);
@@ -2774,7 +2774,7 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
         }
         else
         {
-            if ((eltType == TYP_INT) || (eltType == TYP_LONG))
+            if ((eltType == TYP_INT) || (eltType == TYP_LONG) || (eltType == TYP_SHORT))
             {
                 GenTree* imm = comp->gtNewIconNode(i == 0 ? 0b11101110 : 0b00010001);
                 sum2         = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sum2, imm);

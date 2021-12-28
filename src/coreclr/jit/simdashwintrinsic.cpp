@@ -396,6 +396,10 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
             return impVectorT128ConvertDoubleToInt64(sig);
         case NI_VectorT256_ConvertToInt64:
             return impVectorT256ConvertDoubleToInt64(sig);
+        case NI_VectorT128_Sum:
+            return impVectorT128Sum(sig);
+        case NI_VectorT256_Sum:
+            return impVectorT256Sum(sig);
         case NI_VectorT128_Dot:
             return impVectorT128Dot(sig);
         case NI_VectorT256_Dot:
@@ -462,6 +466,8 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
             assert(sig.paramCount == 1);
             assert(varTypeIsUnsigned(sig.retLayout->GetElementType()));
             return ops[0];
+        case NI_VectorT128_Sum:
+            return impVectorT128Sum(sig, ops[0]);
         case NI_VectorT128_Dot:
             return impVectorT128Dot(sig, ops[0], ops[1]);
 #endif // TARGET_ARM64
@@ -992,6 +998,29 @@ GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
     }
 
     return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_Sum, TYP_FLOAT, 16, op1);
+}
+
+GenTree* Compiler::impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op1)
+{
+    assert(sig.paramCount == 1);
+    assert(sig.paramType[0] == TYP_SIMD16);
+
+    var_types eltType = sig.paramLayout[0]->GetElementType();
+
+    if (eltType == TYP_FLOAT)
+    {
+        return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_Sum, TYP_FLOAT, 16, op1);
+    }
+
+    if (eltType == TYP_DOUBLE)
+    {
+        return gtNewSimdHWIntrinsicNode(TYP_DOUBLE, NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_DOUBLE, 16, op1);
+    }
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, varTypeIsLong(eltType) ? NI_AdvSimd_Arm64_AddPairwiseScalar
+                                                                      : NI_AdvSimd_Arm64_AddAcross,
+                                   eltType, 16, op1);
+    return gtNewSimdGetElementNode(TYP_SIMD16, sig.retType, op1, gtNewIconNode(0));
 }
 
 GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -1754,6 +1783,48 @@ GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
     op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, 16, op1, op2);
     op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Sum, TYP_FLOAT, size, op1);
     return gtNewSimdGetElementNode(TYP_SIMD16, TYP_FLOAT, op1, gtNewIconNode(0));
+}
+
+GenTree* Compiler::impVectorT128Sum(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 1);
+    assert(sig.paramType[0] == TYP_SIMD16);
+
+    var_types eltType = varTypeUnsignedToSigned(sig.paramLayout[0]->GetElementType());
+
+    if ((eltType != TYP_FLOAT) && !compOpportunisticallyDependsOn(InstructionSet_SSE2))
+    {
+        return nullptr;
+    }
+
+    GenTree* vec = impSIMDPopStack(TYP_SIMD16);
+
+    return impVectorT128Sum(vec, eltType, sig.retType);
+}
+
+GenTree* Compiler::impVectorT128Sum(GenTree* vec, var_types eltType, var_types retType)
+{
+    if (eltType == TYP_BYTE)
+    {
+        vec = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_SumAbsoluteDifferences, TYP_USHORT, 16, vec,
+                                       gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_BYTE));
+        eltType = TYP_LONG;
+    }
+
+    vec = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Sum, eltType, 16, vec);
+    return gtNewSimdGetElementNode(TYP_SIMD16, retType, vec, gtNewIconNode(0));
+}
+
+GenTree* Compiler::impVectorT256Sum(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 1);
+    assert(sig.paramType[0] == TYP_SIMD32);
+
+    var_types eltType = varTypeUnsignedToSigned(sig.paramLayout[0]->GetElementType());
+    GenTree*  vec     = impSIMDPopStack(TYP_SIMD32);
+
+    vec = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_Sum, eltType, 32, vec);
+    return impVectorT128Sum(vec, eltType, sig.retType);
 }
 
 GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
