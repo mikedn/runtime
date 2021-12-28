@@ -1835,17 +1835,6 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
 
     var_types eltType = sig.paramLayout[0]->GetElementType();
 
-#ifndef TARGET_64BIT
-    // Vector128_Dot<long> works on x86 but it cannot be decomposed.
-    // TODO-MIKE-CQ: If we change the type of Vector128_Sum to be vector rather
-    // than LONG we could extract the LONG value from the vector and extraction
-    // can be decomposed.
-    if (varTypeIsLong(eltType))
-    {
-        return nullptr;
-    }
-#endif
-
     bool hasSse41 = compOpportunisticallyDependsOn(InstructionSet_SSE41);
 
     if ((varTypeIsInt(eltType) || varTypeIsLong(eltType)) && !hasSse41)
@@ -1905,13 +1894,6 @@ GenTree* Compiler::impVectorT256Dot(const HWIntrinsicSignature& sig)
     assert(sig.paramLayout[0] == sig.paramLayout[1]);
 
     var_types eltType = sig.paramLayout[0]->GetElementType();
-
-#ifndef TARGET_64BIT
-    if (varTypeIsLong(eltType))
-    {
-        return nullptr;
-    }
-#endif
 
     GenTree* op1 = impSIMDPopStack(TYP_SIMD32);
     GenTree* op2 = impSIMDPopStack(TYP_SIMD32);
