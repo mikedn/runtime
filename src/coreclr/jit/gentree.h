@@ -1945,10 +1945,7 @@ public:
     bool gtOverflow() const;
     bool gtOverflowEx() const;
 
-#ifdef DEBUG
-    bool       gtIsValid64RsltMul();
-    static int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
-#endif
+    INDEBUG(static int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);)
 
     // cast operations
     inline var_types  CastFromType();

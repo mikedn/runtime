@@ -10992,7 +10992,7 @@ DONE_MORPHING_CHILDREN:
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
-                assert(tree->gtIsValid64RsltMul());
+                assert(IsMulLongCandidate(tree->AsOp()));
                 return tree;
             }
 #endif
