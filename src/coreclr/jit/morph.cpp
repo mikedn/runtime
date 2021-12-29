@@ -9763,25 +9763,26 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 {
                     tree = fgMorphMulLongCandidate(tree->AsOp());
 
-                    if (tree->OperIsConst())
+                    if (!tree->OperIsConst())
                     {
-                        return tree;
+                        assert(tree->OperIs(GT_MUL));
+                        assert(op1 == tree->AsOp()->GetOp(0));
+                        assert(op2 == tree->AsOp()->GetOp(1));
                     }
 
-                    assert(op1 == tree->AsOp()->GetOp(0));
-                    assert(op2 == tree->AsOp()->GetOp(1));
+                    return tree;
+                }
 
-                    goto DONE_MORPHING_CHILDREN;
+                if (tree->gtOverflow())
+                {
+                    helper = (tree->gtFlags & GTF_UNSIGNED) ? CORINFO_HELP_ULMUL_OVF : CORINFO_HELP_LMUL_OVF;
                 }
                 else
                 {
-                    if (tree->gtOverflow())
-                        helper = (tree->gtFlags & GTF_UNSIGNED) ? CORINFO_HELP_ULMUL_OVF : CORINFO_HELP_LMUL_OVF;
-                    else
-                        helper = CORINFO_HELP_LMUL;
-
-                    goto USE_HELPER_FOR_ARITH;
+                    helper = CORINFO_HELP_LMUL;
                 }
+
+                goto USE_HELPER_FOR_ARITH;
             }
 #endif // !TARGET_64BIT
             break;
@@ -10935,11 +10936,7 @@ DONE_MORPHING_CHILDREN:
 
         case GT_MUL:
 #ifndef TARGET_64BIT
-            if (typ == TYP_LONG)
-            {
-                assert(IsMulLongCandidate(tree->AsOp()));
-                return tree;
-            }
+            assert(typ != TYP_LONG);
 #endif
             goto CM_OVF_OP;
 
