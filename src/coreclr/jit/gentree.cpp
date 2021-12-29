@@ -2180,64 +2180,6 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     return tree;
 }
 
-#ifndef TARGET_64BIT
-bool IsMulLongCandidate(GenTreeOp* mul)
-{
-    assert(mul->OperIs(GT_MUL) && mul->TypeIs(TYP_LONG));
-
-    // Both operands must be INT to LONG casts, without overflow checks.
-    GenTreeCast* op1 = mul->GetOp(0)->IsCast();
-
-    if ((op1 == nullptr) || (varActualType(op1->GetOp(0)->GetType()) != TYP_INT) || op1->gtOverflow())
-    {
-        return false;
-    }
-
-    GenTreeCast* op2 = mul->GetOp(1)->IsCast();
-
-    if ((op2 == nullptr) || (varActualType(op2->GetOp(0)->GetType()) != TYP_INT) || op2->gtOverflow())
-    {
-        return false;
-    }
-
-    // Both casts must have the same signedness, except when the cast operand
-    // is a positive constant.
-    // TODO-MIKE-CQ: There are other values that could be easily recognized as
-    // always positive: ARR_LENGTH, relops...
-
-    unsigned op1Sign = 0;
-    unsigned op2Sign = 0;
-
-    GenTreeIntCon* const1 = op1->GetOp(0)->IsIntCon();
-
-    if ((const1 == nullptr) || (const1->GetInt32Value() < 0))
-    {
-        op1Sign = op1->IsUnsigned() ? 1 : 2;
-    }
-
-    GenTreeIntCon* const2 = op2->GetOp(0)->IsIntCon();
-
-    if ((const2 == nullptr) || (const2->GetInt32Value() < 0))
-    {
-        op2Sign = op2->IsUnsigned() ? 1 : 2;
-    }
-
-    if ((op1Sign | op2Sign) == 3)
-    {
-        return false;
-    }
-
-    // Overflow multiply with operands of different signedness may still overflow.
-
-    if (mul->gtOverflow())
-    {
-        return (op1Sign | op2Sign) == (mul->IsUnsigned() ? 1u : 2u);
-    }
-
-    return true;
-}
-#endif // TARGET_64BIT
-
 unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
 {
     unsigned level  = 0;
