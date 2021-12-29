@@ -2204,9 +2204,7 @@ bool IsMulLongCandidate(GenTreeOp* mul)
             else
                 return false;
 
-            if (((unsigned)(constOp->AsCast()->CastOp()->AsIntCon()->gtIconVal) < (unsigned)(0x80000000)))
-                constOp->gtFlags ^= GTF_UNSIGNED;
-            else
+            if (((unsigned)(constOp->AsCast()->CastOp()->AsIntCon()->gtIconVal) >= (unsigned)(0x80000000)))
                 return false;
         }
 
