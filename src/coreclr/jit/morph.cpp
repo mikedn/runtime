@@ -9759,11 +9759,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
-                /* For (long)int1 * (long)int2, we dont actually do the
-                   casts, and just multiply the 32 bit values, which will
-                   give us the 64 bit result in edx:eax */
-
-                noway_assert(op2);
                 if (IsMulLongCandidate(tree->AsOp()))
                 {
                     tree = fgMorphMulLongCandidate(tree->AsOp());
@@ -9773,8 +9768,9 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                         return tree;
                     }
 
-                    op1 = tree->AsOp()->GetOp(0);
-                    op2 = tree->AsOp()->GetOp(1);
+                    assert(op1 == tree->AsOp()->GetOp(0));
+                    assert(op2 == tree->AsOp()->GetOp(1));
+
                     goto DONE_MORPHING_CHILDREN;
                 }
                 else
@@ -12335,68 +12331,60 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_MUL) && tree->TypeIs(TYP_LONG));
 
-    GenTree* op1 = tree->GetOp(0);
-    GenTree* op2 = tree->GetOp(1);
-
-    /* Remaining combinations can never overflow during long mul. */
+    GenTreeCast* op1 = tree->GetOp(0)->AsCast();
+    GenTreeCast* op2 = tree->GetOp(1)->AsCast();
 
     tree->gtFlags &= ~GTF_OVERFLOW;
 
-    /* Do unsigned mul only if the casts were unsigned */
-
+    // Do unsigned multiply only if the casts are unsigned.
+    // TODO-MIKE-Review: This is likely bogus due to IsMulLongCandidate special casing of constants.
     tree->gtFlags &= ~GTF_UNSIGNED;
     tree->gtFlags |= op1->gtFlags & GTF_UNSIGNED;
 
-    // We don't want the casts to be folded away. So morph the castees directly.
+    // fgMorphCast doesn't know about long multiply and may remove the casts,
+    // morph the cast operands directly.
+    op1->SetOp(0, fgMorphTree(op1->GetOp(0)));
+    op2->SetOp(0, fgMorphTree(op2->GetOp(0)));
 
-    op1->AsOp()->gtOp1 = fgMorphTree(op1->AsOp()->gtOp1);
-    op2->AsOp()->gtOp1 = fgMorphTree(op2->AsOp()->gtOp1);
+    op1->SetSideEffects(op1->GetOp(0)->GetSideEffects());
+    op2->SetSideEffects(op2->GetOp(0)->GetSideEffects());
+    tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
 
-    // Propagate side effect flags up the tree
-    op1->gtFlags &= ~GTF_ALL_EFFECT;
-    op1->gtFlags |= (op1->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
-    op2->gtFlags &= ~GTF_ALL_EFFECT;
-    op2->gtFlags |= (op2->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
-
-    // If the GT_MUL can be altogether folded away, we should do that.
-
-    if (op1->AsCast()->CastOp()->OperIsConst() && op2->AsCast()->CastOp()->OperIsConst() &&
-        opts.OptEnabled(CLFLG_CONSTANTFOLD))
+    // Because we keep the casts we also need to do constant folding directly.
+    if (op1->GetOp(0)->IsIntCon() && op2->GetOp(0)->IsIntCon() && opts.OptEnabled(CLFLG_CONSTANTFOLD))
     {
-        tree->AsOp()->gtOp1 = op1 = gtFoldExprConst(op1);
-        tree->AsOp()->gtOp2 = op2 = gtFoldExprConst(op2);
-        noway_assert(op1->OperIsConst() && op2->OperIsConst());
+        GenTree* const1 = gtFoldExprConst(op1);
+        GenTree* const2 = gtFoldExprConst(op2);
+        noway_assert(const1->OperIsConst() && const2->OperIsConst());
+
+        tree->SetOp(0, const1);
+        tree->SetOp(1, const2);
+
         GenTree* con = gtFoldExprConst(tree);
         noway_assert(con->OperIsConst());
+
         return con;
     }
 
-    // If op1 and op2 are unsigned casts, we need to do an unsigned mult
-    tree->gtFlags |= (op1->gtFlags & GTF_UNSIGNED);
+    // These casts cannot and need not be CSEd, they'll be removed during decomposition.
+    op1->SetDoNotCSE();
+    op2->SetDoNotCSE();
 
-    // Insert GT_NOP nodes for the cast operands so that they do not get folded
-    // And propagate the new flags. We don't want to CSE the casts because
-    // codegen expects muls to have a certain layout.
+    // Insert NOP nodes for the cast operands so that they do not get folded.
 
-    if (op1->AsCast()->CastOp()->OperGet() != GT_NOP)
+    if (!op1->GetOp(0)->OperIs(GT_NOP))
     {
-        op1->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op1->AsCast()->CastOp());
-        op1->gtFlags &= ~GTF_ALL_EFFECT;
-        op1->gtFlags |= (op1->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
+        GenTree* nop = gtNewOperNode(GT_NOP, TYP_INT, op1->GetOp(0));
+        nop->SetDoNotCSE();
+        op1->SetOp(0, nop);
     }
 
-    if (op2->AsCast()->CastOp()->OperGet() != GT_NOP)
+    if (!op2->GetOp(0)->OperIs(GT_NOP))
     {
-        op2->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op2->AsCast()->CastOp());
-        op2->gtFlags &= ~GTF_ALL_EFFECT;
-        op2->gtFlags |= (op2->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
+        GenTree* nop = gtNewOperNode(GT_NOP, TYP_INT, op2->GetOp(0));
+        nop->SetDoNotCSE();
+        op2->SetOp(0, nop);
     }
-
-    op1->gtFlags |= GTF_DONT_CSE;
-    op2->gtFlags |= GTF_DONT_CSE;
-
-    tree->gtFlags &= ~GTF_ALL_EFFECT;
-    tree->gtFlags |= ((op1->gtFlags | op2->gtFlags) & GTF_ALL_EFFECT);
 
     return tree;
 }
