@@ -9766,66 +9766,15 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 noway_assert(op2);
                 if (IsMulLongCandidate(tree->AsOp()))
                 {
-                    /* Remaining combinations can never overflow during long mul. */
+                    tree = fgMorphMulLongCandidate(tree->AsOp());
 
-                    tree->gtFlags &= ~GTF_OVERFLOW;
-
-                    /* Do unsigned mul only if the casts were unsigned */
-
-                    tree->gtFlags &= ~GTF_UNSIGNED;
-                    tree->gtFlags |= op1->gtFlags & GTF_UNSIGNED;
-
-                    // We don't want the casts to be folded away. So morph the castees directly.
-
-                    op1->AsOp()->gtOp1 = fgMorphTree(op1->AsOp()->gtOp1);
-                    op2->AsOp()->gtOp1 = fgMorphTree(op2->AsOp()->gtOp1);
-
-                    // Propagate side effect flags up the tree
-                    op1->gtFlags &= ~GTF_ALL_EFFECT;
-                    op1->gtFlags |= (op1->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
-                    op2->gtFlags &= ~GTF_ALL_EFFECT;
-                    op2->gtFlags |= (op2->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
-
-                    // If the GT_MUL can be altogether folded away, we should do that.
-
-                    if (op1->AsCast()->CastOp()->OperIsConst() && op2->AsCast()->CastOp()->OperIsConst() &&
-                        opts.OptEnabled(CLFLG_CONSTANTFOLD))
+                    if (tree->OperIsConst())
                     {
-                        tree->AsOp()->gtOp1 = op1 = gtFoldExprConst(op1);
-                        tree->AsOp()->gtOp2 = op2 = gtFoldExprConst(op2);
-                        noway_assert(op1->OperIsConst() && op2->OperIsConst());
-                        tree = gtFoldExprConst(tree);
-                        noway_assert(tree->OperIsConst());
                         return tree;
                     }
 
-                    // If op1 and op2 are unsigned casts, we need to do an unsigned mult
-                    tree->gtFlags |= (op1->gtFlags & GTF_UNSIGNED);
-
-                    // Insert GT_NOP nodes for the cast operands so that they do not get folded
-                    // And propagate the new flags. We don't want to CSE the casts because
-                    // codegen expects muls to have a certain layout.
-
-                    if (op1->AsCast()->CastOp()->OperGet() != GT_NOP)
-                    {
-                        op1->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op1->AsCast()->CastOp());
-                        op1->gtFlags &= ~GTF_ALL_EFFECT;
-                        op1->gtFlags |= (op1->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
-                    }
-
-                    if (op2->AsCast()->CastOp()->OperGet() != GT_NOP)
-                    {
-                        op2->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op2->AsCast()->CastOp());
-                        op2->gtFlags &= ~GTF_ALL_EFFECT;
-                        op2->gtFlags |= (op2->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
-                    }
-
-                    op1->gtFlags |= GTF_DONT_CSE;
-                    op2->gtFlags |= GTF_DONT_CSE;
-
-                    tree->gtFlags &= ~GTF_ALL_EFFECT;
-                    tree->gtFlags |= ((op1->gtFlags | op2->gtFlags) & GTF_ALL_EFFECT);
-
+                    op1 = tree->AsOp()->GetOp(0);
+                    op2 = tree->AsOp()->GetOp(1);
                     goto DONE_MORPHING_CHILDREN;
                 }
                 else
@@ -12382,6 +12331,75 @@ GenTree* Compiler::fgMorphModToSubMulDiv(GenTreeOp* tree)
     return sub;
 }
 
+GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree)
+{
+    assert(tree->OperIs(GT_MUL) && tree->TypeIs(TYP_LONG));
+
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
+
+    /* Remaining combinations can never overflow during long mul. */
+
+    tree->gtFlags &= ~GTF_OVERFLOW;
+
+    /* Do unsigned mul only if the casts were unsigned */
+
+    tree->gtFlags &= ~GTF_UNSIGNED;
+    tree->gtFlags |= op1->gtFlags & GTF_UNSIGNED;
+
+    // We don't want the casts to be folded away. So morph the castees directly.
+
+    op1->AsOp()->gtOp1 = fgMorphTree(op1->AsOp()->gtOp1);
+    op2->AsOp()->gtOp1 = fgMorphTree(op2->AsOp()->gtOp1);
+
+    // Propagate side effect flags up the tree
+    op1->gtFlags &= ~GTF_ALL_EFFECT;
+    op1->gtFlags |= (op1->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
+    op2->gtFlags &= ~GTF_ALL_EFFECT;
+    op2->gtFlags |= (op2->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
+
+    // If the GT_MUL can be altogether folded away, we should do that.
+
+    if (op1->AsCast()->CastOp()->OperIsConst() && op2->AsCast()->CastOp()->OperIsConst() &&
+        opts.OptEnabled(CLFLG_CONSTANTFOLD))
+    {
+        tree->AsOp()->gtOp1 = op1 = gtFoldExprConst(op1);
+        tree->AsOp()->gtOp2 = op2 = gtFoldExprConst(op2);
+        noway_assert(op1->OperIsConst() && op2->OperIsConst());
+        GenTree* con = gtFoldExprConst(tree);
+        noway_assert(con->OperIsConst());
+        return con;
+    }
+
+    // If op1 and op2 are unsigned casts, we need to do an unsigned mult
+    tree->gtFlags |= (op1->gtFlags & GTF_UNSIGNED);
+
+    // Insert GT_NOP nodes for the cast operands so that they do not get folded
+    // And propagate the new flags. We don't want to CSE the casts because
+    // codegen expects muls to have a certain layout.
+
+    if (op1->AsCast()->CastOp()->OperGet() != GT_NOP)
+    {
+        op1->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op1->AsCast()->CastOp());
+        op1->gtFlags &= ~GTF_ALL_EFFECT;
+        op1->gtFlags |= (op1->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
+    }
+
+    if (op2->AsCast()->CastOp()->OperGet() != GT_NOP)
+    {
+        op2->AsOp()->gtOp1 = gtNewOperNode(GT_NOP, TYP_INT, op2->AsCast()->CastOp());
+        op2->gtFlags &= ~GTF_ALL_EFFECT;
+        op2->gtFlags |= (op2->AsCast()->CastOp()->gtFlags & GTF_ALL_EFFECT);
+    }
+
+    op1->gtFlags |= GTF_DONT_CSE;
+    op2->gtFlags |= GTF_DONT_CSE;
+
+    tree->gtFlags &= ~GTF_ALL_EFFECT;
+    tree->gtFlags |= ((op1->gtFlags | op2->gtFlags) & GTF_ALL_EFFECT);
+
+    return tree;
+}
 //------------------------------------------------------------------------------
 // fgOperIsBitwiseRotationRoot : Check if the operation can be a root of a bitwise rotation tree.
 //
