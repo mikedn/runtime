@@ -12422,7 +12422,12 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind
     if (kind == MulLongCandidateKind::Const)
     {
         GenTree* con = gtFoldExprConst(tree);
-        noway_assert(con->OperIsConst());
+
+        if (!con->IsLngCon())
+        {
+            noway_assert(fgIsCommaThrow(con));
+            con = fgMorphTree(con);
+        }
 
         return con;
     }
@@ -12483,7 +12488,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind
         tree->SetOp(1, const2);
 
         GenTree* con = gtFoldExprConst(tree);
-        noway_assert(con->OperIsConst());
+        noway_assert(con->IsLngCon());
 
         return con;
     }
