@@ -12358,6 +12358,12 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
         // TODO-MIKE-CQ: There are other values that could be easily recognized
         // as always positive: ARR_LENGTH, relops, small unsigned int casts...
 
+        // TODO-MIKE-CQ: Microsoft.VisualBasic.Core's Operators:MultiplyUInt16(ushort,ushort)
+        // has a signed multiply with overflow and unsigned cast operands that is currently
+        // rejected due to signedness mismatch.
+        // However, those are casts from USHORT so overflow checking is not actually required.
+        // Old code managed to accept that due to incorrect overflow signedness checks.
+
         if ((intConst1 == nullptr) || (intConst1->GetInt32Value() < 0))
         {
             op1Sign = cast1->IsUnsigned() ? 1 : 2;
