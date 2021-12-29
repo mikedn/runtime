@@ -9759,9 +9759,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
-                if (fgMorphIsMulLongCandidate(tree->AsOp()))
+                MulLongCandidateKind kind = fgMorphIsMulLongCandidate(tree->AsOp());
+
+                if (kind != MulLongCandidateKind::None)
                 {
-                    return fgMorphMulLongCandidate(tree->AsOp());
+                    return fgMorphMulLongCandidate(tree->AsOp(), kind);
                 }
 
                 if (tree->gtOverflow())
@@ -12316,7 +12318,7 @@ GenTree* Compiler::fgMorphModToSubMulDiv(GenTreeOp* tree)
 }
 
 #ifndef TARGET_64BIT
-bool Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
+Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL) && mul->TypeIs(TYP_LONG));
 
@@ -12327,7 +12329,7 @@ bool Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
 
     if ((longConst1 != nullptr) && (longConst2 != nullptr))
     {
-        return opts.OptEnabled(CLFLG_CONSTANTFOLD);
+        return opts.OptEnabled(CLFLG_CONSTANTFOLD) ? MulLongCandidateKind::Const : MulLongCandidateKind::None;
     }
 
     GenTreeCast* cast1   = nullptr;
@@ -12341,7 +12343,7 @@ bool Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
 
         if ((cast1 == nullptr) || (varActualType(cast1->GetOp(0)->GetType()) != TYP_INT) || cast1->gtOverflow())
         {
-            return false;
+            return MulLongCandidateKind::None;
         }
 
         // We don't care about cast signedness if the cast operand is known to be positive.
@@ -12363,7 +12365,7 @@ bool Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
 
         if ((cast2 == nullptr) || (varActualType(cast2->GetOp(0)->GetType()) != TYP_INT) || cast2->gtOverflow())
         {
-            return false;
+            return MulLongCandidateKind::None;
         }
 
         GenTreeIntCon* intConst2 = cast2->GetOp(0)->IsIntCon();
@@ -12386,7 +12388,7 @@ bool Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
 
         if (cast->IsUnsigned() ? ((value < 0) || (value > UINT32_MAX)) : ((value < INT32_MIN) || (value > INT32_MAX)))
         {
-            return false;
+            return MulLongCandidateKind::None;
         }
     }
 
@@ -12400,23 +12402,33 @@ bool Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
         mulSign = mul->IsUnsigned() ? 1 : 2;
     }
 
-    return (op1Sign | op2Sign | mulSign) != 3;
+    switch (op1Sign | op2Sign | mulSign)
+    {
+        case 1:
+            return MulLongCandidateKind::Unsigned;
+        case 0:
+        case 2:
+            return MulLongCandidateKind::Signed;
+        default:
+            return MulLongCandidateKind::None;
+    }
 }
 
-GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree)
+GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind kind)
 {
     assert(tree->OperIs(GT_MUL) && tree->TypeIs(TYP_LONG));
+    assert(kind != MulLongCandidateKind::None);
 
-    GenTree* op1 = tree->GetOp(0);
-    GenTree* op2 = tree->GetOp(1);
-
-    if (op1->IsLngCon() && op2->IsLngCon())
+    if (kind == MulLongCandidateKind::Const)
     {
         GenTree* con = gtFoldExprConst(tree);
         noway_assert(con->OperIsConst());
 
         return con;
     }
+
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
@@ -12438,10 +12450,18 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree)
 
     tree->gtFlags &= ~GTF_OVERFLOW;
 
-    // Do unsigned multiply only if the casts are unsigned.
-    // TODO-MIKE-Review: This is likely bogus due to IsMulLongCandidate special casing of constants.
-    tree->gtFlags &= ~GTF_UNSIGNED;
-    tree->gtFlags |= cast1->gtFlags & GTF_UNSIGNED;
+    if (kind == MulLongCandidateKind::Unsigned)
+    {
+        cast1->gtFlags |= GTF_UNSIGNED;
+        cast2->gtFlags |= GTF_UNSIGNED;
+    }
+    else
+    {
+        assert(kind == MulLongCandidateKind::Signed);
+
+        cast1->gtFlags &= ~GTF_UNSIGNED;
+        cast2->gtFlags &= ~GTF_UNSIGNED;
+    }
 
     // fgMorphCast doesn't know about long multiply and may remove the casts,
     // morph the cast operands directly.

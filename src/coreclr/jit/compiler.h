@@ -4736,8 +4736,16 @@ private:
     GenTree* fgMorphAssociative(GenTreeOp* tree);
 
 #ifndef TARGET_64BIT
-    bool fgMorphIsMulLongCandidate(GenTreeOp* mul);
-    GenTree* fgMorphMulLongCandidate(GenTreeOp* mul);
+    enum class MulLongCandidateKind
+    {
+        None,
+        Const,
+        Signed,
+        Unsigned
+    };
+
+    MulLongCandidateKind fgMorphIsMulLongCandidate(GenTreeOp* mul);
+    GenTree* fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind kind);
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS

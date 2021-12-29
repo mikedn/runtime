@@ -1540,6 +1540,7 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     GenTreeCast* op2 = tree->GetOp(1)->AsCast();
     assert(op1->TypeIs(TYP_LONG));
     assert(op2->TypeIs(TYP_LONG));
+    assert(op1->IsUnsigned() == op2->IsUnsigned());
 
     Range().Remove(op1);
     Range().Remove(op2);
@@ -1547,6 +1548,15 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     tree->SetOp(0, op1->GetOp(0));
     tree->SetOp(1, op2->GetOp(0));
     tree->SetOper(GT_MUL_LONG);
+
+    if (op1->IsUnsigned())
+    {
+        tree->gtFlags |= GTF_UNSIGNED;
+    }
+    else
+    {
+        tree->gtFlags &= ~GTF_UNSIGNED;
+    }
 
     return StoreNodeToVar(use);
 }
