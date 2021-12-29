@@ -2718,10 +2718,6 @@ public:
 #endif
 };
 
-#ifndef TARGET_64BIT
-bool IsMulLongCandidate(GenTreeOp* mul);
-#endif
-
 struct GenTreeOp : public GenTreeUnOp
 {
     GenTree* gtOp2;

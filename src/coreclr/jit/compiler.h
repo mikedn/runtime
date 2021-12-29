@@ -4731,10 +4731,14 @@ private:
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
-    GenTree* fgMorphMulLongCandidate(GenTreeOp* mul);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
     GenTree* fgMorphConst(GenTree* tree);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
+
+#ifndef TARGET_64BIT
+    bool fgMorphIsMulLongCandidate(GenTreeOp* mul);
+    GenTree* fgMorphMulLongCandidate(GenTreeOp* mul);
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree);
