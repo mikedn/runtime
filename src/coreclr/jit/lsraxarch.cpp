@@ -2440,17 +2440,6 @@ int LinearScan::BuildMul(GenTree* tree)
     // two-op form:     reg *= r/m
     // three-op form:   reg = r/m * imm
 
-    // This special widening 32x32->64 MUL is not used on x64
-    CLANG_FORMAT_COMMENT_ANCHOR;
-#if defined(TARGET_X86)
-    if (tree->OperGet() != GT_MUL_LONG)
-#endif
-    {
-#ifndef TARGET_64BIT
-        assert((tree->gtFlags & GTF_MUL_64RSLT) == 0);
-#endif
-    }
-
     BuildKills(tree, getKillSetForMul(tree->AsOp()));
 
     // We do use the widening multiply to implement

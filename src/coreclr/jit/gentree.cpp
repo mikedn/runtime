@@ -2180,61 +2180,6 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     return tree;
 }
 
-/*****************************************************************************/
-
-#ifdef DEBUG
-#ifndef TARGET_64BIT
-
-bool GenTree::gtIsValid64RsltMul()
-{
-    if ((gtOper != GT_MUL) || !(gtFlags & GTF_MUL_64RSLT))
-    {
-        return false;
-    }
-
-    GenTree* op1 = AsOp()->gtOp1;
-    GenTree* op2 = AsOp()->gtOp2;
-
-    if (TypeGet() != TYP_LONG || op1->TypeGet() != TYP_LONG || op2->TypeGet() != TYP_LONG)
-    {
-        return false;
-    }
-
-    if (gtOverflow())
-    {
-        return false;
-    }
-
-    // op1 has to be conv.i8(i4Expr)
-    if ((op1->gtOper != GT_CAST) || (genActualType(op1->CastFromType()) != TYP_INT))
-    {
-        return false;
-    }
-
-    // op2 has to be conv.i8(i4Expr)
-    if ((op2->gtOper != GT_CAST) || (genActualType(op2->CastFromType()) != TYP_INT))
-    {
-        return false;
-    }
-
-    // The signedness of both casts must be the same
-    if (((op1->gtFlags & GTF_UNSIGNED) != 0) != ((op2->gtFlags & GTF_UNSIGNED) != 0))
-    {
-        return false;
-    }
-
-    // Do unsigned mul iff both the casts are unsigned
-    if (((op1->gtFlags & GTF_UNSIGNED) != 0) != ((gtFlags & GTF_UNSIGNED) != 0))
-    {
-        return false;
-    }
-
-    return true;
-}
-
-#endif // !TARGET_64BIT
-#endif // DEBUG
-
 unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
 {
     unsigned level  = 0;
@@ -7490,18 +7435,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     break;
                 }
 
-                goto DASH;
-
-            case GT_MUL:
-#ifndef TARGET_64BIT
-            case GT_MUL_LONG:
-                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
-                {
-                    printf("L");
-                    --msgLength;
-                    break;
-                }
-#endif
                 goto DASH;
 
             case GT_DIV:

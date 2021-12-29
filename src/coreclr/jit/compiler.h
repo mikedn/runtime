@@ -4349,9 +4349,7 @@ public:
     void fgDumpBlock(BasicBlock* block);
     void fgDumpTrees(BasicBlock* firstBlock, BasicBlock* lastBlock);
 
-    static fgWalkPreFn fgStress64RsltMulCB;
-    void               fgStress64RsltMul();
-    void               fgDebugCheckUpdate();
+    void fgDebugCheckUpdate();
     void fgDebugCheckBBlist(bool checkBBNum = false, bool checkBBRefs = true);
     void fgDebugCheckBlockLinks();
     void fgDebugCheckLinks(bool morphTrees = false);
@@ -4736,6 +4734,20 @@ private:
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
     GenTree* fgMorphConst(GenTree* tree);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
+
+#ifndef TARGET_64BIT
+    enum class MulLongCandidateKind
+    {
+        None,
+        Const,
+        Shift,
+        Signed,
+        Unsigned
+    };
+
+    MulLongCandidateKind fgMorphIsMulLongCandidate(GenTreeOp* mul);
+    GenTree* fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind kind);
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree);
@@ -7487,7 +7499,6 @@ public:
         STRESS_MODE(BB_PROFILE)                                                                 \
         STRESS_MODE(OPT_BOOLS_GC)                                                               \
         STRESS_MODE(REMORPH_TREES)                                                              \
-        STRESS_MODE(64RSLT_MUL)                                                                 \
         STRESS_MODE(DO_WHILE_LOOPS)                                                             \
         STRESS_MODE(MIN_OPTS)                                                                   \
         STRESS_MODE(REVERSE_FLAG)     /* Will set GTF_REVERSE_OPS whenever we can */            \

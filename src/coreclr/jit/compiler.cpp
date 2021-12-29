@@ -3912,10 +3912,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
 
-#ifndef TARGET_64BIT
-    INDEBUG(fgStress64RsltMul();)
-#endif
-
     // Morph the trees in all the blocks of the method
     //
     auto morphGlobalPhase = [this]() {
@@ -7805,15 +7801,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                     chars += printf("[BLK_UNALIGNED]");
                 }
                 break;
-
-#ifndef TARGET_64BIT
-            case GT_MUL_LONG:
-                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
-                {
-                    chars += printf("[64RSLT]");
-                }
-                break;
-#endif
 
             case GT_ADD:
             case GT_LSH:

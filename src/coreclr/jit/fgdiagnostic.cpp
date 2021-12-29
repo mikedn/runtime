@@ -2261,51 +2261,6 @@ void Compiler::fgDumpTrees(BasicBlock* firstBlock, BasicBlock* lastBlock)
            "----------\n");
 }
 
-#ifndef TARGET_64BIT
-/*****************************************************************************
- * Try to create as many candidates for GTF_MUL_64RSLT as possible.
- * We convert 'intOp1*intOp2' into 'int(long(nop(intOp1))*long(intOp2))'.
- */
-
-/* static */
-Compiler::fgWalkResult Compiler::fgStress64RsltMulCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree*  tree  = *pTree;
-    Compiler* pComp = data->compiler;
-
-    if (tree->gtOper != GT_MUL || tree->gtType != TYP_INT || (tree->gtOverflow()))
-    {
-        return WALK_CONTINUE;
-    }
-
-    JITDUMP("STRESS_64RSLT_MUL before:\n");
-    DISPTREE(tree);
-
-    // To ensure optNarrowTree() doesn't fold back to the original tree.
-    tree->AsOp()->gtOp1 = pComp->gtNewCastNode(TYP_LONG, tree->AsOp()->gtOp1, false, TYP_LONG);
-    tree->AsOp()->gtOp1 = pComp->gtNewOperNode(GT_NOP, TYP_LONG, tree->AsOp()->gtOp1);
-    tree->AsOp()->gtOp1 = pComp->gtNewCastNode(TYP_LONG, tree->AsOp()->gtOp1, false, TYP_LONG);
-    tree->AsOp()->gtOp2 = pComp->gtNewCastNode(TYP_LONG, tree->AsOp()->gtOp2, false, TYP_LONG);
-    tree->gtType        = TYP_LONG;
-    *pTree              = pComp->gtNewCastNode(TYP_INT, tree, false, TYP_INT);
-
-    JITDUMP("STRESS_64RSLT_MUL after:\n");
-    DISPTREE(*pTree);
-
-    return WALK_SKIP_SUBTREES;
-}
-
-void Compiler::fgStress64RsltMul()
-{
-    if (!compStressCompile(STRESS_64RSLT_MUL, 20))
-    {
-        return;
-    }
-
-    fgWalkAllTreesPre(fgStress64RsltMulCB, (void*)this);
-}
-#endif // !TARGET_64BIT
-
 // BBPredsChecker checks jumps from the block's predecessors to the block.
 class BBPredsChecker
 {
