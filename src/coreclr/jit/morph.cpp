@@ -9764,32 +9764,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                    give us the 64 bit result in edx:eax */
 
                 noway_assert(op2);
-                if ((op1->gtOper == GT_CAST && op2->gtOper == GT_CAST &&
-                     genActualType(op1->CastFromType()) == TYP_INT && genActualType(op2->CastFromType()) == TYP_INT) &&
-                    !op1->gtOverflow() && !op2->gtOverflow())
+                if (IsMulLongCandidate(tree->AsOp()))
                 {
-                    // The casts have to be of the same signedness.
-                    if ((op1->gtFlags & GTF_UNSIGNED) != (op2->gtFlags & GTF_UNSIGNED))
-                    {
-                        // We see if we can force an int constant to change its signedness
-                        GenTree* constOp;
-                        if (op1->AsCast()->CastOp()->gtOper == GT_CNS_INT)
-                            constOp = op1;
-                        else if (op2->AsCast()->CastOp()->gtOper == GT_CNS_INT)
-                            constOp = op2;
-                        else
-                            goto NO_MUL_64RSLT;
-
-                        if (((unsigned)(constOp->AsCast()->CastOp()->AsIntCon()->gtIconVal) < (unsigned)(0x80000000)))
-                            constOp->gtFlags ^= GTF_UNSIGNED;
-                        else
-                            goto NO_MUL_64RSLT;
-                    }
-
-                    // The only combination that can overflow
-                    if (tree->gtOverflow() && (tree->gtFlags & GTF_UNSIGNED) && !(op1->gtFlags & GTF_UNSIGNED))
-                        goto NO_MUL_64RSLT;
-
                     /* Remaining combinations can never overflow during long mul. */
 
                     tree->gtFlags &= ~GTF_OVERFLOW;
@@ -9854,7 +9830,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
                 else
                 {
-                NO_MUL_64RSLT:
                     if (tree->gtOverflow())
                         helper = (tree->gtFlags & GTF_UNSIGNED) ? CORINFO_HELP_ULMUL_OVF : CORINFO_HELP_LMUL_OVF;
                     else

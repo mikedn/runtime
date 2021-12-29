@@ -2180,7 +2180,48 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
     return tree;
 }
 
-/*****************************************************************************/
+#ifndef TARGET_64BIT
+bool IsMulLongCandidate(GenTreeOp* mul)
+{
+    assert(mul->OperIs(GT_MUL) && mul->TypeIs(TYP_LONG));
+
+    GenTree* op1 = mul->GetOp(0);
+    GenTree* op2 = mul->GetOp(1);
+
+    if ((op1->gtOper == GT_CAST && op2->gtOper == GT_CAST && genActualType(op1->CastFromType()) == TYP_INT &&
+         genActualType(op2->CastFromType()) == TYP_INT) &&
+        !op1->gtOverflow() && !op2->gtOverflow())
+    {
+        // The casts have to be of the same signedness.
+        if ((op1->gtFlags & GTF_UNSIGNED) != (op2->gtFlags & GTF_UNSIGNED))
+        {
+            // We see if we can force an int constant to change its signedness
+            GenTree* constOp;
+            if (op1->AsCast()->CastOp()->gtOper == GT_CNS_INT)
+                constOp = op1;
+            else if (op2->AsCast()->CastOp()->gtOper == GT_CNS_INT)
+                constOp = op2;
+            else
+                return false;
+
+            if (((unsigned)(constOp->AsCast()->CastOp()->AsIntCon()->gtIconVal) < (unsigned)(0x80000000)))
+                constOp->gtFlags ^= GTF_UNSIGNED;
+            else
+                return false;
+        }
+
+        // The only combination that can overflow
+        if (mul->gtOverflow() && (mul->gtFlags & GTF_UNSIGNED) && !(op1->gtFlags & GTF_UNSIGNED))
+            return false;
+
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+#endif // TARGET_64BIT
 
 #ifdef DEBUG
 #ifndef TARGET_64BIT
