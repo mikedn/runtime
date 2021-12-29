@@ -2187,10 +2187,7 @@ GenTree* Compiler::gtReverseCond(GenTree* tree)
 
 bool GenTree::gtIsValid64RsltMul()
 {
-    if ((gtOper != GT_MUL) || !(gtFlags & GTF_MUL_64RSLT))
-    {
-        return false;
-    }
+    assert((gtOper == GT_MUL) && (gtType == TYP_LONG));
 
     GenTree* op1 = AsOp()->gtOp1;
     GenTree* op2 = AsOp()->gtOp2;
@@ -7490,18 +7487,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     break;
                 }
 
-                goto DASH;
-
-            case GT_MUL:
-#ifndef TARGET_64BIT
-            case GT_MUL_LONG:
-                if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
-                {
-                    printf("L");
-                    --msgLength;
-                    break;
-                }
-#endif
                 goto DASH;
 
             case GT_DIV:

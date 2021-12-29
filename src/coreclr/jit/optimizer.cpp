@@ -5133,13 +5133,26 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 if (doit)
                 {
 #ifndef TARGET_64BIT
-                    if (tree->OperIs(GT_MUL) && ((tree->gtFlags & GTF_MUL_64RSLT) != 0))
+                    if (tree->OperIs(GT_MUL) && tree->TypeIs(TYP_LONG))
                     {
-                        tree->gtFlags &= ~GTF_MUL_64RSLT;
+                        assert(dstt == TYP_INT);
+
+                        GenTreeCast* op1 = tree->AsOp()->GetOp(0)->IsCast();
+                        GenTreeCast* op2 = tree->AsOp()->GetOp(1)->IsCast();
+
+                        if (op1 != nullptr)
+                        {
+                            op1->ClearDoNotCSE();
+                        }
+
+                        if (op2 != nullptr)
+                        {
+                            op1->ClearDoNotCSE();
+                        }
                     }
 #endif
 
-                    tree->gtType = genActualType(dstt);
+                    tree->SetType(varActualType(dstt));
                     tree->SetVNs(vnpNarrow);
                 }
 

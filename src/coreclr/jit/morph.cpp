@@ -415,10 +415,20 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 }
 
 #ifndef TARGET_64BIT
-                // Clear the GT_MUL_64RSLT if it is set.
-                if (src->OperIs(GT_MUL) && ((src->gtFlags & GTF_MUL_64RSLT) != 0))
+                if (src->OperIs(GT_MUL) && src->TypeIs(TYP_LONG))
                 {
-                    src->gtFlags &= ~GTF_MUL_64RSLT;
+                    GenTreeCast* op1 = src->AsOp()->GetOp(0)->IsCast();
+                    GenTreeCast* op2 = src->AsOp()->GetOp(1)->IsCast();
+
+                    if (op1 != nullptr)
+                    {
+                        op1->ClearDoNotCSE();
+                    }
+
+                    if (op2 != nullptr)
+                    {
+                        op1->ClearDoNotCSE();
+                    }
                 }
 #endif
 
@@ -4578,13 +4588,6 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
             //
             return;
         }
-
-#ifndef TARGET_64BIT
-        if ((oper == GT_MUL) && ((op2->gtFlags & GTF_MUL_64RSLT) != 0))
-        {
-            return;
-        }
-#endif
 
         if ((tree->gtFlags | op2->gtFlags) & GTF_BOOLEAN)
         {
@@ -9796,8 +9799,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     tree->gtFlags &= ~GTF_UNSIGNED;
                     tree->gtFlags |= op1->gtFlags & GTF_UNSIGNED;
 
-                    /* Since we are committing to GTF_MUL_64RSLT, we don't want
-                       the casts to be folded away. So morph the castees directly */
+                    // We don't want the casts to be folded away. So morph the castees directly.
 
                     op1->AsOp()->gtOp1 = fgMorphTree(op1->AsOp()->gtOp1);
                     op2->AsOp()->gtOp1 = fgMorphTree(op2->AsOp()->gtOp1);
@@ -9821,14 +9823,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                         return tree;
                     }
 
-                    tree->gtFlags |= GTF_MUL_64RSLT;
-
                     // If op1 and op2 are unsigned casts, we need to do an unsigned mult
                     tree->gtFlags |= (op1->gtFlags & GTF_UNSIGNED);
 
                     // Insert GT_NOP nodes for the cast operands so that they do not get folded
                     // And propagate the new flags. We don't want to CSE the casts because
-                    // codegen expects GTF_MUL_64RSLT muls to have a certain layout.
+                    // codegen expects muls to have a certain layout.
 
                     if (op1->AsCast()->CastOp()->OperGet() != GT_NOP)
                     {
@@ -9852,7 +9852,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                     goto DONE_MORPHING_CHILDREN;
                 }
-                else if ((tree->gtFlags & GTF_MUL_64RSLT) == 0)
+                else
                 {
                 NO_MUL_64RSLT:
                     if (tree->gtOverflow())
@@ -9861,13 +9861,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                         helper = CORINFO_HELP_LMUL;
 
                     goto USE_HELPER_FOR_ARITH;
-                }
-                else
-                {
-                    // We are seeing this node again. We have decided to use
-                    // GTF_MUL_64RSLT, so leave it alone.
-
-                    assert(tree->gtIsValid64RsltMul());
                 }
             }
 #endif // !TARGET_64BIT
@@ -11024,7 +11017,6 @@ DONE_MORPHING_CHILDREN:
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
-                // This must be GTF_MUL_64RSLT
                 assert(tree->gtIsValid64RsltMul());
                 return tree;
             }

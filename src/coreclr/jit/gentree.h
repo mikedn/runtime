@@ -547,10 +547,6 @@ enum GenTreeFlags : unsigned int
     GTF_ADDRMODE_NO_CSE         = 0x80000000, // ADD/MUL/LSH/COMMA -- Node is part of addressing mode, do not CSE.
                                               // Unlike GTF_DONT_CSE this does not block constant propagation.
 
-#ifndef TARGET_64BIT
-    GTF_MUL_64RSLT              = 0x40000000, // GT_MUL     -- produce 64-bit result
-#endif
-
     GTF_RELOP_NAN_UN            = 0x80000000, // GT_<relop> -- Is branch taken if ops are NaN?
     GTF_RELOP_JMP_USED          = 0x40000000, // GT_<relop> -- result of compare used for jump or ?:
     GTF_RELOP_ZTT               = 0x08000000, // GT_<relop> -- Loop test cloned for converting while-loops into do-while

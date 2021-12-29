@@ -413,11 +413,11 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
     GenTreeLclVar* tree = use.Def()->AsLclVar();
     GenTree*       rhs  = tree->GetOp(0);
 
-    if (rhs->OperIs(GT_PHI, GT_CALL) || (rhs->OperIs(GT_MUL_LONG) && ((rhs->gtFlags & GTF_MUL_64RSLT) != 0)))
+    if (rhs->OperIs(GT_PHI, GT_CALL, GT_MUL_LONG))
     {
         // GT_CALLs are not decomposed, so will not be converted to GT_LONG
         // GT_STORE_LCL_VAR = GT_CALL are handled in genMultiRegCallStoreToLocal
-        // GT_MULs are not decomposed, so will not be converted to GT_LONG
+        // GT_MUL_LONG is not decomposed, so will not be converted to GT_LONG
         return tree->gtNext;
     }
 
@@ -595,16 +595,12 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
         }
         else
         {
-            if (!use.IsDummyUse() && (use.User()->OperGet() == GT_MUL))
+            if (!use.IsDummyUse() && use.User()->OperIs(GT_MUL))
             {
-                //
-                // This int->long cast is used by a GT_MUL that will be transformed by DecomposeMul into a
-                // GT_LONG_MUL and as a result the high operand produced by the cast will become dead.
+                // This INT to LONG cast is used by a MUL that will be transformed by DecomposeMul into
+                // a LONG_MUL and as a result the high operand produced by the cast will become dead.
                 // Skip cast decomposition so DecomposeMul doesn't need to bother with dead code removal,
                 // especially in the case of sign extending casts that also introduce new lclvars.
-                //
-
-                assert((use.User()->gtFlags & GTF_MUL_64RSLT) != 0);
 
                 skipDecomposition = true;
             }
@@ -1513,8 +1509,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
 }
 
 //------------------------------------------------------------------------
-// DecomposeMul: Decompose GT_MUL. The only GT_MULs that make it to decompose are
-// those with the GTF_MUL_64RSLT flag set. These muls result in a mul instruction that
+// DecomposeMul: Decompose GT_MUL. These muls result in a mul instruction that
 // returns its result in two registers like GT_CALLs do. Additionally, these muls are
 // guaranteed to be in the form long = (long)int * (long)int. Therefore, to decompose
 // these nodes, we convert them into GT_MUL_LONGs, undo the cast from int to long by
@@ -1538,7 +1533,6 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     GenTreeOp* tree = use.Def()->AsOp();
 
     assert(tree->OperIs(GT_MUL));
-    assert((tree->gtFlags & GTF_MUL_64RSLT) != 0);
 
     // We expect both operands to be int->long casts. DecomposeCast specifically
     // ignores such casts when they are used by GT_MULs.
