@@ -4740,6 +4740,7 @@ private:
     {
         None,
         Const,
+        Shift,
         Signed,
         Unsigned
     };

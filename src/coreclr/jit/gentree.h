@@ -3058,6 +3058,11 @@ struct GenTreeLngCon : public GenTreeIntConCommon
         return gtLconVal;
     }
 
+    uint64_t GetUInt64Value() const
+    {
+        return static_cast<uint64_t>(gtLconVal);
+    }
+
     void SetValue(int64_t value)
     {
         gtLconVal = value;

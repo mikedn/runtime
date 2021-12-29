@@ -12343,6 +12343,11 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
         if ((cast1 == nullptr) || (varActualType(cast1->GetOp(0)->GetType()) != TYP_INT) || cast1->gtOverflow())
         {
+            if (!mul->gtOverflow() && (longConst2 != nullptr) && isPow2(longConst2->GetUInt64Value()))
+            {
+                return MulLongCandidateKind::Shift;
+            }
+
             return MulLongCandidateKind::None;
         }
 
@@ -12365,6 +12370,11 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
         if ((cast2 == nullptr) || (varActualType(cast2->GetOp(0)->GetType()) != TYP_INT) || cast2->gtOverflow())
         {
+            if (!mul->gtOverflow() && (longConst1 != nullptr) && isPow2(longConst1->GetUInt64Value()))
+            {
+                return MulLongCandidateKind::Shift;
+            }
+
             return MulLongCandidateKind::None;
         }
 
@@ -12414,14 +12424,14 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
     }
 }
 
-GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind kind)
+GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind kind)
 {
-    assert(tree->OperIs(GT_MUL) && tree->TypeIs(TYP_LONG));
+    assert(mul->OperIs(GT_MUL) && mul->TypeIs(TYP_LONG));
     assert(kind != MulLongCandidateKind::None);
 
     if (kind == MulLongCandidateKind::Const)
     {
-        GenTree* con = gtFoldExprConst(tree);
+        GenTree* con = gtFoldExprConst(mul);
 
         if (!con->IsLngCon())
         {
@@ -12432,28 +12442,50 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind
         return con;
     }
 
-    GenTree* op1 = tree->GetOp(0);
-    GenTree* op2 = tree->GetOp(1);
+    GenTree* op1 = mul->GetOp(0);
+    GenTree* op2 = mul->GetOp(1);
+
+    if (kind == MulLongCandidateKind::Shift)
+    {
+        if (op1->IsLngCon())
+        {
+            std::swap(op1, op2);
+        }
+
+        assert(isPow2(op2->AsLngCon()->GetUInt64Value()));
+
+        op1 = fgMorphTree(op1);
+
+        op2->ChangeToIntCon(genLog2(op2->AsLngCon()->GetUInt64Value()));
+        op2->SetType(TYP_INT);
+
+        mul->SetOper(GT_LSH);
+        mul->SetOp(0, op1);
+        mul->SetOp(1, op2);
+        mul->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
+
+        return mul;
+    }
 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
         op1->ChangeToIntCon(static_cast<int32_t>(longConst1->GetValue()));
         op1->SetType(TYP_INT);
         op1 = gtNewCastNode(TYP_LONG, op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
-        tree->SetOp(0, op1);
+        mul->SetOp(0, op1);
     }
     else if (GenTreeLngCon* longConst2 = op2->IsLngCon())
     {
         op2->ChangeToIntCon(static_cast<int32_t>(longConst2->GetValue()));
         op2->SetType(TYP_INT);
         op2 = gtNewCastNode(TYP_LONG, op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
-        tree->SetOp(1, op2);
+        mul->SetOp(1, op2);
     }
 
     GenTreeCast* cast1 = op1->AsCast();
     GenTreeCast* cast2 = op2->AsCast();
 
-    tree->gtFlags &= ~GTF_OVERFLOW;
+    mul->gtFlags &= ~GTF_OVERFLOW;
 
     if (kind == MulLongCandidateKind::Unsigned)
     {
@@ -12475,7 +12507,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind
 
     cast1->SetSideEffects(cast1->GetOp(0)->GetSideEffects());
     cast2->SetSideEffects(cast2->GetOp(0)->GetSideEffects());
-    tree->SetSideEffects(cast1->GetSideEffects() | cast2->GetSideEffects());
+    mul->SetSideEffects(cast1->GetSideEffects() | cast2->GetSideEffects());
 
     // Because we keep the casts we also need to do constant folding directly.
     if (cast1->GetOp(0)->IsIntCon() && cast2->GetOp(0)->IsIntCon() && opts.OptEnabled(CLFLG_CONSTANTFOLD))
@@ -12484,10 +12516,10 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind
         GenTree* const2 = gtFoldExprConst(cast2);
         noway_assert(const1->OperIsConst() && const2->OperIsConst());
 
-        tree->SetOp(0, const1);
-        tree->SetOp(1, const2);
+        mul->SetOp(0, const1);
+        mul->SetOp(1, const2);
 
-        GenTree* con = gtFoldExprConst(tree);
+        GenTree* con = gtFoldExprConst(mul);
         noway_assert(con->IsLngCon());
 
         return con;
@@ -12513,7 +12545,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* tree, MulLongCandidateKind
         cast2->SetOp(0, nop);
     }
 
-    return tree;
+    return mul;
 }
 #endif // TARGET_64BIT
 
