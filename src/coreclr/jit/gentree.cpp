@@ -2185,39 +2185,56 @@ bool IsMulLongCandidate(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL) && mul->TypeIs(TYP_LONG));
 
-    GenTree* op1 = mul->GetOp(0);
-    GenTree* op2 = mul->GetOp(1);
+    // Both operands must be INT to LONG casts, without overflow checks.
+    GenTreeCast* op1 = mul->GetOp(0)->IsCast();
 
-    if ((op1->gtOper == GT_CAST && op2->gtOper == GT_CAST && genActualType(op1->CastFromType()) == TYP_INT &&
-         genActualType(op2->CastFromType()) == TYP_INT) &&
-        !op1->gtOverflow() && !op2->gtOverflow())
-    {
-        // The casts have to be of the same signedness.
-        if ((op1->gtFlags & GTF_UNSIGNED) != (op2->gtFlags & GTF_UNSIGNED))
-        {
-            // We see if we can force an int constant to change its signedness
-            GenTree* constOp;
-            if (op1->AsCast()->CastOp()->gtOper == GT_CNS_INT)
-                constOp = op1;
-            else if (op2->AsCast()->CastOp()->gtOper == GT_CNS_INT)
-                constOp = op2;
-            else
-                return false;
-
-            if (((unsigned)(constOp->AsCast()->CastOp()->AsIntCon()->gtIconVal) >= (unsigned)(0x80000000)))
-                return false;
-        }
-
-        // The only combination that can overflow
-        if (mul->gtOverflow() && (mul->gtFlags & GTF_UNSIGNED) && !(op1->gtFlags & GTF_UNSIGNED))
-            return false;
-
-        return true;
-    }
-    else
+    if ((op1 == nullptr) || (varActualType(op1->GetOp(0)->GetType()) != TYP_INT) || op1->gtOverflow())
     {
         return false;
     }
+
+    GenTreeCast* op2 = mul->GetOp(1)->IsCast();
+
+    if ((op2 == nullptr) || (varActualType(op2->GetOp(0)->GetType()) != TYP_INT) || op2->gtOverflow())
+    {
+        return false;
+    }
+
+    // Both casts must have the same signedness, except when the cast operand
+    // is a positive constant.
+    // TODO-MIKE-CQ: There are other values that could be easily recognized as
+    // always positive: ARR_LENGTH, relops...
+
+    unsigned op1Sign = 0;
+    unsigned op2Sign = 0;
+
+    GenTreeIntCon* const1 = op1->GetOp(0)->IsIntCon();
+
+    if ((const1 == nullptr) || (const1->GetInt32Value() < 0))
+    {
+        op1Sign = op1->IsUnsigned() ? 1 : 2;
+    }
+
+    GenTreeIntCon* const2 = op2->GetOp(0)->IsIntCon();
+
+    if ((const2 == nullptr) || (const2->GetInt32Value() < 0))
+    {
+        op2Sign = op2->IsUnsigned() ? 1 : 2;
+    }
+
+    if ((op1Sign | op2Sign) == 3)
+    {
+        return false;
+    }
+
+    // Overflow multiply with operands of different signedness may still overflow.
+
+    if (mul->gtOverflow())
+    {
+        return (op1Sign | op2Sign) == (mul->IsUnsigned() ? 1u : 2u);
+    }
+
+    return true;
 }
 #endif // TARGET_64BIT
 
