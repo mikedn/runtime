@@ -3278,7 +3278,7 @@ private:
     void impSpillStackEnsure(bool spillLeaves = false);
     void impSpillCatchArg();
     void impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason));
-    void               impSpillValueClasses();
+    void               impSpillStructValues();
     void               impSpillEvalStack();
     static fgWalkPreFn impFindValueClasses;
     void impSpillLclRefs(ssize_t lclNum);

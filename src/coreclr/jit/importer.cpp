@@ -2030,19 +2030,11 @@ void Compiler::impSpillCatchArg()
     }
 }
 
-// Spill all stack references to value classes (TYP_STRUCT nodes)
-void Compiler::impSpillValueClasses()
+// Spill all trees containing TYP_STRUCT values.
+void Compiler::impSpillStructValues()
 {
-    auto visitor = [](GenTree** pTree, fgWalkData* data) {
-        GenTree* node = *pTree;
-
-        if (node->TypeIs(TYP_STRUCT))
-        {
-            // Abort the walk and indicate that we found a value class
-            return WALK_ABORT;
-        }
-
-        return WALK_CONTINUE;
+    auto visitor = [](GenTree** use, fgWalkData* data) {
+        return (*use)->TypeIs(TYP_STRUCT) ? WALK_ABORT : WALK_CONTINUE;
     };
 
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
@@ -2051,7 +2043,7 @@ void Compiler::impSpillValueClasses()
 
         if (fgWalkTreePre(&tree, visitor) == WALK_ABORT)
         {
-            impSpillStackEntry(level DEBUGARG("impSpillValueClasses"));
+            impSpillStackEntry(level DEBUGARG("struct value spill temp"));
         }
     }
 }
@@ -12583,7 +12575,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     else
                     {
-                        impSpillValueClasses();
+                        impSpillStructValues();
                     }
                 }
 
