@@ -276,22 +276,78 @@ unsigned Compiler::impStackHeight()
     return verCurrentState.esStackDepth;
 }
 
-//------------------------------------------------------------------------
-// impBeginTreeList: Get the tree list started for a new basic block.
-//
-void Compiler::impBeginTreeList()
+void Compiler::impStmtListBegin()
 {
     assert(impStmtList == nullptr && impLastStmt == nullptr);
 }
 
-/*****************************************************************************
- *
- *  Store the given start and end stmt in the given basic block. This is
- *  mostly called by impEndTreeList(BasicBlock *block). It is called
- *  directly only for handling CEE_LEAVEs out of finally-protected try's.
- */
+void Compiler::impStmtListAppend(Statement* stmt)
+{
+    if (impStmtList == nullptr)
+    {
+        impStmtList = stmt;
+    }
+    else
+    {
+        impLastStmt->SetNextStmt(stmt);
+        stmt->SetPrevStmt(impLastStmt);
+    }
 
-void Compiler::impEndTreeList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
+    impLastStmt = stmt;
+}
+
+Statement* Compiler::impStmtListRemoveLast()
+{
+    assert(impLastStmt != nullptr);
+
+    Statement* stmt = impLastStmt;
+    impLastStmt     = impLastStmt->GetPrevStmt();
+
+    if (impLastStmt == nullptr)
+    {
+        impStmtList = nullptr;
+    }
+
+    return stmt;
+}
+
+void Compiler::impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore)
+{
+    assert(stmt != nullptr);
+    assert(stmtBefore != nullptr);
+
+    if (stmtBefore == impStmtList)
+    {
+        impStmtList = stmt;
+    }
+    else
+    {
+        Statement* stmtPrev = stmtBefore->GetPrevStmt();
+        stmt->SetPrevStmt(stmtPrev);
+        stmtPrev->SetNextStmt(stmt);
+    }
+
+    stmt->SetNextStmt(stmtBefore);
+    stmtBefore->SetPrevStmt(stmt);
+}
+
+void Compiler::impStmtListEnd(BasicBlock* block)
+{
+    impSetBlockStmtList(block, impStmtList, impLastStmt);
+
+    impStmtList = nullptr;
+    impLastStmt = nullptr;
+
+#ifdef DEBUG
+    if (impLastILoffsStmt != nullptr)
+    {
+        impLastILoffsStmt->SetLastILOffset(compIsForInlining() ? BAD_IL_OFFSET : impCurOpcOffs);
+        impLastILoffsStmt = nullptr;
+    }
+#endif
+}
+
+void Compiler::impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
 {
     if (firstStmt != nullptr)
     {
@@ -303,29 +359,7 @@ void Compiler::impEndTreeList(BasicBlock* block, Statement* firstStmt, Statement
 
     // The block should not already be marked as imported
     assert((block->bbFlags & BBF_IMPORTED) == 0);
-
     block->bbFlags |= BBF_IMPORTED;
-}
-
-//------------------------------------------------------------------------
-// impEndTreeList: Store the current tree list in the given basic block.
-//
-// Arguments:
-//    block - the basic block to store into.
-//
-void Compiler::impEndTreeList(BasicBlock* block)
-{
-    impEndTreeList(block, impStmtList, impLastStmt);
-    impStmtList = nullptr;
-    impLastStmt = nullptr;
-
-#ifdef DEBUG
-    if (impLastILoffsStmt != nullptr)
-    {
-        impLastILoffsStmt->SetLastILOffset(compIsForInlining() ? BAD_IL_OFFSET : impCurOpcOffs);
-        impLastILoffsStmt = nullptr;
-    }
-#endif
 }
 
 /*****************************************************************************
@@ -561,56 +595,6 @@ void Compiler::impSpillNoneAppendTree(GenTree* op1)
 {
     impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
     INDEBUG(impNoteLastILoffs();)
-}
-
-void Compiler::impStmtListAppend(Statement* stmt)
-{
-    if (impStmtList == nullptr)
-    {
-        impStmtList = stmt;
-    }
-    else
-    {
-        impLastStmt->SetNextStmt(stmt);
-        stmt->SetPrevStmt(impLastStmt);
-    }
-
-    impLastStmt = stmt;
-}
-
-Statement* Compiler::impStmtListRemoveLast()
-{
-    assert(impLastStmt != nullptr);
-
-    Statement* stmt = impLastStmt;
-    impLastStmt     = impLastStmt->GetPrevStmt();
-
-    if (impLastStmt == nullptr)
-    {
-        impStmtList = nullptr;
-    }
-
-    return stmt;
-}
-
-void Compiler::impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore)
-{
-    assert(stmt != nullptr);
-    assert(stmtBefore != nullptr);
-
-    if (stmtBefore == impStmtList)
-    {
-        impStmtList = stmt;
-    }
-    else
-    {
-        Statement* stmtPrev = stmtBefore->GetPrevStmt();
-        stmt->SetPrevStmt(stmtPrev);
-        stmtPrev->SetNextStmt(stmt);
-    }
-
-    stmt->SetNextStmt(stmtBefore);
-    stmtBefore->SetPrevStmt(stmt);
 }
 
 /*****************************************************************************
@@ -8179,7 +8163,7 @@ void Compiler::impImportLeave(BasicBlock* block)
                 }
 
                 // note that this sets BBF_IMPORTED on the block
-                impEndTreeList(callBlock, endLFinStmt, lastStmt);
+                impSetBlockStmtList(callBlock, endLFinStmt, lastStmt);
             }
 
             step = fgNewBBafter(BBJ_ALWAYS, callBlock, true);
@@ -8270,7 +8254,7 @@ void Compiler::impImportLeave(BasicBlock* block)
             lastStmt = endLFinStmt;
         }
 
-        impEndTreeList(finalStep, endLFinStmt, lastStmt);
+        impSetBlockStmtList(finalStep, endLFinStmt, lastStmt);
 
         finalStep->bbJumpDest = leaveTarget; // this is the ultimate destination of the LEAVE
 
@@ -9358,7 +9342,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
     /* Get the tree list started */
 
-    impBeginTreeList();
+    impStmtListBegin();
 
 #ifdef FEATURE_ON_STACK_REPLACEMENT
 
@@ -14050,9 +14034,9 @@ void Compiler::impImportBlock(BasicBlock* block)
     assert(compCurBB == block);
 
     /* Save the tree list in the block */
-    impEndTreeList(block);
+    impStmtListEnd(block);
 
-    // impEndTreeList sets BBF_IMPORTED on the block
+    // impStmtListEnd sets BBF_IMPORTED on the block
     // We do *NOT* want to set it later than this because
     // impReimportSpillClique might clear it if this block is both a
     // predecessor and successor in the current spill clique
