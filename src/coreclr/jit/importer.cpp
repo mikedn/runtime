@@ -17110,7 +17110,7 @@ void Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* s
     {
         GenTreeDynBlk* init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
         init->SetVolatile(isVolatile);
-        impSpillAppendTree(init);
+        impSpillAllAppendTree(init);
 
         return;
     }
@@ -17141,7 +17141,7 @@ void Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size,
     {
         GenTreeDynBlk* copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
         copy->SetVolatile(isVolatile);
-        impSpillAppendTree(copy);
+        impSpillAllAppendTree(copy);
 
         return;
     }
