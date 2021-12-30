@@ -379,7 +379,7 @@ void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
         chkLevel = verCurrentState.esStackDepth;
     }
 
-    if (verCurrentState.esStackDepth == 0 || chkLevel == 0 || chkLevel == CHECK_SPILL_NONE)
+    if ((verCurrentState.esStackDepth == 0) || (chkLevel == 0))
     {
         return;
     }
@@ -447,7 +447,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
         chkLevel = verCurrentState.esStackDepth;
     }
 
-    if ((chkLevel != 0) && (chkLevel != CHECK_SPILL_NONE))
+    if (chkLevel != 0)
     {
         assert(chkLevel <= verCurrentState.esStackDepth);
 

@@ -3098,7 +3098,7 @@ protected:
 
 public:
     static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
-    static constexpr unsigned CHECK_SPILL_NONE = UINT32_MAX - 1;
+    static constexpr unsigned CHECK_SPILL_NONE = 0;
 
     void impStmtListBegin();
     void impStmtListAppend(Statement* stmt);
