@@ -2346,7 +2346,7 @@ public:
     };
 
     FindLinkData gtFindLink(Statement* stmt, GenTree* node);
-    bool gtHasCatchArg(GenTree* tree);
+    bool impHasCatchArg(GenTree* tree);
 
     typedef ArrayStack<GenTree*> GenTreeStack;
 

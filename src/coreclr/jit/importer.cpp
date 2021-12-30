@@ -2020,11 +2020,16 @@ void Compiler::impSpillSpecialSideEff()
         return;
     }
 
+    auto visitor = [](GenTree** use, Compiler::fgWalkData* data) {
+        return (*use)->OperIs(GT_CATCH_ARG) ? Compiler::WALK_ABORT : Compiler::WALK_CONTINUE;
+    };
+
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
+
         // Make sure if we have an exception object in the sub tree we spill ourselves.
-        if (gtHasCatchArg(tree))
+        if (((tree->gtFlags & GTF_ORDER_SIDEEFF) != 0) && (fgWalkTreePre(&tree, visitor) == WALK_ABORT))
         {
             impSpillStackEntry(level DEBUGARG("impSpillSpecialSideEff"));
         }

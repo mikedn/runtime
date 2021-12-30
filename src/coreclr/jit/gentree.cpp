@@ -12834,26 +12834,6 @@ Compiler::FindLinkData Compiler::gtFindLink(Statement* stmt, GenTree* node)
     }
 }
 
-/*****************************************************************************
- *
- *  Callback that checks if a tree node has oper type GT_CATCH_ARG
- */
-
-static Compiler::fgWalkResult gtFindCatchArg(GenTree** pTree, Compiler::fgWalkData* /* data */)
-{
-    return ((*pTree)->OperGet() == GT_CATCH_ARG) ? Compiler::WALK_ABORT : Compiler::WALK_CONTINUE;
-}
-
-/*****************************************************************************/
-bool Compiler::gtHasCatchArg(GenTree* tree)
-{
-    if (((tree->gtFlags & GTF_ORDER_SIDEEFF) != 0) && (fgWalkTreePre(&tree, gtFindCatchArg) == WALK_ABORT))
-    {
-        return true;
-    }
-    return false;
-}
-
 //------------------------------------------------------------------------
 // gtHasCallOnStack:
 //
