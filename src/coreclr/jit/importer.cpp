@@ -512,6 +512,15 @@ inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
 #endif
 }
 
+Statement* Compiler::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSETX offset)
+{
+    assert(tree != nullptr);
+
+    Statement* stmt = gtNewStmt(tree, offset);
+    impAppendStmt(stmt, spillDepth);
+    return stmt;
+}
+
 void Compiler::impSpillAppendTree(GenTree* op1)
 {
     // We need to call impSpillLclRefs() for a struct type lclVar.
@@ -622,27 +631,6 @@ inline void Compiler::impInsertStmtBefore(Statement* stmt, Statement* stmtBefore
     }
     stmt->SetNextStmt(stmtBefore);
     stmtBefore->SetPrevStmt(stmt);
-}
-
-/*****************************************************************************
- *
- *  Append the given expression tree to the current block's tree list.
- *  Return the newly created statement.
- */
-
-Statement* Compiler::impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset)
-{
-    assert(tree);
-
-    /* Allocate an 'expression statement' node */
-
-    Statement* stmt = gtNewStmt(tree, offset);
-
-    /* Append the statement to the current block's stmt list */
-
-    impAppendStmt(stmt, chkLevel);
-
-    return stmt;
 }
 
 /*****************************************************************************
