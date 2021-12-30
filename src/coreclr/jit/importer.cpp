@@ -279,7 +279,7 @@ unsigned Compiler::impStackHeight()
 //------------------------------------------------------------------------
 // impBeginTreeList: Get the tree list started for a new basic block.
 //
-inline void Compiler::impBeginTreeList()
+void Compiler::impBeginTreeList()
 {
     assert(impStmtList == nullptr && impLastStmt == nullptr);
 }
@@ -291,7 +291,7 @@ inline void Compiler::impBeginTreeList()
  *  directly only for handling CEE_LEAVEs out of finally-protected try's.
  */
 
-inline void Compiler::impEndTreeList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
+void Compiler::impEndTreeList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
 {
     if (firstStmt != nullptr)
     {
@@ -313,7 +313,7 @@ inline void Compiler::impEndTreeList(BasicBlock* block, Statement* firstStmt, St
 // Arguments:
 //    block - the basic block to store into.
 //
-inline void Compiler::impEndTreeList(BasicBlock* block)
+void Compiler::impEndTreeList(BasicBlock* block)
 {
     impEndTreeList(block, impStmtList, impLastStmt);
     impStmtList = nullptr;
@@ -334,7 +334,7 @@ inline void Compiler::impEndTreeList(BasicBlock* block)
  *  that this has only limited value as we can only check [0..chkLevel).
  */
 
-inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
+void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
 {
 #ifndef DEBUG
     return;
@@ -406,7 +406,7 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
  *    interference with stmt and spill if needed.
  */
 
-inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
+void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
 {
     if (chkLevel == CHECK_SPILL_ALL)
     {
@@ -569,7 +569,7 @@ void Compiler::impSpillNoneAppendTree(GenTree* op1)
 // Arguments:
 //    stmt - the statement to add.
 //
-inline void Compiler::impAppendStmt(Statement* stmt)
+void Compiler::impAppendStmt(Statement* stmt)
 {
     if (impStmtList == nullptr)
     {
@@ -614,7 +614,7 @@ Statement* Compiler::impExtractLastStmt()
 //    stmt       - a statement to insert;
 //    stmtBefore - an insertion point to insert "stmt" before.
 //
-inline void Compiler::impInsertStmtBefore(Statement* stmt, Statement* stmtBefore)
+void Compiler::impInsertStmtBefore(Statement* stmt, Statement* stmtBefore)
 {
     assert(stmt != nullptr);
     assert(stmtBefore != nullptr);
@@ -2017,7 +2017,7 @@ void Compiler::impSpillEvalStack()
  *  On return the stack is guaranteed to be empty.
  */
 
-inline void Compiler::impEvalSideEffects()
+void Compiler::impEvalSideEffects()
 {
     impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("impEvalSideEffects"));
     verCurrentState.esStackDepth = 0;
@@ -2030,7 +2030,7 @@ inline void Compiler::impEvalSideEffects()
  *  [0..chkLevel) is the portion of the stack which will be checked and spilled.
  */
 
-inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason))
+void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason))
 {
     assert(chkLevel != CHECK_SPILL_NONE);
 
@@ -2082,7 +2082,7 @@ inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLev
  *  those trees to temps and replace them on the stack with refs to their temps.
  */
 
-inline void Compiler::impSpillSpecialSideEff()
+void Compiler::impSpillSpecialSideEff()
 {
     // Only exception objects need to be carefully handled
 
@@ -2369,7 +2369,7 @@ void Compiler::impMakeMultiUse(GenTree*     tree,
  * generate now.
  */
 
-inline void Compiler::impCurStmtOffsSet(IL_OFFSET offs)
+void Compiler::impCurStmtOffsSet(IL_OFFSET offs)
 {
     if (compIsForInlining())
     {
@@ -2387,7 +2387,7 @@ inline void Compiler::impCurStmtOffsSet(IL_OFFSET offs)
 /*****************************************************************************
  * Returns current IL offset with stack-empty and call-instruction info incorporated
  */
-inline IL_OFFSETX Compiler::impCurILOffset(IL_OFFSET offs, bool callInstruction)
+IL_OFFSETX Compiler::impCurILOffset(IL_OFFSET offs, bool callInstruction)
 {
     if (compIsForInlining())
     {
@@ -2578,7 +2578,7 @@ bool Compiler::impOpcodeIsCallOpcode(OPCODE opcode)
 
 /*****************************************************************************/
 
-static inline bool impOpcodeIsCallSiteBoundary(OPCODE opcode)
+static bool impOpcodeIsCallSiteBoundary(OPCODE opcode)
 {
     switch (opcode)
     {
