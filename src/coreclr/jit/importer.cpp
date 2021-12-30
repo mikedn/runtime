@@ -13027,10 +13027,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // The pointer may have side-effects
                     if (op1->AsOp()->gtOp1->gtFlags & GTF_SIDE_EFFECT)
                     {
-                        impAppendTree(op1->AsOp()->gtOp1, CHECK_SPILL_ALL, impCurStmtOffs);
-#ifdef DEBUG
-                        impNoteLastILoffs();
-#endif
+                        impSpillAllAppendTree(op1->AsOp()->gtOp1);
                     }
 
                     // We already have the class handle
@@ -13956,10 +13953,7 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
         }
     }
 
-    impAppendTree(ret, CHECK_SPILL_NONE, impCurStmtOffs);
-
-    // Remember at which IL offset the tree was finished
-    INDEBUG(impNoteLastILoffs();)
+    impSpillNoneAppendTree(ret);
 }
 
 void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
