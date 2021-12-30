@@ -512,6 +512,48 @@ inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
 #endif
 }
 
+void Compiler::impSpillAppendTree(GenTree* op1)
+{
+    // We need to call impSpillLclRefs() for a struct type lclVar.
+    // This is because there may be loads of that lclVar on the evaluation stack, and
+    // we need to ensure that those loads are completed before we modify it.
+    if (op1->OperIs(GT_ASG) && varTypeIsStruct(op1->AsOp()->GetOp(0)->GetType()))
+    {
+        GenTree*       lhs    = op1->AsOp()->GetOp(0);
+        GenTreeLclVar* lclVar = nullptr;
+
+        if (lhs->OperIs(GT_LCL_VAR))
+        {
+            lclVar = lhs->AsLclVar();
+        }
+        else if (lhs->OperIs(GT_OBJ, GT_BLK))
+        {
+            // Check if LHS address is within some struct local, to catch
+            // cases where we're updating the struct by something other than a stfld
+            lclVar = impIsAddressInLocal(lhs->AsBlk()->GetAddr());
+        }
+
+        if (lclVar != nullptr)
+        {
+            impSpillLclRefs(lclVar->GetLclNum());
+        }
+    }
+
+    impSpillAllAppendTree(op1);
+}
+
+void Compiler::impSpillAllAppendTree(GenTree* op1)
+{
+    impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
+    INDEBUG(impNoteLastILoffs();)
+}
+
+void Compiler::impSpillNoneAppendTree(GenTree* op1)
+{
+    impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
+    INDEBUG(impNoteLastILoffs();)
+}
+
 //------------------------------------------------------------------------
 // impAppendStmt: Add the statement to the current stmts list.
 //
@@ -9651,40 +9693,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto DECODE_OPCODE;
 
             SPILL_APPEND:
-                // We need to call impSpillLclRefs() for a struct type lclVar.
-                // This is because there may be loads of that lclVar on the evaluation stack, and
-                // we need to ensure that those loads are completed before we modify it.
-                if (op1->OperIs(GT_ASG) && varTypeIsStruct(op1->AsOp()->GetOp(0)->GetType()))
-                {
-                    GenTree*       lhs    = op1->AsOp()->GetOp(0);
-                    GenTreeLclVar* lclVar = nullptr;
-
-                    if (lhs->OperIs(GT_LCL_VAR))
-                    {
-                        lclVar = lhs->AsLclVar();
-                    }
-                    else if (lhs->OperIs(GT_OBJ, GT_BLK))
-                    {
-                        // Check if LHS address is within some struct local, to catch
-                        // cases where we're updating the struct by something other than a stfld
-                        lclVar = impIsAddressInLocal(lhs->AsBlk()->GetAddr());
-                    }
-
-                    if (lclVar != nullptr)
-                    {
-                        impSpillLclRefs(lclVar->GetLclNum());
-                    }
-                }
+                impSpillAppendTree(op1);
+                break;
 
             SPILL_ALL_APPEND:
-                impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
-                goto DONE_APPEND;
+                impSpillAllAppendTree(op1);
+                break;
 
             APPEND:
-                impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
-            DONE_APPEND:
-                // Remember at which BC offset the tree was finished
-                INDEBUG(impNoteLastILoffs();)
+                impSpillNoneAppendTree(op1);
                 break;
 
             case CEE_LDNULL:

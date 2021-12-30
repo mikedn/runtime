@@ -3111,6 +3111,9 @@ public:
     void impAppendStmt(Statement* stmt);
     void impInsertStmtBefore(Statement* stmt, Statement* stmtBefore);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
+    void impSpillAppendTree(GenTree* tree);
+    void impSpillAllAppendTree(GenTree* tree);
+    void impSpillNoneAppendTree(GenTree* tree);
     void impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
