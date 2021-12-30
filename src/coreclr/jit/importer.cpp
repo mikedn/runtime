@@ -1955,19 +1955,6 @@ void Compiler::impSpillEvalStack()
 /*****************************************************************************
  *
  *  If the stack contains any trees with side effects in them, assign those
- *  trees to temps and append the assignments to the statement list.
- *  On return the stack is guaranteed to be empty.
- */
-
-void Compiler::impEvalSideEffects()
-{
-    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("impEvalSideEffects"));
-    verCurrentState.esStackDepth = 0;
-}
-
-/*****************************************************************************
- *
- *  If the stack contains any trees with side effects in them, assign those
  *  trees to temps and replace them on the stack with refs to their temps.
  *  [0..chkLevel) is the portion of the stack which will be checked and spilled.
  */
@@ -10057,7 +10044,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (verCurrentState.esStackDepth > 0)
                 {
-                    impEvalSideEffects();
+                    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("endfinally"));
+                    verCurrentState.esStackDepth = 0;
                 }
 
                 if (info.compXcptnsCount == 0)
@@ -13369,24 +13357,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Any block with a throw is rarely executed.
                 block->bbSetRunRarely();
 
-                // Pop the exception object and create the 'throw' helper call
-                op1 = gtNewHelperCallNode(CORINFO_HELP_THROW, TYP_VOID, gtNewCallArgs(impPopStack().val));
-
-            // Fall through to clear out the eval stack.
-
-            EVAL_APPEND:
-                if (verCurrentState.esStackDepth > 0)
-                {
-                    impEvalSideEffects();
-                }
-
-                assert(verCurrentState.esStackDepth == 0);
-
-                impSpillNoneAppendTree(op1);
-                break;
+                op1 = impPopStack().val;
+                op1 = gtNewHelperCallNode(CORINFO_HELP_THROW, TYP_VOID, gtNewCallArgs(op1));
+                goto POP_APPEND;
 
             case CEE_RETHROW:
-
                 assert(!compIsForInlining());
 
                 if (info.compXcptnsCount == 0)
@@ -13395,8 +13370,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
                 op1 = gtNewHelperCallNode(CORINFO_HELP_RETHROW, TYP_VOID);
+            POP_APPEND:
+                if (verCurrentState.esStackDepth > 0)
+                {
+                    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("throw"));
+                    verCurrentState.esStackDepth = 0;
+                }
 
-                goto EVAL_APPEND;
+                impSpillNoneAppendTree(op1);
+                break;
 
             case CEE_INITBLK:
                 op3 = impPopStack().val; // Size
