@@ -362,18 +362,10 @@ void Compiler::impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Stat
     block->bbFlags |= BBF_IMPORTED;
 }
 
-/*****************************************************************************
- *
- *  Check that storing the given tree doesnt mess up the semantic order. Note
- *  that this has only limited value as we can only check [0..chkLevel).
- */
+#ifdef DEBUG
 
 void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
 {
-#ifndef DEBUG
-    return;
-#else
-
     if (chkLevel == CHECK_SPILL_ALL)
     {
         chkLevel = verCurrentState.esStackDepth;
@@ -430,8 +422,9 @@ void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
             }
         }
     }
-#endif
 }
+
+#endif // DEBUG
 
 /*****************************************************************************
  *
@@ -513,7 +506,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
         }
     }
 
-    impAppendStmtCheck(stmt, chkLevel);
+    INDEBUG(impAppendStmtCheck(stmt, chkLevel);)
 
     impStmtListAppend(stmt);
 

@@ -3107,7 +3107,7 @@ public:
     void impStmtListEnd(BasicBlock* block);
     void impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt);
 
-    void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);
+    INDEBUG(void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);)
     void impAppendStmt(Statement* stmt, unsigned chkLevel);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
     void impSpillAppendTree(GenTree* tree);
