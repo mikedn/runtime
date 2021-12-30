@@ -3281,7 +3281,7 @@ private:
     void               impSpillStructValues();
     void               impSpillEvalStack();
     static fgWalkPreFn impFindValueClasses;
-    void impSpillLclRefs(ssize_t lclNum);
+    void impSpillLclOrFieldReferences(size_t lclNumOrFieldHandle);
 
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
     GenTree* impNewCatchArg();

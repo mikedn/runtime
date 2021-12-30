@@ -451,7 +451,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
         unsigned flags = expr->gtFlags & GTF_GLOB_EFFECT;
 
         // Assignment to (unaliased) locals don't count as a side-effect as
-        // we handle them specially using impSpillLclRefs(). Temp locals should
+        // we handle them specially using impSpillLclOrFieldReferences(). Temp locals should
         // be fine too.
 
         if ((expr->gtOper == GT_ASG) && (expr->AsOp()->gtOp1->gtOper == GT_LCL_VAR) &&
@@ -550,7 +550,7 @@ Statement* Compiler::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSET
 
 void Compiler::impSpillAppendTree(GenTree* op1)
 {
-    // We need to call impSpillLclRefs() for a struct type lclVar.
+    // We need to call impSpillLclOrFieldReferences() for a struct type lclVar.
     // This is because there may be loads of that lclVar on the evaluation stack, and
     // we need to ensure that those loads are completed before we modify it.
     if (op1->OperIs(GT_ASG) && varTypeIsStruct(op1->AsOp()->GetOp(0)->GetType()))
@@ -571,7 +571,7 @@ void Compiler::impSpillAppendTree(GenTree* op1)
 
         if (lclVar != nullptr)
         {
-            impSpillLclRefs(lclVar->GetLclNum());
+            impSpillLclOrFieldReferences(lclVar->GetLclNum());
         }
     }
 
@@ -2048,42 +2048,35 @@ void Compiler::impSpillStructValues()
     }
 }
 
-/*****************************************************************************
- *
- *  If the stack contains any trees with references to local #lclNum, assign
- *  those trees to temps and replace their place on the stack with refs to
- *  their temps.
- */
-
-void Compiler::impSpillLclRefs(ssize_t lclNum)
+// Spill all trees containing references to the specified local or field.
+// lclNum is either a local variable number or a field handle (recognized
+// by gtHasRef).
+void Compiler::impSpillLclOrFieldReferences(size_t lclNumOrFieldHandle)
 {
-    /* Before we make any appends to the tree list we must spill the
-     * "special" side effects (GTF_ORDER_SIDEEFF) - GT_CATCH_ARG */
-
     impSpillCatchArg();
 
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
 
+        // These never need to be spilled, they're basically constants. However, if they
+        // are used by indirections then those indirections need spilling. gtHasRef does
+        // not check for indirections so we have to spill any tree that contains these.
+        // At least avoid spilling when the tree is just a local address node.
         if (tree->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
             continue;
         }
 
-        /* If the tree may throw an exception, and the block has a handler,
-           then we need to spill assignments to the local if the local is
-           live on entry to the handler.
-           Just spill 'em all without considering the liveness */
+        // If the tree may throw an exception, and the block has a handler, then we need
+        // to spill assignments to the local if the local is live on entry to the handler.
+        // We don't have liveness during import so we simply spill them all.
 
-        bool xcptnCaught = ehBlockHasExnFlowDsc(compCurBB) && (tree->gtFlags & (GTF_CALL | GTF_EXCEPT));
+        bool xcptnCaught = ((tree->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0) && ehBlockHasExnFlowDsc(compCurBB);
 
-        /* Skip the tree if it doesn't have an affected reference,
-           unless xcptnCaught */
-
-        if (xcptnCaught || gtHasRef(tree, lclNum))
+        if (xcptnCaught || gtHasRef(tree, lclNumOrFieldHandle))
         {
-            impSpillStackEntry(level DEBUGARG("impSpillLclRefs"));
+            impSpillStackEntry(level DEBUGARG("lcl/field ref spill temp"));
         }
     }
 }
@@ -9883,7 +9876,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 /* Spill any refs to the local from the stack */
 
-                impSpillLclRefs(lclNum);
+                impSpillLclOrFieldReferences(lclNum);
 
                 // We can generate an assignment to a TYP_FLOAT from a TYP_DOUBLE
                 // We insert a cast to the dest 'op2' type
@@ -12567,7 +12560,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if (GenTreeLclVarCommon* lcl = impIsLocalAddrExpr(obj))
                     {
-                        impSpillLclRefs(lcl->GetLclNum());
+                        impSpillLclOrFieldReferences(lcl->GetLclNum());
                     }
                     else if (tiObj->IsType(TI_STRUCT))
                     {
@@ -12580,7 +12573,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
                 // Spill any refs to the same member from the stack
-                impSpillLclRefs((ssize_t)resolvedToken.hField);
+                impSpillLclOrFieldReferences(reinterpret_cast<size_t>(resolvedToken.hField));
 
                 // stsfld also interferes with indirect accesses (for aliased
                 // statics) and calls. But don't need to spill other statics
