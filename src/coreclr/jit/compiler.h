@@ -3105,8 +3105,8 @@ public:
     void impEndTreeList(BasicBlock* block);
     void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);
     void impAppendStmt(Statement* stmt, unsigned chkLevel);
-    void impAppendStmt(Statement* stmt);
-    void impInsertStmtBefore(Statement* stmt, Statement* stmtBefore);
+    void impStmtListAppend(Statement* stmt);
+    void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
     void impSpillAppendTree(GenTree* tree);
     void impSpillAllAppendTree(GenTree* tree);
@@ -3115,7 +3115,7 @@ public:
     void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
-    Statement* impExtractLastStmt();
+    Statement* impStmtListRemoveLast();
 
     GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,

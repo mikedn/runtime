@@ -481,7 +481,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
 
     impAppendStmtCheck(stmt, chkLevel);
 
-    impAppendStmt(stmt);
+    impStmtListAppend(stmt);
 
 #ifdef FEATURE_SIMD
     if (opts.OptimizationEnabled() && featureSIMD)
@@ -563,58 +563,37 @@ void Compiler::impSpillNoneAppendTree(GenTree* op1)
     INDEBUG(impNoteLastILoffs();)
 }
 
-//------------------------------------------------------------------------
-// impAppendStmt: Add the statement to the current stmts list.
-//
-// Arguments:
-//    stmt - the statement to add.
-//
-void Compiler::impAppendStmt(Statement* stmt)
+void Compiler::impStmtListAppend(Statement* stmt)
 {
     if (impStmtList == nullptr)
     {
-        // The stmt is the first in the list.
         impStmtList = stmt;
     }
     else
     {
-        // Append the expression statement to the existing list.
         impLastStmt->SetNextStmt(stmt);
         stmt->SetPrevStmt(impLastStmt);
     }
+
     impLastStmt = stmt;
 }
 
-//------------------------------------------------------------------------
-// impExtractLastStmt: Extract the last statement from the current stmts list.
-//
-// Return Value:
-//    The extracted statement.
-//
-// Notes:
-//    It assumes that the stmt will be reinserted later.
-//
-Statement* Compiler::impExtractLastStmt()
+Statement* Compiler::impStmtListRemoveLast()
 {
     assert(impLastStmt != nullptr);
 
     Statement* stmt = impLastStmt;
     impLastStmt     = impLastStmt->GetPrevStmt();
+
     if (impLastStmt == nullptr)
     {
         impStmtList = nullptr;
     }
+
     return stmt;
 }
 
-//-------------------------------------------------------------------------
-// impInsertStmtBefore: Insert the given "stmt" before "stmtBefore".
-//
-// Arguments:
-//    stmt       - a statement to insert;
-//    stmtBefore - an insertion point to insert "stmt" before.
-//
-void Compiler::impInsertStmtBefore(Statement* stmt, Statement* stmtBefore)
+void Compiler::impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore)
 {
     assert(stmt != nullptr);
     assert(stmtBefore != nullptr);
@@ -629,6 +608,7 @@ void Compiler::impInsertStmtBefore(Statement* stmt, Statement* stmtBefore)
         stmt->SetPrevStmt(stmtPrev);
         stmtPrev->SetNextStmt(stmt);
     }
+
     stmt->SetNextStmt(stmtBefore);
     stmtBefore->SetPrevStmt(stmt);
 }
@@ -1302,7 +1282,7 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
                 beforeStmt = oldLastStmt->GetNextStmt();
             }
 
-            impInsertStmtBefore(gtNewStmt(value->AsOp()->GetOp(0), impCurStmtOffs), beforeStmt);
+            impStmtListInsertBefore(gtNewStmt(value->AsOp()->GetOp(0), impCurStmtOffs), beforeStmt);
 
             value->AsOp()->SetOp(0, gtNewNothingNode());
         }
@@ -14119,12 +14099,12 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
     if (block->bbJumpKind == BBJ_COND)
     {
-        branchStmt = impExtractLastStmt();
+        branchStmt = impStmtListRemoveLast();
         assert(branchStmt->GetRootNode()->OperIs(GT_JTRUE));
     }
     else if (block->bbJumpKind == BBJ_SWITCH)
     {
-        branchStmt = impExtractLastStmt();
+        branchStmt = impStmtListRemoveLast();
         assert(branchStmt->GetRootNode()->OperIs(GT_SWITCH));
     }
 
