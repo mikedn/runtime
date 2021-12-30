@@ -502,7 +502,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
         }
         else
         {
-            impSpillSpecialSideEff();
+            impSpillCatchArg();
         }
     }
 
@@ -1966,7 +1966,7 @@ void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBU
     // Before we make any appends to the tree list we must spill the
     // "special" side effects (GTF_ORDER_SIDEEFF on a GT_CATCH_ARG)
 
-    impSpillSpecialSideEff();
+    impSpillCatchArg();
 
     if (chkLevel == CHECK_SPILL_ALL)
     {
@@ -2005,16 +2005,10 @@ void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBU
     }
 }
 
-/*****************************************************************************
- *
- *  If the stack contains any trees with special side effects in them, assign
- *  those trees to temps and replace them on the stack with refs to their temps.
- */
-
-void Compiler::impSpillSpecialSideEff()
+// Spill all trees containing CATCH_ARG nodes.
+void Compiler::impSpillCatchArg()
 {
-    // Only exception objects need to be carefully handled
-
+    // CATCH_ARG may only appear in catch blocks
     if (!compCurBB->bbCatchTyp)
     {
         return;
@@ -2028,10 +2022,10 @@ void Compiler::impSpillSpecialSideEff()
     {
         GenTree* tree = verCurrentState.esStack[level].val;
 
-        // Make sure if we have an exception object in the sub tree we spill ourselves.
+        // CATCH_ARG should have GTF_ORDER_SIDEEFF so we can avoid tree walking if that's not present.
         if (((tree->gtFlags & GTF_ORDER_SIDEEFF) != 0) && (fgWalkTreePre(&tree, visitor) == WALK_ABORT))
         {
-            impSpillStackEntry(level DEBUGARG("impSpillSpecialSideEff"));
+            impSpillStackEntry(level DEBUGARG("catch arg spill temp"));
         }
     }
 }
@@ -2074,7 +2068,7 @@ void Compiler::impSpillLclRefs(ssize_t lclNum)
     /* Before we make any appends to the tree list we must spill the
      * "special" side effects (GTF_ORDER_SIDEEFF) - GT_CATCH_ARG */
 
-    impSpillSpecialSideEff();
+    impSpillCatchArg();
 
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
@@ -5147,7 +5141,7 @@ int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const B
 void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 {
     // Spill any special side effects
-    impSpillSpecialSideEff();
+    impSpillCatchArg();
 
     // Get get the expression to box from the stack.
     GenTree*             op1       = nullptr;
@@ -7414,7 +7408,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             callRetTyp = TYP_REF;
             call->SetType(TYP_REF);
             call->AsCall()->SetRetSigType(TYP_REF);
-            impSpillSpecialSideEff();
+            impSpillCatchArg();
 
             impPushOnStack(call, typeInfo(TI_REF, clsHnd));
         }
@@ -7697,7 +7691,7 @@ DONE_INTRINSIC:
     }
     else
     {
-        impSpillSpecialSideEff();
+        impSpillCatchArg();
 
         if ((clsFlags & CORINFO_FLG_ARRAY) != 0)
         {
@@ -9387,7 +9381,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
         // We will spill the GT_CATCH_ARG and the input of the BB_QMARK block
         // to a temp. This is a trade off for code simplicity
-        impSpillSpecialSideEff();
+        impSpillCatchArg();
     }
 
     while (codeAddr < codeEndp)
@@ -11590,7 +11584,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 /* Since we will implicitly insert newObjThisPtr at the start of the
                    argument list, spill any GTF_ORDER_SIDEEFF */
-                impSpillSpecialSideEff();
+                impSpillCatchArg();
 
                 /* NEWOBJ does not respond to TAIL */
                 prefixFlags &= ~PREFIX_TAILCALL_EXPLICIT;
