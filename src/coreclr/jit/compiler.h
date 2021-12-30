@@ -3111,7 +3111,6 @@ public:
     void impSpillAppendTree(GenTree* tree);
     void impSpillAllAppendTree(GenTree* tree);
     void impSpillNoneAppendTree(GenTree* tree);
-    void impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);

@@ -635,22 +635,6 @@ void Compiler::impInsertStmtBefore(Statement* stmt, Statement* stmtBefore)
 
 /*****************************************************************************
  *
- *  Insert the given expression tree before "stmtBefore"
- */
-
-void Compiler::impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore)
-{
-    /* Allocate an 'expression statement' node */
-
-    Statement* stmt = gtNewStmt(tree, offset);
-
-    /* Append the statement to the current block's stmt list */
-
-    impInsertStmtBefore(stmt, stmtBefore);
-}
-
-/*****************************************************************************
- *
  *  Append an assignment of the given value to a temp to the current tree list.
  *  curLevel is the stack level for which the spill to the temp is being done.
  */
@@ -1318,7 +1302,8 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
                 beforeStmt = oldLastStmt->GetNextStmt();
             }
 
-            impInsertTreeBefore(value->AsOp()->GetOp(0), impCurStmtOffs, beforeStmt);
+            impInsertStmtBefore(gtNewStmt(value->AsOp()->GetOp(0), impCurStmtOffs), beforeStmt);
+
             value->AsOp()->SetOp(0, gtNewNothingNode());
         }
 
