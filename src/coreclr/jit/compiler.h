@@ -3440,10 +3440,10 @@ private:
 
     CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
 
-    GenTree* impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
-    GenTree* impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
-    GenTree* impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile);
-    GenTree* impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
+    void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
+    void impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
+    void impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile);
+    void impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
 
     GenTree* impImportPop(BasicBlock* block);
 

@@ -9692,18 +9692,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 codeAddr += sizeof(__int8);
                 goto DECODE_OPCODE;
 
-            SPILL_APPEND:
-                impSpillAppendTree(op1);
-                break;
-
-            SPILL_ALL_APPEND:
-                impSpillAllAppendTree(op1);
-                break;
-
-            APPEND:
-                impSpillNoneAppendTree(op1);
-                break;
-
             case CEE_LDNULL:
                 impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo());
                 break;
@@ -9962,13 +9950,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     if (opts.compDbgCode)
                     {
-                        op1 = gtNewNothingNode();
-                        goto SPILL_ALL_APPEND;
+                        impSpillAllAppendTree(gtNewNothingNode());
                     }
-                    else
-                    {
-                        break;
-                    }
+
+                    break;
                 }
 
                 /* Create the assignment node */
@@ -10018,7 +10003,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewAssignNode(op2, op1);
                 }
 
-                goto SPILL_APPEND;
+                impSpillAppendTree(op1);
+                break;
 
             case CEE_LDLOCA:
                 lclNum = getU2LittleEndian(codeAddr);
@@ -10148,8 +10134,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assert(verCurrentState.esStackDepth == 0);
 
-                op1 = gtNewOperNode(GT_RETFILT, TYP_VOID, nullptr);
-                goto APPEND;
+                impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, TYP_VOID, nullptr));
+                break;
 
             case CEE_ENDFILTER:
 
@@ -10174,19 +10160,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     BADCODE("EndFilter outside a filter handler");
                 }
 
-                /* Mark current bb as end of filter */
-
                 assert(compCurBB->bbFlags & BBF_DONT_REMOVE);
                 assert(compCurBB->bbJumpKind == BBJ_EHFILTERRET);
 
-                /* Mark catch handler as successor */
-
-                op1 = gtNewOperNode(GT_RETFILT, op1->TypeGet(), op1);
                 if (verCurrentState.esStackDepth != 0)
                 {
                     BADCODE("stack must be 1 on end of filter");
                 }
-                goto APPEND;
+
+                impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, op1->GetType(), op1));
+                break;
 
             case CEE_RET:
                 prefixFlags &= ~PREFIX_TAILCALL; // ret without call before it
@@ -10239,20 +10222,17 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     BADCODE("Incompatible target for CEE_JMPs");
                 }
 
-                op1 = new (this, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod);
-
-                /* Mark the basic block as being a JUMP instead of RETURN */
-
+                // Mark the basic block as being a JUMP instead of RETURN
                 block->bbFlags |= BBF_HAS_JMP;
-
-                /* Set this flag to make sure register arguments have a location assigned
-                 * even if we don't use them inside the method */
-
+                // Set this flag to make sure register arguments have a location assigned
+                // even if we don't use them inside the method
                 compJmpOpUsed = true;
-
+                // TODO-MIKE-Review: What does struct promotion have to do with JMP?
+                // Probably they messed up arg passing...
                 fgNoStructPromotion = true;
 
-                goto APPEND;
+                impSpillNoneAppendTree(new (this, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod));
+                break;
 
             case CEE_LDELEMA:
                 assertImp(sz == sizeof(unsigned));
@@ -10434,7 +10414,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 // Else call a helper function to do the assignment
                 op1 = gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID, impPopCallArgs(3, nullptr));
-                goto SPILL_ALL_APPEND;
+                impSpillAllAppendTree(op1);
+                break;
 
             case CEE_STELEM_I1:
                 lclTyp = TYP_BYTE;
@@ -10524,7 +10505,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     compFloatingPointUsed = true;
                 }
 
-                goto SPILL_APPEND;
+                impSpillAppendTree(op1);
+                break;
 
             case CEE_ADD:
                 oper = GT_ADD;
@@ -10785,8 +10767,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if ((op1->gtFlags & GTF_GLOB_EFFECT) != 0)
                     {
-                        op1 = gtUnusedValNode(op1);
-                        goto SPILL_ALL_APPEND;
+                        impSpillAllAppendTree(gtUnusedValNode(op1));
                     }
 
                     break;
@@ -10852,17 +10833,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
                 }
 
-                op1 = gtNewOperNode(GT_JTRUE, TYP_VOID, op1);
-
                 // GT_JTRUE is handled specially for non-empty stacks. See 'addStmt'
-                // in impImportBlock(block). For correct line numbers, spill stack. */
+                // in impImportBlock(block). For correct line numbers, spill stack.
 
                 if (opts.compDbgCode && impCurStmtOffs != BAD_IL_OFFSET)
                 {
                     impSpillStackEnsure(true);
                 }
 
-                goto SPILL_ALL_APPEND;
+                impSpillAllAppendTree(gtNewOperNode(GT_JTRUE, TYP_VOID, op1));
+                break;
 
             case CEE_CEQ:
                 oper = GT_EQ;
@@ -11064,18 +11044,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_SWITCH:
                 assert(!compIsForInlining());
+                // skip over the switch-table
+                codeAddr += 4 + getU4LittleEndian(codeAddr) * 4;
 
                 op1 = impPopStack().val;
-                assertImp(genActualTypeIsIntOrI(op1->TypeGet()));
+                assertImp(genActualTypeIsIntOrI(op1->GetType()));
 
-                /* We can create a switch node */
-
-                op1 = gtNewOperNode(GT_SWITCH, TYP_VOID, op1);
-
-                val = (int)getU4LittleEndian(codeAddr);
-                codeAddr += 4 + val * 4; // skip over the switch-table
-
-                goto SPILL_ALL_APPEND;
+                impSpillAllAppendTree(gtNewOperNode(GT_SWITCH, TYP_VOID, op1));
+                break;
 
             /************************** Casting OPCODES ***************************/
 
@@ -11304,7 +11280,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (op1 != nullptr)
                 {
-                    goto SPILL_APPEND;
+                    impSpillAppendTree(op1);
                 }
 
                 break;
@@ -11403,7 +11379,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     impSpillSideEffects(true, (unsigned)CHECK_SPILL_ALL DEBUGARG("spill side effects before STIND"));
                 }
 
-                goto APPEND;
+                impSpillNoneAppendTree(op1);
+                break;
 
             case CEE_LDIND_I1:
                 lclTyp = TYP_BYTE;
@@ -12727,7 +12704,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                goto APPEND;
+                impSpillNoneAppendTree(op1);
+                break;
             }
 
             case CEE_NEWARR:
@@ -13474,7 +13452,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assert(verCurrentState.esStackDepth == 0);
 
-                goto APPEND;
+                impSpillNoneAppendTree(op1);
+                break;
 
             case CEE_RETHROW:
 
@@ -13494,16 +13473,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val; // Value
                 op1 = impPopStack().val; // Dest
 
-                op1 = impImportInitBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
-                goto SPILL_APPEND;
+                impImportInitBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
+                break;
 
             case CEE_CPBLK:
                 op3 = impPopStack().val; // Size
                 op2 = impPopStack().val; // Src
                 op1 = impPopStack().val; // Dest
 
-                op1 = impImportCpBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
-                goto SPILL_APPEND;
+                impImportCpBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
+                break;
 
             case CEE_INITOBJ:
                 assertImp(sz == sizeof(unsigned));
@@ -13532,8 +13511,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     goto STIND_CPOBJ;
                 }
 
-                op1 = impImportInitObj(op1, typGetObjLayout(resolvedToken.hClass));
-                goto SPILL_APPEND;
+                impImportInitObj(op1, typGetObjLayout(resolvedToken.hClass));
+                break;
 
             case CEE_CPOBJ:
                 assertImp(sz == sizeof(unsigned));
@@ -13565,8 +13544,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     goto STIND_CPOBJ;
                 }
 
-                op1 = impImportCpObj(op1, op2, typGetObjLayout(resolvedToken.hClass));
-                goto SPILL_APPEND;
+                impImportCpObj(op1, op2, typGetObjLayout(resolvedToken.hClass));
+                break;
 
             case CEE_STOBJ:
                 assertImp(sz == sizeof(unsigned));
@@ -13618,7 +13597,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         assert(op1->OperIs(GT_CALL) && op1->TypeIs(TYP_VOID));
                     }
                 }
-                goto SPILL_APPEND;
+
+                impSpillAppendTree(op1);
+                break;
 
             case CEE_MKREFANY:
                 assert(!compIsForInlining());
@@ -13732,14 +13713,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_BREAK:
-                op1 = gtNewHelperCallNode(CORINFO_HELP_USER_BREAKPOINT, TYP_VOID);
-                goto SPILL_ALL_APPEND;
+                impSpillAllAppendTree(gtNewHelperCallNode(CORINFO_HELP_USER_BREAKPOINT, TYP_VOID));
+                break;
 
             case CEE_NOP:
                 if (opts.compDbgCode)
                 {
-                    op1 = new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                    goto SPILL_ALL_APPEND;
+                    impSpillAllAppendTree(new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID));
                 }
                 break;
 
@@ -17034,7 +17014,7 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     return false;
 }
 
-GenTree* Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
+void Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 {
     GenTree* dst = nullptr;
 
@@ -17071,10 +17051,10 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
         initValue = gtNewIconNode(0);
     }
 
-    return gtNewAssignNode(dst, initValue);
+    impSpillAppendTree(gtNewAssignNode(dst, initValue));
 }
 
-GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout)
+void Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout)
 {
     GenTree* dst = nullptr;
 
@@ -17117,10 +17097,10 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayou
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
     gtInitStructCopyAsg(asg);
-    return asg;
+    impSpillAppendTree(asg);
 }
 
-GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
+void Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
 {
     GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
@@ -17130,7 +17110,9 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
     {
         GenTreeDynBlk* init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
         init->SetVolatile(isVolatile);
-        return init;
+        impSpillAppendTree(init);
+
+        return;
     }
 
     ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
@@ -17146,10 +17128,10 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
         initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
     }
 
-    return gtNewAssignNode(dst, initValue);
+    impSpillAppendTree(gtNewAssignNode(dst, initValue));
 }
 
-GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
+void Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
 {
     GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
@@ -17159,7 +17141,9 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
     {
         GenTreeDynBlk* copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
         copy->SetVolatile(isVolatile);
-        return copy;
+        impSpillAppendTree(copy);
+
+        return;
     }
 
     ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
@@ -17177,7 +17161,7 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
         src->SetVolatile();
     }
 
-    return gtNewAssignNode(dst, src);
+    impSpillAppendTree(gtNewAssignNode(dst, src));
 }
 
 GenTree* Compiler::impImportPop(BasicBlock* block)
