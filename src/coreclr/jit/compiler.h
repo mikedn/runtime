@@ -3097,11 +3097,8 @@ protected:
     Statement* impLastStmt; // The last statement for the current BB.
 
 public:
-    enum
-    {
-        CHECK_SPILL_ALL  = -1,
-        CHECK_SPILL_NONE = -2
-    };
+    static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
+    static constexpr unsigned CHECK_SPILL_NONE = UINT32_MAX - 1;
 
     void impBeginTreeList();
     void impEndTreeList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt);

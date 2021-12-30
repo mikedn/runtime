@@ -340,12 +340,12 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
     return;
 #else
 
-    if (chkLevel == (unsigned)CHECK_SPILL_ALL)
+    if (chkLevel == CHECK_SPILL_ALL)
     {
         chkLevel = verCurrentState.esStackDepth;
     }
 
-    if (verCurrentState.esStackDepth == 0 || chkLevel == 0 || chkLevel == (unsigned)CHECK_SPILL_NONE)
+    if (verCurrentState.esStackDepth == 0 || chkLevel == 0 || chkLevel == CHECK_SPILL_NONE)
     {
         return;
     }
@@ -408,12 +408,12 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
 
 inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
 {
-    if (chkLevel == (unsigned)CHECK_SPILL_ALL)
+    if (chkLevel == CHECK_SPILL_ALL)
     {
         chkLevel = verCurrentState.esStackDepth;
     }
 
-    if ((chkLevel != 0) && (chkLevel != (unsigned)CHECK_SPILL_NONE))
+    if ((chkLevel != 0) && (chkLevel != CHECK_SPILL_NONE))
     {
         assert(chkLevel <= verCurrentState.esStackDepth);
 
@@ -2031,7 +2031,7 @@ void Compiler::impSpillEvalStack()
 
 inline void Compiler::impEvalSideEffects()
 {
-    impSpillSideEffects(false, (unsigned)CHECK_SPILL_ALL DEBUGARG("impEvalSideEffects"));
+    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("impEvalSideEffects"));
     verCurrentState.esStackDepth = 0;
 }
 
@@ -2475,7 +2475,7 @@ void Compiler::impNoteBranchOffs()
 {
     if (opts.compDbgCode)
     {
-        impAppendTree(gtNewNothingNode(), (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(gtNewNothingNode(), CHECK_SPILL_NONE, impCurStmtOffs);
     }
 }
 
@@ -5335,10 +5335,10 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         }
 
         // Spill eval stack to flush out any pending side effects.
-        impSpillSideEffects(true, (unsigned)CHECK_SPILL_ALL DEBUGARG("impImportAndPushBox"));
+        impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportAndPushBox"));
 
         // Set up this copy as a second assignment.
-        Statement* copyStmt = impAppendTree(op1, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+        Statement* copyStmt = impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
 
         op1 = gtNewLclvNode(impBoxTemp, TYP_REF);
 
@@ -6419,7 +6419,7 @@ void Compiler::impInsertHelperCall(CORINFO_HELPER_DESC* helperInfo)
      * Also, consider sticking this in the first basic block.
      */
     GenTree* callout = gtNewHelperCallNode(helperInfo->helperNum, TYP_VOID, args);
-    impAppendTree(callout, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+    impAppendTree(callout, CHECK_SPILL_NONE, impCurStmtOffs);
 }
 
 // Checks whether the return types of caller and callee are compatible
@@ -7514,7 +7514,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
             // append the call node.
-            impAppendTree(call, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+            impAppendTree(call, CHECK_SPILL_ALL, impCurStmtOffs);
 
             // Now push the value of the 'new onto the stack
 
@@ -7770,7 +7770,7 @@ DONE_INTRINSIC:
         }
         else
         {
-            impAppendTree(call, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+            impAppendTree(call, CHECK_SPILL_ALL, impCurStmtOffs);
         }
     }
     else
@@ -8099,7 +8099,7 @@ void Compiler::impImportLeave(BasicBlock* block)
 
     // LEAVE clears the stack, spill side effects, and set stack to 0
 
-    impSpillSideEffects(true, (unsigned)CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
+    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
     verCurrentState.esStackDepth = 0;
 
     assert(block->bbJumpKind == BBJ_LEAVE);
@@ -8177,7 +8177,9 @@ void Compiler::impImportLeave(BasicBlock* block)
                 callBlock->bbJumpKind = BBJ_CALLFINALLY; // convert the BBJ_LEAVE to BBJ_CALLFINALLY
 
                 if (endCatches)
-                    impAppendTree(endCatches, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+                {
+                    impAppendTree(endCatches, CHECK_SPILL_NONE, impCurStmtOffs);
+                }
 
 #ifdef DEBUG
                 if (verbose)
@@ -8264,7 +8266,9 @@ void Compiler::impImportLeave(BasicBlock* block)
         block->bbJumpKind = BBJ_ALWAYS; // convert the BBJ_LEAVE to a BBJ_ALWAYS
 
         if (endCatches)
-            impAppendTree(endCatches, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+        {
+            impAppendTree(endCatches, CHECK_SPILL_NONE, impCurStmtOffs);
+        }
 
 #ifdef DEBUG
         if (verbose)
@@ -8363,7 +8367,7 @@ void Compiler::impImportLeave(BasicBlock* block)
 
     // LEAVE clears the stack, spill side effects, and set stack to 0
 
-    impSpillSideEffects(true, (unsigned)CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
+    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
     verCurrentState.esStackDepth = 0;
 
     assert(block->bbJumpKind == BBJ_LEAVE);
@@ -9528,7 +9532,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (impCurStmtOffs != BAD_IL_OFFSET && opts.compDbgCode)
                     {
                         GenTree* placeHolder = new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                        impAppendTree(placeHolder, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+                        impAppendTree(placeHolder, CHECK_SPILL_NONE, impCurStmtOffs);
 
                         assert(impCurStmtOffs == BAD_IL_OFFSET);
                     }
@@ -9966,8 +9970,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 if ((lvaTable[lclNum].lvAddrExposed || lvaTable[lclNum].lvHasLdAddrOp || lvaTable[lclNum].lvPinned) &&
                     (verCurrentState.esStackDepth > 0))
                 {
-                    impSpillSideEffects(false,
-                                        (unsigned)CHECK_SPILL_ALL DEBUGARG("Local could be aliased or is pinned"));
+                    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("Local could be aliased or is pinned"));
                 }
 
                 /* Spill any refs to the local from the stack */
@@ -10447,8 +10450,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (impStackTop().val->gtFlags & GTF_SIDE_EFFECT)
                 {
-                    impSpillSideEffects(false, (unsigned)CHECK_SPILL_ALL DEBUGARG(
-                                                   "Strict ordering of exceptions for Array store"));
+                    impSpillSideEffects(false,
+                                        CHECK_SPILL_ALL DEBUGARG("Strict ordering of exceptions for Array store"));
                 }
 
                 /* Pull the new value from the stack */
@@ -10981,15 +10984,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if (op1->gtFlags & GTF_GLOB_EFFECT)
                     {
-                        impSpillSideEffects(false, (unsigned)CHECK_SPILL_ALL DEBUGARG(
-                                                       "Branch to next Optimization, op1 side effect"));
-                        impAppendTree(gtUnusedValNode(op1), (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+                        impSpillSideEffects(false,
+                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
+                        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
                     }
                     if (op2->gtFlags & GTF_GLOB_EFFECT)
                     {
-                        impSpillSideEffects(false, (unsigned)CHECK_SPILL_ALL DEBUGARG(
-                                                       "Branch to next Optimization, op2 side effect"));
-                        impAppendTree(gtUnusedValNode(op2), (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+                        impSpillSideEffects(false,
+                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
+                        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
                     }
 
 #ifdef DEBUG
@@ -11376,7 +11379,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Spill side-effects AND global-data-accesses
                 if (verCurrentState.esStackDepth > 0)
                 {
-                    impSpillSideEffects(true, (unsigned)CHECK_SPILL_ALL DEBUGARG("spill side effects before STIND"));
+                    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("spill side effects before STIND"));
                 }
 
                 impSpillNoneAppendTree(op1);
@@ -11563,7 +11566,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         if (op1->gtFlags & GTF_SIDE_EFFECT)
                         {
                             op1 = gtUnusedValNode(op1);
-                            impAppendTree(op1, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                            impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
                         }
                         goto DO_LDFTN;
                     }
@@ -11573,7 +11576,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (op1->gtFlags & GTF_SIDE_EFFECT)
                     {
                         op1 = gtUnusedValNode(op1);
-                        impAppendTree(op1, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
                     }
                     goto DO_LDFTN;
                 }
@@ -12189,7 +12192,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (obj->gtFlags & GTF_SIDE_EFFECT)
                     {
                         obj = gtUnusedValNode(obj);
-                        impAppendTree(obj, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(obj, CHECK_SPILL_ALL, impCurStmtOffs);
                     }
                     obj = nullptr;
                 }
@@ -12478,7 +12481,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (obj->gtFlags & GTF_SIDE_EFFECT)
                     {
                         obj = gtUnusedValNode(obj);
-                        impAppendTree(obj, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(obj, CHECK_SPILL_ALL, impCurStmtOffs);
                     }
                     obj = nullptr;
                 }
@@ -13036,7 +13039,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // The pointer may have side-effects
                     if (op1->AsOp()->gtOp1->gtFlags & GTF_SIDE_EFFECT)
                     {
-                        impAppendTree(op1->AsOp()->gtOp1, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(op1->AsOp()->gtOp1, CHECK_SPILL_ALL, impCurStmtOffs);
 #ifdef DEBUG
                         impNoteLastILoffs();
 #endif
