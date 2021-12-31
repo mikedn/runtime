@@ -426,87 +426,86 @@ void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Append the given statement to the current block's tree list.
- *  [0..chkLevel) is the portion of the stack which we will check for
- *    interference with stmt and spill if needed.
- */
-
-void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
+// Append the given statement to the current block's tree list.
+// [0..spillDepth) is the portion of the stack which we will check
+// for interference with stmt and spill if needed.
+void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
 {
-    if (chkLevel == CHECK_SPILL_ALL)
+    if ((spillDepth != 0) && (verCurrentState.esStackDepth != 0))
     {
-        chkLevel = verCurrentState.esStackDepth;
-    }
+        // If the statement being appended has any side-effects, check the stack
+        // to see if anything needs to be spilled to preserve correct ordering.
 
-    if (chkLevel != 0)
-    {
-        assert(chkLevel <= verCurrentState.esStackDepth);
+        GenTree* stmtExpr        = stmt->GetRootNode();
+        unsigned stmtSideEffects = stmtExpr->GetSideEffects();
 
-        /* If the statement being appended has any side-effects, check the stack
-           to see if anything needs to be spilled to preserve correct ordering. */
+        // Assignment to (unaliased) locals don't count as a side-effect as we
+        // handle them specially using impSpillLclOrFieldReferences. Temp locals
+        // should be fine too.
 
-        GenTree* expr  = stmt->GetRootNode();
-        unsigned flags = expr->gtFlags & GTF_GLOB_EFFECT;
+        // TODO-MIKE-Review: Using GTF_GLOB_REF for locals here is dubious. It's
+        // basically never set at import time, in part due to the fact we do not
+        // know yet which variables are address exposed. What we probably need to
+        // do here is to check for address taken locals.
+        // Oddly enough, impSpillSideEffects does that already.
 
-        // Assignment to (unaliased) locals don't count as a side-effect as
-        // we handle them specially using impSpillLclOrFieldReferences(). Temp locals should
-        // be fine too.
-
-        if ((expr->gtOper == GT_ASG) && (expr->AsOp()->gtOp1->gtOper == GT_LCL_VAR) &&
-            ((expr->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) == 0) && !gtHasAddressTakenLocals(expr->AsOp()->gtOp2))
+        if (stmtExpr->OperIs(GT_ASG) && stmtExpr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
+            ((stmtExpr->AsOp()->GetOp(0)->GetSideEffects() & GTF_GLOB_REF) == 0) &&
+            !gtHasAddressTakenLocals(stmtExpr->AsOp()->GetOp(1)))
         {
-            unsigned op2Flags = expr->AsOp()->gtOp2->gtFlags & GTF_GLOB_EFFECT;
-            assert(flags == (op2Flags | GTF_ASG));
-            flags = op2Flags;
+            unsigned srcSideEffects = stmtExpr->AsOp()->GetOp(1)->GetSideEffects();
+            assert(stmtSideEffects == (srcSideEffects | GTF_ASG));
+            stmtSideEffects = srcSideEffects;
         }
 
-        if (flags != 0)
+        // TODO-MIKE-Review: It's not clear why GTF_ORDER_SIDEEFF keeps getting ignored.
+        // If the statement we're appending contains volatile indirs then we should probably
+        // spill pretty much everything. Now, such indir have GLOB_REF most of the time,
+        // except when they're generated from volatile local field access which are rather
+        // rare and unusual.
+
+        if ((stmtSideEffects & GTF_GLOB_EFFECT) == 0)
+        {
+            impSpillCatchArg();
+        }
+        else
         {
             bool spillGlobEffects = false;
 
-            if ((flags & GTF_CALL) != 0)
+            if ((stmtSideEffects & GTF_CALL) != 0)
             {
                 // If there is a call, we have to spill global refs
                 spillGlobEffects = true;
             }
-            else if (!expr->OperIs(GT_ASG))
+            else if (stmtExpr->OperIs(GT_ASG))
             {
-                if ((flags & GTF_ASG) != 0)
-                {
-                    // The expression is not an assignment node but it has an assignment side effect, it
-                    // must be an atomic op, HW intrinsic or some other kind of node that stores to memory.
-                    // Since we don't know what it assigns to, we need to spill global refs.
-                    spillGlobEffects = true;
-                }
-            }
-            else
-            {
-                GenTree* lhs = expr->gtGetOp1();
-                GenTree* rhs = expr->gtGetOp2();
+                GenTree* dst = stmtExpr->AsOp()->GetOp(0);
+                GenTree* src = stmtExpr->AsOp()->GetOp(1);
 
-                if (((rhs->gtFlags | lhs->gtFlags) & GTF_ASG) != 0)
+                if (((src->gtFlags | dst->gtFlags) & GTF_ASG) != 0)
                 {
                     // Either side of the assignment node has an assignment side effect.
                     // Since we don't know what it assigns to, we need to spill global refs.
                     spillGlobEffects = true;
                 }
-                else if ((lhs->gtFlags & GTF_GLOB_REF) != 0)
+                else if ((dst->gtFlags & GTF_GLOB_REF) != 0)
                 {
                     spillGlobEffects = true;
                 }
             }
+            else if ((stmtSideEffects & GTF_ASG) != 0)
+            {
+                // The expression is not an assignment node but it has an assignment side effect,
+                // it must be an atomic op, HW intrinsic or some other kind of node that stores to
+                // memory. Since we don't know what it assigns to, we need to spill global refs.
+                spillGlobEffects = true;
+            }
 
-            impSpillSideEffects(spillGlobEffects, chkLevel DEBUGARG("impAppendStmt"));
+            impSpillSideEffects(spillGlobEffects, spillDepth DEBUGARG("append statement spill temp"));
         }
-        else
-        {
-            impSpillCatchArg();
-        }
+
+        INDEBUG(impAppendStmtCheck(stmt, spillDepth);)
     }
-
-    INDEBUG(impAppendStmtCheck(stmt, chkLevel);)
 
     impStmtListAppend(stmt);
 
@@ -517,8 +516,8 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
     }
 #endif
 
-    /* Once we set impCurStmtOffs in an appended tree, we are ready to
-       report the following offsets. So reset impCurStmtOffs */
+    // Once we set impCurStmtOffs in an appended tree, we are ready
+    // to report the following offsets. So reset impCurStmtOffs.
 
     if (impLastStmt->GetILOffsetX() == impCurStmtOffs)
     {
