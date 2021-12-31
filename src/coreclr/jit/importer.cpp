@@ -11265,9 +11265,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
-                    op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
-                    op1->gtFlags |= GTF_IND_VOLATILE;
+                    op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
                 }
 
                 if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
@@ -11330,23 +11328,19 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 #endif
 
-                assertImp(genActualType(op1->gtType) == TYP_I_IMPL || op1->gtType == TYP_BYREF);
+                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
                 op1 = gtNewOperNode(GT_IND, lclTyp, op1);
 
                 op1->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
-                if (prefixFlags & PREFIX_VOLATILE)
+                if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    assert(op1->OperGet() == GT_IND);
-                    op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
-                    op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
-                    op1->gtFlags |= GTF_IND_VOLATILE;
+                    op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
                 }
 
                 if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
                 {
-                    assert(op1->OperGet() == GT_IND);
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
@@ -12212,14 +12206,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!isLoadAddress)
                 {
-                    assert(op1->OperIs(GT_IND, GT_OBJ));
+                    assert(lclTyp == TYP_STRUCT ? op1->OperIs(GT_OBJ) : op1->OperIs(GT_IND));
 
                     if ((prefixFlags & PREFIX_VOLATILE) != 0)
                     {
-                        op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
-                        op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
-
-                        op1->gtFlags |= GTF_IND_VOLATILE;
+                        op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
                     }
 
                     if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp) && (obj == nullptr))
@@ -12452,18 +12443,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         assert(!"Unexpected fieldAccessor");
                 }
 
-                // Create the member assignment, unless we have a TYP_STRUCT.
-                bool deferStructAssign = (lclTyp == TYP_STRUCT);
+                assert((lclTyp == TYP_STRUCT) ? op1->OperIs(GT_OBJ) : op1->OperIs(GT_IND));
 
-                if (!deferStructAssign)
+                if (lclTyp != TYP_STRUCT)
                 {
-                    assert(op1->OperIs(GT_IND));
-
                     if (prefixFlags & PREFIX_VOLATILE)
                     {
-                        op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
-                        op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
-                        op1->gtFlags |= GTF_IND_VOLATILE;
+                        op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
                     }
 
                     if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp) && (obj == nullptr))
@@ -12580,7 +12566,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // as we have explicitly spilled this particular static field.
                 impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
 
-                if (deferStructAssign)
+                if (lclTyp == TYP_STRUCT)
                 {
                     if (helperNode != nullptr)
                     {
@@ -12594,11 +12580,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     // TODO-1stClassStructs: Avoid creating an address if it is not needed,
                     // or re-creating an indir node if it is.
-                    if (op1->OperIs(GT_IND, GT_OBJ))
-                    {
-                        op1 = op1->AsIndir()->GetAddr();
-                    }
-
+                    op1 = op1->AsIndir()->GetAddr();
                     op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
                 else
