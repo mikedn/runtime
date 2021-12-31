@@ -1937,20 +1937,6 @@ void Compiler::impSpillStackEnsure(bool spillLeaves)
     }
 }
 
-void Compiler::impSpillEvalStack()
-{
-    for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
-    {
-        // Local address trees never need to be spilled.
-        if (!impIsAddressInLocal(verCurrentState.esStack[level].val))
-        {
-            continue;
-        }
-
-        impSpillStackEntry(level DEBUGARG("impSpillEvalStack"));
-    }
-}
-
 // If the stack contains any trees with side effects in them, assign those trees
 // to temps and replace them on the stack with LCL_VARs referencing those temps.
 // [0..spillDepth) is the portion of the stack which will be checked and spilled.
@@ -12289,7 +12275,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_SET;
                 GenTree*             obj         = nullptr;
-                typeInfo*            tiObj       = nullptr;
                 typeInfo             tiVal;
 
                 /* Pull the value from the stack */
@@ -12300,8 +12285,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (opcode == CEE_STFLD)
                 {
-                    tiObj = &impStackTop().seTypeInfo;
-                    obj   = impPopStack().val;
+                    obj = impPopStack().val;
 
                     if (impIsThis(obj))
                     {
@@ -12524,18 +12508,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if ((obj != nullptr) && obj->TypeIs(TYP_BYREF, TYP_I_IMPL))
                 {
-                    assert(tiObj != nullptr);
-
                     // If we can resolve the field to be within some local,
                     // then just spill that local.
 
                     if (GenTreeLclVarCommon* lcl = impIsLocalAddrExpr(obj))
                     {
                         impSpillLclOrFieldReferences(lcl->GetLclNum());
-                    }
-                    else if (tiObj->IsType(TI_STRUCT))
-                    {
-                        impSpillEvalStack();
                     }
                     else
                     {

@@ -3278,9 +3278,7 @@ private:
     void impSpillStackEnsure(bool spillLeaves = false);
     void impSpillCatchArg();
     void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
-    void               impSpillStructValues();
-    void               impSpillEvalStack();
-    static fgWalkPreFn impFindValueClasses;
+    void impSpillStructValues();
     void impSpillLclOrFieldReferences(size_t lclNumOrFieldHandle);
 
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
