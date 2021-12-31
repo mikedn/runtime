@@ -3277,7 +3277,7 @@ private:
 
     void impSpillStackEnsure(bool spillLeaves = false);
     void impSpillCatchArg();
-    void impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason));
+    void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
     void               impSpillStructValues();
     void               impSpillEvalStack();
     static fgWalkPreFn impFindValueClasses;

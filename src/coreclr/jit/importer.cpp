@@ -470,12 +470,12 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
         }
         else
         {
-            bool spillGlobEffects = false;
+            GenTreeFlags spillSideEffects = GTF_SIDE_EFFECT;
 
             if ((stmtSideEffects & GTF_CALL) != 0)
             {
                 // If there is a call, we have to spill global refs
-                spillGlobEffects = true;
+                spillSideEffects |= GTF_GLOB_REF;
             }
             else if (stmtExpr->OperIs(GT_ASG))
             {
@@ -486,11 +486,11 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
                 {
                     // Either side of the assignment node has an assignment side effect.
                     // Since we don't know what it assigns to, we need to spill global refs.
-                    spillGlobEffects = true;
+                    spillSideEffects |= GTF_GLOB_REF;
                 }
                 else if ((dst->gtFlags & GTF_GLOB_REF) != 0)
                 {
-                    spillGlobEffects = true;
+                    spillSideEffects |= GTF_GLOB_REF;
                 }
             }
             else if ((stmtSideEffects & GTF_ASG) != 0)
@@ -498,10 +498,10 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
                 // The expression is not an assignment node but it has an assignment side effect,
                 // it must be an atomic op, HW intrinsic or some other kind of node that stores to
                 // memory. Since we don't know what it assigns to, we need to spill global refs.
-                spillGlobEffects = true;
+                spillSideEffects |= GTF_GLOB_REF;
             }
 
-            impSpillSideEffects(spillGlobEffects, spillDepth DEBUGARG("append statement spill temp"));
+            impSpillSideEffects(spillSideEffects, spillDepth DEBUGARG("append statement spill temp"));
         }
 
         INDEBUG(impAppendStmtCheck(stmt, spillDepth);)
@@ -1734,7 +1734,7 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
             return slotPtrTree;
         }
 
-        impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("bubbling QMark0"));
+        impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark0"));
 
         unsigned slotLclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("impRuntimeLookup test"));
         GenTree* asg        = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), slotPtrTree);
@@ -1764,7 +1764,7 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
     assert(pRuntimeLookup->indirections != 0);
 
-    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("bubbling QMark1"));
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark1"));
 
     // Extract the handle
     GenTree* handleForNullCheck = gtNewOperNode(GT_IND, TYP_I_IMPL, slotPtrTree);
@@ -1951,58 +1951,41 @@ void Compiler::impSpillEvalStack()
     }
 }
 
-/*****************************************************************************
- *
- *  If the stack contains any trees with side effects in them, assign those
- *  trees to temps and replace them on the stack with refs to their temps.
- *  [0..chkLevel) is the portion of the stack which will be checked and spilled.
- */
-
-void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason))
+// If the stack contains any trees with side effects in them, assign those trees
+// to temps and replace them on the stack with LCL_VARs referencing those temps.
+// [0..spillDepth) is the portion of the stack which will be checked and spilled.
+void Compiler::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spillDepth DEBUGARG(const char* reason))
 {
-    assert(chkLevel != CHECK_SPILL_NONE);
-
-    // Before we make any appends to the tree list we must spill the
-    // "special" side effects (GTF_ORDER_SIDEEFF on a GT_CATCH_ARG)
-
     impSpillCatchArg();
 
-    if (chkLevel == CHECK_SPILL_ALL)
-    {
-        chkLevel = verCurrentState.esStackDepth;
-    }
+    spillDepth = min(spillDepth, verCurrentState.esStackDepth);
 
-    assert(chkLevel <= verCurrentState.esStackDepth);
-
-    // TODO-MIKE-Fix: This ignores GTF_ORDER_SIDEEFF from volatile indirs.
-
-    unsigned spillSideEffects = spillGlobEffects ? GTF_GLOB_EFFECT : GTF_SIDE_EFFECT;
-
-    for (unsigned i = 0; i < chkLevel; i++)
+    for (unsigned i = 0; i < spillDepth; i++)
     {
         GenTree* tree = verCurrentState.esStack[i].val;
 
         if (impIsAddressInLocal(tree))
         {
             // Trees that represent local addresses may have spurios GLOB_REF
-            // side effects but they never need need to be spilled.
+            // side effects but they never need to be spilled.
             continue;
         }
 
-        if ((tree->GetSideEffects() & spillSideEffects) == 0)
-        {
-            // We haven't yet determined which local variables are address exposed
-            // so we cannot rely on GTF_GLOB_REF being present in trees that use
-            // such variables. Conservatively assume that address taken variables
-            // will be address exposed and get GTF_GLOB_REF.
+        GenTreeFlags treeSideEffects = tree->GetSideEffects();
 
-            if (!spillGlobEffects || !gtHasAddressTakenLocals(tree))
-            {
-                continue;
-            }
+        // We haven't yet determined which local variables are address exposed
+        // so we cannot rely on GTF_GLOB_REF being present in trees that use
+        // such locals. Conservatively assume that address taken locals will be
+        // address exposed and add GTF_GLOB_REF.
+        if (((spillSideEffects & GTF_GLOB_REF) != 0) && gtHasAddressTakenLocals(tree))
+        {
+            treeSideEffects |= GTF_GLOB_REF;
         }
 
-        impSpillStackEntry(i DEBUGARG(reason));
+        if ((treeSideEffects & spillSideEffects) != 0)
+        {
+            impSpillStackEntry(i DEBUGARG(reason));
+        }
     }
 }
 
@@ -5237,7 +5220,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         }
 
         // Spill eval stack to flush out any pending side effects.
-        impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportAndPushBox"));
+        impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportAndPushBox"));
 
         // Set up this copy as a second assignment.
         Statement* copyStmt = impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
@@ -5352,7 +5335,7 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         // The side-effects may include allocation of more multi-dimensional arrays. Spill all side-effects
         // to ensure that the shared lvaNewObjArrayArgs local variable is only ever used to pass arguments
         // to one allocation at a time.
-        impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportNewObjArray"));
+        impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportNewObjArray"));
 
         //
         // The arguments of the CORINFO_HELP_NEW_MDARR_NONVARARG helper are:
@@ -7778,7 +7761,7 @@ DONE_INTRINSIC:
 
                 if (spillStack)
                 {
-                    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("non-inline candidate call"));
+                    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("non-inline candidate call"));
                 }
             }
         }
@@ -8001,7 +7984,7 @@ void Compiler::impImportLeave(BasicBlock* block)
 
     // LEAVE clears the stack, spill side effects, and set stack to 0
 
-    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
     verCurrentState.esStackDepth = 0;
 
     assert(block->bbJumpKind == BBJ_LEAVE);
@@ -8269,7 +8252,7 @@ void Compiler::impImportLeave(BasicBlock* block)
 
     // LEAVE clears the stack, spill side effects, and set stack to 0
 
-    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportLeave"));
     verCurrentState.esStackDepth = 0;
 
     assert(block->bbJumpKind == BBJ_LEAVE);
@@ -9156,7 +9139,7 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
 
     JITDUMP("\nExpanding %s inline\n", isCastClass ? "castclass" : "isinst");
 
-    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("bubbling QMark2"));
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark2"));
 
     GenTree* temp;
     GenTree* condMT;
@@ -9872,7 +9855,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 if ((lvaTable[lclNum].lvAddrExposed || lvaTable[lclNum].lvHasLdAddrOp || lvaTable[lclNum].lvPinned) &&
                     (verCurrentState.esStackDepth > 0))
                 {
-                    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("Local could be aliased or is pinned"));
+                    impSpillSideEffects(GTF_SIDE_EFFECT,
+                                        CHECK_SPILL_ALL DEBUGARG("Local could be aliased or is pinned"));
                 }
 
                 /* Spill any refs to the local from the stack */
@@ -10029,7 +10013,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (verCurrentState.esStackDepth > 0)
                 {
-                    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("endfinally"));
+                    impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("endfinally"));
                     verCurrentState.esStackDepth = 0;
                 }
 
@@ -10353,7 +10337,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (impStackTop().val->gtFlags & GTF_SIDE_EFFECT)
                 {
-                    impSpillSideEffects(false,
+                    impSpillSideEffects(GTF_SIDE_EFFECT,
                                         CHECK_SPILL_ALL DEBUGARG("Strict ordering of exceptions for Array store"));
                 }
 
@@ -10887,13 +10871,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if (op1->gtFlags & GTF_GLOB_EFFECT)
                     {
-                        impSpillSideEffects(false,
+                        impSpillSideEffects(GTF_SIDE_EFFECT,
                                             CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
                         impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
                     }
                     if (op2->gtFlags & GTF_GLOB_EFFECT)
                     {
-                        impSpillSideEffects(false,
+                        impSpillSideEffects(GTF_SIDE_EFFECT,
                                             CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
                         impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
                     }
@@ -11280,7 +11264,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Spill side-effects AND global-data-accesses
                 if (verCurrentState.esStackDepth > 0)
                 {
-                    impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("spill side effects before STIND"));
+                    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("spill side effects before STIND"));
                 }
 
                 impSpillNoneAppendTree(op1);
@@ -12565,7 +12549,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // stsfld also interferes with indirect accesses (for aliased
                 // statics) and calls. But don't need to spill other statics
                 // as we have explicitly spilled this particular static field.
-                impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
+                impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
 
                 if (lclTyp == TYP_STRUCT)
                 {
@@ -13340,7 +13324,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             POP_APPEND:
                 if (verCurrentState.esStackDepth > 0)
                 {
-                    impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("throw"));
+                    impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("throw"));
                     verCurrentState.esStackDepth = 0;
                 }
 
