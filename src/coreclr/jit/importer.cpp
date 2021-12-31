@@ -1975,6 +1975,8 @@ void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBU
 
     assert(chkLevel <= verCurrentState.esStackDepth);
 
+    // TODO-MIKE-Fix: This ignores GTF_ORDER_SIDEEFF from volatile indirs.
+
     unsigned spillSideEffects = spillGlobEffects ? GTF_GLOB_EFFECT : GTF_SIDE_EFFECT;
 
     for (unsigned i = 0; i < chkLevel; i++)
@@ -12445,18 +12447,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assert((lclTyp == TYP_STRUCT) ? op1->OperIs(GT_OBJ) : op1->OperIs(GT_IND));
 
+                if ((prefixFlags & PREFIX_VOLATILE) != 0)
+                {
+                    op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
+                }
+
+                if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp) && (obj == nullptr))
+                {
+                    op1->gtFlags |= GTF_IND_UNALIGNED;
+                }
+
                 if (lclTyp != TYP_STRUCT)
                 {
-                    if (prefixFlags & PREFIX_VOLATILE)
-                    {
-                        op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
-                    }
-
-                    if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp) && (obj == nullptr))
-                    {
-                        op1->gtFlags |= GTF_IND_UNALIGNED;
-                    }
-
                     /* V4.0 allows assignment of i4 constant values to i8 type vars when IL verifier is bypassed (full
                        trust apps). The reason this works is that JIT stores an i4 constant in Gentree union during
                        importation and reads from the union as if it were a long during code generation. Though this
