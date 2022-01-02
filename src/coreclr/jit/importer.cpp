@@ -10381,7 +10381,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     compFloatingPointUsed = true;
                 }
 
-                impSpillAppendTree(op1);
+                impSpillAllAppendTree(op1);
                 break;
 
             case CEE_ADD:
