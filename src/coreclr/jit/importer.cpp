@@ -10327,21 +10327,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                         CHECK_SPILL_ALL DEBUGARG("Strict ordering of exceptions for Array store"));
                 }
 
-                /* Pull the new value from the stack */
-                op2 = impPopStack().val;
+                op2 = impPopStack().val; // value
+                op1 = impPopStack().val; // index
+                op3 = impPopStack().val; // array
 
-                /* Pull the index value */
-                op1 = impPopStack().val;
-
-                /* Pull the array address */
-                op3 = impPopStack().val;
-
-                assertImp(op3->gtType == TYP_REF);
-
-                if (impIsLocalAddrExpr(op2))
-                {
-                    op2->SetType(TYP_I_IMPL);
-                }
+                assertImp(op3->TypeIs(TYP_REF));
 
                 op3 = impCheckForNullPointer(op3);
 
