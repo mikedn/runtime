@@ -10313,18 +10313,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto ARR_ST;
             case CEE_STELEM_R8:
                 lclTyp = TYP_DOUBLE;
-                goto ARR_ST;
-
             ARR_ST:
-                /* The strict order of evaluation is LHS-operands, RHS-operands,
-                   range-check, and then assignment. However, codegen currently
-                   does the range-check before evaluation the RHS-operands. So to
-                   maintain strict ordering, we spill the stack. */
+                // We need to evaluate array, index, value and then perform a range check.
+                // However, the IR we build is ASG(IND(INDEX_ADDR(array, index)), value),
+                // with INDEX_ADDR performing the range check, before value is evaluated.
+                // We don't have much of a choice but to spill the stack to ensure correct
+                // side effect ordering.
 
-                if (impStackTop().val->gtFlags & GTF_SIDE_EFFECT)
+                if ((impStackTop().val->gtFlags & GTF_SIDE_EFFECT) != 0)
                 {
-                    impSpillSideEffects(GTF_SIDE_EFFECT,
-                                        CHECK_SPILL_ALL DEBUGARG("Strict ordering of exceptions for Array store"));
+                    impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("STELEM ordering spill temp"));
                 }
 
                 op2 = impPopStack().val; // value
