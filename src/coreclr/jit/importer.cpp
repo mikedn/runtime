@@ -9845,8 +9845,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                         CHECK_SPILL_ALL DEBUGARG("Local could be aliased or is pinned"));
                 }
 
-                /* Spill any refs to the local from the stack */
-
+                // Spill any refs to the local from the stack
                 impSpillLclOrFieldReferences(lclNum);
 
                 // We can generate an assignment to a TYP_FLOAT from a TYP_DOUBLE
@@ -9878,7 +9877,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewAssignNode(op2, op1);
                 }
 
-                impSpillAppendTree(op1);
+                impSpillAllAppendTree(op1);
                 break;
 
             case CEE_LDLOCA:
