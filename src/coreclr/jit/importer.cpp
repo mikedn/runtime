@@ -9762,66 +9762,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1           = se.val;
                 }
 
-#ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(lclTyp) && (lclTyp != op1->TypeGet()))
-                {
-                    assert(op1->TypeGet() == TYP_STRUCT);
-                    op1->gtType = lclTyp;
-                }
-#endif // FEATURE_SIMD
-
-                op1 = impImplicitIorI4Cast(op1, lclTyp);
-
-#ifdef TARGET_64BIT
-                // Downcast the TYP_I_IMPL into a 32-bit Int for x86 JIT compatiblity
-                if (varTypeIsI(op1->TypeGet()) && (genActualType(lclTyp) == TYP_INT))
-                {
-                    op1 = gtNewCastNode(TYP_INT, op1, false, TYP_INT);
-                }
-#endif // TARGET_64BIT
-
-                // When "&var" is created, we assume it is a byref. If it is being assigned
-                // to a TYP_I_IMPL var, change the type to prevent unnecessary GC info.
-                if ((lclTyp == TYP_I_IMPL) && op1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(op1))
-                {
-                    op1->SetType(TYP_I_IMPL);
-                }
-
-                // We had better assign it a value of the correct type
-                assertImp((varActualType(lclTyp) == varActualType(op1->GetType())) ||
-                          ((lclTyp == TYP_I_IMPL) && op1->TypeIs(TYP_BYREF, TYP_REF)) ||
-                          ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_I_IMPL)) ||
-                          ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_REF)) ||
-                          (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType())));
-
-                // If this is a local and the local is a ref type, see
-                // if we can improve type information based on the
-                // value being assigned.
-                if (isLocal && (lclTyp == TYP_REF))
-                {
-                    // We should have seen a stloc in our IL prescan.
-                    assert(lvaTable[lclNum].lvHasILStoreOp);
-
-                    // Is there just one place this local is defined?
-                    const bool isSingleDefLocal = lvaTable[lclNum].lvSingleDef;
-
-                    // TODO-MIKE-Cleanup: This check is probably no longer needed. It used to be the case
-                    // that ref class handles were propagated from predecessors without merging, resulting
-                    // in incorrect devirtualization.
-
-                    // Conservative check that there is just one
-                    // definition that reaches this store.
-                    const bool hasSingleReachingDef = (block->bbStackDepthOnEntry() == 0);
-
-                    if (isSingleDefLocal && hasSingleReachingDef)
-                    {
-                        lvaUpdateClass(lclNum, op1, clsHnd);
-                    }
-                }
-
-                /* Filter out simple assignments to itself */
-
-                if (op1->gtOper == GT_LCL_VAR && lclNum == op1->AsLclVarCommon()->GetLclNum())
+                // Filter out simple assignments to itself
+                if (op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLclNum() == lclNum))
                 {
                     if (opts.compDbgCode)
                     {
@@ -9831,13 +9773,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
                 }
 
-                /* Create the assignment node */
-
-                op2 = gtNewLclvNode(lclNum, lclTyp DEBUGARG(opcodeOffs + sz + 1));
-
-                /* If the local is aliased or pinned, we need to spill calls and
-                   indirections from the stack. */
-
+                // If the local is aliased or pinned, we need to spill calls
+                // and indirections from the stack.
                 if ((lvaTable[lclNum].lvAddrExposed || lvaTable[lclNum].lvHasLdAddrOp || lvaTable[lclNum].lvPinned) &&
                     (verCurrentState.esStackDepth > 0))
                 {
@@ -9848,32 +9785,97 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Spill any refs to the local from the stack
                 impSpillLclOrFieldReferences(lclNum);
 
-                // We can generate an assignment to a TYP_FLOAT from a TYP_DOUBLE
-                // We insert a cast to the dest 'op2' type
-                //
-                if ((op1->TypeGet() != op2->TypeGet()) && varTypeIsFloating(op1->gtType) &&
-                    varTypeIsFloating(op2->gtType))
-                {
-                    op1 = gtNewCastNode(op2->TypeGet(), op1, false, op2->TypeGet());
-                }
+                // Create and append the assignment statement
+
+                op2 = gtNewLclvNode(lclNum, lclTyp DEBUGARG(opcodeOffs + sz + 1));
 
                 if (varTypeIsStruct(lclTyp))
                 {
+#ifdef FEATURE_SIMD
+                    if (varTypeIsSIMD(lclTyp) && (lclTyp != op1->GetType()))
+                    {
+                        assert(op1->TypeGet() == TYP_STRUCT);
+                        op1->gtType = lclTyp;
+                    }
+#endif
+
                     op2->SetOper(GT_LCL_VAR_ADDR);
                     op2->SetType(TYP_BYREF);
                     op1 = impAssignStructAddr(op2, op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
                 else
                 {
-                    // The code generator generates GC tracking information
-                    // based on the RHS of the assignment.  Later the LHS (which is
-                    // is a BYREF) gets used and the emitter checks that that variable
-                    // is being tracked.  It is not (since the RHS was an int and did
-                    // not need tracking).  To keep this assert happy, we change the RHS
-                    if (lclTyp == TYP_BYREF && !varTypeIsGC(op1->gtType))
+                    op1 = impImplicitIorI4Cast(op1, lclTyp);
+
+#ifdef TARGET_64BIT
+                    // Downcast the TYP_I_IMPL into a 32-bit Int for x86 JIT compatiblity
+                    if (varTypeIsI(op1->GetType()) && (varActualType(lclTyp) == TYP_INT))
                     {
-                        op1->gtType = TYP_BYREF;
+                        op1 = gtNewCastNode(TYP_INT, op1, false, TYP_INT);
                     }
+#endif
+
+                    // We had better assign it a value of the correct type
+                    assertImp((varActualType(lclTyp) == varActualType(op1->GetType())) ||
+                              ((lclTyp == TYP_I_IMPL) && op1->TypeIs(TYP_BYREF, TYP_REF)) ||
+                              ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_I_IMPL)) ||
+                              ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_REF)) ||
+                              (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType())));
+
+                    if (lclTyp == TYP_I_IMPL)
+                    {
+                        // When "&var" is created, we assume it is a byref. If it is being assigned
+                        // to a TYP_I_IMPL var, change the type to prevent unnecessary GC info.
+                        if (op1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(op1))
+                        {
+                            op1->SetType(TYP_I_IMPL);
+                        }
+                    }
+                    else if (lclTyp == TYP_REF)
+                    {
+                        // If this is a local and the local is a ref type, see
+                        // if we can improve type information based on the
+                        // value being assigned.
+                        if (isLocal)
+                        {
+                            // We should have seen a stloc in our IL prescan.
+                            assert(lvaTable[lclNum].lvHasILStoreOp);
+
+                            // Is there just one place this local is defined?
+                            const bool isSingleDefLocal = lvaTable[lclNum].lvSingleDef;
+
+                            // TODO-MIKE-Cleanup: This check is probably no longer needed. It used to be the case
+                            // that ref class handles were propagated from predecessors without merging, resulting
+                            // in incorrect devirtualization.
+
+                            // Conservative check that there is just one
+                            // definition that reaches this store.
+                            const bool hasSingleReachingDef = (block->bbStackDepthOnEntry() == 0);
+
+                            if (isSingleDefLocal && hasSingleReachingDef)
+                            {
+                                lvaUpdateClass(lclNum, op1, clsHnd);
+                            }
+                        }
+                    }
+                    else if (lclTyp == TYP_BYREF)
+                    {
+                        // The code generator generates GC tracking information
+                        // based on the RHS of the assignment.  Later the LHS (which is
+                        // is a BYREF) gets used and the emitter checks that that variable
+                        // is being tracked.  It is not (since the RHS was an int and did
+                        // not need tracking).  To keep this assert happy, we change the RHS
+                        if (!varTypeIsGC(op1->GetType()))
+                        {
+                            op1->SetType(TYP_BYREF);
+                        }
+                    }
+                    else if (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType()) &&
+                             (lclTyp != op1->GetType()))
+                    {
+                        op1 = gtNewCastNode(lclTyp, op1, false, lclTyp);
+                    }
+
                     op1 = gtNewAssignNode(op2, op1);
                 }
 
