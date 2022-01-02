@@ -2953,7 +2953,9 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), GTF_ICON_CONST_PTR);
     GenTreeBlk* src     = new (this, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
 
+    dst->gtFlags &= ~GTF_EXCEPT;
     dst->gtFlags |= GTF_IND_NONFAULTING;
+    src->gtFlags &= ~GTF_EXCEPT;
     src->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
     INDEBUG(srcAddr->AsIntCon()->gtTargetHandle = THT_IntializeArrayIntrinsics;)

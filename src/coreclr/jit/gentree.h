@@ -6457,6 +6457,8 @@ public:
         : GenTreeIndir(GT_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(layout->IsBlockLayout());
+
+        gtFlags |= GTF_GLOB_REF | GTF_EXCEPT;
     }
 
     GenTreeBlk(GenTreeBlk* copyFrom)
