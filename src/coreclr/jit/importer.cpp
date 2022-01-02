@@ -11145,7 +11145,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (op1 != nullptr)
                 {
-                    impSpillAppendTree(op1);
+                    impSpillAllAppendTree(op1);
                 }
 
                 break;
