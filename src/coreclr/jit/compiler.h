@@ -2140,7 +2140,7 @@ public:
 
     GenTree* gtReverseCond(GenTree* tree);
 
-    bool gtHasRef(GenTree* tree, ssize_t lclNum);
+    bool gtHasRef(GenTree* tree, unsigned lclNum);
 
     bool gtHasAddressTakenLocals(GenTree* tree);
 
@@ -3278,8 +3278,7 @@ private:
     void impSpillStackEnsure(bool spillLeaves = false);
     void impSpillCatchArg();
     void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
-    void impSpillStructValues();
-    void impSpillLclOrFieldReferences(size_t lclNumOrFieldHandle);
+    void impSpillLclReferences(unsigned lclNum);
 
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
     GenTree* impNewCatchArg();

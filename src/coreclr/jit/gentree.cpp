@@ -1459,12 +1459,8 @@ AGAIN:
     return false;
 }
 
-/*****************************************************************************
- *
- *  Returns non-zero if the given tree contains a use of a local #lclNum.
- */
-
-bool Compiler::gtHasRef(GenTree* tree, ssize_t lclNum)
+// Returns true if the given tree contains a use of a local #lclNum.
+bool Compiler::gtHasRef(GenTree* tree, unsigned lclNum)
 {
     genTreeOps oper;
     unsigned   kind;
@@ -1490,7 +1486,7 @@ AGAIN:
         // TODO-MIKE-Review: Why the crap doesn't this check for LCL_FLD(_ADDR)?
         if ((oper == GT_LCL_VAR) || (oper == GT_LCL_VAR_ADDR))
         {
-            if (tree->AsLclVarCommon()->GetLclNum() == (unsigned)lclNum)
+            if (tree->AsLclVarCommon()->GetLclNum() == lclNum)
             {
                 return true;
             }
@@ -1509,11 +1505,6 @@ AGAIN:
     {
         if (GenTreeFieldAddr* field = tree->IsFieldAddr())
         {
-            if (lclNum == reinterpret_cast<ssize_t>(field->GetFieldHandle()))
-            {
-                return true;
-            }
-
             tree = field->GetAddr();
         }
         else if (tree->gtGetOp2IfPresent() != nullptr)

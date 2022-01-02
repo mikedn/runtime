@@ -440,7 +440,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
         unsigned stmtSideEffects = stmtExpr->GetSideEffects();
 
         // Assignment to (unaliased) locals don't count as a side-effect as we
-        // handle them specially using impSpillLclOrFieldReferences. Temp locals
+        // handle them specially using impSpillLclReferences. Temp locals
         // should be fine too.
 
         // TODO-MIKE-Review: Using GTF_GLOB_REF for locals here is dubious. It's
@@ -549,9 +549,9 @@ Statement* Compiler::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSET
 
 void Compiler::impSpillAppendTree(GenTree* op1)
 {
-    // We need to call impSpillLclOrFieldReferences() for a struct type lclVar.
-    // This is because there may be loads of that lclVar on the evaluation stack, and
-    // we need to ensure that those loads are completed before we modify it.
+    // We need to call impSpillLclReferences for a struct type lclVar.
+    // This is because there may be loads of that lclVar on the evaluation stack,
+    // and we need to ensure that those loads are completed before we modify it.
     if (op1->OperIs(GT_ASG) && varTypeIsStruct(op1->AsOp()->GetOp(0)->GetType()))
     {
         GenTree*       lhs    = op1->AsOp()->GetOp(0);
@@ -570,7 +570,7 @@ void Compiler::impSpillAppendTree(GenTree* op1)
 
         if (lclVar != nullptr)
         {
-            impSpillLclOrFieldReferences(lclVar->GetLclNum());
+            impSpillLclReferences(lclVar->GetLclNum());
         }
     }
 
@@ -2000,28 +2000,8 @@ void Compiler::impSpillCatchArg()
     }
 }
 
-// Spill all trees containing TYP_STRUCT values.
-void Compiler::impSpillStructValues()
-{
-    auto visitor = [](GenTree** use, fgWalkData* data) {
-        return (*use)->TypeIs(TYP_STRUCT) ? WALK_ABORT : WALK_CONTINUE;
-    };
-
-    for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
-    {
-        GenTree* tree = verCurrentState.esStack[level].val;
-
-        if (fgWalkTreePre(&tree, visitor) == WALK_ABORT)
-        {
-            impSpillStackEntry(level DEBUGARG("struct value spill temp"));
-        }
-    }
-}
-
-// Spill all trees containing references to the specified local or field.
-// lclNum is either a local variable number or a field handle (recognized
-// by gtHasRef).
-void Compiler::impSpillLclOrFieldReferences(size_t lclNumOrFieldHandle)
+// Spill all trees containing references to the specified local.
+void Compiler::impSpillLclReferences(unsigned lclNum)
 {
     impSpillCatchArg();
 
@@ -2044,7 +2024,7 @@ void Compiler::impSpillLclOrFieldReferences(size_t lclNumOrFieldHandle)
 
         bool xcptnCaught = ((tree->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0) && ehBlockHasExnFlowDsc(compCurBB);
 
-        if (xcptnCaught || gtHasRef(tree, lclNumOrFieldHandle))
+        if (xcptnCaught || gtHasRef(tree, lclNum))
         {
             impSpillStackEntry(level DEBUGARG("lcl/field ref spill temp"));
         }
@@ -9785,7 +9765,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
                 // Spill any refs to the local from the stack
-                impSpillLclOrFieldReferences(lclNum);
+                impSpillLclReferences(lclNum);
 
                 // Create and append the assignment statement
 
@@ -12493,32 +12473,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                // stfld can interfere with value classes (consider the sequence
-                // ldloc, ldloca, ..., stfld, stloc).  We will be conservative and
-                // spill all value class references from the stack.
-
-                if ((obj != nullptr) && obj->TypeIs(TYP_BYREF, TYP_I_IMPL))
-                {
-                    // If we can resolve the field to be within some local,
-                    // then just spill that local.
-
-                    if (GenTreeLclVarCommon* lcl = impIsLocalAddrExpr(obj))
-                    {
-                        impSpillLclOrFieldReferences(lcl->GetLclNum());
-                    }
-                    else
-                    {
-                        impSpillStructValues();
-                    }
-                }
-
-                // Spill any refs to the same member from the stack
-                impSpillLclOrFieldReferences(reinterpret_cast<size_t>(resolvedToken.hField));
-
-                // stsfld also interferes with indirect accesses (for aliased
-                // statics) and calls. But don't need to spill other statics
-                // as we have explicitly spilled this particular static field.
-                impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
+                // We have to spill GLOB_REFs for heap and static field stores since such fields
+                // may be accessed via byrefs. We don't need to spill when the field belongs to
+                // an unaliased local but in the importer aliased = "address taken" and stfld on
+                // a local field implies "address taken". So we spill GLOB_REFs for all locals too.
+                impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("STFLD stack spill temp"));
 
                 if (lclTyp == TYP_STRUCT)
                 {
@@ -12529,13 +12488,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // initialization will happen before whatever side effects the value tree may
                         // have. This doesn't seem quite right when the type initializer doesn't have
                         // BeforeFieldInit sematic.
-                        impAppendTree(helperNode, CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(helperNode, CHECK_SPILL_NONE, impCurStmtOffs);
                     }
 
                     // TODO-1stClassStructs: Avoid creating an address if it is not needed,
                     // or re-creating an indir node if it is.
                     op1 = op1->AsIndir()->GetAddr();
-                    op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
+                    op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_NONE);
                 }
                 else
                 {
