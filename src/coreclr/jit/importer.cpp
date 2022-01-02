@@ -561,11 +561,11 @@ void Compiler::impSpillAppendTree(GenTree* op1)
         {
             lclVar = lhs->AsLclVar();
         }
-        else if (lhs->OperIs(GT_OBJ, GT_BLK))
+        else if (lhs->OperIs(GT_OBJ))
         {
             // Check if LHS address is within some struct local, to catch
             // cases where we're updating the struct by something other than a stfld
-            lclVar = impIsAddressInLocal(lhs->AsBlk()->GetAddr());
+            lclVar = impIsAddressInLocal(lhs->AsObj()->GetAddr());
         }
 
         if (lclVar != nullptr)
@@ -16957,7 +16957,7 @@ void Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* s
         initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
     }
 
-    impSpillAppendTree(gtNewAssignNode(dst, initValue));
+    impSpillAllAppendTree(gtNewAssignNode(dst, initValue));
 }
 
 void Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
@@ -16990,7 +16990,7 @@ void Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size,
         src->SetVolatile();
     }
 
-    impSpillAppendTree(gtNewAssignNode(dst, src));
+    impSpillAllAppendTree(gtNewAssignNode(dst, src));
 }
 
 GenTree* Compiler::impImportPop(BasicBlock* block)
