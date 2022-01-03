@@ -16955,7 +16955,8 @@ void Compiler::impImportInitBlk(unsigned prefixFlags)
         init = gtNewAssignNode(dst, initValue);
     }
 
-    impSpillAllAppendTree(init);
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("INITBLK stack spill temp"));
+    impSpillNoneAppendTree(init);
 }
 
 void Compiler::impImportCpBlk(unsigned prefixFlags)
@@ -16989,7 +16990,8 @@ void Compiler::impImportCpBlk(unsigned prefixFlags)
         copy = gtNewAssignNode(dst, src);
     }
 
-    impSpillAllAppendTree(copy);
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("CPBLK stack spill temp"));
+    impSpillNoneAppendTree(copy);
 }
 
 GenTree* Compiler::impImportPop(BasicBlock* block)
