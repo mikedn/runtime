@@ -3435,8 +3435,8 @@ private:
 
     void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
     void impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
-    void impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile);
-    void impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
+    void impImportInitBlk(unsigned prefixFlags);
+    void impImportCpBlk(unsigned prefixFlags);
 
     GenTree* impImportPop(BasicBlock* block);
 

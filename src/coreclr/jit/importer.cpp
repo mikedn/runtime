@@ -13301,19 +13301,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_INITBLK:
-                op3 = impPopStack().val; // Size
-                op2 = impPopStack().val; // Value
-                op1 = impPopStack().val; // Dest
-
-                impImportInitBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
+                impImportInitBlk(prefixFlags);
                 break;
 
             case CEE_CPBLK:
-                op3 = impPopStack().val; // Size
-                op2 = impPopStack().val; // Src
-                op1 = impPopStack().val; // Dest
-
-                impImportCpBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
+                impImportCpBlk(prefixFlags);
                 break;
 
             case CEE_INITOBJ:
@@ -16929,16 +16921,20 @@ void Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
     impSpillAppendTree(asg);
 }
 
-void Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
+void Compiler::impImportInitBlk(unsigned prefixFlags)
 {
-    GenTreeIntCon* sizeIntCon = size->IsIntCon();
-
     // TODO-MIKE-Review: Currently INITBLK ignores the unaligned prefix.
+
+    GenTree* size      = impPopStack().val;
+    GenTree* initValue = impPopStack().val;
+    GenTree* dstAddr   = impPopStack().val;
+
+    GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
         GenTreeDynBlk* init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
-        init->SetVolatile(isVolatile);
+        init->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
         impSpillAllAppendTree(init);
 
         return;
@@ -16947,7 +16943,7 @@ void Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* s
     ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
     GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
 
-    if (isVolatile)
+    if ((prefixFlags & PREFIX_VOLATILE) != 0)
     {
         dst->SetVolatile();
     }
@@ -16960,16 +16956,20 @@ void Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* s
     impSpillAllAppendTree(gtNewAssignNode(dst, initValue));
 }
 
-void Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
+void Compiler::impImportCpBlk(unsigned prefixFlags)
 {
-    GenTreeIntCon* sizeIntCon = size->IsIntCon();
-
     // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
+
+    GenTree* size    = impPopStack().val;
+    GenTree* srcAddr = impPopStack().val;
+    GenTree* dstAddr = impPopStack().val;
+
+    GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
         GenTreeDynBlk* copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
-        copy->SetVolatile(isVolatile);
+        copy->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
         impSpillAllAppendTree(copy);
 
         return;
@@ -16978,14 +16978,14 @@ void Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size,
     ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
     GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
 
-    if (isVolatile)
+    if ((prefixFlags & PREFIX_VOLATILE) != 0)
     {
         dst->SetVolatile();
     }
 
     GenTreeBlk* src = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
 
-    if (isVolatile)
+    if ((prefixFlags & PREFIX_VOLATILE) != 0)
     {
         src->SetVolatile();
     }
