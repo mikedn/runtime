@@ -1996,7 +1996,7 @@ void Compiler::impSpillLclReferences(unsigned lclNum)
 
         if (xcptnCaught || gtHasRef(tree, lclNum))
         {
-            impSpillStackEntry(level DEBUGARG("lcl/field ref spill temp"));
+            impSpillStackEntry(level DEBUGARG("STLOC stack spill temp"));
         }
     }
 }
@@ -9725,17 +9725,36 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
                 }
 
-                // If the local is aliased or pinned, we need to spill calls
-                // and indirections from the stack.
-                if ((lvaTable[lclNum].lvAddrExposed || lvaTable[lclNum].lvHasLdAddrOp || lvaTable[lclNum].lvPinned) &&
-                    (verCurrentState.esStackDepth > 0))
+                if (verCurrentState.esStackDepth > 0)
                 {
-                    impSpillSideEffects(GTF_SIDE_EFFECT,
-                                        CHECK_SPILL_ALL DEBUGARG("Local could be aliased or is pinned"));
-                }
+                    LclVarDsc*   lcl              = lvaGetDesc(lclNum);
+                    GenTreeFlags spillSideEffects = GTF_EMPTY;
 
-                // Spill any refs to the local from the stack
-                impSpillLclReferences(lclNum);
+                    if (lcl->IsAddressExposed() || lcl->lvHasLdAddrOp || lcl->lvPinned)
+                    {
+                        spillSideEffects = GTF_GLOB_EFFECT;
+                    }
+                    else
+                    {
+                        GenTreeFlags valueSideEffects = op1->GetSideEffects() & GTF_GLOB_EFFECT;
+
+                        if ((valueSideEffects & (GTF_CALL | GTF_ASG)) != 0)
+                        {
+                            spillSideEffects = GTF_GLOB_EFFECT;
+                        }
+                        else if (((valueSideEffects & GTF_GLOB_EFFECT) != 0) || gtHasAddressTakenLocals(op1))
+                        {
+                            spillSideEffects = GTF_SIDE_EFFECT;
+                        }
+
+                        impSpillLclReferences(lclNum);
+                    }
+
+                    if (spillSideEffects != GTF_EMPTY)
+                    {
+                        impSpillSideEffects(spillSideEffects, CHECK_SPILL_ALL DEBUGARG("STLOC stack spill temp"));
+                    }
+                }
 
                 // Create and append the assignment statement
 
@@ -9831,7 +9850,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewAssignNode(op2, op1);
                 }
 
-                impSpillAllAppendTree(op1);
+                impSpillNoneAppendTree(op1);
                 break;
 
             case CEE_LDLOCA:
