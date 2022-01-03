@@ -17112,33 +17112,31 @@ GenTree* Compiler::impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedTok
 // Returns true if the given tree contains a use of a local #lclNum.
 bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
 {
-    genTreeOps oper;
-    unsigned   kind;
-
-AGAIN:
-
-    assert(tree);
-
-    oper = tree->OperGet();
-    kind = tree->OperKind();
-
-    /* Is this a constant node? */
-
-    if (tree->OperIsConst())
+    while (tree->OperIsUnary() || (tree->OperIsBinary() && (tree->AsOp()->gtOp2 == nullptr)))
     {
-        return false;
+        tree = tree->AsUnOp()->gtOp1;
+
+        if (tree == nullptr)
+        {
+            return false;
+        }
     }
 
-    /* Is this a leaf node? */
+    if (tree->OperIsBinary())
+    {
+        GenTreeOp* op = tree->AsOp();
 
-    if (kind & GTK_LEAF)
+        return ((op->gtOp1 != nullptr) && impHasLclRef(op->gtOp1, lclNum)) || impHasLclRef(op->gtOp2, lclNum);
+    }
+
+    if (tree->OperIsLeaf())
     {
         if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
-            return (tree->AsLclVarCommon()->GetLclNum() == lclNum);
+            return tree->AsLclVarCommon()->GetLclNum() == lclNum;
         }
 
-        if (oper == GT_RET_EXPR)
+        if (tree->OperIs(GT_RET_EXPR))
         {
             return impHasLclRef(tree->AsRetExpr()->GetRetExpr(), lclNum);
         }
@@ -17146,186 +17144,90 @@ AGAIN:
         return false;
     }
 
-    /* Is it a 'simple' unary/binary operator? */
-
-    if (kind & GTK_SMPOP)
+    if (GenTreeBoundsChk* boundsChk = tree->IsBoundsChk())
     {
-        if (GenTreeFieldAddr* field = tree->IsFieldAddr())
-        {
-            tree = field->GetAddr();
-        }
-        else if (tree->gtGetOp2IfPresent() != nullptr)
-        {
-            if (impHasLclRef(tree->AsOp()->gtOp1, lclNum))
-            {
-                return true;
-            }
-
-            tree = tree->AsOp()->gtOp2;
-        }
-        else
-        {
-            tree = tree->AsOp()->gtOp1;
-
-            if (tree == nullptr)
-            {
-                return false;
-            }
-        }
-
-        goto AGAIN;
+        return impHasLclRef(boundsChk->GetIndex(), lclNum) || impHasLclRef(boundsChk->GetLength(), lclNum);
     }
 
-    /* See what kind of a special operator we have here */
-
-    switch (oper)
+    if (GenTreeTernaryOp* ternary = tree->IsTernaryOp())
     {
-        case GT_CALL:
-            if (tree->AsCall()->gtCallThisArg != nullptr)
-            {
-                if (impHasLclRef(tree->AsCall()->gtCallThisArg->GetNode(), lclNum))
-                {
-                    return true;
-                }
-            }
-
-            for (GenTreeCall::Use& use : tree->AsCall()->Args())
-            {
-                if (impHasLclRef(use.GetNode(), lclNum))
-                {
-                    return true;
-                }
-            }
-
-            for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
-            {
-                if (impHasLclRef(use.GetNode(), lclNum))
-                {
-                    return true;
-                }
-            }
-
-            if (tree->AsCall()->gtControlExpr)
-            {
-                if (impHasLclRef(tree->AsCall()->gtControlExpr, lclNum))
-                {
-                    return true;
-                }
-            }
-
-            if (tree->AsCall()->gtCallType == CT_INDIRECT)
-            {
-                // pinvoke-calli cookie is a constant, or constant indirection
-                assert(tree->AsCall()->gtCallCookie == nullptr || tree->AsCall()->gtCallCookie->gtOper == GT_CNS_INT ||
-                       tree->AsCall()->gtCallCookie->gtOper == GT_IND);
-
-                tree = tree->AsCall()->gtCallAddr;
-            }
-            else
-            {
-                tree = nullptr;
-            }
-
-            if (tree)
-            {
-                goto AGAIN;
-            }
-
-            break;
-
-        case GT_ARR_ELEM:
-            if (impHasLclRef(tree->AsArrElem()->gtArrObj, lclNum))
+        for (unsigned i = 0; i < 3; i++)
+        {
+            if (impHasLclRef(ternary->GetOp(i), lclNum))
             {
                 return true;
             }
+        }
 
-            unsigned dim;
-            for (dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
+        return false;
+    }
+
+    if (GenTreeCall* call = tree->IsCall())
+    {
+        // We haven't morphed calls yet.
+        assert(call->gtCallLateArgs == nullptr);
+        assert(call->gtControlExpr == nullptr);
+
+        if (call->gtCallThisArg != nullptr)
+        {
+            if (impHasLclRef(call->gtCallThisArg->GetNode(), lclNum))
             {
-                if (impHasLclRef(tree->AsArrElem()->gtArrInds[dim], lclNum))
-                {
-                    return true;
-                }
+                return true;
             }
+        }
 
-            break;
-
-        case GT_PHI:
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
+        for (GenTreeCall::Use& use : call->Args())
+        {
+            if (impHasLclRef(use.GetNode(), lclNum))
             {
-                if (impHasLclRef(use.GetNode(), lclNum))
-                {
-                    return true;
-                }
+                return true;
             }
-            break;
+        }
 
-        case GT_FIELD_LIST:
-            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
+        if (call->gtCallType == CT_INDIRECT)
+        {
+            GenTree* cookie = call->gtCallCookie;
+
+            // PInvoke-calli cookie is a constant, or constant address indirection.
+            assert((cookie == nullptr) || cookie->OperIs(GT_CNS_INT) ||
+                   (cookie->OperIs(GT_IND) && cookie->AsIndir()->GetAddr()->OperIs(GT_CNS_INT)));
+
+            return impHasLclRef(call->gtCallAddr, lclNum);
+        }
+
+        return false;
+    }
+
+    if (GenTreeArrElem* arrElem = tree->IsArrElem())
+    {
+        for (unsigned i = 0; i < arrElem->gtArrRank; i++)
+        {
+            if (impHasLclRef(arrElem->gtArrInds[i], lclNum))
             {
-                if (impHasLclRef(use.GetNode(), lclNum))
-                {
-                    return true;
-                }
+                return true;
             }
-            break;
+        }
+
+        return impHasLclRef(arrElem->gtArrObj, lclNum);
+    }
 
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+    if (GenTreeHWIntrinsic* intrinsic = tree->IsHWIntrinsic())
+    {
+        for (GenTreeHWIntrinsic::Use& use : intrinsic->Uses())
+        {
+            if (impHasLclRef(use.GetNode(), lclNum))
             {
-                if (impHasLclRef(use.GetNode(), lclNum))
-                {
-                    return true;
-                }
+                return true;
             }
-            break;
-#endif // FEATURE_SIMD
+        }
 
-        case GT_INSTR:
-            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
-            {
-                if (impHasLclRef(use.GetNode(), lclNum))
-                {
-                    return true;
-                }
-            }
-            break;
-
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
+        return false;
+    }
 #endif
-            if (impHasLclRef(tree->AsBoundsChk()->GetIndex(), lclNum))
-            {
-                return true;
-            }
-            if (impHasLclRef(tree->AsBoundsChk()->GetLength(), lclNum))
-            {
-                return true;
-            }
-            break;
 
-        case GT_ARR_OFFSET:
-        case GT_CMPXCHG:
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-        case GT_QMARK:
-            for (unsigned i = 0; i < 3; i++)
-            {
-                if (impHasLclRef(tree->AsTernaryOp()->GetOp(i), lclNum))
-                {
-                    return true;
-                }
-            }
-            break;
-
-        default:
-            INDEBUG(gtDispTree(tree);)
-            assert(!"unexpected operator");
-    }
-
-    return false;
+    INDEBUG(gtDispTree(tree);)
+    unreached();
 }
 
 // Check if the tree references any address taken locals.
