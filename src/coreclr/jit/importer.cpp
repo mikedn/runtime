@@ -16928,32 +16928,34 @@ void Compiler::impImportInitBlk(unsigned prefixFlags)
     GenTree* size      = impPopStack().val;
     GenTree* initValue = impPopStack().val;
     GenTree* dstAddr   = impPopStack().val;
+    GenTree* init;
 
     GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
-        GenTreeDynBlk* init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
-        init->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
-        impSpillAllAppendTree(init);
-
-        return;
+        init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
+        init->AsDynBlk()->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
     }
-
-    ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-    GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
-
-    if ((prefixFlags & PREFIX_VOLATILE) != 0)
+    else
     {
-        dst->SetVolatile();
+        ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
+        GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
+
+        if ((prefixFlags & PREFIX_VOLATILE) != 0)
+        {
+            dst->SetVolatile();
+        }
+
+        if (!initValue->IsIntegralConst(0))
+        {
+            initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
+        }
+
+        init = gtNewAssignNode(dst, initValue);
     }
 
-    if (!initValue->IsIntegralConst(0))
-    {
-        initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
-    }
-
-    impSpillAllAppendTree(gtNewAssignNode(dst, initValue));
+    impSpillAllAppendTree(init);
 }
 
 void Compiler::impImportCpBlk(unsigned prefixFlags)
@@ -16963,34 +16965,31 @@ void Compiler::impImportCpBlk(unsigned prefixFlags)
     GenTree* size    = impPopStack().val;
     GenTree* srcAddr = impPopStack().val;
     GenTree* dstAddr = impPopStack().val;
+    GenTree* copy;
 
     GenTreeIntCon* sizeIntCon = size->IsIntCon();
 
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
-        GenTreeDynBlk* copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
-        copy->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
-        impSpillAllAppendTree(copy);
-
-        return;
+        copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
+        copy->AsDynBlk()->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
     }
-
-    ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-    GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
-
-    if ((prefixFlags & PREFIX_VOLATILE) != 0)
+    else
     {
-        dst->SetVolatile();
+        ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
+        GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
+        GenTreeBlk*  src    = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
+
+        if ((prefixFlags & PREFIX_VOLATILE) != 0)
+        {
+            dst->SetVolatile();
+            src->SetVolatile();
+        }
+
+        copy = gtNewAssignNode(dst, src);
     }
 
-    GenTreeBlk* src = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
-
-    if ((prefixFlags & PREFIX_VOLATILE) != 0)
-    {
-        src->SetVolatile();
-    }
-
-    impSpillAllAppendTree(gtNewAssignNode(dst, src));
+    impSpillAllAppendTree(copy);
 }
 
 GenTree* Compiler::impImportPop(BasicBlock* block)
