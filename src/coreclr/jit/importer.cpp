@@ -17133,15 +17133,12 @@ AGAIN:
 
     if (kind & GTK_LEAF)
     {
-        // TODO-MIKE-Review: Why the crap doesn't this check for LCL_FLD(_ADDR)?
-        if ((oper == GT_LCL_VAR) || (oper == GT_LCL_VAR_ADDR))
+        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
-            if (tree->AsLclVarCommon()->GetLclNum() == lclNum)
-            {
-                return true;
-            }
+            return (tree->AsLclVarCommon()->GetLclNum() == lclNum);
         }
-        else if (oper == GT_RET_EXPR)
+
+        if (oper == GT_RET_EXPR)
         {
             return impHasLclRef(tree->AsRetExpr()->GetRetExpr(), lclNum);
         }
