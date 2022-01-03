@@ -1505,7 +1505,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
             // if the expression contains any address taken locals then it's treated as if
             // it has GTF_GLOB_REF.
 
-            argInfo.argHasGlobRef = gtHasAddressTakenLocals(argInfo.argNode);
+            argInfo.argHasGlobRef = impHasAddressTakenLocals(argInfo.argNode);
         }
 
         JITDUMP("%s%s%s%s", argInfo.argHasGlobRef || argInfo.argHasSideEff ? "has " : "is side effect free",

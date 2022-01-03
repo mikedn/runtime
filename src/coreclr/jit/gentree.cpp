@@ -1459,35 +1459,6 @@ AGAIN:
     return false;
 }
 
-// Check if the tree references any address taken locals.
-//
-// Note that "address taken" is far more conservative than "address exposed"
-// and as such this should only be used before we determine which locals are
-// address exposed - typically during IL import and inlining. Beyond that,
-// GTF_GLOB_REF should be used instead as it is set on any tree that uses
-// address exposed locals.
-//
-bool Compiler::gtHasAddressTakenLocals(GenTree* tree)
-{
-    auto visitor = [](GenTree** use, fgWalkData* data) {
-        GenTree* node = *use;
-
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-        {
-            LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
-
-            if (lcl->lvHasLdAddrOp || lcl->lvAddrExposed)
-            {
-                return WALK_ABORT;
-            }
-        }
-
-        return WALK_CONTINUE;
-    };
-
-    return fgWalkTreePre(&tree, visitor) == WALK_ABORT;
-}
-
 #ifdef DEBUG
 
 /*****************************************************************************

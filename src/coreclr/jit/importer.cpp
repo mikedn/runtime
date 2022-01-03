@@ -451,7 +451,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
 
         if (stmtExpr->OperIs(GT_ASG) && stmtExpr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
             ((stmtExpr->AsOp()->GetOp(0)->GetSideEffects() & GTF_GLOB_REF) == 0) &&
-            !gtHasAddressTakenLocals(stmtExpr->AsOp()->GetOp(1)))
+            !impHasAddressTakenLocals(stmtExpr->AsOp()->GetOp(1)))
         {
             unsigned srcSideEffects = stmtExpr->AsOp()->GetOp(1)->GetSideEffects();
             assert(stmtSideEffects == (srcSideEffects | GTF_ASG));
@@ -1933,7 +1933,7 @@ void Compiler::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
         // so we cannot rely on GTF_GLOB_REF being present in trees that use
         // such locals. Conservatively assume that address taken locals will be
         // address exposed and add GTF_GLOB_REF.
-        if (((spillSideEffects & GTF_GLOB_REF) != 0) && gtHasAddressTakenLocals(tree))
+        if (((spillSideEffects & GTF_GLOB_REF) != 0) && impHasAddressTakenLocals(tree))
         {
             treeSideEffects |= GTF_GLOB_REF;
         }
@@ -9742,7 +9742,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         {
                             spillSideEffects = GTF_GLOB_EFFECT;
                         }
-                        else if (((valueSideEffects & GTF_GLOB_EFFECT) != 0) || gtHasAddressTakenLocals(op1))
+                        else if (((valueSideEffects & GTF_GLOB_EFFECT) != 0) || impHasAddressTakenLocals(op1))
                         {
                             spillSideEffects = GTF_SIDE_EFFECT;
                         }
@@ -17329,4 +17329,33 @@ AGAIN:
     }
 
     return false;
+}
+
+// Check if the tree references any address taken locals.
+//
+// Note that "address taken" is far more conservative than "address exposed"
+// and as such this should only be used before we determine which locals are
+// address exposed - typically during IL import and inlining. Beyond that,
+// GTF_GLOB_REF should be used instead as it is set on any tree that uses
+// address exposed locals.
+//
+bool Compiler::impHasAddressTakenLocals(GenTree* tree)
+{
+    auto visitor = [](GenTree** use, fgWalkData* data) {
+        GenTree* node = *use;
+
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        {
+            LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
+
+            if (lcl->lvHasLdAddrOp || lcl->IsAddressExposed())
+            {
+                return WALK_ABORT;
+            }
+        }
+
+        return WALK_CONTINUE;
+    };
+
+    return fgWalkTreePre(&tree, visitor) == WALK_ABORT;
 }
