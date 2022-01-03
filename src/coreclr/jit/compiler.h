@@ -3110,7 +3110,6 @@ public:
     INDEBUG(void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);)
     void impAppendStmt(Statement* stmt, unsigned chkLevel);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
-    void impSpillAppendTree(GenTree* tree);
     void impSpillAllAppendTree(GenTree* tree);
     void impSpillNoneAppendTree(GenTree* tree);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);

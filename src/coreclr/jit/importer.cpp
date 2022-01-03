@@ -547,36 +547,6 @@ Statement* Compiler::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSET
     return stmt;
 }
 
-void Compiler::impSpillAppendTree(GenTree* op1)
-{
-    // We need to call impSpillLclReferences for a struct type lclVar.
-    // This is because there may be loads of that lclVar on the evaluation stack,
-    // and we need to ensure that those loads are completed before we modify it.
-    if (op1->OperIs(GT_ASG) && varTypeIsStruct(op1->AsOp()->GetOp(0)->GetType()))
-    {
-        GenTree*       lhs    = op1->AsOp()->GetOp(0);
-        GenTreeLclVar* lclVar = nullptr;
-
-        if (lhs->OperIs(GT_LCL_VAR))
-        {
-            lclVar = lhs->AsLclVar();
-        }
-        else if (lhs->OperIs(GT_OBJ))
-        {
-            // Check if LHS address is within some struct local, to catch
-            // cases where we're updating the struct by something other than a stfld
-            lclVar = impIsAddressInLocal(lhs->AsObj()->GetAddr());
-        }
-
-        if (lclVar != nullptr)
-        {
-            impSpillLclReferences(lclVar->GetLclNum());
-        }
-    }
-
-    impSpillAllAppendTree(op1);
-}
-
 void Compiler::impSpillAllAppendTree(GenTree* op1)
 {
     impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
@@ -13381,7 +13351,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impSpillAppendTree(op1);
+                // We have to spill GLOB_REFs even if the destination is a local,
+                // we've got an address so the local is "address taken".
+                impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("STOBJ stack spill temp"));
+                impSpillNoneAppendTree(op1);
                 break;
 
             case CEE_MKREFANY:
@@ -16831,7 +16804,10 @@ void Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
         initValue = gtNewIconNode(0);
     }
 
-    impSpillAppendTree(gtNewAssignNode(dst, initValue));
+    // We have to spill GLOB_REFs even if the destination is a local,
+    // we've got an address so the local is "address taken".
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("INITOBJ stack spill temp"));
+    impSpillNoneAppendTree(gtNewAssignNode(dst, initValue));
 }
 
 void Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout)
@@ -16877,7 +16853,11 @@ void Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
     gtInitStructCopyAsg(asg);
-    impSpillAppendTree(asg);
+
+    // We have to spill GLOB_REFs even if the destination is a local,
+    // we've got an address so the local is "address taken".
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("CPOBJ stack spill temp"));
+    impSpillNoneAppendTree(asg);
 }
 
 void Compiler::impImportInitBlk(unsigned prefixFlags)
