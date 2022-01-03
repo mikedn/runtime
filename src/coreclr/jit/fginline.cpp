@@ -2629,7 +2629,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
             // expression? If so we somehow messed up and didn't properly
             // spill the return value. See inlFetchInlineeLocal.
 
-            noway_assert(!gtHasRef(inlineInfo->retExpr, lclInfo.lclNum));
+            noway_assert(!impHasLclRef(inlineInfo->retExpr, lclInfo.lclNum));
         }
 
         GenTree*   zero = gtNewZeroConNode(lclInfo.lclType);

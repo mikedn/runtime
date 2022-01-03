@@ -2140,8 +2140,6 @@ public:
 
     GenTree* gtReverseCond(GenTree* tree);
 
-    bool gtHasRef(GenTree* tree, unsigned lclNum);
-
     bool gtHasAddressTakenLocals(GenTree* tree);
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
@@ -3388,6 +3386,7 @@ private:
 
     static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
+    bool impHasLclRef(GenTree* tree, unsigned lclNum);
 
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
