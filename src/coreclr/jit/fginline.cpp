@@ -1505,7 +1505,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
             // if the expression contains any address taken locals then it's treated as if
             // it has GTF_GLOB_REF.
 
-            argInfo.argHasGlobRef = gtHasAddressTakenLocals(argInfo.argNode);
+            argInfo.argHasGlobRef = impHasAddressTakenLocals(argInfo.argNode);
         }
 
         JITDUMP("%s%s%s%s", argInfo.argHasGlobRef || argInfo.argHasSideEff ? "has " : "is side effect free",
@@ -2629,7 +2629,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
             // expression? If so we somehow messed up and didn't properly
             // spill the return value. See inlFetchInlineeLocal.
 
-            noway_assert(!gtHasRef(inlineInfo->retExpr, lclInfo.lclNum));
+            noway_assert(!impHasLclRef(inlineInfo->retExpr, lclInfo.lclNum));
         }
 
         GenTree*   zero = gtNewZeroConNode(lclInfo.lclType);

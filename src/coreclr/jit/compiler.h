@@ -2140,10 +2140,6 @@ public:
 
     GenTree* gtReverseCond(GenTree* tree);
 
-    bool gtHasRef(GenTree* tree, ssize_t lclNum);
-
-    bool gtHasAddressTakenLocals(GenTree* tree);
-
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
 
     INDEBUG(unsigned gtHashValue(GenTree* tree);)
@@ -2346,7 +2342,7 @@ public:
     };
 
     FindLinkData gtFindLink(Statement* stmt, GenTree* node);
-    bool gtHasCatchArg(GenTree* tree);
+    bool impHasCatchArg(GenTree* tree);
 
     typedef ArrayStack<GenTree*> GenTreeStack;
 
@@ -3097,26 +3093,24 @@ protected:
     Statement* impLastStmt; // The last statement for the current BB.
 
 public:
-    enum
-    {
-        CHECK_SPILL_ALL  = -1,
-        CHECK_SPILL_NONE = -2
-    };
+    static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
+    static constexpr unsigned CHECK_SPILL_NONE = 0;
 
-    void impBeginTreeList();
-    void impEndTreeList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt);
-    void impEndTreeList(BasicBlock* block);
-    void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);
+    void impStmtListBegin();
+    void impStmtListAppend(Statement* stmt);
+    void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
+    Statement* impStmtListRemoveLast();
+    void impStmtListEnd(BasicBlock* block);
+    void impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt);
+
+    INDEBUG(void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);)
     void impAppendStmt(Statement* stmt, unsigned chkLevel);
-    void impAppendStmt(Statement* stmt);
-    void impInsertStmtBefore(Statement* stmt, Statement* stmtBefore);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
-    void impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore);
+    void impSpillAllAppendTree(GenTree* tree);
+    void impSpillNoneAppendTree(GenTree* tree);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
-
-    Statement* impExtractLastStmt();
 
     GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,
@@ -3277,13 +3271,9 @@ private:
     void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
 
     void impSpillStackEnsure(bool spillLeaves = false);
-    void impEvalSideEffects();
-    void impSpillSpecialSideEff();
-    void impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason));
-    void               impSpillValueClasses();
-    void               impSpillEvalStack();
-    static fgWalkPreFn impFindValueClasses;
-    void impSpillLclRefs(ssize_t lclNum);
+    void impSpillCatchArg();
+    void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
+    void impSpillLclReferences(unsigned lclNum);
 
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
     GenTree* impNewCatchArg();
@@ -3394,6 +3384,8 @@ private:
 
     static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
+    bool impHasLclRef(GenTree* tree, unsigned lclNum);
+    bool impHasAddressTakenLocals(GenTree* tree);
 
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
@@ -3437,10 +3429,10 @@ private:
 
     CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
 
-    GenTree* impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
-    GenTree* impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
-    GenTree* impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile);
-    GenTree* impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
+    void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
+    void impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
+    void impImportInitBlk(unsigned prefixFlags);
+    void impImportCpBlk(unsigned prefixFlags);
 
     GenTree* impImportPop(BasicBlock* block);
 

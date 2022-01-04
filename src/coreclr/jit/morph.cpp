@@ -8597,7 +8597,7 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
                     {
                         // TODO-MIKE-CQ: This is overly conservative, we need to check if the op tree contains
                         // any references to the destination local, including its promoted fields. Basically
-                        // something like gtHasRef but that also checks for promoted fields.
+                        // something like impHasLclRef but that also checks for promoted fields.
                         srcIsCreate = false;
                     }
                 }
