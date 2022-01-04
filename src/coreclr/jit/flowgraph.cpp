@@ -895,6 +895,16 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         GenTree* op1 = addr->AsOp()->GetOp(0);
         GenTree* op2 = addr->AsOp()->GetOp(1);
 
+        if (GenTreeIntCon* const2 = op2->IsIntCon())
+        {
+            // Static struct field boxed instances cannot be null.
+            if (const2->GetFieldSeq() == GetFieldSeqStore()->GetBoxedValuePseudoField())
+            {
+                assert(const2->GetValue() == TARGET_POINTER_SIZE);
+                return !op1->TypeIs(TYP_REF);
+            }
+        }
+
         // TODO-MIKE-Review: The whole fgIsBigOffset/IsIconHandle mess is dubious.
         // Adding "big offset" obviously doesn't imply that the result is null.
         // This is obviously a mix up with field morphing attempting to elide an
