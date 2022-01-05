@@ -3,12 +3,6 @@
 
 #include "jitpch.h"
 
-void copyFlags(GenTree* dst, GenTree* src, GenTreeFlags mask)
-{
-    dst->gtFlags &= ~mask;
-    dst->gtFlags |= (src->gtFlags & mask);
-}
-
 void Rationalizer::RewriteNodeAsCall(GenTree**             use,
                                      ArrayStack<GenTree*>& parents,
                                      CORINFO_METHOD_HANDLE callHnd,
@@ -113,9 +107,10 @@ void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCo
         store->AsLclFld()->SetLclOffs(location->AsLclFld()->GetLclOffs());
         store->AsLclFld()->SetFieldSeq(location->AsLclFld()->GetFieldSeq());
         store->AsLclFld()->SetLayoutNum(location->AsLclFld()->GetLayoutNum());
+        store->gtFlags |= location->gtFlags & GTF_VAR_USEASG;
     }
 
-    copyFlags(store, location, GTF_VAR_DEF | GTF_VAR_USEASG);
+    store->gtFlags |= GTF_VAR_DEF;
     store->gtFlags &= ~GTF_EXCEPT;
 
     DISPNODE(store);
@@ -128,74 +123,45 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
 
     GenTreeOp* assignment = use.Def()->AsOp();
     assert(assignment->OperIs(GT_ASG));
+    assert((assignment->gtFlags & GTF_ASG) != 0);
 
-    GenTree* location = assignment->gtGetOp1();
+    GenTree* location = assignment->GetOp(0);
+    GenTree* value    = assignment->GetOp(1);
 
     switch (location->GetOper())
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
             RewriteLocalAssignment(assignment, location->AsLclVarCommon());
-            BlockRange().Remove(location);
             break;
 
         case GT_IND:
-        {
-            GenTreeStoreInd* store = new (comp, GT_STOREIND)
-                GenTreeStoreInd(location->GetType(), location->AsIndir()->GetAddr(), assignment->GetOp(1));
+            assignment->ChangeOper(GT_STOREIND);
+            assignment->SetType(location->GetType());
+            assignment->AsStoreInd()->SetRMWStatus(STOREIND_RMW_STATUS_UNKNOWN);
 
-            copyFlags(store, assignment, GTF_ALL_EFFECT);
-            copyFlags(store, location, GTF_IND_FLAGS);
-
-            // TODO: JIT dump
-
-            // Remove the GT_IND node and replace the assignment node with the store
-            BlockRange().Remove(location);
-            BlockRange().InsertBefore(assignment, store);
-            use.ReplaceWith(comp, store);
-            BlockRange().Remove(assignment);
-        }
-        break;
+            assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
+            assignment->AsIndir()->SetValue(value);
+            assignment->gtFlags |= location->gtFlags & GTF_IND_FLAGS;
+            break;
 
         case GT_BLK:
         case GT_OBJ:
-        {
-            assert(varTypeIsStruct(location));
-            GenTreeBlk* storeBlk = location->AsBlk();
-            genTreeOps  storeOper;
-            switch (location->gtOper)
-            {
-                case GT_BLK:
-                    storeOper = GT_STORE_BLK;
-                    break;
-                case GT_OBJ:
-                    storeOper = GT_STORE_OBJ;
-                    break;
-                default:
-                    unreached();
-            }
-            JITDUMP("Rewriting GT_ASG(%s(X), Y) to %s(X,Y):\n", GenTree::OpName(location->gtOper),
-                    GenTree::OpName(storeOper));
-            storeBlk->SetOperRaw(storeOper);
-            storeBlk->gtFlags &= ~GTF_DONT_CSE;
-            storeBlk->gtFlags |= (assignment->gtFlags & (GTF_ALL_EFFECT | GTF_DONT_CSE));
-            storeBlk->AsBlk()->SetValue(assignment->GetOp(1));
+            assignment->ChangeOper(location->OperIs(GT_BLK) ? GT_STORE_BLK : GT_STORE_OBJ);
+            assignment->SetType(location->GetType());
+            assignment->AsBlk()->SetLayout(location->AsBlk()->GetLayout());
+            assignment->AsBlk()->SetKind(StructStoreKind::Invalid);
 
-            // Remove the block node from its current position and replace the assignment node with it
-            // (now in its store form).
-            BlockRange().Remove(storeBlk);
-            BlockRange().InsertBefore(assignment, storeBlk);
-            use.ReplaceWith(comp, storeBlk);
-            BlockRange().Remove(assignment);
-            DISPTREERANGE(BlockRange(), use.Def());
-            JITDUMP("\n");
-        }
-        break;
+            assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
+            assignment->AsIndir()->SetValue(value);
+            assignment->gtFlags |= location->gtFlags & GTF_IND_FLAGS;
+            break;
 
         default:
             unreached();
-            break;
     }
+
+    BlockRange().Remove(location);
 }
 
 Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<GenTree*>& parentStack)
