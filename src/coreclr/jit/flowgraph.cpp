@@ -886,96 +886,52 @@ GenTreeCall* Compiler::fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls)
     return fgGetStaticsCCtorHelper(cls, info.compCompHnd->getSharedCCtorHelper(cls));
 }
 
-//------------------------------------------------------------------------------
-// fgAddrCouldBeNull : Check whether the address tree can represent null.
-//
-//
-// Arguments:
-//    addr     -  Address to check
-//
-// Return Value:
-//    True if address could be null; false otherwise
-
 bool Compiler::fgAddrCouldBeNull(GenTree* addr)
 {
     addr = addr->gtEffectiveVal();
-    if ((addr->gtOper == GT_CNS_INT) && addr->IsIconHandle())
-    {
-        return false;
-    }
-    else if (addr->OperIs(GT_CNS_STR))
-    {
-        return false;
-    }
-    else if (addr->OperIs(GT_INDEX_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_CLS_VAR_ADDR))
-    {
-        return false;
-    }
-    else if (addr->gtOper == GT_LCL_VAR)
-    {
-        unsigned varNum = addr->AsLclVarCommon()->GetLclNum();
 
-        if (lvaIsImplicitByRefLocal(varNum))
-        {
-            return false;
-        }
-    }
-    else if (addr->OperIs(GT_FIELD_ADDR))
+    if (addr->OperIs(GT_ADD))
     {
-        return false;
-    }
-    else if (addr->gtOper == GT_ADD)
-    {
-        if (addr->AsOp()->gtOp1->gtOper == GT_CNS_INT)
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        if (GenTreeIntCon* const2 = op2->IsIntCon())
         {
-            GenTree* cns1Tree = addr->AsOp()->gtOp1;
-            if (!cns1Tree->IsIconHandle())
+            // Static struct field boxed instances cannot be null.
+            if (const2->GetFieldSeq() == GetFieldSeqStore()->GetBoxedValuePseudoField())
             {
-                if (!fgIsBigOffset(cns1Tree->AsIntCon()->gtIconVal))
-                {
-                    // Op1 was an ordinary small constant
-                    return fgAddrCouldBeNull(addr->AsOp()->gtOp2);
-                }
-            }
-            else // Op1 was a handle represented as a constant
-            {
-                // Is Op2 also a constant?
-                if (addr->AsOp()->gtOp2->gtOper == GT_CNS_INT)
-                {
-                    GenTree* cns2Tree = addr->AsOp()->gtOp2;
-                    // Is this an addition of a handle and constant
-                    if (!cns2Tree->IsIconHandle())
-                    {
-                        if (!fgIsBigOffset(cns2Tree->AsIntCon()->gtIconVal))
-                        {
-                            // Op2 was an ordinary small constant
-                            return false; // we can't have a null address
-                        }
-                    }
-                }
+                assert(const2->GetValue() == TARGET_POINTER_SIZE);
+                return !op1->TypeIs(TYP_REF);
             }
         }
-        else
-        {
-            // Op1 is not a constant
-            // What about Op2?
-            if (addr->AsOp()->gtOp2->gtOper == GT_CNS_INT)
-            {
-                GenTree* cns2Tree = addr->AsOp()->gtOp2;
-                // Is this an addition of a small constant
-                if (!cns2Tree->IsIconHandle())
-                {
-                    if (!fgIsBigOffset(cns2Tree->AsIntCon()->gtIconVal))
-                    {
-                        // Op2 was an ordinary small constant
-                        return fgAddrCouldBeNull(addr->AsOp()->gtOp1);
-                    }
-                }
-            }
-        }
+
+        return true;
     }
 
-    return true; // default result: addr could be null
+    if (addr->OperIs(GT_CNS_INT))
+    {
+        // TODO-MIKE-Review: It's not clear what this has to do with handles. Any
+        // non 0 constant is obviously not null. It may be an invalid address but
+        // it's not like the spec requires detecting such addresses.
+
+        return !addr->IsIconHandle();
+    }
+
+    if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_CLS_VAR_ADDR))
+    {
+        return false;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR))
+    {
+        // TODO-MIKE-CQ: The return buffer addres is supposed to be non null too.
+        // But surprise, the JIT ABI is broken and the address may be null.
+        // Oh well, given how the address is used it probably doesn't matter.
+
+        return !lvaGetDesc(addr->AsLclVar())->IsImplicitByRefParam();
+    }
+
+    return true;
 }
 
 //------------------------------------------------------------------------------

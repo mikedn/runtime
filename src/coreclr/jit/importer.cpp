@@ -5992,7 +5992,8 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   r
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
-        addr     = gtNewOperNode(GT_IND, TYP_REF, addr);
+        addr = gtNewOperNode(GT_IND, TYP_REF, addr);
+        addr->gtFlags |= GTF_IND_NONFAULTING;
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
     }
@@ -6027,7 +6028,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
             indir = gtNewOperNode(GT_IND, type, addr);
         }
 
-        indir->gtFlags |= GTF_GLOB_REF;
+        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
         if (indir->TypeIs(TYP_REF) && addr->TypeIs(TYP_BYREF))
         {
@@ -6115,6 +6116,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
         {
             addr = gtNewOperNode(GT_IND, TYP_REF, addr);
+            addr->gtFlags |= GTF_IND_NONFAULTING;
 
 #ifdef TARGET_64BIT
             if (isStaticReadOnlyInited)
@@ -6174,8 +6176,9 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
         else
         {
             indir = gtNewOperNode(GT_IND, type, addr);
-            indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
         }
+
+        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
     }
 
     return indir;

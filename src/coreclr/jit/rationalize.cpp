@@ -3,12 +3,6 @@
 
 #include "jitpch.h"
 
-void copyFlags(GenTree* dst, GenTree* src, GenTreeFlags mask)
-{
-    dst->gtFlags &= ~mask;
-    dst->gtFlags |= (src->gtFlags & mask);
-}
-
 void Rationalizer::RewriteNodeAsCall(GenTree**             use,
                                      ArrayStack<GenTree*>& parents,
                                      CORINFO_METHOD_HANDLE callHnd,
@@ -113,10 +107,11 @@ void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCo
         store->AsLclFld()->SetLclOffs(location->AsLclFld()->GetLclOffs());
         store->AsLclFld()->SetFieldSeq(location->AsLclFld()->GetFieldSeq());
         store->AsLclFld()->SetLayoutNum(location->AsLclFld()->GetLayoutNum());
+        store->gtFlags |= location->gtFlags & GTF_VAR_USEASG;
     }
 
-    copyFlags(store, location, GTF_VAR_DEF | GTF_VAR_USEASG);
-    store->gtFlags &= ~GTF_REVERSE_OPS;
+    store->gtFlags |= GTF_VAR_DEF;
+    store->gtFlags &= ~GTF_EXCEPT;
 
     DISPNODE(store);
     JITDUMP("\n");
@@ -128,74 +123,45 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
 
     GenTreeOp* assignment = use.Def()->AsOp();
     assert(assignment->OperIs(GT_ASG));
+    assert((assignment->gtFlags & GTF_ASG) != 0);
 
-    GenTree* location = assignment->gtGetOp1();
+    GenTree* location = assignment->GetOp(0);
+    GenTree* value    = assignment->GetOp(1);
 
     switch (location->GetOper())
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
             RewriteLocalAssignment(assignment, location->AsLclVarCommon());
-            BlockRange().Remove(location);
             break;
 
         case GT_IND:
-        {
-            GenTreeStoreInd* store = new (comp, GT_STOREIND)
-                GenTreeStoreInd(location->GetType(), location->AsIndir()->GetAddr(), assignment->GetOp(1));
+            assignment->ChangeOper(GT_STOREIND);
+            assignment->SetType(location->GetType());
+            assignment->AsStoreInd()->SetRMWStatus(STOREIND_RMW_STATUS_UNKNOWN);
 
-            copyFlags(store, assignment, GTF_ALL_EFFECT);
-            copyFlags(store, location, GTF_IND_FLAGS);
-
-            // TODO: JIT dump
-
-            // Remove the GT_IND node and replace the assignment node with the store
-            BlockRange().Remove(location);
-            BlockRange().InsertBefore(assignment, store);
-            use.ReplaceWith(comp, store);
-            BlockRange().Remove(assignment);
-        }
-        break;
+            assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
+            assignment->AsIndir()->SetValue(value);
+            assignment->gtFlags |= location->gtFlags & GTF_IND_FLAGS;
+            break;
 
         case GT_BLK:
         case GT_OBJ:
-        {
-            assert(varTypeIsStruct(location));
-            GenTreeBlk* storeBlk = location->AsBlk();
-            genTreeOps  storeOper;
-            switch (location->gtOper)
-            {
-                case GT_BLK:
-                    storeOper = GT_STORE_BLK;
-                    break;
-                case GT_OBJ:
-                    storeOper = GT_STORE_OBJ;
-                    break;
-                default:
-                    unreached();
-            }
-            JITDUMP("Rewriting GT_ASG(%s(X), Y) to %s(X,Y):\n", GenTree::OpName(location->gtOper),
-                    GenTree::OpName(storeOper));
-            storeBlk->SetOperRaw(storeOper);
-            storeBlk->gtFlags &= ~GTF_DONT_CSE;
-            storeBlk->gtFlags |= (assignment->gtFlags & (GTF_ALL_EFFECT | GTF_DONT_CSE));
-            storeBlk->AsBlk()->SetValue(assignment->GetOp(1));
+            assignment->ChangeOper(location->OperIs(GT_BLK) ? GT_STORE_BLK : GT_STORE_OBJ);
+            assignment->SetType(location->GetType());
+            assignment->AsBlk()->SetLayout(location->AsBlk()->GetLayout());
+            assignment->AsBlk()->SetKind(StructStoreKind::Invalid);
 
-            // Remove the block node from its current position and replace the assignment node with it
-            // (now in its store form).
-            BlockRange().Remove(storeBlk);
-            BlockRange().InsertBefore(assignment, storeBlk);
-            use.ReplaceWith(comp, storeBlk);
-            BlockRange().Remove(assignment);
-            DISPTREERANGE(BlockRange(), use.Def());
-            JITDUMP("\n");
-        }
-        break;
+            assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
+            assignment->AsIndir()->SetValue(value);
+            assignment->gtFlags |= location->gtFlags & GTF_IND_FLAGS;
+            break;
 
         default:
             unreached();
-            break;
     }
+
+    BlockRange().Remove(location);
 }
 
 Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<GenTree*>& parentStack)
@@ -244,7 +210,13 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
         case GT_IND:
         case GT_BLK:
             // Clear the GTF_IND_ASG_LHS flag, which overlaps with GTF_IND_REQ_ADDR_IN_REG.
-            node->gtFlags &= ~GTF_IND_ASG_LHS;
+            // Also remove side effects that may have been inherited from address.
+            node->gtFlags &= ~(GTF_IND_ASG_LHS | GTF_ASG);
+
+            if ((node->gtFlags & GTF_IND_NONFAULTING) != 0)
+            {
+                node->gtFlags &= ~GTF_EXCEPT;
+            }
             break;
 
         case GT_NOP:
@@ -322,6 +294,49 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
         case GT_INTRINSIC:
             // Non-target intrinsics should have already been rewritten back into user calls.
             assert(comp->IsTargetIntrinsic(node->AsIntrinsic()->gtIntrinsicName));
+            break;
+
+        case GT_ADD:
+        case GT_SUB:
+        case GT_MUL:
+        case GT_CAST:
+            // Remove side effects that may have been inherited from operands.
+            if (!node->gtOverflow())
+            {
+                node->SetSideEffects(GTF_EMPTY);
+                break;
+            }
+            FALLTHROUGH;
+        case GT_DIV:
+        case GT_UDIV:
+        case GT_MOD:
+        case GT_UMOD:
+            if (!varTypeIsFloating(node->GetType()))
+            {
+                node->SetSideEffects(node->GetSideEffects() & GTF_EXCEPT);
+                break;
+            }
+            FALLTHROUGH;
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        case GT_NOT:
+        case GT_NEG:
+        case GT_BITCAST:
+        case GT_LSH:
+        case GT_RSH:
+        case GT_RSZ:
+        case GT_ROL:
+        case GT_ROR:
+        case GT_BSWAP:
+        case GT_BSWAP16:
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+            node->SetSideEffects(GTF_EMPTY);
             break;
 
         default:
