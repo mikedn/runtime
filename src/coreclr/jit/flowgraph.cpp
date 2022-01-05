@@ -905,33 +905,6 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
             }
         }
 
-        // TODO-MIKE-Review: The whole fgIsBigOffset/IsIconHandle mess is dubious.
-        // Adding "big offset" obviously doesn't imply that the result is null.
-        // This is obviously a mix up with field morphing attempting to elide an
-        // explicit null check, relying on the indir to fault if the field offset
-        // is sufficiently small. But attempting to use this do determine if an
-        // indir may throw an exception or not does not make a lot of sense.
-
-        if (GenTreeIntCon* const1 = op1->IsIntCon())
-        {
-            if (!const1->IsIconHandle())
-            {
-                return fgIsBigOffset(const1->GetValue()) || fgAddrCouldBeNull(op2);
-            }
-
-            if (GenTreeIntCon* const2 = op2->IsIntCon())
-            {
-                return const2->IsIconHandle() || fgIsBigOffset(const2->GetValue());
-            }
-
-            return true;
-        }
-
-        if (GenTreeIntCon* const2 = op2->IsIntCon())
-        {
-            return const2->IsIconHandle() || fgIsBigOffset(const2->GetValue()) || fgAddrCouldBeNull(op1);
-        }
-
         return true;
     }
 
