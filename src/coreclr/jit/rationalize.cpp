@@ -116,7 +116,7 @@ void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCo
     }
 
     copyFlags(store, location, GTF_VAR_DEF | GTF_VAR_USEASG);
-    store->gtFlags &= ~GTF_REVERSE_OPS;
+    store->gtFlags &= ~GTF_EXCEPT;
 
     DISPNODE(store);
     JITDUMP("\n");
@@ -244,7 +244,13 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
         case GT_IND:
         case GT_BLK:
             // Clear the GTF_IND_ASG_LHS flag, which overlaps with GTF_IND_REQ_ADDR_IN_REG.
-            node->gtFlags &= ~GTF_IND_ASG_LHS;
+            // Also remove side effects that may have been inherited from address.
+            node->gtFlags &= ~(GTF_IND_ASG_LHS | GTF_ASG);
+
+            if ((node->gtFlags & GTF_IND_NONFAULTING) != 0)
+            {
+                node->gtFlags &= ~GTF_EXCEPT;
+            }
             break;
 
         case GT_NOP:
@@ -322,6 +328,49 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
         case GT_INTRINSIC:
             // Non-target intrinsics should have already been rewritten back into user calls.
             assert(comp->IsTargetIntrinsic(node->AsIntrinsic()->gtIntrinsicName));
+            break;
+
+        case GT_ADD:
+        case GT_SUB:
+        case GT_MUL:
+        case GT_CAST:
+            // Remove side effects that may have been inherited from operands.
+            if (!node->gtOverflow())
+            {
+                node->SetSideEffects(GTF_EMPTY);
+                break;
+            }
+            FALLTHROUGH;
+        case GT_DIV:
+        case GT_UDIV:
+        case GT_MOD:
+        case GT_UMOD:
+            if (!varTypeIsFloating(node->GetType()))
+            {
+                node->SetSideEffects(node->GetSideEffects() & GTF_EXCEPT);
+                break;
+            }
+            FALLTHROUGH;
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        case GT_NOT:
+        case GT_NEG:
+        case GT_BITCAST:
+        case GT_LSH:
+        case GT_RSH:
+        case GT_RSZ:
+        case GT_ROL:
+        case GT_ROR:
+        case GT_BSWAP:
+        case GT_BSWAP16:
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+            node->SetSideEffects(GTF_EMPTY);
             break;
 
         default:
