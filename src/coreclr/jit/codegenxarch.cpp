@@ -28,7 +28,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *  Generate code that will set the given register to the integer constant.
  */
 
-void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFlags flags)
+void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFlags flags DEBUGARG(GenTreeFlags gtFlags))
 {
     // Reg cannot be a FP reg
     assert(!genIsValidFloatReg(reg));
@@ -45,7 +45,7 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFla
     else
     {
         // TODO-XArch-CQ: needs all the optimized cases
-        GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), reg, val);
+        GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), reg, val DEBUGARG(gtFlags));
     }
 }
 
@@ -392,7 +392,7 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t   imm,
-                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(unsigned gtFlags))
+                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -457,7 +457,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             }
             else
             {
-                genSetRegToIcon(targetReg, cnsVal, targetType);
+                genSetRegToIcon(targetReg, cnsVal, targetType, INS_FLAGS_DONT_CARE DEBUGARG(tree->gtFlags));
             }
         }
         break;
@@ -2177,7 +2177,8 @@ void CodeGen::genLclHeap(GenTree* tree)
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
     noway_assert(genStackLevel == 0);   // Can't have anything on the stack
 
-    unsigned stackAdjustment = 0;
+    target_size_t stackAdjustment     = 0;
+    target_size_t locAllocStackOffset = 0;
 
     // compute the amount of memory to allocate to properly STACK_ALIGN.
     size_t amount = 0;
@@ -2255,6 +2256,9 @@ void CodeGen::genLclHeap(GenTree* tree)
         }
     }
 
+    bool initMemOrLargeAlloc; // Declaration must be separate from initialization to avoid clang compiler error.
+    initMemOrLargeAlloc = compiler->info.compInitMem || (amount >= compiler->eeGetPageSize()); // must be >= not >
+
 #if FEATURE_FIXED_OUT_ARGS
     // If we have an outgoing arg area then we must adjust the SP by popping off the
     // outgoing arg area. We will restore it right before we return from this method.
@@ -2270,8 +2274,22 @@ void CodeGen::genLclHeap(GenTree* tree)
     {
         assert((compiler->lvaOutgoingArgSpaceSize % STACK_ALIGN) == 0); // This must be true for the stack to remain
                                                                         // aligned
+
+        // If the localloc amount is a small enough constant, and we're not initializing the allocated
+        // memory, then don't bother popping off the ougoing arg space first; just allocate the amount
+        // of space needed by the allocation, and call the bottom part the new outgoing arg space.
+
+        if ((amount > 0) && !initMemOrLargeAlloc)
+        {
+            lastTouchDelta      = genStackPointerConstantAdjustmentLoopWithProbe(-(ssize_t)amount, REG_NA);
+            stackAdjustment     = 0;
+            locAllocStackOffset = (target_size_t)compiler->lvaOutgoingArgSpaceSize;
+            goto ALLOC_DONE;
+        }
+
         inst_RV_IV(INS_add, REG_SPBASE, compiler->lvaOutgoingArgSpaceSize, EA_PTRSIZE);
-        stackAdjustment += compiler->lvaOutgoingArgSpaceSize;
+        stackAdjustment += (target_size_t)compiler->lvaOutgoingArgSpaceSize;
+        locAllocStackOffset = stackAdjustment;
     }
 #endif
 
@@ -2295,9 +2313,6 @@ void CodeGen::genLclHeap(GenTree* tree)
 
             goto ALLOC_DONE;
         }
-
-        bool initMemOrLargeAlloc =
-            compiler->info.compInitMem || (amount >= compiler->eeGetPageSize()); // must be >= not >
 
 #ifdef TARGET_X86
         bool needRegCntRegister = true;
@@ -2397,7 +2412,7 @@ ALLOC_DONE:
         assert(lastTouchDelta >= -1);
 
         if ((lastTouchDelta == (target_ssize_t)-1) ||
-            (stackAdjustment + (unsigned)lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES >
+            (stackAdjustment + (target_size_t)lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES >
              compiler->eeGetPageSize()))
         {
             genStackPointerConstantAdjustmentLoopWithProbe(-(ssize_t)stackAdjustment, REG_NA);
@@ -2409,8 +2424,8 @@ ALLOC_DONE:
     }
 
     // Return the stackalloc'ed address in result register.
-    // TargetReg = RSP + stackAdjustment.
-    GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, targetReg, REG_SPBASE, stackAdjustment);
+    // TargetReg = RSP + locAllocStackOffset
+    GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, targetReg, REG_SPBASE, (int)locAllocStackOffset);
 
     if (endLabel != nullptr)
     {
@@ -2659,6 +2674,8 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         src = src->AsUnOp()->GetOp(0);
     }
 
+    unsigned size = layout->GetSize();
+
     if (!src->isContained())
     {
         srcIntReg = genConsumeReg(src);
@@ -2666,11 +2683,9 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
     else
     {
         assert(src->IsIntegralConst(0));
-        assert((layout->GetSize() == 1) || ((layout->GetSize() % XMM_REGSIZE_BYTES) == 0));
     }
 
     emitter* emit = GetEmitter();
-    unsigned size = layout->GetSize();
 
     assert(size <= INT32_MAX);
     assert(dstOffset < (INT32_MAX - static_cast<int>(size)));
@@ -2689,8 +2704,17 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         return;
     }
 
-    // Fill as much as possible using SSE2 stores.
-    if (size >= XMM_REGSIZE_BYTES)
+    // 16 byte SSE stores are not guaranteed to be atomic so if the struct contains
+    // GC pointers we need to use only 8 byte stores.
+    // On x64 that means not using SSE at all since 8 byte stores can be done using
+    // normal 8 byte MOVs, which have smaller instruction encoding.
+    // On x86 we can still use SSE's MOVQ to store 8 bytes instead of two 4 byte MOVs.
+
+    if ((size >= XMM_REGSIZE_BYTES)
+#ifdef TARGET_AMD64
+        && (!store->IsObj() || !layout->HasGCPtr())
+#endif
+            )
     {
         regNumber srcXmmReg = store->GetSingleTempReg(RBM_ALLFLOAT);
 
@@ -2711,8 +2735,29 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         }
 
         instruction simdMov = simdUnalignedMovIns();
-        for (unsigned regSize = XMM_REGSIZE_BYTES; size >= regSize; size -= regSize, dstOffset += regSize)
+        unsigned    regSize = XMM_REGSIZE_BYTES;
+        unsigned    minSize = XMM_REGSIZE_BYTES;
+
+#ifdef TARGET_X86
+        minSize = 8;
+
+        if (store->IsObj() && layout->HasGCPtr())
         {
+            simdMov = INS_movq;
+            regSize = 8;
+        }
+#endif
+
+        for (; size >= minSize; size -= regSize, dstOffset += regSize)
+        {
+#ifdef TARGET_X86
+            if (regSize > size)
+            {
+                simdMov = INS_movq;
+                regSize = 8;
+            }
+#endif
+
             if (dstLclNum != BAD_VAR_NUM)
             {
                 emit->emitIns_S_R(simdMov, EA_ATTR(regSize), srcXmmReg, dstLclNum, dstOffset);
@@ -2723,10 +2768,6 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
                                     dstAddrIndexScale, dstOffset);
             }
         }
-
-        // TODO-CQ-XArch: On x86 we could initialize 8 byte at once by using MOVQ instead of two 4 byte MOV stores.
-        // On x64 it may also be worth zero initializing a 4/8 byte remainder using MOVD/MOVQ, that avoids the need
-        // to allocate a GPR just for the remainder.
     }
 
     // Fill the remainder using normal stores.
@@ -3921,9 +3962,10 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
+    var_types  lclRegType = lcl->GetRegisterType(store);
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -3931,8 +3973,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
-
-    var_types lclRegType = lcl->GetRegisterType(store);
 
 #ifdef DEBUG
     {
@@ -4981,7 +5021,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 // A Vector3 return value is stored in xmm0 and xmm1.
                 // RyuJIT assumes that the upper unused bits of xmm1 are cleared but
                 // the native compiler doesn't guarantee it.
-                if (returnType == TYP_SIMD12)
+                if (call->IsUnmanaged() && (returnType == TYP_SIMD12))
                 {
                     regNumber returnReg = call->GetRetDesc()->GetRegNum(1);
                     // Clear the upper 32 bits by two shift instructions.
@@ -5590,8 +5630,7 @@ void CodeGen::genCompareInt(GenTree* treeNode)
     // TYP_UINT and TYP_ULONG should not appear here, only small types can be unsigned
     assert(!varTypeIsUnsigned(type) || varTypeIsSmall(type));
 
-    bool needsOCFlags = !tree->OperIs(GT_EQ, GT_NE);
-    if (canReuseFlags && emit->AreFlagsSetToZeroCmp(op1->GetRegNum(), emitTypeSize(type), needsOCFlags))
+    if (canReuseFlags && emit->AreFlagsSetToZeroCmp(op1->GetRegNum(), emitTypeSize(type), tree->OperGet()))
     {
         JITDUMP("Not emitting compare due to flags being already set\n");
     }
@@ -5922,7 +5961,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 
     if (cast->IsUnsigned())
     {
-        srcType = genUnsignedType(srcType);
+        srcType = varTypeToUnsigned(srcType);
     }
 
 #ifdef TARGET_64BIT

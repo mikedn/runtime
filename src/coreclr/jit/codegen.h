@@ -204,6 +204,8 @@ protected:
 #ifdef DEBUG
     // Last instr we have displayed for dspInstrs
     unsigned genCurDispOffset;
+
+    const char* genInsDisplayName(emitter::instrDesc* id);
 #endif // DEBUG
 
     //-------------------------------------------------------------------------
@@ -331,6 +333,8 @@ protected:
 #endif
 
     void genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
+
+    void genPoisonFrame(regMaskTP bbRegLiveIn);
 
 #if defined(TARGET_ARM)
 
@@ -1106,7 +1110,10 @@ protected:
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif // FEATURE_HW_INTRINSICS
     void genEmitGSCookieCheck(bool pushReg);
-    void genSetRegToIcon(regNumber reg, ssize_t val, var_types type = TYP_INT, insFlags flags = INS_FLAGS_DONT_CARE);
+    void genSetRegToIcon(regNumber reg,
+                         ssize_t   val,
+                         var_types type = TYP_INT,
+                         insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
     void genCodeForShift(GenTree* tree);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -1421,7 +1428,7 @@ public:
                                 regNumber reg,
                                 ssize_t   imm,
                                 insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(size_t targetHandle = 0)
-                                    DEBUGARG(unsigned gtFlags = 0));
+                                    DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
 
 #ifdef TARGET_XARCH
     instruction genMapShiftInsToShiftByConstantIns(instruction ins, int shiftByValue);

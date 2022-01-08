@@ -158,7 +158,7 @@ namespace Internal.JitInterface
                 case TypeFlags.GenericParameter:
                 case TypeFlags.SignatureTypeVariable:
                 case TypeFlags.SignatureMethodVariable:
-                    Debug.Assert(false, $"Type {typeDesc} with unexpected category {typeDesc.Category}");
+                    Debug.Assert(false, string.Format("Type {0} with unexpected category {1}", typeDesc, typeDesc.Category));
                     return SystemVClassificationTypeUnknown;
                 default:
                     return SystemVClassificationTypeUnknown;

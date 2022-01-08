@@ -56,6 +56,38 @@ const char* insName(instruction ins)
     return insNames[ins];
 }
 
+//-----------------------------------------------------------------------------
+// genInsDisplayName: Get a fully-formed instruction display name. This only handles
+// the xarch case of prepending a "v", not the arm case of appending an "s".
+// This can be called up to four times in a single 'printf' before the static buffers
+// get reused.
+//
+// Returns:
+//    String with instruction name
+//
+const char* CodeGen::genInsDisplayName(emitter::instrDesc* id)
+{
+    instruction ins  = id->idIns();
+    const char* name = insName(ins);
+
+#ifdef TARGET_XARCH
+    const int       TEMP_BUFFER_LEN = 40;
+    static unsigned curBuf          = 0;
+    static char     buf[4][TEMP_BUFFER_LEN];
+    const char*     retbuf;
+
+    if (GetEmitter()->IsAVXInstruction(ins) && !GetEmitter()->IsBMIInstruction(ins))
+    {
+        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
+        retbuf = buf[curBuf];
+        curBuf = (curBuf + 1) % 4;
+        return retbuf;
+    }
+#endif // TARGET_XARCH
+
+    return name;
+}
+
 #endif
 
 void CodeGen::instGen(instruction ins)
@@ -977,11 +1009,15 @@ instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
 #elif defined(TARGET_ARM)
     if (dstIsFloatReg)
     {
-        return (dstType == TYP_DOUBLE) ? INS_vmov_i2d : INS_vmov_i2f;
+        // Can't have LONG in a register.
+        assert(dstType == TYP_FLOAT);
+        return INS_vmov_i2f;
     }
     else
     {
-        return (dstType == TYP_LONG) ? INS_vmov_d2i : INS_vmov_f2i;
+        // Can't have LONG in a register.
+        assert(dstType == TYP_INT);
+        return INS_vmov_f2i;
     }
 #else
 #error "Unknown TARGET"
@@ -1037,9 +1073,21 @@ instruction CodeGenInterface::ins_Store(var_types dstType, bool aligned)
 #endif
 }
 
-// Get the machine dependent instruction for performing a store to dstType on the stack from a srcReg.
-instruction CodeGenInterface::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned)
+//------------------------------------------------------------------------
+// ins_StoreFromSrc: Get the machine dependent instruction for performing a store to dstType on the stack from a srcReg.
+//
+// Arguments:
+//   srcReg  - the source register for the store
+//   dstType - the destination type
+//   aligned - whether the destination is properly aligned if dstType is a SIMD type
+//
+// Return Value:
+//   the instruction to use
+//
+instruction CodeGenInterface::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned /*=false*/)
 {
+    assert(srcReg != REG_NA);
+
     bool dstIsFloatType = varTypeUsesFloatReg(dstType);
     bool srcIsFloatReg  = genIsValidFloatReg(srcReg);
 
@@ -1047,17 +1095,28 @@ instruction CodeGenInterface::ins_StoreFromSrc(regNumber srcReg, var_types dstTy
     {
         return ins_Store(dstType, aligned);
     }
-
-    assert(!srcIsFloatReg && dstIsFloatType && "not expecting an integer type passed in a float reg");
-    assert(!varTypeIsSmall(dstType) && "not expecting small float types");
-
-#if defined(TARGET_XARCH)
-    return INS_mov;
-#elif defined(TARGET_ARMARCH)
-    return INS_str;
-#else
-#error "Unknown TARGET"
-#endif
+    else
+    {
+        // We know that we are writing to memory, so make the destination type same
+        // as the source type.
+        var_types dstTypeForStore = TYP_UNDEF;
+        unsigned  dstSize         = genTypeSize(dstType);
+        switch (dstSize)
+        {
+            case 4:
+                dstTypeForStore = srcIsFloatReg ? TYP_FLOAT : TYP_INT;
+                break;
+#if defined(TARGET_64BIT)
+            case 8:
+                dstTypeForStore = srcIsFloatReg ? TYP_DOUBLE : TYP_LONG;
+                break;
+#endif // TARGET_64BIT
+            default:
+                assert(!"unexpected write to the stack.");
+                break;
+        }
+        return ins_Store(dstTypeForStore, aligned);
+    }
 }
 
 void CodeGen::instGen_Return(unsigned stkArgSize)

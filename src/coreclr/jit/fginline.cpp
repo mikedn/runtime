@@ -54,11 +54,11 @@ PhaseStatus Compiler::fgInline()
 
     m_inlineStrategy->BeginInlining();
 
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         compCurBB = block;
 
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             inlReplaceRetExpr(stmt);
 
@@ -1965,9 +1965,9 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
 
     InlineContext* inlineContext = m_inlineStrategy->NewSuccess(inlineInfo);
 
-    for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : InlineeCompiler->Blocks())
     {
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             stmt->SetInlineContext(inlineContext);
         }
@@ -2085,7 +2085,7 @@ void Compiler::inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* s
     IL_OFFSETX  ilOffset          = inlineInfo->iciStmt->GetILOffsetX();
     bool        inheritWeight     = true; // The firstBB does inherit the weight from the call block
 
-    for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : InlineeCompiler->Blocks())
     {
         // Methods that contain exception handling are never inlined.
         noway_assert(!block->hasTryIndex());
@@ -2374,7 +2374,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
 
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_FIELD_ADDR));
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_VAR) || impIsAddressInLocal(argNode));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;

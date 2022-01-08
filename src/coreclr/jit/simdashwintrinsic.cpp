@@ -181,15 +181,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
                                                 CORINFO_SIG_INFO*     sig,
                                                 bool                  isNewObj)
 {
-#if defined(TARGET_XARCH)
-    CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
-#elif defined(TARGET_ARM64)
-    CORINFO_InstructionSet minimumIsa = InstructionSet_AdvSimd;
-#else
-#error Unsupported platform
-#endif
-
-    bool isSupported = featureSIMD && JitConfig.EnableHWIntrinsic() && compOpportunisticallyDependsOn(minimumIsa);
+    bool isSupported = featureSIMD && IsBaselineSimdIsaSupported();
 
     if (intrinsic == NI_VectorT128_get_IsHardwareAccelerated
 #ifdef TARGET_XARCH
@@ -1790,7 +1782,7 @@ GenTree* Compiler::impVectorT128Sum(const HWIntrinsicSignature& sig)
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD16);
 
-    var_types eltType = varTypeUnsignedToSigned(sig.paramLayout[0]->GetElementType());
+    var_types eltType = varTypeToSigned(sig.paramLayout[0]->GetElementType());
 
     if ((eltType != TYP_FLOAT) && !compOpportunisticallyDependsOn(InstructionSet_SSE2))
     {
@@ -1820,7 +1812,7 @@ GenTree* Compiler::impVectorT256Sum(const HWIntrinsicSignature& sig)
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD32);
 
-    var_types eltType = varTypeUnsignedToSigned(sig.paramLayout[0]->GetElementType());
+    var_types eltType = varTypeToSigned(sig.paramLayout[0]->GetElementType());
     GenTree*  vec     = impSIMDPopStack(TYP_SIMD32);
 
     vec = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_Sum, eltType, 32, vec);

@@ -525,7 +525,7 @@ RefPosition* LinearScan::newRefPosition(
            (regRecord->lastRefPosition->refType != theRefType));
     associateRefPosWithInterval(newRP);
 
-    DBEXEC(VERBOSE, newRP->dump());
+    DBEXEC(VERBOSE, newRP->dump(this));
     return newRP;
 }
 
@@ -620,7 +620,13 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
 
     associateRefPosWithInterval(newRP);
 
-    DBEXEC(VERBOSE, newRP->dump());
+    if (RefTypeIsDef(newRP->refType))
+    {
+        assert(theInterval != nullptr);
+        theInterval->isSingleDef = theInterval->firstRefPosition == newRP;
+    }
+
+    DBEXEC(VERBOSE, newRP->dump(this));
     return newRP;
 }
 
@@ -1145,7 +1151,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
             {
                 LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->lvType))
+                if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
                 {
                     if (!VarSetOps::IsMember(compiler, largeVectorCalleeSaveCandidateVars, varIndex))
                     {
@@ -1493,7 +1499,26 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
     for (RefInfoListNode *listNode = defList.Begin(), *end = defList.End(); listNode != end;
          listNode = listNode->Next())
     {
-        if (Compiler::varTypeNeedsPartialCalleeSave(listNode->treeNode->TypeGet()))
+        const GenTree* defNode = listNode->treeNode;
+        var_types      regType = defNode->TypeGet();
+        if (regType == TYP_STRUCT)
+        {
+            assert(defNode->OperIs(GT_LCL_VAR, GT_CALL));
+            if (defNode->OperIs(GT_LCL_VAR))
+            {
+                const GenTreeLclVar* lcl    = defNode->AsLclVar();
+                const LclVarDsc*     varDsc = compiler->lvaGetDesc(lcl);
+                regType                     = varDsc->GetRegisterType();
+            }
+            else
+            {
+                // TODO-MIKE-Review: This change came from main and it's not
+                // clear how it works for unix-x64 ABI.
+                regType = defNode->AsCall()->GetRetDesc()->GetRegType(0);
+            }
+            assert((regType != TYP_STRUCT) && (regType != TYP_UNDEF));
+        }
+        if (Compiler::varTypeNeedsPartialCalleeSave(regType))
         {
             // In the rare case where such an interval is live across nested calls, we don't need to insert another.
             if (listNode->ref->getInterval()->recentRefPosition->refType != RefTypeUpperVectorSave)
@@ -1805,25 +1830,6 @@ void LinearScan::buildPhysRegRecords()
 }
 
 //------------------------------------------------------------------------
-// getNonEmptyBlock: Return the first non-empty block starting with 'block'
-//
-// Arguments:
-//    block - the BasicBlock from which we start looking
-//
-// Return Value:
-//    The first non-empty BasicBlock we find.
-//
-BasicBlock* getNonEmptyBlock(BasicBlock* block)
-{
-    while (block != nullptr && block->GetFirstLIRNode() == nullptr)
-    {
-        block = block->GetUniqueSucc();
-    }
-    assert(block != nullptr && block->GetFirstLIRNode() != nullptr);
-    return block;
-}
-
-//------------------------------------------------------------------------
 // insertZeroInitRefPositions: Handle lclVars that are live-in to the first block
 //
 // Notes:
@@ -1873,9 +1879,8 @@ void LinearScan::insertZeroInitRefPositions()
                 }
 
                 JITDUMP(" creating ZeroInit\n");
-                GenTree*     firstNode = getNonEmptyBlock(compiler->fgFirstBB)->firstNode();
-                RefPosition* pos =
-                    newRefPosition(interval, MinLocation, RefTypeZeroInit, firstNode, allRegs(interval->registerType));
+                RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit, nullptr /* theTreeNode */,
+                                                  allRegs(interval->registerType));
                 pos->setRegOptional(true);
             }
             else
@@ -1903,9 +1908,8 @@ void LinearScan::insertZeroInitRefPositions()
                     if (interval->recentRefPosition == nullptr)
                     {
                         JITDUMP(" creating ZeroInit\n");
-                        GenTree*     firstNode = getNonEmptyBlock(compiler->fgFirstBB)->firstNode();
-                        RefPosition* pos       = newRefPosition(interval, MinLocation, RefTypeZeroInit, firstNode,
-                                                          allRegs(interval->registerType));
+                        RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit,
+                                                          nullptr /* theTreeNode */, allRegs(interval->registerType));
                         pos->setRegOptional(true);
                         varDsc->lvMustInit = true;
                     }
@@ -2049,7 +2053,7 @@ void LinearScan::buildIntervals()
         printf("\n-----------------\n");
         printf("LIVENESS:\n");
         printf("-----------------\n");
-        foreach_block(compiler, block)
+        for (BasicBlock* const block : compiler->Blocks())
         {
             printf(FMT_BB " use def in out\n", block->bbNum);
             dumpConvertedVarSet(compiler, block->bbVarUse);
@@ -2318,8 +2322,17 @@ void LinearScan::buildIntervals()
             // assert(block->isRunRarely());
         }
 
+        // For frame poisoning we generate code into scratch BB right after prolog since
+        // otherwise the prolog might become too large. In this case we will put the poison immediate
+        // into the scratch register, so it will be killed here.
+        if (compiler->compShouldPoisonFrame() && compiler->fgFirstBBisScratch() && block == compiler->fgFirstBB)
+        {
+            addRefsForPhysRegMask(genRegMask(REG_SCRATCH), currentLoc + 1, RefTypeKill, true);
+            currentLoc += 2;
+        }
+
         LIR::Range& blockRange = LIR::AsRange(block);
-        for (GenTree* node : blockRange.NonPhiNodes())
+        for (GenTree* node : blockRange)
         {
             // We increment the location of each tree node by 2 so that the node definition, if any,
             // is at a new location and doesn't interfere with the uses.
@@ -2569,7 +2582,7 @@ void LinearScan::buildIntervals()
 
 #ifdef DEBUG
     // Make sure we don't have any blocks that were not visited
-    foreach_block(compiler, block)
+    for (BasicBlock* const block : compiler->Blocks())
     {
         assert(isBlockVisited(block));
     }
@@ -2578,20 +2591,20 @@ void LinearScan::buildIntervals()
     {
         lsraDumpIntervals("BEFORE VALIDATING INTERVALS");
         dumpRefPositions("BEFORE VALIDATING INTERVALS");
-        validateIntervals();
     }
+    validateIntervals();
+
 #endif // DEBUG
 }
 
 #ifdef DEBUG
 //------------------------------------------------------------------------
-// validateIntervals: A DEBUG-only method that checks that the lclVar RefPositions
-//                    do not reflect uses of undefined values
+// validateIntervals: A DEBUG-only method that checks that:
+//      - the lclVar RefPositions do not reflect uses of undefined values
+//      - A singleDef interval should have just first RefPosition as RefTypeDef.
 //
-// Notes: If an undefined use is encountered, it merely prints a message.
-//
-// TODO-Cleanup: This should probably assert, or at least print the message only
-//               when doing a JITDUMP.
+// TODO-Cleanup: If an undefined use is encountered, it merely prints a message
+// but probably assert.
 //
 void LinearScan::validateIntervals()
 {
@@ -2605,25 +2618,41 @@ void LinearScan::validateIntervals()
             }
             Interval* interval = getIntervalForLocalVar(i);
 
-            bool defined = false;
-            printf("-----------------\n");
+            bool     defined      = false;
+            unsigned lastUseBBNum = 0;
+            JITDUMP("-----------------\n");
             for (RefPosition* ref = interval->firstRefPosition; ref != nullptr; ref = ref->nextRefPosition)
             {
-                ref->dump();
-                RefType refType = ref->refType;
-                if (!defined && RefTypeIsUse(refType))
+                if (VERBOSE)
                 {
-                    if (compiler->info.compMethodName != nullptr)
-                    {
-                        printf("%s: ", compiler->info.compMethodName);
-                    }
-                    printf("LocalVar V%02u: undefined use at %u\n", interval->varNum, ref->nodeLocation);
+                    ref->dump(this);
                 }
+                RefType refType = ref->refType;
+                if (!defined && RefTypeIsUse(refType) && (lastUseBBNum == ref->bbNum))
+                {
+                    if (!ref->lastUse)
+                    {
+                        if (compiler->info.compMethodName != nullptr)
+                        {
+                            JITDUMP("%s: ", compiler->info.compMethodName);
+                        }
+                        JITDUMP("LocalVar V%02u: undefined use at %u\n", interval->varNum, ref->nodeLocation);
+                        assert(false);
+                    }
+                }
+
+                // For single-def intervals, the only the first refposition should be a RefTypeDef
+                if (interval->isSingleDef && RefTypeIsDef(refType))
+                {
+                    assert(ref == interval->firstRefPosition);
+                }
+
                 // Note that there can be multiple last uses if they are on disjoint paths,
                 // so we can't really check the lastUse flag
                 if (ref->lastUse)
                 {
-                    defined = false;
+                    defined      = false;
+                    lastUseBBNum = ref->bbNum;
                 }
                 if (RefTypeIsDef(refType))
                 {
@@ -3022,6 +3051,10 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
     }
     if (use != nullptr)
     {
+        // If node != rmwNode, then definitely node should be marked as "delayFree".
+        // However, if node == rmwNode, then we can mark node as "delayFree" only if
+        // none of the node/rmwNode are the last uses. If either of them are last use,
+        // we can safely reuse the rmwNode as destination.
         if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
         {
             setDelayFree(use);
@@ -3237,7 +3270,7 @@ int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
     GenTree*   src = store->GetOp(0);
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -3290,7 +3323,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     RefPosition* singleUseRef = nullptr;
     int          srcCount;
 
-    if (src->IsMultiRegNode())
+    if (src->IsMultiRegNode() && (src->GetMultiRegCount() > 1))
     {
         // This is the case where the source produces multiple registers.
         assert(store->OperIs(GT_STORE_LCL_VAR));

@@ -159,7 +159,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t   imm,
-                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(unsigned gtFlags))
+                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -463,7 +463,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         }
 
         // regCnt will be the total number of bytes to locAlloc
-        genSetRegToIcon(regCnt, amount, ((int)amount == amount) ? TYP_INT : TYP_LONG);
+        genSetRegToIcon(regCnt, amount, TYP_INT);
     }
     else
     {
@@ -907,17 +907,26 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src       = store->GetOp(0);
+    GenTree* actualSrc = src->gtSkipReloadOrCopy();
+    unsigned regCount  = 1;
 
-    if (src->gtSkipReloadOrCopy()->IsMultiRegNode())
+    if (actualSrc->IsMultiRegNode())
     {
-        GenStoreLclVarMultiReg(store);
-        return;
+        regCount = actualSrc->IsMultiRegLclVar() ? actualSrc->AsLclVar()->GetFieldCount(compiler)
+                                                 : actualSrc->GetMultiRegCount();
+
+        if (regCount > 1)
+        {
+            GenStoreLclVarMultiReg(store);
+            return;
+        }
     }
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
+    var_types  lclRegType = lcl->GetRegisterType(store);
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -925,8 +934,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
-
-    var_types lclRegType = lcl->GetRegisterType(store);
 
     if (lclRegType == TYP_LONG)
     {

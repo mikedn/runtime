@@ -774,6 +774,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else if (intrin.op1->isContainedIntOrIImmed())
                 {
+                    opt = emitSimdArrangementOpt(emitSize, intrin.baseType);
                     GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, intrin.op1->AsIntCon()->GetValue(), opt);
                 }
                 else if (GetEmitter()->IsMovInstruction(ins))

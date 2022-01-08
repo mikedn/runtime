@@ -27,9 +27,9 @@
  */
 void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName)
 {
-    for (Statement* stmt : block->Statements())
+    for (Statement* const stmt : block->Statements())
     {
-        for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+        for (GenTree* const tree : stmt->TreeList())
         {
             if (!tree->IsLocal())
             {
@@ -92,16 +92,6 @@ int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDs
     }
 
     if (copyVarDsc->lvVolatileHint)
-    {
-        score -= 4;
-    }
-
-    if (lclVarDsc->lvDoNotEnregister)
-    {
-        score += 4;
-    }
-
-    if (copyVarDsc->lvDoNotEnregister)
     {
         score -= 4;
     }
@@ -398,12 +388,12 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
 
     liveness.BeginBlock(block);
 
-    for (Statement* stmt : block->Statements())
+    for (Statement* const stmt : block->Statements())
     {
         liveness.BeginStatement();
 
         // Walk the tree to find if any local variable can be replaced with current live definitions.
-        for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+        for (GenTree* const tree : stmt->TreeList())
         {
             liveness.Update(tree);
 
@@ -438,7 +428,7 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
         }
 
         // This logic must be in sync with SSA renaming process.
-        for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+        for (GenTree* const tree : stmt->TreeList())
         {
             const unsigned lclNum = optIsSsaLocal(tree);
             if (lclNum == BAD_VAR_NUM)

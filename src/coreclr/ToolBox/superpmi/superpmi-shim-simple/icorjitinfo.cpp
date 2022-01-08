@@ -752,12 +752,6 @@ int interceptor_ICJI::FilterException(
     return original_ICorJitInfo->FilterException(pExceptionPointers);
 }
 
-void interceptor_ICJI::HandleException(
-          struct _EXCEPTION_POINTERS* pExceptionPointers)
-{
-    original_ICorJitInfo->HandleException(pExceptionPointers);
-}
-
 void interceptor_ICJI::ThrowExceptionForJitResult(
           JITINTERFACE_HRESULT result)
 {
@@ -775,6 +769,13 @@ bool interceptor_ICJI::runWithErrorTrap(
           void* parameter)
 {
     return original_ICorJitInfo->runWithErrorTrap(function, parameter);
+}
+
+bool interceptor_ICJI::runWithSPMIErrorTrap(
+          ICorJitInfo::errorTrapFunction function,
+          void* parameter)
+{
+    return original_ICorJitInfo->runWithSPMIErrorTrap(function, parameter);
 }
 
 void interceptor_ICJI::getEEInfo(
@@ -1164,9 +1165,10 @@ JITINTERFACE_HRESULT interceptor_ICJI::getPgoInstrumentationResults(
           CORINFO_METHOD_HANDLE ftnHnd,
           ICorJitInfo::PgoInstrumentationSchema** pSchema,
           uint32_t* pCountSchemaItems,
-          uint8_t** pInstrumentationData)
+          uint8_t** pInstrumentationData,
+          ICorJitInfo::PgoSource* pgoSource)
 {
-    return original_ICorJitInfo->getPgoInstrumentationResults(ftnHnd, pSchema, pCountSchemaItems, pInstrumentationData);
+    return original_ICorJitInfo->getPgoInstrumentationResults(ftnHnd, pSchema, pCountSchemaItems, pInstrumentationData, pgoSource);
 }
 
 JITINTERFACE_HRESULT interceptor_ICJI::allocPgoInstrumentationBySchema(

@@ -221,11 +221,9 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         }
     }
 
-    BasicBlock* block;
-
-    foreach_block(comp, block)
+    for (BasicBlock* const block : comp->Blocks())
     {
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             BuildConnGraphVisitor buildConnGraphVisitor(this);
             buildConnGraphVisitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
@@ -348,9 +346,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
     m_PossiblyStackPointingPointers   = BitVecOps::MakeEmpty(&m_bitVecTraits);
     m_DefinitelyStackPointingPointers = BitVecOps::MakeEmpty(&m_bitVecTraits);
 
-    BasicBlock* block;
-
-    foreach_block(comp, block)
+    for (BasicBlock* const block : comp->Blocks())
     {
         const bool basicBlockHasNewObj       = (block->bbFlags & BBF_HAS_NEWOBJ) == BBF_HAS_NEWOBJ;
         const bool basicBlockHasBackwardJump = (block->bbFlags & BBF_BACKWARD_JUMP) == BBF_BACKWARD_JUMP;
@@ -361,7 +357,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
         }
 #endif // DEBUG
 
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             GenTree* stmtExpr = stmt->GetRootNode();
             GenTree* op2      = nullptr;
@@ -856,11 +852,9 @@ void ObjectAllocator::RewriteUses()
         }
     };
 
-    BasicBlock* block;
-
-    foreach_block(comp, block)
+    for (BasicBlock* const block : comp->Blocks())
     {
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             RewriteUsesVisitor rewriteUsesVisitor(this);
             rewriteUsesVisitor.WalkTree(stmt->GetRootNodePointer(), nullptr);

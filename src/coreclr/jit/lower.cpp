@@ -359,6 +359,16 @@ GenTree* Lowering::LowerNode(GenTree* node)
             node->gtGetOp1()->SetRegOptional();
             break;
 
+        case GT_LCL_FLD_ADDR:
+        case GT_LCL_VAR_ADDR:
+        {
+            // TODO-Cleanup: this is definitely not the best place for this detection,
+            // but for now it is the easiest. Move it to morph.
+            const GenTreeLclVarCommon* lclAddr = node->AsLclVarCommon();
+            comp->lvaSetVarDoNotEnregister(lclAddr->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
+        }
+        break;
+
         default:
             break;
     }
@@ -1723,8 +1733,6 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
             continue;
         }
 
-        assert(!node->OperIs(GT_PHI_ARG));
-
         if (node->AsLclVarCommon()->GetLclNum() != paramLclNum)
         {
             continue;
@@ -2298,10 +2306,46 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
             }
 #endif // !WINDOWS_AMD64_ABI
         }
-        else if (!src->OperIs(GT_LCL_VAR) || !lcl->IsEnregisterable())
+        else
         {
-            StructStoreKind kind = GetStructStoreKind(true, lcl->GetLayout(), src);
-            LowerStructStore(store, kind, lcl->GetLayout());
+            ClassLayout* layout  = lcl->GetLayout();
+            var_types    regType = layout->GetRegisterType();
+
+#if 0
+            if (regType == TYP_UNDEF)
+            {
+#endif
+            LowerStructStore(store, GetStructStoreKind(true, layout, src), layout);
+#if 0
+            }
+            else if (src->IsObj())
+            {
+                src->SetOper(GT_IND);
+                src->SetType(regType);
+
+                LowerIndir(src->AsIndir());
+            }
+            else if (src->IsLclFld())
+            {
+                src->SetType(regType);
+            }
+            else if (src->IsIntegralConst(0))
+            {
+                assert(varTypeIsIntegralOrI(regType) || varTypeIsSIMD(regType));
+
+                src->SetType(regType);
+
+#ifdef FEATURE_SIMD
+                if (varTypeIsSIMD(regType))
+                {
+                    assert(regType == TYP_SIMD16);
+
+                    src->ChangeOper(GT_HWINTRINSIC);
+                    src->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_get_Zero, TYP_FLOAT, 16, 0);
+                }
+#endif
+            }
+#endif
 
             return;
         }
@@ -2435,7 +2479,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
         {
             if (varTypeIsSmall(retRegType))
             {
-                retRegType = varTypeSignedToUnsigned(retRegType);
+                retRegType = varTypeToUnsigned(retRegType);
             }
 
             src->ChangeOper(GT_IND);
@@ -2528,8 +2572,8 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 
     if (lcl->TypeIs(TYP_STRUCT))
     {
-        // TODO-1stClassStructs: We can no longer promote or enregister this struct,
-        // since it is referenced as a whole.
+        // TODO-1stClassStructs: We can no longer independently promote
+        // or enregister this struct, since it is referenced as a whole.
         comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
     }
 
@@ -2663,9 +2707,10 @@ void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
 GenTreeLclVar* Lowering::SpillStructCallResult(GenTreeCall* call)
 {
     // TODO-1stClassStructs: we can support this in codegen for STORE_OBJ without new temps.
-    unsigned       lclNum = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd sized struct call return temp"));
-    GenTreeLclFld* store  = comp->gtNewStoreLclFld(call->GetType(), lclNum, 0, call);
-    GenTreeLclVar* load   = comp->gtNewLclvNode(lclNum, TYP_STRUCT);
+    unsigned lclNum = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd sized struct call return temp"));
+    comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
+    GenTreeLclFld* store = comp->gtNewStoreLclFld(call->GetType(), lclNum, 0, call);
+    GenTreeLclVar* load  = comp->gtNewLclvNode(lclNum, TYP_STRUCT);
     BlockRange().InsertAfter(call, store, load);
     return load;
 }
@@ -3097,13 +3142,14 @@ void Lowering::InsertPInvokeMethodProlog()
     GenTree* call = comp->gtNewHelperCallNode(CORINFO_HELP_INIT_PINVOKE_FRAME, TYP_I_IMPL, argList);
 
     // some sanity checks on the frame list root vardsc
-    LclVarDsc* varDsc = &comp->lvaTable[comp->info.compLvFrameListRoot];
+    const unsigned   lclNum = comp->info.compLvFrameListRoot;
+    const LclVarDsc* varDsc = comp->lvaGetDesc(lclNum);
     noway_assert(!varDsc->lvIsParam);
     noway_assert(varDsc->lvType == TYP_I_IMPL);
 
     GenTree* store = comp->gtNewStoreLclVar(comp->info.compLvFrameListRoot, TYP_I_IMPL, call);
 
-    GenTree* const insertionPoint = firstBlockRange.FirstNonPhiOrCatchArgNode();
+    GenTree* const insertionPoint = firstBlockRange.FirstNonCatchArgNode();
 
     comp->fgMorphTree(store);
     firstBlockRange.InsertBefore(insertionPoint, LIR::SeqTree(comp, store));
@@ -3119,6 +3165,7 @@ void Lowering::InsertPInvokeMethodProlog()
     GenTreePhysReg* sp = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
     GenTreeLclFld*  storeSP =
         comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfCallSiteSP, sp);
+    comp->lvaSetVarDoNotEnregister(comp->lvaInlinedPInvokeFrameVar DEBUGARG(Compiler::DNER_LocalField));
     firstBlockRange.InsertBefore(insertionPoint, sp, storeSP);
     DISPTREERANGE(firstBlockRange, storeSP);
 
@@ -4253,7 +4300,11 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             BlockRange().InsertBefore(divMod, preShiftBy, adjustedDividend);
             firstNode = preShiftBy;
         }
-        else if (type != TYP_I_IMPL)
+        else if (type != TYP_I_IMPL
+#ifdef TARGET_ARM64
+                 && !simpleMul // On ARM64 we will use a 32x32->64 bit multiply as that's faster.
+#endif
+                 )
         {
             adjustedDividend = comp->gtNewCastNode(TYP_I_IMPL, adjustedDividend, true, TYP_U_IMPL);
             BlockRange().InsertBefore(divMod, adjustedDividend);
@@ -4268,6 +4319,14 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 #endif
 
         divisor->gtType = TYP_I_IMPL;
+
+#ifdef TARGET_ARM64
+        if (simpleMul)
+        {
+            divisor->gtType = TYP_INT;
+        }
+#endif
+
         divisor->AsIntCon()->SetIconValue(magic);
 
         if (isDiv && !postShift && type == TYP_I_IMPL)
@@ -4731,7 +4790,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
             if (src->OperIs(GT_LCL_FLD, GT_IND) && varTypeIsSmall(src->GetType()) &&
                 (consumedBits <= varTypeBitSize(src->GetType())))
             {
-                src->SetType(genUnsignedType(src->GetType()));
+                src->SetType(varTypeToUnsigned(src->GetType()));
             }
 #endif
 
@@ -5000,7 +5059,17 @@ PhaseStatus Lowering::DoPhase()
     }
 #endif // !defined(TARGET_64BIT)
 
-    for (BasicBlock* block = comp->fgFirstBB; block; block = block->bbNext)
+    if (!comp->compEnregLocals())
+    {
+        // Lowering is checking if lvDoNotEnregister is already set for contained optimizations.
+        // If we are running without `CLFLG_REGVAR` flag set (`compEnregLocals() == false`)
+        // then we already know that we won't enregister any locals and it is better to set
+        // `lvDoNotEnregister` flag before we start reading it.
+        // The main reason why this flag is not set is that we are running in minOpts.
+        comp->lvSetMinOptsDoNotEnreg();
+    }
+
+    for (BasicBlock* const block : comp->Blocks())
     {
         /* Make the block publicly available */
         comp->compCurBB = block;
@@ -5134,22 +5203,44 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
         case GT_HWINTRINSIC:
             assert(!node->TypeIs(TYP_SIMD12));
             break;
-#ifdef TARGET_64BIT
+#endif // FEATURE_SIMD
+
         case GT_LCL_VAR:
         case GT_STORE_LCL_VAR:
+        {
+            LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
+#if defined(FEATURE_SIMD) && defined(TARGET_64BIT)
             if (node->TypeIs(TYP_SIMD12))
             {
-                LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
                 assert(lcl->IsDependentPromotedField(compiler) || (lcl->lvSize() == 12));
             }
-            break;
-#endif // TARGET_64BIT
-#endif // SIMD
+#endif // FEATURE_SIMD && TARGET_64BIT
+            if (lcl->lvPromoted)
+            {
+                assert(lcl->lvDoNotEnregister || lcl->lvIsMultiRegRet);
+            }
+        }
+        break;
 
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
             assert(compiler->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
             break;
+
+        case GT_PHI:
+        case GT_PHI_ARG:
+            assert(!"Should not see phi nodes after rationalize");
+            break;
+
+        case GT_LCL_FLD:
+        case GT_STORE_LCL_FLD:
+        {
+            GenTreeLclFld*   lclFld = node->AsLclFld();
+            const unsigned   lclNum = lclFld->GetLclNum();
+            const LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+            assert(varDsc->lvDoNotEnregister);
+        }
+        break;
 
         default:
             break;
@@ -5168,7 +5259,7 @@ bool Lowering::CheckBlock(Compiler* compiler, BasicBlock* block)
 {
     assert(block->isEmpty() || block->IsLIR());
 
-    for (GenTree* node : LIR::AsRange(block).NonPhiNodes())
+    for (GenTree* node : LIR::AsRange(block))
     {
         CheckNode(compiler, node);
     }
@@ -5198,7 +5289,7 @@ void Lowering::LowerBlock(BasicBlock* block)
     // Lowering::CheckBlock() runs some extra checks on call arguments in
     // order to help catch unlowered nodes.
 
-    GenTree* node = BlockRange().FirstNonPhiNode();
+    GenTree* node = BlockRange().FirstNode();
     while (node != nullptr)
     {
         node = LowerNode(node);
@@ -5278,17 +5369,22 @@ bool Lowering::IndirsAreEquivalent(GenTree* candidate, GenTree* storeInd)
     }
 }
 
-/** Test whether the two given nodes are the same leaves.
- *  Right now, only constant integers and local variables are supported
- */
+//------------------------------------------------------------------------
+// NodesAreEquivalentLeaves: Check whether the two given nodes are the same leaves.
+//
+// Arguments:
+//      tree1 and tree2 are nodes to be checked.
+// Return Value:
+//    Returns true if they are same leaves, false otherwise.
+//
+// static
 bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
 {
-    if (tree1 == nullptr && tree2 == nullptr)
+    if (tree1 == tree2)
     {
         return true;
     }
 
-    // both null, they are equivalent, otherwise if either is null not equivalent
     if (tree1 == nullptr || tree2 == nullptr)
     {
         return false;
@@ -5315,7 +5411,7 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
     switch (tree1->OperGet())
     {
         case GT_CNS_INT:
-            return tree1->AsIntCon()->gtIconVal == tree2->AsIntCon()->gtIconVal &&
+            return tree1->AsIntCon()->IconValue() == tree2->AsIntCon()->IconValue() &&
                    tree1->IsIconHandle() == tree2->IsIconHandle();
         case GT_LCL_VAR:
         case GT_LCL_VAR_ADDR:
@@ -5570,7 +5666,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
         assert(!lcl->IsPromoted() || lcl->lvIsMultiRegRet || (lcl->lvIsHfa() && varTypeUsesFloatReg(lcl->GetType())));
 
         // Mark var as contained if not enregisterable.
-        if (src->TypeIs(TYP_STRUCT) && !src->AsLclVar()->IsMultiReg())
+        if (!lcl->IsEnregisterableLcl() && !src->AsLclVar()->IsMultiReg())
         {
             src->SetContained();
         }
@@ -5892,12 +5988,22 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
     if (kind == StructStoreKind::UnrollInit)
     {
 #ifdef TARGET_XARCH
-        // If the size is 1 or a multiple of XMM register size there's no need to load
-        // 0 in a GPR, codegen will use an immediate 0 or xorps to generate 0 directly
-        // in the temporary XMM register.
-        if ((layout->GetSize() == 1) || ((layout->GetSize() % XMM_REGSIZE_BYTES) == 0))
+        unsigned size = layout->GetSize();
+
+        if (size == 1)
         {
             src->SetContained();
+        }
+        else if (size >= XMM_REGSIZE_BYTES)
+        {
+#ifdef TARGET_AMD64
+            if ((size % 16 == 0) && (!store->IsObj() || !layout->HasGCPtr()))
+#else
+            if (size % 8 == 0)
+#endif
+            {
+                src->SetContained();
+            }
         }
 #elif defined(TARGET_ARM64)
         // Use REG_ZR as source on ARM64.
@@ -6041,8 +6147,8 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeObj* store)
 {
     assert(store->OperIs(GT_STORE_OBJ));
 
-    // TODO-MIKE-Fix: This is backwards...
-    if (comp->opts.OptimizationEnabled())
+#if 0
+    if (!comp->opts.OptimizationEnabled())
     {
         return false;
     }
@@ -6101,6 +6207,9 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeObj* store)
     LowerStoreIndirCommon(store->AsStoreInd());
 
     return true;
+#else
+    return false;
+#endif
 }
 
 #ifdef FEATURE_SIMD

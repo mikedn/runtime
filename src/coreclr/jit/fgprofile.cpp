@@ -43,6 +43,62 @@ bool Compiler::fgHaveProfileData()
 }
 
 //------------------------------------------------------------------------
+// fgHaveSufficientProfileData: check if profile data is available
+//   and is sufficient enough to be trustful.
+//
+// Returns:
+//   true if so
+//
+// Note:
+//   See notes for fgHaveProfileData.
+//
+bool Compiler::fgHaveSufficientProfileData()
+{
+    if (!fgHaveProfileData())
+    {
+        return false;
+    }
+
+    if ((fgFirstBB != nullptr) && (fgPgoSource == ICorJitInfo::PgoSource::Static))
+    {
+        const BasicBlock::weight_t sufficientSamples = 1000;
+        return fgFirstBB->bbWeight > sufficientSamples;
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------
+// fgHaveTrustedProfileData: check if profile data source is one
+//   that can be trusted to faithfully represent the current program
+//   behavior.
+//
+// Returns:
+//   true if so
+//
+// Note:
+//   See notes for fgHaveProfileData.
+//
+bool Compiler::fgHaveTrustedProfileData()
+{
+    if (!fgHaveProfileData())
+    {
+        return false;
+    }
+
+    // We allow Text to be trusted so we can use it to stand in
+    // for Dynamic results.
+    //
+    switch (fgPgoSource)
+    {
+        case ICorJitInfo::PgoSource::Dynamic:
+        case ICorJitInfo::PgoSource::Text:
+            return true;
+        default:
+            return false;
+    }
+}
+
+//------------------------------------------------------------------------
 // fgApplyProfileScale: scale inlinee counts by appropriate scale factor
 //
 void Compiler::fgApplyProfileScale()
@@ -126,9 +182,9 @@ void Compiler::fgApplyProfileScale()
             calleeWeight, scale);
     JITDUMP("Scaling inlinee blocks\n");
 
-    for (BasicBlock* bb = fgFirstBB; bb != nullptr; bb = bb->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
-        bb->scaleBBWeight(scale);
+        block->scaleBBWeight(scale);
     }
 }
 
@@ -309,7 +365,7 @@ void BlockCountInstrumentor::Prepare(bool preImport)
 #ifdef DEBUG
     // Set schema index to invalid value
     //
-    for (BasicBlock* block = m_comp->fgFirstBB; (block != nullptr); block = block->bbNext)
+    for (BasicBlock* const block : m_comp->Blocks())
     {
         block->bbCountSchemaIndex = -1;
     }
@@ -557,10 +613,7 @@ void Compiler::WalkSpanningTree(SpanningTreeVisitor* visitor)
     //
     if (!compIsForInlining())
     {
-        EHblkDsc* HBtab = compHndBBtab;
-        unsigned  XTnum = 0;
-
-        for (; XTnum < compHndBBtabCount; XTnum++, HBtab++)
+        for (EHblkDsc* const HBtab : EHClauses(this))
         {
             BasicBlock* hndBegBB = HBtab->ebdHndBeg;
             stack.Push(hndBegBB);
@@ -1119,11 +1172,14 @@ void EfficientEdgeCountInstrumentor::Instrument(BasicBlock* block, Schema& schem
 #ifdef DEBUG
                 // Verify the edge still exists.
                 //
-                const unsigned numSucc = block->NumSucc(comp);
-                bool           found   = false;
-                for (unsigned i = 0; i < numSucc && !found; i++)
+                bool found = false;
+                for (BasicBlock* const succ : block->Succs(comp))
                 {
-                    found = (target == block->GetSucc(i, comp));
+                    if (target == succ)
+                    {
+                        found = true;
+                        break;
+                    }
                 }
                 assert(found);
 #endif
@@ -1384,7 +1440,7 @@ void ClassProbeInstrumentor::Prepare(bool isPreImport)
 #ifdef DEBUG
     // Set schema index to invalid value
     //
-    for (BasicBlock* block = m_comp->fgFirstBB; (block != nullptr); block = block->bbNext)
+    for (BasicBlock* const block : m_comp->Blocks())
     {
         block->bbClassSchemaIndex = -1;
     }
@@ -1413,7 +1469,7 @@ void ClassProbeInstrumentor::BuildSchemaElements(BasicBlock* block, Schema& sche
     //
     BuildClassProbeSchemaGen                    schemaGen(schema, m_schemaCount);
     ClassProbeVisitor<BuildClassProbeSchemaGen> visitor(m_comp, schemaGen);
-    for (Statement* stmt : block->Statements())
+    for (Statement* const stmt : block->Statements())
     {
         visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
     }
@@ -1446,7 +1502,7 @@ void ClassProbeInstrumentor::Instrument(BasicBlock* block, Schema& schema, BYTE*
 
     ClassProbeInserter                    insertProbes(schema, profileMemory, &classSchemaIndex, m_instrCount);
     ClassProbeVisitor<ClassProbeInserter> visitor(m_comp, insertProbes);
-    for (Statement* stmt : block->Statements())
+    for (Statement* const stmt : block->Statements())
     {
         visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
     }
@@ -1467,14 +1523,14 @@ void ClassProbeInstrumentor::SuppressProbes()
     SuppressProbesFunctor                    suppressProbes(cleanupCount);
     ClassProbeVisitor<SuppressProbesFunctor> visitor(m_comp, suppressProbes);
 
-    for (BasicBlock* block = m_comp->fgFirstBB; (block != nullptr); block = block->bbNext)
+    for (BasicBlock* const block : m_comp->Blocks())
     {
         if ((block->bbFlags & BBF_HAS_CLASS_PROFILE) == 0)
         {
             continue;
         }
 
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
         }
@@ -1582,7 +1638,7 @@ PhaseStatus Compiler::fgInstrumentMethod()
     // Walk the flow graph to build up the instrumentation schema.
     //
     Schema schema(getAllocator(CMK_Pgo));
-    for (BasicBlock* block = fgFirstBB; (block != nullptr); block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         if (fgCountInstrumentor->ShouldProcess(block))
         {
@@ -1638,8 +1694,6 @@ PhaseStatus Compiler::fgInstrumentMethod()
     HRESULT res = info.compCompHnd->allocPgoInstrumentationBySchema(info.compMethodHnd, schema.data(),
                                                                     (UINT32)schema.size(), &profileMemory);
 
-    JITDUMP("Instrumentation data base address is %p\n", dspPtr(profileMemory));
-
     // Deal with allocation failures.
     //
     if (!SUCCEEDED(res))
@@ -1661,9 +1715,11 @@ PhaseStatus Compiler::fgInstrumentMethod()
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
+    JITDUMP("Instrumentation data base address is %p\n", dspPtr(profileMemory));
+
     // Add the instrumentation code
     //
-    for (BasicBlock* block = fgFirstBB; (block != nullptr); block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         if (fgCountInstrumentor->ShouldProcess(block))
         {
@@ -1733,8 +1789,8 @@ PhaseStatus Compiler::fgIncorporateProfileData()
 
     // Summarize profile data
     //
-    JITDUMP("Have profile data: %d schema records (schema at %p, data at %p)\n", fgPgoSchemaCount, dspPtr(fgPgoSchema),
-            dspPtr(fgPgoData));
+    JITDUMP("Have %s profile data: %d schema records (schema at %p, data at %p)\n", pgoSourceToString(fgPgoSource),
+            fgPgoSchemaCount, dspPtr(fgPgoSchema), dspPtr(fgPgoData));
 
     fgNumProfileRuns      = 0;
     unsigned otherRecords = 0;
@@ -1764,6 +1820,9 @@ PhaseStatus Compiler::fgIncorporateProfileData()
                 break;
 
             default:
+                JITDUMP("Unknown PGO record type 0x%x in schema entry %u (offset 0x%x count 0x%x other 0x%x)\n",
+                        fgPgoSchema[iSchema].InstrumentationKind, iSchema, fgPgoSchema[iSchema].ILOffset,
+                        fgPgoSchema[iSchema].Count, fgPgoSchema[iSchema].Other);
                 otherRecords++;
                 break;
         }
@@ -1845,7 +1904,7 @@ void Compiler::fgSetProfileWeight(BasicBlock* block, BasicBlock::weight_t profil
 //
 void Compiler::fgIncorporateBlockCounts()
 {
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         BasicBlock::weight_t profileWeight;
 
@@ -2165,7 +2224,7 @@ void EfficientEdgeCountReconstructor::Prepare()
 {
     // Create per-block info, and set up the key to block map.
     //
-    for (BasicBlock* block = m_comp->fgFirstBB; (block != nullptr); block = block->bbNext)
+    for (BasicBlock* const block : m_comp->Blocks())
     {
         m_keyToBlockMap.Set(BlockToKey(block), block);
         BlockInfo* const info = new (m_allocator) BlockInfo();
@@ -2529,7 +2588,7 @@ void EfficientEdgeCountReconstructor::Propagate()
 
     // Set weight on all blocks.
     //
-    for (BasicBlock* block = m_comp->fgFirstBB; (block != nullptr); block = block->bbNext)
+    for (BasicBlock* const block : m_comp->Blocks())
     {
         BlockInfo* const info = BlockToInfo(block);
         assert(info->m_weightKnown);
@@ -2968,6 +3027,8 @@ bool flowList::setEdgeWeightMaxChecked(BasicBlock::weight_t newWeight,
 void flowList::setEdgeWeights(BasicBlock::weight_t theMinWeight, BasicBlock::weight_t theMaxWeight, BasicBlock* bDst)
 {
     assert(theMinWeight <= theMaxWeight);
+    assert(theMinWeight >= 0.0f);
+    assert(theMaxWeight >= 0.0f);
 
     JITDUMP("Setting edge weights for " FMT_BB " -> " FMT_BB " to [" FMT_WT " .. " FMT_WT "]\n", getBlock()->bbNum,
             bDst->bbNum, theMinWeight, theMaxWeight);
@@ -3215,7 +3276,6 @@ void Compiler::fgComputeEdgeWeights()
 
     BasicBlock*          bSrc;
     BasicBlock*          bDst;
-    flowList*            edge;
     BasicBlock::weight_t slop;
     unsigned             goodEdgeCountCurrent     = 0;
     unsigned             goodEdgeCountPrevious    = 0;
@@ -3240,7 +3300,7 @@ void Compiler::fgComputeEdgeWeights()
             bDstWeight -= fgCalledCount;
         }
 
-        for (edge = bDst->bbPreds; edge != nullptr; edge = edge->flNext)
+        for (flowList* const edge : bDst->PredEdges())
         {
             bool assignOK = true;
 
@@ -3320,7 +3380,7 @@ void Compiler::fgComputeEdgeWeights()
         JITDUMP("\n -- step 1 --\n");
         for (bDst = fgFirstBB; bDst != nullptr; bDst = bDst->bbNext)
         {
-            for (edge = bDst->bbPreds; edge != nullptr; edge = edge->flNext)
+            for (flowList* const edge : bDst->PredEdges())
             {
                 bool assignOK = true;
 
@@ -3425,11 +3485,8 @@ void Compiler::fgComputeEdgeWeights()
                 BasicBlock::weight_t maxEdgeWeightSum = 0;
 
                 // Calculate the sums of the minimum and maximum edge weights
-                for (edge = bDst->bbPreds; edge != nullptr; edge = edge->flNext)
+                for (flowList* const edge : bDst->PredEdges())
                 {
-                    // We are processing the control flow edge (bSrc -> bDst)
-                    bSrc = edge->getBlock();
-
                     maxEdgeWeightSum += edge->edgeWeightMax();
                     minEdgeWeightSum += edge->edgeWeightMin();
                 }
@@ -3437,7 +3494,7 @@ void Compiler::fgComputeEdgeWeights()
                 // maxEdgeWeightSum is the sum of all flEdgeWeightMax values into bDst
                 // minEdgeWeightSum is the sum of all flEdgeWeightMin values into bDst
 
-                for (edge = bDst->bbPreds; edge != nullptr; edge = edge->flNext)
+                for (flowList* const edge : bDst->PredEdges())
                 {
                     bool assignOK = true;
 
@@ -3560,14 +3617,13 @@ EARLY_EXIT:;
 
     // See if any edge weight are expressed in [min..max] form
 
-    for (bDst = fgFirstBB; bDst != nullptr; bDst = bDst->bbNext)
+    for (BasicBlock* const bDst : Blocks())
     {
         if (bDst->bbPreds != nullptr)
         {
-            for (edge = bDst->bbPreds; edge != nullptr; edge = edge->flNext)
+            for (flowList* const edge : bDst->PredEdges())
             {
-                bSrc = edge->getBlock();
-                // This is the control flow edge (bSrc -> bDst)
+                // This is the control flow edge (edge->getBlock() -> bDst)
 
                 if (edge->edgeWeightMin() != edge->edgeWeightMax())
                 {
@@ -3659,7 +3715,7 @@ void Compiler::fgDebugCheckProfileData()
 
     // Verify each profiled block.
     //
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         if (!block->hasProfileWeight())
         {
@@ -3794,7 +3850,7 @@ bool Compiler::fgDebugCheckIncomingProfileData(BasicBlock* block)
     BasicBlock::weight_t       incomingWeightMax = 0;
     bool                       foundPreds        = false;
 
-    for (flowList* predEdge = block->bbPreds; predEdge != nullptr; predEdge = predEdge->flNext)
+    for (flowList* const predEdge : block->PredEdges())
     {
         incomingWeightMin += predEdge->edgeWeightMin();
         incomingWeightMax += predEdge->edgeWeightMax();
@@ -3876,16 +3932,7 @@ bool Compiler::fgDebugCheckOutgoingProfileData(BasicBlock* block)
     for (unsigned i = 0; i < numSuccs; i++)
     {
         BasicBlock* succBlock = block->GetSucc(i, this);
-        flowList*   succEdge  = nullptr;
-
-        for (flowList* edge = succBlock->bbPreds; edge != nullptr; edge = edge->flNext)
-        {
-            if (edge->getBlock() == block)
-            {
-                succEdge = edge;
-                break;
-            }
-        }
+        flowList*   succEdge  = fgGetPredForBlock(succBlock, block);
 
         if (succEdge == nullptr)
         {
@@ -3925,6 +3972,45 @@ bool Compiler::fgDebugCheckOutgoingProfileData(BasicBlock* block)
     }
 
     return missingEdges == 0;
+}
+
+//------------------------------------------------------------------------------
+// pgoSourceToString: describe source of pgo data
+//
+// Arguments:
+//    r - source enum to describe
+//
+// Returns:
+//    descriptive string
+//
+const char* Compiler::pgoSourceToString(ICorJitInfo::PgoSource p)
+{
+    const char* pgoSource = "unknown";
+    switch (fgPgoSource)
+    {
+        case ICorJitInfo::PgoSource::Dynamic:
+            pgoSource = "dynamic";
+            break;
+        case ICorJitInfo::PgoSource::Static:
+            pgoSource = "static";
+            break;
+        case ICorJitInfo::PgoSource::Text:
+            pgoSource = "text";
+            break;
+        case ICorJitInfo::PgoSource::Blend:
+            pgoSource = "static+dynamic";
+            break;
+        case ICorJitInfo::PgoSource::IBC:
+            pgoSource = "IBC";
+            break;
+        case ICorJitInfo::PgoSource::Sampling:
+            pgoSource = "Sampling";
+            break;
+        default:
+            break;
+    }
+
+    return pgoSource;
 }
 
 #endif // DEBUG

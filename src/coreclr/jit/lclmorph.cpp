@@ -2261,7 +2261,7 @@ private:
             return;
         }
 
-        JITDUMP("LocalAddressVisitor incrementing ref count from %d to %d for implict byref V%02d\n",
+        JITDUMP("LocalAddressVisitor incrementing ref count from " FMT_WT " to " FMT_WT " for implict byref V%02u\n",
                 lcl->lvRefCnt(RCS_EARLY), lcl->lvRefCnt(RCS_EARLY) + 1, lclNum);
         lcl->incLvRefCnt(1, RCS_EARLY);
 
@@ -3063,7 +3063,7 @@ void Compiler::fgMarkAddressExposedLocals()
     SIMDCoalescingBuffer buffer;
 #endif
 
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         // Make the current basic block address available globally
         compCurBB = block;

@@ -500,11 +500,11 @@ inline bool genSmallTypeCanRepresentValue(var_types type, ssize_t value)
 extern const BYTE genTypeSizes[TYP_COUNT];
 
 template <class T>
-inline unsigned genTypeSize(T type)
+inline unsigned genTypeSize(T value)
 {
-    assert((unsigned)TypeGet(type) < _countof(genTypeSizes));
+    assert((unsigned)TypeGet(value) < _countof(genTypeSizes));
 
-    return genTypeSizes[TypeGet(type)];
+    return genTypeSizes[TypeGet(value)];
 }
 
 /*****************************************************************************
@@ -536,35 +536,6 @@ inline unsigned genTypeStSz(var_types type)
 inline var_types genActualType(var_types type)
 {
     return varActualType(type);
-}
-
-/*****************************************************************************/
-
-inline var_types genUnsignedType(var_types type)
-{
-    return varTypeToUnsigned(type);
-}
-
-/*****************************************************************************/
-
-inline var_types genSignedType(var_types type)
-{
-    /* Force non-small unsigned type into corresponding signed type */
-    /* Note that we leave the small types alone */
-
-    switch (type)
-    {
-        case TYP_UINT:
-            type = TYP_INT;
-            break;
-        case TYP_ULONG:
-            type = TYP_LONG;
-            break;
-        default:
-            break;
-    }
-
-    return type;
 }
 
 /*****************************************************************************
@@ -649,25 +620,6 @@ inline double getR8LittleEndian(const BYTE* ptr)
 {
     __int64 val = getI8LittleEndian(ptr);
     return *(double*)&val;
-}
-
-/*****************************************************************************
- *
- *  Return the normalized index to use in the EXPSET_TP for the CSE with
- *  the given CSE index.
- *  Each GenTree has the following field:
- *    signed char       gtCSEnum;        // 0 or the CSE index (negated if def)
- *  So zero is reserved to mean this node is not a CSE
- *  and postive values indicate CSE uses and negative values indicate CSE defs.
- *  The caller of this method must pass a non-zero postive value.
- *  This precondition is checked by the assert on the first line of this method.
- */
-
-inline unsigned int genCSEnum2bit(unsigned index)
-{
-    assert((index > 0) && (index <= EXPSET_SZ));
-
-    return (index - 1);
 }
 
 #ifdef DEBUG
@@ -1433,7 +1385,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 inline bool Compiler::lvaHaveManyLocals() const
 {
-    return (lvaCount >= lclMAX_TRACKED);
+    return (lvaCount >= (unsigned)JitConfig.JitMaxLocalsToTrack());
 }
 
 inline unsigned Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
@@ -1696,7 +1648,7 @@ inline VARSET_VALRET_TP Compiler::lvaStmtLclMask(Statement* stmt)
 
     assert(fgStmtListThreaded);
 
-    for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+    for (GenTree* const tree : stmt->TreeList())
     {
         if (tree->gtOper != GT_LCL_VAR)
         {

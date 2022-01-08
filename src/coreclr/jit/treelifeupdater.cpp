@@ -51,7 +51,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
         bool       isGCRef    = lcl->TypeIs(TYP_REF);
         bool       isByRef    = lcl->TypeIs(TYP_BYREF);
         bool       isInReg    = lcl->lvIsInReg();
-        bool       isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
+        bool       isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
 
         if (isInReg)
         {
@@ -95,7 +95,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
         {
             // If this variable is going live in a register, it is no longer live on the stack,
             // unless it is an EH var, which always remains live on the stack.
-            if (!lcl->lvLiveInOutOfHndlr)
+            if (!lcl->IsAlwaysAliveInMemory())
             {
                 VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
             }
@@ -155,7 +155,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
     if (lclNode->IsLastUse(regIndex))
     {
         bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNumByIdx(regIndex) != REG_NA);
-        bool isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
+        bool isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
 
         if (isInReg)
         {
@@ -261,7 +261,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             }
 
             bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNum() != REG_NA);
-            bool isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
+            bool isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
 
             if (isInReg)
             {
@@ -282,7 +282,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
                 LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
                 bool isInReg        = fieldLcl->lvIsInReg() && (lclNode->AsLclVar()->GetRegNumByIdx(i) != REG_NA);
-                bool isInMemory     = !isInReg || fieldLcl->lvLiveInOutOfHndlr;
+                bool isInMemory     = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
                 bool isFieldDying   = lclNode->AsLclVar()->IsLastUse(i);
                 bool isFieldSpilled = spill && ((lclNode->GetRegSpillFlagByIdx(i) & GTF_SPILL) != 0);
 

@@ -1051,14 +1051,6 @@ int WrapICorJitInfo::FilterException(
     return temp;
 }
 
-void WrapICorJitInfo::HandleException(
-          struct _EXCEPTION_POINTERS* pExceptionPointers)
-{
-    API_ENTER(HandleException);
-    wrapHnd->HandleException(pExceptionPointers);
-    API_LEAVE(HandleException);
-}
-
 void WrapICorJitInfo::ThrowExceptionForJitResult(
           JITINTERFACE_HRESULT result)
 {
@@ -1082,6 +1074,16 @@ bool WrapICorJitInfo::runWithErrorTrap(
     API_ENTER(runWithErrorTrap);
     bool temp = wrapHnd->runWithErrorTrap(function, parameter);
     API_LEAVE(runWithErrorTrap);
+    return temp;
+}
+
+bool WrapICorJitInfo::runWithSPMIErrorTrap(
+          ICorJitInfo::errorTrapFunction function,
+          void* parameter)
+{
+    API_ENTER(runWithSPMIErrorTrap);
+    bool temp = wrapHnd->runWithSPMIErrorTrap(function, parameter);
+    API_LEAVE(runWithSPMIErrorTrap);
     return temp;
 }
 
@@ -1617,10 +1619,11 @@ JITINTERFACE_HRESULT WrapICorJitInfo::getPgoInstrumentationResults(
           CORINFO_METHOD_HANDLE ftnHnd,
           ICorJitInfo::PgoInstrumentationSchema** pSchema,
           uint32_t* pCountSchemaItems,
-          uint8_t** pInstrumentationData)
+          uint8_t** pInstrumentationData,
+          ICorJitInfo::PgoSource* pgoSource)
 {
     API_ENTER(getPgoInstrumentationResults);
-    JITINTERFACE_HRESULT temp = wrapHnd->getPgoInstrumentationResults(ftnHnd, pSchema, pCountSchemaItems, pInstrumentationData);
+    JITINTERFACE_HRESULT temp = wrapHnd->getPgoInstrumentationResults(ftnHnd, pSchema, pCountSchemaItems, pInstrumentationData, pgoSource);
     API_LEAVE(getPgoInstrumentationResults);
     return temp;
 }

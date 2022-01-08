@@ -440,9 +440,6 @@ uint32_t GetErrorMessage(
 int FilterException(
           struct _EXCEPTION_POINTERS* pExceptionPointers) override;
 
-void HandleException(
-          struct _EXCEPTION_POINTERS* pExceptionPointers) override;
-
 void ThrowExceptionForJitResult(
           JITINTERFACE_HRESULT result) override;
 
@@ -450,6 +447,10 @@ void ThrowExceptionForHelper(
           const CORINFO_HELPER_DESC* throwHelper) override;
 
 bool runWithErrorTrap(
+          ICorJitInfo::errorTrapFunction function,
+          void* parameter) override;
+
+bool runWithSPMIErrorTrap(
           ICorJitInfo::errorTrapFunction function,
           void* parameter) override;
 
@@ -678,7 +679,8 @@ JITINTERFACE_HRESULT getPgoInstrumentationResults(
           CORINFO_METHOD_HANDLE ftnHnd,
           ICorJitInfo::PgoInstrumentationSchema** pSchema,
           uint32_t* pCountSchemaItems,
-          uint8_t** pInstrumentationData) override;
+          uint8_t** pInstrumentationData,
+          ICorJitInfo::PgoSource* pgoSource) override;
 
 JITINTERFACE_HRESULT allocPgoInstrumentationBySchema(
           CORINFO_METHOD_HANDLE ftnHnd,

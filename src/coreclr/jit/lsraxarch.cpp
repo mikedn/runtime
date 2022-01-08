@@ -1206,7 +1206,11 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
     switch (kind)
     {
         case StructStoreKind::UnrollInit:
-            if (size >= XMM_REGSIZE_BYTES)
+            if ((size >= XMM_REGSIZE_BYTES)
+#ifdef TARGET_AMD64
+                && (!store->IsObj() || !layout->HasGCPtr())
+#endif
+                    )
             {
                 BuildInternalFloatDef(store, internalFloatRegCandidates());
                 SetContainsAVXFlags();
@@ -1382,14 +1386,14 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* const  fieldNode   = use.GetNode();
-            const var_types fieldType   = fieldNode->TypeGet();
             const unsigned  fieldOffset = use.GetOffset();
+            const var_types fieldType   = use.GetType();
 
 #ifdef FEATURE_SIMD
             // Note that we need to check the GT_FIELD_LIST type, not 'fieldType'. This is because the
             // GT_FIELD_LIST will be TYP_SIMD12 whereas the fieldType might be TYP_SIMD16 for lclVar, where
             // we "round up" to 16.
-            if ((use.GetType() == TYP_SIMD12) && (simdTemp == nullptr))
+            if ((fieldType == TYP_SIMD12) && (simdTemp == nullptr))
             {
                 simdTemp = buildInternalFloatRegisterDefForNode(putArgStk);
             }
@@ -2082,6 +2086,20 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 break;
             }
 
+            case NI_AVXVNNI_MultiplyWideningAndAdd:
+            case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
+            {
+                assert(numArgs == 3);
+
+                tgtPrefUse = BuildUse(op1);
+                srcCount += 1;
+                srcCount += BuildDelayFreeUses(op2, op1);
+                srcCount += op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3, op1);
+
+                buildUses = false;
+                break;
+            }
+
             case NI_AVX2_GatherVector128:
             case NI_AVX2_GatherVector256:
             {
@@ -2090,7 +2108,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                 // Any pair of the index, mask, or destination registers should be different
                 srcCount += BuildOperandUses(op1);
-                srcCount += BuildDelayFreeUses(op2, op1);
+                srcCount += BuildDelayFreeUses(op2);
 
                 // op3 should always be contained
                 assert(op3->isContained());
@@ -2171,8 +2189,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                         // When op2 is not contained or if we are producing a scalar value
                         // we need to mark it as delay free because the operand and target
                         // exist in the same register set.
-
-                        srcCount += BuildDelayFreeUses(op2);
+                        srcCount += BuildDelayFreeUses(op2, op1);
                     }
                     else
                     {
@@ -2190,7 +2207,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                 if (op3 != nullptr)
                 {
-                    srcCount += isRMW ? BuildDelayFreeUses(op3) : BuildOperandUses(op3);
+                    srcCount += isRMW ? BuildDelayFreeUses(op3, op1) : BuildOperandUses(op3);
                 }
             }
         }

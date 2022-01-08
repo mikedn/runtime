@@ -725,7 +725,7 @@ Namespace Microsoft.VisualBasic
             End Try
         End Sub
 
-        <ObsoleteAttribute("This member has been deprecated. Please use FilePutObject to write Object types, or coerce FileNumber and RecordNumber to Integer for writing non-Object types. https://go.microsoft.com/fwlink/?linkid=14202")>
+        <ObsoleteAttribute("FileSystem.FilePut has been deprecated. Use FilePutObject to write Object types, or coerce FileNumber and RecordNumber to Integer for writing non-Object types.")>
         Public Sub FilePut(ByVal FileNumber As Object, ByVal Value As Object, Optional ByVal RecordNumber As Object = -1)
             Throw New ArgumentException(SR.UseFilePutObject)
         End Sub
@@ -1010,7 +1010,6 @@ Namespace Microsoft.VisualBasic
         End Sub
 
         <UnsupportedOSPlatform("ios")>
-        <UnsupportedOSPlatform("maccatalyst")>
         <UnsupportedOSPlatform("macos")>
         <UnsupportedOSPlatform("tvos")>
         Public Function InputString(ByVal FileNumber As Integer, ByVal CharCount As Integer) As String
@@ -1051,7 +1050,6 @@ Namespace Microsoft.VisualBasic
         End Function
 
         <UnsupportedOSPlatform("ios")>
-        <UnsupportedOSPlatform("maccatalyst")>
         <UnsupportedOSPlatform("macos")>
         <UnsupportedOSPlatform("tvos")>
         Public Sub Lock(ByVal FileNumber As Integer)
@@ -1060,7 +1058,6 @@ Namespace Microsoft.VisualBasic
         End Sub
 
         <UnsupportedOSPlatform("ios")>
-        <UnsupportedOSPlatform("maccatalyst")>
         <UnsupportedOSPlatform("macos")>
         <UnsupportedOSPlatform("tvos")>
         Public Sub Lock(ByVal FileNumber As Integer, ByVal Record As Long)
@@ -1069,7 +1066,6 @@ Namespace Microsoft.VisualBasic
         End Sub
 
         <UnsupportedOSPlatform("ios")>
-        <UnsupportedOSPlatform("maccatalyst")>
         <UnsupportedOSPlatform("macos")>
         <UnsupportedOSPlatform("tvos")>
         Public Sub Lock(ByVal FileNumber As Integer, ByVal FromRecord As Long, ByVal ToRecord As Long)
@@ -1078,7 +1074,6 @@ Namespace Microsoft.VisualBasic
         End Sub
 
         <UnsupportedOSPlatform("ios")>
-        <UnsupportedOSPlatform("maccatalyst")>
         <UnsupportedOSPlatform("macos")>
         <UnsupportedOSPlatform("tvos")>
         Public Sub Unlock(ByVal FileNumber As Integer)
@@ -1087,7 +1082,6 @@ Namespace Microsoft.VisualBasic
         End Sub
 
         <UnsupportedOSPlatform("ios")>
-        <UnsupportedOSPlatform("maccatalyst")>
         <UnsupportedOSPlatform("macos")>
         <UnsupportedOSPlatform("tvos")>
         Public Sub Unlock(ByVal FileNumber As Integer, ByVal Record As Long)
@@ -1096,7 +1090,6 @@ Namespace Microsoft.VisualBasic
         End Sub
 
         <UnsupportedOSPlatform("ios")>
-        <UnsupportedOSPlatform("maccatalyst")>
         <UnsupportedOSPlatform("macos")>
         <UnsupportedOSPlatform("tvos")>
         Public Sub Unlock(ByVal FileNumber As Integer, ByVal FromRecord As Long, ByVal ToRecord As Long)
@@ -1355,7 +1348,7 @@ Namespace Microsoft.VisualBasic
                     ' compare the filename with the input string case insensitive 
                     ' exit loop if match occurs and both files are not sequential input 
                     ' and not random/binary.
-                    If System.String.Compare(sPath, oFile.GetAbsolutePath(), StringComparison.OrdinalIgnoreCase) = 0 Then
+                    If System.String.Equals(sPath, oFile.GetAbsolutePath(), StringComparison.OrdinalIgnoreCase) Then
                         ' If path is the same, then verify
                         ' that neither file is open for sequential input
                         ' and that both are open for the same mode (either Binary or Random)

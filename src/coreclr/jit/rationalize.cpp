@@ -445,7 +445,7 @@ PhaseStatus Rationalizer::DoPhase()
     comp->fgOrder   = Compiler::FGOrderLinear;
 
     RationalizeVisitor visitor(*this);
-    for (BasicBlock* block = comp->fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : comp->Blocks())
     {
         comp->compCurBB = block;
         m_block         = block;
@@ -461,27 +461,30 @@ PhaseStatus Rationalizer::DoPhase()
             continue;
         }
 
-        for (Statement* statement : StatementList(firstStatement))
+        for (Statement* const statement : block->Statements())
         {
             assert(statement->GetTreeList() != nullptr);
             assert(statement->GetTreeList()->gtPrev == nullptr);
             assert(statement->GetRootNode() != nullptr);
             assert(statement->GetRootNode()->gtNext == nullptr);
 
-            BlockRange().InsertAtEnd(LIR::Range(statement->GetTreeList(), statement->GetRootNode()));
-
-            // If this statement has correct offset information, change it into an IL offset
-            // node and insert it into the LIR.
-            if (statement->GetILOffsetX() != BAD_IL_OFFSET)
+            if (!statement->IsPhiDefnStmt()) // Note that we get rid of PHI nodes here.
             {
-                assert(!statement->IsPhiDefnStmt());
-                GenTreeILOffset* ilOffset = new (comp, GT_IL_OFFSET)
-                    GenTreeILOffset(statement->GetILOffsetX() DEBUGARG(statement->GetLastILOffset()));
-                BlockRange().InsertBefore(statement->GetTreeList(), ilOffset);
-            }
+                BlockRange().InsertAtEnd(LIR::Range(statement->GetTreeList(), statement->GetRootNode()));
 
-            m_block = block;
-            visitor.WalkTree(statement->GetRootNodePointer(), nullptr);
+                // If this statement has correct offset information, change it into an IL offset
+                // node and insert it into the LIR.
+                if (statement->GetILOffsetX() != BAD_IL_OFFSET)
+                {
+                    assert(!statement->IsPhiDefnStmt());
+                    GenTreeILOffset* ilOffset = new (comp, GT_IL_OFFSET)
+                        GenTreeILOffset(statement->GetILOffsetX() DEBUGARG(statement->GetLastILOffset()));
+                    BlockRange().InsertBefore(statement->GetTreeList(), ilOffset);
+                }
+
+                m_block = block;
+                visitor.WalkTree(statement->GetRootNodePointer(), nullptr);
+            }
         }
 
         block->bbStmtList = nullptr;

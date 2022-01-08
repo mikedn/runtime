@@ -91,7 +91,7 @@ namespace System.IO.MemoryMappedFiles.Tests
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    if ((OperatingSystem.IsMacOS() || PlatformDetection.IsInContainer) &&
+                    if ((OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst() || PlatformDetection.IsInContainer) &&
                        (viewAccess == MemoryMappedFileAccess.ReadExecute || viewAccess == MemoryMappedFileAccess.ReadWriteExecute))
                     {
                         // Containers and OSX with SIP enabled do not have execute permissions by default.

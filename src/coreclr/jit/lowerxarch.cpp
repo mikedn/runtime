@@ -254,10 +254,10 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         unsigned prevOffset        = putArgStk->GetArgSize();
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
-            GenTree* const  fieldNode   = use.GetNode();
-            const var_types fieldType   = fieldNode->TypeGet();
-            const unsigned  fieldOffset = use.GetOffset();
-            assert(fieldType != TYP_LONG);
+            GenTree* const fieldNode   = use.GetNode();
+            const unsigned fieldOffset = use.GetOffset();
+
+            assert(!fieldNode->TypeIs(TYP_LONG));
 
             // We can treat as a slot any field that is stored at a slot boundary, where the previous
             // field is not in the same slot. (Note that we store the fields in reverse order.)
@@ -3727,7 +3727,12 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
         // type if this node doesn't get a register.
         GenTree* bitCastSrc = src->AsUnOp()->GetOp(0);
 
-        if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional())
+        // TODO-MIKE-Cleanup: Magic division lowering creates broken LONG to INT BITCASTs
+        // that causes problems in codegen. Only allow containment if types have the same
+        // size.
+
+        if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional() &&
+            (varTypeSize(bitCastSrc->GetType()) == varTypeSize(src->GetType())))
         {
             src->SetContained();
             return;
@@ -4046,8 +4051,8 @@ bool Lowering::LowerRMWMemOp(GenTreeIndir* storeInd)
 
     if (!IsRMWMemOpRootedAtStoreInd(storeInd, &indirCandidate, &indirOpSource))
     {
-        JITDUMP("Lower of StoreInd didn't mark the node as self contained for reason: %d\n",
-                storeInd->AsStoreInd()->GetRMWStatus());
+        JITDUMP("Lower of StoreInd didn't mark the node as self contained for reason: %s\n",
+                RMWStatusDescription(storeInd->AsStoreInd()->GetRMWStatus()));
         DISPTREERANGE(BlockRange(), storeInd);
         return false;
     }
@@ -4479,8 +4484,11 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
 
                 case NI_AVX_CompareScalar:
                 {
-                    // These intrinsics only expect 16 or 32-byte nodes for containment
-                    assert((genTypeSize(node->TypeGet()) == 16) || (genTypeSize(node->TypeGet()) == 32));
+                    if ((genTypeSize(node->TypeGet()) != 16) && (genTypeSize(node->TypeGet()) != 32))
+                    {
+                        // These intrinsics only expect 16 or 32-byte nodes for containment
+                        break;
+                    }
 
                     assert(supportsAlignedSIMDLoads == false);
                     assert(supportsUnalignedSIMDLoads == false);
@@ -4559,8 +4567,11 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
 
                 default:
                 {
-                    // These intrinsics only expect 16 or 32-byte nodes for containment
-                    assert((genTypeSize(node->TypeGet()) == 16) || (genTypeSize(node->TypeGet()) == 32));
+                    if ((genTypeSize(node->TypeGet()) != 16) && (genTypeSize(node->TypeGet()) != 32))
+                    {
+                        // These intrinsics only expect 16 or 32-byte nodes for containment
+                        break;
+                    }
 
                     supportsSIMDScalarLoads = true;
                     supportsGeneralLoads    = supportsSIMDScalarLoads;
@@ -5095,7 +5106,19 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                                 }
                                 break;
                             }
-
+                            case NI_AVXVNNI_MultiplyWideningAndAdd:
+                            case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
+                            {
+                                if (IsContainableHWIntrinsicOp(node, op3, &supportsRegOptional))
+                                {
+                                    MakeSrcContained(node, op3);
+                                }
+                                else if (supportsRegOptional)
+                                {
+                                    op3->SetRegOptional();
+                                }
+                                break;
+                            }
                             case NI_BMI2_MultiplyNoFlags:
                             case NI_BMI2_X64_MultiplyNoFlags:
                             {

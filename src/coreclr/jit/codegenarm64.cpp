@@ -1593,7 +1593,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
                                      ssize_t   imm,
-                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(unsigned gtFlags))
+                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -1832,9 +1832,6 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     GenTree*    op2 = treeNode->gtGetOp2();
     instruction ins = genGetInsForOper(treeNode->OperGet(), targetType);
 
-    assert(IsValidSourceType(targetType, op1->GetType()));
-    assert(IsValidSourceType(targetType, op2->GetType()));
-
     if ((treeNode->gtFlags & GTF_SET_FLAGS) != 0)
     {
         switch (oper)
@@ -1855,8 +1852,21 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 
     // The arithmetic node must be sitting in a register (since it's not contained)
     assert(targetReg != REG_NA);
+    emitAttr attr = emitActualTypeSize(treeNode);
 
-    regNumber r = emit->emitInsTernary(ins, emitActualTypeSize(treeNode), treeNode, op1, op2);
+    // UMULL/SMULL is twice as fast for 32*32->64bit MUL
+    if ((oper == GT_MUL) && (targetType == TYP_LONG) && varActualTypeIsInt(op1) && varActualTypeIsInt(op2))
+    {
+        ins  = treeNode->IsUnsigned() ? INS_umull : INS_smull;
+        attr = EA_4BYTE;
+    }
+    else
+    {
+        assert(IsValidSourceType(targetType, op1->GetType()));
+        assert(IsValidSourceType(targetType, op2->GetType()));
+    }
+
+    regNumber r = emit->emitInsTernary(ins, attr, treeNode, op1, op2);
     assert(r == targetReg);
 
     genProduceReg(treeNode);
@@ -1987,7 +1997,9 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall() && (!lcl->IsEnregisterable() || !src->OperIs(GT_LCL_VAR)))
+    var_types lclRegType = lcl->GetRegisterType(store);
+
+    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -1995,8 +2007,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
-
-    var_types lclRegType = lcl->GetRegisterType(store);
 
 #ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)

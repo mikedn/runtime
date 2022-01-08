@@ -717,7 +717,19 @@ void Compiler::compShutdown()
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     // Finish reading and/or writing inline xml
-    InlineStrategy::FinalizeXml();
+    if (JitConfig.JitInlineDumpXmlFile() != nullptr)
+    {
+        FILE* file = _wfopen(JitConfig.JitInlineDumpXmlFile(), W("a"));
+        if (file != nullptr)
+        {
+            InlineStrategy::FinalizeXml(file);
+            fclose(file);
+        }
+        else
+        {
+            InlineStrategy::FinalizeXml();
+        }
+    }
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
 #if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES || CALL_ARG_STATS
@@ -1247,10 +1259,11 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     }
 #endif // DEBUG
 
-    vnStore               = nullptr;
-    m_opAsgnVarDefSsaNums = nullptr;
-    fgSsaPassesCompleted  = 0;
-    fgVNPassesCompleted   = 0;
+    vnStore                    = nullptr;
+    m_opAsgnVarDefSsaNums      = nullptr;
+    m_nodeToLoopMemoryBlockMap = nullptr;
+    fgSsaPassesCompleted       = 0;
+    fgVNPassesCompleted        = 0;
 
     // check that HelperCallProperties are initialized
 
@@ -1589,6 +1602,11 @@ void Compiler::compSetProcessor()
     if (!JitConfig.EnableAVX2())
     {
         instructionSetFlags.RemoveInstructionSet(InstructionSet_AVX2);
+    }
+
+    if (!JitConfig.EnableAVXVNNI())
+    {
+        instructionSetFlags.RemoveInstructionSet(InstructionSet_AVXVNNI);
     }
 
     if (!JitConfig.EnableLZCNT())
@@ -1994,8 +2012,8 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     featureSIMD = jitFlags->IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
 #endif
 
-    lvaEnregEHVars       = (((opts.compFlags & CLFLG_REGVAR) != 0) && JitConfig.EnableEHWriteThru());
-    lvaEnregMultiRegVars = (((opts.compFlags & CLFLG_REGVAR) != 0) && JitConfig.EnableMultiRegLocals());
+    lvaEnregEHVars       = (compEnregLocals() && JitConfig.EnableEHWriteThru());
+    lvaEnregMultiRegVars = (compEnregLocals() && JitConfig.EnableMultiRegLocals());
 
 #if FEATURE_TAILCALL_OPT
     // By default opportunistic tail call optimization is enabled.
@@ -2016,11 +2034,12 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     fgPgoSchemaCount = 0;
     fgPgoQueryResult = E_FAIL;
     fgPgoFailReason  = nullptr;
+    fgPgoSource      = ICorJitInfo::PgoSource::Unknown;
 
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
     {
         fgPgoQueryResult = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
-                                                                          &fgPgoSchemaCount, &fgPgoData);
+                                                                          &fgPgoSchemaCount, &fgPgoData, &fgPgoSource);
 
         // a failed result that also has a non-NULL fgPgoSchema
         // indicates that the ILSize for the method no longer matches
@@ -2121,6 +2140,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     opts.disAsmSpilled   = false;
     opts.disDiffable     = false;
     opts.disAddr         = false;
+    opts.disAlignment    = false;
     opts.dspCode         = false;
     opts.dspEHTable      = false;
     opts.dspDebugInfo    = false;
@@ -2267,6 +2287,11 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         if (JitConfig.JitDasmWithAddress() != 0)
         {
             opts.disAddr = true;
+        }
+
+        if (JitConfig.JitDasmWithAlignmentBoundaries() != 0)
+        {
+            opts.disAlignment = true;
         }
 
         if (JitConfig.JitLongAddress() != 0)
@@ -2574,7 +2599,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && fgHaveProfileData())
         {
-            printf("OPTIONS: optimized using profile data\n");
+            printf("OPTIONS: optimized using %s profile data\n", pgoSourceToString(fgPgoSource));
         }
 
         if (fgPgoFailReason != nullptr)
@@ -3780,7 +3805,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     // local variable allocation on the stack.
     ObjectAllocator objectAllocator(this); // PHASE_ALLOCATE_OBJECTS
 
-    if (JitConfig.JitObjectStackAllocation() && opts.OptimizationEnabled())
+    if (compObjectStackAllocation() && opts.OptimizationEnabled())
     {
         objectAllocator.EnableObjectStackAllocation();
     }
@@ -4175,11 +4200,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         }
     }
 
-#ifdef TARGET_AMD64
-    //  Check if we need to add the Quirk for the PPP backward compat issue
-    compQuirkForPPP();
-#endif
-
     // Insert GC Polls
     DoPhase(this, PHASE_INSERT_GC_POLLS, &Compiler::fgInsertGCPolls);
 
@@ -4195,9 +4215,9 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     {
         compSizeEstimate  = 0;
         compCycleEstimate = 0;
-        for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+        for (BasicBlock* const block : Blocks())
         {
-            for (Statement* stmt : block->Statements())
+            for (Statement* const stmt : block->Statements())
             {
                 compSizeEstimate += stmt->GetCostSz();
                 compCycleEstimate += stmt->GetCostEx();
@@ -4380,12 +4400,12 @@ void Compiler::generatePatchpointInfo()
     }
 
     // Special offsets
-
-    if (lvaReportParamTypeArg() || lvaKeepAliveAndReportThis())
+    //
+    if (lvaReportParamTypeArg())
     {
-        const int offset = lvaToCallerSPRelativeOffset(lvaCachedGenericContextArgOffset(), true);
+        const int offset = lvaCachedGenericContextArgOffset();
         patchpointInfo->SetGenericContextArgOffset(offset);
-        JITDUMP("--OSR-- cached generic context offset is CallerSP %d\n", patchpointInfo->GenericContextArgOffset());
+        JITDUMP("--OSR-- cached generic context offset is FP %d\n", patchpointInfo->GenericContextArgOffset());
     }
 
     if (lvaKeepAliveAndReportThis())
@@ -4427,11 +4447,11 @@ void Compiler::ResetOptAnnotations()
     fgSsaPassesCompleted  = 0;
     fgVNPassesCompleted   = 0;
 
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
-            for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+            for (GenTree* const tree : stmt->TreeList())
             {
                 tree->ClearVN();
                 tree->ClearAssertion();
@@ -4456,9 +4476,10 @@ void Compiler::RecomputeLoopInfo()
     // Recompute reachability sets, dominators, and loops.
     optLoopCount   = 0;
     fgDomsComputed = false;
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         block->bbFlags &= ~BBF_LOOP_FLAGS;
+        block->bbNatLoopNum = BasicBlock::NOT_IN_LOOP;
     }
     fgComputeReachability();
     // Rebuild the loop tree annotations themselves
@@ -4469,38 +4490,6 @@ void Compiler::RecomputeLoopInfo()
 void Compiler::ProcessShutdownWork(ICorStaticInfo* statInfo)
 {
 }
-
-#ifdef TARGET_AMD64
-//  Check if we need to add the Quirk for the PPP backward compat issue.
-//  This Quirk addresses a compatibility issue between the new RyuJit and the previous JIT64.
-//  A backward compatibity issue called 'PPP' exists where a PInvoke call passes a 32-byte struct
-//  into a native API which basically writes 48 bytes of data into the struct.
-//  With the stack frame layout used by the RyuJIT the extra 16 bytes written corrupts a
-//  caller saved register and this leads to an A/V in the calling method.
-//  The older JIT64 jit compiler just happened to have a different stack layout and/or
-//  caller saved register set so that it didn't hit the A/V in the caller.
-//  By increasing the amount of stack allocted for the struct by 32 bytes we can fix this.
-//
-void Compiler::compQuirkForPPP()
-{
-    if (compTailCallUsed || (lvaCount != 2) || (lvaOutgoingArgSpaceVar == BAD_VAR_NUM))
-    {
-        return;
-    }
-
-    unsigned   lclNum = (lvaOutgoingArgSpaceVar == 0) ? 1 : 0;
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
-
-    if (lcl->IsParam() || !lcl->TypeIs(TYP_STRUCT) || !lcl->lvAddrExposed || (lcl->GetLayout()->GetSize() != 32))
-    {
-        return;
-    }
-
-    JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
-
-    lcl->lvQuirkPPPStuct = true;
-}
-#endif // TARGET_AMD64
 
 /*****************************************************************************/
 
@@ -4929,7 +4918,24 @@ void Compiler::compCompileFinish()
 #if defined(DEBUG) || defined(INLINE_DATA)
 
     m_inlineStrategy->DumpData();
-    m_inlineStrategy->DumpXml();
+
+    if (JitConfig.JitInlineDumpXmlFile() != nullptr)
+    {
+        FILE* file = _wfopen(JitConfig.JitInlineDumpXmlFile(), W("a"));
+        if (file != nullptr)
+        {
+            m_inlineStrategy->DumpXml(file);
+            fclose(file);
+        }
+        else
+        {
+            m_inlineStrategy->DumpXml();
+        }
+    }
+    else
+    {
+        m_inlineStrategy->DumpXml();
+    }
 
 #endif
 
@@ -5344,6 +5350,9 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         // We're prejitting the root method. We also will analyze it as
         // a potential inline candidate.
         InlineResult prejitResult(this, methodHnd, "prejit");
+
+        // Profile data allows us to avoid early "too many IL bytes" outs.
+        prejitResult.NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, fgHaveSufficientProfileData());
 
         // Do the initial inline screen.
         impCanInlineIL(methodHnd, methodInfo, forceInline, &prejitResult);
@@ -6143,22 +6152,17 @@ void Compiler::compCallArgStats()
 
     assert(fgStmtListThreaded);
 
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
-            for (GenTree* call = stmt->GetTreeList(); call != nullptr; call = call->gtNext)
+            for (GenTree* const call : stmt->TreeList())
             {
                 if (call->gtOper != GT_CALL)
                     continue;
 
-                argNum =
-
-                    regArgNum = regArgDeferred = regArgTemp =
-
-                        regArgConst = regArgLclVar =
-
-                            argDWordNum = argLngNum = argFltNum = argDblNum = 0;
+                argNum = regArgNum = regArgDeferred = regArgTemp = regArgConst = regArgLclVar = argDWordNum =
+                    argLngNum = argFltNum = argDblNum = 0;
 
                 argTotalCalls++;
 
@@ -7269,6 +7273,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *      cBlocks,     dBlocks        : Display all the basic blocks of a function (call fgDispBasicBlocks()).
  *      cBlocksV,    dBlocksV       : Display all the basic blocks of a function (call fgDispBasicBlocks(true)).
  *                                    "V" means "verbose", and will dump all the trees.
+ *      cStmt,       dStmt          : Display a Statement (call gtDispStmt()).
  *      cTree,       dTree          : Display a tree (call gtDispTree()).
  *      cTreeLIR,    dTreeLIR       : Display a tree in LIR form (call gtDispLIRNode()).
  *      cTrees,      dTrees         : Display all the trees in a function (call fgDumpTrees()).
@@ -7291,6 +7296,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *
  * The following don't require a Compiler* to work:
  *      dRegMask                    : Display a regMaskTP (call dspRegMask(mask)).
+ *      dBlockList                  : Display a BasicBlockList*.
  */
 
 void cBlock(Compiler* comp, BasicBlock* block)
@@ -7465,6 +7471,11 @@ void dBlocksV()
     cBlocksV(JitTls::GetCompiler());
 }
 
+void dStmt(Statement* statement)
+{
+    cStmt(JitTls::GetCompiler(), statement);
+}
+
 void dTree(GenTree* tree)
 {
     cTree(JitTls::GetCompiler(), tree);
@@ -7603,16 +7614,15 @@ GenTree* dFindTree(GenTree* tree, unsigned id)
 
 GenTree* dFindTree(unsigned id)
 {
-    Compiler*   comp = JitTls::GetCompiler();
-    BasicBlock* block;
-    GenTree*    tree;
+    Compiler* comp = JitTls::GetCompiler();
+    GenTree*  tree;
 
     dbTreeBlock = nullptr;
     dbTree      = nullptr;
 
-    for (block = comp->fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : comp->Blocks())
     {
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             tree = dFindTree(stmt->GetRootNode(), id);
             if (tree != nullptr)
@@ -7628,15 +7638,14 @@ GenTree* dFindTree(unsigned id)
 
 Statement* dFindStmt(unsigned id)
 {
-    Compiler*   comp = JitTls::GetCompiler();
-    BasicBlock* block;
+    Compiler* comp = JitTls::GetCompiler();
 
     dbStmt = nullptr;
 
     unsigned stmtId = 0;
-    for (block = comp->fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : comp->Blocks())
     {
-        for (Statement* stmt : block->Statements())
+        for (Statement* const stmt : block->Statements())
         {
             stmtId++;
             if (stmtId == id)
@@ -8268,3 +8277,60 @@ void Compiler::gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block)
     block->bbFlags |= BBF_HAS_NULLCHECK;
     optMethodFlags |= OMF_HAS_NULLCHECK;
 }
+
+#if defined(DEBUG)
+//------------------------------------------------------------------------------
+// devirtualizationDetailToString: describe the detailed devirtualization reason
+//
+// Arguments:
+//    detail - detail to describe
+//
+// Returns:
+//    descriptive string
+//
+const char* Compiler::devirtualizationDetailToString(CORINFO_DEVIRTUALIZATION_DETAIL detail)
+{
+    switch (detail)
+    {
+        case CORINFO_DEVIRTUALIZATION_UNKNOWN:
+            return "unknown";
+        case CORINFO_DEVIRTUALIZATION_SUCCESS:
+            return "success";
+        case CORINFO_DEVIRTUALIZATION_FAILED_CANON:
+            return "object class was canonical";
+        case CORINFO_DEVIRTUALIZATION_FAILED_COM:
+            return "object class was com";
+        case CORINFO_DEVIRTUALIZATION_FAILED_CAST:
+            return "object class could not be cast to interface class";
+        case CORINFO_DEVIRTUALIZATION_FAILED_LOOKUP:
+            return "interface method could not be found";
+        case CORINFO_DEVIRTUALIZATION_FAILED_DIM:
+            return "interface method was default interface method";
+        case CORINFO_DEVIRTUALIZATION_FAILED_SUBCLASS:
+            return "object not subclass of base class";
+        case CORINFO_DEVIRTUALIZATION_FAILED_SLOT:
+            return "virtual method installed via explicit override";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE:
+            return "devirtualization crossed version bubble";
+        case CORINFO_DEVIRTUALIZATION_MULTIPLE_IMPL:
+            return "object class has multiple implementations of interface";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_CLASS_DECL:
+            return "decl method is defined on class and decl method not in version bubble, and decl method not in "
+                   "type closest to version bubble";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_INTERFACE_DECL:
+            return "decl method is defined on interface and not in version bubble, and implementation type not "
+                   "entirely defined in bubble";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_IMPL:
+            return "object class not defined within version bubble";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_IMPL_NOT_REFERENCEABLE:
+            return "object class cannot be referenced from R2R code due to missing tokens";
+        case CORINFO_DEVIRTUALIZATION_FAILED_DUPLICATE_INTERFACE:
+            return "crossgen2 virtual method algorithm and runtime algorithm differ in the presence of duplicate "
+                   "interface implementations";
+        case CORINFO_DEVIRTUALIZATION_FAILED_DECL_NOT_REPRESENTABLE:
+            return "Decl method cannot be represented in R2R image";
+        default:
+            return "undefined";
+    }
+}
+#endif // defined(DEBUG)
