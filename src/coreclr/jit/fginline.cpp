@@ -339,9 +339,11 @@ public:
 
             // If we created a self-assignment (say because we are sharing return spill temps)
             // we can remove it.
-            lhs = tree->AsOp()->GetOp(0);
+            GenTree* dst = tree->AsOp()->GetOp(0);
+            GenTree* src = tree->AsOp()->GetOp(1);
 
-            if (lhs->OperIs(GT_LCL_VAR) && GenTree::Compare(lhs, tree->AsOp()->GetOp(1)))
+            if (dst->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
+                (dst->AsLclVar()->GetLclNum() == src->AsLclVar()->GetLclNum()))
             {
                 m_compiler->gtUpdateNodeSideEffects(tree);
                 assert((tree->gtFlags & GTF_SIDE_EFFECT) == GTF_ASG);
