@@ -4936,8 +4936,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
     GenTree*          addr          = field->GetAddr();
     target_size_t     offset        = field->GetOffset();
     FieldSeqStore*    fieldSeqStore = GetFieldSeqStore();
-    FieldSeqNode*     fieldSeq =
-        field->MayOverlap() ? FieldSeqNode::NotAField() : fieldSeqStore->CreateSingleton(field->GetFieldHandle());
+    FieldSeqNode*     fieldSeq      = field->MayOverlap() ? FieldSeqNode::NotAField() : field->GetFieldSeq();
 
     while (GenTreeFieldAddr* nextField = addr->IsFieldAddr())
     {
@@ -4951,7 +4950,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         }
         else
         {
-            fieldSeq = fieldSeqStore->Append(fieldSeqStore->CreateSingleton(field->GetFieldHandle()), fieldSeq);
+            fieldSeq = fieldSeqStore->Append(field->GetFieldSeq(), fieldSeq);
         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -5085,7 +5084,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
                                      GTF_ICON_CONST_PTR, true);
 
         INDEBUG(r2rOffset->AsIndir()->GetAddr()->AsIntCon()->gtTargetHandle =
-                    reinterpret_cast<size_t>(field->GetFieldHandle());)
+                    reinterpret_cast<size_t>(field->GetFieldSeq()->GetFieldHandle());)
 
         addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, r2rOffset);
     }

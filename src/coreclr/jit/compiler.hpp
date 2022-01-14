@@ -893,7 +893,8 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_H
 {
     var_types type = varTypeAddrAdd(addr->GetType());
 
-    GenTreeFieldAddr* tree = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, handle, offset);
+    FieldSeqNode*     fieldSeq = GetFieldSeqStore()->CreateSingleton(handle);
+    GenTreeFieldAddr* tree     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, fieldSeq, offset);
 
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
     if (addr->OperIs(GT_LCL_VAR_ADDR))

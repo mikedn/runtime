@@ -1288,7 +1288,11 @@ AGAIN:
                     }
                     break;
                 case GT_FIELD_ADDR:
-                    if (op1->AsFieldAddr()->GetFieldHandle() != op2->AsFieldAddr()->GetFieldHandle())
+                    // TODO-MIKE-Review: It's not clear if the field sequence should be checked.
+                    // Old code did check the field handle but given the current (very few) uses
+                    // of GenTree::Compare it seems that checking only the offset should suffice.
+                    if ((op1->AsFieldAddr()->GetOffset() != op2->AsFieldAddr()->GetOffset()) ||
+                        (op1->AsFieldAddr()->GetFieldSeq() != op2->AsFieldAddr()->GetFieldSeq()))
                     {
                         return false;
                     }
@@ -8742,9 +8746,8 @@ void Compiler::gtDispTree(GenTree*     tree,
             break;
 
         case GT_FIELD_ADDR:
-            printf(" @%u %s::%s", tree->AsFieldAddr()->GetOffset(),
-                   eeGetSimpleClassName(info.compCompHnd->getFieldClass(tree->AsFieldAddr()->GetFieldHandle())),
-                   eeGetFieldName(tree->AsFieldAddr()->GetFieldHandle()));
+            printf(" @%u ", tree->AsFieldAddr()->GetOffset());
+            dmpFieldSeqFields(tree->AsFieldAddr()->GetFieldSeq());
             break;
 
         case GT_CALL:
@@ -13441,7 +13444,12 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             }
             else if (GenTreeFieldAddr* field = addr->IsFieldAddr())
             {
-                objClass = gtGetFieldClassHandle(field->GetFieldHandle(), pIsExact, pIsNonNull);
+                FieldSeqNode* fieldSeq = field->GetFieldSeq()->GetTail();
+
+                if (fieldSeq->IsField())
+                {
+                    objClass = gtGetFieldClassHandle(fieldSeq->GetFieldHandle(), pIsExact, pIsNonNull);
+                }
             }
             else if (GenTreeIndexAddr* index = addr->IsIndexAddr())
             {
