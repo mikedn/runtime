@@ -891,21 +891,15 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
 
 inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
 {
-    var_types type = varTypeAddrAdd(addr->GetType());
-
-    FieldSeqNode*     fieldSeq = GetFieldSeqStore()->CreateSingleton(handle);
-    GenTreeFieldAddr* tree     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, fieldSeq, offset);
-
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
     if (addr->OperIs(GT_LCL_VAR_ADDR))
     {
-        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
-        varDsc->lvFieldAccessed = 1;
+        lvaGetDesc(addr->AsLclVar())->lvFieldAccessed = 1;
     }
 
-    return tree;
+    var_types     type     = varTypeAddrAdd(addr->GetType());
+    FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(handle);
+    return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, fieldSeq, offset);
 }
 
 inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
