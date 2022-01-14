@@ -961,6 +961,10 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
                 indir->gtFlags |= GTF_IND_NONFAULTING;
             }
         }
+        else if (fieldAddr->GetFieldSeq()->IsBoxedValueField())
+        {
+            indir->gtFlags |= GTF_IND_NONFAULTING;
+        }
 
         indir->gtFlags |= GTF_GLOB_REF;
     }

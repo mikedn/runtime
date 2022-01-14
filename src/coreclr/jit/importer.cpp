@@ -1118,28 +1118,25 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
     var_types srcType = src->GetType();
 
-    if (dest == nullptr)
+    if ((dest == nullptr) && destAddr->OperIs(GT_LCL_VAR_ADDR))
     {
-        if (destAddr->OperIs(GT_LCL_VAR_ADDR))
+        LclVarDsc* lcl = lvaGetDesc(destAddr->AsLclVar());
+
+        if (lcl->GetType() == srcType)
         {
-            LclVarDsc* lcl = lvaGetDesc(destAddr->AsLclVar());
-
-            if (lcl->GetType() == srcType)
+            if (varTypeIsSIMD(srcType))
             {
-                if (varTypeIsSIMD(srcType))
-                {
-                    dest = destAddr;
-                }
-                else if (lcl->GetLayout() == layout)
-                {
-                    dest = destAddr;
-                }
+                dest = destAddr;
+            }
+            else if (lcl->GetLayout() == layout)
+            {
+                dest = destAddr;
+            }
 
-                if (dest != nullptr)
-                {
-                    dest->SetOper(GT_LCL_VAR);
-                    dest->SetType(lcl->GetType());
-                }
+            if (dest != nullptr)
+            {
+                dest->SetOper(GT_LCL_VAR);
+                dest->SetType(lcl->GetType());
             }
         }
     }
@@ -1153,6 +1150,12 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
         else
         {
             dest = gtNewOperNode(GT_IND, srcType, destAddr);
+        }
+
+        if (destAddr->IsFieldAddr() && destAddr->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
+        {
+            dest->gtFlags |= GTF_IND_NONFAULTING;
+            dest->gtFlags &= ~GTF_EXCEPT;
         }
     }
     else if (dest->OperIs(GT_LCL_VAR))
@@ -6173,7 +6176,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   r
         addr = gtNewOperNode(GT_IND, TYP_REF, addr);
         addr->gtFlags |= GTF_IND_NONFAULTING;
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
+        addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
     }
 
     return addr;
@@ -6304,7 +6307,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
 #endif
 
             fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-            addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
+            addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
         }
 
         return addr;
@@ -6345,7 +6348,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
         addr = indir;
 
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
+        addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
 
         if (varTypeIsStruct(type))
         {
@@ -12410,9 +12413,25 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
                         // there seems to be little advantage in doing that and requires a bit of work.
 
-                        if (varTypeIsStruct(op1->GetType()))
+                        if (GenTreeFieldAddr* fieldAddr = op1->IsFieldAddr())
                         {
-                            GenTree* addr = gtNewCommaNode(helperNode, op1->AsIndir()->GetAddr());
+                            fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
+                            fieldAddr->AddSideEffects(helperNode->GetSideEffects());
+                        }
+                        else if (varTypeIsStruct(op1->GetType()))
+                        {
+                            GenTree* addr = op1->AsIndir()->GetAddr();
+
+                            if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
+                            {
+                                fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
+                                fieldAddr->AddSideEffects(helperNode->GetSideEffects());
+                            }
+                            else
+                            {
+                                addr = gtNewCommaNode(helperNode, addr);
+                            }
+
                             op1->AsIndir()->SetAddr(addr);
                             op1->AddSideEffects(addr->GetSideEffects());
                         }
@@ -13627,6 +13646,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             LDOBJ:
                 lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                op2    = op1;
 
                 if (lclTyp == TYP_STRUCT)
                 {
@@ -13640,7 +13660,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_GLOB_REF;
                 }
 
-                op1->gtFlags |= GTF_EXCEPT;
+                if (op2->IsFieldAddr() && op2->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
+                {
+                    op1->gtFlags |= GTF_IND_NONFAULTING;
+                }
+                else
+                {
+                    op1->gtFlags |= GTF_EXCEPT;
+                }
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {

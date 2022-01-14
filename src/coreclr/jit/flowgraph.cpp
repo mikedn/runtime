@@ -898,9 +898,9 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         if (GenTreeIntCon* const2 = op2->IsIntCon())
         {
             // Static struct field boxed instances cannot be null.
-            if (const2->GetFieldSeq() == GetFieldSeqStore()->GetBoxedValuePseudoField())
+            if ((const2->GetFieldSeq() != nullptr) && (const2->GetFieldSeq()->IsBoxedValueField()))
             {
-                assert(const2->GetValue() == TARGET_POINTER_SIZE);
+                assert(const2->GetValue() >= TARGET_POINTER_SIZE);
                 return !op1->TypeIs(TYP_REF);
             }
         }

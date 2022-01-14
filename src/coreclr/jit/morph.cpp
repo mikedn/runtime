@@ -4964,33 +4964,8 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 #endif
     }
 
-    bool addrMayBeNull = true;
-
-    // The address can be ADD(ref, boxed value offset) for static struct fields.
-    // TODO-MIKE-Review: There should be no other case where we get an ADD with
-    // a field sequence from the importer so perhaps we should change the field
-    // sequence to NotAField if we see any other kind of ADD here?
-    if (addr->OperIs(GT_ADD))
-    {
-        GenTree* op1 = addr->AsOp()->GetOp(0);
-        GenTree* op2 = addr->AsOp()->GetOp(1);
-
-        if (op1->IsIntCon())
-        {
-            std::swap(op1, op2);
-        }
-
-        if (GenTreeIntCon* intCon = op2->IsIntCon())
-        {
-            if ((intCon->GetFieldSeq() != nullptr) && intCon->GetFieldSeq()->IsBoxedValueField())
-            {
-                addr = op1;
-                offset += static_cast<target_size_t>(intCon->GetUnsignedValue());
-                fieldSeq      = fieldSeqStore->Append(intCon->GetFieldSeq(), fieldSeq);
-                addrMayBeNull = false;
-            }
-        }
-    }
+    // Static struct fields are boxed and never null.
+    bool addrMayBeNull = !field->GetFieldSeq()->IsBoxedValueField();
 
     // Note that using fgAddrCouldBeNull with field addresses is a bit of a chicken & egg
     // case due to it returning false for ADDR(FIELD). But then ADDR(FIELD) is guaranteed
