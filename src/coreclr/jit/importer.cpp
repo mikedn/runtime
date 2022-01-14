@@ -5997,29 +5997,49 @@ GenTreeFieldAddr* Compiler::impImportFieldAddr(GenTree*                      add
                                                const CORINFO_RESOLVED_TOKEN& resolvedToken,
                                                const CORINFO_FIELD_INFO&     fieldInfo)
 {
-    GenTreeFieldAddr* field = gtNewFieldAddr(addr, resolvedToken.hField, fieldInfo.offset);
+    GenTreeFieldAddr* field = addr->IsFieldAddr();
+
+    if ((field != nullptr)
+#ifdef FEATURE_READYTORUN_COMPILER
+        && (fieldInfo.fieldAccessor != CORINFO_FIELD_INSTANCE_WITH_BASE)
+#endif
+        && (field->GetOffset() + fieldInfo.offset >= field->GetOffset()))
+    {
+        unsigned      offset   = field->GetOffset() + fieldInfo.offset;
+        FieldSeqNode* fieldSeq = GetFieldSeqStore()->Append(field->GetFieldSeq(), resolvedToken.hField);
+
+        field->SetOffset(offset, fieldSeq);
+    }
+    else
+    {
+        field = gtNewFieldAddr(addr, resolvedToken.hField, fieldInfo.offset);
+
+#ifdef FEATURE_READYTORUN_COMPILER
+        if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
+        {
+            noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
+            field->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
+        }
+#endif
+
+        if (fgAddrCouldBeNull(addr))
+        {
+            field->gtFlags |= GTF_EXCEPT;
+        }
+    }
 
     if (CorTypeToVarType(fieldInfo.fieldType) == TYP_STRUCT)
     {
         field->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
     }
+    else
+    {
+        field->SetLayoutNum(0);
+    }
 
     if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
     {
         field->SetMayOverlap();
-    }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
-    {
-        noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
-        field->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
-    }
-#endif
-
-    if (fgAddrCouldBeNull(addr))
-    {
-        field->gtFlags |= GTF_EXCEPT;
     }
 
     return field;

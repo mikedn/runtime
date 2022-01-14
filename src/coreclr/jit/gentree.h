@@ -3722,6 +3722,12 @@ public:
         return m_offset;
     }
 
+    void SetOffset(unsigned offset, FieldSeqNode* fieldSeq)
+    {
+        m_offset   = offset;
+        m_fieldSeq = fieldSeq;
+    }
+
     bool MayOverlap() const
     {
         return m_mayOverlap;
