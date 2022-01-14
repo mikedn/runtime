@@ -2932,6 +2932,9 @@ protected:
 
     GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
 
+    GenTreeFieldAddr* impImportFieldAddr(GenTree*                      addr,
+                                         const CORINFO_RESOLVED_TOKEN& resolvedToken,
+                                         const CORINFO_FIELD_INFO&     fieldInfo);
     GenTree* impImportFieldAccess(GenTree*                  objPtr,
                                   CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                   const CORINFO_FIELD_INFO& fieldInfo,

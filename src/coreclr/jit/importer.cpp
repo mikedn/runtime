@@ -5993,6 +5993,38 @@ GenTree* Compiler::impImportStaticReadOnlyField(void* addr, var_types type)
     }
 }
 
+GenTreeFieldAddr* Compiler::impImportFieldAddr(GenTree*                      addr,
+                                               const CORINFO_RESOLVED_TOKEN& resolvedToken,
+                                               const CORINFO_FIELD_INFO&     fieldInfo)
+{
+    GenTreeFieldAddr* field = gtNewFieldAddr(addr, resolvedToken.hField, fieldInfo.offset);
+
+    if (CorTypeToVarType(fieldInfo.fieldType) == TYP_STRUCT)
+    {
+        field->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
+    }
+
+    if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
+    {
+        field->SetMayOverlap();
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
+    {
+        noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
+        field->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
+    }
+#endif
+
+    if (fgAddrCouldBeNull(addr))
+    {
+        field->gtFlags |= GTF_EXCEPT;
+    }
+
+    return field;
+}
+
 GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
                                         CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                         const CORINFO_FIELD_INFO& fieldInfo,
@@ -12226,30 +12258,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         obj = impCheckForNullPointer(obj);
 
-                        GenTreeFieldAddr* addr = gtNewFieldAddr(obj, resolvedToken.hField, fieldInfo.offset);
-
-                        if (lclTyp == TYP_STRUCT)
-                        {
-                            addr->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
-                        }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-                        if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
-                        {
-                            noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
-                            addr->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
-                        }
-#endif
-
-                        if (fgAddrCouldBeNull(obj))
-                        {
-                            addr->gtFlags |= GTF_EXCEPT;
-                        }
-
-                        if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
-                        {
-                            addr->SetMayOverlap();
-                        }
+                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
 
                         if (isLoadAddress)
                         {
@@ -12500,30 +12509,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         obj = impCheckForNullPointer(obj);
 
-                        GenTreeFieldAddr* addr = gtNewFieldAddr(obj, resolvedToken.hField, fieldInfo.offset);
-
-                        if (lclTyp == TYP_STRUCT)
-                        {
-                            addr->SetLayoutNum(typGetObjLayoutNum(fieldInfo.structType));
-                        }
-
-                        if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
-                        {
-                            addr->SetMayOverlap();
-                        }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-                        if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
-                        {
-                            noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
-                            addr->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
-                        }
-#endif
-
-                        if (fgAddrCouldBeNull(obj))
-                        {
-                            addr->gtFlags |= GTF_EXCEPT;
-                        }
+                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
 
                         if (compIsForInlining() &&
                             impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj))
