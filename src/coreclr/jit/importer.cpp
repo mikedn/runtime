@@ -12249,11 +12249,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 accessFlags = (opcode == CEE_LDFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
 
-                if (impIsThis(obj))
-                {
-                    accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
-                }
-
                 eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
 
                 // We are using ldfld/a on a static field. We allow it, but need to get side-effect from obj.
@@ -12379,14 +12374,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op2          = impPopStack().val;
                 GenTree* obj = impPopStack().val;
 
-                accessFlags = CORINFO_ACCESS_SET;
-
-                if (impIsThis(obj))
-                {
-                    accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
-                }
-
-                eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
+                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
 
                 // We are using stfld on a static field.
                 // We allow it, but need to eval any side-effects for obj
@@ -12460,7 +12448,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
 
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd);
+                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp, clsHnd);
                         break;
 
                     default:
