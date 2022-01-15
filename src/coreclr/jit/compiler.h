@@ -2934,16 +2934,16 @@ protected:
     GenTreeFieldAddr* impImportFieldAddr(GenTree*                      addr,
                                          const CORINFO_RESOLVED_TOKEN& resolvedToken,
                                          const CORINFO_FIELD_INFO&     fieldInfo);
-    GenTree* impImportFieldInstanceAddrHelper(GenTree*                  objPtr,
+    GenTree* impImportFieldInstanceAddrHelper(OPCODE                    opcode,
+                                              GenTree*                  objPtr,
                                               CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                               const CORINFO_FIELD_INFO& fieldInfo,
-                                              CORINFO_ACCESS_FLAGS      accessFlags,
                                               var_types                 type,
                                               CORINFO_CLASS_HANDLE      structType);
 
-    GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                               const CORINFO_FIELD_INFO& fieldInfo,
-                                               CORINFO_ACCESS_FLAGS      accessFlags);
+    GenTree* impImportStaticFieldAddressHelper(OPCODE                    opcode,
+                                               CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                               const CORINFO_FIELD_INFO& fieldInfo);
 
     GenTree* impImportLdSFld(OPCODE                    opcode,
                              CORINFO_RESOLVED_TOKEN*   resolvedToken,
@@ -2956,9 +2956,9 @@ protected:
                              const CORINFO_FIELD_INFO& fieldInfo,
                              unsigned                  prefixFlags);
 
-    GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+    GenTree* impImportStaticFieldAccess(OPCODE                    opcode,
+                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                         const CORINFO_FIELD_INFO& fieldInfo,
-                                        CORINFO_ACCESS_FLAGS      accessFlags,
                                         var_types                 type);
 
     GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
@@ -3472,9 +3472,9 @@ private:
 
     void impImportDup();
 
-    GenTree* impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+    GenTree* impImportTlsFieldAccess(OPCODE                    opcode,
+                                     CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                      const CORINFO_FIELD_INFO& fieldInfo,
-                                     CORINFO_ACCESS_FLAGS      accessFlags,
                                      var_types                 type);
 
     /*
