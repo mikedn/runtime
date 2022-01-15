@@ -2906,8 +2906,8 @@ protected:
     GenTreeCall* impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
     void impPopArgsForUnmanagedCall(GenTree* call, CORINFO_SIG_INFO* sig);
 
-    void impInsertHelperCall(CORINFO_HELPER_DESC* helperCall);
-    void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, CORINFO_HELPER_DESC* helperCall);
+    void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
+    void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
     var_types impImportCall(OPCODE                  opcode,
                             CORINFO_RESOLVED_TOKEN* pResolvedToken,
@@ -2944,6 +2944,17 @@ protected:
     GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                                const CORINFO_FIELD_INFO& fieldInfo,
                                                CORINFO_ACCESS_FLAGS      accessFlags);
+
+    GenTree* impImportLdSFld(OPCODE                    opcode,
+                             CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                             const CORINFO_FIELD_INFO& fieldInfo,
+                             unsigned                  prefixFlags);
+
+    GenTree* impImportStSFld(GenTree*                  value,
+                             CORINFO_CLASS_HANDLE      valueStructType,
+                             CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                             const CORINFO_FIELD_INFO& fieldInfo,
+                             unsigned                  prefixFlags);
 
     GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                         const CORINFO_FIELD_INFO& fieldInfo,
