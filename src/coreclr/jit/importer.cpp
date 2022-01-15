@@ -6030,7 +6030,9 @@ GenTree* Compiler::impImportFieldInstanceAddrHelper(GenTree*                  ob
         indir = gtNewOperNode(GT_IND, type, addr);
     }
 
-    indir->gtFlags |= GTF_GLOB_REF | GTF_EXCEPT;
+    // The helper checks for null so the indir cannot fault.
+    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+
     return indir;
 }
 
