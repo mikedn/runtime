@@ -6433,21 +6433,9 @@ GenTree* Compiler::impConvertFieldStoreValue(var_types storeType, GenTree* op2)
 
 void Compiler::impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, CORINFO_HELPER_DESC* helperCall)
 {
-    if (result != CORINFO_ACCESS_ALLOWED)
+    if (result == CORINFO_ACCESS_ILLEGAL)
     {
-        impHandleAccessAllowedInternal(result, helperCall);
-    }
-}
-
-void Compiler::impHandleAccessAllowedInternal(CorInfoIsAccessAllowedResult result, CORINFO_HELPER_DESC* helperCall)
-{
-    switch (result)
-    {
-        case CORINFO_ACCESS_ALLOWED:
-            break;
-        case CORINFO_ACCESS_ILLEGAL:
-            impInsertHelperCall(helperCall);
-            break;
+        impInsertHelperCall(helperCall);
     }
 }
 
