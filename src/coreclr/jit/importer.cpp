@@ -5899,61 +5899,13 @@ GenTree* Compiler::impImportStaticReadOnlyField(void* addr, var_types type)
 
     // This variable should be the largest size element, with the largest alignment requirement,
     // and the native C++ compiler should guarantee sufficient alignment.
-    double aligned_data   = 0.0;
-    void*  p_aligned_data = &aligned_data;
-    if (info.compMethodSuperPMIIndex != -1)
+    alignas(8) char alignedBuffer[8];
+
+    if ((info.compMethodSuperPMIIndex != -1) && (varTypeSize(type) > 1))
     {
-        switch (type)
-        {
-            case TYP_BOOL:
-            case TYP_BYTE:
-            case TYP_UBYTE:
-                static_assert_no_msg(sizeof(unsigned __int8) == sizeof(bool));
-                static_assert_no_msg(sizeof(unsigned __int8) == sizeof(signed char));
-                static_assert_no_msg(sizeof(unsigned __int8) == sizeof(unsigned char));
-                // No alignment necessary for byte.
-                break;
-
-            case TYP_SHORT:
-            case TYP_USHORT:
-                static_assert_no_msg(sizeof(unsigned __int16) == sizeof(short));
-                static_assert_no_msg(sizeof(unsigned __int16) == sizeof(unsigned short));
-                if ((size_t)addr % sizeof(unsigned __int16) != 0)
-                {
-                    *(unsigned __int16*)p_aligned_data = GET_UNALIGNED_16(addr);
-                    addr                               = p_aligned_data;
-                }
-                break;
-
-            case TYP_INT:
-            case TYP_UINT:
-            case TYP_FLOAT:
-                static_assert_no_msg(sizeof(unsigned __int32) == sizeof(int));
-                static_assert_no_msg(sizeof(unsigned __int32) == sizeof(unsigned int));
-                static_assert_no_msg(sizeof(unsigned __int32) == sizeof(float));
-                if ((size_t)addr % sizeof(unsigned __int32) != 0)
-                {
-                    *(unsigned __int32*)p_aligned_data = GET_UNALIGNED_32(addr);
-                    addr                               = p_aligned_data;
-                }
-                break;
-
-            case TYP_LONG:
-            case TYP_ULONG:
-            case TYP_DOUBLE:
-                static_assert_no_msg(sizeof(unsigned __int64) == sizeof(__int64));
-                static_assert_no_msg(sizeof(unsigned __int64) == sizeof(double));
-                if ((size_t)addr % sizeof(unsigned __int64) != 0)
-                {
-                    *(unsigned __int64*)p_aligned_data = GET_UNALIGNED_64(addr);
-                    addr                               = p_aligned_data;
-                }
-                break;
-
-            default:
-                assert(!"Unexpected fieldType");
-                break;
-        }
+        assert(varTypeSize(type) <= sizeof(alignedBuffer));
+        memcpy(alignedBuffer, addr, varTypeSize(type));
+        addr = alignedBuffer;
     }
 #endif // DEBUG
 
