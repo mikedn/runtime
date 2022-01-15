@@ -6000,12 +6000,12 @@ GenTreeFieldAddr* Compiler::impImportFieldAddr(GenTree*                      add
     return field;
 }
 
-GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
-                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                        const CORINFO_FIELD_INFO& fieldInfo,
-                                        CORINFO_ACCESS_FLAGS      accessFlags,
-                                        var_types                 type,
-                                        CORINFO_CLASS_HANDLE      structType)
+GenTree* Compiler::impImportFieldInstanceAddrHelper(GenTree*                  objPtr,
+                                                    CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                                    const CORINFO_FIELD_INFO& fieldInfo,
+                                                    CORINFO_ACCESS_FLAGS      accessFlags,
+                                                    var_types                 type,
+                                                    CORINFO_CLASS_HANDLE      structType)
 {
     assert((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER) &&
            (fieldInfo.helper == CORINFO_HELP_GETFIELDADDR));
@@ -12499,8 +12499,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER)
                 {
-                    op1 =
-                        impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp, fieldInfo.structType);
+                    op1 = impImportFieldInstanceAddrHelper(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp,
+                                                           fieldInfo.structType);
                 }
                 else
                 {
@@ -12615,7 +12615,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER)
                 {
-                    op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp, clsHnd);
+                    op1 = impImportFieldInstanceAddrHelper(obj, &resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp,
+                                                           clsHnd);
                 }
                 else
                 {
