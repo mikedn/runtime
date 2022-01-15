@@ -12172,8 +12172,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDFLD:
             case CEE_LDFLDA:
             {
-                const bool isLoadAddress = (opcode == CEE_LDFLDA || opcode == CEE_LDSFLDA);
-                const bool isLoadStatic  = (opcode == CEE_LDSFLD || opcode == CEE_LDSFLDA);
+                const bool isLoadAddress = (opcode == CEE_LDFLDA);
 
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
@@ -12181,18 +12180,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 CORINFO_ACCESS_FLAGS accessFlags = isLoadAddress ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
 
-                GenTree* obj = nullptr;
-                typeInfo tiObj;
+                typeInfo tiObj = impStackTop().seTypeInfo;
+                GenTree* obj   = impPopStack().val;
 
-                if ((opcode == CEE_LDFLD) || (opcode == CEE_LDFLDA))
+                if (impIsThis(obj))
                 {
-                    tiObj = impStackTop().seTypeInfo;
-                    obj   = impPopStack().val;
-
-                    if (impIsThis(obj))
-                    {
-                        accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
-                    }
+                    accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
                 }
 
                 CORINFO_FIELD_INFO fieldInfo;
@@ -12243,14 +12236,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                // Raise InvalidProgramException if static load accesses non-static field
-                if (isLoadStatic && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0))
-                {
-                    BADCODE("static access on an instance field");
-                }
-
                 // We are using ldfld/a on a static field. We allow it, but need to get side-effect from obj.
-                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) && obj != nullptr)
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0)
                 {
                     if (obj->gtFlags & GTF_SIDE_EFFECT)
                     {
@@ -12453,8 +12440,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_STFLD:
             {
-                bool isStoreStatic = (opcode == CEE_STSFLD);
-
                 CORINFO_CLASS_HANDLE fieldClsHnd; // class of the field (if it's a ref type)
 
                 assertImp(sz == sizeof(unsigned));
@@ -12462,23 +12447,17 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
 
                 CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_SET;
-                GenTree*             obj         = nullptr;
-                typeInfo             tiVal;
 
                 /* Pull the value from the stack */
                 StackEntry se = impPopStack();
                 op2           = se.val;
-                tiVal         = se.seTypeInfo;
-                clsHnd        = tiVal.GetClassHandle();
+                clsHnd        = se.seTypeInfo.GetClassHandle();
 
-                if (opcode == CEE_STFLD)
+                GenTree* obj = impPopStack().val;
+
+                if (impIsThis(obj))
                 {
-                    obj = impPopStack().val;
-
-                    if (impIsThis(obj))
-                    {
-                        accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
-                    }
+                    accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
                 }
 
                 CORINFO_FIELD_INFO fieldInfo;
@@ -12519,14 +12498,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                if (isStoreStatic && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0))
-                {
-                    BADCODE("static access on an instance field");
-                }
-
                 // We are using stfld on a static field.
                 // We allow it, but need to eval any side-effects for obj
-                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) && obj != nullptr)
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0)
                 {
                     if (obj->gtFlags & GTF_SIDE_EFFECT)
                     {
@@ -12705,28 +12679,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDSFLD:
             case CEE_LDSFLDA:
             {
-                const bool isLoadAddress = (opcode == CEE_LDFLDA || opcode == CEE_LDSFLDA);
-                const bool isLoadStatic  = (opcode == CEE_LDSFLD || opcode == CEE_LDSFLDA);
+                const bool isLoadAddress = (opcode == CEE_LDSFLDA);
 
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 CORINFO_ACCESS_FLAGS accessFlags = isLoadAddress ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
-
-                GenTree* obj = nullptr;
-                typeInfo tiObj;
-
-                if ((opcode == CEE_LDFLD) || (opcode == CEE_LDFLDA))
-                {
-                    tiObj = impStackTop().seTypeInfo;
-                    obj   = impPopStack().val;
-
-                    if (impIsThis(obj))
-                    {
-                        accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
-                    }
-                }
 
                 CORINFO_FIELD_INFO fieldInfo;
                 eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
@@ -12777,65 +12736,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
                 // Raise InvalidProgramException if static load accesses non-static field
-                if (isLoadStatic && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0))
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0)
                 {
                     BADCODE("static access on an instance field");
                 }
 
-                // We are using ldfld/a on a static field. We allow it, but need to get side-effect from obj.
-                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) && obj != nullptr)
-                {
-                    if (obj->gtFlags & GTF_SIDE_EFFECT)
-                    {
-                        obj = gtUnusedValNode(obj);
-                        impAppendTree(obj, CHECK_SPILL_ALL, impCurStmtOffs);
-                    }
-                    obj = nullptr;
-                }
-
                 switch (fieldInfo.fieldAccessor)
                 {
-                    case CORINFO_FIELD_INSTANCE:
-#ifdef FEATURE_READYTORUN_COMPILER
-                    case CORINFO_FIELD_INSTANCE_WITH_BASE:
-#endif
-                    {
-                        if (!varTypeGCtype(obj->GetType()) && tiObj.IsType(TI_STRUCT))
-                        {
-                            // If the object is a struct, what we really want is
-                            // for the field to operate on the address of the struct.
-
-                            assert((opcode == CEE_LDFLD) && (tiObj.GetClassHandle() != NO_CLASS_HANDLE));
-
-                            obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
-                        }
-
-                        obj = impCheckForNullPointer(obj);
-
-                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
-
-                        if (isLoadAddress)
-                        {
-                            op1 = addr;
-                        }
-                        else
-                        {
-                            op1 = gtNewFieldIndir(lclTyp, addr);
-
-                            if (compIsForInlining() &&
-                                impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
-                            {
-                                impInlineInfo->thisDereferencedFirst = true;
-                            }
-                        }
-                    }
-                    break;
-
-                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp,
-                                                   fieldInfo.structType);
-                        break;
-
                     case CORINFO_FIELD_STATIC_TLS:
                         op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
@@ -12890,7 +12797,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
                     }
 
-                    if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp) && (obj == nullptr))
+                    if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
                     {
                         op1->gtFlags |= GTF_IND_UNALIGNED;
                     }
@@ -12986,8 +12893,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_STSFLD:
             {
-                bool isStoreStatic = (opcode == CEE_STSFLD);
-
                 CORINFO_CLASS_HANDLE fieldClsHnd; // class of the field (if it's a ref type)
 
                 assertImp(sz == sizeof(unsigned));
@@ -12995,7 +12900,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
 
                 CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_SET;
-                GenTree*             obj         = nullptr;
                 typeInfo             tiVal;
 
                 /* Pull the value from the stack */
@@ -13003,16 +12907,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op2           = se.val;
                 tiVal         = se.seTypeInfo;
                 clsHnd        = tiVal.GetClassHandle();
-
-                if (opcode == CEE_STFLD)
-                {
-                    obj = impPopStack().val;
-
-                    if (impIsThis(obj))
-                    {
-                        accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
-                    }
-                }
 
                 CORINFO_FIELD_INFO fieldInfo;
                 eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
@@ -13052,48 +12946,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                if (isStoreStatic && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0))
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0)
                 {
                     BADCODE("static access on an instance field");
                 }
 
-                // We are using stfld on a static field.
-                // We allow it, but need to eval any side-effects for obj
-                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) && obj != nullptr)
-                {
-                    if (obj->gtFlags & GTF_SIDE_EFFECT)
-                    {
-                        obj = gtUnusedValNode(obj);
-                        impAppendTree(obj, CHECK_SPILL_ALL, impCurStmtOffs);
-                    }
-                    obj = nullptr;
-                }
-
                 switch (fieldInfo.fieldAccessor)
                 {
-                    case CORINFO_FIELD_INSTANCE:
-#ifdef FEATURE_READYTORUN_COMPILER
-                    case CORINFO_FIELD_INSTANCE_WITH_BASE:
-#endif
-                    {
-                        obj = impCheckForNullPointer(obj);
-
-                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
-
-                        if (compIsForInlining() &&
-                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj))
-                        {
-                            impInlineInfo->thisDereferencedFirst = true;
-                        }
-
-                        op1 = gtNewFieldIndir(lclTyp, addr);
-                    }
-                    break;
-
-                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd);
-                        break;
-
                     case CORINFO_FIELD_STATIC_TLS:
                         op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
@@ -13117,7 +12976,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
                 }
 
-                if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp) && (obj == nullptr))
+                if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
                 {
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
