@@ -6216,12 +6216,6 @@ GenTree* Compiler::impImportLdSFld(OPCODE                    opcode,
     }
     else
     {
-        assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER));
-
         field = impImportStaticFieldAccess(opcode, resolvedToken, fieldInfo);
 
         if ((opcode == CEE_LDSFLD) && field->OperIsConst())
@@ -6354,12 +6348,6 @@ GenTree* Compiler::impImportStSFld(GenTree*                  value,
     }
     else
     {
-        assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
-               (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER));
-
         field = impImportStaticFieldAccess(CEE_STSFLD, resolvedToken, fieldInfo);
     }
 
