@@ -12718,8 +12718,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 clsHnd = impStackTop().seTypeInfo.GetClassHandle();
                 op2    = impPopStack().val;
 
-                accessFlags = CORINFO_ACCESS_SET;
-                eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
+                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
 
             STSFLD:
                 // Figure out the type of the member.  We always call canAccessField, so you always need this
@@ -12765,7 +12764,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 switch (fieldInfo.fieldAccessor)
                 {
                     case CORINFO_FIELD_STATIC_TLS:
-                        op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
+                        op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp);
                         break;
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
@@ -12773,7 +12772,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                        op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
+                        op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp);
                         break;
 
                     default:
