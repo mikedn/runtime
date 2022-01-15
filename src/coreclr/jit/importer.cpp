@@ -6385,7 +6385,7 @@ GenTree* Compiler::impConvertFieldStoreValue(var_types storeType, GenTree* value
     //
     // Note that this is limited to x86 alone as there is no back compat to be addressed for Arm JIT
     // for V4.0.
-    // 
+    //
     // In UWP6.0 and beyond (post-.NET Core 2.0), we decided to let this cast from int to long be
     // generated for ARM as well as x86, so the following IL will be accepted:
     //     ldc.i4 2
@@ -9432,7 +9432,7 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
             const int cchAssertImpBuf = 600;                                                                           \
             char*     assertImpBuf    = (char*)alloca(cchAssertImpBuf);                                                \
             _snprintf_s(assertImpBuf, cchAssertImpBuf, cchAssertImpBuf - 1,                                            \
-                        "%s : Possibly bad IL with CEE_%s at offset %04Xh (op1=%s value=%s stkDepth=%d)", #cond,         \
+                        "%s : Possibly bad IL with CEE_%s at offset %04Xh (op1=%s value=%s stkDepth=%d)", #cond,       \
                         impCurOpcName, impCurOpcOffs, op1 ? varTypeName(op1->TypeGet()) : "NULL",                      \
                         op2 ? varTypeName(op2->TypeGet()) : "NULL", verCurrentState.esStackDepth);                     \
             assertAbort(assertImpBuf, __FILE__, __LINE__);                                                             \
@@ -12223,48 +12223,40 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
+                accessFlags = (opcode == CEE_LDFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
+                eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
 
                 typeInfo tiObj = impStackTop().seTypeInfo;
                 GenTree* obj   = impPopStack().val;
 
-                accessFlags = (opcode == CEE_LDFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
-
-                eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
-
-                // We are using ldfld/a on a static field. We allow it, but need to get side-effect from obj.
+                // LDFLD(A) can be used with static fields. The address is ignored but side effects must be preserved.
                 if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0)
                 {
-                    if (obj->gtFlags & GTF_SIDE_EFFECT)
+                    if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
                     {
-                        obj = gtUnusedValNode(obj);
-                        impAppendTree(obj, CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL, impCurStmtOffs);
                     }
+
                     opcode = opcode == CEE_LDFLD ? CEE_LDSFLD : CEE_LDSFLDA;
                     goto LDSFLD;
                 }
 
                 assert((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) == 0);
 
-                lclTyp = JITtype2varType(fieldInfo.fieldType);
-
                 if (compIsForInlining())
                 {
                     switch (fieldInfo.fieldAccessor)
                     {
-                        case CORINFO_FIELD_INSTANCE_HELPER:
                         case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        case CORINFO_FIELD_STATIC_ADDR_HELPER:
-                        case CORINFO_FIELD_STATIC_TLS:
                             compInlineResult->NoteFatal(InlineObservation::CALLEE_LDFLD_NEEDS_HELPER);
                             return;
-
+                        case CORINFO_FIELD_INSTANCE_HELPER:
+                        case CORINFO_FIELD_STATIC_ADDR_HELPER:
+                        case CORINFO_FIELD_STATIC_TLS:
                         case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                         case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                            /* We may be able to inline the field accessors in specific instantiations of generic
-                             * methods */
-                            compInlineResult->NoteFatal(InlineObservation::CALLSITE_LDFLD_NEEDS_HELPER);
+                            compInlineResult->NoteFatal(InlineObservation::CALLEE_COMPILATION_ERROR);
                             return;
-
                         default:
                             break;
                     }
@@ -12272,51 +12264,46 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                switch (fieldInfo.fieldAccessor)
+                lclTyp = CorTypeToVarType(fieldInfo.fieldType);
+
+                if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER)
                 {
-                    case CORINFO_FIELD_INSTANCE:
-#ifdef FEATURE_READYTORUN_COMPILER
-                    case CORINFO_FIELD_INSTANCE_WITH_BASE:
-#endif
+                    op1 =
+                        impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp, fieldInfo.structType);
+                }
+                else
+                {
+                    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE) ||
+                           (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE));
+
+                    if (!varTypeGCtype(obj->GetType()) && tiObj.IsType(TI_STRUCT))
                     {
-                        if (!varTypeGCtype(obj->GetType()) && tiObj.IsType(TI_STRUCT))
+                        // If the object is a struct, what we really want is
+                        // for the field to operate on the address of the struct.
+
+                        assert((opcode == CEE_LDFLD) && (tiObj.GetClassHandle() != NO_CLASS_HANDLE));
+
+                        obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
+                    }
+
+                    obj = impCheckForNullPointer(obj);
+
+                    GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
+
+                    if (opcode == CEE_LDFLDA)
+                    {
+                        op1 = addr;
+                    }
+                    else
+                    {
+                        op1 = gtNewFieldIndir(lclTyp, addr);
+
+                        if (compIsForInlining() &&
+                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
                         {
-                            // If the object is a struct, what we really want is
-                            // for the field to operate on the address of the struct.
-
-                            assert((opcode == CEE_LDFLD) && (tiObj.GetClassHandle() != NO_CLASS_HANDLE));
-
-                            obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
-                        }
-
-                        obj = impCheckForNullPointer(obj);
-
-                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
-
-                        if (opcode == CEE_LDFLDA)
-                        {
-                            op1 = addr;
-                        }
-                        else
-                        {
-                            op1 = gtNewFieldIndir(lclTyp, addr);
-
-                            if (compIsForInlining() &&
-                                impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
-                            {
-                                impInlineInfo->thisDereferencedFirst = true;
-                            }
+                            impInlineInfo->thisDereferencedFirst = true;
                         }
                     }
-                    break;
-
-                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp,
-                                                   fieldInfo.structType);
-                        break;
-
-                    default:
-                        assert(!"Unexpected fieldAccessor");
                 }
 
                 if (opcode == CEE_LDFLD)
@@ -12332,12 +12319,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         op1->gtFlags |= GTF_IND_UNALIGNED;
                     }
-                }
 
-                if ((opcode == CEE_LDFLD) && (fieldInfo.structType != NO_CLASS_HANDLE))
-                {
-                    impPushOnStack(op1, impMakeTypeInfo(fieldInfo.fieldType, fieldInfo.structType));
-                    break;
+                    if (fieldInfo.structType != NO_CLASS_HANDLE)
+                    {
+                        impPushOnStack(op1, impMakeTypeInfo(fieldInfo.fieldType, fieldInfo.structType));
+                        break;
+                    }
                 }
 
                 impPushOnStack(op1, typeInfo());
@@ -12349,56 +12336,43 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
+                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
 
+                // TODO-MIKE-Review: This code uses both the value class handle and the field class handle,
+                // in would make more sense to use only the field class handle. In theory they should be
+                // identical but due to the A<Canon>/A<C> mess it might matter which one is used.
                 clsHnd       = impStackTop().seTypeInfo.GetClassHandle();
                 op2          = impPopStack().val;
                 GenTree* obj = impPopStack().val;
 
-                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
-
-                // We are using stfld on a static field.
-                // We allow it, but need to eval any side-effects for obj
+                // STFLD can be used with static fields. The address is ignored but side effects must be preserved.
                 if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0)
                 {
-                    if (obj->gtFlags & GTF_SIDE_EFFECT)
+                    if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
                     {
-                        obj = gtUnusedValNode(obj);
-                        impAppendTree(obj, CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL, impCurStmtOffs);
                     }
+
                     opcode = CEE_STSFLD;
                     goto STSFLD;
                 }
 
                 assert((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) == 0);
 
-                // Figure out the type of the member.  We always call canAccessField, so you always need this
-                // handle
-                CorInfoType          ciType      = fieldInfo.fieldType;
-                CORINFO_CLASS_HANDLE fieldClsHnd = fieldInfo.structType;
-
-                lclTyp = JITtype2varType(ciType);
-
                 if (compIsForInlining())
                 {
-                    /* Is this a 'special' (COM) field? or a TLS ref static field?, field stored int GC heap? or
-                     * per-inst static? */
-
                     switch (fieldInfo.fieldAccessor)
                     {
-                        case CORINFO_FIELD_INSTANCE_HELPER:
                         case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        case CORINFO_FIELD_STATIC_ADDR_HELPER:
-                        case CORINFO_FIELD_STATIC_TLS:
                             compInlineResult->NoteFatal(InlineObservation::CALLEE_STFLD_NEEDS_HELPER);
                             return;
-
+                        case CORINFO_FIELD_INSTANCE_HELPER:
+                        case CORINFO_FIELD_STATIC_ADDR_HELPER:
+                        case CORINFO_FIELD_STATIC_TLS:
                         case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                         case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                            /* We may be able to inline the field accessors in specific instantiations of generic
-                             * methods */
-                            compInlineResult->NoteFatal(InlineObservation::CALLSITE_STFLD_NEEDS_HELPER);
+                            compInlineResult->NoteFatal(InlineObservation::CALLEE_COMPILATION_ERROR);
                             return;
-
                         default:
                             break;
                     }
@@ -12406,34 +12380,34 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                switch (fieldInfo.fieldAccessor)
+                lclTyp = JITtype2varType(fieldInfo.fieldType);
+
+                if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER)
                 {
-                    case CORINFO_FIELD_INSTANCE:
-#ifdef FEATURE_READYTORUN_COMPILER
-                    case CORINFO_FIELD_INSTANCE_WITH_BASE:
-#endif
-                    {
-                        obj = impCheckForNullPointer(obj);
-
-                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
-
-                        if (compIsForInlining() &&
-                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj))
-                        {
-                            impInlineInfo->thisDereferencedFirst = true;
-                        }
-
-                        op1 = gtNewFieldIndir(lclTyp, addr);
-                    }
-                    break;
-
-                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp, clsHnd);
-                        break;
-
-                    default:
-                        assert(!"Unexpected fieldAccessor");
+                    op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp, clsHnd);
                 }
+                else
+                {
+                    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE) ||
+                           (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE));
+
+                    obj = impCheckForNullPointer(obj);
+
+                    GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
+
+                    if (compIsForInlining() && impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj))
+                    {
+                        impInlineInfo->thisDereferencedFirst = true;
+                    }
+
+                    op1 = gtNewFieldIndir(lclTyp, addr);
+                }
+
+                // We have to spill GLOB_REFs for heap field stores since such fields may be
+                // accessed via byrefs. We don't need to spill when the field belongs to an
+                // unaliased local but in the importer aliased = "address taken" and stfld on
+                // a local field implies "address taken". So we spill GLOB_REFs for all locals too.
+                impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("STFLD stack spill temp"));
 
                 assert((lclTyp == TYP_STRUCT) ? op1->OperIs(GT_OBJ) : op1->OperIs(GT_IND));
 
@@ -12447,23 +12421,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
-                if (lclTyp != TYP_STRUCT)
-                {
-                    op1 = gtNewAssignNode(op1, impConvertFieldStoreValue(op1->GetType(), op2));
-                }
-
-                // We have to spill GLOB_REFs for heap field stores since such fields may be
-                // accessed via byrefs. We don't need to spill when the field belongs to an
-                // unaliased local but in the importer aliased = "address taken" and stfld on
-                // a local field implies "address taken". So we spill GLOB_REFs for all locals too.
-                impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("STFLD stack spill temp"));
-
                 if (lclTyp == TYP_STRUCT)
                 {
                     // TODO-1stClassStructs: Avoid creating an address if it is not needed,
                     // or re-creating an indir node if it is.
                     op1 = op1->AsIndir()->GetAddr();
                     op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_NONE);
+                }
+                else
+                {
+                    op1 = gtNewAssignNode(op1, impConvertFieldStoreValue(op1->GetType(), op2));
                 }
 
                 impSpillNoneAppendTree(op1);
@@ -12476,10 +12443,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
-
                 accessFlags = (opcode == CEE_LDSFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
-
                 eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
+
+                // Raise InvalidProgramException if static load accesses non-static field
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0)
+                {
+                    BADCODE("static access on an instance field");
+                }
 
             LDSFLD:
                 lclTyp = JITtype2varType(fieldInfo.fieldType);
@@ -12488,20 +12459,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     switch (fieldInfo.fieldAccessor)
                     {
-                        case CORINFO_FIELD_INSTANCE_HELPER:
-                        case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_TLS:
                             compInlineResult->NoteFatal(InlineObservation::CALLEE_LDFLD_NEEDS_HELPER);
                             return;
-
                         case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                         case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                            /* We may be able to inline the field accessors in specific instantiations of generic
-                             * methods */
+                            // We may be able to inline the field accessors in specific instantiations of generic
+                            // methods
                             compInlineResult->NoteFatal(InlineObservation::CALLSITE_LDFLD_NEEDS_HELPER);
                             return;
-
                         default:
                             break;
                     }
@@ -12512,6 +12479,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                              CORINFO_TYPE_UNDEF) &&
                             ((info.compFlags & CORINFO_FLG_FORCEINLINE) == 0))
                         {
+                            // TODO-MIKE-Review: This is suspect. Struct static fields don't always need
+                            // a helper call and non-struct static fields may need helper calls too.
                             // Loading a static valuetype field usually will cause a JitHelper to be called
                             // for the static base. This will bloat the code.
                             compInlineResult->Note(InlineObservation::CALLEE_LDFLD_STATIC_VALUECLASS);
@@ -12526,12 +12495,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                // Raise InvalidProgramException if static load accesses non-static field
-                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0)
-                {
-                    BADCODE("static access on an instance field");
-                }
-
                 switch (fieldInfo.fieldAccessor)
                 {
                     case CORINFO_FIELD_STATIC_TLS:
@@ -12544,30 +12507,28 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
                         op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
-                        if (((accessFlags & CORINFO_ACCESS_GET) != 0) && op1->OperIsConst())
+                        if ((opcode == CEE_LDSFLD) && op1->OperIsConst())
                         {
                             goto SFIELD_DONE;
                         }
                         break;
 
                     case CORINFO_FIELD_INTRINSIC_ZERO:
-                        assert(accessFlags & CORINFO_ACCESS_GET);
+                        assert(opcode == CEE_LDSFLD);
                         op1 = gtNewIconNode(0, varActualType(lclTyp));
                         goto SFIELD_DONE;
-                        break;
 
                     case CORINFO_FIELD_INTRINSIC_EMPTY_STRING:
-                    {
-                        assert(accessFlags & CORINFO_ACCESS_GET);
-
-                        void*          pValue;
-                        InfoAccessType iat = info.compCompHnd->emptyStringLiteral(&pValue);
-                        op1                = gtNewStringLiteralNode(iat, pValue);
+                        assert(opcode == CEE_LDSFLD);
+                        {
+                            void*          pValue;
+                            InfoAccessType iat = info.compCompHnd->emptyStringLiteral(&pValue);
+                            op1                = gtNewStringLiteralNode(iat, pValue);
+                        }
                         goto SFIELD_DONE;
-                    }
 
                     case CORINFO_FIELD_INTRINSIC_ISLITTLEENDIAN:
-                        assert(accessFlags & CORINFO_ACCESS_GET);
+                        assert(opcode == CEE_LDSFLD);
 #if BIGENDIAN
                         op1 = gtNewIconNode(0, varActualType(lclTyp));
 #else
@@ -12682,41 +12643,31 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
+                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
+
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0)
+                {
+                    BADCODE("static access on an instance field");
+                }
 
                 clsHnd = impStackTop().seTypeInfo.GetClassHandle();
                 op2    = impPopStack().val;
 
-                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
-
             STSFLD:
-                // Figure out the type of the member.  We always call canAccessField, so you always need this
-                // handle
-                CorInfoType          ciType      = fieldInfo.fieldType;
-                CORINFO_CLASS_HANDLE fieldClsHnd = fieldInfo.structType;
-
-                lclTyp = JITtype2varType(ciType);
-
                 if (compIsForInlining())
                 {
-                    /* Is this a 'special' (COM) field? or a TLS ref static field?, field stored int GC heap? or
-                     * per-inst static? */
-
                     switch (fieldInfo.fieldAccessor)
                     {
-                        case CORINFO_FIELD_INSTANCE_HELPER:
-                        case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_TLS:
                             compInlineResult->NoteFatal(InlineObservation::CALLEE_STFLD_NEEDS_HELPER);
                             return;
-
                         case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                         case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                            /* We may be able to inline the field accessors in specific instantiations of generic
-                             * methods */
+                            // We may be able to inline the field accessors in specific instantiations of generic
+                            // methods.
                             compInlineResult->NoteFatal(InlineObservation::CALLSITE_STFLD_NEEDS_HELPER);
                             return;
-
                         default:
                             break;
                     }
@@ -12724,27 +12675,21 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0)
+                lclTyp = JITtype2varType(fieldInfo.fieldType);
+
+                if (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_TLS)
                 {
-                    BADCODE("static access on an instance field");
+                    op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp);
                 }
-
-                switch (fieldInfo.fieldAccessor)
+                else
                 {
-                    case CORINFO_FIELD_STATIC_TLS:
-                        op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp);
-                        break;
+                    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
+                           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS) ||
+                           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
+                           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
+                           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER));
 
-                    case CORINFO_FIELD_STATIC_ADDRESS:
-                    case CORINFO_FIELD_STATIC_RVA_ADDRESS:
-                    case CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER:
-                    case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
-                    case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                        op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp);
-                        break;
-
-                    default:
-                        assert(!"Unexpected fieldAccessor");
+                    op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, CORINFO_ACCESS_SET, lclTyp);
                 }
 
                 assert((lclTyp == TYP_STRUCT) ? op1->OperIs(GT_OBJ) : op1->OperIs(GT_IND));
@@ -12752,11 +12697,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
                     op1->gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
-                }
-
-                if (lclTyp != TYP_STRUCT)
-                {
-                    op1 = gtNewAssignNode(op1, impConvertFieldStoreValue(op1->GetType(), op2));
                 }
 
                 GenTree* helperNode = nullptr;
@@ -12793,6 +12733,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
+                    op1 = gtNewAssignNode(op1, impConvertFieldStoreValue(op1->GetType(), op2));
+
                     if (helperNode != nullptr)
                     {
                         op1 = gtNewCommaNode(helperNode, op1);
