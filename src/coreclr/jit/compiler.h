@@ -2958,8 +2958,7 @@ protected:
 
     GenTree* impImportStaticFieldAccess(OPCODE                    opcode,
                                         CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                        const CORINFO_FIELD_INFO& fieldInfo,
-                                        var_types                 type);
+                                        const CORINFO_FIELD_INFO& fieldInfo);
 
     GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
 
@@ -3474,8 +3473,7 @@ private:
 
     GenTree* impImportTlsFieldAccess(OPCODE                    opcode,
                                      CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                     const CORINFO_FIELD_INFO& fieldInfo,
-                                     var_types                 type);
+                                     const CORINFO_FIELD_INFO& fieldInfo);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
