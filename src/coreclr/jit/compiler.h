@@ -2951,6 +2951,8 @@ protected:
                                         CORINFO_ACCESS_FLAGS      accessFlags,
                                         var_types                 type);
 
+    GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
+
     static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 = nullptr);
 
     GenTree* impImplicitIorI4Cast(GenTree* tree, var_types dstTyp);
