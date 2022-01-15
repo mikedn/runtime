@@ -410,6 +410,17 @@ private:
             return m_compiler->gtNewObjNode(layout, dst);
         }
 
+        if (GenTreeIndir* indir = dst->IsIndir())
+        {
+            assert(indir->OperIs(GT_IND, GT_OBJ));
+
+            indir->SetOper(GT_OBJ);
+            indir->SetType(m_compiler->typGetStructType(layout));
+            indir->AsObj()->SetLayout(layout);
+
+            return indir;
+        }
+
         GenTree* dstAddr = GetStructAddress(dst);
 
         if (dstAddr->OperIs(GT_LCL_VAR_ADDR))
@@ -2416,7 +2427,20 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                         field = nextField;
                     }
 
-                    if (fgAddrCouldBeNull(field->GetAddr()))
+                    bool addrMayBeNull = !field->GetFieldSeq()->IsBoxedValueField();
+                    addrMayBeNull      = addrMayBeNull && fgAddrCouldBeNull(field->GetAddr());
+
+                    if (addrMayBeNull)
+                    {
+                        FieldSeqNode* lastField = field->GetFieldSeq();
+
+                        if (lastField->IsField() && info.compCompHnd->isFieldStatic(lastField->GetFieldHandle()))
+                        {
+                            addrMayBeNull = false;
+                        }
+                    }
+
+                    if (addrMayBeNull)
                     {
                         gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
                         argNode = field;
@@ -2509,20 +2533,18 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
     }
     else if (argNode->OperIs(GT_IND))
     {
-        // Look for IND(ADD(CALL special DCE helper, CNS_INT)) (prejit case)
+        // Look for IND(FIELD_ADDR(CALL special DCE helper)) (prejit case)
 
         GenTree* addr = argNode->AsIndir()->GetAddr();
 
-        if (addr->OperIs(GT_ADD))
+        if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
         {
-            GenTree* op1 = addr->AsOp()->GetOp(0);
-            GenTree* op2 = addr->AsOp()->GetOp(1);
+            addr = fieldAddr->GetAddr();
 
-            if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-                op2->IsIntCon())
+            if (addr->IsCall() && ((addr->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0))
             {
                 JITDUMP("\nPerforming special DCE on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
-                        op1->GetID());
+                        addr->GetID());
 
                 return true;
             }

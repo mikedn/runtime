@@ -1152,10 +1152,16 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
             dest = gtNewOperNode(GT_IND, srcType, destAddr);
         }
 
-        if (destAddr->IsFieldAddr() && destAddr->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
+        if (GenTreeFieldAddr* fieldAddr = destAddr->IsFieldAddr())
         {
-            dest->gtFlags |= GTF_IND_NONFAULTING;
-            dest->gtFlags &= ~GTF_EXCEPT;
+            FieldSeqNode* fieldSeq = fieldAddr->GetFieldSeq();
+
+            if (fieldSeq->IsBoxedValueField() ||
+                (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle())))
+            {
+                dest->gtFlags |= GTF_IND_NONFAULTING;
+                dest->gtFlags &= ~GTF_EXCEPT;
+            }
         }
     }
     else if (dest->OperIs(GT_LCL_VAR))
@@ -6124,7 +6130,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(OPCODE                    o
     }
 
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
-    addr                   = gtNewOperNode(GT_ADD, addr->GetType(), addr, gtNewIconNode(fieldInfo.offset, fieldSeq));
+    addr = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr->GetType(), addr, fieldSeq, fieldInfo.offset);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {

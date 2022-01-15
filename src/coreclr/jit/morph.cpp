@@ -4975,6 +4975,17 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
     // side effect from the IND node.
     addrMayBeNull = addrMayBeNull && fgAddrCouldBeNull(addr);
 
+    // Static field addresses are never null.
+    if (addrMayBeNull)
+    {
+        FieldSeqNode* lastField = field->GetFieldSeq();
+
+        if (lastField->IsField() && info.compCompHnd->isFieldStatic(lastField->GetFieldHandle()))
+        {
+            addrMayBeNull = false;
+        }
+    }
+
     INDEBUG(GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();)
     assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
 
