@@ -3665,18 +3665,18 @@ struct GenTreeBox : public GenTreeUnOp
 
 struct GenTreeFieldAddr : public GenTreeUnOp
 {
-    CORINFO_FIELD_HANDLE m_handle;
-    unsigned             m_offset;
-    bool                 m_mayOverlap;
-    uint16_t             m_layoutNum;
+    FieldSeqNode* m_fieldSeq;
+    unsigned      m_offset;
+    bool          m_mayOverlap;
+    uint16_t      m_layoutNum;
 #ifdef FEATURE_READYTORUN_COMPILER
     void* m_r2rFieldLookupAddr;
 #endif
 
 public:
-    GenTreeFieldAddr(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
+    GenTreeFieldAddr(var_types type, GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
         : GenTreeUnOp(GT_FIELD_ADDR, type, addr)
-        , m_handle(handle)
+        , m_fieldSeq(fieldSeq)
         , m_offset(offset)
         , m_mayOverlap(false)
         , m_layoutNum(0)
@@ -3685,13 +3685,13 @@ public:
 #endif
     {
         assert(varTypeIsI(addr->GetType()));
-        assert(handle != nullptr);
+        assert(fieldSeq != nullptr);
         gtFlags |= addr->GetSideEffects();
     }
 
     GenTreeFieldAddr(const GenTreeFieldAddr* copyFrom)
         : GenTreeUnOp(GT_FIELD_ADDR, copyFrom->GetType(), copyFrom->GetAddr())
-        , m_handle(copyFrom->m_handle)
+        , m_fieldSeq(copyFrom->m_fieldSeq)
         , m_offset(copyFrom->m_offset)
         , m_mayOverlap(copyFrom->m_mayOverlap)
         , m_layoutNum(copyFrom->m_layoutNum)
@@ -3712,14 +3712,20 @@ public:
         gtOp1 = addr;
     }
 
-    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    FieldSeqNode* GetFieldSeq() const
     {
-        return m_handle;
+        return m_fieldSeq;
     }
 
     unsigned GetOffset() const
     {
         return m_offset;
+    }
+
+    void SetOffset(unsigned offset, FieldSeqNode* fieldSeq)
+    {
+        m_offset   = offset;
+        m_fieldSeq = fieldSeq;
     }
 
     bool MayOverlap() const

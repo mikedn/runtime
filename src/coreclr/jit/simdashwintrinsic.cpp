@@ -2861,7 +2861,7 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
         {
             if (v1->OperIs(GT_FIELD_ADDR))
             {
-                if (v1->AsFieldAddr()->GetFieldHandle() == v2->AsFieldAddr()->GetFieldHandle())
+                if (v1->AsFieldAddr()->GetOffset() == v2->AsFieldAddr()->GetOffset())
                 {
                     v1 = v1->AsFieldAddr()->GetAddr();
                     v2 = v2->AsFieldAddr()->GetAddr();

@@ -76,8 +76,6 @@ namespace ILCompiler.PEWriter
 
         public void SaveProfile(string profileFileName)
         {
-            Console.WriteLine("Emitting profile file: {0}", profileFileName);
-
             CalculateCallInfo();
             using (StreamWriter writer = new StreamWriter(profileFileName))
             {

@@ -2767,11 +2767,6 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 
         CORINFO_ACCESS_FLAGS aflags = CORINFO_ACCESS_ANY;
 
-        if (call->IsSameThis())
-        {
-            aflags = (CORINFO_ACCESS_FLAGS)(aflags | CORINFO_ACCESS_THIS);
-        }
-
         if (!call->NeedsNullCheck())
         {
             aflags = (CORINFO_ACCESS_FLAGS)(aflags | CORINFO_ACCESS_NONNULL);

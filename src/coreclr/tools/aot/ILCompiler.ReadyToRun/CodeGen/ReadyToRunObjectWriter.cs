@@ -457,7 +457,6 @@ namespace ILCompiler.DependencyAnalysis
             CallChainProfile callChainProfile,
             int customPESectionAlignment)
         {
-            Console.WriteLine($@"Emitting R2R PE file: {objectFilePath}");
             ReadyToRunObjectWriter objectWriter = new ReadyToRunObjectWriter(
                 objectFilePath,
                 componentModule,

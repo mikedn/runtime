@@ -339,9 +339,11 @@ public:
 
             // If we created a self-assignment (say because we are sharing return spill temps)
             // we can remove it.
-            lhs = tree->AsOp()->GetOp(0);
+            GenTree* dst = tree->AsOp()->GetOp(0);
+            GenTree* src = tree->AsOp()->GetOp(1);
 
-            if (lhs->OperIs(GT_LCL_VAR) && GenTree::Compare(lhs, tree->AsOp()->GetOp(1)))
+            if (dst->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
+                (dst->AsLclVar()->GetLclNum() == src->AsLclVar()->GetLclNum()))
             {
                 m_compiler->gtUpdateNodeSideEffects(tree);
                 assert((tree->gtFlags & GTF_SIDE_EFFECT) == GTF_ASG);
@@ -406,6 +408,17 @@ private:
             dst->SetOper(GT_LCL_VAR_ADDR);
             dst->SetType(TYP_I_IMPL);
             return m_compiler->gtNewObjNode(layout, dst);
+        }
+
+        if (GenTreeIndir* indir = dst->IsIndir())
+        {
+            assert(indir->OperIs(GT_IND, GT_OBJ));
+
+            indir->SetOper(GT_OBJ);
+            indir->SetType(m_compiler->typGetStructType(layout));
+            indir->AsObj()->SetLayout(layout);
+
+            return indir;
         }
 
         GenTree* dstAddr = GetStructAddress(dst);
@@ -2414,7 +2427,20 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                         field = nextField;
                     }
 
-                    if (fgAddrCouldBeNull(field->GetAddr()))
+                    bool addrMayBeNull = !field->GetFieldSeq()->IsBoxedValueField();
+                    addrMayBeNull      = addrMayBeNull && fgAddrCouldBeNull(field->GetAddr());
+
+                    if (addrMayBeNull)
+                    {
+                        FieldSeqNode* lastField = field->GetFieldSeq();
+
+                        if (lastField->IsField() && info.compCompHnd->isFieldStatic(lastField->GetFieldHandle()))
+                        {
+                            addrMayBeNull = false;
+                        }
+                    }
+
+                    if (addrMayBeNull)
                     {
                         gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
                         argNode = field;
@@ -2507,20 +2533,18 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
     }
     else if (argNode->OperIs(GT_IND))
     {
-        // Look for IND(ADD(CALL special DCE helper, CNS_INT)) (prejit case)
+        // Look for IND(FIELD_ADDR(CALL special DCE helper)) (prejit case)
 
         GenTree* addr = argNode->AsIndir()->GetAddr();
 
-        if (addr->OperIs(GT_ADD))
+        if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
         {
-            GenTree* op1 = addr->AsOp()->GetOp(0);
-            GenTree* op2 = addr->AsOp()->GetOp(1);
+            addr = fieldAddr->GetAddr();
 
-            if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-                op2->IsIntCon())
+            if (addr->IsCall() && ((addr->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0))
             {
                 JITDUMP("\nPerforming special DCE on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
-                        op1->GetID());
+                        addr->GetID());
 
                 return true;
             }

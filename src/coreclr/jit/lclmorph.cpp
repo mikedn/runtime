@@ -286,7 +286,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
                 }
                 else
                 {
-                    m_fieldSeq = fieldSeqStore->Append(val.m_fieldSeq, field->GetFieldHandle());
+                    m_fieldSeq = fieldSeqStore->Append(val.m_fieldSeq, field->GetFieldSeq());
                 }
             }
 

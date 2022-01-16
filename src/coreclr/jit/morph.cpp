@@ -4936,8 +4936,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
     GenTree*          addr          = field->GetAddr();
     target_size_t     offset        = field->GetOffset();
     FieldSeqStore*    fieldSeqStore = GetFieldSeqStore();
-    FieldSeqNode*     fieldSeq =
-        field->MayOverlap() ? FieldSeqNode::NotAField() : fieldSeqStore->CreateSingleton(field->GetFieldHandle());
+    FieldSeqNode*     fieldSeq      = field->MayOverlap() ? FieldSeqNode::NotAField() : field->GetFieldSeq();
 
     while (GenTreeFieldAddr* nextField = addr->IsFieldAddr())
     {
@@ -4951,7 +4950,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         }
         else
         {
-            fieldSeq = fieldSeqStore->Append(fieldSeqStore->CreateSingleton(field->GetFieldHandle()), fieldSeq);
+            fieldSeq = fieldSeqStore->Append(field->GetFieldSeq(), fieldSeq);
         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -4965,33 +4964,8 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 #endif
     }
 
-    bool addrMayBeNull = true;
-
-    // The address can be ADD(ref, boxed value offset) for static struct fields.
-    // TODO-MIKE-Review: There should be no other case where we get an ADD with
-    // a field sequence from the importer so perhaps we should change the field
-    // sequence to NotAField if we see any other kind of ADD here?
-    if (addr->OperIs(GT_ADD))
-    {
-        GenTree* op1 = addr->AsOp()->GetOp(0);
-        GenTree* op2 = addr->AsOp()->GetOp(1);
-
-        if (op1->IsIntCon())
-        {
-            std::swap(op1, op2);
-        }
-
-        if (GenTreeIntCon* intCon = op2->IsIntCon())
-        {
-            if ((intCon->GetFieldSeq() != nullptr) && intCon->GetFieldSeq()->IsBoxedValueField())
-            {
-                addr = op1;
-                offset += static_cast<target_size_t>(intCon->GetUnsignedValue());
-                fieldSeq      = fieldSeqStore->Append(intCon->GetFieldSeq(), fieldSeq);
-                addrMayBeNull = false;
-            }
-        }
-    }
+    // Static struct fields are boxed and never null.
+    bool addrMayBeNull = !field->GetFieldSeq()->IsBoxedValueField();
 
     // Note that using fgAddrCouldBeNull with field addresses is a bit of a chicken & egg
     // case due to it returning false for ADDR(FIELD). But then ADDR(FIELD) is guaranteed
@@ -5000,6 +4974,17 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
     // addr being non null both to elide the explicit null check and remove the exception
     // side effect from the IND node.
     addrMayBeNull = addrMayBeNull && fgAddrCouldBeNull(addr);
+
+    // Static field addresses are never null.
+    if (addrMayBeNull)
+    {
+        FieldSeqNode* lastField = field->GetFieldSeq();
+
+        if (lastField->IsField() && info.compCompHnd->isFieldStatic(lastField->GetFieldHandle()))
+        {
+            addrMayBeNull = false;
+        }
+    }
 
     INDEBUG(GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();)
     assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
@@ -5083,9 +5068,6 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         GenTree* r2rOffset =
             gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(field->GetR2RFieldLookupAddr()),
                                      GTF_ICON_CONST_PTR, true);
-
-        INDEBUG(r2rOffset->AsIndir()->GetAddr()->AsIntCon()->gtTargetHandle =
-                    reinterpret_cast<size_t>(field->GetFieldHandle());)
 
         addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, r2rOffset);
     }
