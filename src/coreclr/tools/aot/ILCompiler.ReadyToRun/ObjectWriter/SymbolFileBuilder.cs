@@ -24,8 +24,6 @@ namespace ILCompiler.PEWriter
 
         public void SavePdb(string pdbPath, string dllFileName)
         {
-            Console.WriteLine("Emitting PDB file: {0}", Path.Combine(pdbPath, Path.GetFileNameWithoutExtension(dllFileName) + ".ni.pdb"));
-
             new PdbWriter(pdbPath, PDBExtraData.None).WritePDBData(dllFileName, _outputInfoBuilder.EnumerateMethods());
         }
 
@@ -55,7 +53,6 @@ namespace ILCompiler.PEWriter
             }
 
             string perfMapFileName = Path.Combine(perfMapPath, Path.GetFileNameWithoutExtension(dllFileName) + perfMapExtension);
-            Console.WriteLine("Emitting PerfMap file: {0}", perfMapFileName);
             PerfMapWriter.Write(perfMapFileName, perfMapFormatVersion, _outputInfoBuilder.EnumerateMethods(), _outputInfoBuilder.EnumerateInputAssemblies(), targetOS, targetArch);
         }
     }

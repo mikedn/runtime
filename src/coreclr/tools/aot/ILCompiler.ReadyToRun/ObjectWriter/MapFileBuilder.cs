@@ -70,8 +70,6 @@ namespace ILCompiler.PEWriter
 
         public void SaveMap(string mapFileName)
         {
-            Console.WriteLine("Emitting map file: {0}", mapFileName);
-
             _outputInfoBuilder.Sort();
 
             using (StreamWriter mapWriter = new StreamWriter(mapFileName))
@@ -86,8 +84,6 @@ namespace ILCompiler.PEWriter
 
         public void SaveCsv(string nodeStatsCsvFileName, string mapCsvFileName)
         {
-            Console.WriteLine("Emitting csv files: {0}, {1}", nodeStatsCsvFileName, mapCsvFileName);
-
             _outputInfoBuilder.Sort();
 
             using (StreamWriter nodeStatsWriter = new StreamWriter(nodeStatsCsvFileName))
