@@ -6495,11 +6495,11 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
     GenTree*      addr     = nullptr;
 
-    if ((opcode == CEE_LDSFLDA)
 #ifdef TARGET_64BIT
-        || (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32) || isStaticReadOnlyInited
+    if ((opcode == CEE_LDSFLDA) || (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32) || isStaticReadOnlyInited)
+#else
+    if (opcode == CEE_LDSFLDA)
 #endif
-        )
     {
         addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
 
