@@ -6510,8 +6510,6 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
         }
 #endif
 
-        INDEBUG(addr->AsIntCon()->gtTargetHandle = addr->AsIntCon()->GetValue();)
-
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {
             addr->gtFlags |= GTF_ICON_INITCLASS;

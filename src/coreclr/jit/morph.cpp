@@ -5058,9 +5058,6 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
             gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(field->GetR2RFieldLookupAddr()),
                                      GTF_ICON_CONST_PTR, true);
 
-        INDEBUG(r2rOffset->AsIndir()->GetAddr()->AsIntCon()->gtTargetHandle =
-                    reinterpret_cast<size_t>(field->GetFieldSeq()->GetFieldHandle());)
-
         addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, r2rOffset);
     }
 #endif
