@@ -8511,6 +8511,7 @@ public:
     GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg);
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
+    GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
 #endif
 #ifndef TARGET_X86
     unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);

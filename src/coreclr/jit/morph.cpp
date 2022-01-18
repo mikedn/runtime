@@ -3825,6 +3825,11 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         return abiMorphMultiRegObjArg(argInfo, arg->AsObj());
     }
 
+    if (arg->OperIs(GT_CALL) && arg->TypeIs(TYP_STRUCT))
+    {
+        return abiMorphMultiRegCallArg(argInfo, arg->AsCall());
+    }
+
 #ifdef FEATURE_SIMD
     // If it's neither a local nor OBJ then it must be an arbitrary SIMD tree.
     return abiMorphMultiRegSimdArg(argInfo, arg);
@@ -4366,6 +4371,23 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
     return indir;
 #endif
+}
+
+GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
+{
+    unsigned   lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call return temp"));
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    GenTree* dst = gtNewLclvNode(lclNum, lcl->GetType());
+    GenTree* asg = gtNewAssignNode(dst, arg);
+
+    GenTreeFieldList* fieldList = abiMorphMultiRegLclArg(argInfo, gtNewLclvNode(lclNum, lcl->GetType()))->AsFieldList();
+
+    GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
+    firstUse->SetNode(gtNewCommaNode(asg, firstUse->GetNode()));
+    fieldList->AddSideEffects(asg->GetSideEffects());
+
+    return fieldList;
 }
 
 #endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
