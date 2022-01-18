@@ -7391,46 +7391,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         }
 
         assert(!call->CanTailCall());
-
-#if FEATURE_MULTIREG_RET
-        if (fgGlobalMorph && call->HasMultiRegRetVal() && varTypeIsStruct(call->TypeGet()))
-        {
-            // The tail call has been rejected so we must finish the work deferred
-            // by impCanonicalizeMultiRegCall for multi-reg-returning calls and transform
-            //     ret call
-            // into
-            //     temp = call
-            //     ret temp
-
-            // Force re-evaluating the argInfo as the return argument has changed.
-            call->ResetArgInfo();
-
-            unsigned tmpNum =
-                lvaNewTemp(call->GetRetLayout(), false DEBUGARG("multireg return call temp (rejected tail call)"));
-
-            GenTree* dst = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
-            GenTree* asg = fgMorphTree(gtNewAssignNode(dst, call));
-
-            Statement* asgStmt = gtNewStmt(asg, compCurStmt->GetILOffsetX());
-            fgInsertStmtBefore(compCurBB, compCurStmt, asgStmt);
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nInserting assignment of a multi-reg call result to a temp:\n");
-                gtDispStmt(asgStmt);
-            }
-#endif
-
-            compCurBB->bbFlags |= BBF_HAS_CALL;
-
-            GenTree* result = gtNewLclvNode(tmpNum, dst->GetType());
-            result->gtFlags |= GTF_DONT_CSE;
-            INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-            return result;
-        }
-#endif
     }
 
     if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0 &&
