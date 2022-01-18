@@ -8105,28 +8105,9 @@ DONE_INTRINSIC:
             const bool isInlineCandidate                  = origCall->IsInlineCandidate();
             const bool isGuardedDevirtualizationCandidate = origCall->IsGuardedDevirtualizationCandidate();
 
-            if (varTypeIsStruct(origCall->GetType()))
-            {
-#if FEATURE_MULTIREG_RET
-                if ((origCall->GetRegCount() > 1) && !origCall->CanTailCall() && !isInlineCandidate)
-                {
-                    call = impCanonicalizeMultiRegCall(origCall);
-                }
-#endif
-            }
-
             // TODO: consider handling fatcalli cases this way too...?
             if (isInlineCandidate || isGuardedDevirtualizationCandidate)
             {
-                // We should not have made any adjustments in impCanonicalizeMultiRegCall
-                // as we defer those until we know the fate of the call.
-
-                // TODO-MIKE-Review: This seems broken. impCanonicalizeMultiRegCall is not
-                // called for inline candidates but it is called for guarded devirtualization
-                // candidates.
-
-                noway_assert(call == origCall);
-
                 assert(opts.OptEnabled(CLFLG_INLINING));
                 assert(!isFatPointerCandidate); // We should not try to inline calli.
 
@@ -8152,12 +8133,9 @@ DONE_INTRINSIC:
                     assert(!bIntrinsicImported);
                     assert(IsTargetAbi(CORINFO_CORERT_ABI));
 
-                    if (call == origCall) // can be already converted by impCanonicalizeMultiRegCall.
-                    {
-                        unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
-                        impAppendTempAssign(calliTempLclNum, call, origCall->GetRetLayout(), CHECK_SPILL_NONE);
-                        call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
-                    }
+                    unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
+                    impAppendTempAssign(calliTempLclNum, call, origCall->GetRetLayout(), CHECK_SPILL_NONE);
+                    call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
                 }
 
                 // For non-candidates we must also spill, since we
@@ -8269,28 +8247,6 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
 }
 
 #if FEATURE_MULTIREG_RET
-
-GenTree* Compiler::impCanonicalizeMultiRegCall(GenTreeCall* call)
-{
-    // Multireg return calls have limited support in IR - basically they can only
-    // be assigned to locals or "returned" if they're tail calls.
-    // For inline candidate calls this transform is deferred to the inliner.
-
-    assert(varTypeIsStruct(call->GetType()));
-    assert((call->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate());
-
-    unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
-    // Make sure that this local doesn't get promoted.
-    lvaGetDesc(tempLclNum)->lvIsMultiRegRet = true;
-
-    impAppendTempAssign(tempLclNum, call, call->GetRetLayout(), CHECK_SPILL_ALL);
-
-    GenTree* temp = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
-    // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-    temp->gtFlags |= GTF_DONT_CSE;
-
-    return temp;
-}
 
 GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass)
 {

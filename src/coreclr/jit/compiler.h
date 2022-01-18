@@ -2922,7 +2922,6 @@ protected:
 
     void impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
 #if FEATURE_MULTIREG_RET
-    GenTree* impCanonicalizeMultiRegCall(GenTreeCall* call);
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 #endif
     GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
