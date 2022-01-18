@@ -156,11 +156,10 @@ private:
     void LowerStoreLclFld(GenTreeLclFld* store);
     void LowerRetStruct(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
-    void LowerCallStruct(GenTreeCall* call);
-    void LowerStoreSingleRegCallStruct(GenTreeObj* store);
-#if !defined(WINDOWS_AMD64_ABI)
-    GenTreeLclVar* SpillStructCallResult(GenTreeCall* call);
-#endif // WINDOWS_AMD64_ABI
+    void LowerStructCall(GenTreeCall* call);
+#ifndef WINDOWS_AMD64_ABI
+    GenTreeLclVar* SpillStructCall(GenTreeCall* call, GenTree* user);
+#endif
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerIndirectNonvirtCall(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
@@ -303,10 +302,9 @@ private:
     }
 #endif // defined(TARGET_XARCH)
 
-    // Per tree node member functions
-    void LowerStoreIndirCommon(GenTreeStoreInd* ind);
     void LowerIndir(GenTreeIndir* ind);
     void LowerStoreIndir(GenTreeStoreInd* store);
+    void LowerStoreIndirArch(GenTreeStoreInd* store);
     GenTree* LowerAdd(GenTreeOp* node);
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);

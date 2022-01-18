@@ -85,7 +85,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
+void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 {
     // Mark all GT_STOREIND nodes to indicate that it is not known
     // whether it represents a RMW memory op.

@@ -116,7 +116,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_STOREIND:
-            LowerStoreIndirCommon(node->AsStoreInd());
+            LowerStoreIndir(node->AsStoreInd());
             break;
 
 #ifdef TARGET_ARM64
@@ -280,12 +280,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_STORE_OBJ:
-            if (node->AsObj()->GetValue()->IsCall())
-            {
-                LowerStoreSingleRegCallStruct(node->AsObj());
-                break;
-            }
-
             LowerStoreObj(node->AsObj());
             break;
 
@@ -1396,7 +1390,7 @@ void Lowering::LowerCall(GenTree* node)
 
     if (varTypeIsStruct(call->GetType()))
     {
-        LowerCallStruct(call);
+        LowerStructCall(call);
     }
 
     ContainCheckCallOperands(call);
@@ -2292,19 +2286,15 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 #endif
 #endif // DEBUG
 
-#if !defined(WINDOWS_AMD64_ABI)
-            if (!call->HasMultiRegRetVal() && (regType == TYP_UNDEF))
+#ifndef WINDOWS_AMD64_ABI
+            if ((call->GetRegCount() == 1) && (regType == TYP_UNDEF))
             {
-                // If we have a single return register,
-                // but we can't retype it as a primitive type, we must spill it.
-
-                store->SetOp(0, SpillStructCallResult(call));
-                JITDUMP("lowering store lcl var/field has to spill call src.\n");
+                store->SetOp(0, SpillStructCall(call, store));
                 LowerStoreLclVar(store);
 
                 return;
             }
-#endif // !WINDOWS_AMD64_ABI
+#endif
         }
         else
         {
@@ -2371,31 +2361,34 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 
     verifyLclFldDoNotEnregister(store->GetLclNum());
 
+    if (varTypeIsStruct(store->GetType()))
+    {
+        if (GenTreeCall* call = store->GetOp(0)->IsCall())
+        {
+            if (call->GetRegCount() == 1)
+            {
+                var_types regType = call->GetRegType(0);
+                call->SetType(varActualType(regType));
+
+                if (varTypeSize(regType) <= store->GetLayout(comp)->GetSize())
+                {
+                    store->SetType(regType);
+                    return;
+                }
+            }
+
+#ifdef WINDOWS_AMD64_ABI
+            unreached();
+#else
+            store->SetOp(0, SpillStructCall(call, store));
+#endif
+        }
+    }
+
     GenTree* value = store->GetOp(0);
 
     if (store->TypeIs(TYP_STRUCT))
     {
-        if (GenTreeCall* call = value->IsCall())
-        {
-            assert(call->GetRegCount() == 1);
-            var_types regType = call->GetRegType(0);
-
-            if (varTypeSize(regType) <= store->GetLayout(comp)->GetSize())
-            {
-                store->SetType(regType);
-                return;
-            }
-
-#if defined(WINDOWS_AMD64_ABI)
-            // All ABI except Windows x64 supports passing 3 byte structs in registers.
-            // Other 64 bites ABI-s support passing 5, 6, 7 byte structs.
-            unreached();
-#else
-            value = SpillStructCallResult(call);
-            store->SetOp(0, value);
-#endif
-        }
-
         ClassLayout*    layout = store->GetLayout(comp);
         StructStoreKind kind   = GetStructStoreKind(true, layout, value);
         LowerStructStore(store, kind, layout);
@@ -2598,17 +2591,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerCallStruct: Lowers a call node that returns a stuct.
-//
-// Arguments:
-//     call - The call node to lower.
-//
-// Notes:
-//    - this handles only single-register returns;
-//    - it transforms the call's user for `GT_STOREIND`.
-//
-void Lowering::LowerCallStruct(GenTreeCall* call)
+void Lowering::LowerStructCall(GenTreeCall* call)
 {
     assert(varTypeIsStruct(call->GetType()));
 
@@ -2657,63 +2640,34 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerStoreSingleRegCallStruct: Lowers a store block where the source is a struct typed call.
-//
-// Arguments:
-//     store - The store node to lower.
-//
-// Notes:
-//    - the function is only for calls that return one register;
-//    - it spills the call's result if it can be retyped as a primitive type;
-//
-void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
+#ifndef WINDOWS_AMD64_ABI
+
+// Spill a call return value to a temp, to handle multireg and "odd" sized
+// (3, 5, 6, 7 bytes) struct returns.
+// TODO-1stClassStructs: we can support this in codegen for STORE_OBJ without new temps.
+GenTreeLclVar* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 {
-    assert(varTypeIsStruct(store->GetType()));
+    unsigned   lclNum = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("struct call return temp"));
+    LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
+    GenTree*   store;
 
-    GenTreeCall* call = store->GetValue()->AsCall();
-    assert(call->GetRegCount() == 1);
-    var_types regType = call->GetRegType(0);
-
-    if (varTypeSize(regType) <= store->GetLayout()->GetSize())
+    if (call->GetRegCount() > 1)
     {
-        store->SetType(regType);
-        store->SetOper(GT_STOREIND);
-        LowerStoreIndirCommon(store->AsStoreInd());
-
-        return;
+        store = comp->gtNewStoreLclVar(lclNum, lcl->GetType(), call);
+    }
+    else
+    {
+        assert(varTypeIsIntegral(call->GetType()));
+        store = comp->gtNewStoreLclFld(call->GetType(), lclNum, 0, call);
+        comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
     }
 
-#if defined(WINDOWS_AMD64_ABI)
-    // All ABI except Windows x64 supports passing 3 byte structs in registers.
-    // Other 64 bites ABI-s support passing 5, 6, 7 byte structs.
-    unreached();
-#else
-    store->SetValue(SpillStructCallResult(call));
-    LowerStoreObj(store);
-#endif
-}
-
-#if !defined(WINDOWS_AMD64_ABI)
-//----------------------------------------------------------------------------------------------
-// SpillStructCallResult: Spill call result to memory.
-//
-// Arguments:
-//     call - call with 3, 5, 6 or 7 return size that has to be spilled to memory.
-//
-// Return Value:
-//    load of the spilled variable.
-//
-GenTreeLclVar* Lowering::SpillStructCallResult(GenTreeCall* call)
-{
-    // TODO-1stClassStructs: we can support this in codegen for STORE_OBJ without new temps.
-    unsigned lclNum = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd sized struct call return temp"));
-    comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
-    GenTreeLclFld* store = comp->gtNewStoreLclFld(call->GetType(), lclNum, 0, call);
-    GenTreeLclVar* load  = comp->gtNewLclvNode(lclNum, TYP_STRUCT);
-    BlockRange().InsertAfter(call, store, load);
+    GenTreeLclVar* load = comp->gtNewLclvNode(lclNum, lcl->GetType());
+    BlockRange().InsertAfter(call, store);
+    BlockRange().InsertBefore(user, load);
     return load;
 }
+
 #endif // !WINDOWS_AMD64_ABI
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
@@ -5837,24 +5791,6 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 }
 
 //------------------------------------------------------------------------
-// LowerStoreIndirCommon: a common logic to lower StoreIndir.
-//
-// Arguments:
-//    ind - the store indirection node we are lowering.
-//
-void Lowering::LowerStoreIndirCommon(GenTreeStoreInd* ind)
-{
-    assert(!ind->TypeIs(TYP_STRUCT));
-
-    TryCreateAddrMode(ind->Addr(), true);
-
-    if (comp->codeGen->gcInfo.GetWriteBarrierForm(ind) == GCInfo::WBF_NoBarrier)
-    {
-        LowerStoreIndir(ind);
-    }
-}
-
-//------------------------------------------------------------------------
 // LowerIndir: a common logic to lower IND load or NullCheck.
 //
 // Arguments:
@@ -5929,11 +5865,58 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, Bas
     }
 }
 
+void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
+{
+    assert(!store->TypeIs(TYP_STRUCT));
+
+#ifndef WINDOWS_AMD64_ABI
+    if (GenTreeCall* call = store->GetValue()->IsCall())
+    {
+        if (call->GetRegCount() > 1)
+        {
+            assert(varTypeIsSIMD(store->GetType()) && varTypeIsSIMD(call->GetType()));
+
+            store->SetValue(SpillStructCall(call, store));
+        }
+    }
+#endif
+
+    TryCreateAddrMode(store->GetAddr(), true);
+
+    if (comp->codeGen->gcInfo.GetWriteBarrierForm(store) == GCInfo::WBF_NoBarrier)
+    {
+        LowerStoreIndirArch(store);
+    }
+}
+
 void Lowering::LowerStoreObj(GenTreeObj* store)
 {
     assert(store->OperIs(GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
 
-    if (TryTransformStoreObjToStoreInd(store))
+    if (GenTreeCall* call = store->GetValue()->IsCall())
+    {
+        if (call->GetRegCount() == 1)
+        {
+            var_types regType = call->GetRegType(0);
+            call->SetType(varActualType(regType));
+
+            if (varTypeSize(regType) <= store->GetLayout()->GetSize())
+            {
+                store->SetOper(GT_STOREIND);
+                store->SetType(regType);
+                LowerStoreIndir(store->AsStoreInd());
+
+                return;
+            }
+        }
+
+#ifdef WINDOWS_AMD64_ABI
+        unreached();
+#else
+        store->SetValue(SpillStructCall(call, store));
+#endif
+    }
+    else if (TryTransformStoreObjToStoreInd(store))
     {
         return;
     }

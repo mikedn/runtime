@@ -8760,7 +8760,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 #if FEATURE_MULTIREG_RET
         if (call->HasMultiRegRetVal())
         {
-            assert(dest->OperIs(GT_LCL_VAR));
+            assert(!dest->OperIs(GT_LCL_VAR) || !lvaGetDesc(dest->AsLclVar())->IsIndependentPromoted() ||
+                   lvaGetDesc(dest->AsLclVar())->lvIsMultiRegRet);
             JITDUMP(" not morphing a multireg call return\n");
             return asg;
         }

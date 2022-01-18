@@ -192,7 +192,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
+void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 {
     ContainCheckStoreIndir(store);
 }
