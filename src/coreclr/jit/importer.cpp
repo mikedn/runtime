@@ -923,46 +923,8 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
 
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
-    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
+    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR) ||
            (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
-
-    if (src->OperIs(GT_COMMA))
-    {
-        // TODO-MIKE-Cleanup: Is this really needed? fgMorphCopyStruct already handles COMMAs
-        // and it does it correctly. This extracts COMMA's side effect into a new statement
-        // without checking if the side effect doesn't interfere with the destination address.
-        // It also does this inconsistently - if the block already contains a statement it
-        // extracts the side effect, otherwise it sinks the assignment below the comma (and
-        // again incorrectly reorders side effects).
-        // It looks like the importer generates structs COMMAs only for static fields which
-        // probably makes such reordering unlikely to be significant (e.g. a.b.c = sfield
-        // could generate a TypeInitializationException instead of a NullReferenceException
-        // but it's unlikely that anyone would notice or care about that).
-
-        GenTree* sideEffect = src->AsOp()->GetOp(0);
-        GenTree* value      = src->AsOp()->GetOp(1);
-
-        assert(varTypeIsStruct(value->GetType()) || value->TypeIs(TYP_BYREF));
-
-        if (impLastStmt != nullptr)
-        {
-            impAppendTree(sideEffect, curLevel, impCurStmtOffs);
-
-            return impAssignStructAddr(destAddr, value, layout, curLevel);
-        }
-        else
-        {
-            // If there's no previous statement put the assignment under COMMA.
-            // Why? No idea. Probably because this code is sometimes called from
-            // outside the importer (e.g. CSE). Doesn't matter, one way or another
-            // it still incorrectly reorders side effects as mentioned above.
-
-            src->AsOp()->SetOp(1, impAssignStructAddr(destAddr, value, layout, curLevel));
-            src->SetSideEffects(src->AsOp()->GetOp(0)->GetSideEffects() | src->AsOp()->GetOp(1)->GetSideEffects());
-
-            return src;
-        }
-    }
 
     // Handle calls that return structs by reference - the destination address
     // is passed to the call as the return buffer address and no assignment is
@@ -1211,40 +1173,6 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
 {
     assert(varTypeIsStruct(value->GetType()) || info.compCompHnd->isValueClass(structHnd));
 
-    if (value->OperIs(GT_COMMA))
-    {
-        assert(value->AsOp()->GetOp(1)->GetType() == value->GetType());
-
-        Statement* oldLastStmt = impLastStmt;
-        value->AsOp()->SetOp(1, impGetStructAddr(value->AsOp()->GetOp(1), structHnd, curLevel, willDereference));
-        value->SetType(TYP_BYREF);
-
-        if (oldLastStmt != impLastStmt)
-        {
-            // Some temp assignment statement was placed on the statement list
-            // for Op2, but that would be out of order with op1, so we need to
-            // spill op1 onto the statement list after whatever was last
-            // before we recursed on Op2 (i.e. before whatever Op2 appended).
-            Statement* beforeStmt;
-            if (oldLastStmt == nullptr)
-            {
-                // The op1 stmt should be the first in the list.
-                beforeStmt = impStmtList;
-            }
-            else
-            {
-                // Insert after the oldLastStmt before the first inserted for op2.
-                beforeStmt = oldLastStmt->GetNextStmt();
-            }
-
-            impStmtListInsertBefore(gtNewStmt(value->AsOp()->GetOp(0), impCurStmtOffs), beforeStmt);
-
-            value->AsOp()->SetOp(0, gtNewNothingNode());
-        }
-
-        return value;
-    }
-
     if (value->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         value->SetOper(value->OperIs(GT_LCL_VAR) ? GT_LCL_VAR_ADDR : GT_LCL_FLD_ADDR);
@@ -1290,67 +1218,12 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
         case GT_HWINTRINSIC:
 #endif
             assert(varTypeIsSIMD(arg->GetType()));
-            return arg;
+            FALLTHROUGH;
 #endif
-
         case GT_MKREFANY:
         case GT_LCL_FLD:
-            return arg;
-
         case GT_OBJ:
-            // TODO-MIKE-Review: Pulling a GTF_EXCEPT out of the hat doesn't make a lot of sense...
-            arg->gtFlags |= GTF_EXCEPT;
             return arg;
-
-        case GT_COMMA:
-        {
-            // TODO-MIKE-Cleanup: All this code is likely useless now.
-            GenTree* lastComma  = arg;
-            GenTree* commaValue = arg->AsOp()->GetOp(1);
-
-            while (commaValue->OperIs(GT_COMMA))
-            {
-                assert(commaValue->GetType() == arg->GetType());
-
-                lastComma  = commaValue;
-                commaValue = commaValue->AsOp()->GetOp(1);
-            }
-
-            assert(commaValue->GetType() == arg->GetType());
-
-#ifdef FEATURE_SIMD
-            if (commaValue->OperIsHWIntrinsic())
-            {
-                lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argLayout, curLevel));
-                return arg;
-            }
-#endif
-
-            noway_assert(commaValue->OperIs(GT_OBJ));
-
-            // Hoist the block node above the COMMA so we don't have to deal with struct typed COMMAs:
-            //   COMMA(x, OBJ(addr)) => OBJ(COMMA(x, addr))
-
-            // TODO-MIKE-Fix: Huh, this doesn't handle multiple COMMAs even though the code above does.
-            // Though it looks like struct COMMAs are rare in the importer - only produced by static
-            // field access - and aren't nested. And the static field import code could probably be
-            // changed to produce OBJ(COMMA(...)) rather than COMMA(OBJ(...)).
-
-            GenTree* addr = commaValue->AsObj()->GetAddr();
-
-            lastComma->SetType(addr->GetType());
-            lastComma->AsOp()->SetOp(1, addr);
-
-            commaValue->AsObj()->SetAddr(lastComma);
-
-            if (lastComma == arg)
-            {
-                arg = commaValue;
-                arg->gtFlags |= GTF_EXCEPT;
-            }
-
-            return arg;
-        }
 
         default:
             unreached();
