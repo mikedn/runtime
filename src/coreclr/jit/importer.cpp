@@ -1269,22 +1269,20 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
     switch (arg->GetOper())
     {
-        unsigned argLclNum;
-
         case GT_CALL:
         case GT_RET_EXPR:
             // TODO-MIKE-CQ: We should not need a temp for single reg return calls either.
             if ((arg->IsCall() ? arg->AsCall() : arg->AsRetExpr()->GetCall())->GetRegCount() <= 1)
             {
-                argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+                unsigned argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
                 impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
                 arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
             }
-            break;
+            return arg;
 
         case GT_LCL_VAR:
             assert(arg->GetType() == lvaGetDesc(arg->AsLclVar())->GetType());
-            break;
+            return arg;
 
 #ifdef FEATURE_SIMD
         case GT_IND:
@@ -1292,16 +1290,21 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
         case GT_HWINTRINSIC:
 #endif
             assert(varTypeIsSIMD(arg->GetType()));
-            break;
+            return arg;
 #endif
 
         case GT_MKREFANY:
         case GT_LCL_FLD:
+            return arg;
+
         case GT_OBJ:
-            break;
+            // TODO-MIKE-Review: Pulling a GTF_EXCEPT out of the hat doesn't make a lot of sense...
+            arg->gtFlags |= GTF_EXCEPT;
+            return arg;
 
         case GT_COMMA:
         {
+            // TODO-MIKE-Cleanup: All this code is likely useless now.
             GenTree* lastComma  = arg;
             GenTree* commaValue = arg->AsOp()->GetOp(1);
 
@@ -1319,45 +1322,39 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             if (commaValue->OperIsHWIntrinsic())
             {
                 lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argLayout, curLevel));
+                return arg;
             }
-            else
 #endif
+
+            noway_assert(commaValue->OperIs(GT_OBJ));
+
+            // Hoist the block node above the COMMA so we don't have to deal with struct typed COMMAs:
+            //   COMMA(x, OBJ(addr)) => OBJ(COMMA(x, addr))
+
+            // TODO-MIKE-Fix: Huh, this doesn't handle multiple COMMAs even though the code above does.
+            // Though it looks like struct COMMAs are rare in the importer - only produced by static
+            // field access - and aren't nested. And the static field import code could probably be
+            // changed to produce OBJ(COMMA(...)) rather than COMMA(OBJ(...)).
+
+            GenTree* addr = commaValue->AsObj()->GetAddr();
+
+            lastComma->SetType(addr->GetType());
+            lastComma->AsOp()->SetOp(1, addr);
+
+            commaValue->AsObj()->SetAddr(lastComma);
+
+            if (lastComma == arg)
             {
-                noway_assert(commaValue->OperIs(GT_OBJ));
-
-                // Hoist the block node above the COMMA so we don't have to deal with struct typed COMMAs:
-                //   COMMA(x, OBJ(addr)) => OBJ(COMMA(x, addr))
-
-                // TODO-MIKE-Fix: Huh, this doesn't handle multiple COMMAs even though the code above does.
-                // Though it looks like struct COMMAs are rare in the importer - only produced by static
-                // field access - and aren't nested. And the static field import code could probably be
-                // changed to produce OBJ(COMMA(...)) rather than COMMA(OBJ(...)).
-
-                GenTree* addr = commaValue->AsObj()->GetAddr();
-
-                lastComma->SetType(addr->GetType());
-                lastComma->AsOp()->SetOp(1, addr);
-
-                commaValue->AsObj()->SetAddr(lastComma);
-
-                if (lastComma == arg)
-                {
-                    arg = commaValue;
-                }
+                arg = commaValue;
+                arg->gtFlags |= GTF_EXCEPT;
             }
+
+            return arg;
         }
-        break;
 
         default:
             unreached();
     }
-
-    if (arg->OperIs(GT_OBJ))
-    {
-        arg->gtFlags |= GTF_EXCEPT;
-    }
-
-    return arg;
 }
 
 /******************************************************************************/
