@@ -1222,8 +1222,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     assert(src->IsMultiRegNode());
 
     GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount =
-        actualSrc->IsMultiRegLclVar() ? actualSrc->AsLclVar()->GetFieldCount(compiler) : actualSrc->GetMultiRegCount();
+    unsigned regCount  = src->GetMultiRegCount(compiler);
 
     genConsumeRegs(src);
 

@@ -7516,58 +7516,6 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     }
 }
 
-#if FEATURE_MULTIREG_RET
-//----------------------------------------------------------------------------------
-// gtDispRegCount: determine how many registers to print for a multi-reg node
-//
-// Arguments:
-//    tree  -  Gentree node whose registers we want to print
-//
-// Return Value:
-//    The number of registers to print
-//
-// Notes:
-//    This is not the same in all cases as GenTree::GetMultiRegCount().
-//    In particular, for COPY or RELOAD it only returns the number of *valid* registers,
-//    and for CALL, it will return 0 if the ReturnTypeDesc hasn't yet been initialized.
-//    But we want to print all register positions.
-//
-unsigned Compiler::gtDispRegCount(GenTree* tree)
-{
-    if (tree->IsCopyOrReload())
-    {
-        // GetRegCount() will return only the number of valid regs for COPY or RELOAD,
-        // but we want to print all positions, so we get the reg count for op1.
-        return gtDispRegCount(tree->gtGetOp1());
-    }
-    else if (!tree->IsMultiRegNode())
-    {
-        // We can wind up here because IsMultiRegNode() always returns true for COPY or RELOAD,
-        // even if its op1 is not multireg.
-        // Note that this method won't be called for non-register-producing nodes.
-        return 1;
-    }
-    else if (tree->IsMultiRegLclVar())
-    {
-        return tree->AsLclVar()->GetFieldCount(this);
-    }
-    else if (tree->OperIs(GT_CALL))
-    {
-        unsigned regCount = tree->AsCall()->GetRegCount();
-        // If it hasn't yet been initialized, we'd still like to see the registers printed.
-        if (regCount == 0)
-        {
-            regCount = MAX_RET_REG_COUNT;
-        }
-        return regCount;
-    }
-    else
-    {
-        return tree->GetMultiRegCount();
-    }
-}
-#endif // FEATURE_MULTIREG_RET
-
 //----------------------------------------------------------------------------------
 // gtDispRegVal: Print the register(s) defined by the given node
 //
@@ -7594,13 +7542,10 @@ void Compiler::gtDispRegVal(GenTree* tree)
     {
         // 0th reg is GetRegNum(), which is already printed above.
         // Print the remaining regs of a multi-reg node.
-        unsigned regCount = gtDispRegCount(tree);
-
-        // For some nodes, e.g. COPY, RELOAD or CALL, we may not have valid regs for all positions.
-        for (unsigned i = 1; i < regCount; ++i)
+        for (unsigned i = 1, count = tree->GetMultiRegCount(this); i < count; ++i)
         {
             regNumber reg = tree->GetRegByIndex(i);
-            printf(",%s", genIsValidReg(reg) ? compRegVarName(reg) : "NA");
+            printf(", %s", genIsValidReg(reg) ? compRegVarName(reg) : "NA");
         }
     }
 #endif

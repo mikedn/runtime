@@ -907,20 +907,12 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    GenTree* src       = store->GetOp(0);
-    GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount  = 1;
+    GenTree* src = store->GetOp(0);
 
-    if (actualSrc->IsMultiRegNode())
+    if (src->IsMultiRegNode())
     {
-        regCount = actualSrc->IsMultiRegLclVar() ? actualSrc->AsLclVar()->GetFieldCount(compiler)
-                                                 : actualSrc->GetMultiRegCount();
-
-        if (regCount > 1)
-        {
-            GenStoreLclVarMultiReg(store);
-            return;
-        }
+        GenStoreLclVarMultiReg(store);
+        return;
     }
 
     LclVarDsc* lcl        = compiler->lvaGetDesc(store);

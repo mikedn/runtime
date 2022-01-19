@@ -1674,10 +1674,10 @@ public:
     inline bool IsMultiRegLclVar() const;
 
     // Returns true if it is a node returning its value in more than one register
-    inline bool IsMultiRegNode() const;
+    bool IsMultiRegNode() const;
 
     // Returns the number of registers defined by a multireg node.
-    unsigned GetMultiRegCount();
+    unsigned GetMultiRegCount(Compiler* compiler) const;
 
     // Returns the regIndex'th register defined by a possibly-multireg node.
     regNumber GetRegByIndex(int regIndex);
@@ -7355,11 +7355,15 @@ public:
         : GenTreePutArgStk(arg, argInfo, call, GT_PUTARG_SPLIT)
     {
         assert((0 < argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_SPLIT_ARG_REGS));
-#ifdef TARGET_ARM64
+
+#ifdef TARGET_ARM
+        SetType(argInfo->GetRegCount() > 1 ? TYP_STRUCT : varActualType(argInfo->GetRegType(0)));
+#else
         assert(argInfo->GetSlotCount() == 1);
+
+        SetType(varActualType(argInfo->GetRegType(0)));
 #endif
 
-        SetType(TYP_STRUCT);
         ClearOtherRegs();
         ClearOtherRegFlags();
     }
@@ -7594,7 +7598,7 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
 #endif
     }
 
-    unsigned GetRegCount()
+    unsigned GetRegCount() const
     {
 #if FEATURE_MULTIREG_RET
         // We need to return the highest index for which we have a valid register.
@@ -8189,113 +8193,91 @@ inline bool GenTree::IsMultiRegLclVar() const
     return OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && AsLclVar()->IsMultiReg();
 }
 
-//-----------------------------------------------------------------------------------
-// IsMultiRegNode: whether a node returning its value in more than one register
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     Returns true if this GenTree is a multi-reg node.
-//
-// Notes:
-//     All targets that support multi-reg ops of any kind also support multi-reg return
-//     values for calls. Should that change with a future target, this method will need
-//     to change accordingly.
-//
 inline bool GenTree::IsMultiRegNode() const
 {
 #if FEATURE_MULTIREG_RET
-    if (IsMultiRegCall())
+    if (const GenTreeUnOp* copy = IsCopyOrReload())
     {
-        return true;
+        return copy->GetOp(0)->IsMultiRegNode();
+    }
+
+    if (const GenTreeCall* call = IsCall())
+    {
+        return call->GetRegCount() > 1;
     }
 
 #if FEATURE_ARG_SPLIT
-    if (OperIsPutArgSplit())
+    if (const GenTreePutArgSplit* splitArg = IsPutArgSplit())
     {
-        return true;
+        return splitArg->GetRegCount() > 1;
     }
 #endif
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     if (OperIsMultiRegOp())
     {
         return true;
     }
 #endif
-
-    if (OperIs(GT_COPY, GT_RELOAD))
-    {
-        return true;
-    }
 #endif // FEATURE_MULTIREG_RET
+
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
     if (OperIs(GT_HWINTRINSIC))
     {
-        return (TypeGet() == TYP_STRUCT);
+        return gtType == TYP_STRUCT;
     }
 #endif
-    if (IsMultiRegLclVar())
+
+    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        return true;
+        return AsLclVar()->IsMultiReg();
     }
+
     return false;
 }
-//-----------------------------------------------------------------------------------
-// GetMultiRegCount: Return the register count for a multi-reg node.
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     Returns the number of registers defined by this node.
-//
-inline unsigned GenTree::GetMultiRegCount()
+
+inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 {
 #if FEATURE_MULTIREG_RET
-    if (IsMultiRegCall())
+    if (const GenTreeUnOp* copy = IsCopyOrReload())
     {
-        return AsCall()->GetRegCount();
+        return copy->GetOp(0)->GetMultiRegCount(compiler);
+    }
+
+    if (const GenTreeCall* call = IsCall())
+    {
+        return call->GetRegCount();
     }
 
 #if FEATURE_ARG_SPLIT
-    if (OperIsPutArgSplit())
+    if (const GenTreePutArgSplit* splitArg = IsPutArgSplit())
     {
-        return AsPutArgSplit()->GetRegCount();
+        return splitArg->GetRegCount();
     }
 #endif
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     if (OperIsMultiRegOp())
     {
         return AsMultiRegOp()->GetRegCount();
     }
 #endif
-
-    if (OperIs(GT_COPY, GT_RELOAD))
-    {
-        return AsCopyOrReload()->GetRegCount();
-    }
 #endif // FEATURE_MULTIREG_RET
+
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
     if (OperIs(GT_HWINTRINSIC))
     {
-        assert(TypeGet() == TYP_STRUCT);
+        assert(gtType == TYP_STRUCT);
         return 2;
     }
 #endif
+
     if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
         assert(AsLclVar()->IsMultiReg());
-        // The register count for a multireg lclVar requires looking at the LclVarDsc,
-        // which requires a Compiler instance. The caller must handle this separately.
-        // The register count for a multireg lclVar requires looking at the LclVarDsc,
-        // which requires a Compiler instance. The caller must use the GetFieldCount
-        // method on GenTreeLclVar.
-
-        assert(!"MultiRegCount for LclVar");
+        return AsLclVar()->GetFieldCount(compiler);
     }
+
     assert(!"GetMultiRegCount called with non-multireg node");
     return 1;
 }

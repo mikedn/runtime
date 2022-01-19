@@ -1234,8 +1234,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
             // Here we may have a GT_RELOAD, and we will need to use that node ('tree') to
             // do the unspilling if needed. However, that tree doesn't have the register
             // count, so we use 'unspillTree' for that.
-            unsigned regCount = unspillTree->GetMultiRegCount();
-            for (unsigned i = 0; i < regCount; ++i)
+            for (unsigned i = 0, count = unspillTree->GetMultiRegCount(compiler); i < count; ++i)
             {
                 genUnspillRegIfNeeded(tree, i);
             }
@@ -2466,13 +2465,15 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
     }
     else
     {
-        noway_assert(src->gtSkipReloadOrCopy()->OperIs(GT_MUL_LONG));
-        assert(src->GetMultiRegCount() == 2);
+        assert(src->GetMultiRegCount(compiler) == 2);
 
         genConsumeRegs(src);
 
         loSrcReg = src->GetRegByIndex(0);
         hiSrcReg = src->GetRegByIndex(1);
+
+        assert(genIsValidIntReg(loSrcReg));
+        assert(genIsValidIntReg(hiSrcReg));
     }
 
     GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, loSrcReg, store->GetLclNum(), 0);

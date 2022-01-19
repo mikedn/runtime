@@ -3956,7 +3956,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     GenTree* src = store->GetOp(0);
 
-    if (src->gtSkipReloadOrCopy()->IsMultiRegNode())
+    if (src->IsMultiRegNode())
     {
         GenStoreLclVarMultiReg(store);
         return;

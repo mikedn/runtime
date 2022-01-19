@@ -3201,7 +3201,7 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 
     if (isMultiRegSrc)
     {
-        assert(src->GetMultiRegCount() == dstCount);
+        assert(src->GetMultiRegCount(compiler) == dstCount);
 
         srcCount = dstCount;
     }
@@ -3323,12 +3323,11 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     RefPosition* singleUseRef = nullptr;
     int          srcCount;
 
-    if (src->IsMultiRegNode() && (src->GetMultiRegCount() > 1))
+    if (src->IsMultiRegNode())
     {
-        // This is the case where the source produces multiple registers.
         assert(store->OperIs(GT_STORE_LCL_VAR));
 
-        srcCount = src->GetMultiRegCount();
+        srcCount = src->GetMultiRegCount(compiler);
 
         for (int i = 0; i < srcCount; ++i)
         {

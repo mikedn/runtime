@@ -10225,8 +10225,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     assert(src->IsMultiRegNode());
 
     GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount =
-        actualSrc->IsMultiRegLclVar() ? actualSrc->AsLclVar()->GetFieldCount(compiler) : actualSrc->GetMultiRegCount();
+    unsigned regCount  = src->GetMultiRegCount(compiler);
 
     unsigned   lclNum = store->GetLclNum();
     LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
@@ -10408,8 +10407,7 @@ void CodeGen::genRegCopy(GenTree* treeNode)
         // GenTreeCopyOrReload only reports the highest index that has a valid register.
         // However, we need to ensure that we consume all the registers of the child node,
         // so we use its regCount.
-        unsigned regCount =
-            op1->IsMultiRegLclVar() ? op1->AsLclVar()->GetFieldCount(compiler) : op1->GetMultiRegCount();
+        unsigned regCount = op1->GetMultiRegCount(compiler);
         assert(regCount <= MAX_MULTIREG_COUNT);
 
         // First set the source registers as busy if they haven't been spilled.
