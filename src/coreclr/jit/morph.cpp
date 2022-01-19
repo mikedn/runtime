@@ -8782,8 +8782,23 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 #if FEATURE_MULTIREG_RET
         if (call->HasMultiRegRetVal())
         {
-            assert(!dest->OperIs(GT_LCL_VAR) || !lvaGetDesc(dest->AsLclVar())->IsIndependentPromoted() ||
-                   lvaGetDesc(dest->AsLclVar())->lvIsMultiRegRet);
+            if (dest->OperIs(GT_LCL_VAR))
+            {
+                LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
+
+                // TODO-MIKE-Cleanup: This isn't quite right, lvIsMultiRegRet should be set before promoting.
+                // The problem is that the importer doesn't set it if the local is indirectly accessed (via
+                // an OBJ). LocalAddressVisitor then eliminates the OBJ and avoids dependent promotion but
+                // lvIsMultiRegRet isn't set and that breaks SSA. Setting lvIsMultiRegRet allows things to
+                // work correctly but we may still end up with dependent promotion instead of not promoting
+                // to beging with.
+
+                if (lcl->IsIndependentPromoted())
+                {
+                    lcl->lvIsMultiRegRet = true;
+                }
+            }
+
             JITDUMP(" not morphing a multireg call return\n");
             return asg;
         }
