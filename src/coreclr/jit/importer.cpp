@@ -1273,11 +1273,13 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
         case GT_CALL:
         case GT_RET_EXPR:
-            // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
-            // a return buffer. Do we also need a temp if structs are returned in registers?
-            argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
-            impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
-            arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
+            // TODO-MIKE-CQ: We should not need a temp for single reg return calls either.
+            if ((arg->IsCall() ? arg->AsCall() : arg->AsRetExpr()->GetCall())->GetRegCount() <= 1)
+            {
+                argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+                impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
+                arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
+            }
             break;
 
         case GT_LCL_VAR:
