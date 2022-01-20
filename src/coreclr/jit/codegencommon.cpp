@@ -10513,9 +10513,9 @@ regNumber CodeGen::genRegCopy(GenTree* treeNode, unsigned multiRegIndex)
     assert(treeNode->OperGet() == GT_COPY);
     GenTree* op1 = treeNode->gtGetOp1();
     assert(op1->IsMultiRegNode());
+    assert(multiRegIndex < op1->GetMultiRegCount(compiler));
 
     GenTreeCopyOrReload* copyNode = treeNode->AsCopyOrReload();
-    assert(copyNode->GetRegCount() <= MAX_MULTIREG_COUNT);
 
     // Consume op1's register, which will perform any necessary reloads.
     genConsumeReg(op1, multiRegIndex);
