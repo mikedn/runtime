@@ -4375,13 +4375,42 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
 GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
 {
-    unsigned   lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call return temp"));
+    unsigned   lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-    GenTree* dst = gtNewLclvNode(lclNum, lcl->GetType());
-    GenTree* asg = gtNewAssignNode(dst, arg);
+    GenTreeLclVar* dst = gtNewLclvNode(lclNum, lcl->GetType());
+    GenTreeOp*     asg = gtNewAssignNode(dst, arg);
+    GenTreeLclVar* src = gtNewLclvNode(lclNum, lcl->GetType());
 
-    GenTreeFieldList* fieldList = abiMorphMultiRegLclArg(argInfo, gtNewLclvNode(lclNum, lcl->GetType()))->AsFieldList();
+    StructPromotionHelper structPromotion(this);
+    lcl->lvIsMultiRegRet = true;
+
+    GenTreeFieldList* fieldList;
+
+    if (!structPromotion.TryPromoteStructLocal(lclNum))
+    {
+        fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+    }
+    else if (argInfo->IsHfaArg())
+    {
+        fieldList = abiMorphMultiRegHfaLclArgPromoted(argInfo, src)->AsFieldList();
+    }
+    else
+    {
+        AbiRegFieldMap regMap(this, lvaGetDesc(lclNum), argInfo);
+
+        if (regMap.IsSupported(argInfo))
+        {
+            fieldList = abiMorphMultiRegLclArgPromoted(argInfo, regMap)->AsFieldList();
+        }
+        else
+        {
+            fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+        }
+    }
+
+    lcl = lvaGetDesc(lclNum);
+    lcl->lvIsMultiRegRet &= lcl->IsIndependentPromoted();
 
     GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
     firstUse->SetNode(gtNewCommaNode(asg, firstUse->GetNode()));

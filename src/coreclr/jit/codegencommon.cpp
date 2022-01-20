@@ -10233,7 +10233,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     if (src->OperIs(GT_CALL))
     {
         assert(regCount <= MAX_RET_REG_COUNT);
-        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsPromoted());
+        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsIndependentPromoted());
     }
 
 #ifdef FEATURE_SIMD
