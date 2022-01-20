@@ -1365,6 +1365,25 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 tempLcl->SetType(type);
                 setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, type), arg);
             }
+            else if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
+            {
+                compiler->lvaSetStruct(tempLclNum, arg->AsCall()->GetRetLayout(), false);
+                tempLcl->lvIsMultiRegRet = true;
+                tempLcl->lvFieldAccessed = true;
+
+                StructPromotionHelper structPromotion(compiler);
+
+                if (!structPromotion.TryPromoteStructLocal(tempLclNum))
+                {
+                    tempLcl->lvIsMultiRegRet = false;
+                }
+                else
+                {
+                    tempLcl = compiler->lvaGetDesc(tempLclNum);
+                }
+
+                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, tempLcl->GetType()), arg);
+            }
             else if (varTypeIsSIMD(arg->GetType()))
             {
                 ClassLayout* layout = compiler->typGetVectorLayout(arg);
@@ -2779,6 +2798,11 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         argInfo->SetArgType(fieldType);
 
         return false;
+    }
+
+    if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
+    {
+        return true;
     }
 
     if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
@@ -4384,6 +4408,7 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
 
     StructPromotionHelper structPromotion(this);
     lcl->lvIsMultiRegRet = true;
+    lcl->lvFieldAccessed = true;
 
     GenTreeFieldList* fieldList;
 
