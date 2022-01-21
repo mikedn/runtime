@@ -1371,6 +1371,8 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 tempLcl->lvIsMultiRegRet = true;
                 tempLcl->lvFieldAccessed = true;
 
+                GenTree* dst = nullptr;
+
                 StructPromotionHelper structPromotion(compiler);
 
                 if (!structPromotion.TryPromoteStructLocal(tempLclNum))
@@ -1380,9 +1382,29 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 else
                 {
                     tempLcl = compiler->lvaGetDesc(tempLclNum);
+
+                    if (tempLcl->GetPromotedFieldCount() == 1)
+                    {
+                        unsigned   promotedFieldLclNum = tempLcl->GetPromotedFieldLclNum(0);
+                        LclVarDsc* promotedFieldLcl    = compiler->lvaGetDesc(promotedFieldLclNum);
+
+                        if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+                        {
+                            arg->SetType(promotedFieldLcl->GetType());
+
+                            dst = compiler->gtNewLclvNode(promotedFieldLclNum, promotedFieldLcl->GetType());
+                            tempLcl->lvIsMultiRegRet = false;
+                        }
+                    }
                 }
 
-                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, tempLcl->GetType()), arg);
+                if (dst == nullptr)
+                {
+                    dst                      = compiler->gtNewLclvNode(tempLclNum, tempLcl->GetType());
+                    tempLcl->lvIsMultiRegRet = tempLcl->IsIndependentPromoted();
+                }
+
+                setupArg = compiler->gtNewAssignNode(dst, arg);
             }
             else if (varTypeIsSIMD(arg->GetType()))
             {
@@ -1420,7 +1442,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
             }
 
-            lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(arg->GetType()));
+            lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(tempLcl->GetType()));
         }
         else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
         {
@@ -4402,8 +4424,6 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
     unsigned   lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-    GenTreeLclVar* dst = gtNewLclvNode(lclNum, lcl->GetType());
-    GenTreeOp*     asg = gtNewAssignNode(dst, arg);
     GenTreeLclVar* src = gtNewLclvNode(lclNum, lcl->GetType());
 
     StructPromotionHelper structPromotion(this);
@@ -4435,8 +4455,30 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
     }
 
     lcl = lvaGetDesc(lclNum);
-    lcl->lvIsMultiRegRet &= lcl->IsIndependentPromoted();
 
+    GenTreeLclVar* dst = nullptr;
+
+    if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1))
+    {
+        unsigned   promotedFieldLclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* promotedFieldLcl    = lvaGetDesc(promotedFieldLclNum);
+
+        if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+        {
+            arg->SetType(promotedFieldLcl->GetType());
+
+            dst                  = gtNewLclvNode(promotedFieldLclNum, promotedFieldLcl->GetType());
+            lcl->lvIsMultiRegRet = false;
+        }
+    }
+
+    if (dst == nullptr)
+    {
+        dst                  = gtNewLclvNode(lclNum, lcl->GetType());
+        lcl->lvIsMultiRegRet = lcl->IsIndependentPromoted();
+    }
+
+    GenTreeOp*             asg      = gtNewAssignNode(dst, arg);
     GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
     firstUse->SetNode(gtNewCommaNode(asg, firstUse->GetNode()));
     fieldList->AddSideEffects(asg->GetSideEffects());
