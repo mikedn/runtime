@@ -1375,11 +1375,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
                 StructPromotionHelper structPromotion(compiler);
 
-                if (!structPromotion.TryPromoteStructLocal(tempLclNum))
-                {
-                    tempLcl->lvIsMultiRegRet = false;
-                }
-                else
+                if (structPromotion.TryPromoteStructLocal(tempLclNum))
                 {
                     tempLcl = compiler->lvaGetDesc(tempLclNum);
 
@@ -1400,8 +1396,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
                 if (dst == nullptr)
                 {
-                    dst                      = compiler->gtNewLclvNode(tempLclNum, tempLcl->GetType());
-                    tempLcl->lvIsMultiRegRet = tempLcl->IsIndependentPromoted();
+                    dst = compiler->gtNewLclvNode(tempLclNum, tempLcl->GetType());
                 }
 
                 setupArg = compiler->gtNewAssignNode(dst, arg);
@@ -4421,65 +4416,66 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
 GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
 {
-    unsigned   lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
-
-    GenTreeLclVar* src = gtNewLclvNode(lclNum, lcl->GetType());
+    unsigned          lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
+    LclVarDsc*        lcl    = lvaGetDesc(lclNum);
+    GenTreeLclVar*    src    = gtNewLclvNode(lclNum, lcl->GetType());
+    GenTreeLclVar*    dst    = nullptr;
+    GenTreeFieldList* fieldList;
 
     StructPromotionHelper structPromotion(this);
     lcl->lvIsMultiRegRet = true;
     lcl->lvFieldAccessed = true;
 
-    GenTreeFieldList* fieldList;
-
     if (!structPromotion.TryPromoteStructLocal(lclNum))
     {
+        dst       = gtNewLclvNode(lclNum, lcl->GetType());
         fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
-    }
-    else if (argInfo->IsHfaArg())
-    {
-        fieldList = abiMorphMultiRegHfaLclArgPromoted(argInfo, src)->AsFieldList();
     }
     else
     {
-        AbiRegFieldMap regMap(this, lvaGetDesc(lclNum), argInfo);
+        lcl = lvaGetDesc(lclNum);
 
-        if (regMap.IsSupported(argInfo))
+        if (argInfo->IsHfaArg())
         {
-            fieldList = abiMorphMultiRegLclArgPromoted(argInfo, regMap)->AsFieldList();
+            fieldList = abiMorphMultiRegHfaLclArgPromoted(argInfo, src)->AsFieldList();
         }
         else
         {
-            fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+            AbiRegFieldMap regMap(this, lcl, argInfo);
+
+            if (regMap.IsSupported(argInfo))
+            {
+                fieldList = abiMorphMultiRegLclArgPromoted(argInfo, regMap)->AsFieldList();
+            }
+            else
+            {
+                fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+            }
         }
-    }
 
-    lcl = lvaGetDesc(lclNum);
-
-    GenTreeLclVar* dst = nullptr;
-
-    if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1))
-    {
-        unsigned   promotedFieldLclNum = lcl->GetPromotedFieldLclNum(0);
-        LclVarDsc* promotedFieldLcl    = lvaGetDesc(promotedFieldLclNum);
-
-        if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+        if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1))
         {
-            arg->SetType(promotedFieldLcl->GetType());
+            unsigned   promotedFieldLclNum = lcl->GetPromotedFieldLclNum(0);
+            LclVarDsc* promotedFieldLcl    = lvaGetDesc(promotedFieldLclNum);
 
-            dst                  = gtNewLclvNode(promotedFieldLclNum, promotedFieldLcl->GetType());
-            lcl->lvIsMultiRegRet = false;
+            if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+            {
+                arg->SetType(promotedFieldLcl->GetType());
+
+                dst                  = gtNewLclvNode(promotedFieldLclNum, promotedFieldLcl->GetType());
+                lcl->lvIsMultiRegRet = false;
+            }
+        }
+
+        if (dst == nullptr)
+        {
+            dst                  = gtNewLclvNode(lclNum, lcl->GetType());
+            lcl->lvIsMultiRegRet = lcl->IsIndependentPromoted();
         }
     }
 
-    if (dst == nullptr)
-    {
-        dst                  = gtNewLclvNode(lclNum, lcl->GetType());
-        lcl->lvIsMultiRegRet = lcl->IsIndependentPromoted();
-    }
-
-    GenTreeOp*             asg      = gtNewAssignNode(dst, arg);
     GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
+    GenTreeOp*             asg      = gtNewAssignNode(dst, arg);
     firstUse->SetNode(gtNewCommaNode(asg, firstUse->GetNode()));
     fieldList->AddSideEffects(asg->GetSideEffects());
 

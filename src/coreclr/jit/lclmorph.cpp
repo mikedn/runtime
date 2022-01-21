@@ -2332,6 +2332,9 @@ bool StructPromotionHelper::TryPromoteStructLocal(unsigned lclNum)
         return true;
     }
 
+    // If we don't promote then lvIsMultiRegRet is meaningless.
+    compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet = false;
+
     return false;
 }
 
@@ -2493,13 +2496,23 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     assert(varTypeIsStruct(lcl->GetType()));
     assert(!lcl->IsPromoted());
 
-    // If this local is used by SIMD intrinsics, then we don't want to promote it.
-    // Note, however, that Vector2/3/4 local that are NOT used by SIMD intrinsics
-    // may be profitably promoted.
-    if (lcl->lvIsUsedInSIMDIntrinsic())
+    if (varTypeIsSIMD(lcl->GetType()))
     {
-        JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lclNum);
-        return false;
+        if (lcl->lvIsUsedInSIMDIntrinsic())
+        {
+            // If the local is used by vector intrinsics, then we do not want to promote
+            // since the cost of packing individual fields into a single SIMD register
+            // can be pretty high.
+            JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lclNum);
+            return false;
+        }
+
+        if (lcl->GetLayout()->IsOpaqueVector())
+        {
+            // Vector<T>/Vector64/128/256 are never promoted, even if they may have
+            // private fields as an implementation detail.
+            return false;
+        }
     }
 
 #ifdef TARGET_ARM
@@ -3022,29 +3035,7 @@ void Compiler::fgPromoteStructs()
         }
 #endif
 
-        if (varTypeIsSIMD(lcl->GetType()))
-        {
-            if (lcl->GetLayout()->IsOpaqueVector())
-            {
-                // Vector<T>/Vector64/128/256 are never promoted, even if they may have
-                // private fields as an implementation detail.
-                continue;
-            }
-
-            if (lcl->lvIsUsedInSIMDIntrinsic())
-            {
-                // If the local is used by vector intrinsics, then we do not want to promote
-                // since the cost of packing individual fields into a single SIMD register
-                // can be pretty high.
-                continue;
-            }
-        }
-
-        if (!helper.TryPromoteStructLocal(lclNum))
-        {
-            // If we don't promote then lvIsMultiRegRet is meaningless.
-            lcl->lvIsMultiRegRet = false;
-        }
+        helper.TryPromoteStructLocal(lclNum);
     }
 
 #ifdef DEBUG
