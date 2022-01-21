@@ -2568,58 +2568,73 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     }
 
 #if defined(TARGET_ARMARCH)
-    for (unsigned i = 0; i < info.fieldCount; i++)
-    {
-        const FieldInfo& field = info.fields[i];
-
-        // Non-HFA structs are always passed in general purpose registers.
-        // If there are any floating point fields, don't promote for now.
-        // TODO-1stClassStructs: add support in Lowering and prolog generation
-        // to enable promoting these types.
-        if (lcl->IsParam() && !lcl->lvIsHfa() && varTypeUsesFloatReg(field.type))
-        {
-            return false;
-        }
-
-#ifdef FEATURE_SIMD
-        // If we have a register-passed struct with mixed non-opaque SIMD types (i.e. with defined fields)
-        // and non-SIMD types, we don't currently handle that case in the prolog, so we can't promote.
-        if ((info.fieldCount > 1) && varTypeIsStruct(field.type) && !field.layout->IsOpaqueVector())
-        {
-            return false;
-        }
-#endif
-    }
-#elif defined(UNIX_AMD64_ABI)
-    // Only promote if the field types match the registers, unless we have a single SIMD field
-    // that we can handle in prolog.
-
-    if ((info.fieldCount == 1) && varTypeIsSIMD(info.fields[0].type))
+    if (info.fieldCount == 1)
     {
         return true;
     }
 
     ClassLayout* layout = lcl->GetLayout();
-    layout->EnsureSysVAmd64AbiInfo(compiler);
+    layout->EnsureHfaInfo(compiler);
 
-    if (info.fieldCount != layout->GetSysVAmd64AbiRegCount())
+    if (layout->IsHfa())
+    {
+        return layout->GetHfaRegCount() == info.fieldCount;
+    }
+
+#ifdef TARGET_ARM64
+    if ((layout->GetSize() > 16) || (info.fieldCount > 2))
+#else
+    if ((layout->GetSize() > 16) || (info.fieldCount > 4))
+#endif
     {
         return false;
     }
-
-    SortFields();
 
     for (unsigned i = 0; i < info.fieldCount; i++)
     {
         const FieldInfo& field = info.fields[i];
 
-        // We don't currently support passing SIMD types in registers.
-        if (varTypeIsSIMD(field.type))
+        if (field.offset % REGSIZE_BYTES != 0)
         {
             return false;
         }
 
-        if (varTypeUsesFloatReg(field.type) != varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
+        // If the struct isn't a HFA then all used registers are integer and
+        // prolog codegen does not move args from integer to FP registers.
+        if (lcl->lvIsMultiRegArg && varTypeUsesFloatReg(field.type))
+        {
+            return false;
+        }
+    }
+#elif defined(UNIX_AMD64_ABI)
+    // In general we can promote only if there are 1 or 2 fields, each smaller
+    // than 8 byte and having 8 byte alignment.
+    ClassLayout* layout = lcl->GetLayout();
+
+    if (layout->GetSize() > 16)
+    {
+        return false;
+    }
+
+    // Prolog codegen also handles the case of a single Vector3/4 field, that
+    // is passed in 2 registers.
+    if ((info.fieldCount == 1) && varTypeIsSIMD(info.fields[0].type))
+    {
+        return true;
+    }
+
+    layout->EnsureSysVAmd64AbiInfo(compiler);
+
+    if (info.fieldCount > layout->GetSysVAmd64AbiRegCount())
+    {
+        return false;
+    }
+
+    for (unsigned i = 0; i < info.fieldCount; i++)
+    {
+        const FieldInfo& field = info.fields[i];
+
+        if (field.offset % REGSIZE_BYTES != 0)
         {
             return false;
         }
