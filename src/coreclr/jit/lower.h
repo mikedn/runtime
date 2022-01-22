@@ -148,13 +148,13 @@ private:
     GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
 #endif
     void LowerJmpMethod(GenTree* jmp);
-    void LowerRet(GenTreeUnOp* ret);
+    void LowerReturn(GenTreeUnOp* ret);
     void LowerLclVar(GenTreeLclVar* lclVar);
     void LowerStoreLclVar(GenTreeLclVar* store);
     void LowerStoreLclVarArch(GenTreeLclVar* store);
     void LowerLclFld(GenTreeLclFld* lclFld);
     void LowerStoreLclFld(GenTreeLclFld* store);
-    void LowerRetStruct(GenTreeUnOp* ret);
+    void LowerStructReturn(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerStructCall(GenTreeCall* call);
 #ifndef WINDOWS_AMD64_ABI

@@ -11898,7 +11898,24 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             return;
         }
 
-        if (varTypeIsSIMD(val->GetType()) && val->OperIs(GT_LCL_FLD))
+        if (GenTreeCall* call = val->IsCall())
+        {
+            bool registersMatch = call->GetRegCount() == info.retDesc.GetRegCount();
+
+            for (unsigned i = 0; i < call->GetRegCount() && registersMatch; i++)
+            {
+                if (call->GetRetDesc()->GetRegNum(i) != info.retDesc.GetRegNum(i))
+                {
+                    registersMatch = false;
+                }
+            }
+
+            if (registersMatch)
+            {
+                return;
+            }
+        }
+        else if (val->OperIs(GT_LCL_FLD) && varTypeIsSIMD(val->GetType()))
         {
             val->AsLclFld()->SetLayout(info.GetRetLayout(), this);
         }

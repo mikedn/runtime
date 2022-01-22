@@ -232,7 +232,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_RETURN:
-            LowerRet(node->AsUnOp());
+            LowerReturn(node->AsUnOp());
             break;
 
         case GT_RETURNTRAP:
@@ -2174,15 +2174,15 @@ void Lowering::LowerJmpMethod(GenTree* jmp)
     }
 }
 
-void Lowering::LowerRet(GenTreeUnOp* ret)
+void Lowering::LowerReturn(GenTreeUnOp* ret)
 {
     assert(ret->OperIs(GT_RETURN));
 
     JITDUMPTREE(ret, "Lowering RETURN:\n");
 
-    if (ret->TypeIs(TYP_STRUCT))
+    if (varTypeIsStruct(ret->GetType()))
     {
-        LowerRetStruct(ret);
+        LowerStructReturn(ret);
     }
 
     // Method doing PInvokes has exactly one return block unless it has tail calls.
@@ -2408,11 +2408,16 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerRetStruct(GenTreeUnOp* ret)
+void Lowering::LowerStructReturn(GenTreeUnOp* ret)
 {
-    assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
+    assert(ret->OperIs(GT_RETURN) && varTypeIsStruct(ret->GetType()));
 
     GenTree* src = ret->GetOp(0);
+
+    if (src->IsMultiRegCall())
+    {
+        return;
+    }
 
     if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
