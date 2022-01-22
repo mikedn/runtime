@@ -11898,13 +11898,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             return;
         }
 
-        if (val->TypeIs(TYP_STRUCT) && val->OperIs(GT_IND))
-        {
-            val->ChangeOper(GT_OBJ);
-            val->AsObj()->SetLayout(info.GetRetLayout());
-            val->AsObj()->SetKind(StructStoreKind::Invalid);
-        }
-        else if (varTypeIsSIMD(val->GetType()) && val->OperIs(GT_LCL_FLD))
+        if (varTypeIsSIMD(val->GetType()) && val->OperIs(GT_LCL_FLD))
         {
             val->AsLclFld()->SetLayout(info.GetRetLayout(), this);
         }
