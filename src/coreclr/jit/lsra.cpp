@@ -6508,7 +6508,11 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
             // LSRA is agnostic to those choices but needs
             // to know what they are here.
             var_types type;
-            if (!treeNode->IsMultiRegNode())
+            if (treeNode->TypeIs(TYP_STRUCT) && treeNode->IsCall())
+            {
+                type = treeNode->AsCall()->GetRegType(refPosition->getMultiRegIdx());
+            }
+            else if (!treeNode->IsMultiRegNode())
             {
                 type = getDefType(treeNode);
             }

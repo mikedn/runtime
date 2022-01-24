@@ -1974,10 +1974,9 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
-    var_types  lclRegType = lcl->GetRegisterType(store);
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
+    if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -1985,6 +1984,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
+
+    var_types lclRegType = lcl->GetRegisterType(store);
 
 #ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)

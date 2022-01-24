@@ -2817,10 +2817,20 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         return false;
     }
 
+#ifndef TARGET_X86
+    // On x86 we need to keep multireg calls unchanged since there are no multireg
+    // args and thus no second arg morphing pass. This also avoids the need for a
+    // temp and it's good for CQ, even if that's not exactly useful on x86, given
+    // the limited use of the native calling convention.
+    // TODO-MIKE-CQ: Avoiding the temp would be good on other targets as well, but
+    // currently that doesn't work because the rest of the arg morphing code always
+    // spills arg containing calls to temps, even the first evaluated arg, that has
+    // no outgoing arg area interference.
     if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
     {
         return true;
     }
+#endif
 
     if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
     {

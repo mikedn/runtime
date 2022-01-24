@@ -1763,6 +1763,7 @@ public:
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
     GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
+    GenTreeAddrMode* ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset);
     // set gtOper and only keep GTF_COMMON_MASK flags
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     void ChangeOperUnchecked(genTreeOps oper);
@@ -6468,6 +6469,10 @@ enum class StructStoreKind : uint8_t
     UnrollCopyWB,
 #ifdef TARGET_XARCH
     UnrollCopyWBRepMovs,
+#endif
+    UnrollRegs,
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+    UnrollRegsWB,
 #endif
 
 #ifdef TARGET_X86

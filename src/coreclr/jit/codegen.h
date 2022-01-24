@@ -1226,7 +1226,10 @@ protected:
 #endif
     void GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout);
     void GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout);
-
+    void GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout);
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+    void GenStructStoreUnrollRegsWB(GenTreeObj* store);
+#endif
     void genJumpTable(GenTree* tree);
     void genTableBasedSwitch(GenTree* tree);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);

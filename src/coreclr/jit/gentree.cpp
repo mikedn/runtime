@@ -8335,6 +8335,45 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
     }
 }
 
+const char* StructStoreKindName(StructStoreKind kind)
+{
+    switch (kind)
+    {
+        case StructStoreKind::Invalid:
+            return "";
+        case StructStoreKind::UnrollInit:
+            return ("UnrollInit");
+        case StructStoreKind::UnrollCopy:
+            return ("UnrollCopy");
+        case StructStoreKind::UnrollCopyWB:
+            return "UnrollCopyWB";
+#ifdef TARGET_XARCH
+        case StructStoreKind::UnrollCopyWBRepMovs:
+            return "UnrollCopyWBRepMovs";
+        case StructStoreKind::RepStos:
+            return "RepStos";
+        case StructStoreKind::RepMovs:
+            return "RepMovs";
+#endif
+#ifndef TARGET_X86
+        case StructStoreKind::MemSet:
+            return "MemSet";
+        case StructStoreKind::MemCpy:
+            return "MemCpy";
+#endif
+#if FEATURE_MULTIREG_RET
+        case StructStoreKind::UnrollRegs:
+            return "UnrollRegs";
+#endif
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        case StructStoreKind::UnrollRegsWB:
+            return "UnrollRegsWB";
+#endif
+        default:
+            return "???";
+    }
+}
+
 //------------------------------------------------------------------------
 // gtDispLeaf: Print a child node to jitstdout.
 //
@@ -8807,41 +8846,9 @@ void Compiler::gtDispTree(GenTree*     tree,
 
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
-            switch (tree->AsBlk()->GetKind())
+            if (tree->AsBlk()->GetKind() != StructStoreKind::Invalid)
             {
-                case StructStoreKind::Invalid:
-                    break;
-                case StructStoreKind::UnrollInit:
-                    printf(" (UnrollInit)");
-                    break;
-                case StructStoreKind::UnrollCopy:
-                    printf(" (UnrollCopy)");
-                    break;
-                case StructStoreKind::UnrollCopyWB:
-                    printf(" (UnrollCopyWB)");
-                    break;
-#ifdef TARGET_XARCH
-                case StructStoreKind::UnrollCopyWBRepMovs:
-                    printf(" (UnrollCopyWBRepMovs)");
-                    break;
-                case StructStoreKind::RepStos:
-                    printf(" (RepStos)");
-                    break;
-                case StructStoreKind::RepMovs:
-                    printf(" (RepMovs)");
-                    break;
-#endif
-#ifndef TARGET_X86
-                case StructStoreKind::MemSet:
-                    printf(" (MemSet)");
-                    break;
-                case StructStoreKind::MemCpy:
-                    printf(" (MemCpy)");
-                    break;
-#endif
-                default:
-                    printf(" (\?\?\?)");
-                    break;
+                printf(" (%s)", StructStoreKindName(tree->AsBlk()->GetKind()));
             }
 
             gtDispCommonEndLine(tree);

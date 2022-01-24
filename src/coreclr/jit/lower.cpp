@@ -1223,7 +1223,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 
     assert(!arg->OperIs(GT_OBJ) || arg->TypeIs(TYP_STRUCT));
 
-    if (arg->TypeIs(TYP_STRUCT))
+    if (arg->TypeIs(TYP_STRUCT) && !arg->IsCall())
     {
         arg->SetContained();
     }
@@ -2209,10 +2209,6 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
     assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(!store->GetOp(0)->OperIs(GT_PHI));
 
-    JITDUMP("Lowering STORE_LCL_VAR (before):\n");
-    DISPTREERANGE(BlockRange(), store);
-    JITDUMP("\n");
-
     GenTree*   src = store->GetOp(0);
     LclVarDsc* lcl = comp->lvaGetDesc(store);
 
@@ -2251,101 +2247,25 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
         }
     }
 
-    if (store->TypeIs(TYP_STRUCT) && !srcIsMultiReg)
+    if (store->TypeIs(TYP_STRUCT))
     {
+        ClassLayout* layout = lcl->GetLayout();
+
         if (GenTreeCall* call = src->IsCall())
         {
-            ClassLayout* layout  = lcl->GetLayout();
-            var_types    regType = layout->GetRegisterType();
-
-#ifdef DEBUG
-#if defined(TARGET_XARCH) && !defined(UNIX_AMD64_ABI)
-            // Windows x64 doesn't have multireg returns,
-            // x86 uses it only for long return type, not for structs.
-            assert(layout->GetSlotCount() == 1);
-            assert(regType != TYP_UNDEF);
-#else
-            if (!lcl->lvIsHfa())
-            {
-                if (layout->GetSlotCount() > 1)
-                {
-                    assert(call->HasMultiRegRetVal());
-                }
-                else
-                {
-                    unsigned size = layout->GetSize();
-
-                    assert((size <= 8) || (size == 16));
-
-                    bool isPowerOf2    = (((size - 1) & size) == 0);
-                    bool isTypeDefined = (regType != TYP_UNDEF);
-
-                    assert(isPowerOf2 == isTypeDefined);
-                }
-            }
-#endif
-#endif // DEBUG
-
-#ifndef WINDOWS_AMD64_ABI
-            if ((call->GetRegCount() == 1) && (regType == TYP_UNDEF))
+            if (layout->GetSize() < call->GetRetLayout()->GetSize())
             {
                 store->SetOp(0, SpillStructCall(call, store));
-                LowerStoreLclVar(store);
-
-                return;
             }
-#endif
-        }
-        else
-        {
-            ClassLayout* layout  = lcl->GetLayout();
-            var_types    regType = layout->GetRegisterType();
-
-#if 0
-            if (regType == TYP_UNDEF)
-            {
-#endif
-            LowerStructStore(store, GetStructStoreKind(true, layout, src), layout);
-#if 0
-            }
-            else if (src->IsObj())
-            {
-                src->SetOper(GT_IND);
-                src->SetType(regType);
-
-                LowerIndir(src->AsIndir());
-            }
-            else if (src->IsLclFld())
-            {
-                src->SetType(regType);
-            }
-            else if (src->IsIntegralConst(0))
-            {
-                assert(varTypeIsIntegralOrI(regType) || varTypeIsSIMD(regType));
-
-                src->SetType(regType);
-
-#ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(regType))
-                {
-                    assert(regType == TYP_SIMD16);
-
-                    src->ChangeOper(GT_HWINTRINSIC);
-                    src->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_get_Zero, TYP_FLOAT, 16, 0);
-                }
-#endif
-            }
-#endif
 
             return;
         }
+
+        LowerStructStore(store, GetStructStoreKind(true, layout, src), layout);
+        return;
     }
 
     LowerStoreLclVarArch(store);
-
-    JITDUMP("Lowering STORE_LCL_VAR (after):\n");
-    DISPTREERANGE(BlockRange(), store);
-    JITDUMP("\n");
 }
 
 void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
@@ -2361,39 +2281,63 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 
     verifyLclFldDoNotEnregister(store->GetLclNum());
 
+    GenTree* value = store->GetOp(0);
+
     if (varTypeIsStruct(store->GetType()))
     {
-        if (GenTreeCall* call = store->GetOp(0)->IsCall())
-        {
-            if (call->GetRegCount() == 1)
-            {
-                var_types regType = call->GetRegType(0);
-                call->SetType(varActualType(regType));
+        ClassLayout* layout = store->GetLayout(comp);
 
-                if (varTypeSize(regType) <= store->GetLayout(comp)->GetSize())
+        if (GenTreeCall* call = value->IsCall())
+        {
+            unsigned size = varTypeIsSIMD(store->GetType()) ? varTypeSize(store->GetType()) : layout->GetSize();
+
+            if ((call->GetRegCount() == 1) && (varTypeSize(call->GetRegType(0)) <= size))
+            {
+                call->SetType(call->GetRegType(0));
+                store->SetType(call->GetType());
+
+                return;
+            }
+
+            if ((call->GetRegCount() > 1) && varTypeIsSIMD(store->GetType()))
+            {
+                // TODO-MIKE-Cleanup: SIMD stores are a bit of a problem - sometimes the layout
+                // is missing. It may be possible to get things to work without layout but that
+                // would likely complicate the already complicated struct store handling even
+                // more. We'll just use call's layout, provided that it has the same SIMD type.
+                // It's unlikely to get type mismatches like SIMD16/SIMD12 in this case. If it
+                // happens then just spill the call so we get a "pure" SIMD load/store.
+                // Still, it may be better to try to preserve the layout for Vector2/3/4 types.
+
+                if (call->GetType() == store->GetType())
                 {
-                    store->SetType(regType);
-                    return;
+                    layout = call->GetRetLayout();
+                    store->SetLayout(layout, comp);
+                    store->SetType(TYP_STRUCT);
+                    call->SetType(TYP_STRUCT);
+                }
+                else
+                {
+                    size = 0;
                 }
             }
 
-#ifdef WINDOWS_AMD64_ABI
-            unreached();
-#else
-            store->SetOp(0, SpillStructCall(call, store));
-#endif
+            if (size < call->GetRetLayout()->GetSize())
+            {
+                store->SetOp(0, SpillStructCall(call, store));
+            }
+
+            return;
         }
-    }
 
-    GenTree* value = store->GetOp(0);
+        if (store->TypeIs(TYP_STRUCT))
+        {
+            ClassLayout*    layout = store->GetLayout(comp);
+            StructStoreKind kind   = GetStructStoreKind(true, layout, value);
+            LowerStructStore(store, kind, layout);
 
-    if (store->TypeIs(TYP_STRUCT))
-    {
-        ClassLayout*    layout = store->GetLayout(comp);
-        StructStoreKind kind   = GetStructStoreKind(true, layout, value);
-        LowerStructStore(store, kind, layout);
-
-        return;
+            return;
+        }
     }
 
     assert(varTypeUsesFloatReg(store->GetType()) == varTypeUsesFloatReg(value->GetType()));
@@ -2605,10 +2549,7 @@ void Lowering::LowerStructCall(GenTreeCall* call)
         return;
     }
 
-    var_types regType  = call->GetRegType(0);
-    var_types callType = call->GetType();
-
-    call->SetType(varActualType(regType));
+    var_types regType = call->GetRegType(0);
 
     LIR::Use callUse;
     if (BlockRange().TryGetUse(call, &callUse))
@@ -2617,14 +2558,18 @@ void Lowering::LowerStructCall(GenTreeCall* call)
         switch (user->OperGet())
         {
             case GT_RETURN:
+                call->SetType(varActualType(regType));
+                break;
+
             case GT_STORE_LCL_VAR:
-            case GT_STORE_OBJ:
             case GT_STORE_LCL_FLD:
+            case GT_STORE_OBJ:
                 // Leave as is, the user will handle it.
-                assert(user->TypeIs(callType) || varTypeIsSIMD(user->GetType()));
+                assert(user->TypeIs(call->GetType()) || varTypeIsSIMD(user->GetType()));
                 break;
 
             case GT_STOREIND:
+                call->SetType(varActualType(regType));
 #ifdef FEATURE_SIMD
                 if (varTypeIsSIMD(user->GetType()))
                 {
@@ -2645,35 +2590,19 @@ void Lowering::LowerStructCall(GenTreeCall* call)
     }
 }
 
-#ifndef WINDOWS_AMD64_ABI
-
-// Spill a call return value to a temp, to handle multireg and "odd" sized
-// (3, 5, 6, 7 bytes) struct returns.
-// TODO-1stClassStructs: we can support this in codegen for STORE_OBJ without new temps.
-GenTreeLclVar* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
+// Spill a call return value to a temp, to handle odd cases where the call return registers
+// cannot be stored directly for various reasons - x86 multireg return that needs GC barriers,
+// HFAs that somehow got truncated etc.
+GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 {
-    unsigned   lclNum = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("struct call return temp"));
+    unsigned   lclNum = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd struct call return temp"));
     LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
-    GenTree*   store;
-
-    if (call->GetRegCount() > 1)
-    {
-        store = comp->gtNewStoreLclVar(lclNum, lcl->GetType(), call);
-    }
-    else
-    {
-        assert(varTypeIsIntegral(call->GetType()));
-        store = comp->gtNewStoreLclFld(call->GetType(), lclNum, 0, call);
-        comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
-    }
-
-    GenTreeLclVar* load = comp->gtNewLclvNode(lclNum, lcl->GetType());
+    GenTree*   store  = comp->gtNewStoreLclVar(lclNum, lcl->GetType(), call);
+    GenTree*   load   = comp->gtNewLclvNode(lclNum, lcl->GetType());
     BlockRange().InsertAfter(call, store);
     BlockRange().InsertBefore(user, load);
     return load;
 }
-
-#endif // !WINDOWS_AMD64_ABI
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 {
@@ -5881,7 +5810,15 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
         {
             assert(varTypeIsSIMD(store->GetType()) && varTypeIsSIMD(call->GetType()));
 
-            store->SetValue(SpillStructCall(call, store));
+            call->SetType(TYP_STRUCT);
+
+            store->SetOper(GT_STORE_OBJ);
+            store->SetType(TYP_STRUCT);
+            store->AsObj()->SetLayout(call->GetRetLayout());
+
+            LowerStoreObj(store->AsObj());
+
+            return;
         }
     }
 #endif
@@ -5898,37 +5835,55 @@ void Lowering::LowerStoreObj(GenTreeObj* store)
 {
     assert(store->OperIs(GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
 
-    if (GenTreeCall* call = store->GetValue()->IsCall())
-    {
-        if (call->GetRegCount() == 1)
-        {
-            var_types regType = call->GetRegType(0);
-            call->SetType(varActualType(regType));
+    GenTree*     value  = store->GetValue();
+    ClassLayout* layout = store->GetLayout();
 
-            if (varTypeSize(regType) <= store->GetLayout()->GetSize())
+    if (GenTreeCall* call = value->IsCall())
+    {
+        if ((call->GetRegCount() == 1) && (varTypeSize(call->GetRegType(0)) <= layout->GetSize()))
+        {
+            call->SetType(call->GetRegType(0));
+
+            store->SetOper(GT_STOREIND);
+            store->SetType(call->GetType());
+            LowerStoreIndir(store->AsStoreInd());
+
+            return;
+        }
+
+        if (layout->GetSize() >= call->GetRetLayout()->GetSize())
+        {
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+            if (layout->HasGCPtr())
             {
-                store->SetOper(GT_STOREIND);
-                store->SetType(regType);
-                LowerStoreIndir(store->AsStoreInd());
+                store->SetKind(StructStoreKind::UnrollRegsWB);
+                ContainStructStoreAddressUnrollRegsWB(store->GetAddr());
 
                 return;
             }
+#endif
+
+#if FEATURE_MULTIREG_RET
+            if (!layout->HasGCPtr())
+            {
+                store->SetKind(StructStoreKind::UnrollRegs);
+                ContainStructStoreAddress(store, layout->GetSize(), store->GetAddr());
+
+                return;
+            }
+#endif
         }
 
-#ifdef WINDOWS_AMD64_ABI
-        unreached();
-#else
         store->SetValue(SpillStructCall(call, store));
-#endif
     }
     else if (TryTransformStoreObjToStoreInd(store))
     {
         return;
     }
 
-    StructStoreKind kind = GetStructStoreKind(false, store->GetLayout(), store->GetValue());
+    StructStoreKind kind = GetStructStoreKind(false, layout, value);
     store->SetKind(kind);
-    LowerStructStore(store, kind, store->GetLayout());
+    LowerStructStore(store, kind, layout);
 }
 
 void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
@@ -5956,7 +5911,7 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
 
         if ((kind == StructStoreKind::UnrollInit) || (kind == StructStoreKind::UnrollCopy))
         {
-            ContainBlockStoreAddress(store, layout->GetSize(), dstAddr);
+            ContainStructStoreAddress(store, layout->GetSize(), dstAddr);
         }
     }
 
@@ -5997,7 +5952,7 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
     {
         if (kind == StructStoreKind::UnrollCopy)
         {
-            ContainBlockStoreAddress(store, layout->GetSize(), src->AsObj()->GetAddr());
+            ContainStructStoreAddress(store, layout->GetSize(), src->AsObj()->GetAddr());
         }
 #ifdef TARGET_XARCH
         else
@@ -6091,7 +6046,7 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
 
             src->AsIntCon()->SetValue(fill);
 
-            ContainBlockStoreAddress(store, size, dstAddr);
+            ContainStructStoreAddress(store, size, dstAddr);
         }
     }
     else
@@ -6118,10 +6073,10 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
 
             if (src->OperIs(GT_BLK))
             {
-                ContainBlockStoreAddress(store, size, src->AsBlk()->GetAddr());
+                ContainStructStoreAddress(store, size, src->AsBlk()->GetAddr());
             }
 
-            ContainBlockStoreAddress(store, size, dstAddr);
+            ContainStructStoreAddress(store, size, dstAddr);
         }
     }
 }

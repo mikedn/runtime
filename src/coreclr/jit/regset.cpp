@@ -288,6 +288,10 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
         call     = tree->AsCall();
         treeType = call->GetRegType(regIdx);
     }
+    else if (tree->TypeIs(TYP_STRUCT) && tree->IsCall())
+    {
+        treeType = tree->AsCall()->GetRegType(0);
+    }
 #ifdef TARGET_ARM
     else if (tree->OperIsPutArgSplit())
     {

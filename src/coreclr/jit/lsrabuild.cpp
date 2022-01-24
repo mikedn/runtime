@@ -896,6 +896,11 @@ regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
 {
     switch (kind)
     {
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        case StructStoreKind::UnrollRegsWB:
+            return compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
+#endif
+
         case StructStoreKind::UnrollCopyWB:
 #ifdef TARGET_XARCH
         case StructStoreKind::UnrollCopyWBRepMovs:
@@ -904,6 +909,9 @@ regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
 
         case StructStoreKind::UnrollInit:
         case StructStoreKind::UnrollCopy:
+#if FEATURE_MULTIREG_RET
+        case StructStoreKind::UnrollRegs:
+#endif
             return RBM_NONE;
 
 #ifndef TARGET_X86
@@ -2730,6 +2738,11 @@ RefPosition* LinearScan::BuildDef(GenTree* tree, regMaskTP dstCandidates, int mu
         type = tree->GetRegTypeByIndex(multiRegIdx);
     }
 
+    return BuildDef(tree, type, dstCandidates, multiRegIdx);
+}
+
+RefPosition* LinearScan::BuildDef(GenTree* tree, var_types type, regMaskTP dstCandidates, int multiRegIdx)
+{
     if (varTypeUsesFloatReg(type))
     {
         compiler->compFloatingPointUsed = true;
@@ -3325,8 +3338,6 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 
     if (src->IsMultiRegNode())
     {
-        assert(store->OperIs(GT_STORE_LCL_VAR));
-
         srcCount = src->GetMultiRegCount(compiler);
 
         for (int i = 0; i < srcCount; ++i)
@@ -3335,7 +3346,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         }
 
 #ifdef TARGET_X86
-        if (src->IsCall() && src->TypeIs(TYP_SIMD8))
+        if (isCandidateVar(lcl) && src->IsCall() && src->TypeIs(TYP_SIMD8))
         {
             BuildInternalFloatDef(store, allSIMDRegs());
             setInternalRegsDelayFree = true;
@@ -3425,9 +3436,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     }
 #endif
 
-#if defined(FEATURE_SIMD) || defined(TARGET_ARM)
     BuildInternalUses();
-#endif
 
     if (isCandidateVar(lcl))
     {

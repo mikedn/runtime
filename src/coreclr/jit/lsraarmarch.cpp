@@ -309,11 +309,11 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
     else
 #endif
-        if (call->HasMultiRegRetVal())
+        if (call->HasMultiRegRetVal() || varTypeIsStruct(call->GetType()))
     {
         for (unsigned i = 0; i < call->GetRegCount(); i++)
         {
-            BuildDef(call, genRegMask(call->GetRetDesc()->GetRegNum(i)), i);
+            BuildDef(call, call->GetRegType(i), genRegMask(call->GetRetDesc()->GetRegNum(i)), i);
         }
     }
     else if (varTypeUsesFloatReg(call->GetType()))
@@ -478,6 +478,13 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
 int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
+#ifdef TARGET_ARM64
+    if (kind == StructStoreKind::UnrollRegsWB)
+    {
+        return BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+    }
+#endif
+
     GenTree* dstAddr = nullptr;
     GenTree* src;
 
@@ -493,7 +500,11 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
 
     GenTree* srcAddrOrFill = nullptr;
 
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    if (kind == StructStoreKind::UnrollRegs)
+    {
+        assert(src->IsCall());
+    }
+    else if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         if (src->OperIs(GT_INIT_VAL))
         {
@@ -521,6 +532,7 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
 
     switch (kind)
     {
+        case StructStoreKind::UnrollRegs:
         case StructStoreKind::UnrollInit:
             break;
 
@@ -596,7 +608,17 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
         }
     }
 
-    if (srcAddrOrFill != nullptr)
+    if (kind == StructStoreKind::UnrollRegs)
+    {
+        unsigned regCount = src->AsCall()->GetRegCount();
+        useCount += regCount;
+
+        for (unsigned i = 0; i < regCount; i++)
+        {
+            BuildUse(src, RBM_NONE, i);
+        }
+    }
+    else if (srcAddrOrFill != nullptr)
     {
         if (!srcAddrOrFill->isContained())
         {
@@ -613,6 +635,38 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
     BuildKills(store, getKillSetForStructStore(kind));
 
     return useCount;
+}
+
+int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+{
+#ifndef TARGET_ARM64
+    unreached();
+#else
+    assert(layout == store->GetLayout());
+    assert(layout->GetSlotCount() == 2);
+
+    GenTree*     addr  = store->GetAddr();
+    GenTreeCall* value = store->GetValue()->AsCall();
+
+    assert(value->GetRegCount() == 2);
+
+    if (!addr->isContained())
+    {
+        BuildUse(addr);
+    }
+    else if (GenTreeAddrMode* am = addr->IsAddrMode())
+    {
+        BuildUse(am->GetBase());
+        assert(am->GetIndex() == nullptr);
+    }
+
+    BuildUse(value, RBM_NONE, 0);
+    BuildUse(value, RBM_NONE, 1);
+    BuildInternalUses();
+    BuildKills(store, compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF));
+
+    return 3;
+#endif
 }
 
 //------------------------------------------------------------------------

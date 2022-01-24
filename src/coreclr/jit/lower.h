@@ -157,9 +157,7 @@ private:
     void LowerStructReturn(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerStructCall(GenTreeCall* call);
-#ifndef WINDOWS_AMD64_ABI
-    GenTreeLclVar* SpillStructCall(GenTreeCall* call, GenTree* user);
-#endif
+    GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerIndirectNonvirtCall(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
@@ -312,7 +310,8 @@ private:
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void LowerStoreObj(GenTreeObj* store);
     void LowerStoreBlk(GenTreeBlk* store);
-    void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
+    void ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr);
+    void ContainStructStoreAddressUnrollRegsWB(GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
 
 #ifdef TARGET_ARM64

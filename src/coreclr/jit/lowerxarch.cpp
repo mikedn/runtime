@@ -149,21 +149,18 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
     ContainCheckStoreIndir(store);
 }
 
-//------------------------------------------------------------------------
-// ContainBlockStoreAddress: Attempt to contain an address used by a block store.
-//
-// Arguments:
-//    store - the block store node - STORE_BLK|OBJ or PUTARG_STK
-//    size - the block size
-//    addr - the address node to try to contain
-//
-void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
+void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(
-        store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
-        (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
-                                                       (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))) ||
-        store->OperIs(GT_PUTARG_STK));
+#if FEATURE_MULTIREG_RET
+    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
+           (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
+                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
+                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs))));
+#else
+    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
+           (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
+                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))));
+#endif
 
     assert(size < INT32_MAX);
 
@@ -233,6 +230,40 @@ void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* 
     }
 
     addrMode->SetContained();
+}
+
+void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
+{
+    if (!addr->OperIs(GT_ADD) || addr->gtOverflow())
+    {
+        return;
+    }
+
+    int offset;
+
+    if (GenTreeIntCon* intCon = addr->AsOp()->GetOp(1)->IsIntCon())
+    {
+        if (intCon->GetValue() > INT32_MAX - TARGET_POINTER_SIZE)
+        {
+            return;
+        }
+
+        if (intCon->GetValue() < INT32_MIN)
+        {
+            return;
+        }
+
+        offset = intCon->GetInt32Value();
+
+        BlockRange().Remove(intCon);
+    }
+    else
+    {
+        return;
+    }
+
+    addr->ChangeToAddrMode(addr->AsOp()->GetOp(0), nullptr, 1, offset);
+    addr->SetContained();
 }
 
 void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
@@ -319,6 +350,13 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // TARGET_X86
         return;
     }
+
+#ifdef TARGET_X86
+    if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
+    {
+        return;
+    }
+#endif
 
     if (src->TypeIs(TYP_STRUCT))
     {
@@ -446,7 +484,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
         if (src->OperIs(GT_OBJ))
         {
-            ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+            ContainStructStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
         }
 
         return;

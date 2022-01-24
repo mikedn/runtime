@@ -1287,6 +1287,21 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
     return lclFld;
 }
 
+inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset)
+{
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_LEA);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+
+    GenTreeAddrMode* addrMode = AsAddrMode();
+    addrMode->SetBase(base);
+    addrMode->SetIndex(index);
+    addrMode->SetScale(scale);
+    addrMode->SetOffset(offset);
+    return addrMode;
+}
+
 inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
     assert(!OperIsConst(oper)); // use ChangeOperConst() instead
