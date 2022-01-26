@@ -2307,7 +2307,6 @@ void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
                 // more. We'll just use call's layout, provided that it has the same SIMD type.
                 // It's unlikely to get type mismatches like SIMD16/SIMD12 in this case. If it
                 // happens then just spill the call so we get a "pure" SIMD load/store.
-                // Still, it may be better to try to preserve the layout for Vector2/3/4 types.
 
                 if (call->GetType() == store->GetType())
                 {

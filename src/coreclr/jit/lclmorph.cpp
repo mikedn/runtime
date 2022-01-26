@@ -2074,21 +2074,29 @@ private:
         assert(structLcl->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
+        ClassLayout* fieldLayout = nullptr;
+
         if (GenTreeLclFld* lclFld = structLcl->IsLclFld())
         {
             lclFld->SetType(type);
-            lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type));
+            lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type, &fieldLayout));
+            lclFld->SetLayoutNum(0);
         }
         else
         {
             assert(structLcl->OperIs(GT_LCL_VAR));
 
             LclVarDsc*    lcl      = m_compiler->lvaGetDesc(structLcl);
-            FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type);
+            FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
 
             structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
 
             m_compiler->lvaSetVarDoNotEnregister(structLcl->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+        }
+
+        if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
+        {
+            structLcl->AsLclFld()->SetLayout(fieldLayout, m_compiler);
         }
 
         return structLcl;
@@ -2114,7 +2122,8 @@ private:
 
         if (addrLayout != nullptr)
         {
-            FieldSeqNode* fieldSeq = GetFieldSequence(addrLayout->GetClassHandle(), type);
+            ClassLayout*  fieldLayout;
+            FieldSeqNode* fieldSeq = GetFieldSequence(addrLayout->GetClassHandle(), type, &fieldLayout);
 
             if (fieldSeq->IsField())
             {
@@ -2122,9 +2131,8 @@ private:
                 {
                     // TODO-MIKE-Cleanup: It may be good to set the layout on these FIELD_ADDRs
                     // for the sake of consistency, though at this point nothing needs it.
-                    // The problem is that we don't have an easy way to obtain it. We could get
-                    // it by querying the field type from the handle but that's not precise when
-                    // generics are involved.
+                    // gtNewFieldIndir always produces an IND for SIMD types, even though it may
+                    // be better to produce an OBJ with the correct layout.
                     addr = m_compiler->gtNewFieldAddr(addr, fieldSeq->GetFieldHandle(), 0);
                 }
 
@@ -2153,13 +2161,15 @@ private:
         return ft == TYP_STRUCT ? fc : nullptr;
     }
 
-    FieldSeqNode* GetFieldSequence(CORINFO_CLASS_HANDLE classHandle, var_types fieldType)
+    FieldSeqNode* GetFieldSequence(CORINFO_CLASS_HANDLE classHandle, var_types fieldType, ClassLayout** fieldLayout)
     {
         assert(fieldType != TYP_STRUCT);
 
         ICorJitInfo*         vm       = m_compiler->info.compCompHnd;
         FieldSeqNode*        fieldSeq = nullptr;
         CORINFO_FIELD_HANDLE fieldHandle;
+
+        *fieldLayout = nullptr;
 
         for (var_types classType = TYP_STRUCT; classType == TYP_STRUCT;)
         {
@@ -2190,6 +2200,8 @@ private:
                 {
                     classType = layout->GetSIMDType();
                 }
+
+                *fieldLayout = layout;
             }
 #endif
 
@@ -2209,7 +2221,7 @@ private:
         return fieldSeq;
     }
 
-    FieldSeqNode* ExtendFieldSequence(FieldSeqNode* fieldSeq, var_types fieldType)
+    FieldSeqNode* ExtendFieldSequence(FieldSeqNode* fieldSeq, var_types fieldType, ClassLayout** fieldLayout)
     {
         if ((fieldSeq == nullptr) || !fieldSeq->IsField())
         {
@@ -2223,7 +2235,7 @@ private:
             return FieldSeqNode::NotAField();
         }
 
-        return m_compiler->GetFieldSeqStore()->Append(fieldSeq, GetFieldSequence(classHandle, fieldType));
+        return m_compiler->GetFieldSeqStore()->Append(fieldSeq, GetFieldSequence(classHandle, fieldType, fieldLayout));
     }
 
     static bool CanBitCastTo(var_types type)

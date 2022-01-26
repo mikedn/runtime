@@ -1283,6 +1283,7 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
     lclFld->SetType(type);
     lclFld->SetLclNum(lclNum);
     lclFld->SetLclOffs(offset);
+    lclFld->SetLayoutNum(0);
     lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
     return lclFld;
 }
