@@ -921,6 +921,83 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
+void Compiler::impAddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
+{
+    assert(call->TreatAsHasRetBufArg());
+    assert(retBufAddr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
+    if (call->IsUnmanaged())
+    {
+        if (callConvIsInstanceMethodCallConv(call->GetUnmanagedCallConv()))
+        {
+#ifdef TARGET_X86
+            // The argument list has already been reversed.
+            // Insert the return buffer as the second-to-last node
+            // so it will be pushed on to the stack after the user args but before the native this arg
+            // as required by the native ABI.
+            GenTreeCall::Use* lastArg = call->gtCallArgs;
+            if (lastArg == nullptr)
+            {
+                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+            }
+            else if (call->GetUnmanagedCallConv() == CorInfoCallConvExtension::Thiscall)
+            {
+                // For thiscall, the "this" parameter is not included in the argument list reversal,
+                // so we need to put the return buffer as the last parameter.
+                for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
+                    ;
+                gtInsertNewCallArgAfter(retBufAddr, lastArg);
+            }
+            else if (lastArg->GetNext() == nullptr)
+            {
+                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, lastArg);
+            }
+            else
+            {
+                assert(lastArg != nullptr && lastArg->GetNext() != nullptr);
+                GenTreeCall::Use* secondLastArg = lastArg;
+                lastArg                         = lastArg->GetNext();
+                for (; lastArg->GetNext() != nullptr; secondLastArg = lastArg, lastArg = lastArg->GetNext())
+                    ;
+                assert(secondLastArg->GetNext() != nullptr);
+                gtInsertNewCallArgAfter(retBufAddr, secondLastArg);
+            }
+#else
+            gtInsertNewCallArgAfter(retBufAddr, call->gtCallArgs);
+#endif
+        }
+        else
+        {
+#ifndef TARGET_X86
+            call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+#else
+            // The argument list has already been reversed.
+            // Insert the return buffer as the last node so it will be pushed on to the stack last
+            // as required by the native ABI.
+            GenTreeCall::Use* lastArg = call->gtCallArgs;
+            if (lastArg == nullptr)
+            {
+                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+            }
+            else
+            {
+                for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
+                    ;
+                gtInsertNewCallArgAfter(retBufAddr, lastArg);
+            }
+#endif
+        }
+    }
+    else
+#endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
+    {
+        call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+    }
+
+    call->SetType(TYP_VOID);
+}
+
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR) ||
@@ -930,84 +1007,13 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
     // is passed to the call as the return buffer address and no assignment is
     // generated.
 
-    if (src->OperIs(GT_CALL))
+    if (GenTreeCall* call = src->IsCall())
     {
-        GenTreeCall* call = src->AsCall();
-
         if (call->TreatAsHasRetBufArg())
         {
-#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-            if (call->IsUnmanaged())
-            {
-                if (callConvIsInstanceMethodCallConv(call->GetUnmanagedCallConv()))
-                {
-#ifdef TARGET_X86
-                    // The argument list has already been reversed.
-                    // Insert the return buffer as the second-to-last node
-                    // so it will be pushed on to the stack after the user args but before the native this arg
-                    // as required by the native ABI.
-                    GenTreeCall::Use* lastArg = call->gtCallArgs;
-                    if (lastArg == nullptr)
-                    {
-                        call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-                    }
-                    else if (call->GetUnmanagedCallConv() == CorInfoCallConvExtension::Thiscall)
-                    {
-                        // For thiscall, the "this" parameter is not included in the argument list reversal,
-                        // so we need to put the return buffer as the last parameter.
-                        for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
-                            ;
-                        gtInsertNewCallArgAfter(destAddr, lastArg);
-                    }
-                    else if (lastArg->GetNext() == nullptr)
-                    {
-                        call->gtCallArgs = gtPrependNewCallArg(destAddr, lastArg);
-                    }
-                    else
-                    {
-                        assert(lastArg != nullptr && lastArg->GetNext() != nullptr);
-                        GenTreeCall::Use* secondLastArg = lastArg;
-                        lastArg                         = lastArg->GetNext();
-                        for (; lastArg->GetNext() != nullptr; secondLastArg = lastArg, lastArg = lastArg->GetNext())
-                            ;
-                        assert(secondLastArg->GetNext() != nullptr);
-                        gtInsertNewCallArgAfter(destAddr, secondLastArg);
-                    }
-#else
-                    gtInsertNewCallArgAfter(destAddr, call->gtCallArgs);
-#endif
-                }
-                else
-                {
-#ifndef TARGET_X86
-                    call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-#else
-                    // The argument list has already been reversed.
-                    // Insert the return buffer as the last node so it will be pushed on to the stack last
-                    // as required by the native ABI.
-                    GenTreeCall::Use* lastArg = call->gtCallArgs;
-                    if (lastArg == nullptr)
-                    {
-                        call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-                    }
-                    else
-                    {
-                        for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
-                            ;
-                        gtInsertNewCallArgAfter(destAddr, lastArg);
-                    }
-#endif
-                }
-            }
-            else
-#endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-            {
-                call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-            }
+            impAddCallRetBufArg(call, destAddr);
 
-            call->SetType(TYP_VOID);
-
-            return src;
+            return call;
         }
     }
     else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
@@ -1018,11 +1024,10 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
         if (call->TreatAsHasRetBufArg())
         {
-            call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-            call->SetType(TYP_VOID);
-            src->SetType(TYP_VOID);
+            impAddCallRetBufArg(call, destAddr);
+            retExpr->SetType(TYP_VOID);
 
-            return src;
+            return retExpr;
         }
     }
 
