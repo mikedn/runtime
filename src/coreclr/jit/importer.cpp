@@ -606,7 +606,7 @@ void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
     lvaSetStruct(lclNum, layout, false);
 
     GenTree* dest = gtNewLclvNode(lclNum, lcl->GetType());
-    GenTree* asg  = impAssignStruct(dest, val, layout, curLevel);
+    GenTree* asg  = impAssignStruct(dest, val, curLevel);
     impAppendTree(asg, curLevel, impCurStmtOffs);
 }
 
@@ -1044,7 +1044,7 @@ GenTree* Compiler::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
     return gtNewAssignNode(typeField, mkRefAny->GetOp(1));
 }
 
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
+GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel)
 {
     assert(
         (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
@@ -5033,7 +5033,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
             ClassLayout* layout = typGetObjLayout(operCls);
             assert(info.compCompHnd->getClassSize(pResolvedToken->hClass) == layout->GetSize());
             op1 = gtNewObjNode(layout, op1);
-            op1 = impAssignStruct(op1, exprToBox, layout, CHECK_SPILL_ALL);
+            op1 = impAssignStruct(op1, exprToBox, CHECK_SPILL_ALL);
         }
         else
         {
@@ -6089,21 +6089,7 @@ GenTree* Compiler::impImportLdSFld(OPCODE                    opcode,
         {
             // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
             // address (we always get an IND/OBJ for a static struct field load). They would be
-            // later transformed by impAssignStructAddr/impCanonicalizeStructCallArg, resulting
-            // redundant work or less than ideal trees.
-            //
-            // impCanonicalizeStructCallArg attempts to sink the COMMA below the indir so we get
-            // the same result by simply doing that here.
-            //
-            // impAssignStructAddr tries to be clever and instead appends the side effect as a
-            // separate statement, or hoists the COMMA above the assignment it generates.
-            // Neither is quite right:
-            //   - Type initialization will happen before whatever side effects the assignment
-            //     destination address has.
-            //   - Static field load loop hoisting depends on the type initialization helper
-            //     call being present in the tree, if it's in a separate statement it doesn't
-            //     know if it's safe to hoist the load.
-            //     This actually prevented hoisting of static SIMD field loads.
+            // later transformed by fgMorphStructComma anyway.
             //
             // Extracting the helper call to a separate statement does have some advantages:
             //   - Avoids "poisoning" the entire tree with side effects from the helper call.
@@ -6111,6 +6097,9 @@ GenTree* Compiler::impImportLdSFld(OPCODE                    opcode,
             //     import so it doesn't really matter.
             //   - Avoids poor register allocation due to a call appearing inside the tree.
             //     PMI diff does show a few diffs caused by register allocation changes.
+            // However, loop hoisting depends on the type initialization helper call being
+            // present in the tree, if it's in a separate statement it doesn't know if it's
+            // safe to hoist the load.
 
             // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
             // extract the helper call to a separate statement without worrying about side effect
@@ -6229,7 +6218,7 @@ GenTree* Compiler::impImportStSFld(GenTree*                  value,
             impAppendTree(helperNode, CHECK_SPILL_NONE, impCurStmtOffs);
         }
 
-        field = impAssignStruct(field, value, typGetObjLayout(valueStructType), CHECK_SPILL_NONE);
+        field = impAssignStruct(field, value, CHECK_SPILL_NONE);
     }
     else
     {
@@ -10038,15 +10027,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsStruct(lclTyp))
                 {
-#ifdef FEATURE_SIMD
-                    if (varTypeIsSIMD(lclTyp) && (lclTyp != op1->GetType()))
-                    {
-                        assert(op1->TypeGet() == TYP_STRUCT);
-                        op1->gtType = lclTyp;
-                    }
-#endif
-
-                    op1 = impAssignStruct(op2, op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -10601,7 +10582,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
 
                     op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
-                    op1 = impAssignStruct(op1, op2, layout, CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op1, op2, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -12440,7 +12421,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    op1 = impAssignStruct(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_NONE);
+                    op1 = impAssignStruct(op1, op2, CHECK_SPILL_NONE);
                 }
                 else
                 {
@@ -13052,7 +13033,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
                         op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op1 = impAssignStruct(op2, op1, layout, CHECK_SPILL_ALL);
+                        op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
                         op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
                         op1 = gtNewCommaNode(op1, op2);
                     }
@@ -13081,11 +13062,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // the same helper is used for all struct types.
                 // Doing this here is bad for CQ when the destination is a memory location,
                 // because we introduce a temp instead of just passing in the address of
-                // that location. impAssignStructAddr (TreatAsHasRetBufArg) already handles
+                // that location. impAssignStruct (TreatAsHasRetBufArg) already handles
                 // this case so there's no real need to do this here.
                 // Adding a temp when the destination is a promotable struct local might
                 // be useful because it avoids dependent promotion. But's probably something
-                // that impAssignStructAddr could handle as well.
+                // that impAssignStruct could handle as well.
 
                 ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
                 StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
@@ -13101,7 +13082,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
                     op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                    op1 = impAssignStruct(op2, op1, layout, CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
                     op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
                     op1 = gtNewCommaNode(op1, op2);
 
@@ -13355,7 +13336,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(varTypeIsStruct(op2));
 
                 op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
-                op1 = impAssignStruct(op1, op2, typGetObjLayout(resolvedToken.hClass), CHECK_SPILL_ALL);
+                op1 = impAssignStruct(op1, op2, CHECK_SPILL_ALL);
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
@@ -13372,7 +13353,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     else
                     {
-                        // It's possible that impAssignStructAddr returned a CALL node (struct returned
+                        // It's possible that impAssignStruct returned a CALL node (struct returned
                         // via return buffer). We're ignoring the unaligned prefix in this case.
 
                         // TODO-MIKE-Consider: We should probably introduce a temp, pass that as
@@ -13710,7 +13691,8 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
         {
             GenTree* retBuffAddr  = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
             GenTree* retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
-            value                 = impAssignStruct(retBuffIndir, value, info.GetRetLayout(), CHECK_SPILL_ALL);
+            value                 = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
+
             impAppendTree(value, CHECK_SPILL_NONE, impCurStmtOffs);
 
             if (info.retDesc.GetRegCount() == 0)
@@ -14111,21 +14093,17 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 }
             }
 
+            GenTree* dst = gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType());
             GenTree* asg;
 
             if (varTypeIsStruct(spillTempLcl->GetType()))
             {
-                // TODO-MIKE-Cleanup: Spill temp's layout should be used but doing so results in
-                // asserts in impAssignStructAddr due to A<Canon>/A<SomeRefClass> mismatches.
-                ClassLayout* treeLayout = typGetObjLayout(verCurrentState.esStack[level].seTypeInfo.GetClassHandle());
-
-                asg = impAssignStruct(gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType()), tree, treeLayout,
-                                      CHECK_SPILL_NONE);
+                asg = impAssignStruct(dst, tree, CHECK_SPILL_NONE);
                 assert(!asg->IsNothingNode());
             }
             else
             {
-                asg = gtNewAssignNode(gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType()), tree);
+                asg = gtNewAssignNode(dst, tree);
             }
 
             impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
