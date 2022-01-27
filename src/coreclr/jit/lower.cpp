@@ -5853,7 +5853,7 @@ void Lowering::LowerStoreObj(GenTreeObj* store)
         if (layout->GetSize() >= call->GetRetLayout()->GetSize())
         {
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-            if (layout->HasGCPtr())
+            if (layout->HasGCRef())
             {
                 store->SetKind(StructStoreKind::UnrollRegsWB);
                 ContainStructStoreAddressUnrollRegsWB(store->GetAddr());
@@ -5863,7 +5863,7 @@ void Lowering::LowerStoreObj(GenTreeObj* store)
 #endif
 
 #if FEATURE_MULTIREG_RET
-            if (!layout->HasGCPtr())
+            if (!layout->HasGCRef())
             {
                 store->SetKind(StructStoreKind::UnrollRegs);
                 ContainStructStoreAddress(store, layout->GetSize(), store->GetAddr());

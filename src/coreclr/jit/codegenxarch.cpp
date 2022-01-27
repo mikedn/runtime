@@ -2489,7 +2489,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
     if (varTypeIsStruct(src->GetType()) && src->IsCall())
     {
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-        return isLocalStore || !layout->HasGCPtr() ? StructStoreKind::UnrollRegs : StructStoreKind::UnrollRegsWB;
+        return isLocalStore || !layout->HasGCRef() ? StructStoreKind::UnrollRegs : StructStoreKind::UnrollRegsWB;
 #else
         assert(isLocalStore);
         return StructStoreKind::UnrollRegs;
@@ -3213,6 +3213,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
     {
         for (unsigned i = 0; i < slotCount; i++)
         {
+            // TODO-MIKE-Cleanup: Remove bogus BYREF write barriers.
             if (layout->IsGCPtr(i))
             {
                 genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
@@ -3257,7 +3258,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 {
     ClassLayout* layout = store->GetLayout();
 
-    assert(layout->HasGCPtr());
+    assert(layout->HasGCRef());
     assert(layout->GetSize() == 16);
     assert(store->GetValue()->GetMultiRegCount(compiler) == 2);
 
@@ -3275,26 +3276,16 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
     regMaskTP outGCrefRegSet = gcInfo.gcRegGCrefSetCur;
     regMaskTP outByrefRegSet = gcInfo.gcRegByrefSetCur;
 
-    if (layout->IsGCPtr(0))
+    if (layout->IsGCRef(0))
     {
-        regNumber tempReg     = store->ExtractTempReg();
-        var_types tempRegType = layout->GetGCPtrType(0);
-        inst_Mov(tempRegType, tempReg, valReg1, true);
+        regNumber tempReg = store->ExtractTempReg();
+        inst_Mov(TYP_REF, tempReg, valReg1, true);
         valReg1 = tempReg;
 
         emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
-        inst_Mov(layout->GetGCPtrType(0), REG_ARG_1, valReg0, true);
+        inst_Mov(TYP_REF, REG_ARG_1, valReg0, true);
 
-        if (tempRegType == TYP_REF)
-        {
-            inGCrefRegSet |= genRegMask(tempReg);
-        }
-        else if (tempRegType == TYP_BYREF)
-        {
-            inByrefRegSet |= genRegMask(tempReg);
-        }
-
-        gcInfo.gcRegGCrefSetCur = inGCrefRegSet;
+        gcInfo.gcRegGCrefSetCur = inGCrefRegSet | genRegMask(tempReg);
         gcInfo.gcRegByrefSetCur = inByrefRegSet;
         genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
         gcInfo.gcRegGCrefSetCur = outGCrefRegSet;
@@ -3307,10 +3298,10 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 
     addrOffset += TARGET_POINTER_SIZE;
 
-    if (layout->IsGCPtr(1))
+    if (layout->IsGCRef(1))
     {
         emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
-        inst_Mov(layout->GetGCPtrType(1), REG_ARG_1, valReg1, true);
+        inst_Mov(TYP_REF, REG_ARG_1, valReg1, true);
         genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
     }
     else

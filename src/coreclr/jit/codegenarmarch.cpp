@@ -2478,6 +2478,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
     {
         for (unsigned i = 0; i < slotCount; i++)
         {
+            // TODO-MIKE-Cleanup: Remove bogus BYREF write barriers.
             if (layout->IsGCPtr(i))
             {
                 genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
@@ -2527,7 +2528,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 {
     ClassLayout* layout = store->GetLayout();
 
-    assert(layout->HasGCPtr());
+    assert(layout->HasGCRef());
     assert(layout->GetSize() == 16);
     assert(store->GetValue()->GetMultiRegCount(compiler) == 2);
 
@@ -2547,9 +2548,9 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 
     emit->emitIns_R_R_I(INS_add, EA_BYREF, REG_WRITE_BARRIER_DST, addrReg, addrOffset);
 
-    if (layout->IsGCPtr(0))
+    if (layout->IsGCRef(0))
     {
-        inst_Mov(layout->GetGCPtrType(0), REG_WRITE_BARRIER_SRC, valReg0, true);
+        inst_Mov(TYP_REF, REG_WRITE_BARRIER_SRC, valReg0, true);
 
         gcInfo.gcRegGCrefSetCur = inGCrefRegSet;
         gcInfo.gcRegByrefSetCur = inByrefRegSet | RBM_WRITE_BARRIER_DST;
@@ -2562,9 +2563,9 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
         emit->emitIns_R_R_I(INS_str, EA_8BYTE, valReg0, REG_WRITE_BARRIER_DST, REGSIZE_BYTES, INS_OPTS_POST_INDEX);
     }
 
-    if (layout->IsGCPtr(1))
+    if (layout->IsGCRef(1))
     {
-        inst_Mov(layout->GetGCPtrType(1), REG_WRITE_BARRIER_SRC, valReg1, true);
+        inst_Mov(TYP_REF, REG_WRITE_BARRIER_SRC, valReg1, true);
         genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
     }
     else

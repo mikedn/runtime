@@ -1406,14 +1406,14 @@ int LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* lay
     regMaskTP killSet     = compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
     regMaskTP addrRegMask = RBM_NONE;
 
-    if (layout->IsGCPtr(0))
+    if (layout->IsGCRef(0))
     {
         addrRegMask = RBM_ALLINT & ~killSet;
         BuildInternalIntDef(store, RBM_ALLINT & ~killSet);
     }
     else
     {
-        assert(layout->IsGCPtr(1));
+        assert(layout->IsGCRef(1));
 
         addrRegMask = RBM_ARG_0;
     }
