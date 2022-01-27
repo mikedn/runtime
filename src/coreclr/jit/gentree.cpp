@@ -4795,9 +4795,7 @@ GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree*
 
     GenTreeObj* objNode = new (this, GT_OBJ) GenTreeObj(type, addr, layout);
 
-    GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();
-
-    if (lclNode != nullptr)
+    if (GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr())
     {
         objNode->gtFlags |= GTF_IND_NONFAULTING;
 
@@ -4805,6 +4803,16 @@ GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree*
         if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
         {
             objNode->gtFlags &= ~GTF_GLOB_REF;
+        }
+    }
+    else if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
+    {
+        FieldSeqNode* fieldSeq = fieldAddr->GetFieldSeq();
+
+        if (fieldSeq->IsBoxedValueField() ||
+            (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle())))
+        {
+            objNode->gtFlags |= GTF_IND_NONFAULTING;
         }
     }
 
