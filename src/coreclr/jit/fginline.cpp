@@ -888,17 +888,16 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
     {
         unsigned  lclNum  = inlineInfo->retSpillTempLclNum;
         var_types lclType = lvaGetDesc(lclNum)->GetType();
+        GenTree*  dest    = gtNewLclvNode(lclNum, lclType);
         GenTree*  asg;
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            GenTree* lclAddr = gtNewLclVarAddrNode(lclNum, TYP_I_IMPL);
-
-            asg = impAssignStructAddr(lclAddr, retExpr, typGetObjLayout(retExprClass), CHECK_SPILL_NONE);
+            asg = impAssignStruct(dest, retExpr, typGetObjLayout(retExprClass), CHECK_SPILL_NONE);
         }
         else
         {
-            asg = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), retExpr);
+            asg = gtNewAssignNode(dest, retExpr);
         }
 
         impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
@@ -927,9 +926,10 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             // to the return buffer, that seems like an unnecessary copy.
             // Also, what happens if the return address arg has side effects?
 
-            GenTree* retBufAddr = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
+            GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
+            GenTree* retBufIndir = gtNewObjNode(typGetObjLayout(retExprClass), retBufAddr);
 
-            retExpr = impAssignStructAddr(retBufAddr, retExpr, typGetObjLayout(retExprClass), CHECK_SPILL_ALL);
+            retExpr = impAssignStruct(retBufIndir, retExpr, typGetObjLayout(retExprClass), CHECK_SPILL_ALL);
         }
 
         JITDUMPTREE(retExpr, "Inliner return expression:\n");
@@ -2160,8 +2160,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
                 assert(!argNode->OperIs(GT_COMMA));
 
-                GenTree* dstAddr = gtNewLclVarAddrNode(argInfo.paramLclNum, TYP_BYREF);
-                asg              = impAssignStructAddr(dstAddr, argNode, argLayout, CHECK_SPILL_NONE);
+                GenTree* dst = gtNewLclvNode(argInfo.paramLclNum, paramLcl->GetType());
+                asg          = impAssignStruct(dst, argNode, argLayout, CHECK_SPILL_NONE);
 
                 if (restoreLayout)
                 {

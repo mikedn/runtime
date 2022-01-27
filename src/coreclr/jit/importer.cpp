@@ -605,8 +605,8 @@ void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
 
     lvaSetStruct(lclNum, layout, false);
 
-    GenTree* destAddr = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
-    GenTree* asg      = impAssignStructAddr(destAddr, val, layout, curLevel);
+    GenTree* dest = gtNewLclvNode(lclNum, lcl->GetType());
+    GenTree* asg  = impAssignStruct(dest, val, layout, curLevel);
     impAppendTree(asg, curLevel, impCurStmtOffs);
 }
 
@@ -921,10 +921,23 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-void Compiler::impAddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
+void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
+    assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_VAR, GT_OBJ, GT_IND));
     assert(call->TreatAsHasRetBufArg());
-    assert(retBufAddr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+    GenTree* retBufAddr;
+
+    if (dest->OperIs(GT_LCL_VAR))
+    {
+        retBufAddr = dest;
+        retBufAddr->SetOper(GT_LCL_VAR_ADDR);
+        retBufAddr->SetType(TYP_I_IMPL);
+    }
+    else
+    {
+        retBufAddr = dest->AsIndir()->GetAddr();
+    }
 
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (call->IsUnmanaged())
@@ -998,10 +1011,23 @@ void Compiler::impAddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
     call->SetType(TYP_VOID);
 }
 
-GenTree* Compiler::impAssignMkRefAny(GenTree* destAddr, GenTreeOp* mkRefAny, unsigned curLevel)
+GenTree* Compiler::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel)
 {
-    assert(destAddr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+    assert(dest->TypeIs(TYP_STRUCT) && dest->OperIs(GT_LCL_VAR, GT_OBJ));
     assert(mkRefAny->OperIs(GT_MKREFANY));
+
+    GenTree* destAddr;
+
+    if (dest->OperIs(GT_LCL_VAR))
+    {
+        destAddr = dest;
+        destAddr->SetOper(GT_LCL_VAR_ADDR);
+        destAddr->SetType(TYP_I_IMPL);
+    }
+    else
+    {
+        destAddr = dest->AsObj()->GetAddr();
+    }
 
     GenTree* destAddrUses[2];
     impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
@@ -1018,7 +1044,7 @@ GenTree* Compiler::impAssignMkRefAny(GenTree* destAddr, GenTreeOp* mkRefAny, uns
     return gtNewAssignNode(typeField, mkRefAny->GetOp(1));
 }
 
-GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
+GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(
         (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
@@ -1029,7 +1055,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
     if (src->OperIs(GT_MKREFANY))
     {
-        return impAssignMkRefAny(destAddr, src->AsOp(), curLevel);
+        return impAssignMkRefAny(dest, src->AsOp(), curLevel);
     }
 
     // Handle calls that return structs by reference - the destination address
@@ -1040,7 +1066,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
     {
         if (call->TreatAsHasRetBufArg())
         {
-            impAddCallRetBufArg(call, destAddr);
+            impAssignCallWithRetBuf(dest, call);
 
             return call;
         }
@@ -1053,7 +1079,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
         if (call->TreatAsHasRetBufArg())
         {
-            impAddCallRetBufArg(call, destAddr);
+            impAssignCallWithRetBuf(dest, call);
             retExpr->SetType(TYP_VOID);
 
             return retExpr;
@@ -1062,83 +1088,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
     // In all other cases we create and return a struct assignment node.
 
-    GenTree* dest = nullptr;
-
-    if (src->OperIs(GT_CALL))
-    {
-        if (destAddr->OperIs(GT_LCL_VAR_ADDR) && (lvaGetDesc(destAddr->AsLclVar())->GetType() == src->GetType()))
-        {
-            destAddr->SetOper(GT_LCL_VAR);
-            destAddr->SetType(src->GetType());
-            dest = destAddr;
-        }
-    }
-    else if (src->OperIs(GT_RET_EXPR))
-    {
-    }
-    else if (src->OperIs(GT_OBJ))
-    {
-        assert(src->GetType() == typGetStructType(layout));
-        assert((src->AsObj()->GetLayout() == layout) || varTypeIsSIMD(src->GetType()));
-    }
-    else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-    }
-    else
-    {
-        assert(src->OperIs(GT_IND) || src->OperIsHWIntrinsic());
-        assert((layout == nullptr) || (src->GetType() == typGetStructType(layout)));
-    }
-
-    var_types srcType = src->GetType();
-
-    if ((dest == nullptr) && destAddr->OperIs(GT_LCL_VAR_ADDR))
-    {
-        LclVarDsc* lcl = lvaGetDesc(destAddr->AsLclVar());
-
-        if (lcl->GetType() == srcType)
-        {
-            if (varTypeIsSIMD(srcType))
-            {
-                dest = destAddr;
-            }
-            else if (lcl->GetLayout() == layout)
-            {
-                dest = destAddr;
-            }
-
-            if (dest != nullptr)
-            {
-                dest->SetOper(GT_LCL_VAR);
-                dest->SetType(lcl->GetType());
-            }
-        }
-    }
-
-    if (dest == nullptr)
-    {
-        if (srcType == TYP_STRUCT)
-        {
-            dest = gtNewObjNode(layout, destAddr);
-        }
-        else
-        {
-            dest = gtNewOperNode(GT_IND, srcType, destAddr);
-        }
-
-        if (GenTreeFieldAddr* fieldAddr = destAddr->IsFieldAddr())
-        {
-            FieldSeqNode* fieldSeq = fieldAddr->GetFieldSeq();
-
-            if (fieldSeq->IsBoxedValueField() ||
-                (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle())))
-            {
-                dest->gtFlags |= GTF_IND_NONFAULTING;
-                dest->gtFlags &= ~GTF_EXCEPT;
-            }
-        }
-    }
-    else if (dest->OperIs(GT_LCL_VAR))
+    if (dest->OperIs(GT_LCL_VAR))
     {
         LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
 
@@ -5080,8 +5030,10 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
                 }
             }
 
-            assert(info.compCompHnd->getClassSize(pResolvedToken->hClass) == info.compCompHnd->getClassSize(operCls));
-            op1 = impAssignStructAddr(op1, exprToBox, typGetObjLayout(operCls), CHECK_SPILL_ALL);
+            ClassLayout* layout = typGetObjLayout(operCls);
+            assert(info.compCompHnd->getClassSize(pResolvedToken->hClass) == layout->GetSize());
+            op1 = gtNewObjNode(layout, op1);
+            op1 = impAssignStruct(op1, exprToBox, layout, CHECK_SPILL_ALL);
         }
         else
         {
@@ -6277,10 +6229,7 @@ GenTree* Compiler::impImportStSFld(GenTree*                  value,
             impAppendTree(helperNode, CHECK_SPILL_NONE, impCurStmtOffs);
         }
 
-        // TODO-1stClassStructs: Avoid creating an address if it is not needed,
-        // or re-creating an indir node if it is.
-        field = field->AsIndir()->GetAddr();
-        field = impAssignStructAddr(field, value, typGetObjLayout(valueStructType), CHECK_SPILL_NONE);
+        field = impAssignStruct(field, value, typGetObjLayout(valueStructType), CHECK_SPILL_NONE);
     }
     else
     {
@@ -10097,9 +10046,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
 #endif
 
-                    op2->SetOper(GT_LCL_VAR_ADDR);
-                    op2->SetType(TYP_BYREF);
-                    op1 = impAssignStructAddr(op2, op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op2, op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -10653,7 +10600,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsIndexAddr()->SetElemSize(layout->GetSize());
                     op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
 
-                    op1 = impAssignStructAddr(op1, op2, layout, CHECK_SPILL_ALL);
+                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
+                    op1 = impAssignStruct(op1, op2, layout, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -12492,10 +12440,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    // TODO-1stClassStructs: Avoid creating an address if it is not needed,
-                    // or re-creating an indir node if it is.
-                    op1 = op1->AsIndir()->GetAddr();
-                    op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_NONE);
+                    op1 = impAssignStruct(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_NONE);
                 }
                 else
                 {
@@ -13106,8 +13051,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         unsigned     tmp    = lvaGrabTemp(true DEBUGARG("unbox nullable temp"));
                         lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-                        op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
-                        op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
+                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+                        op1 = impAssignStruct(op2, op1, layout, CHECK_SPILL_ALL);
                         op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
                         op1 = gtNewCommaNode(op1, op2);
                     }
@@ -13155,8 +13100,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     lvaTable[tmp].lvIsMultiRegArg = true;
                     lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-                    op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
-                    op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
+                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+                    op1 = impAssignStruct(op2, op1, layout, CHECK_SPILL_ALL);
                     op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
                     op1 = gtNewCommaNode(op1, op2);
 
@@ -13409,15 +13354,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp(varTypeIsStruct(op2));
 
-                op1 = impAssignStructAddr(op1, op2, typGetObjLayout(resolvedToken.hClass), CHECK_SPILL_ALL);
+                op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
+                op1 = impAssignStruct(op1, op2, typGetObjLayout(resolvedToken.hClass), CHECK_SPILL_ALL);
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
                     if (op1->OperIs(GT_ASG))
                     {
-                        // If the store value is MKREFANY impAssignStructAddr will append another indir,
-                        // we don't set unaligned on that. It isn't necessary since the JIT doesn't do
-                        // anything special with unaligned if the indir type is integral.
+                        // If the store value is MKREFANY impAssignStruct will append another indir,
+                        // we don't set unaligned on that. It isn't necessary since the JIT doesn't
+                        // do anything special with unaligned if the indir type is integral.
 
                         if (GenTreeIndir* indir = op1->AsOp()->GetOp(0)->IsIndir())
                         {
@@ -13762,8 +13708,9 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
 
         if (info.compRetBuffArg != BAD_VAR_NUM)
         {
-            GenTree* retBuffAddr = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
-            value                = impAssignStructAddr(retBuffAddr, value, info.GetRetLayout(), CHECK_SPILL_ALL);
+            GenTree* retBuffAddr  = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
+            GenTree* retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
+            value                 = impAssignStruct(retBuffIndir, value, info.GetRetLayout(), CHECK_SPILL_ALL);
             impAppendTree(value, CHECK_SPILL_NONE, impCurStmtOffs);
 
             if (info.retDesc.GetRegCount() == 0)
@@ -14172,8 +14119,8 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 // asserts in impAssignStructAddr due to A<Canon>/A<SomeRefClass> mismatches.
                 ClassLayout* treeLayout = typGetObjLayout(verCurrentState.esStack[level].seTypeInfo.GetClassHandle());
 
-                asg = impAssignStructAddr(gtNewLclVarAddrNode(spillTempLclNum, TYP_BYREF), tree, treeLayout,
-                                          CHECK_SPILL_NONE);
+                asg = impAssignStruct(gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType()), tree, treeLayout,
+                                      CHECK_SPILL_NONE);
                 assert(!asg->IsNothingNode());
             }
             else
