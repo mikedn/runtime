@@ -998,10 +998,38 @@ void Compiler::impAddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
     call->SetType(TYP_VOID);
 }
 
+GenTree* Compiler::impAssignMkRefAny(GenTree* destAddr, GenTreeOp* mkRefAny, unsigned curLevel)
+{
+    assert(destAddr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+    assert(mkRefAny->OperIs(GT_MKREFANY));
+
+    GenTree* destAddrUses[2];
+    impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
+
+    // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
+    // The field is accessed by TypedReference.IsNull, which is only called from
+    // RtFieldInfo.Get/SetValueDirect so chances that this causes problems are slim.
+    GenTree* valueField = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(),
+                                                                    OFFSETOF__CORINFO_TypedReference__dataPtr));
+    impAppendTree(gtNewAssignNode(valueField, mkRefAny->GetOp(0)), curLevel, impCurStmtOffs);
+
+    GenTree* typeField = gtNewFieldIndir(TYP_I_IMPL, gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(),
+                                                                    OFFSETOF__CORINFO_TypedReference__type));
+    return gtNewAssignNode(typeField, mkRefAny->GetOp(1));
+}
+
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR) ||
            (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
+
+    // Assigning a MKREFANY generates 2 assignments, one for each field of the struct.
+    // One assignment is appended and the other is returned to the caller.
+
+    if (src->OperIs(GT_MKREFANY))
+    {
+        return impAssignMkRefAny(destAddr, src->AsOp(), curLevel);
+    }
 
     // Handle calls that return structs by reference - the destination address
     // is passed to the call as the return buffer address and no assignment is
@@ -1029,28 +1057,6 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
             return retExpr;
         }
-    }
-
-    // Assigning a MKREFANY generates 2 assignments, one for each field of the struct.
-    // One assignment is appended and the other is returned to the caller.
-
-    if (src->OperIs(GT_MKREFANY))
-    {
-        assert(destAddr->TypeIs(TYP_I_IMPL, TYP_BYREF));
-
-        GenTree* destAddrUses[2];
-        impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
-
-        // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
-        // The field is accessed by TypedReference.IsNull, which is only called from
-        // RtFieldInfo.Get/SetValueDirect so chances that this causes problems are slim.
-        GenTree* valueField = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(),
-                                                                        OFFSETOF__CORINFO_TypedReference__dataPtr));
-        impAppendTree(gtNewAssignNode(valueField, src->AsOp()->GetOp(0)), curLevel, impCurStmtOffs);
-
-        GenTree* typeField = gtNewFieldIndir(TYP_I_IMPL, gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(),
-                                                                        OFFSETOF__CORINFO_TypedReference__type));
-        return gtNewAssignNode(typeField, src->AsOp()->GetOp(1));
     }
 
     // In all other cases we create and return a struct assignment node.

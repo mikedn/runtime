@@ -3175,6 +3175,7 @@ public:
     }
 
     void impAddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr);
+    GenTree* impAssignMkRefAny(GenTree* destAddr, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
