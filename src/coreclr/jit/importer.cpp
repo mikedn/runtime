@@ -1088,6 +1088,13 @@ GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
 
     // In all other cases we create and return a struct assignment node.
 
+    // TODO-MIKE-Cleanup: There doesn't seem to be any good reason to do this here,
+    // except for VN being weird and failing on SIMD OBJs and old code doing it here.
+    if (dest->OperIs(GT_OBJ) && varTypeIsSIMD(dest->GetType()))
+    {
+        dest->SetOper(GT_IND);
+    }
+
     if (dest->OperIs(GT_LCL_VAR))
     {
         LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
