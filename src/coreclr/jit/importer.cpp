@@ -1020,8 +1020,9 @@ GenTree* Compiler::impAssignMkRefAny(GenTree* destAddr, GenTreeOp* mkRefAny, uns
 
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
-    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR) ||
-           (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
+    assert(
+        (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
+        varTypeIsSIMD(src->GetType()));
 
     // Assigning a MKREFANY generates 2 assignments, one for each field of the struct.
     // One assignment is appended and the other is returned to the caller.
