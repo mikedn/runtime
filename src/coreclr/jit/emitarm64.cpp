@@ -7801,15 +7801,15 @@ void emitter::emitIns_S_S_R_R(
     instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varx, int offs)
 {
     assert((ins == INS_stp) || (ins == INS_stnp));
-    assert(EA_8BYTE == EA_SIZE(attr1));
-    assert(EA_8BYTE == EA_SIZE(attr2));
-    assert(isGeneralRegisterOrZR(reg1));
-    assert(isGeneralRegisterOrZR(reg2));
+    assert((EA_SIZE(attr1) == EA_8BYTE) ||
+           (!isGeneralRegisterOrZR(reg1) && ((attr1 == EA_4BYTE) || (attr1 == EA_16BYTE))));
+    assert((EA_SIZE(attr1) == EA_8BYTE) ||
+           (!isGeneralRegisterOrZR(reg2) && ((attr2 == EA_4BYTE) || (attr2 == EA_16BYTE))));
     assert(offs >= 0);
 
-    insFormat      fmt   = IF_LS_3B;
-    int            disp  = 0;
-    const unsigned scale = 3;
+    insFormat fmt   = IF_LS_3B;
+    int       disp  = 0;
+    unsigned  scale = genLog2(EA_SIZE(attr1));
 
     /* Figure out the variable's frame position */
     int  base;

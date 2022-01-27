@@ -2074,21 +2074,29 @@ private:
         assert(structLcl->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
+        ClassLayout* fieldLayout = nullptr;
+
         if (GenTreeLclFld* lclFld = structLcl->IsLclFld())
         {
             lclFld->SetType(type);
-            lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type));
+            lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type, &fieldLayout));
+            lclFld->SetLayoutNum(0);
         }
         else
         {
             assert(structLcl->OperIs(GT_LCL_VAR));
 
             LclVarDsc*    lcl      = m_compiler->lvaGetDesc(structLcl);
-            FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type);
+            FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
 
             structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
 
             m_compiler->lvaSetVarDoNotEnregister(structLcl->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+        }
+
+        if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
+        {
+            structLcl->AsLclFld()->SetLayout(fieldLayout, m_compiler);
         }
 
         return structLcl;
@@ -2114,7 +2122,8 @@ private:
 
         if (addrLayout != nullptr)
         {
-            FieldSeqNode* fieldSeq = GetFieldSequence(addrLayout->GetClassHandle(), type);
+            ClassLayout*  fieldLayout;
+            FieldSeqNode* fieldSeq = GetFieldSequence(addrLayout->GetClassHandle(), type, &fieldLayout);
 
             if (fieldSeq->IsField())
             {
@@ -2122,9 +2131,8 @@ private:
                 {
                     // TODO-MIKE-Cleanup: It may be good to set the layout on these FIELD_ADDRs
                     // for the sake of consistency, though at this point nothing needs it.
-                    // The problem is that we don't have an easy way to obtain it. We could get
-                    // it by querying the field type from the handle but that's not precise when
-                    // generics are involved.
+                    // gtNewFieldIndir always produces an IND for SIMD types, even though it may
+                    // be better to produce an OBJ with the correct layout.
                     addr = m_compiler->gtNewFieldAddr(addr, fieldSeq->GetFieldHandle(), 0);
                 }
 
@@ -2153,13 +2161,15 @@ private:
         return ft == TYP_STRUCT ? fc : nullptr;
     }
 
-    FieldSeqNode* GetFieldSequence(CORINFO_CLASS_HANDLE classHandle, var_types fieldType)
+    FieldSeqNode* GetFieldSequence(CORINFO_CLASS_HANDLE classHandle, var_types fieldType, ClassLayout** fieldLayout)
     {
         assert(fieldType != TYP_STRUCT);
 
         ICorJitInfo*         vm       = m_compiler->info.compCompHnd;
         FieldSeqNode*        fieldSeq = nullptr;
         CORINFO_FIELD_HANDLE fieldHandle;
+
+        *fieldLayout = nullptr;
 
         for (var_types classType = TYP_STRUCT; classType == TYP_STRUCT;)
         {
@@ -2190,6 +2200,8 @@ private:
                 {
                     classType = layout->GetSIMDType();
                 }
+
+                *fieldLayout = layout;
             }
 #endif
 
@@ -2209,7 +2221,7 @@ private:
         return fieldSeq;
     }
 
-    FieldSeqNode* ExtendFieldSequence(FieldSeqNode* fieldSeq, var_types fieldType)
+    FieldSeqNode* ExtendFieldSequence(FieldSeqNode* fieldSeq, var_types fieldType, ClassLayout** fieldLayout)
     {
         if ((fieldSeq == nullptr) || !fieldSeq->IsField())
         {
@@ -2223,7 +2235,7 @@ private:
             return FieldSeqNode::NotAField();
         }
 
-        return m_compiler->GetFieldSeqStore()->Append(fieldSeq, GetFieldSequence(classHandle, fieldType));
+        return m_compiler->GetFieldSeqStore()->Append(fieldSeq, GetFieldSequence(classHandle, fieldType, fieldLayout));
     }
 
     static bool CanBitCastTo(var_types type)
@@ -2331,6 +2343,9 @@ bool StructPromotionHelper::TryPromoteStructLocal(unsigned lclNum)
         PromoteStructLocal(lclNum);
         return true;
     }
+
+    // If we don't promote then lvIsMultiRegRet is meaningless.
+    compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet = false;
 
     return false;
 }
@@ -2493,13 +2508,23 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     assert(varTypeIsStruct(lcl->GetType()));
     assert(!lcl->IsPromoted());
 
-    // If this local is used by SIMD intrinsics, then we don't want to promote it.
-    // Note, however, that Vector2/3/4 local that are NOT used by SIMD intrinsics
-    // may be profitably promoted.
-    if (lcl->lvIsUsedInSIMDIntrinsic())
+    if (varTypeIsSIMD(lcl->GetType()))
     {
-        JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lclNum);
-        return false;
+        if (lcl->lvIsUsedInSIMDIntrinsic())
+        {
+            // If the local is used by vector intrinsics, then we do not want to promote
+            // since the cost of packing individual fields into a single SIMD register
+            // can be pretty high.
+            JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lclNum);
+            return false;
+        }
+
+        if (lcl->GetLayout()->IsOpaqueVector())
+        {
+            // Vector<T>/Vector64/128/256 are never promoted, even if they may have
+            // private fields as an implementation detail.
+            return false;
+        }
     }
 
 #ifdef TARGET_ARM
@@ -2568,58 +2593,73 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     }
 
 #if defined(TARGET_ARMARCH)
-    for (unsigned i = 0; i < info.fieldCount; i++)
-    {
-        const FieldInfo& field = info.fields[i];
-
-        // Non-HFA structs are always passed in general purpose registers.
-        // If there are any floating point fields, don't promote for now.
-        // TODO-1stClassStructs: add support in Lowering and prolog generation
-        // to enable promoting these types.
-        if (lcl->IsParam() && !lcl->lvIsHfa() && varTypeUsesFloatReg(field.type))
-        {
-            return false;
-        }
-
-#ifdef FEATURE_SIMD
-        // If we have a register-passed struct with mixed non-opaque SIMD types (i.e. with defined fields)
-        // and non-SIMD types, we don't currently handle that case in the prolog, so we can't promote.
-        if ((info.fieldCount > 1) && varTypeIsStruct(field.type) && !field.layout->IsOpaqueVector())
-        {
-            return false;
-        }
-#endif
-    }
-#elif defined(UNIX_AMD64_ABI)
-    // Only promote if the field types match the registers, unless we have a single SIMD field
-    // that we can handle in prolog.
-
-    if ((info.fieldCount == 1) && varTypeIsSIMD(info.fields[0].type))
+    if (info.fieldCount == 1)
     {
         return true;
     }
 
     ClassLayout* layout = lcl->GetLayout();
-    layout->EnsureSysVAmd64AbiInfo(compiler);
+    layout->EnsureHfaInfo(compiler);
 
-    if (info.fieldCount != layout->GetSysVAmd64AbiRegCount())
+    if (layout->IsHfa())
+    {
+        return layout->GetHfaRegCount() == info.fieldCount;
+    }
+
+#ifdef TARGET_ARM64
+    if ((layout->GetSize() > 16) || (info.fieldCount > 2))
+#else
+    if ((layout->GetSize() > 16) || (info.fieldCount > 4))
+#endif
     {
         return false;
     }
-
-    SortFields();
 
     for (unsigned i = 0; i < info.fieldCount; i++)
     {
         const FieldInfo& field = info.fields[i];
 
-        // We don't currently support passing SIMD types in registers.
-        if (varTypeIsSIMD(field.type))
+        if (field.offset % REGSIZE_BYTES != 0)
         {
             return false;
         }
 
-        if (varTypeUsesFloatReg(field.type) != varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
+        // If the struct isn't a HFA then all used registers are integer and
+        // prolog codegen does not move args from integer to FP registers.
+        if (lcl->lvIsMultiRegArg && varTypeUsesFloatReg(field.type))
+        {
+            return false;
+        }
+    }
+#elif defined(UNIX_AMD64_ABI)
+    // In general we can promote only if there are 1 or 2 fields, each smaller
+    // than 8 byte and having 8 byte alignment.
+    ClassLayout* layout = lcl->GetLayout();
+
+    if (layout->GetSize() > 16)
+    {
+        return false;
+    }
+
+    // Prolog codegen also handles the case of a single Vector3/4 field, that
+    // is passed in 2 registers.
+    if ((info.fieldCount == 1) && varTypeIsSIMD(info.fields[0].type))
+    {
+        return true;
+    }
+
+    layout->EnsureSysVAmd64AbiInfo(compiler);
+
+    if (info.fieldCount > layout->GetSysVAmd64AbiRegCount())
+    {
+        return false;
+    }
+
+    for (unsigned i = 0; i < info.fieldCount; i++)
+    {
+        const FieldInfo& field = info.fields[i];
+
+        if (field.offset % REGSIZE_BYTES != 0)
         {
             return false;
         }
@@ -3007,29 +3047,7 @@ void Compiler::fgPromoteStructs()
         }
 #endif
 
-        if (varTypeIsSIMD(lcl->GetType()))
-        {
-            if (lcl->GetLayout()->IsOpaqueVector())
-            {
-                // Vector<T>/Vector64/128/256 are never promoted, even if they may have
-                // private fields as an implementation detail.
-                continue;
-            }
-
-            if (lcl->lvIsUsedInSIMDIntrinsic())
-            {
-                // If the local is used by vector intrinsics, then we do not want to promote
-                // since the cost of packing individual fields into a single SIMD register
-                // can be pretty high.
-                continue;
-            }
-        }
-
-        if (!helper.TryPromoteStructLocal(lclNum))
-        {
-            // If we don't promote then lvIsMultiRegRet is meaningless.
-            lcl->lvIsMultiRegRet = false;
-        }
+        helper.TryPromoteStructLocal(lclNum);
     }
 
 #ifdef DEBUG

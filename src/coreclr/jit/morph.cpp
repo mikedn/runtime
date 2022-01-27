@@ -1365,6 +1365,42 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 tempLcl->SetType(type);
                 setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, type), arg);
             }
+            else if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
+            {
+                compiler->lvaSetStruct(tempLclNum, arg->AsCall()->GetRetLayout(), false);
+                tempLcl->lvIsMultiRegRet = true;
+                tempLcl->lvFieldAccessed = true;
+
+                GenTree* dst = nullptr;
+
+                StructPromotionHelper structPromotion(compiler);
+
+                if (structPromotion.TryPromoteStructLocal(tempLclNum))
+                {
+                    tempLcl = compiler->lvaGetDesc(tempLclNum);
+
+                    if (tempLcl->GetPromotedFieldCount() == 1)
+                    {
+                        unsigned   promotedFieldLclNum = tempLcl->GetPromotedFieldLclNum(0);
+                        LclVarDsc* promotedFieldLcl    = compiler->lvaGetDesc(promotedFieldLclNum);
+
+                        if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+                        {
+                            arg->SetType(promotedFieldLcl->GetType());
+
+                            dst = compiler->gtNewLclvNode(promotedFieldLclNum, promotedFieldLcl->GetType());
+                            tempLcl->lvIsMultiRegRet = false;
+                        }
+                    }
+                }
+
+                if (dst == nullptr)
+                {
+                    dst = compiler->gtNewLclvNode(tempLclNum, tempLcl->GetType());
+                }
+
+                setupArg = compiler->gtNewAssignNode(dst, arg);
+            }
             else if (varTypeIsSIMD(arg->GetType()))
             {
                 ClassLayout* layout = compiler->typGetVectorLayout(arg);
@@ -1401,7 +1437,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
             }
 
-            lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(arg->GetType()));
+            lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(tempLcl->GetType()));
         }
         else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
         {
@@ -2781,6 +2817,21 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         return false;
     }
 
+#ifndef TARGET_X86
+    // On x86 we need to keep multireg calls unchanged since there are no multireg
+    // args and thus no second arg morphing pass. This also avoids the need for a
+    // temp and it's good for CQ, even if that's not exactly useful on x86, given
+    // the limited use of the native calling convention.
+    // TODO-MIKE-CQ: Avoiding the temp would be good on other targets as well, but
+    // currently that doesn't work because the rest of the arg morphing code always
+    // spills arg containing calls to temps, even the first evaluated arg, that has
+    // no outgoing arg area interference.
+    if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
+    {
+        return true;
+    }
+#endif
+
     if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
     {
         // While not required for corectness, we can change the type of a struct arg to
@@ -3825,6 +3876,11 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         return abiMorphMultiRegObjArg(argInfo, arg->AsObj());
     }
 
+    if (arg->OperIs(GT_CALL) && arg->TypeIs(TYP_STRUCT))
+    {
+        return abiMorphMultiRegCallArg(argInfo, arg->AsCall());
+    }
+
 #ifdef FEATURE_SIMD
     // If it's neither a local nor OBJ then it must be an arbitrary SIMD tree.
     return abiMorphMultiRegSimdArg(argInfo, arg);
@@ -4366,6 +4422,74 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
     return indir;
 #endif
+}
+
+GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
+{
+    unsigned          lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
+    LclVarDsc*        lcl    = lvaGetDesc(lclNum);
+    GenTreeLclVar*    src    = gtNewLclvNode(lclNum, lcl->GetType());
+    GenTreeLclVar*    dst    = nullptr;
+    GenTreeFieldList* fieldList;
+
+    StructPromotionHelper structPromotion(this);
+    lcl->lvIsMultiRegRet = true;
+    lcl->lvFieldAccessed = true;
+
+    if (!structPromotion.TryPromoteStructLocal(lclNum))
+    {
+        dst       = gtNewLclvNode(lclNum, lcl->GetType());
+        fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+    }
+    else
+    {
+        lcl = lvaGetDesc(lclNum);
+
+        if (argInfo->IsHfaArg())
+        {
+            fieldList = abiMorphMultiRegHfaLclArgPromoted(argInfo, src)->AsFieldList();
+        }
+        else
+        {
+            AbiRegFieldMap regMap(this, lcl, argInfo);
+
+            if (regMap.IsSupported(argInfo))
+            {
+                fieldList = abiMorphMultiRegLclArgPromoted(argInfo, regMap)->AsFieldList();
+            }
+            else
+            {
+                fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+            }
+        }
+
+        if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1))
+        {
+            unsigned   promotedFieldLclNum = lcl->GetPromotedFieldLclNum(0);
+            LclVarDsc* promotedFieldLcl    = lvaGetDesc(promotedFieldLclNum);
+
+            if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+            {
+                arg->SetType(promotedFieldLcl->GetType());
+
+                dst                  = gtNewLclvNode(promotedFieldLclNum, promotedFieldLcl->GetType());
+                lcl->lvIsMultiRegRet = false;
+            }
+        }
+
+        if (dst == nullptr)
+        {
+            dst                  = gtNewLclvNode(lclNum, lcl->GetType());
+            lcl->lvIsMultiRegRet = lcl->IsIndependentPromoted();
+        }
+    }
+
+    GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
+    GenTreeOp*             asg      = gtNewAssignNode(dst, arg);
+    firstUse->SetNode(gtNewCommaNode(asg, firstUse->GetNode()));
+    fieldList->AddSideEffects(asg->GetSideEffects());
+
+    return fieldList;
 }
 
 #endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
@@ -7391,46 +7515,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         }
 
         assert(!call->CanTailCall());
-
-#if FEATURE_MULTIREG_RET
-        if (fgGlobalMorph && call->HasMultiRegRetVal() && varTypeIsStruct(call->TypeGet()))
-        {
-            // The tail call has been rejected so we must finish the work deferred
-            // by impCanonicalizeMultiRegCall for multi-reg-returning calls and transform
-            //     ret call
-            // into
-            //     temp = call
-            //     ret temp
-
-            // Force re-evaluating the argInfo as the return argument has changed.
-            call->ResetArgInfo();
-
-            unsigned tmpNum =
-                lvaNewTemp(call->GetRetLayout(), false DEBUGARG("multireg return call temp (rejected tail call)"));
-
-            GenTree* dst = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
-            GenTree* asg = fgMorphTree(gtNewAssignNode(dst, call));
-
-            Statement* asgStmt = gtNewStmt(asg, compCurStmt->GetILOffsetX());
-            fgInsertStmtBefore(compCurBB, compCurStmt, asgStmt);
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nInserting assignment of a multi-reg call result to a temp:\n");
-                gtDispStmt(asgStmt);
-            }
-#endif
-
-            compCurBB->bbFlags |= BBF_HAS_CALL;
-
-            GenTree* result = gtNewLclvNode(tmpNum, dst->GetType());
-            result->gtFlags |= GTF_DONT_CSE;
-            INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-
-            return result;
-        }
-#endif
     }
 
     if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0 &&
@@ -8800,7 +8884,23 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 #if FEATURE_MULTIREG_RET
         if (call->HasMultiRegRetVal())
         {
-            assert(dest->OperIs(GT_LCL_VAR));
+            if (dest->OperIs(GT_LCL_VAR))
+            {
+                LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
+
+                // TODO-MIKE-Cleanup: This isn't quite right, lvIsMultiRegRet should be set before promoting.
+                // The problem is that the importer doesn't set it if the local is indirectly accessed (via
+                // an OBJ). LocalAddressVisitor then eliminates the OBJ and avoids dependent promotion but
+                // lvIsMultiRegRet isn't set and that breaks SSA. Setting lvIsMultiRegRet allows things to
+                // work correctly but we may still end up with dependent promotion instead of not promoting
+                // to beging with.
+
+                if (lcl->IsIndependentPromoted())
+                {
+                    lcl->lvIsMultiRegRet = true;
+                }
+            }
+
             JITDUMP(" not morphing a multireg call return\n");
             return asg;
         }
@@ -11808,13 +11908,24 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             return;
         }
 
-        if (val->TypeIs(TYP_STRUCT) && val->OperIs(GT_IND))
+        if (GenTreeCall* call = val->IsCall())
         {
-            val->ChangeOper(GT_OBJ);
-            val->AsObj()->SetLayout(info.GetRetLayout());
-            val->AsObj()->SetKind(StructStoreKind::Invalid);
+            bool registersMatch = call->GetRegCount() == info.retDesc.GetRegCount();
+
+            for (unsigned i = 0; i < call->GetRegCount() && registersMatch; i++)
+            {
+                if (call->GetRetDesc()->GetRegNum(i) != info.retDesc.GetRegNum(i))
+                {
+                    registersMatch = false;
+                }
+            }
+
+            if (registersMatch)
+            {
+                return;
+            }
         }
-        else if (varTypeIsSIMD(val->GetType()) && val->OperIs(GT_LCL_FLD))
+        else if (val->OperIs(GT_LCL_FLD) && varTypeIsSIMD(val->GetType()))
         {
             val->AsLclFld()->SetLayout(info.GetRetLayout(), this);
         }

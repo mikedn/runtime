@@ -2486,6 +2486,16 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 {
     assert(!layout->IsBlockLayout());
 
+    if (varTypeIsStruct(src->GetType()) && src->IsCall())
+    {
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        return isLocalStore || !layout->HasGCRef() ? StructStoreKind::UnrollRegs : StructStoreKind::UnrollRegsWB;
+#else
+        assert(isLocalStore);
+        return StructStoreKind::UnrollRegs;
+#endif
+    }
+
     unsigned size = layout->GetSize();
 
     if (src->OperIs(GT_CNS_INT))
@@ -2577,6 +2587,14 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
         case StructStoreKind::UnrollCopyWBRepMovs:
             GenStructStoreUnrollCopyWB(store, layout);
             break;
+        case StructStoreKind::UnrollRegs:
+            GenStructStoreUnrollRegs(store, layout);
+            break;
+#ifdef UNIX_AMD64_ABI
+        case StructStoreKind::UnrollRegsWB:
+            GenStructStoreUnrollRegsWB(store->AsObj());
+            break;
+#endif
         default:
             unreached();
     }
@@ -2982,6 +3000,147 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     }
 }
 
+#ifdef FEATURE_MULTIREG_RET
+void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
+{
+    unsigned  dstLclNum         = BAD_VAR_NUM;
+    regNumber dstAddrBaseReg    = REG_NA;
+    regNumber dstAddrIndexReg   = REG_NA;
+    unsigned  dstAddrIndexScale = 1;
+    int       dstOffset         = 0;
+    GenTree*  src;
+
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    {
+        dstLclNum = store->AsLclVarCommon()->GetLclNum();
+        dstOffset = store->AsLclVarCommon()->GetLclOffs();
+
+        src = store->AsLclVarCommon()->GetOp(0);
+    }
+    else
+    {
+        GenTree* dstAddr = store->AsIndir()->GetAddr();
+
+        if (!dstAddr->isContained())
+        {
+            dstAddrBaseReg = genConsumeReg(dstAddr);
+        }
+        else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
+        {
+            if (addrMode->HasBase())
+            {
+                dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            }
+
+            if (addrMode->HasIndex())
+            {
+                dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                dstAddrIndexScale = addrMode->GetScale();
+            }
+
+            dstOffset = addrMode->GetOffset();
+        }
+        else
+        {
+            assert(dstAddr->OperIsLocalAddr());
+
+            dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
+            dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+        }
+
+        src = store->AsObj()->GetValue();
+    }
+
+    unsigned size = layout->GetSize();
+
+    assert(size <= INT32_MAX);
+    assert(dstOffset < INT32_MAX - static_cast<int>(size));
+
+    GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     regCount = call->GetRegCount();
+    regNumber    regs[MAX_RET_REG_COUNT];
+    var_types    regTypes[MAX_RET_REG_COUNT];
+
+    for (unsigned i = 0; i < regCount; i++)
+    {
+        regs[i] = regCount == 1 ? genConsumeReg(call) : genConsumeReg(call, i);
+
+        var_types regType = call->GetRegType(i);
+        unsigned  regSize = varTypeSize(regType);
+
+        assert((i < regCount - 1) ? (regSize == REGSIZE_BYTES) : (regSize <= REGSIZE_BYTES));
+
+        if (!varTypeUsesFloatReg(regType))
+        {
+            regType = layout->GetGCPtrType(i);
+        }
+
+        regTypes[i] = regType;
+    }
+
+    emitter*  emit     = GetEmitter();
+    unsigned  regIndex = 0;
+    regNumber reg      = REG_NA;
+    var_types regType  = TYP_UNDEF;
+    unsigned  regSize  = 0;
+
+    for (; (regIndex < regCount) && (size > 0); regIndex++, dstOffset += regSize, size -= regSize)
+    {
+        reg     = regs[regIndex];
+        regType = regTypes[regIndex];
+        regSize = varTypeSize(regType);
+
+        assert(regSize <= REGSIZE_BYTES);
+
+        if (regSize > size)
+        {
+            break;
+        }
+
+        instruction ins  = ins_Store(regType);
+        emitAttr    attr = emitTypeSize(regType);
+
+        if (dstLclNum != BAD_VAR_NUM)
+        {
+            emit->emitIns_S_R(ins, attr, reg, dstLclNum, dstOffset);
+        }
+        else
+        {
+            emit->emitIns_ARX_R(ins, attr, reg, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
+        }
+    }
+
+    if ((regIndex < regCount) && (size > 0))
+    {
+        assert(varTypeIsIntegral(regType) && (size < REGSIZE_BYTES));
+
+        for (unsigned regShift = 0; size > 0; regShift = regSize, dstOffset += regSize, size -= regSize)
+        {
+            while (regSize > size)
+            {
+                regSize /= 2;
+            }
+
+            if (regShift != 0)
+            {
+                emit->emitIns_R_I(INS_shr_N, regShift >= 4 ? EA_8BYTE : EA_4BYTE, reg, regShift * 8);
+            }
+
+            emitAttr attr = EA_ATTR(regSize);
+
+            if (dstLclNum != BAD_VAR_NUM)
+            {
+                emit->emitIns_S_R(INS_mov, attr, reg, dstLclNum, dstOffset);
+            }
+            else
+            {
+                emit->emitIns_ARX_R(INS_mov, attr, reg, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
+            }
+        }
+    }
+}
+#endif // FEATURE_MULTIREG_RET
+
 // Generate code for a struct store that contains GC pointers.
 // This will generate a sequence of (REP) MOVS instructions for
 // non-GC slots and calls to the BY_REF_ASSIGN helper otherwise.
@@ -3054,6 +3213,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
     {
         for (unsigned i = 0; i < slotCount; i++)
         {
+            // TODO-MIKE-Cleanup: Remove bogus BYREF write barriers.
             if (layout->IsGCPtr(i))
             {
                 genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
@@ -3092,6 +3252,64 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
     gcInfo.gcMarkRegSetNpt(RBM_RSI);
     gcInfo.gcMarkRegSetNpt(RBM_RDI);
 }
+
+#ifdef UNIX_AMD64_ABI
+void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
+{
+    ClassLayout* layout = store->GetLayout();
+
+    assert(layout->HasGCRef());
+    assert(layout->GetSize() == 16);
+    assert(store->GetValue()->GetMultiRegCount(compiler) == 2);
+
+    regMaskTP inGCrefRegSet = gcInfo.gcRegGCrefSetCur;
+    regMaskTP inByrefRegSet = gcInfo.gcRegByrefSetCur;
+
+    GenTree*  addr       = store->GetAddr();
+    regNumber addrReg    = addr->isUsedFromReg() ? genConsumeReg(addr) : genConsumeReg(addr->AsAddrMode()->GetBase());
+    int       addrOffset = addr->isUsedFromReg() ? 0 : addr->AsAddrMode()->GetOffset();
+    GenTree*  val        = store->GetValue();
+    regNumber valReg0    = genConsumeReg(val, 0);
+    regNumber valReg1    = genConsumeReg(val, 1);
+    emitter*  emit       = GetEmitter();
+
+    regMaskTP outGCrefRegSet = gcInfo.gcRegGCrefSetCur;
+    regMaskTP outByrefRegSet = gcInfo.gcRegByrefSetCur;
+
+    if (layout->IsGCRef(0))
+    {
+        regNumber tempReg = store->ExtractTempReg();
+        inst_Mov(TYP_REF, tempReg, valReg1, true);
+        valReg1 = tempReg;
+
+        emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
+        inst_Mov(TYP_REF, REG_ARG_1, valReg0, true);
+
+        gcInfo.gcRegGCrefSetCur = inGCrefRegSet | genRegMask(tempReg);
+        gcInfo.gcRegByrefSetCur = inByrefRegSet;
+        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
+        gcInfo.gcRegGCrefSetCur = outGCrefRegSet;
+        gcInfo.gcRegByrefSetCur = outByrefRegSet;
+    }
+    else
+    {
+        emit->emitIns_AR_R(INS_mov, EA_8BYTE, valReg0, addrReg, addrOffset);
+    }
+
+    addrOffset += TARGET_POINTER_SIZE;
+
+    if (layout->IsGCRef(1))
+    {
+        emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
+        inst_Mov(TYP_REF, REG_ARG_1, valReg1, true);
+        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
+    }
+    else
+    {
+        emit->emitIns_AR_R(INS_mov, EA_8BYTE, valReg1, addrReg, addrOffset);
+    }
+}
+#endif // UNIX_AMD64_ABI
 
 //------------------------------------------------------------------------
 // If any Vector3 args are on stack and they are not pass-by-ref, the upper 32bits
@@ -3956,16 +4174,15 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     GenTree* src = store->GetOp(0);
 
-    if (src->gtSkipReloadOrCopy()->IsMultiRegNode())
+    if (src->IsMultiRegNode())
     {
         GenStoreLclVarMultiReg(store);
         return;
     }
 
-    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
-    var_types  lclRegType = lcl->GetRegisterType(store);
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
+    if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -3973,6 +4190,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
+
+    var_types lclRegType = lcl->GetRegisterType(store);
 
 #ifdef DEBUG
     {
@@ -4754,10 +4973,19 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         retSize       = emitTypeSize(call->GetRegType(0));
         secondRetSize = emitTypeSize(call->GetRegType(1));
     }
+    else if (varTypeIsStruct(call->GetType()))
+    {
+        if (call->GetRegType(0) == TYP_REF)
+        {
+            retSize = EA_GCREF;
+        }
+        else if (call->GetRegType(0) == TYP_BYREF)
+        {
+            retSize = EA_BYREF;
+        }
+    }
     else
     {
-        assert(!varTypeIsStruct(call));
-
         if (call->gtType == TYP_REF)
         {
             retSize = EA_GCREF;
@@ -5004,7 +5232,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         else
 #endif // TARGET_X86
         {
-            if (call->HasMultiRegRetVal())
+            if (call->HasMultiRegRetVal() || varTypeIsStruct(call->GetType()))
             {
                 // If regs allocated to call node are different from ABI return
                 // regs in which the call has returned its result, move the result
@@ -7078,6 +7306,32 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
         return;
     }
+
+#ifdef TARGET_X86
+    if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
+    {
+        assert(src->AsCall()->GetRegCount() == 2);
+        assert(putArgStk->GetSlotCount() == 2);
+
+        // TODO-MIKE-Cleanup: Using the register types isn't quite right, we need
+        // the slot types from the argument layout. But in general they should be
+        // the same, unless there's some weird reinterpretation going on, likely
+        // due to invalid IL. Anyway, this is currently used only by unmanaged
+        // calls so GC pointers should not be involved. It obviously would not
+        // work for __vectorcall or if the managed calling convention is changed
+        // to be like the native one.
+        assert(src->AsCall()->GetRegType(0) == TYP_INT);
+        assert(src->AsCall()->GetRegType(1) == TYP_INT);
+
+        regNumber srcReg0 = genConsumeReg(src, 0);
+        regNumber srcReg1 = genConsumeReg(src, 1);
+
+        genPushReg(TYP_INT, srcReg1);
+        genPushReg(TYP_INT, srcReg0);
+
+        return;
+    }
+#endif
 
     if (srcType == TYP_STRUCT)
     {

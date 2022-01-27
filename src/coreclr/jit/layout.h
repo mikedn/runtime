@@ -316,9 +316,33 @@ public:
         return m_gcPtrCount != 0;
     }
 
+    bool HasGCRef() const
+    {
+        if (m_gcPtrCount > 0)
+        {
+            // TODO-MIKE-Cleanup: It may be good to not have to loop through all slots
+            // to get this information. But it's good enough for now as only multireg
+            // stores need it and those only deal with a very small number of slots.
+            for (unsigned i = 0, count = GetSlotCount(); i < count; i++)
+            {
+                if (GetGCPtr(i) == TYPE_GC_REF)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     bool IsGCPtr(unsigned slot) const
     {
         return GetGCPtr(slot) != TYPE_GC_NONE;
+    }
+
+    bool IsGCRef(unsigned slot) const
+    {
+        return GetGCPtr(slot) == TYPE_GC_REF;
     }
 
     var_types GetGCPtrType(unsigned slot) const

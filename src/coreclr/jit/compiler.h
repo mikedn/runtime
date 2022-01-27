@@ -2288,9 +2288,6 @@ public:
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
-#if FEATURE_MULTIREG_RET
-    unsigned gtDispRegCount(GenTree* tree);
-#endif
     void gtDispRegVal(GenTree* tree);
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispVN(GenTree* tree);
@@ -2922,7 +2919,6 @@ protected:
 
     void impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
 #if FEATURE_MULTIREG_RET
-    GenTree* impCanonicalizeMultiRegCall(GenTreeCall* call);
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 #endif
     GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
@@ -8512,6 +8508,7 @@ public:
     GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg);
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
+    GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
 #endif
 #ifndef TARGET_X86
     unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);

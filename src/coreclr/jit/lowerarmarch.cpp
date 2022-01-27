@@ -192,7 +192,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
+void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 {
     ContainCheckStoreIndir(store);
 }
@@ -228,7 +228,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         {
             unsigned size = src->AsObj()->GetLayout()->GetSize();
 
-            ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+            ContainStructStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
         }
 
         return;
@@ -290,21 +290,13 @@ bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool 
     return true;
 }
 
-//------------------------------------------------------------------------
-// ContainBlockStoreAddress: Attempt to contain an address used by an unrolled block store.
-//
-// Arguments:
-//    store - the block store node
-//    size - the block size
-//    addr - the address node to try to contain
-//
-void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
+void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
     assert(
-        (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD)) ||
+        store->OperIsPutArgStkOrSplit() || (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD)) ||
         (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
-                                                       (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit))) ||
-        store->OperIsPutArgStkOrSplit());
+                                                       (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit ||
+                                                        (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs)))));
 
     if (addr->OperIsLocalAddr())
     {
@@ -332,10 +324,36 @@ void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* 
 
     BlockRange().Remove(offsetNode);
 
-    addr->ChangeOper(GT_LEA);
-    addr->AsAddrMode()->SetIndex(nullptr);
-    addr->AsAddrMode()->SetScale(0);
-    addr->AsAddrMode()->SetOffset(static_cast<int>(offset));
+    addr->ChangeToAddrMode(addr->AsOp()->GetOp(0), nullptr, 0, static_cast<int>(offset));
+    addr->SetContained();
+}
+
+void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
+{
+    if (!addr->OperIs(GT_ADD) || addr->gtOverflow())
+    {
+        return;
+    }
+
+    int offset;
+
+    if (GenTreeIntCon* intCon = addr->AsOp()->GetOp(1)->IsIntCon())
+    {
+        if (intCon->GetValue() > 255)
+        {
+            return;
+        }
+
+        offset = intCon->GetInt32Value();
+
+        BlockRange().Remove(intCon);
+    }
+    else
+    {
+        return;
+    }
+
+    addr->ChangeToAddrMode(addr->AsOp()->GetOp(0), nullptr, 0, offset);
     addr->SetContained();
 }
 

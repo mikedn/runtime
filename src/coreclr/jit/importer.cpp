@@ -923,46 +923,8 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
 
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
-    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
+    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR) ||
            (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
-
-    if (src->OperIs(GT_COMMA))
-    {
-        // TODO-MIKE-Cleanup: Is this really needed? fgMorphCopyStruct already handles COMMAs
-        // and it does it correctly. This extracts COMMA's side effect into a new statement
-        // without checking if the side effect doesn't interfere with the destination address.
-        // It also does this inconsistently - if the block already contains a statement it
-        // extracts the side effect, otherwise it sinks the assignment below the comma (and
-        // again incorrectly reorders side effects).
-        // It looks like the importer generates structs COMMAs only for static fields which
-        // probably makes such reordering unlikely to be significant (e.g. a.b.c = sfield
-        // could generate a TypeInitializationException instead of a NullReferenceException
-        // but it's unlikely that anyone would notice or care about that).
-
-        GenTree* sideEffect = src->AsOp()->GetOp(0);
-        GenTree* value      = src->AsOp()->GetOp(1);
-
-        assert(varTypeIsStruct(value->GetType()) || value->TypeIs(TYP_BYREF));
-
-        if (impLastStmt != nullptr)
-        {
-            impAppendTree(sideEffect, curLevel, impCurStmtOffs);
-
-            return impAssignStructAddr(destAddr, value, layout, curLevel);
-        }
-        else
-        {
-            // If there's no previous statement put the assignment under COMMA.
-            // Why? No idea. Probably because this code is sometimes called from
-            // outside the importer (e.g. CSE). Doesn't matter, one way or another
-            // it still incorrectly reorders side effects as mentioned above.
-
-            src->AsOp()->SetOp(1, impAssignStructAddr(destAddr, value, layout, curLevel));
-            src->SetSideEffects(src->AsOp()->GetOp(0)->GetSideEffects() | src->AsOp()->GetOp(1)->GetSideEffects());
-
-            return src;
-        }
-    }
 
     // Handle calls that return structs by reference - the destination address
     // is passed to the call as the return buffer address and no assignment is
@@ -1211,40 +1173,6 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
 {
     assert(varTypeIsStruct(value->GetType()) || info.compCompHnd->isValueClass(structHnd));
 
-    if (value->OperIs(GT_COMMA))
-    {
-        assert(value->AsOp()->GetOp(1)->GetType() == value->GetType());
-
-        Statement* oldLastStmt = impLastStmt;
-        value->AsOp()->SetOp(1, impGetStructAddr(value->AsOp()->GetOp(1), structHnd, curLevel, willDereference));
-        value->SetType(TYP_BYREF);
-
-        if (oldLastStmt != impLastStmt)
-        {
-            // Some temp assignment statement was placed on the statement list
-            // for Op2, but that would be out of order with op1, so we need to
-            // spill op1 onto the statement list after whatever was last
-            // before we recursed on Op2 (i.e. before whatever Op2 appended).
-            Statement* beforeStmt;
-            if (oldLastStmt == nullptr)
-            {
-                // The op1 stmt should be the first in the list.
-                beforeStmt = impStmtList;
-            }
-            else
-            {
-                // Insert after the oldLastStmt before the first inserted for op2.
-                beforeStmt = oldLastStmt->GetNextStmt();
-            }
-
-            impStmtListInsertBefore(gtNewStmt(value->AsOp()->GetOp(0), impCurStmtOffs), beforeStmt);
-
-            value->AsOp()->SetOp(0, gtNewNothingNode());
-        }
-
-        return value;
-    }
-
     if (value->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         value->SetOper(value->OperIs(GT_LCL_VAR) ? GT_LCL_VAR_ADDR : GT_LCL_FLD_ADDR);
@@ -1269,20 +1197,20 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 
     switch (arg->GetOper())
     {
-        unsigned argLclNum;
-
         case GT_CALL:
         case GT_RET_EXPR:
-            // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
-            // a return buffer. Do we also need a temp if structs are returned in registers?
-            argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
-            impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
-            arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
-            break;
+            // TODO-MIKE-CQ: We should not need a temp for single reg return calls either.
+            if ((arg->IsCall() ? arg->AsCall() : arg->AsRetExpr()->GetCall())->GetRegCount() <= 1)
+            {
+                unsigned argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+                impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
+                arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
+            }
+            return arg;
 
         case GT_LCL_VAR:
             assert(arg->GetType() == lvaGetDesc(arg->AsLclVar())->GetType());
-            break;
+            return arg;
 
 #ifdef FEATURE_SIMD
         case GT_IND:
@@ -1290,72 +1218,16 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
         case GT_HWINTRINSIC:
 #endif
             assert(varTypeIsSIMD(arg->GetType()));
-            break;
+            FALLTHROUGH;
 #endif
-
         case GT_MKREFANY:
         case GT_LCL_FLD:
         case GT_OBJ:
-            break;
-
-        case GT_COMMA:
-        {
-            GenTree* lastComma  = arg;
-            GenTree* commaValue = arg->AsOp()->GetOp(1);
-
-            while (commaValue->OperIs(GT_COMMA))
-            {
-                assert(commaValue->GetType() == arg->GetType());
-
-                lastComma  = commaValue;
-                commaValue = commaValue->AsOp()->GetOp(1);
-            }
-
-            assert(commaValue->GetType() == arg->GetType());
-
-#ifdef FEATURE_SIMD
-            if (commaValue->OperIsHWIntrinsic())
-            {
-                lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argLayout, curLevel));
-            }
-            else
-#endif
-            {
-                noway_assert(commaValue->OperIs(GT_OBJ));
-
-                // Hoist the block node above the COMMA so we don't have to deal with struct typed COMMAs:
-                //   COMMA(x, OBJ(addr)) => OBJ(COMMA(x, addr))
-
-                // TODO-MIKE-Fix: Huh, this doesn't handle multiple COMMAs even though the code above does.
-                // Though it looks like struct COMMAs are rare in the importer - only produced by static
-                // field access - and aren't nested. And the static field import code could probably be
-                // changed to produce OBJ(COMMA(...)) rather than COMMA(OBJ(...)).
-
-                GenTree* addr = commaValue->AsObj()->GetAddr();
-
-                lastComma->SetType(addr->GetType());
-                lastComma->AsOp()->SetOp(1, addr);
-
-                commaValue->AsObj()->SetAddr(lastComma);
-
-                if (lastComma == arg)
-                {
-                    arg = commaValue;
-                }
-            }
-        }
-        break;
+            return arg;
 
         default:
             unreached();
     }
-
-    if (arg->OperIs(GT_OBJ))
-    {
-        arg->gtFlags |= GTF_EXCEPT;
-    }
-
-    return arg;
 }
 
 /******************************************************************************/
@@ -8105,28 +7977,9 @@ DONE_INTRINSIC:
             const bool isInlineCandidate                  = origCall->IsInlineCandidate();
             const bool isGuardedDevirtualizationCandidate = origCall->IsGuardedDevirtualizationCandidate();
 
-            if (varTypeIsStruct(origCall->GetType()))
-            {
-#if FEATURE_MULTIREG_RET
-                if ((origCall->GetRegCount() > 1) && !origCall->CanTailCall() && !isInlineCandidate)
-                {
-                    call = impCanonicalizeMultiRegCall(origCall);
-                }
-#endif
-            }
-
             // TODO: consider handling fatcalli cases this way too...?
             if (isInlineCandidate || isGuardedDevirtualizationCandidate)
             {
-                // We should not have made any adjustments in impCanonicalizeMultiRegCall
-                // as we defer those until we know the fate of the call.
-
-                // TODO-MIKE-Review: This seems broken. impCanonicalizeMultiRegCall is not
-                // called for inline candidates but it is called for guarded devirtualization
-                // candidates.
-
-                noway_assert(call == origCall);
-
                 assert(opts.OptEnabled(CLFLG_INLINING));
                 assert(!isFatPointerCandidate); // We should not try to inline calli.
 
@@ -8152,12 +8005,9 @@ DONE_INTRINSIC:
                     assert(!bIntrinsicImported);
                     assert(IsTargetAbi(CORINFO_CORERT_ABI));
 
-                    if (call == origCall) // can be already converted by impCanonicalizeMultiRegCall.
-                    {
-                        unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
-                        impAppendTempAssign(calliTempLclNum, call, origCall->GetRetLayout(), CHECK_SPILL_NONE);
-                        call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
-                    }
+                    unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
+                    impAppendTempAssign(calliTempLclNum, call, origCall->GetRetLayout(), CHECK_SPILL_NONE);
+                    call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
                 }
 
                 // For non-candidates we must also spill, since we
@@ -8269,28 +8119,6 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
 }
 
 #if FEATURE_MULTIREG_RET
-
-GenTree* Compiler::impCanonicalizeMultiRegCall(GenTreeCall* call)
-{
-    // Multireg return calls have limited support in IR - basically they can only
-    // be assigned to locals or "returned" if they're tail calls.
-    // For inline candidate calls this transform is deferred to the inliner.
-
-    assert(varTypeIsStruct(call->GetType()));
-    assert((call->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate());
-
-    unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
-    // Make sure that this local doesn't get promoted.
-    lvaGetDesc(tempLclNum)->lvIsMultiRegRet = true;
-
-    impAppendTempAssign(tempLclNum, call, call->GetRetLayout(), CHECK_SPILL_ALL);
-
-    GenTree* temp = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
-    // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-    temp->gtFlags |= GTF_DONT_CSE;
-
-    return temp;
-}
 
 GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass)
 {

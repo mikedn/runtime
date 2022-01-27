@@ -1968,7 +1968,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     GenTree* src = store->GetOp(0);
 
-    if (src->gtSkipReloadOrCopy()->IsMultiRegNode())
+    if (src->IsMultiRegNode())
     {
         GenStoreLclVarMultiReg(store);
         return;
@@ -1976,30 +1976,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
-    if (store->IsMultiReg())
-    {
-        // This is the case of storing to a multi-reg HFA local from a fixed-size SIMD type.
-        assert(varTypeIsSIMD(src->GetType()) && lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
-
-        regNumber srcReg = genConsumeReg(src);
-
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
-        {
-            assert(compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetType() == TYP_FLOAT);
-
-            regNumber fieldReg = store->GetRegByIndex(i);
-            assert(fieldReg != REG_NA);
-
-            GetEmitter()->emitIns_R_R_I(INS_dup, EA_4BYTE, fieldReg, srcReg, i);
-        }
-
-        genProduceReg(store);
-        return;
-    }
-
-    var_types lclRegType = lcl->GetRegisterType(store);
-
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
+    if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -2007,6 +1984,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
+
+    var_types lclRegType = lcl->GetRegisterType(store);
 
 #ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)

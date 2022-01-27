@@ -907,26 +907,17 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    GenTree* src       = store->GetOp(0);
-    GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount  = 1;
+    GenTree* src = store->GetOp(0);
 
-    if (actualSrc->IsMultiRegNode())
+    if (src->IsMultiRegNode())
     {
-        regCount = actualSrc->IsMultiRegLclVar() ? actualSrc->AsLclVar()->GetFieldCount(compiler)
-                                                 : actualSrc->GetMultiRegCount();
-
-        if (regCount > 1)
-        {
-            GenStoreLclVarMultiReg(store);
-            return;
-        }
+        GenStoreLclVarMultiReg(store);
+        return;
     }
 
-    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
-    var_types  lclRegType = lcl->GetRegisterType(store);
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
+    if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -934,6 +925,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
+
+    var_types lclRegType = lcl->GetRegisterType(store);
 
     if (lclRegType == TYP_LONG)
     {

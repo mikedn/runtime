@@ -148,19 +148,16 @@ private:
     GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
 #endif
     void LowerJmpMethod(GenTree* jmp);
-    void LowerRet(GenTreeUnOp* ret);
+    void LowerReturn(GenTreeUnOp* ret);
     void LowerLclVar(GenTreeLclVar* lclVar);
     void LowerStoreLclVar(GenTreeLclVar* store);
     void LowerStoreLclVarArch(GenTreeLclVar* store);
     void LowerLclFld(GenTreeLclFld* lclFld);
     void LowerStoreLclFld(GenTreeLclFld* store);
-    void LowerRetStruct(GenTreeUnOp* ret);
+    void LowerStructReturn(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
-    void LowerCallStruct(GenTreeCall* call);
-    void LowerStoreSingleRegCallStruct(GenTreeObj* store);
-#if !defined(WINDOWS_AMD64_ABI)
-    GenTreeLclVar* SpillStructCallResult(GenTreeCall* call);
-#endif // WINDOWS_AMD64_ABI
+    void LowerStructCall(GenTreeCall* call);
+    GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerIndirectNonvirtCall(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
@@ -303,10 +300,9 @@ private:
     }
 #endif // defined(TARGET_XARCH)
 
-    // Per tree node member functions
-    void LowerStoreIndirCommon(GenTreeStoreInd* ind);
     void LowerIndir(GenTreeIndir* ind);
     void LowerStoreIndir(GenTreeStoreInd* store);
+    void LowerStoreIndirArch(GenTreeStoreInd* store);
     GenTree* LowerAdd(GenTreeOp* node);
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
@@ -314,7 +310,8 @@ private:
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void LowerStoreObj(GenTreeObj* store);
     void LowerStoreBlk(GenTreeBlk* store);
-    void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
+    void ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr);
+    void ContainStructStoreAddressUnrollRegsWB(GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
 
 #ifdef TARGET_ARM64

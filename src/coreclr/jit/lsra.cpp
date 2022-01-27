@@ -5927,7 +5927,11 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         }
     }
     else if (spillAfter && !RefTypeIsUse(currentRefPosition->refType) && (treeNode != nullptr) &&
-             (!treeNode->IsMultiReg() || treeNode->gtGetOp1()->IsMultiRegNode()))
+             (!treeNode->IsMultiReg() || treeNode->gtGetOp1()->IsMultiRegNode()
+#ifdef FEATURE_MULTIREG_RET
+              || treeNode->GetOp(0)->IsCopyOrReload()
+#endif
+                  ))
     {
         // In the case of a pure def, don't bother spilling - just assign it to the
         // stack.  However, we need to remember that it was spilled.
@@ -6504,7 +6508,11 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
             // LSRA is agnostic to those choices but needs
             // to know what they are here.
             var_types type;
-            if (!treeNode->IsMultiRegNode())
+            if (treeNode->TypeIs(TYP_STRUCT) && treeNode->IsCall())
+            {
+                type = treeNode->AsCall()->GetRegType(refPosition->getMultiRegIdx());
+            }
+            else if (!treeNode->IsMultiRegNode())
             {
                 type = getDefType(treeNode);
             }
@@ -9196,12 +9204,9 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
 
                 if (tree->IsMultiRegNode())
                 {
-                    unsigned regCount = tree->IsMultiRegLclVar()
-                                            ? compiler->lvaGetDesc(tree->AsLclVar()->GetLclNum())->lvFieldCnt
-                                            : tree->GetMultiRegCount();
-                    for (unsigned regIndex = 1; regIndex < regCount; regIndex++)
+                    for (unsigned i = 1, count = tree->GetMultiRegCount(compiler); i < count; i++)
                     {
-                        regNumber reg = tree->GetRegByIndex(regIndex);
+                        regNumber reg = tree->GetRegByIndex(i);
                         charCount     = _snprintf_s(operandString, operandStringLength, operandStringLength, ",%s%s",
                                                 getRegName(reg), lastUseChar);
                         operandString += charCount;

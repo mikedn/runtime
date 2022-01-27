@@ -1077,7 +1077,10 @@ private:
 
     void BuildInternalUses()
     {
-        buildInternalRegisterUses();
+        if (internalCount > 0)
+        {
+            buildInternalRegisterUses();
+        }
     }
 
     void writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumber reg);
@@ -1825,6 +1828,7 @@ private:
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
     RefPosition* BuildDef(GenTree* tree, regMaskTP dstCandidates = RBM_NONE, int multiRegIdx = 0);
+    RefPosition* BuildDef(GenTree* tree, var_types type, regMaskTP dstCandidates, int multiRegIdx);
     void BuildKills(GenTree* tree, regMaskTP killMask);
 
     int BuildReturn(GenTreeUnOp* ret);
@@ -1840,6 +1844,7 @@ private:
     int BuildCall(GenTreeCall* call);
     int BuildCmp(GenTree* tree);
     int BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
+    int BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
     int BuildStoreDynBlk(GenTreeDynBlk* store);
     int BuildModDiv(GenTree* tree);
     int BuildIntrinsic(GenTree* tree);
