@@ -5705,14 +5705,10 @@ DONE:
         gtUpdateNodeSideEffects(copy);
     }
 
-#if defined(DEBUG)
     // Non-node debug flags should be propagated from 'tree' to 'copy'
-    copy->gtDebugFlags |= (tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
-#endif
+    INDEBUG(copy->gtDebugFlags |= (tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);)
 
-    /* Make sure to copy back fields that may have been initialized */
-
-    copy->CopyRawCosts(tree);
+    copy->CopyCosts(tree);
 
     // We don't expect to clone trees after register allocation.
     assert(!tree->HasRegs() || (tree->GetRegNum() == REG_NA));

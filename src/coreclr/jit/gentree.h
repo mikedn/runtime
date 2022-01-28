@@ -883,15 +883,6 @@ public:
 
     void CopyCosts(const GenTree* const tree)
     {
-        m_costEx = tree->GetCostEx();
-        m_costSz = tree->GetCostSz();
-        INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_COSTS);
-    }
-
-    // Same as CopyCosts, but avoids asserts if the costs we are copying have not been initialized.
-    // This is because the importer, for example, clones nodes, before these costs have been initialized.
-    void CopyRawCosts(const GenTree* const tree)
-    {
         m_costEx = tree->m_costEx;
         m_costSz = tree->m_costSz;
         INDEBUG(gtDebugFlags = (gtDebugFlags & ~GTF_DEBUG_HAS_COSTS) | (tree->gtDebugFlags & GTF_DEBUG_HAS_COSTS);)
