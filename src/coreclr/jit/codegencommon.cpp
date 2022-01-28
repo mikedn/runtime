@@ -10194,7 +10194,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
         var_types retType = retDesc.GetRegType(i);
         regNumber retReg  = retDesc.GetRegNum(i);
 
-        regNumber srcReg = src->GetRegByIndex(i);
+        regNumber srcReg = src->GetRegNum(i);
 
         if ((srcReg == REG_NA) && src->OperIs(GT_COPY))
         {
@@ -10205,7 +10205,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
             // to check for this case (though we'd have to check in the genRegCopy that the
             // reg is valid).
 
-            srcReg = actualSrc->GetRegByIndex(i);
+            srcReg = actualSrc->GetRegNum(i);
         }
 
         assert(srcReg != REG_NA);
@@ -10299,7 +10299,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         assert(reg != REG_NA);
         if (isMultiRegVar)
         {
-            regNumber  varReg      = store->GetRegByIndex(i);
+            regNumber  varReg      = store->GetRegNum(i);
             unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
             LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldLclNum);
             var_types  destType    = fieldVarDsc->TypeGet();
@@ -10417,12 +10417,12 @@ void CodeGen::genRegCopy(GenTree* treeNode)
         {
             if ((op1->GetRegSpillFlagByIdx(i) & GTF_SPILLED) == 0)
             {
-                busyRegs |= genRegMask(op1->GetRegByIndex(i));
+                busyRegs |= genRegMask(op1->GetRegNum(i));
             }
         }
         for (unsigned i = 0; i < regCount; ++i)
         {
-            regNumber sourceReg = op1->GetRegByIndex(i);
+            regNumber sourceReg = op1->GetRegNum(i);
             // genRegCopy will consume the source register, perform any required reloads,
             // and will return either the register copied to, or the original register if there's no copy.
             regNumber targetReg = genRegCopy(treeNode, i);
@@ -10515,13 +10515,11 @@ regNumber CodeGen::genRegCopy(GenTree* treeNode, unsigned multiRegIndex)
     assert(op1->IsMultiRegNode());
     assert(multiRegIndex < op1->GetMultiRegCount(compiler));
 
-    GenTreeCopyOrReload* copyNode = treeNode->AsCopyOrReload();
-
     // Consume op1's register, which will perform any necessary reloads.
     genConsumeReg(op1, multiRegIndex);
 
-    regNumber sourceReg = op1->GetRegByIndex(multiRegIndex);
-    regNumber targetReg = copyNode->GetRegNumByIdx(multiRegIndex);
+    regNumber sourceReg = op1->GetRegNum(multiRegIndex);
+    regNumber targetReg = treeNode->GetRegNum(multiRegIndex);
     // GenTreeCopyOrReload only reports the highest index that has a valid register.
     // However there may be lower indices that have no valid register (i.e. the register
     // on the source is still valid at the consumer).

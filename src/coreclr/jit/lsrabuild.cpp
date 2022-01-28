@@ -2725,7 +2725,7 @@ RefPosition* LinearScan::BuildDef(GenTree* tree, regMaskTP dstCandidates, int mu
 
     if (dstCandidates != RBM_NONE)
     {
-        assert((tree->GetRegNum() == REG_NA) || (dstCandidates == genRegMask(tree->GetRegByIndex(multiRegIdx))));
+        assert((tree->GetRegNum() == REG_NA) || (dstCandidates == genRegMask(tree->GetRegNum(multiRegIdx))));
     }
 
     RegisterType type;

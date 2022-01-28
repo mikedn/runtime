@@ -777,7 +777,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
     {
         // This case currently only occurs for double types that are passed as TYP_LONG;
         // actual long types would have been decomposed by now.
-        regNumber otherReg = src->AsCopyOrReload()->GetRegNumByIdx(1);
+        regNumber otherReg = src->GetRegNum(1);
         GetEmitter()->emitIns_S_R(storeIns, storeAttr, otherReg, outArgLclNum, outArgLclOffs + 4);
     }
 #endif // TARGET_ARM
@@ -1020,7 +1020,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
         for (unsigned i = 0; i < putArg->GetRegCount(); i++)
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, putArg->GetRegNumByIdx(i), 0);
+            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, putArg->GetRegNum(i), 0);
         }
 
         genProduceReg(putArg);
@@ -1052,7 +1052,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 continue;
             }
 
-            regNumber argReg = putArg->GetRegNumByIdx(regIndex);
+            regNumber argReg = putArg->GetRegNum(regIndex);
 
             emitAttr attr = emitTypeSize(putArg->GetRegType(regIndex));
             assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
@@ -1065,9 +1065,9 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             {
                 assert(fieldNode->OperIs(GT_BITCAST));
 
-                fieldReg = fieldNode->AsMultiRegOp()->GetRegByIndex(1);
+                fieldReg = fieldNode->GetRegNum(1);
 
-                regNumber argReg = putArg->GetRegNumByIdx(regIndex);
+                regNumber argReg = putArg->GetRegNum(regIndex);
                 GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, argReg, fieldReg, /* canSkip */ true);
                 regIndex++;
             }
@@ -1183,7 +1183,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
     for (unsigned i = 0; i < putArg->GetRegCount(); i++)
     {
         unsigned  offset   = srcOffset + i * REGSIZE_BYTES;
-        regNumber dstReg   = putArg->GetRegNumByIdx(i);
+        regNumber dstReg   = putArg->GetRegNum(i);
         emitAttr  slotAttr = emitTypeSize(putArg->GetRegType(i));
 
         if (srcLclNum != BAD_VAR_NUM)
@@ -1234,13 +1234,13 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     for (int i = regCount - 1; i >= 0; --i)
     {
         var_types type   = actualSrc->GetRegTypeByIndex(i);
-        regNumber srcReg = actualSrc->GetRegByIndex(i);
+        regNumber srcReg = actualSrc->GetRegNum(i);
 
         if (src->IsCopyOrReload())
         {
             // COPY/RELOAD will have valid reg for those positions that need to be copied or reloaded.
 
-            regNumber reloadReg = src->AsCopyOrReload()->GetRegNumByIdx(i);
+            regNumber reloadReg = src->GetRegNum(i);
 
             if (reloadReg != REG_NA)
             {
@@ -2636,7 +2636,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
             {
                 regNumber argReg = argInfo->GetRegNum(i);
-                regNumber srcReg = argNode->AsPutArgSplit()->GetRegNumByIdx(i);
+                regNumber srcReg = argNode->GetRegNum(i);
 
                 if (srcReg != argReg)
                 {
@@ -2893,7 +2893,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             {
                 var_types regType      = call->GetRegType(i);
                 regNumber returnReg    = call->GetRetDesc()->GetRegNum(i);
-                regNumber allocatedReg = call->GetRegNumByIdx(i);
+                regNumber allocatedReg = call->GetRegNum(i);
                 inst_Mov(regType, allocatedReg, returnReg, /* canSkip */ true);
             }
         }

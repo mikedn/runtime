@@ -228,9 +228,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
 
             for (unsigned int i = 0; i < regCount; i++)
             {
-                assert(argNode->AsPutArgSplit()->GetRegNumByIdx(i) == argInfo->GetRegNum(i));
+                assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
 
-                BuildUse(argNode, genRegMask(argNode->AsPutArgSplit()->GetRegNumByIdx(i)), i);
+                BuildUse(argNode, genRegMask(argNode->GetRegNum(i)), i);
                 srcCount++;
             }
 

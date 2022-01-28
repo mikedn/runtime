@@ -154,7 +154,7 @@ bool CodeGenLivenessUpdater::UpdateLifeFieldVar(CodeGen* codeGen, GenTreeLclVar*
 
     if (lclNode->IsLastUse(regIndex))
     {
-        bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNumByIdx(regIndex) != REG_NA);
+        bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNum(regIndex) != REG_NA);
         bool isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
 
         if (isInReg)
@@ -281,7 +281,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             {
                 LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-                bool isInReg        = fieldLcl->lvIsInReg() && (lclNode->AsLclVar()->GetRegNumByIdx(i) != REG_NA);
+                bool isInReg        = fieldLcl->lvIsInReg() && (lclNode->GetRegNum(i) != REG_NA);
                 bool isInMemory     = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
                 bool isFieldDying   = lclNode->AsLclVar()->IsLastUse(i);
                 bool isFieldSpilled = spill && ((lclNode->GetRegSpillFlagByIdx(i) & GTF_SPILL) != 0);

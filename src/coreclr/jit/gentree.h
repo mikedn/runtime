@@ -662,7 +662,9 @@ enum GenTreeDebugFlags : unsigned int
     GTF_DEBUG_NODE_MASK         = 0x0000003F, // These flags are all node (rather than operation) properties.
 
     GTF_DEBUG_HAS_COSTS         = 0x00000100,
-    GTF_DEBUG_HAS_REGS          = 0x00000200,
+
+    GTF_DEBUG_HAS_REG_0         = 0x01000000, // One bit for each def reg
+    GTF_DEBUG_HAS_REGS_MASK     = 0xFF000000,
 };
 
 inline constexpr GenTreeDebugFlags operator ~(GenTreeDebugFlags a)
@@ -888,13 +890,6 @@ public:
         INDEBUG(gtDebugFlags = (gtDebugFlags & ~GTF_DEBUG_HAS_COSTS) | (tree->gtDebugFlags & GTF_DEBUG_HAS_COSTS);)
     }
 
-#ifdef DEBUG
-    bool HasRegs() const
-    {
-        return (gtDebugFlags & GTF_DEBUG_HAS_REGS) != 0;
-    }
-#endif
-
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
     // a full-size (unsigned) format, to localize the casts here.
 
@@ -955,35 +950,61 @@ public:
         return !isContained() && !isUsedFromSpillTemp();
     }
 
+#ifdef DEBUG
+    bool HasRegs() const
+    {
+        return (gtDebugFlags & GTF_DEBUG_HAS_REGS_MASK) != 0;
+    }
+
+    bool HasReg(unsigned i) const
+    {
+        return (gtDebugFlags & (GTF_DEBUG_HAS_REG_0 << i)) != 0;
+    }
+#endif
+
+    void ClearOtherRegs()
+    {
+        for (unsigned i = 1; i < _countof(m_defRegs); ++i)
+        {
+            SetRegNum(i, REG_NA);
+        }
+    }
+
     regNumber GetRegNum() const
     {
         // TODO-Cleanup: This should be called on nodes that do not have a register assigned.
         // However, a lot of code calls it an instead checks for REG_NA.
-        // assert(m_isRegNumAssigned);
+        // assert((gtDebugFlags & GTF_DEBUG_HAS_REG_0) != 0);
 
         regNumber reg = static_cast<regNumber>(m_defRegs[0]);
-        assert(((gtDebugFlags & GTF_DEBUG_HAS_REGS) == 0) || (reg >= REG_FIRST && reg <= REG_COUNT));
+        assert(!HasReg(0) || (REG_FIRST <= reg && reg <= REG_COUNT));
         return reg;
     }
 
     void SetRegNum(regNumber reg)
     {
-        assert(reg >= REG_FIRST && reg <= REG_COUNT);
+        assert(REG_FIRST <= reg && reg <= REG_COUNT);
+
         m_defRegs[0] = static_cast<regNumberSmall>(reg);
-        INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_REGS;)
-        assert(m_defRegs[0] == reg);
+        INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_REG_0;)
     }
 
     regNumber GetRegNum(unsigned i) const
     {
         assert(i < _countof(m_defRegs));
-        return static_cast<regNumber>(m_defRegs[i]);
+
+        regNumber reg = static_cast<regNumber>(m_defRegs[i]);
+        assert(!HasReg(0) || (REG_FIRST <= reg && reg <= REG_COUNT));
+        return reg;
     }
 
     void SetRegNum(unsigned i, regNumber reg)
     {
         assert(i < _countof(m_defRegs));
+        assert(REG_FIRST <= reg && reg <= REG_COUNT);
+
         m_defRegs[i] = static_cast<regNumberSmall>(reg);
+        INDEBUG(gtDebugFlags |= static_cast<GenTreeDebugFlags>(GTF_DEBUG_HAS_REG_0 << i););
     }
 
     bool gtHasReg() const;
@@ -1643,9 +1664,6 @@ public:
 
     // Returns the number of registers defined by a multireg node.
     unsigned GetMultiRegCount(Compiler* compiler) const;
-
-    // Returns the regIndex'th register defined by a possibly-multireg node.
-    regNumber GetRegByIndex(int regIndex);
 
     // Returns the type of the regIndex'th register defined by a multi-reg node.
     var_types GetRegTypeByIndex(int regIndex);
@@ -3341,23 +3359,6 @@ public:
         ClearOtherRegFlags();
     }
 
-    regNumber GetRegNumByIdx(int regIndex)
-    {
-        return (regIndex == 0) ? GetRegNum() : GetRegNum(regIndex);
-    }
-
-    void SetRegNumByIdx(regNumber reg, int regIndex)
-    {
-        if (regIndex == 0)
-        {
-            SetRegNum(reg);
-        }
-        else
-        {
-            SetRegNum(regIndex, reg);
-        }
-    }
-
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
     {
         return GetMultiRegSpillFlagsByIdx(gtSpillFlags, idx);
@@ -4214,60 +4215,6 @@ public:
     const ReturnTypeDesc* GetRetDesc() const
     {
         return &m_retDesc;
-    }
-
-    regNumber GetRegNumByIdx(unsigned idx) const
-    {
-        assert(idx < MAX_RET_REG_COUNT);
-
-        if (idx == 0)
-        {
-            return GetRegNum();
-        }
-
-#if FEATURE_MULTIREG_RET
-        return GetRegNum(idx);
-#else
-        return REG_NA;
-#endif
-    }
-
-    void SetRegNumByIdx(regNumber reg, unsigned idx)
-    {
-        assert(idx < MAX_RET_REG_COUNT);
-
-        if (idx == 0)
-        {
-            SetRegNum(reg);
-        }
-#if FEATURE_MULTIREG_RET
-        else
-        {
-            SetRegNum(idx, reg);
-        }
-#else
-        unreached();
-#endif
-    }
-
-    void ClearOtherRegs()
-    {
-#if FEATURE_MULTIREG_RET
-        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
-        {
-            SetRegNum(i, REG_NA);
-        }
-#endif
-    }
-
-    void CopyOtherRegs(GenTreeCall* fromCall)
-    {
-#if FEATURE_MULTIREG_RET
-        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
-        {
-            SetRegNum(i, fromCall->GetRegNum(i));
-        }
-#endif
     }
 
     regMaskTP GetOtherRegMask() const;
@@ -5176,27 +5123,6 @@ struct GenTreeMultiRegOp : public GenTreeOp
     unsigned GetRegCount() const
     {
         return (TypeGet() == TYP_LONG) ? 2 : 1;
-    }
-
-    //---------------------------------------------------------------------------
-    // GetRegNumByIdx: get ith register allocated to this struct argument.
-    //
-    // Arguments:
-    //     idx   -   index of the register
-    //
-    // Return Value:
-    //     Return regNumber of ith register of this register argument
-    //
-    regNumber GetRegNumByIdx(unsigned idx) const
-    {
-        assert(idx < 2);
-
-        if (idx == 0)
-        {
-            return GetRegNum();
-        }
-
-        return GetRegNum(1);
     }
 
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
@@ -7252,45 +7178,6 @@ public:
 #endif
     }
 
-    regNumber GetRegNumByIdx(unsigned idx) const
-    {
-        assert(idx < MAX_SPLIT_ARG_REGS);
-
-#ifdef TARGET_ARM
-        return (idx == 0) ? GetRegNum() : GetRegNum(idx);
-#else
-        return GetRegNum();
-#endif
-    }
-
-    void SetRegNumByIdx(regNumber reg, unsigned idx)
-    {
-        assert(idx < MAX_SPLIT_ARG_REGS);
-
-#ifdef TARGET_ARM
-        if (idx == 0)
-        {
-            SetRegNum(reg);
-        }
-        else
-        {
-            SetRegNum(idx, reg);
-        }
-#else
-        SetRegNum(reg);
-#endif
-    }
-
-    void ClearOtherRegs()
-    {
-#ifdef TARGET_ARM
-        for (unsigned i = 0; i < MAX_REG_ARG - 1; ++i)
-        {
-            SetRegNum(i, REG_NA);
-        }
-#endif
-    }
-
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
     {
 #ifdef TARGET_ARM
@@ -7357,73 +7244,8 @@ public:
 };
 #endif // FEATURE_ARG_SPLIT
 
-// Represents GT_COPY or GT_RELOAD node
-//
-// As it turns out, these are only needed on targets that happen to have multi-reg returns.
-// However, they are actually needed on any target that has any multi-reg ops. It is just
-// coincidence that those are the same (and there isn't a FEATURE_MULTIREG_OPS).
-//
 struct GenTreeCopyOrReload : public GenTreeUnOp
 {
-    void ClearOtherRegs()
-    {
-#if FEATURE_MULTIREG_RET
-        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
-        {
-            SetRegNum(i, REG_NA);
-        }
-#endif
-    }
-
-    regNumber GetRegNumByIdx(unsigned idx) const
-    {
-        assert(idx < MAX_RET_REG_COUNT);
-
-        if (idx == 0)
-        {
-            return GetRegNum();
-        }
-
-#if FEATURE_MULTIREG_RET
-        return GetRegNum(idx);
-#else
-        return REG_NA;
-#endif
-    }
-
-    void SetRegNumByIdx(regNumber reg, unsigned idx)
-    {
-        assert(idx < MAX_RET_REG_COUNT);
-
-        if (idx == 0)
-        {
-            SetRegNum(reg);
-        }
-#if FEATURE_MULTIREG_RET
-        else
-        {
-            SetRegNum(idx, reg);
-        }
-#else
-        else
-        {
-            unreached();
-        }
-#endif
-    }
-
-    void CopyOtherRegs(GenTreeCopyOrReload* from)
-    {
-        assert(OperGet() == from->OperGet());
-
-#ifdef UNIX_AMD64_ABI
-        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
-        {
-            SetRegNum(i, from->GetRegNum(i));
-        }
-#endif
-    }
-
     GenTreeCopyOrReload(genTreeOps oper, var_types type, GenTree* op1) : GenTreeUnOp(oper, type, op1)
     {
         assert(type != TYP_STRUCT || op1->IsMultiRegNode());
@@ -8083,69 +7905,6 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 
     assert(!"GetMultiRegCount called with non-multireg node");
     return 1;
-}
-
-//-----------------------------------------------------------------------------------
-// GetRegByIndex: Get a specific register, based on regIndex, that is produced
-//                by this node.
-//
-// Arguments:
-//     regIndex - which register to return (must be 0 for non-multireg nodes)
-//
-// Return Value:
-//     The register, if any, assigned to this index for this node.
-//
-// Notes:
-//     All targets that support multi-reg ops of any kind also support multi-reg return
-//     values for calls. Should that change with a future target, this method will need
-//     to change accordingly.
-//
-inline regNumber GenTree::GetRegByIndex(int regIndex)
-{
-    if (regIndex == 0)
-    {
-        return GetRegNum();
-    }
-
-#if FEATURE_MULTIREG_RET
-
-    if (IsMultiRegCall())
-    {
-        return AsCall()->GetRegNumByIdx(regIndex);
-    }
-
-#if FEATURE_ARG_SPLIT
-    if (OperIsPutArgSplit())
-    {
-        return AsPutArgSplit()->GetRegNumByIdx(regIndex);
-    }
-#endif
-#if !defined(TARGET_64BIT)
-    if (OperIsMultiRegOp())
-    {
-        return AsMultiRegOp()->GetRegNumByIdx(regIndex);
-    }
-#endif
-
-    if (OperIs(GT_COPY, GT_RELOAD))
-    {
-        return AsCopyOrReload()->GetRegNumByIdx(regIndex);
-    }
-#endif // FEATURE_MULTIREG_RET
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    if (OperIs(GT_HWINTRINSIC))
-    {
-        assert(regIndex == 1);
-        return AsHWIntrinsic()->GetRegNum(1);
-    }
-#endif
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-    {
-        return AsLclVar()->GetRegNumByIdx(regIndex);
-    }
-
-    assert(!"Invalid regIndex for GetRegFromMultiRegNode");
-    return REG_NA;
 }
 
 //-----------------------------------------------------------------------------------

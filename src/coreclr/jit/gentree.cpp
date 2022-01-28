@@ -510,7 +510,7 @@ bool GenTree::gtHasReg() const
         // reg assigned to each of its result registers.
         for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
-            hasReg = (call->GetRegNumByIdx(i) != REG_NA);
+            hasReg = (call->GetRegNum(i) != REG_NA);
             if (!hasReg)
             {
                 break;
@@ -526,7 +526,7 @@ bool GenTree::gtHasReg() const
         // if it has valid regs in any of the positions.
         for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
-            hasReg = (copyOrReload->GetRegNumByIdx(i) != REG_NA);
+            hasReg = (copyOrReload->GetRegNum(i) != REG_NA);
             if (hasReg)
             {
                 break;
@@ -639,7 +639,7 @@ regMaskTP GenTree::gtGetRegMask() const
         resultMask = RBM_NONE;
         for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
-            regNumber reg = copyOrReload->GetRegNumByIdx(i);
+            regNumber reg = copyOrReload->GetRegNum(i);
             if (reg != REG_NA)
             {
                 resultMask |= genRegMask(reg);
@@ -655,7 +655,7 @@ regMaskTP GenTree::gtGetRegMask() const
         resultMask = RBM_NONE;
         for (unsigned i = 0; i < regCount; ++i)
         {
-            regNumber reg = splitArg->GetRegNumByIdx(i);
+            regNumber reg = splitArg->GetRegNum(i);
             assert(reg != REG_NA);
             resultMask |= genRegMask(reg);
         }
@@ -7446,7 +7446,7 @@ void Compiler::gtDispRegVal(GenTree* tree)
         // Print the remaining regs of a multi-reg node.
         for (unsigned i = 1, count = tree->GetMultiRegCount(this); i < count; ++i)
         {
-            regNumber reg = tree->GetRegByIndex(i);
+            regNumber reg = tree->GetRegNum(i);
             printf(", %s", genIsValidReg(reg) ? compRegVarName(reg) : "NA");
         }
     }

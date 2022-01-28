@@ -111,67 +111,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-//--------------------------------------------------------------
-// lsraAssignRegToTree: Assign the given reg to tree node.
-//
-// Arguments:
-//    tree    -    Gentree node
-//    reg     -    register to be assigned
-//    regIdx  -    register idx, if tree is a multi-reg call node.
-//                 regIdx will be zero for single-reg result producing tree nodes.
-//
-// Return Value:
-//    None
-//
-void lsraAssignRegToTree(GenTree* tree, regNumber reg, unsigned regIdx)
-{
-    if (regIdx == 0)
-    {
-        tree->SetRegNum(reg);
-    }
-#if !defined(TARGET_64BIT)
-    else if (tree->OperIsMultiRegOp())
-    {
-        assert(regIdx == 1);
-        GenTreeMultiRegOp* mul = tree->AsMultiRegOp();
-        mul->SetRegNum(1, reg);
-    }
-#endif // TARGET_64BIT
-#if FEATURE_MULTIREG_RET
-    else if (tree->OperGet() == GT_COPY)
-    {
-        // TODO-MIKE-Review: Why the crap only 1?
-        assert(regIdx == 1);
-        GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
-        copy->SetRegNum(1, reg);
-    }
-#endif // FEATURE_MULTIREG_RET
-#if FEATURE_ARG_SPLIT
-    else if (tree->OperIsPutArgSplit())
-    {
-        GenTreePutArgSplit* putArg = tree->AsPutArgSplit();
-        putArg->SetRegNumByIdx(reg, regIdx);
-    }
-#endif // FEATURE_ARG_SPLIT
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    else if (tree->OperIs(GT_HWINTRINSIC))
-    {
-        assert(regIdx == 1);
-        tree->AsHWIntrinsic()->SetRegNum(1, reg);
-    }
-#endif
-    else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-    {
-        tree->AsLclVar()->SetRegNumByIdx(reg, regIdx);
-    }
-    else
-    {
-        assert(tree->IsMultiRegCall());
-        GenTreeCall* call = tree->AsCall();
-        call->SetRegNumByIdx(reg, regIdx);
-    }
-}
-
 //-------------------------------------------------------------
 // getWeight: Returns the weight of the RefPosition.
 //
@@ -5729,8 +5668,8 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumbe
         LclVarDsc* parentVarDsc = compiler->lvaGetDesc(lclNode->GetLclNum());
         assert(parentVarDsc->lvPromoted);
         unsigned regIndex = varNum - parentVarDsc->lvFieldLclStart;
-        assert(regIndex < MAX_MULTIREG_COUNT);
-        lclNode->SetRegNumByIdx(reg, regIndex);
+
+        lclNode->SetRegNum(regIndex, reg);
     }
 }
 
@@ -6076,7 +6015,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
 void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* tree)
 {
-    lsraAssignRegToTree(tree, currentRefPosition->assignedReg(), currentRefPosition->getMultiRegIdx());
+    tree->SetRegNum(currentRefPosition->getMultiRegIdx(), currentRefPosition->assignedReg());
 }
 
 //------------------------------------------------------------------------
@@ -6173,8 +6112,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         noway_assert(parent->OperGet() == oper);
         noway_assert(tree->IsMultiRegNode());
         GenTreeCopyOrReload* copyOrReload = parent->AsCopyOrReload();
-        noway_assert(copyOrReload->GetRegNumByIdx(multiRegIdx) == REG_NA);
-        copyOrReload->SetRegNumByIdx(refPosition->assignedReg(), multiRegIdx);
+        noway_assert(copyOrReload->GetRegNum(multiRegIdx) == REG_NA);
+        copyOrReload->SetRegNum(multiRegIdx, refPosition->assignedReg());
     }
     else
     {
@@ -6195,7 +6134,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         GenTreeCopyOrReload* newNode = new (compiler, oper) GenTreeCopyOrReload(oper, regType, tree);
         assert(refPosition->registerAssignment != RBM_NONE);
         SetLsraAdded(newNode);
-        newNode->SetRegNumByIdx(refPosition->assignedReg(), multiRegIdx);
+        newNode->SetRegNum(multiRegIdx, refPosition->assignedReg());
         if (refPosition->copyReg)
         {
             // This is a TEMPORARY copy
@@ -9207,7 +9146,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                 {
                     for (unsigned i = 1, count = tree->GetMultiRegCount(compiler); i < count; i++)
                     {
-                        regNumber reg = tree->GetRegByIndex(i);
+                        regNumber reg = tree->GetRegNum(i);
                         charCount     = _snprintf_s(operandString, operandStringLength, operandStringLength, ",%s%s",
                                                 getRegName(reg), lastUseChar);
                         operandString += charCount;

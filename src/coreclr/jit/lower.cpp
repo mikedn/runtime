@@ -1006,7 +1006,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 
         for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
         {
-            putArgSplit->SetRegNumByIdx(info->GetRegNum(regIndex), regIndex);
+            putArgSplit->SetRegNum(regIndex, info->GetRegNum(regIndex));
 
             // We don't have GC info in CallArgInfo on ARMARCH (the only user of split args)
             // and only integer registers are used. We'll just set everyting to TYP_I_IMPL

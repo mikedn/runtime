@@ -1793,21 +1793,21 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
     genConsumeRegs(src);
 
-    regNumber retReg0 = call->GetRegNumByIdx(0);
-    regNumber retReg1 = call->GetRegNumByIdx(1);
+    regNumber retReg0 = call->GetRegNum(0);
+    regNumber retReg1 = call->GetRegNum(1);
 
     if (src->IsCopyOrReload())
     {
         // COPY/RELOAD will have valid reg for those positions
         // that need to be copied or reloaded.
 
-        regNumber reloadReg = src->AsCopyOrReload()->GetRegNumByIdx(0);
+        regNumber reloadReg = src->AsCopyOrReload()->GetRegNum(0);
         if (reloadReg != REG_NA)
         {
             retReg0 = reloadReg;
         }
 
-        reloadReg = src->AsCopyOrReload()->GetRegNumByIdx(1);
+        reloadReg = src->AsCopyOrReload()->GetRegNum(1);
         if (reloadReg != REG_NA)
         {
             retReg1 = reloadReg;
@@ -5236,7 +5236,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 {
                     var_types regType      = call->GetRegType(i);
                     regNumber returnReg    = call->GetRetDesc()->GetRegNum(i);
-                    regNumber allocatedReg = call->GetRegNumByIdx(i);
+                    regNumber allocatedReg = call->GetRegNum(i);
                     inst_Mov(regType, allocatedReg, returnReg, /* canSkip */ true);
                 }
 
