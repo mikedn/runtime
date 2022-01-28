@@ -492,7 +492,7 @@ void Compiler::fgWalkAllTreesPre(fgWalkPreFn* visitor, void* pCallBackData)
 void GenTree::CopyReg(GenTree* from)
 {
     _gtRegNum = from->_gtRegNum;
-    INDEBUG(gtRegTag = from->gtRegTag;)
+    INDEBUG(m_isRegNumAssigned = from->m_isRegNumAssigned;)
 
     // Also copy multi-reg state if this is a call node
     if (IsCall())
@@ -7455,26 +7455,14 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     }
 }
 
-//----------------------------------------------------------------------------------
-// gtDispRegVal: Print the register(s) defined by the given node
-//
-// Arguments:
-//    tree  -  Gentree node whose registers we want to print
-//
 void Compiler::gtDispRegVal(GenTree* tree)
 {
-    switch (tree->GetRegTag())
+    if (!tree->IsRegNumAssigned())
     {
-        // Don't display anything for the GT_REGTAG_NONE case;
-        // the absence of printed register values will imply this state.
-
-        case GenTree::GT_REGTAG_REG:
-            printf(" REG %s", compRegVarName(tree->GetRegNum()));
-            break;
-
-        default:
-            return;
+        return;
     }
+
+    printf(" REG %s", compRegVarName(tree->GetRegNum()));
 
 #if FEATURE_MULTIREG_RET
     if (tree->IsMultiRegNode())

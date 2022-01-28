@@ -890,19 +890,13 @@ private:
 #ifdef DEBUG
 
 public:
-    enum genRegTag
+    bool IsRegNumAssigned() const
     {
-        GT_REGTAG_NONE, // Nothing has been assigned to _gtRegNum
-        GT_REGTAG_REG   // _gtRegNum has been assigned
-    };
-    genRegTag GetRegTag() const
-    {
-        assert(gtRegTag == GT_REGTAG_NONE || gtRegTag == GT_REGTAG_REG);
-        return gtRegTag;
+        return m_isRegNumAssigned;
     }
 
 private:
-    genRegTag gtRegTag = GT_REGTAG_NONE; // What is in _gtRegNum?
+    bool m_isRegNumAssigned = false;
 
 #endif // DEBUG
 
@@ -973,28 +967,27 @@ public:
 
     regNumber GetRegNum() const
     {
-        assert((gtRegTag == GT_REGTAG_REG) || (gtRegTag == GT_REGTAG_NONE)); // TODO-Cleanup: get rid of the NONE case,
-                                                                             // and fix everyplace that reads undefined
-                                                                             // values
-        regNumber reg = (regNumber)_gtRegNum;
-        assert((gtRegTag == GT_REGTAG_NONE) || // TODO-Cleanup: get rid of the NONE case, and fix everyplace that reads
-                                               // undefined values
-               (reg >= REG_FIRST && reg <= REG_COUNT));
+        // TODO-Cleanup: This should be called on nodes that do not have a register assigned.
+        // However, a lot of code calls it an instead checks for REG_NA.
+        // assert(m_isRegNumAssigned);
+
+        regNumber reg = static_cast<regNumber>(_gtRegNum);
+        assert(!m_isRegNumAssigned || (reg >= REG_FIRST && reg <= REG_COUNT));
         return reg;
     }
 
     void SetRegNum(regNumber reg)
     {
         assert(reg >= REG_FIRST && reg <= REG_COUNT);
-        _gtRegNum = (regNumberSmall)reg;
-        INDEBUG(gtRegTag = GT_REGTAG_REG;)
+        _gtRegNum = static_cast<regNumberSmall>(reg);
+        INDEBUG(m_isRegNumAssigned = true;)
         assert(_gtRegNum == reg);
     }
 
     void ClearRegNum()
     {
         _gtRegNum = REG_NA;
-        INDEBUG(gtRegTag = GT_REGTAG_NONE;)
+        INDEBUG(m_isRegNumAssigned = false;)
     }
 
     // Copy the _gtRegNum/gtRegTag fields
