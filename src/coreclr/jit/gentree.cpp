@@ -481,31 +481,6 @@ void Compiler::fgWalkAllTreesPre(fgWalkPreFn* visitor, void* pCallBackData)
     }
 }
 
-//-----------------------------------------------------------
-// CopyReg: Copy the _gtRegNum/gtRegTag fields.
-//
-// Arguments:
-//     from   -  GenTree node from which to copy
-//
-// Return Value:
-//     None
-void GenTree::CopyReg(GenTree* from)
-{
-    _gtRegNum = from->_gtRegNum;
-    INDEBUG(m_isRegNumAssigned = from->m_isRegNumAssigned;)
-
-    // Also copy multi-reg state if this is a call node
-    if (IsCall())
-    {
-        assert(from->IsCall());
-        this->AsCall()->CopyOtherRegs(from->AsCall());
-    }
-    else if (IsCopyOrReload())
-    {
-        this->AsCopyOrReload()->CopyOtherRegs(from->AsCopyOrReload());
-    }
-}
-
 //------------------------------------------------------------------
 // gtHasReg: Whether node beeen assigned a register by LSRA
 //
@@ -5736,8 +5711,10 @@ DONE:
     /* Make sure to copy back fields that may have been initialized */
 
     copy->CopyRawCosts(tree);
-    copy->gtRsvdRegs = tree->gtRsvdRegs;
-    copy->CopyReg(tree);
+
+    // We don't expect to clone trees after register allocation.
+    assert(!tree->IsRegNumAssigned() || (tree->GetRegNum() == REG_NA));
+
     return copy;
 }
 
@@ -5871,8 +5848,6 @@ GenTreeCall* Compiler::gtCloneCandidateCall(GenTreeCall* call)
 #if defined(DEBUG)
     result->gtDebugFlags |= (call->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
 #endif
-
-    result->CopyReg(call);
 
     return result;
 }

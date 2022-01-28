@@ -5513,10 +5513,6 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = gtCloneExpr(origExpr, GTF_MAKE_CSE);
 
-    // The hoist Expr does not have to computed into a specific register,
-    // so clear the RegNum if it was set in the original expression
-    hoistExpr->ClearRegNum();
-
     // Copy any loop memory dependence.
     optCopyLoopMemoryDependence(origExpr, hoistExpr);
 

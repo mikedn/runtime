@@ -984,14 +984,6 @@ public:
         assert(_gtRegNum == reg);
     }
 
-    void ClearRegNum()
-    {
-        _gtRegNum = REG_NA;
-        INDEBUG(m_isRegNumAssigned = false;)
-    }
-
-    // Copy the _gtRegNum/gtRegTag fields
-    void CopyReg(GenTree* from);
     bool gtHasReg() const;
 
     int GetRegisterDstCount(Compiler* compiler) const;
