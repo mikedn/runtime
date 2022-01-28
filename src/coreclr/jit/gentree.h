@@ -3377,11 +3377,6 @@ public:
         gtSpillFlags = 0;
     }
 
-    void CopyOtherRegFlags(GenTreeLclVar* from)
-    {
-        gtSpillFlags = from->gtSpillFlags;
-    }
-
     GenTreeLclVar(genTreeOps oper,
                   var_types  type,
                   unsigned lclNum DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
@@ -4240,13 +4235,6 @@ public:
     {
 #if FEATURE_MULTIREG_RET
         gtSpillFlags = 0;
-#endif
-    }
-
-    void CopyOtherRegFlags(GenTreeCall* fromCall)
-    {
-#if FEATURE_MULTIREG_RET
-        gtSpillFlags = fromCall->gtSpillFlags;
 #endif
     }
 
