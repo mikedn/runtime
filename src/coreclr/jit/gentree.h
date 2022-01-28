@@ -660,6 +660,9 @@ enum GenTreeDebugFlags : unsigned int
     GTF_DEBUG_NODE_LSRA_ADDED   = 0x00000020, // This node was added by LSRA
 
     GTF_DEBUG_NODE_MASK         = 0x0000003F, // These flags are all node (rather than operation) properties.
+
+    GTF_DEBUG_HAS_COSTS         = 0x00000100,
+    GTF_DEBUG_HAS_REGS          = 0x00000200,
 };
 
 inline constexpr GenTreeDebugFlags operator ~(GenTreeDebugFlags a)
@@ -704,6 +707,9 @@ inline GenTreeDebugFlags& operator &=(GenTreeDebugFlags& a, GenTreeDebugFlags b)
 #define GET_CSE_INDEX(x) (((x) > 0) ? x : -(x))
 #define TO_CSE_DEF(x) (-(x))
 
+#define MAX_COST UCHAR_MAX
+#define IND_COST_EX 3 // execution cost for an indirection
+
 struct GenTree
 {
     static const unsigned short gtOperKindTable[];
@@ -728,16 +734,10 @@ struct GenTree
     AssertionInfo gtAssertionInfo;
 #endif
 
-    // You are not allowed to read the cost values before they have been set in gtSetEvalOrder().
-    // Keep track of whether the costs have been initialized, and assert if they are read before being initialized.
-    // Obviously, this information does need to be initialized when a node is created.
-    // This is public so the dumpers can see it.
-    INDEBUG(bool gtCostsInitialized = false;)
 private:
-    unsigned char _gtCostEx; // estimate of expression execution cost
-    unsigned char _gtCostSz; // estimate of expression code size cost
+    uint8_t m_costEx; // estimate of expression execution cost
+    uint8_t m_costSz; // estimate of expression code size cost
 
-    INDEBUG(bool m_isRegNumAssigned = false;)
     // This stores the register assigned to the node. If a register is not assigned, _gtRegNum is set to REG_NA.
     regNumberSmall _gtRegNum = static_cast<regNumberSmall>(REG_NA);
 
@@ -852,71 +852,57 @@ public:
     }
 #endif
 
-    //
-    // Cost metrics on the node. Don't allow direct access to the variable for setting.
-    //
-
-public:
-#define MAX_COST UCHAR_MAX
-#define IND_COST_EX 3 // execution cost for an indirection
-
-    unsigned char GetCostEx() const
+#ifdef DEBUG
+    bool HasCosts() const
     {
-        assert(gtCostsInitialized);
-        return _gtCostEx;
+        return (gtDebugFlags & GTF_DEBUG_HAS_COSTS) != 0;
     }
-    unsigned char GetCostSz() const
+#endif
+
+    uint8_t GetCostEx() const
     {
-        assert(gtCostsInitialized);
-        return _gtCostSz;
+        assert((gtDebugFlags & GTF_DEBUG_HAS_COSTS) != 0);
+        return m_costEx;
     }
 
-    // Set the costs. They are always both set at the same time.
-    // Don't use the "put" property: force calling this function, to make it more obvious in the few places
-    // that set the values.
-    // Note that costs are only set in gtSetEvalOrder() and its callees.
+    uint8_t GetCostSz() const
+    {
+        assert((gtDebugFlags & GTF_DEBUG_HAS_COSTS) != 0);
+        return m_costSz;
+    }
+
     void SetCosts(unsigned costEx, unsigned costSz)
     {
-        assert(costEx != (unsigned)-1); // looks bogus
-        assert(costSz != (unsigned)-1); // looks bogus
-        INDEBUG(gtCostsInitialized = true;)
+        assert(costEx != UINT32_MAX); // looks bogus
+        assert(costSz != UINT32_MAX); // looks bogus
 
-        _gtCostEx = (costEx > MAX_COST) ? MAX_COST : (unsigned char)costEx;
-        _gtCostSz = (costSz > MAX_COST) ? MAX_COST : (unsigned char)costSz;
+        m_costEx = (costEx > UINT8_MAX) ? UINT8_MAX : static_cast<uint8_t>(costEx);
+        m_costSz = (costSz > UINT8_MAX) ? UINT8_MAX : static_cast<uint8_t>(costSz);
+        INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_COSTS;)
     }
 
-    // Opimized copy function, to avoid the SetCosts() function comparisons, and make it more clear that a node copy is
-    // happening.
     void CopyCosts(const GenTree* const tree)
     {
-        // If the 'tree' costs aren't initialized, we'll hit an assert below.
-        INDEBUG(gtCostsInitialized = tree->gtCostsInitialized;)
-        _gtCostEx = tree->GetCostEx();
-        _gtCostSz = tree->GetCostSz();
+        m_costEx = tree->GetCostEx();
+        m_costSz = tree->GetCostSz();
+        INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_COSTS);
     }
 
     // Same as CopyCosts, but avoids asserts if the costs we are copying have not been initialized.
     // This is because the importer, for example, clones nodes, before these costs have been initialized.
-    // Note that we directly access the 'tree' costs, not going through the accessor functions (either
-    // directly or through the properties).
     void CopyRawCosts(const GenTree* const tree)
     {
-        INDEBUG(gtCostsInitialized = tree->gtCostsInitialized;)
-        _gtCostEx = tree->_gtCostEx;
-        _gtCostSz = tree->_gtCostSz;
+        m_costEx = tree->m_costEx;
+        m_costSz = tree->m_costSz;
+        INDEBUG(gtDebugFlags = (gtDebugFlags & ~GTF_DEBUG_HAS_COSTS) | (tree->gtDebugFlags & GTF_DEBUG_HAS_COSTS);)
     }
-
-    //
-    // Register or register pair number of the node.
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-    bool IsRegNumAssigned() const
+    bool HasRegs() const
     {
-        return m_isRegNumAssigned;
+        return (gtDebugFlags & GTF_DEBUG_HAS_REGS) != 0;
     }
-#endif // DEBUG
+#endif
 
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
     // a full-size (unsigned) format, to localize the casts here.
@@ -985,7 +971,7 @@ public:
         // assert(m_isRegNumAssigned);
 
         regNumber reg = static_cast<regNumber>(_gtRegNum);
-        assert(!m_isRegNumAssigned || (reg >= REG_FIRST && reg <= REG_COUNT));
+        assert(((gtDebugFlags & GTF_DEBUG_HAS_REGS) == 0) || (reg >= REG_FIRST && reg <= REG_COUNT));
         return reg;
     }
 
@@ -993,7 +979,7 @@ public:
     {
         assert(reg >= REG_FIRST && reg <= REG_COUNT);
         _gtRegNum = static_cast<regNumberSmall>(reg);
-        INDEBUG(m_isRegNumAssigned = true;)
+        INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_REGS;)
         assert(_gtRegNum == reg);
     }
 

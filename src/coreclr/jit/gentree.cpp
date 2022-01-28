@@ -5715,7 +5715,7 @@ DONE:
     copy->CopyRawCosts(tree);
 
     // We don't expect to clone trees after register allocation.
-    assert(!tree->IsRegNumAssigned() || (tree->GetRegNum() == REG_NA));
+    assert(!tree->HasRegs() || (tree->GetRegNum() == REG_NA));
 
     return copy;
 }
@@ -6952,7 +6952,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
     if (tree->gtSeqNum)
     {
         printf("N%03u ", tree->gtSeqNum);
-        if (tree->gtCostsInitialized)
+        if (tree->HasCosts())
         {
             printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
         }
@@ -6995,7 +6995,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             printf("     ");
         }
 
-        if (tree->gtCostsInitialized)
+        if (tree->HasCosts())
         {
             printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
         }
@@ -7434,7 +7434,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
 void Compiler::gtDispRegVal(GenTree* tree)
 {
-    if (!tree->IsRegNumAssigned())
+    if (!tree->HasRegs())
     {
         return;
     }
