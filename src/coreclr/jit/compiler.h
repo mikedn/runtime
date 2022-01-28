@@ -6580,58 +6580,31 @@ public:
     //
     class VirtualStubParamInfo
     {
+        const regNumber regNum;
+
     public:
         VirtualStubParamInfo(bool isCoreRTABI)
-        {
 #if defined(TARGET_X86)
-            reg     = REG_EAX;
-            regMask = RBM_EAX;
+            : regNum(REG_EAX)
 #elif defined(TARGET_AMD64)
-            if (isCoreRTABI)
-            {
-                reg     = REG_R10;
-                regMask = RBM_R10;
-            }
-            else
-            {
-                reg     = REG_R11;
-                regMask = RBM_R11;
-            }
+            : regNum(isCoreRTABI ? REG_R10 : REG_R11)
 #elif defined(TARGET_ARM)
-            if (isCoreRTABI)
-            {
-                reg     = REG_R12;
-                regMask = RBM_R12;
-            }
-            else
-            {
-                reg     = REG_R4;
-                regMask = RBM_R4;
-            }
+            : regNum(isCoreRTABI ? REG_R12 : REG_R4)
 #elif defined(TARGET_ARM64)
-            reg     = REG_R11;
-            regMask = RBM_R11;
+            : regNum(REG_R11)
 #else
 #error Unsupported or unset target architecture
 #endif
+        {
         }
 
         regNumber GetRegNum() const
         {
-            return reg;
+            return regNum;
         }
-
-        _regMask_enum GetRegMask() const
-        {
-            return regMask;
-        }
-
-    private:
-        regNumber     reg;
-        _regMask_enum regMask;
     };
 
-    VirtualStubParamInfo* virtualStubParamInfo;
+    VirtualStubParamInfo virtualStubParamInfo;
 
     bool IsTargetAbi(CORINFO_RUNTIME_ABI abi)
     {

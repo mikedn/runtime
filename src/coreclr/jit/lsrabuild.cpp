@@ -875,19 +875,19 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
         {
             killMask = RBM_INT_CALLEE_TRASH;
         }
+
 #ifdef TARGET_ARM
         if (call->IsVirtualStub())
         {
-            killMask |= compiler->virtualStubParamInfo->GetRegMask();
+            killMask |= genRegMask(compiler->virtualStubParamInfo.GetRegNum());
         }
-#else  // !TARGET_ARM
-        // Verify that the special virtual stub call registers are in the kill mask.
-        // We don't just add them unconditionally to the killMask because for most architectures
-        // they are already in the RBM_CALLEE_TRASH set,
-        // and we don't want to introduce extra checks and calls in this hot function.
-        assert(!call->IsVirtualStub() || ((killMask & compiler->virtualStubParamInfo->GetRegMask()) ==
-                                          compiler->virtualStubParamInfo->GetRegMask()));
-#endif // !TARGET_ARM
+#else
+        // Verify that the special virtual stub call register is in the kill mask.
+        // We don't just add it unconditionally to the killMask because for most
+        // architectures it is already in the RBM_CALLEE_TRASH set, and we don't
+        // want to introduce extra checks and calls in this hot function.
+        assert(!call->IsVirtualStub() || ((killMask & genRegMask(compiler->virtualStubParamInfo.GetRegNum())) != 0));
+#endif
     }
     return killMask;
 }
