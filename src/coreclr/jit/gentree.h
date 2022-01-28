@@ -697,8 +697,63 @@ inline GenTreeDebugFlags& operator &=(GenTreeDebugFlags& a, GenTreeDebugFlags b)
 
 #define FMT_TREEID "[%06u]"
 
+#define NO_CSE (0)
+#define IS_CSE_INDEX(x) ((x) != 0)
+#define IS_CSE_USE(x) ((x) > 0)
+#define IS_CSE_DEF(x) ((x) < 0)
+#define GET_CSE_INDEX(x) (((x) > 0) ? x : -(x))
+#define TO_CSE_DEF(x) (-(x))
+
 struct GenTree
 {
+    static const unsigned short gtOperKindTable[];
+    static const uint8_t        s_gtNodeSizes[];
+#if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
+    static const uint8_t s_gtTrueSizes[];
+#endif
+#if COUNT_AST_OPERS
+    static LONG s_gtNodeCounts[];
+#endif
+
+    genTreeOps gtOper;
+    var_types  gtType;
+    // Only used to save gtOper when we destroy a node, to aid debugging.
+    INDEBUG(genTreeOps gtOperSave = GT_NONE;)
+    // Valid only for CSE expressions, 0 or the CSE index (negated if it's a def).
+    signed char gtCSEnum = NO_CSE;
+    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
+    unsigned char gtLIRFlags = 0;
+
+#if ASSERTION_PROP
+    AssertionInfo gtAssertionInfo;
+#endif
+
+    // You are not allowed to read the cost values before they have been set in gtSetEvalOrder().
+    // Keep track of whether the costs have been initialized, and assert if they are read before being initialized.
+    // Obviously, this information does need to be initialized when a node is created.
+    // This is public so the dumpers can see it.
+    INDEBUG(bool gtCostsInitialized = false;)
+private:
+    unsigned char _gtCostEx; // estimate of expression execution cost
+    unsigned char _gtCostSz; // estimate of expression code size cost
+
+    INDEBUG(bool m_isRegNumAssigned = false;)
+    // This stores the register assigned to the node. If a register is not assigned, _gtRegNum is set to REG_NA.
+    regNumberSmall _gtRegNum = static_cast<regNumberSmall>(REG_NA);
+
+public:
+    GenTreeFlags gtFlags = GTF_EMPTY;
+    INDEBUG(GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;)
+    ValueNumPair gtVNPair;
+    regMaskSmall gtRsvdRegs; // set of fixed trashed  registers
+    GenTree*     gtNext = nullptr;
+    GenTree*     gtPrev = nullptr;
+#ifdef DEBUG
+    unsigned gtTreeID;
+    unsigned gtSeqNum = 0;  // liveness traversal order within the current statement
+    int      gtUseNum = -1; // use-ordered traversal within the function
+#endif
+
 // We use GT_STRUCT_0 only for the category of simple ops.
 #define GTSTRUCT_0(fn, en)                                                                                             \
     GenTree##fn* As##fn()                                                                                              \
@@ -750,9 +805,6 @@ struct GenTree
 #undef GTSTRUCT_2_SPECIAL
 #undef GTSTRUCT_3_SPECIAL
 
-    genTreeOps gtOper; // enum subtype BYTE
-    var_types  gtType; // enum subtype BYTE
-
     genTreeOps OperGet() const
     {
         return gtOper;
@@ -778,25 +830,7 @@ struct GenTree
         gtType = type;
     }
 
-    // Only used to save gtOper when we destroy a node, to aid debugging.
-    INDEBUG(genTreeOps gtOperSave = GT_NONE;)
-
-#define NO_CSE (0)
-
-#define IS_CSE_INDEX(x) ((x) != 0)
-#define IS_CSE_USE(x) ((x) > 0)
-#define IS_CSE_DEF(x) ((x) < 0)
-#define GET_CSE_INDEX(x) (((x) > 0) ? x : -(x))
-#define TO_CSE_DEF(x) (-(x))
-
-    // Valid only for CSE expressions, 0 or the CSE index (negated if it's a def).
-    signed char gtCSEnum = NO_CSE;
-    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
-    unsigned char gtLIRFlags = 0;
-
 #if ASSERTION_PROP
-    AssertionInfo gtAssertionInfo;
-
     bool GeneratesAssertion() const
     {
         return gtAssertionInfo.HasAssertion();
@@ -823,12 +857,6 @@ struct GenTree
     //
 
 public:
-    // You are not allowed to read the cost values before they have been set in gtSetEvalOrder().
-    // Keep track of whether the costs have been initialized, and assert if they are read before being initialized.
-    // Obviously, this information does need to be initialized when a node is created.
-    // This is public so the dumpers can see it.
-    INDEBUG(bool gtCostsInitialized = false;)
-
 #define MAX_COST UCHAR_MAX
 #define IND_COST_EX 3 // execution cost for an indirection
 
@@ -878,33 +906,18 @@ public:
         _gtCostSz = tree->_gtCostSz;
     }
 
-private:
-    unsigned char _gtCostEx; // estimate of expression execution cost
-    unsigned char _gtCostSz; // estimate of expression code size cost
-
     //
     // Register or register pair number of the node.
     //
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-
-public:
     bool IsRegNumAssigned() const
     {
         return m_isRegNumAssigned;
     }
-
-private:
-    bool m_isRegNumAssigned = false;
-
 #endif // DEBUG
 
-private:
-    // This stores the register assigned to the node. If a register is not assigned, _gtRegNum is set to REG_NA.
-    regNumberSmall _gtRegNum = static_cast<regNumberSmall>(REG_NA);
-
-public:
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
     // a full-size (unsigned) format, to localize the casts here.
 
@@ -990,14 +1003,6 @@ public:
 
     regMaskTP gtGetRegMask() const;
 
-    GenTreeFlags gtFlags = GTF_EMPTY;
-
-    INDEBUG(GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;)
-
-    ValueNumPair gtVNPair;
-
-    regMaskSmall gtRsvdRegs; // set of fixed trashed  registers
-
     unsigned AvailableTempRegCount(regMaskTP mask = (regMaskTP)-1) const;
     regNumber GetSingleTempReg(regMaskTP mask = (regMaskTP)-1);
     regNumber ExtractTempReg(regMaskTP mask = (regMaskTP)-1);
@@ -1067,18 +1072,6 @@ public:
         assert((sideEffects & ~GTF_ALL_EFFECT) == 0);
         gtFlags |= sideEffects;
     }
-
-    GenTree* gtNext = nullptr;
-    GenTree* gtPrev = nullptr;
-
-#ifdef DEBUG
-    unsigned gtTreeID;
-    unsigned gtSeqNum = 0; // liveness traversal order within the current statement
-
-    int gtUseNum = -1; // use-ordered traversal within the function
-#endif
-
-    static const unsigned short gtOperKindTable[];
 
     static unsigned OperKind(unsigned gtOper)
     {
@@ -1695,15 +1688,6 @@ public:
     bool OperRequiresCallFlag(Compiler* comp);
 
     bool OperMayThrow(Compiler* comp);
-
-public:
-    static const uint8_t s_gtNodeSizes[];
-#if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
-    static const uint8_t s_gtTrueSizes[];
-#endif
-#if COUNT_AST_OPERS
-    static LONG s_gtNodeCounts[];
-#endif
 
     static void InitNodeSize();
 
