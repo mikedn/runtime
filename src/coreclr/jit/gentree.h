@@ -738,8 +738,8 @@ private:
     uint8_t m_costEx; // estimate of expression execution cost
     uint8_t m_costSz; // estimate of expression code size cost
 
-    // This stores the register assigned to the node. If a register is not assigned, _gtRegNum is set to REG_NA.
-    regNumberSmall _gtRegNum = static_cast<regNumberSmall>(REG_NA);
+    // The registers defined by the node.
+    regNumberSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<regNumberSmall>(REG_NA)};
 
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
@@ -961,7 +961,7 @@ public:
         // However, a lot of code calls it an instead checks for REG_NA.
         // assert(m_isRegNumAssigned);
 
-        regNumber reg = static_cast<regNumber>(_gtRegNum);
+        regNumber reg = static_cast<regNumber>(m_defRegs[0]);
         assert(((gtDebugFlags & GTF_DEBUG_HAS_REGS) == 0) || (reg >= REG_FIRST && reg <= REG_COUNT));
         return reg;
     }
@@ -969,9 +969,9 @@ public:
     void SetRegNum(regNumber reg)
     {
         assert(reg >= REG_FIRST && reg <= REG_COUNT);
-        _gtRegNum = static_cast<regNumberSmall>(reg);
+        m_defRegs[0] = static_cast<regNumberSmall>(reg);
         INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_REGS;)
-        assert(_gtRegNum == reg);
+        assert(m_defRegs[0] == reg);
     }
 
     bool gtHasReg() const;
