@@ -1762,7 +1762,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             call->gtCallArgs = gtPrependNewCallArg(stubAddrArg, call->gtCallArgs);
 
             numArgs++;
-            nonStandardArgs.Add(stubAddrArg, stubAddrArg->GetRegNum());
+            nonStandardArgs.Add(stubAddrArg, virtualStubParamInfo->GetRegNum());
         }
         else
         {
@@ -1820,7 +1820,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef DEBUG
         indirectCellAddress->AsIntCon()->gtTargetHandle = (size_t)call->gtCallMethHnd;
 #endif
-        indirectCellAddress->SetRegNum(REG_R2R_INDIRECT_PARAM);
 #ifdef TARGET_ARM
         // Issue #xxxx : Don't attempt to CSE this constant on ARM32
         //
@@ -1833,7 +1832,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         call->gtCallArgs = gtPrependNewCallArg(indirectCellAddress, call->gtCallArgs);
 
         numArgs++;
-        nonStandardArgs.Add(indirectCellAddress, indirectCellAddress->GetRegNum());
+        nonStandardArgs.Add(indirectCellAddress, REG_R2R_INDIRECT_PARAM);
     }
 
 #endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
@@ -7213,7 +7212,6 @@ GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
 #endif
     }
     assert(stubAddrArg != nullptr);
-    stubAddrArg->SetRegNum(virtualStubParamInfo->GetReg());
     return stubAddrArg;
 }
 

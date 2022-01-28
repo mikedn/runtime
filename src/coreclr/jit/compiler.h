@@ -6616,7 +6616,7 @@ public:
 #endif
         }
 
-        regNumber GetReg() const
+        regNumber GetRegNum() const
         {
             return reg;
         }
