@@ -1817,22 +1817,6 @@ public:
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
 
-    // These are only used for dumping.
-    // The GetRegNum() is only valid in LIR, but the dumping methods are not easily
-    // modified to check this.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-    bool InReg() const
-    {
-        return (GetRegTag() != GT_REGTAG_NONE) ? true : false;
-    }
-    regNumber GetReg() const
-    {
-        return (GetRegTag() != GT_REGTAG_NONE) ? GetRegNum() : REG_NA;
-    }
-#endif
-
     static bool IsContained(unsigned flags)
     {
         return ((flags & GTF_CONTAINED) != 0);
