@@ -706,14 +706,16 @@ regMaskTP GenTreeCall::GetOtherRegMask() const
     regMaskTP resultMask = RBM_NONE;
 
 #if FEATURE_MULTIREG_RET
-    for (unsigned i = 0; i < MAX_RET_REG_COUNT - 1; ++i)
+    for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
     {
-        if (gtOtherRegs[i] != REG_NA)
+        regNumber reg = GetRegNum(i);
+
+        if (reg == REG_NA)
         {
-            resultMask |= genRegMask((regNumber)gtOtherRegs[i]);
-            continue;
+            break;
         }
-        break;
+
+        resultMask |= genRegMask(reg);
     }
 #endif
 

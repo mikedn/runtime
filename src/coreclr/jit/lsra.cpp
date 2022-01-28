@@ -134,15 +134,16 @@ void lsraAssignRegToTree(GenTree* tree, regNumber reg, unsigned regIdx)
     {
         assert(regIdx == 1);
         GenTreeMultiRegOp* mul = tree->AsMultiRegOp();
-        mul->gtOtherReg        = reg;
+        mul->SetRegNum(1, reg);
     }
 #endif // TARGET_64BIT
 #if FEATURE_MULTIREG_RET
     else if (tree->OperGet() == GT_COPY)
     {
+        // TODO-MIKE-Review: Why the crap only 1?
         assert(regIdx == 1);
         GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
-        copy->gtOtherRegs[0]      = (regNumberSmall)reg;
+        copy->SetRegNum(1, reg);
     }
 #endif // FEATURE_MULTIREG_RET
 #if FEATURE_ARG_SPLIT
@@ -156,7 +157,7 @@ void lsraAssignRegToTree(GenTree* tree, regNumber reg, unsigned regIdx)
     else if (tree->OperIs(GT_HWINTRINSIC))
     {
         assert(regIdx == 1);
-        tree->AsHWIntrinsic()->SetOtherReg(reg);
+        tree->AsHWIntrinsic()->SetRegNum(1, reg);
     }
 #endif
     else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))

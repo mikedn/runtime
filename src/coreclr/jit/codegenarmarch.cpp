@@ -976,7 +976,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 #ifdef TARGET_ARM
     else if (varTypeIsLong(dstType) && src->TypeIs(TYP_DOUBLE))
     {
-        regNumber otherReg = bitcast->AsMultiRegOp()->gtOtherReg;
+        regNumber otherReg = bitcast->AsMultiRegOp()->GetRegNum(1);
         assert(otherReg != REG_NA);
         inst_RV_RV_RV(INS_vmov_d2i, dstReg, otherReg, src->GetRegNum(), EA_8BYTE);
     }

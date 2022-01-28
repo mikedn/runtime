@@ -974,6 +974,18 @@ public:
         assert(m_defRegs[0] == reg);
     }
 
+    regNumber GetRegNum(unsigned i) const
+    {
+        assert(i < _countof(m_defRegs));
+        return static_cast<regNumber>(m_defRegs[i]);
+    }
+
+    void SetRegNum(unsigned i, regNumber reg)
+    {
+        assert(i < _countof(m_defRegs));
+        m_defRegs[i] = static_cast<regNumberSmall>(reg);
+    }
+
     bool gtHasReg() const;
 
     INDEBUG(int GetRegisterDstCount(Compiler* compiler) const;)
@@ -3309,7 +3321,6 @@ inline MultiRegSpillFlags SetMultiRegSpillFlagsByIdx(MultiRegSpillFlags oldFlags
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
 private:
-    regNumberSmall     gtOtherReg[MAX_MULTIREG_COUNT - 1];
     MultiRegSpillFlags gtSpillFlags;
 
 public:
@@ -3332,20 +3343,18 @@ public:
 
     regNumber GetRegNumByIdx(int regIndex)
     {
-        assert(regIndex < MAX_MULTIREG_COUNT);
-        return (regIndex == 0) ? GetRegNum() : (regNumber)gtOtherReg[regIndex - 1];
+        return (regIndex == 0) ? GetRegNum() : GetRegNum(regIndex);
     }
 
     void SetRegNumByIdx(regNumber reg, int regIndex)
     {
-        assert(regIndex < MAX_MULTIREG_COUNT);
         if (regIndex == 0)
         {
             SetRegNum(reg);
         }
         else
         {
-            gtOtherReg[regIndex - 1] = regNumberSmall(reg);
+            SetRegNum(regIndex, reg);
         }
     }
 
@@ -3362,32 +3371,14 @@ public:
     unsigned int GetFieldCount(Compiler* compiler) const;
     var_types GetFieldTypeByIndex(Compiler* compiler, unsigned idx);
 
-    //-------------------------------------------------------------------
-    // clearOtherRegFlags: clear GTF_* flags associated with gtOtherRegs
-    //
-    // Arguments:
-    //     None
-    //
-    // Return Value:
-    //     None
     void ClearOtherRegFlags()
     {
         gtSpillFlags = 0;
     }
 
-    //-------------------------------------------------------------------------
-    // CopyOtherRegFlags: copy GTF_* flags associated with gtOtherRegs from
-    // the given LclVar node.
-    //
-    // Arguments:
-    //    fromCall  -  GenTreeLclVar node from which to copy
-    //
-    // Return Value:
-    //    None
-    //
     void CopyOtherRegFlags(GenTreeLclVar* from)
     {
-        this->gtSpillFlags = from->gtSpillFlags;
+        gtSpillFlags = from->gtSpillFlags;
     }
 
     GenTreeLclVar(genTreeOps oper,
@@ -4101,11 +4092,6 @@ struct GenTreeCall final : public GenTree
 
 #if FEATURE_MULTIREG_RET
     // State required to support multi-reg returning call nodes.
-
-    // GetRegNum() would always be the first return reg.
-    // The following array holds the other reg numbers of multi-reg return.
-    regNumberSmall gtOtherRegs[MAX_RET_REG_COUNT - 1];
-
     MultiRegSpillFlags gtSpillFlags;
 #endif // FEATURE_MULTIREG_RET
 
@@ -4240,7 +4226,7 @@ public:
         }
 
 #if FEATURE_MULTIREG_RET
-        return (regNumber)gtOtherRegs[idx - 1];
+        return GetRegNum(idx);
 #else
         return REG_NA;
 #endif
@@ -4257,8 +4243,7 @@ public:
 #if FEATURE_MULTIREG_RET
         else
         {
-            gtOtherRegs[idx - 1] = (regNumberSmall)reg;
-            assert(gtOtherRegs[idx - 1] == reg);
+            SetRegNum(idx, reg);
         }
 #else
         unreached();
@@ -4268,9 +4253,9 @@ public:
     void ClearOtherRegs()
     {
 #if FEATURE_MULTIREG_RET
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT - 1; ++i)
+        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
         {
-            gtOtherRegs[i] = REG_NA;
+            SetRegNum(i, REG_NA);
         }
 #endif
     }
@@ -4278,14 +4263,13 @@ public:
     void CopyOtherRegs(GenTreeCall* fromCall)
     {
 #if FEATURE_MULTIREG_RET
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT - 1; ++i)
+        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
         {
-            this->gtOtherRegs[i] = fromCall->gtOtherRegs[i];
+            SetRegNum(i, fromCall->GetRegNum(i));
         }
 #endif
     }
 
-    // Get reg mask of all the valid registers of gtOtherRegs array
     regMaskTP GetOtherRegMask() const;
 
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
@@ -5175,8 +5159,6 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
 #if !defined(TARGET_64BIT)
 struct GenTreeMultiRegOp : public GenTreeOp
 {
-    regNumber gtOtherReg;
-
     // GTF_SPILL or GTF_SPILLED flag on a multi-reg node indicates that one or
     // more of its result regs are in that state.  The spill flag of each of the
     // return register is stored here. We only need 2 bits per returned register,
@@ -5185,9 +5167,10 @@ struct GenTreeMultiRegOp : public GenTreeOp
     MultiRegSpillFlags gtSpillFlags;
 
     GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 = nullptr)
-        : GenTreeOp(oper, type, op1, op2), gtOtherReg(REG_NA)
+        : GenTreeOp(oper, type, op1, op2)
     {
         ClearOtherRegFlags();
+        SetRegNum(1, REG_NA);
     }
 
     unsigned GetRegCount() const
@@ -5213,7 +5196,7 @@ struct GenTreeMultiRegOp : public GenTreeOp
             return GetRegNum();
         }
 
-        return gtOtherReg;
+        return GetRegNum(1);
     }
 
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
@@ -5253,15 +5236,6 @@ struct GenTreeMultiRegOp : public GenTreeOp
         return result;
     }
 
-    //-------------------------------------------------------------------
-    // clearOtherRegFlags: clear GTF_* flags associated with gtOtherRegs
-    //
-    // Arguments:
-    //     None
-    //
-    // Return Value:
-    //     None
-    //
     void ClearOtherRegFlags()
     {
         gtSpillFlags = 0;
@@ -5439,7 +5413,6 @@ private:
     var_types      m_simdBaseType;
     uint8_t        m_simdSize;
     var_types      m_auxiliaryType;
-    regNumberSmall m_otherReg;
     uint8_t        m_numOps;
     union {
         Use  m_inlineUses[3];
@@ -5719,17 +5692,6 @@ public:
                                     // false otherwise
     bool OperIsMemoryLoadOrStore() const; // Returns true for the HW Intrinsic instructions that have MemoryLoad or
                                           // MemoryStore semantics, false otherwise
-
-    regNumber GetOtherReg() const
-    {
-        return static_cast<regNumber>(m_otherReg);
-    }
-
-    void SetOtherReg(regNumber reg)
-    {
-        m_otherReg = static_cast<regNumberSmall>(reg);
-        assert(m_otherReg == reg);
-    }
 
     // Delete some functions inherited from GenTree to avoid accidental use, at least
     // when the node object is accessed via GenTreeHWIntrinsic* rather than GenTree*.
@@ -7248,7 +7210,7 @@ struct GenTreePutArgSplit : public GenTreePutArgStk
 {
 private:
 #if defined(TARGET_ARM)
-    constexpr static unsigned MAX_SPLIT_ARG_REGS = MAX_REG_ARG;
+    constexpr static unsigned MAX_SPLIT_ARG_REGS = MAX_ARG_REG_COUNT;
 #elif defined(TARGET_ARM64)
     constexpr static unsigned MAX_SPLIT_ARG_REGS = 1;
 #else
@@ -7256,9 +7218,6 @@ private:
 #endif
 
 #ifdef TARGET_ARM
-    // First reg of struct is always given by GetRegNum().
-    // gtOtherRegs holds the other reg numbers of struct.
-    regNumberSmall gtOtherRegs[MAX_SPLIT_ARG_REGS - 1];
     // Type required to support multi-reg struct arg.
     var_types          m_regType[MAX_SPLIT_ARG_REGS];
     MultiRegSpillFlags gtSpillFlags;
@@ -7298,7 +7257,7 @@ public:
         assert(idx < MAX_SPLIT_ARG_REGS);
 
 #ifdef TARGET_ARM
-        return (idx == 0) ? GetRegNum() : (regNumber)gtOtherRegs[idx - 1];
+        return (idx == 0) ? GetRegNum() : GetRegNum(idx);
 #else
         return GetRegNum();
 #endif
@@ -7315,8 +7274,7 @@ public:
         }
         else
         {
-            gtOtherRegs[idx - 1] = (regNumberSmall)reg;
-            assert(gtOtherRegs[idx - 1] == reg);
+            SetRegNum(idx, reg);
         }
 #else
         SetRegNum(reg);
@@ -7328,7 +7286,7 @@ public:
 #ifdef TARGET_ARM
         for (unsigned i = 0; i < MAX_REG_ARG - 1; ++i)
         {
-            gtOtherRegs[i] = REG_NA;
+            SetRegNum(i, REG_NA);
         }
 #endif
     }
@@ -7407,41 +7365,16 @@ public:
 //
 struct GenTreeCopyOrReload : public GenTreeUnOp
 {
-#if FEATURE_MULTIREG_RET
-    // State required to support copy/reload of a multi-reg call node.
-    // The first register is always given by GetRegNum().
-    //
-    regNumberSmall gtOtherRegs[MAX_RET_REG_COUNT - 1];
-#endif
-
-    //----------------------------------------------------------
-    // ClearOtherRegs: set gtOtherRegs to REG_NA.
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //    None
-    //
     void ClearOtherRegs()
     {
 #if FEATURE_MULTIREG_RET
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT - 1; ++i)
+        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
         {
-            gtOtherRegs[i] = REG_NA;
+            SetRegNum(i, REG_NA);
         }
 #endif
     }
 
-    //-----------------------------------------------------------
-    // GetRegNumByIdx: Get regNumber of ith position.
-    //
-    // Arguments:
-    //    idx   -   register position.
-    //
-    // Return Value:
-    //    Returns regNumber assigned to ith position.
-    //
     regNumber GetRegNumByIdx(unsigned idx) const
     {
         assert(idx < MAX_RET_REG_COUNT);
@@ -7452,22 +7385,12 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
         }
 
 #if FEATURE_MULTIREG_RET
-        return (regNumber)gtOtherRegs[idx - 1];
+        return GetRegNum(idx);
 #else
         return REG_NA;
 #endif
     }
 
-    //-----------------------------------------------------------
-    // SetRegNumByIdx: Set the regNumber for ith position.
-    //
-    // Arguments:
-    //    reg   -   reg number
-    //    idx   -   register position.
-    //
-    // Return Value:
-    //    None.
-    //
     void SetRegNumByIdx(regNumber reg, unsigned idx)
     {
         assert(idx < MAX_RET_REG_COUNT);
@@ -7479,8 +7402,7 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
 #if FEATURE_MULTIREG_RET
         else
         {
-            gtOtherRegs[idx - 1] = (regNumberSmall)reg;
-            assert(gtOtherRegs[idx - 1] == reg);
+            SetRegNum(idx, reg);
         }
 #else
         else
@@ -7490,26 +7412,14 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
 #endif
     }
 
-    //----------------------------------------------------------------------------
-    // CopyOtherRegs: copy multi-reg state from the given copy/reload node to this
-    // node.
-    //
-    // Arguments:
-    //    from  -  GenTree node from which to copy multi-reg state
-    //
-    // Return Value:
-    //    None
-    //
-    // TODO-ARM: Implement this routine for Arm64 and Arm32
-    // TODO-X86: Implement this routine for x86
     void CopyOtherRegs(GenTreeCopyOrReload* from)
     {
         assert(OperGet() == from->OperGet());
 
 #ifdef UNIX_AMD64_ABI
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT - 1; ++i)
+        for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
         {
-            gtOtherRegs[i] = from->gtOtherRegs[i];
+            SetRegNum(i, from->GetRegNum(i));
         }
 #endif
     }
@@ -8226,7 +8136,7 @@ inline regNumber GenTree::GetRegByIndex(int regIndex)
     if (OperIs(GT_HWINTRINSIC))
     {
         assert(regIndex == 1);
-        return AsHWIntrinsic()->GetOtherReg();
+        return AsHWIntrinsic()->GetRegNum(1);
     }
 #endif
     if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
