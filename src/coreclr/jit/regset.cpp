@@ -420,7 +420,7 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     m_rsCompiler->codeGen->spillReg(storeType, temp, reg);
 
     // Mark the tree node as having been spilled
-    rsMarkSpill(tree, reg);
+    tree->gtFlags |= GTF_SPILLED;
 
     // In case of multi-reg call node also mark the specific
     // result reg as spilled.
@@ -481,9 +481,7 @@ void RegSet::rsSpillFPStack(GenTreeCall* call)
 
     m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fstp, emitActualTypeSize(treeType), temp->tdTempNum(), 0);
 
-    /* Mark the tree node as having been spilled */
-
-    rsMarkSpill(call, reg);
+    call->gtFlags |= GTF_SPILLED;
 }
 #endif // defined(TARGET_X86)
 
@@ -588,13 +586,6 @@ TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regI
 
     return temp;
 }
-
-void RegSet::rsMarkSpill(GenTree* tree, regNumber reg)
-{
-    tree->gtFlags |= GTF_SPILLED;
-}
-
-/*****************************************************************************/
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

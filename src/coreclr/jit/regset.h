@@ -167,8 +167,6 @@ private:
 
     TempDsc* rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regIdx = 0);
 
-    void rsMarkSpill(GenTree* tree, regNumber reg);
-
 public:
     void tmpInit();
 
