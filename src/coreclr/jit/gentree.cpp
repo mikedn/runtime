@@ -541,6 +541,7 @@ bool GenTree::gtHasReg() const
     return hasReg;
 }
 
+#ifdef DEBUG
 //-----------------------------------------------------------------------------
 // GetRegisterDstCount: Get the number of registers defined by the node.
 //
@@ -606,6 +607,7 @@ int GenTree::GetRegisterDstCount(Compiler* compiler) const
     assert(!"Unexpected multi-reg node");
     return 0;
 }
+#endif // DEBUG
 
 //---------------------------------------------------------------
 // gtGetRegMask: Get the reg mask of the node.
