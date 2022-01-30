@@ -1454,15 +1454,8 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             if (setupArg != nullptr)
             {
                 JITDUMPTREE(setupArg, "Created arg setup/placeholder tree:\n");
-
-                setupArg->gtFlags |= GTF_LATE_ARG;
                 argInfo->use->SetNode(setupArg);
-
                 JITDUMP("\n");
-            }
-            else
-            {
-                arg->gtFlags |= GTF_LATE_ARG;
             }
 
             GenTreeCall::Use* lateArgUse = compiler->gtNewCallArgs(lateArg);
@@ -7648,8 +7641,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
                 assert(arg != arr);
                 assert(arg != index);
 
-                arg->gtFlags &= ~GTF_LATE_ARG;
-
                 GenTree* op1 = argSetup;
                 if (op1 == nullptr)
                 {
@@ -8081,7 +8072,6 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
             if (promotedTree != nullptr)
             {
-                promotedTree->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
                 INDEBUG(promotedTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
                 JITDUMPTREE(promotedTree, "fgMorphInitStruct (after promotion):\n");
                 return promotedTree;
@@ -8760,8 +8750,6 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         }
     }
 
-    comma->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
-
     INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
     JITDUMPTREE(comma, "fgMorphCopyStruct (after SIMD destination promotion):\n\n");
 
@@ -8773,7 +8761,6 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
 GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
 {
     assert(dynBlk->TypeIs(TYP_VOID));
-    assert((dynBlk->gtFlags & GTF_LATE_ARG) == 0);
 
     GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon();
 
@@ -8829,7 +8816,6 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
 GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-    assert((asg->gtFlags & GTF_LATE_ARG) == 0);
 
     GenTreeBlk* dst = asg->GetOp(0)->AsBlk();
     GenTree*    src = asg->GetOp(1);
@@ -9407,8 +9393,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             asgFieldCommaTree = asgField;
         }
     }
-
-    asgFieldCommaTree->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
 
     INDEBUG(asgFieldCommaTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
@@ -11622,8 +11606,7 @@ DONE_MORPHING_CHILDREN:
                     comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
                 }
 
-                op1->gtFlags |= tree->gtFlags & (GTF_LATE_ARG | GTF_DONT_CSE);
-                tree->gtFlags &= ~GTF_LATE_ARG;
+                op1->gtFlags |= tree->gtFlags & GTF_DONT_CSE;
                 INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
                 return op1;
@@ -11659,7 +11642,7 @@ DONE_MORPHING_CHILDREN:
                 }
                 else
                 {
-                    op2->gtFlags |= (tree->gtFlags & (GTF_DONT_CSE | GTF_LATE_ARG));
+                    op2->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
                     DEBUG_DESTROY_NODE(tree);
                     DEBUG_DESTROY_NODE(op1);
                     return op2;
@@ -11668,7 +11651,7 @@ DONE_MORPHING_CHILDREN:
                 /* If the right operand is just a void nop node, throw it away */
                 if (op2->IsNothingNode() && op1->gtType == TYP_VOID)
                 {
-                    op1->gtFlags |= (tree->gtFlags & (GTF_DONT_CSE | GTF_LATE_ARG));
+                    op1->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
                     DEBUG_DESTROY_NODE(tree);
                     DEBUG_DESTROY_NODE(op2);
                     return op1;

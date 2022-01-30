@@ -8144,10 +8144,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         {
             chars += printf("[SMALL_UNSIGNED]");
         }
-        if (tree->gtFlags & GTF_LATE_ARG)
-        {
-            chars += printf("[SMALL_LATE_ARG]");
-        }
         if (tree->gtFlags & GTF_SPILL)
         {
             chars += printf("[SPILL]");

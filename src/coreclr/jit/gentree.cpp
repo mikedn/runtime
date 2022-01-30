@@ -932,42 +932,6 @@ bool GenTreeCall::IsHelperCall(Compiler* compiler, unsigned helper) const
     return IsHelperCall(compiler->eeFindHelper(helper));
 }
 
-//------------------------------------------------------------------------
-// GenTreeCall::ReplaceCallOperand:
-//    Replaces a given operand to a call node and updates the call
-//    argument table if necessary.
-//
-// Arguments:
-//    useEdge - the use edge that points to the operand to be replaced.
-//    replacement - the replacement node.
-//
-void GenTreeCall::ReplaceCallOperand(GenTree** useEdge, GenTree* replacement)
-{
-    assert(useEdge != nullptr);
-    assert(replacement != nullptr);
-    assert(FindUse(*useEdge) == useEdge);
-
-    GenTree* originalOperand = *useEdge;
-    *useEdge                 = replacement;
-
-    const bool isArgument =
-        (replacement != gtControlExpr) &&
-        ((gtCallType != CT_INDIRECT) || ((replacement != gtCallCookie) && (replacement != gtCallAddr)));
-
-    if (isArgument)
-    {
-        if ((originalOperand->gtFlags & GTF_LATE_ARG) != 0)
-        {
-            replacement->gtFlags |= GTF_LATE_ARG;
-        }
-        else
-        {
-            assert((replacement->gtFlags & GTF_LATE_ARG) == 0);
-            assert(GetArgInfoByArgNode(replacement)->GetNode() == replacement);
-        }
-    }
-}
-
 //-------------------------------------------------------------------------
 // AreArgsComplete: Determine if this GT_CALL node's arguments have been processed.
 //
@@ -3756,30 +3720,13 @@ GenTree** GenTree::FindUse(GenTree* def)
     return use;
 }
 
-//------------------------------------------------------------------------
-// GenTree::ReplaceOperand:
-//    Replace a given operand to this node with a new operand. If the
-//    current node is a call node, this will also udpate the call
-//    argument table if necessary.
-//
-// Arguments:
-//    useEdge - the use edge that points to the operand to be replaced.
-//    replacement - the replacement node.
-//
 void GenTree::ReplaceOperand(GenTree** useEdge, GenTree* replacement)
 {
     assert(useEdge != nullptr);
     assert(replacement != nullptr);
     assert(FindUse(*useEdge) == useEdge);
 
-    if (OperGet() == GT_CALL)
-    {
-        AsCall()->ReplaceCallOperand(useEdge, replacement);
-    }
-    else
-    {
-        *useEdge = replacement;
-    }
+    *useEdge = replacement;
 }
 
 //------------------------------------------------------------------------
@@ -6795,7 +6742,7 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
                      (flags & GTF_MAKE_CSE) ? 'H' : '-'); // H is for Hoist this expr
     printf("%c", (flags & GTF_REVERSE_OPS) ? 'R' : '-');
     printf("%c", (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-');
-    printf("%c", (flags & GTF_LATE_ARG) ? 'L' : '-');
+    printf("%c", '-');
     printf("%c", (flags & GTF_SPILLED) ? 'z' : (flags & GTF_SPILL) ? 'Z' : '-');
 
     return charsDisplayed;
