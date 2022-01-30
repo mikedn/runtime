@@ -7290,7 +7290,10 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
         GenTree* earlyArg = use.GetNode();
         if (!earlyArg->IsNothingNode() && !earlyArg->OperIs(GT_ARGPLACE))
         {
-            if ((earlyArg->gtFlags & GTF_LATE_ARG) != 0)
+            // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
+            // and the linear search it performs...
+            CallArgInfo* argInfo = recursiveTailCall->GetArgInfoByArgNode(earlyArg);
+            if (argInfo->HasLateUse())
             {
                 // This is a setup node so we need to hoist it.
                 Statement* earlyArgStmt = gtNewStmt(earlyArg, callILOffset);
