@@ -4692,26 +4692,10 @@ GenTree* GenTreeCall::GetThisArg() const
 CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
 {
     noway_assert(fgArgInfo != nullptr);
-
     assert(argNum < fgArgInfo->GetArgCount());
+    assert(fgArgInfo->GetArgInfo(argNum)->GetArgNum() == argNum);
 
-    if (fgArgInfo->GetArgInfo(argNum)->GetArgNum() == argNum)
-    {
-        return fgArgInfo->GetArgInfo(argNum);
-    }
-
-    // The arg table was sorted and the arg changed its position, do a linear search to find it.
-    for (unsigned i = 0; i < fgArgInfo->GetArgCount(); i++)
-    {
-        CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
-
-        if (argInfo->GetArgNum() == argNum)
-        {
-            return argInfo;
-        }
-    }
-
-    unreached();
+    return fgArgInfo->GetArgInfo(argNum);
 }
 
 GenTree* GenTreeCall::GetArgNodeByArgNum(unsigned argNum) const
