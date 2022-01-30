@@ -257,40 +257,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount++;
     }
 
-#ifdef DEBUG
-    // Now, count stack args
-    // Note that these need to be computed into a register, but then
-    // they're just stored to the stack - so the reg doesn't
-    // need to remain live until the call.  In fact, it must not
-    // because the code generator doesn't actually consider it live,
-    // so it can't be spilled.
-
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        GenTree* arg = use.GetNode();
-
-        // Skip arguments that have been moved to the Late Arg list
-        if ((arg->gtFlags & GTF_LATE_ARG) == 0)
-        {
-            fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(arg);
-            assert(curArgTabEntry != nullptr);
-#if FEATURE_ARG_SPLIT
-            // PUTARG_SPLIT nodes must be in the gtCallLateArgs list, since they
-            // define registers used by the call.
-            assert(arg->OperGet() != GT_PUTARG_SPLIT);
-#endif // FEATURE_ARG_SPLIT
-            if (arg->gtOper == GT_PUTARG_STK)
-            {
-                assert(curArgTabEntry->GetRegCount() == 0);
-            }
-            else
-            {
-                assert(!arg->IsValue() || arg->IsUnusedValue());
-            }
-        }
-    }
-#endif // DEBUG
-
     if (ctrlExpr != nullptr)
     {
         BuildUse(ctrlExpr);
