@@ -8652,220 +8652,164 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
 {
     assert(vnf != VNF_Boundary);
 
-    GenTreeCall::Use* args                    = call->gtCallArgs;
-    bool              generateUniqueVN        = false;
-    bool              useEntryPointAddrAsArg0 = false;
+    unsigned argCount = ValueNumStore::VNFuncArity(vnf);
+
+    if (argCount == 0)
+    {
+        // TODO-MIKE-Review: This drops vnpExc unlike the case with arguments below...
+        call->gtVNPair.SetBoth(vnStore->VNForFunc(call->GetType(), vnf));
+
+        return;
+    }
+
+    GenTreeCall::Use* args = call->gtCallArgs;
+
+    bool addUniqueArg            = false;
+    bool useEntryPointAddrAsArg0 = false;
 
     switch (vnf)
     {
         case VNF_JitNew:
-        {
-            generateUniqueVN = true;
-            vnpExc           = ValueNumStore::VNPForEmptyExcSet();
-        }
-        break;
+            addUniqueArg = true;
+            vnpExc       = ValueNumStore::VNPForEmptyExcSet();
+            break;
 
         case VNF_JitNewArr:
-        {
-            generateUniqueVN  = true;
-            ValueNumPair vnp1 = vnStore->VNPNormalPair(args->GetNext()->GetNode()->gtVNPair);
-
-            // The New Array helper may throw an overflow exception
-            vnpExc = vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnp1));
-        }
-        break;
+            addUniqueArg = true;
+            {
+                ValueNumPair vnp1 = vnStore->VNPNormalPair(args->GetNext()->GetNode()->gtVNPair);
+                // The New Array helper may throw an overflow exception
+                vnpExc = vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnp1));
+            }
+            break;
 
         case VNF_Box:
         case VNF_BoxNullable:
-        {
             // Generate unique VN so, VNForFunc generates a uniq value number for box nullable.
-            // Alternatively instead of using vnpUniq below in VNPairForFunc(...),
+            // Alternatively instead of using vnpUniqueArg below in VNPairForFunc(...),
             // we could use the value number of what the byref arg0 points to.
             //
             // But retrieving the value number of what the byref arg0 points to is quite a bit more work
             // and doing so only very rarely allows for an additional optimization.
-            generateUniqueVN = true;
-        }
-        break;
+            addUniqueArg = true;
+            break;
 
         case VNF_JitReadyToRunNew:
-        {
-            generateUniqueVN        = true;
-            vnpExc                  = ValueNumStore::VNPForEmptyExcSet();
+            addUniqueArg            = true;
             useEntryPointAddrAsArg0 = true;
-        }
-        break;
+            vnpExc                  = ValueNumStore::VNPForEmptyExcSet();
+            break;
 
         case VNF_JitReadyToRunNewArr:
-        {
-            generateUniqueVN  = true;
-            ValueNumPair vnp1 = vnStore->VNPNormalPair(args->GetNode()->gtVNPair);
-
-            // The New Array helper may throw an overflow exception
-            vnpExc = vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnp1));
+            addUniqueArg            = true;
             useEntryPointAddrAsArg0 = true;
-        }
-        break;
+            {
+                ValueNumPair vnp1 = vnStore->VNPNormalPair(args->GetNode()->gtVNPair);
+                // The New Array helper may throw an overflow exception
+                vnpExc = vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_NewArrOverflowExc, vnp1));
+            }
+            break;
 
         case VNF_ReadyToRunStaticBase:
         case VNF_ReadyToRunGenericStaticBase:
         case VNF_ReadyToRunIsInstanceOf:
         case VNF_ReadyToRunCastClass:
         case VNF_ReadyToRunGenericHandle:
-        {
             useEntryPointAddrAsArg0 = true;
-        }
-        break;
+            break;
 
         default:
-        {
             assert(s_helperCallProperties.IsPure(eeGetHelperNum(call->gtCallMethHnd)));
+            break;
+    }
+
+    ValueNumPair vnpUniqueArg;
+
+    if (addUniqueArg)
+    {
+        argCount--;
+        vnpUniqueArg.SetBoth(vnStore->VNForExpr(compCurBB, call->GetType()));
+
+        if (argCount == 0)
+        {
+            call->gtVNPair = vnStore->VNPairForFunc(call->GetType(), vnf, vnpUniqueArg);
+            // TODO-MIKE-Review: This drops vnpExc unlike the case with arguments below...
+
+            return;
         }
-        break;
     }
 
-    unsigned nArgs = ValueNumStore::VNFuncArity(vnf);
+    ValueNumPair vnpArgs[4];
+    unsigned     vnpArgIndex = 0;
 
-    if (generateUniqueVN)
-    {
-        nArgs--;
-    }
-
-    ValueNumPair vnpUniq;
-    if (generateUniqueVN)
-    {
-        // Generate unique VN so, VNForFunc generates a unique value number.
-        vnpUniq.SetBoth(vnStore->VNForExpr(compCurBB, call->TypeGet()));
-    }
-
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
+#ifdef FEATURE_READYTORUN_COMPILER
+#ifdef TARGET_ARMARCH
     if (call->IsR2RRelativeIndir())
     {
 #ifdef DEBUG
-        assert(args->GetNode()->OperGet() == GT_ARGPLACE);
-
-        // Find the corresponding late arg.
+        assert(args->GetNode()->OperIs(GT_ARGPLACE));
         GenTree* indirectCellAddress = call->GetArgNodeByArgNum(0);
-        assert(indirectCellAddress->IsCnsIntOrI() && indirectCellAddress->GetRegNum() == REG_R2R_INDIRECT_PARAM);
-#endif // DEBUG
+        assert(indirectCellAddress->IsIntCon() && (indirectCellAddress->GetRegNum() == REG_R2R_INDIRECT_PARAM));
+#endif
 
-        // For ARM indirectCellAddress is consumed by the call itself, so it should have added as an implicit argument
-        // in morph. So we do not need to use EntryPointAddrAsArg0, because arg0 is already an entry point addr.
+        // For ARM the entry point should have been added as an argument by morph.
         useEntryPointAddrAsArg0 = false;
     }
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
+#endif // TARGET_ARMARCH
 
-    if (nArgs == 0)
+    if (useEntryPointAddrAsArg0)
     {
-        if (generateUniqueVN)
-        {
-            call->gtVNPair = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnpUniq);
-        }
-        else
-        {
-            call->gtVNPair.SetBoth(vnStore->VNForFunc(call->TypeGet(), vnf));
-        }
+        ssize_t addrValue = reinterpret_cast<ssize_t>(call->gtEntryPoint.addr);
+        vnpArgs[0].SetBoth(vnStore->VNForHandle(addrValue, GTF_ICON_FTN_ADDR));
+        vnpArgIndex++;
     }
-    else
-    {
-        auto getCurrentArg = [call, &args, useEntryPointAddrAsArg0](int currentIndex) {
-            GenTree* arg = args->GetNode();
-            if ((arg->gtFlags & GTF_LATE_ARG) != 0)
-            {
-                // This arg is a setup node that moves the arg into position.
-                // Value-numbering will have visited the separate late arg that
-                // holds the actual value, and propagated/computed the value number
-                // for this arg there.
-                if (useEntryPointAddrAsArg0)
-                {
-                    // The args in the fgArgInfo don't include the entry point, so
-                    // index into them using one less than the requested index.
-                    --currentIndex;
-                }
-                return call->GetArgNodeByArgNum(currentIndex);
-            }
-            return arg;
-        };
-        // Has at least one argument.
-        ValueNumPair vnp0;
-        ValueNumPair vnp0x = ValueNumStore::VNPForEmptyExcSet();
-#ifdef FEATURE_READYTORUN_COMPILER
-        if (useEntryPointAddrAsArg0)
-        {
-            ssize_t  addrValue  = (ssize_t)call->gtEntryPoint.addr;
-            ValueNum callAddrVN = vnStore->VNForHandle(addrValue, GTF_ICON_FTN_ADDR);
-            vnp0                = ValueNumPair(callAddrVN, callAddrVN);
-        }
-        else
 #endif // FEATURE_READYTORUN_COMPILER
+
+    for (unsigned callArgIndex = 0; vnpArgIndex < argCount; vnpArgIndex++, callArgIndex++, args = args->GetNext())
+    {
+        GenTree* arg = args->GetNode();
+
+        if ((arg->gtFlags & GTF_LATE_ARG) != 0)
         {
-            assert(!useEntryPointAddrAsArg0);
-            ValueNumPair vnp0wx = getCurrentArg(0)->gtVNPair;
-            vnStore->VNPUnpackExc(vnp0wx, &vnp0, &vnp0x);
-
-            // Also include in the argument exception sets
-            vnpExc = vnStore->VNPExcSetUnion(vnpExc, vnp0x);
-
-            args = args->GetNext();
+            // This arg is a setup node that moves the arg into position.
+            // Value-numbering will have visited the separate late arg that
+            // holds the actual value, and propagated/computed the value number
+            // for this arg there.
+            arg = call->GetArgNodeByArgNum(callArgIndex);
         }
-        if (nArgs == 1)
-        {
-            if (generateUniqueVN)
-            {
-                call->gtVNPair = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnp0, vnpUniq);
-            }
-            else
-            {
-                call->gtVNPair = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnp0);
-            }
-        }
-        else
-        {
-            // Has at least two arguments.
-            ValueNumPair vnp1wx = getCurrentArg(1)->gtVNPair;
-            ValueNumPair vnp1;
-            ValueNumPair vnp1x;
-            vnStore->VNPUnpackExc(vnp1wx, &vnp1, &vnp1x);
-            vnpExc = vnStore->VNPExcSetUnion(vnpExc, vnp1x);
 
-            args = args->GetNext();
-            if (nArgs == 2)
-            {
-                if (generateUniqueVN)
-                {
-                    call->gtVNPair = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnp0, vnp1, vnpUniq);
-                }
-                else
-                {
-                    call->gtVNPair = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnp0, vnp1);
-                }
-            }
-            else
-            {
-                ValueNumPair vnp2wx = getCurrentArg(2)->gtVNPair;
-                ValueNumPair vnp2;
-                ValueNumPair vnp2x;
-                vnStore->VNPUnpackExc(vnp2wx, &vnp2, &vnp2x);
-                vnpExc = vnStore->VNPExcSetUnion(vnpExc, vnp2x);
-
-                args = args->GetNext();
-                assert(nArgs == 3); // Our current maximum.
-                assert(args == nullptr);
-                if (generateUniqueVN)
-                {
-                    call->gtVNPair = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnp0, vnp1, vnp2, vnpUniq);
-                }
-                else
-                {
-                    call->gtVNPair = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnp0, vnp1, vnp2);
-                }
-            }
-        }
-        // Add the accumulated exceptions.
-        call->gtVNPair = vnStore->VNPWithExc(call->gtVNPair, vnpExc);
+        ValueNumPair vnpArgExc;
+        vnStore->VNPUnpackExc(arg->GetVNP(), &vnpArgs[vnpArgIndex], &vnpArgExc);
+        vnpExc = vnStore->VNPExcSetUnion(vnpExc, vnpArgExc);
     }
-    assert(args == nullptr || generateUniqueVN); // All arguments should be processed or we generate unique VN and do
-                                                 // not care.
+
+    assert(args == nullptr);
+
+    if (addUniqueArg)
+    {
+        vnpArgs[vnpArgIndex++] = vnpUniqueArg;
+    }
+
+    ValueNumPair vnpCall;
+
+    switch (vnpArgIndex)
+    {
+        case 1:
+            vnpCall = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnpArgs[0]);
+            break;
+        case 2:
+            vnpCall = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnpArgs[0], vnpArgs[1]);
+            break;
+        case 3:
+            vnpCall = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnpArgs[0], vnpArgs[1], vnpArgs[2]);
+            break;
+        default:
+            noway_assert(vnpArgIndex == 4);
+            vnpCall = vnStore->VNPairForFunc(call->TypeGet(), vnf, vnpArgs[0], vnpArgs[1], vnpArgs[2], vnpArgs[3]);
+            break;
+    }
+
+    call->SetVNP(vnStore->VNPWithExc(vnpCall, vnpExc));
 }
 
 void Compiler::fgValueNumberCall(GenTreeCall* call)
