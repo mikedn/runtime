@@ -5079,11 +5079,6 @@ public:
         return argCount;
     }
 
-    fgArgTabEntry** ArgTable() const
-    {
-        return argTable;
-    }
-
     unsigned GetNextSlotNum() const
     {
         return nextSlotNum;
