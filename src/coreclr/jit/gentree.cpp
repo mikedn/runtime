@@ -10222,59 +10222,67 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     JITDUMP("\nAttempting to optimize BOX_NULLABLE(&x) %s null [%06u]\n", GenTree::OpName(oper), dspTreeID(tree));
 
     // Get the address of the struct being boxed
-    GenTree* const arg = call->gtCallArgs->GetNext()->GetNode();
+    GenTree* arg;
 
-    if (arg->OperIs(GT_LCL_VAR_ADDR, GT_FIELD_ADDR, GT_INDEX_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
+    if (call->GetInfo() == nullptr)
     {
-        ClassLayout* nullableLayout;
-
-        if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
-        {
-            nullableLayout = fieldAddr->GetLayout(this);
-        }
-        else if (GenTreeIndexAddr* indexAddr = arg->IsIndexAddr())
-        {
-            nullableLayout = indexAddr->GetLayout(this);
-        }
-        else
-        {
-            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
-        }
-
-        if (nullableLayout == nullptr)
-        {
-            return tree;
-        }
-
-        CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableLayout->GetClassHandle(), 0);
-        unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
-
-        // Replace the box with an access of the nullable 'hasValue' field.
-        JITDUMP("\nSuccess: replacing BOX_NULLABLE(&x) [%06u] with x.hasValue\n", dspTreeID(op));
-
-        GenTree* newOp;
-
-        if (arg->OperIs(GT_LCL_VAR_ADDR) && lvaAddressExposedLocalsMarked)
-        {
-            newOp = arg->ChangeToLclFld(TYP_BOOL, arg->AsLclVar()->GetLclNum(), fieldOffset,
-                                        GetFieldSeqStore()->CreateSingleton(fieldHnd));
-        }
-        else
-        {
-            newOp = gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(arg, fieldHnd, fieldOffset));
-        }
-
-        if (op == op1)
-        {
-            tree->AsOp()->gtOp1 = newOp;
-        }
-        else
-        {
-            tree->AsOp()->gtOp2 = newOp;
-        }
-
-        cons->gtType = TYP_INT;
+        arg = call->gtCallArgs->GetNext()->GetNode();
     }
+    else
+    {
+        arg = call->GetArgNodeByArgNum(1);
+    }
+
+    ClassLayout* nullableLayout = nullptr;
+
+    if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
+    {
+        nullableLayout = fieldAddr->GetLayout(this);
+    }
+    else if (GenTreeIndexAddr* indexAddr = arg->IsIndexAddr())
+    {
+        nullableLayout = indexAddr->GetLayout(this);
+    }
+    else if (arg->OperIs(GT_LCL_VAR_ADDR))
+    {
+        nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
+    }
+
+    if (nullableLayout == nullptr)
+    {
+        return tree;
+    }
+
+    CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableLayout->GetClassHandle(), 0);
+    unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
+
+    // Replace the box with an access of the nullable 'hasValue' field.
+    JITDUMP("\nSuccess: replacing BOX_NULLABLE(&x) [%06u] with x.hasValue\n", dspTreeID(op));
+
+    GenTree* newOp;
+
+    if (arg->OperIs(GT_LCL_VAR_ADDR) && lvaAddressExposedLocalsMarked)
+    {
+        newOp = arg->ChangeToLclFld(TYP_BOOL, arg->AsLclVar()->GetLclNum(), fieldOffset,
+                                    GetFieldSeqStore()->CreateSingleton(fieldHnd));
+    }
+    else
+    {
+        newOp = gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(arg, fieldHnd, fieldOffset));
+    }
+
+    if (op == op1)
+    {
+        tree->AsOp()->gtOp1 = newOp;
+    }
+    else
+    {
+        tree->AsOp()->gtOp2 = newOp;
+    }
+
+    tree->SetSideEffects(newOp->GetSideEffects());
+
+    cons->gtType = TYP_INT;
 
     return tree;
 }
