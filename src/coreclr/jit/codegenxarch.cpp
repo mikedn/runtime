@@ -4891,14 +4891,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
 #ifdef TARGET_X86
+    // TODO-MIKE-Cleanup: This can probably just use CallInfo::nextSlotNum instead of going through all args.
     target_ssize_t stackArgBytes = 0;
-    for (GenTreeCall::Use& use : call->Args())
+    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
     {
-        GenTree* arg = use.GetNode();
-        if (arg->OperIs(GT_PUTARG_STK) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
-        {
-            stackArgBytes += arg->AsPutArgStk()->GetArgSize();
-        }
+        stackArgBytes += call->GetInfo()->GetArgInfo(i)->GetSlotCount() * REGSIZE_BYTES;
     }
 #endif
 
