@@ -5050,8 +5050,8 @@ class CallInfo
     bool hasRegArgs : 1;   // true if we have one or more register arguments
     bool argsComplete : 1; // marker for state
 
-    void SortArgs(Compiler* compiler, GenTreeCall* call);
-    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call);
+    void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable);
+    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable);
 
 public:
     CallInfo(class Compiler* comp, GenTreeCall* call, unsigned argCount);

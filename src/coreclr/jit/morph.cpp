@@ -1150,14 +1150,24 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
     if (HasRegArgs() || needsTemps)
     {
-        SortArgs(compiler, call);
-        EvalArgsToTemps(compiler, call);
+        CallArgInfo*  sortedArgTableArray[32];
+        CallArgInfo** sortedArgTable = sortedArgTableArray;
+
+        if (argCount > _countof(sortedArgTableArray))
+        {
+            sortedArgTable = compiler->getAllocator(CMK_CallInfo).allocate<CallArgInfo*>(argCount);
+        }
+
+        memcpy(sortedArgTable, argTable, argCount * sizeof(argTable[0]));
+
+        SortArgs(compiler, call, sortedArgTable);
+        EvalArgsToTemps(compiler, call, sortedArgTable);
     }
 
     argsComplete = true;
 }
 
-void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
+void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable)
 {
     // Shuffle the arguments around before we build the gtCallLateArgs list.
     // The idea is to move all "simple" arguments like constants and local vars
@@ -1294,13 +1304,18 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     if (compiler->verbose)
     {
         printf("\nSorted arg table:\n");
-        Dump();
+
+        for (unsigned i = 0; i < argCount; i++)
+        {
+            argTable[i]->Dump();
+        }
+
         printf("\n");
     }
 #endif
 }
 
-void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
+void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable)
 {
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
