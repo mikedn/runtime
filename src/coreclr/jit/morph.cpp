@@ -5385,7 +5385,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     unsigned calleeArgStackSize = 0;
     unsigned callerArgStackSize = info.compArgStackSize;
 
-    for (unsigned index = 0; index < argInfo->ArgCount(); ++index)
+    for (unsigned index = 0; index < argInfo->GetArgCount(); ++index)
     {
         fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
 

@@ -1880,7 +1880,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     assert(nNewStkArgsWords >= 4); // There must be at least the four special stack args.
     nNewStkArgsWords -= 4;
 
-    unsigned numArgs = call->fgArgInfo->ArgCount();
+    unsigned numArgs = call->fgArgInfo->GetArgCount();
 
     fgArgTabEntry* argEntry;
 

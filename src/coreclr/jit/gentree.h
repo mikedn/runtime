@@ -5074,11 +5074,6 @@ public:
         return argTable[i];
     }
 
-    unsigned ArgCount() const
-    {
-        return argCount;
-    }
-
     unsigned GetNextSlotNum() const
     {
         return nextSlotNum;
