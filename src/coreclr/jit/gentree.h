@@ -1024,6 +1024,11 @@ public:
         gtVNPair = tree->gtVNPair;
     }
 
+    ValueNumPair GetVNP() const
+    {
+        return gtVNPair;
+    }
+
     void SetVNP(ValueNumPair vnp)
     {
         gtVNPair = vnp;

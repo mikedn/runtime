@@ -8870,30 +8870,18 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
 
 void Compiler::fgValueNumberCall(GenTreeCall* call)
 {
-    // First: do value numbering of any argument placeholder nodes in the argument list
-    // (by transferring from the VN of the late arg that they are standing in for...)
-    unsigned i = 0;
-    for (GenTreeCall::Use& use : call->Args())
+    // Copy argument value numbers from actual arguments to ARGPLACE nodes.
+    // TODO-MIKE-Review: Is this actually needed?
+    CallInfo* info = call->GetInfo();
+
+    for (unsigned i = 0, count = info->GetArgCount(); i < count; i++)
     {
-        GenTree* arg = use.GetNode();
-        if (arg->OperGet() == GT_ARGPLACE)
+        CallArgInfo* argInfo = info->GetArgInfo(i);
+
+        if (argInfo->use->GetNode()->OperIs(GT_ARGPLACE))
         {
-            // Find the corresponding late arg.
-            GenTree* lateArg = call->GetArgNodeByArgNum(i);
-            assert(lateArg->gtVNPair.BothDefined());
-            arg->gtVNPair = lateArg->gtVNPair;
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("VN of ARGPLACE tree ");
-                Compiler::printTreeID(arg);
-                printf(" updated to ");
-                vnpPrint(arg->gtVNPair, 1);
-                printf("\n");
-            }
-#endif
+            argInfo->use->GetNode()->SetVNP(argInfo->GetNode()->GetVNP());
         }
-        i++;
     }
 
     if (call->gtCallType == CT_HELPER)
