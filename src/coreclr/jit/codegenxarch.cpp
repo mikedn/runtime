@@ -4890,9 +4890,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
     }
 
-#if defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
-    // The call will pop its arguments.
-    // for each putarg_stk:
+#ifdef TARGET_X86
     target_ssize_t stackArgBytes = 0;
     for (GenTreeCall::Use& use : call->Args())
     {
@@ -4902,7 +4900,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             stackArgBytes += arg->AsPutArgStk()->GetArgSize();
         }
     }
-#endif // defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
+#endif
 
     // Insert a null check on "this" pointer if asked.
     if (call->NeedsNullCheck())
@@ -5019,7 +5017,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         (void)compiler->genCallSite2ILOffsetMap->Lookup(call, &ilOffset);
     }
 
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
     bool fCallerPop = call->CallerPop();
 
     // If the callee pops the arguments, we pass a positive value as the argSize, and the emitter will
@@ -5031,7 +5029,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     {
         argSizeForEmitter = -stackArgBytes;
     }
-#endif // defined(TARGET_X86)
+#endif
 
     // When it's a PInvoke call and the call type is USER function, we issue VZEROUPPER here
     // if the function contains 256bit AVX instructions, this is to avoid AVX-256 to Legacy SSE
@@ -5356,7 +5354,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     unsigned stackAdjustBias = 0;
 
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
     // Is the caller supposed to pop the arguments?
     if (fCallerPop && (stackArgBytes != 0))
     {
@@ -5364,7 +5362,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
     SubtractStackLevel(stackArgBytes);
-#endif // TARGET_X86
+#endif
 
     genRemoveAlignmentAfterCall(call, stackAdjustBias);
 }
