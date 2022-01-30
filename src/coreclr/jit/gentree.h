@@ -1983,11 +1983,6 @@ public:
         return t1->GetIconHandleFlag() == t2->GetIconHandleFlag();
     }
 
-    bool IsArgPlaceHolderNode() const
-    {
-        return OperGet() == GT_ARGPLACE;
-    }
-
     inline bool IsHelperCall();
 
     bool gtOverflow() const;

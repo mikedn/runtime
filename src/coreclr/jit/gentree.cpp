@@ -9185,7 +9185,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
     IndentInfo operandArc = IIArcTop;
     for (GenTree* operand : node->Operands())
     {
-        if (operand->IsArgPlaceHolderNode() || !operand->IsValue())
+        if (operand->OperIs(GT_ARGPLACE) || !operand->IsValue())
         {
             // Either of these situations may happen with calls.
             continue;

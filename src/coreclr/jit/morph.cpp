@@ -1951,7 +1951,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         GenTree* const argx = args->GetNode();
 
         // We should never have any ArgPlaceHolder nodes at this point.
-        assert(!argx->IsArgPlaceHolderNode());
+        assert(!argx->OperIs(GT_ARGPLACE));
 
         unsigned     size            = 0;
         var_types    sigType         = TYP_UNDEF;
@@ -7233,7 +7233,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
 
     // Hoist arg setup statement for the 'this' argument.
     GenTreeCall::Use* thisArg = recursiveTailCall->gtCallThisArg;
-    if ((thisArg != nullptr) && !thisArg->GetNode()->IsNothingNode() && !thisArg->GetNode()->IsArgPlaceHolderNode())
+    if ((thisArg != nullptr) && !thisArg->GetNode()->IsNothingNode() && !thisArg->GetNode()->OperIs(GT_ARGPLACE))
     {
         Statement* thisArgStmt = gtNewStmt(thisArg->GetNode(), callILOffset);
         fgInsertStmtBefore(block, earlyArgInsertionPoint, thisArgStmt);
@@ -7288,7 +7288,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     for (GenTreeCall::Use& use : recursiveTailCall->Args())
     {
         GenTree* earlyArg = use.GetNode();
-        if (!earlyArg->IsNothingNode() && !earlyArg->IsArgPlaceHolderNode())
+        if (!earlyArg->IsNothingNode() && !earlyArg->OperIs(GT_ARGPLACE))
         {
             if ((earlyArg->gtFlags & GTF_LATE_ARG) != 0)
             {
