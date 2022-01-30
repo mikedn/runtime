@@ -164,7 +164,7 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
     BlockRange().Remove(location);
 }
 
-Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<GenTree*>& parentStack)
+Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 {
     assert(useEdge != nullptr);
 
@@ -179,13 +179,13 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
     node->gtFlags &= ~GTF_REVERSE_OPS;
 
     LIR::Use use;
-    if (parentStack.Size() < 2)
+    if (user == nullptr)
     {
         use = LIR::Use::GetDummyUse(BlockRange(), *useEdge);
     }
     else
     {
-        use = LIR::Use(BlockRange(), useEdge, parentStack.Top(1));
+        use = LIR::Use(BlockRange(), useEdge, user);
     }
 
     assert(node == use.Def());
@@ -437,7 +437,7 @@ PhaseStatus Rationalizer::DoPhase()
         // Rewrite HIR nodes into LIR nodes.
         fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
         {
-            return m_rationalizer.RewriteNode(use, this->m_ancestors);
+            return m_rationalizer.RewriteNode(use, user);
         }
     };
 
