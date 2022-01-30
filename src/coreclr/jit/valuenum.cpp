@@ -7472,13 +7472,13 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 #if !defined(FEATURE_EH_FUNCLETS)
             case GT_END_LFIN: // Control flow
 #endif
-            case GT_ARGPLACE:
-                // This node is a standin for an argument whose value will be computed later.  (Perhaps it's
-                // a register argument, and we don't want to preclude use of the register in arg evaluation yet.)
-                // We give this a "fake" value number now; if the call in which it occurs cares about the
-                // value (e.g., it's a helper call whose result is a function of argument values) we'll reset
-                // this later, when the later args have been assigned VNs.
                 tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+                break;
+
+            case GT_ARGPLACE:
+                // We'll give ARGPLACE the actual argument value number when the call
+                // node itself is value numbered.
+                tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
                 break;
 
             case GT_PHI_ARG:
