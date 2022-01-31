@@ -1561,13 +1561,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
     }
 #endif // FEATURE_HW_INTRINSICS
 
-#ifdef FEATURE_SIMD
-    // (In)Equality operation that produces bool result, when compared
-    // against Vector zero, marks its Vector Zero operand as contained.
-    assert(tree->OperIsLeaf() || tree->IsHWIntrinsicZero());
-#else
     assert(tree->OperIsLeaf());
-#endif
 }
 
 void CodeGen::genConsumeOperands(GenTreeOp* tree)
