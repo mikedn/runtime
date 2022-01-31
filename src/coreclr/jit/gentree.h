@@ -696,6 +696,83 @@ inline GenTreeDebugFlags& operator &=(GenTreeDebugFlags& a, GenTreeDebugFlags b)
 
 // clang-format on
 
+//------------------------------------------------------------------------
+// MultiRegSpillFlags
+//
+// GTF_SPILL or GTF_SPILLED flag on a multi-reg node indicates that one or
+// more of its result regs are in that state.  The spill flags of each register
+// are stored here. We only need 2 bits per returned register,
+// so this is treated as a 2-bit array. No architecture needs more than 8 bits.
+//
+typedef unsigned char MultiRegSpillFlags;
+static const unsigned PACKED_GTF_SPILL   = 1;
+static const unsigned PACKED_GTF_SPILLED = 2;
+
+//----------------------------------------------------------------------
+// GetMultiRegSpillFlagsByIdx: get spill flag associated with the return register
+// specified by its index.
+//
+// Arguments:
+//    idx  -  Position or index of the return register
+//
+// Return Value:
+//    Returns GTF_* flags associated with the register. Only GTF_SPILL and GTF_SPILLED are considered.
+//
+inline GenTreeFlags GetMultiRegSpillFlagsByIdx(MultiRegSpillFlags flags, unsigned idx)
+{
+    static_assert_no_msg(MAX_RET_REG_COUNT * 2 <= sizeof(unsigned char) * BITS_PER_BYTE);
+    assert(idx < MAX_RET_REG_COUNT);
+
+    unsigned     bits       = flags >> (idx * 2); // It doesn't matter that we possibly leave other high bits here.
+    GenTreeFlags spillFlags = GTF_EMPTY;
+    if (bits & PACKED_GTF_SPILL)
+    {
+        spillFlags |= GTF_SPILL;
+    }
+    if (bits & PACKED_GTF_SPILLED)
+    {
+        spillFlags |= GTF_SPILLED;
+    }
+    return spillFlags;
+}
+
+//----------------------------------------------------------------------
+// SetMultiRegSpillFlagsByIdx: set spill flags for the register specified by its index.
+//
+// Arguments:
+//    oldFlags   - The current value of the MultiRegSpillFlags for a node.
+//    flagsToSet - GTF_* flags. Only GTF_SPILL and GTF_SPILLED are allowed.
+//                 Note that these are the flags used on non-multireg nodes,
+//                 and this method adds the appropriate flags to the
+//                 incoming MultiRegSpillFlags and returns it.
+//    idx    -     Position or index of the register
+//
+// Return Value:
+//    The new value for the node's MultiRegSpillFlags.
+//
+inline MultiRegSpillFlags SetMultiRegSpillFlagsByIdx(MultiRegSpillFlags oldFlags, GenTreeFlags flagsToSet, unsigned idx)
+{
+    static_assert_no_msg(MAX_RET_REG_COUNT * 2 <= sizeof(unsigned char) * BITS_PER_BYTE);
+    assert(idx < MAX_RET_REG_COUNT);
+
+    MultiRegSpillFlags newFlags = oldFlags;
+    unsigned           bits     = 0;
+    if (flagsToSet & GTF_SPILL)
+    {
+        bits |= PACKED_GTF_SPILL;
+    }
+    if (flagsToSet & GTF_SPILLED)
+    {
+        bits |= PACKED_GTF_SPILLED;
+    }
+
+    const unsigned char packedFlags = PACKED_GTF_SPILL | PACKED_GTF_SPILLED;
+
+    // Clear anything that was already there by masking out the bits before 'or'ing in what we want there.
+    newFlags = (unsigned char)((newFlags & ~(packedFlags << (idx * 2))) | (bits << (idx * 2)));
+    return newFlags;
+}
+
 #ifndef HOST_64BIT
 #include <pshpack4.h>
 #endif
@@ -727,8 +804,14 @@ struct GenTree
     var_types  gtType;
     // Only used to save gtOper when we destroy a node, to aid debugging.
     INDEBUG(genTreeOps gtOperSave = GT_NONE;)
-    // Valid only for CSE expressions, 0 or the CSE index (negated if it's a def).
-    signed char gtCSEnum = NO_CSE;
+
+    union {
+        // Valid only during CSE, 0 or the CSE index (negated if it's a def).
+        signed char gtCSEnum = NO_CSE;
+        // Valid only during LSRA/CodeGen
+        MultiRegSpillFlags m_defRegsSpillFlags;
+    };
+
     // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
     unsigned char gtLIRFlags = 0;
 
@@ -1012,6 +1095,21 @@ public:
     INDEBUG(int GetRegisterDstCount(Compiler* compiler) const;)
 
     regMaskTP gtGetRegMask() const;
+
+    GenTreeFlags GetRegSpillFlags(unsigned i) const
+    {
+        return GetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, i);
+    }
+
+    void SetRegSpillFlags(unsigned i, GenTreeFlags flags)
+    {
+        m_defRegsSpillFlags = SetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, flags, i);
+    }
+
+    void ClearRegSpillFlags()
+    {
+        m_defRegsSpillFlags = 0;
+    }
 
     unsigned AvailableTempRegCount(regMaskTP mask = (regMaskTP)-1) const;
     regNumber GetSingleTempReg(regMaskTP mask = (regMaskTP)-1);
@@ -3258,90 +3356,9 @@ public:
 #endif
 };
 
-//------------------------------------------------------------------------
-// MultiRegSpillFlags
-//
-// GTF_SPILL or GTF_SPILLED flag on a multi-reg node indicates that one or
-// more of its result regs are in that state.  The spill flags of each register
-// are stored here. We only need 2 bits per returned register,
-// so this is treated as a 2-bit array. No architecture needs more than 8 bits.
-//
-typedef unsigned char MultiRegSpillFlags;
-static const unsigned PACKED_GTF_SPILL   = 1;
-static const unsigned PACKED_GTF_SPILLED = 2;
-
-//----------------------------------------------------------------------
-// GetMultiRegSpillFlagsByIdx: get spill flag associated with the return register
-// specified by its index.
-//
-// Arguments:
-//    idx  -  Position or index of the return register
-//
-// Return Value:
-//    Returns GTF_* flags associated with the register. Only GTF_SPILL and GTF_SPILLED are considered.
-//
-inline GenTreeFlags GetMultiRegSpillFlagsByIdx(MultiRegSpillFlags flags, unsigned idx)
-{
-    static_assert_no_msg(MAX_RET_REG_COUNT * 2 <= sizeof(unsigned char) * BITS_PER_BYTE);
-    assert(idx < MAX_RET_REG_COUNT);
-
-    unsigned     bits       = flags >> (idx * 2); // It doesn't matter that we possibly leave other high bits here.
-    GenTreeFlags spillFlags = GTF_EMPTY;
-    if (bits & PACKED_GTF_SPILL)
-    {
-        spillFlags |= GTF_SPILL;
-    }
-    if (bits & PACKED_GTF_SPILLED)
-    {
-        spillFlags |= GTF_SPILLED;
-    }
-    return spillFlags;
-}
-
-//----------------------------------------------------------------------
-// SetMultiRegSpillFlagsByIdx: set spill flags for the register specified by its index.
-//
-// Arguments:
-//    oldFlags   - The current value of the MultiRegSpillFlags for a node.
-//    flagsToSet - GTF_* flags. Only GTF_SPILL and GTF_SPILLED are allowed.
-//                 Note that these are the flags used on non-multireg nodes,
-//                 and this method adds the appropriate flags to the
-//                 incoming MultiRegSpillFlags and returns it.
-//    idx    -     Position or index of the register
-//
-// Return Value:
-//    The new value for the node's MultiRegSpillFlags.
-//
-inline MultiRegSpillFlags SetMultiRegSpillFlagsByIdx(MultiRegSpillFlags oldFlags, GenTreeFlags flagsToSet, unsigned idx)
-{
-    static_assert_no_msg(MAX_RET_REG_COUNT * 2 <= sizeof(unsigned char) * BITS_PER_BYTE);
-    assert(idx < MAX_RET_REG_COUNT);
-
-    MultiRegSpillFlags newFlags = oldFlags;
-    unsigned           bits     = 0;
-    if (flagsToSet & GTF_SPILL)
-    {
-        bits |= PACKED_GTF_SPILL;
-    }
-    if (flagsToSet & GTF_SPILLED)
-    {
-        bits |= PACKED_GTF_SPILLED;
-    }
-
-    const unsigned char packedFlags = PACKED_GTF_SPILL | PACKED_GTF_SPILLED;
-
-    // Clear anything that was already there by masking out the bits before 'or'ing in what we want there.
-    newFlags = (unsigned char)((newFlags & ~(packedFlags << (idx * 2))) | (bits << (idx * 2)));
-    return newFlags;
-}
-
 // GenTreeLclVar - load/store/addr of local variable
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
-private:
-    MultiRegSpillFlags gtSpillFlags;
-
-public:
     INDEBUG(IL_OFFSET gtLclILoffs;) // instr offset of ref (only for JIT dumps)
 
     // Multireg support
@@ -3361,21 +3378,21 @@ public:
 
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
     {
-        return GetMultiRegSpillFlagsByIdx(gtSpillFlags, idx);
+        return GetRegSpillFlags(idx);
     }
 
     void SetRegSpillFlagByIdx(GenTreeFlags flags, unsigned idx)
     {
-        gtSpillFlags = SetMultiRegSpillFlagsByIdx(gtSpillFlags, flags, idx);
+        SetRegSpillFlags(idx, flags);
+    }
+
+    void ClearOtherRegFlags()
+    {
+        ClearRegSpillFlags();
     }
 
     unsigned int GetFieldCount(Compiler* compiler) const;
     var_types GetFieldTypeByIndex(Compiler* compiler, unsigned idx);
-
-    void ClearOtherRegFlags()
-    {
-        gtSpillFlags = 0;
-    }
 
     GenTreeLclVar(genTreeOps oper,
                   var_types  type,
@@ -4086,11 +4103,6 @@ struct GenTreeCall final : public GenTree
 
     ReturnTypeDesc m_retDesc;
 
-#if FEATURE_MULTIREG_RET
-    // State required to support multi-reg returning call nodes.
-    MultiRegSpillFlags gtSpillFlags;
-#endif // FEATURE_MULTIREG_RET
-
 #if defined(DEBUG) || defined(INLINE_DATA)
     // For non-inline candidates, track the first observation
     // that blocks candidacy.
@@ -4217,7 +4229,7 @@ public:
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
     {
 #if FEATURE_MULTIREG_RET
-        return GetMultiRegSpillFlagsByIdx(gtSpillFlags, idx);
+        return GetRegSpillFlags(idx);
 #else
         assert(!"unreached");
         return GTF_EMPTY;
@@ -4227,14 +4239,14 @@ public:
     void SetRegSpillFlagByIdx(GenTreeFlags flags, unsigned idx)
     {
 #if FEATURE_MULTIREG_RET
-        gtSpillFlags = SetMultiRegSpillFlagsByIdx(gtSpillFlags, flags, idx);
+        SetRegSpillFlags(idx, flags);
 #endif
     }
 
     void ClearOtherRegFlags()
     {
 #if FEATURE_MULTIREG_RET
-        gtSpillFlags = 0;
+        ClearRegSpillFlags();
 #endif
     }
 
@@ -5094,13 +5106,6 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
 #if !defined(TARGET_64BIT)
 struct GenTreeMultiRegOp : public GenTreeOp
 {
-    // GTF_SPILL or GTF_SPILLED flag on a multi-reg node indicates that one or
-    // more of its result regs are in that state.  The spill flag of each of the
-    // return register is stored here. We only need 2 bits per returned register,
-    // so this is treated as a 2-bit array. No architecture needs more than 8 bits.
-
-    MultiRegSpillFlags gtSpillFlags;
-
     GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 = nullptr)
         : GenTreeOp(oper, type, op1, op2)
     {
@@ -5115,14 +5120,19 @@ struct GenTreeMultiRegOp : public GenTreeOp
 
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
     {
-        return GetMultiRegSpillFlagsByIdx(gtSpillFlags, idx);
+        return GetRegSpillFlags(idx);
     }
 
     void SetRegSpillFlagByIdx(GenTreeFlags flags, unsigned idx)
     {
 #if FEATURE_MULTIREG_RET
-        gtSpillFlags = SetMultiRegSpillFlagsByIdx(gtSpillFlags, flags, idx);
+        SetRegSpillFlags(idx, flags);
 #endif
+    }
+
+    void ClearOtherRegFlags()
+    {
+        ClearRegSpillFlags();
     }
 
     //--------------------------------------------------------------------------
@@ -5148,11 +5158,6 @@ struct GenTreeMultiRegOp : public GenTreeOp
             result = TYP_INT;
         }
         return result;
-    }
-
-    void ClearOtherRegFlags()
-    {
-        gtSpillFlags = 0;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -7133,8 +7138,7 @@ private:
 
 #ifdef TARGET_ARM
     // Type required to support multi-reg struct arg.
-    var_types          m_regType[MAX_SPLIT_ARG_REGS];
-    MultiRegSpillFlags gtSpillFlags;
+    var_types m_regType[MAX_SPLIT_ARG_REGS];
 #else
     var_types                 m_regType;
 #endif
@@ -7169,7 +7173,7 @@ public:
     GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
     {
 #ifdef TARGET_ARM
-        return GetMultiRegSpillFlagsByIdx(gtSpillFlags, idx);
+        return GetRegSpillFlags(idx);
 #else
         return gtFlags & (GTF_SPILL | GTF_SPILLED);
 #endif
@@ -7179,10 +7183,19 @@ public:
     {
 #if FEATURE_MULTIREG_RET
 #ifdef TARGET_ARM
-        gtSpillFlags = SetMultiRegSpillFlagsByIdx(gtSpillFlags, flags, idx);
+        SetRegSpillFlags(idx, flags);
 #else
         gtFlags = (gtFlags & ~(GTF_SPILL | GTF_SPILLED)) | (flags & (GTF_SPILL | GTF_SPILLED));
 #endif
+#endif
+    }
+
+    void ClearOtherRegFlags()
+    {
+#ifdef TARGET_ARM
+        ClearRegSpillFlags();
+#else
+        gtFlags &= ~(GTF_SPILL | GTF_SPILLED);
 #endif
     }
 
@@ -7203,15 +7216,6 @@ public:
         m_regType[index] = type;
 #else
         m_regType = type;
-#endif
-    }
-
-    void ClearOtherRegFlags()
-    {
-#ifdef TARGET_ARM
-        gtSpillFlags = 0;
-#else
-        gtFlags &= ~(GTF_SPILL | GTF_SPILLED);
 #endif
     }
 
