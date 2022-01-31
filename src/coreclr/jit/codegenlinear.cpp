@@ -1102,8 +1102,8 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex)
     {
         return;
     }
-    GenTreeFlags spillFlags = unspillTree->GetRegSpillFlags(multiRegIndex);
-    if ((spillFlags & GTF_SPILLED) == 0)
+
+    if (!unspillTree->IsRegSpilled(multiRegIndex))
     {
         return;
     }
@@ -1118,7 +1118,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex)
     {
         GenTreeLclVar* lclNode     = tree->AsLclVar();
         unsigned       fieldVarNum = compiler->lvaGetDesc(lclNode)->lvFieldLclStart + multiRegIndex;
-        bool           reSpill     = ((spillFlags & GTF_SPILL) != 0);
+        bool           reSpill     = unspillTree->IsRegSpill(multiRegIndex);
         bool           isLastUse   = lclNode->IsLastUse(multiRegIndex);
         genUnspillLocal(fieldVarNum, compiler->lvaGetDesc(fieldVarNum)->TypeGet(), lclNode, dstReg, reSpill, isLastUse);
     }
@@ -1216,12 +1216,11 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
 
             for (unsigned i = 0; i < regCount; ++i)
             {
-                GenTreeFlags spillFlags = lclNode->GetRegSpillFlags(i);
-                if ((spillFlags & GTF_SPILLED) != 0)
+                if (lclNode->IsRegSpilled(i))
                 {
                     regNumber reg         = lclNode->GetRegNum(i);
                     unsigned  fieldVarNum = varDsc->lvFieldLclStart + i;
-                    bool      reSpill     = ((spillFlags & GTF_SPILL) != 0);
+                    bool      reSpill     = lclNode->IsRegSpill(i);
                     bool      isLastUse   = lclNode->IsLastUse(i);
                     genUnspillLocal(fieldVarNum, compiler->lvaGetDesc(fieldVarNum)->TypeGet(), lclNode, reg, reSpill,
                                     isLastUse);
@@ -1936,8 +1935,7 @@ void CodeGen::genProduceReg(GenTree* tree)
 
             for (unsigned i = 0; i < regCount; ++i)
             {
-                GenTreeFlags flags = lclNode->GetRegSpillFlags(i);
-                if ((flags & GTF_SPILL) != 0)
+                if (lclNode->IsRegSpill(i))
                 {
                     const regNumber reg         = lclNode->GetRegNum(i);
                     const unsigned  fieldVarNum = varDsc->lvFieldLclStart + i;

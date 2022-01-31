@@ -10415,7 +10415,7 @@ void CodeGen::genRegCopy(GenTree* treeNode)
         regMaskTP busyRegs = RBM_NONE;
         for (unsigned i = 0; i < regCount; ++i)
         {
-            if ((op1->GetRegSpillFlags(i) & GTF_SPILLED) == 0)
+            if (!op1->IsRegSpilled(i))
             {
                 busyRegs |= genRegMask(op1->GetRegNum(i));
             }

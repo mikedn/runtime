@@ -1096,14 +1096,42 @@ public:
 
     regMaskTP gtGetRegMask() const;
 
-    GenTreeFlags GetRegSpillFlags(unsigned i) const
+    bool IsRegSpill(unsigned i) const
     {
-        return GetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, i);
+        return (GetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, i) & GTF_SPILL) != 0;
     }
 
-    void SetRegSpillFlags(unsigned i, GenTreeFlags flags)
+    void SetRegSpill(unsigned i, bool spill)
     {
-        m_defRegsSpillFlags = SetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, flags, i);
+        if (spill)
+        {
+            m_defRegsSpillFlags = SetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, GTF_SPILL, i);
+        }
+        else
+        {
+            GenTreeFlags regFlags = GetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, i);
+            regFlags &= ~GTF_SPILL;
+            m_defRegsSpillFlags = SetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, regFlags, i);
+        }
+    }
+
+    bool IsRegSpilled(unsigned i) const
+    {
+        return (GetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, i) & GTF_SPILLED) != 0;
+    }
+
+    void SetRegSpilled(unsigned i, bool spilled)
+    {
+        if (spilled)
+        {
+            m_defRegsSpillFlags = SetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, GTF_SPILLED, i);
+        }
+        else
+        {
+            GenTreeFlags regFlags = GetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, i);
+            regFlags &= ~GTF_SPILLED;
+            m_defRegsSpillFlags = SetMultiRegSpillFlagsByIdx(m_defRegsSpillFlags, regFlags, i);
+        }
     }
 
     void ClearRegSpillFlags()

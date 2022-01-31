@@ -5830,7 +5830,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             treeNode->gtFlags |= GTF_SPILLED;
             if (treeNode->IsMultiReg())
             {
-                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILLED);
+                treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
             }
             if (spillAfter)
             {
@@ -5856,7 +5856,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                     treeNode->gtFlags |= GTF_SPILL;
                     if (treeNode->IsMultiReg())
                     {
-                        treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
+                        treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                     }
                 }
             }
@@ -5945,7 +5945,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                 treeNode->gtFlags |= GTF_SPILL;
                 if (treeNode->IsMultiReg())
                 {
-                    treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
+                    treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                 }
             }
             assert(interval->isSpilled);
@@ -5966,7 +5966,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                 treeNode->gtFlags |= GTF_SPILLED;
                 if (treeNode->IsMultiReg())
                 {
-                    treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILLED);
+                    treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
                 }
             }
         }
@@ -5986,7 +5986,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
             if (treeNode->IsMultiReg())
             {
-                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILLED);
+                treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
             }
 
             varDsc->lvSpillAtSingleDef = true;
@@ -6806,16 +6806,16 @@ void LinearScan::resolveRegisters()
                             // more its allocated registers are in that state.
                             if (treeNode->IsMultiRegCall())
                             {
-                                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
+                                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                             }
 #ifdef TARGET_ARM
                             else if (treeNode->IsPutArgSplit())
                             {
-                                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
+                                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                             }
                             else if (treeNode->IsMultiRegOpLong())
                             {
-                                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
+                                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                             }
 #endif // TARGET_ARM
                         }

@@ -270,6 +270,7 @@ TempDsc* RegSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types type)
 void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
 {
     assert((node->gtFlags & GTF_SPILL) != 0);
+    assert(!node->IsMultiRegLclVar());
 
     bool      isMultiReg = false;
     var_types type       = node->GetType();
@@ -297,7 +298,6 @@ void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
 #endif // TARGET_ARM
     else
     {
-        assert(!node->IsMultiRegLclVar());
         assert(!varTypeIsMultiReg(type));
     }
 
@@ -310,11 +310,8 @@ void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
 
     if (isMultiReg)
     {
-        GenTreeFlags regFlags = node->GetRegSpillFlags(regIndex);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-        regFlags |= GTF_SPILLED;
-        node->SetRegSpillFlags(regIndex, regFlags);
+        node->SetRegSpill(regIndex, false);
+        node->SetRegSpilled(regIndex, true);
     }
     else
     {
@@ -332,7 +329,7 @@ void RegSet::SpillNodeRegs(GenTree* node, unsigned regCount)
 {
     for (unsigned i = 0; i < regCount; ++i)
     {
-        if ((node->GetRegSpillFlags(i) & GTF_SPILL) != 0)
+        if (node->IsRegSpill(i))
         {
             SpillNodeReg(node, i);
         }
@@ -359,6 +356,8 @@ void RegSet::SpillST0(GenTree* node)
 
 TempDsc* RegSet::UnspillNodeReg(GenTree* node, unsigned regIndex)
 {
+    assert(!node->IsMultiRegLclVar());
+
     regNumber oldReg = node->GetRegNum(regIndex);
 
     SpillDsc* prevDsc;
@@ -367,13 +366,10 @@ TempDsc* RegSet::UnspillNodeReg(GenTree* node, unsigned regIndex)
 
     if (node->IsMultiRegCall() ARM_ONLY(|| node->IsPutArgSplit() || node->IsMultiRegOpLong()))
     {
-        GenTreeFlags flags = node->GetRegSpillFlags(regIndex);
-        flags &= ~GTF_SPILLED;
-        node->SetRegSpillFlags(regIndex, flags);
+        node->SetRegSpilled(regIndex, false);
     }
     else
     {
-        assert(!node->IsMultiRegLclVar());
         node->gtFlags &= ~GTF_SPILLED;
     }
 
