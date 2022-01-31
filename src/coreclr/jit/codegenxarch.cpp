@@ -1566,8 +1566,9 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genCodeForStoreInd(treeNode->AsStoreInd());
             break;
 
+        case GT_RELOAD:
         case GT_COPY:
-            // This is handled at the time we call genConsumeReg() on the GT_COPY
+            // These are handled by genConsumeReg
             break;
 
         case GT_FIELD_LIST:
@@ -1620,12 +1621,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_CMPXCHG:
             genCodeForCmpXchg(treeNode->AsCmpXchg());
-            break;
-
-        case GT_RELOAD:
-            // do nothing - reload is just a marker.
-            // The parent node will call genConsumeReg on this which will trigger the unspill of this node's child
-            // into the register specified in this node.
             break;
 
         case GT_NOP:
