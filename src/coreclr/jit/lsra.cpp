@@ -5827,11 +5827,8 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         // which case we did the reload already
         if (treeNode != nullptr)
         {
-            treeNode->gtFlags |= GTF_SPILLED;
-            if (treeNode->IsMultiReg())
-            {
-                treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
-            }
+            treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+
             if (spillAfter)
             {
                 if (currentRefPosition->RegOptional())
@@ -5853,11 +5850,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                 }
                 else
                 {
-                    treeNode->gtFlags |= GTF_SPILL;
-                    if (treeNode->IsMultiReg())
-                    {
-                        treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-                    }
+                    treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                 }
             }
         }
@@ -5942,11 +5935,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         {
             if (treeNode != nullptr)
             {
-                treeNode->gtFlags |= GTF_SPILL;
-                if (treeNode->IsMultiReg())
-                {
-                    treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-                }
+                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             }
             assert(interval->isSpilled);
             interval->physReg = REG_NA;
@@ -5963,11 +5952,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             // to retain these defs, and to ensure that they write.
             if (!currentRefPosition->lastUse)
             {
-                treeNode->gtFlags |= GTF_SPILLED;
-                if (treeNode->IsMultiReg())
-                {
-                    treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
-                }
+                treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
             }
         }
 
@@ -5982,12 +5967,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             // better way to avoid resolution moves, perhaps by updating the varDsc->SetRegNum(REG_STK) in this
             // method?
             treeNode->gtFlags |= GTF_SPILL;
-            treeNode->gtFlags |= GTF_SPILLED;
-
-            if (treeNode->IsMultiReg())
-            {
-                treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
-            }
+            treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
 
             varDsc->lvSpillAtSingleDef = true;
         }
@@ -6791,7 +6771,7 @@ void LinearScan::resolveRegisters()
                     {
                         if (currentRefPosition->spillAfter)
                         {
-                            treeNode->gtFlags |= GTF_SPILL;
+                            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
 
                             // If this is a constant interval that is reusing a pre-existing value, we actually need
                             // to generate the value at this point in order to spill it.
@@ -6799,25 +6779,6 @@ void LinearScan::resolveRegisters()
                             {
                                 treeNode->ResetReuseRegVal();
                             }
-
-                            // In case of multi-reg node, also set spill flag on the
-                            // register specified by multi-reg index of current RefPosition.
-                            // Note that the spill flag on treeNode indicates that one or
-                            // more its allocated registers are in that state.
-                            if (treeNode->IsMultiRegCall())
-                            {
-                                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-                            }
-#ifdef TARGET_ARM
-                            else if (treeNode->IsPutArgSplit())
-                            {
-                                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-                            }
-                            else if (treeNode->IsMultiRegOpLong())
-                            {
-                                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-                            }
-#endif // TARGET_ARM
                         }
 
                         // If the value is reloaded or moved to a different register, we need to insert

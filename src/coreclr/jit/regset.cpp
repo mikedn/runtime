@@ -311,14 +311,13 @@ void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
     if (isMultiReg)
     {
         node->SetRegSpill(regIndex, false);
-        node->SetRegSpilled(regIndex, true);
     }
     else
     {
         node->gtFlags &= ~GTF_SPILL;
     }
 
-    node->gtFlags |= GTF_SPILLED;
+    node->SetRegSpilled(regIndex, true);
 
     m_rsGCInfo.gcMarkRegSetNpt(genRegMask(reg));
 

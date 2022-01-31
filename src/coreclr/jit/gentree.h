@@ -1043,6 +1043,7 @@ public:
         if (spill)
         {
             m_defRegsSpillSet |= GetRegSpillSet(i);
+            gtFlags |= GTF_SPILL;
         }
         else
         {
@@ -1060,6 +1061,7 @@ public:
         if (spilled)
         {
             m_defRegsSpillSet |= GetRegSpilledSet(i);
+            gtFlags |= GTF_SPILLED;
         }
         else
         {
