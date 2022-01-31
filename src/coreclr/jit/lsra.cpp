@@ -6134,7 +6134,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
 
         GenTreeCopyOrReload* newNode = new (compiler, oper) GenTreeCopyOrReload(oper, regType, tree);
         newNode->SetRegNum(multiRegIdx, refPosition->assignedReg());
-        newNode->ClearRegSpillFlags();
+        newNode->ClearRegSpillSet();
         SetLsraAdded(newNode);
 
         if (refPosition->copyReg)
@@ -6200,12 +6200,12 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     GenTree* saveLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
     saveLcl->SetRegNum(lclVarReg);
-    saveLcl->ClearRegSpillFlags();
+    saveLcl->ClearRegSpillSet();
     SetLsraAdded(saveLcl);
 
     GenTree* simdNode = compiler->gtNewOperNode(GT_SIMD_UPPER_SPILL, LargeVectorSaveType, saveLcl);
     simdNode->SetRegNum(spillReg);
-    simdNode->ClearRegSpillFlags();
+    simdNode->ClearRegSpillSet();
     SetLsraAdded(simdNode);
 
     if (spillToMem)
@@ -6256,11 +6256,11 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
 
     GenTree* restoreLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
     restoreLcl->SetRegNum(lclVarReg);
-    restoreLcl->ClearRegSpillFlags();
+    restoreLcl->ClearRegSpillSet();
     SetLsraAdded(restoreLcl);
 
     GenTree* simdNode = compiler->gtNewOperNode(GT_SIMD_UPPER_UNSPILL, lcl->GetType(), restoreLcl);
-    simdNode->ClearRegSpillFlags();
+    simdNode->ClearRegSpillSet();
     SetLsraAdded(simdNode);
 
     regNumber restoreReg = upperVectorInterval->physReg;
@@ -7116,7 +7116,7 @@ void LinearScan::insertMove(
     varDsc->SetRegNum(REG_STK);
 
     GenTree* src = compiler->gtNewLclvNode(lclNum, varDsc->TypeGet());
-    src->ClearRegSpillFlags();
+    src->ClearRegSpillSet();
     SetLsraAdded(src);
 
     // There are three cases we need to handle:
@@ -7153,7 +7153,7 @@ void LinearScan::insertMove(
         dst->gtFlags &= ~(GTF_VAR_DEATH);
         src->SetRegNum(fromReg);
         dst->SetRegNum(toReg);
-        dst->ClearRegSpillFlags();
+        dst->ClearRegSpillSet();
         SetLsraAdded(dst);
     }
     dst->SetUnusedValue();
@@ -7211,17 +7211,17 @@ void LinearScan::insertSwap(
 
     GenTree* lcl1 = compiler->gtNewLclvNode(lclNum1, varDsc1->TypeGet());
     lcl1->SetRegNum(reg1);
-    lcl1->ClearRegSpillFlags();
+    lcl1->ClearRegSpillSet();
     SetLsraAdded(lcl1);
 
     GenTree* lcl2 = compiler->gtNewLclvNode(lclNum2, varDsc2->TypeGet());
     lcl2->SetRegNum(reg2);
-    lcl2->ClearRegSpillFlags();
+    lcl2->ClearRegSpillSet();
     SetLsraAdded(lcl2);
 
     GenTree* swap = compiler->gtNewOperNode(GT_SWAP, TYP_VOID, lcl1, lcl2);
     swap->SetRegNum(REG_NA);
-    swap->ClearRegSpillFlags();
+    swap->ClearRegSpillSet();
     SetLsraAdded(swap);
 
     lcl1->gtNext = lcl2;
