@@ -357,6 +357,31 @@ void RegSet::SpillST0(GenTree* node)
 }
 #endif // TARGET_X86
 
+TempDsc* RegSet::UnspillNodeReg(GenTree* node, unsigned regIndex)
+{
+    regNumber oldReg = node->GetRegNum(regIndex);
+
+    SpillDsc* prevDsc;
+    SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
+    TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+
+    if (node->IsMultiRegCall() ARM_ONLY(|| node->IsPutArgSplit() || node->IsMultiRegOpLong()))
+    {
+        GenTreeFlags flags = node->GetRegSpillFlags(regIndex);
+        flags &= ~GTF_SPILLED;
+        node->SetRegSpillFlags(regIndex, flags);
+    }
+    else
+    {
+        assert(!node->IsMultiRegLclVar());
+        node->gtFlags &= ~GTF_SPILLED;
+    }
+
+    JITDUMP("Unspilling register %s from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
+
+    return temp;
+}
+
 /*****************************************************************************
  *
  *  Get the temp that was spilled from the given register (and free its
@@ -378,60 +403,6 @@ TempDsc* RegSet::rsGetSpillTempWord(regNumber reg, SpillDsc* dsc, SpillDsc* prev
     SpillDsc::freeDsc(this, dsc);
 
     /* return the temp variable */
-
-    return temp;
-}
-
-//---------------------------------------------------------------------
-//  rsUnspillInPlace: The given tree operand has been spilled; just mark
-//  it as unspilled so that we can use it as "normal" local.
-//
-//  Arguments:
-//     tree    -  GenTree that needs to be marked as unspilled.
-//     oldReg  -  reg of tree that was spilled.
-//
-//  Return Value:
-//     None.
-//
-//  Assumptions:
-//  1. It is the responsibility of the caller to free the spill temp.
-//  2. RyuJIT backend specific: In case of multi-reg call node
-//     GTF_SPILLED flag associated with reg is cleared.  It is the
-//     responsibility of caller to clear GTF_SPILLED flag on call node
-//     itself after ensuring there are no outstanding regs in GTF_SPILLED
-//     state.
-//
-TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regIdx /* =0 */)
-{
-    // Get the tree's SpillDsc
-    SpillDsc* prevDsc;
-    SpillDsc* spillDsc = rsGetSpillInfo(tree, oldReg, &prevDsc);
-    PREFIX_ASSUME(spillDsc != nullptr);
-
-    // Get the temp
-    TempDsc* temp = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
-
-    // The value is now unspilled
-    if (tree->IsMultiRegCall() ARM_ONLY(|| tree->IsPutArgSplit() || tree->IsMultiRegOp()))
-    {
-        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
-        flags &= ~GTF_SPILLED;
-        tree->SetRegSpillFlags(regIdx, flags);
-    }
-    else
-    {
-        assert(!tree->IsMultiRegLclVar());
-        tree->gtFlags &= ~GTF_SPILLED;
-    }
-
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("Tree-Node marked unspilled from  ");
-        Compiler::printTreeID(tree);
-        printf("\n");
-    }
-#endif
 
     return temp;
 }

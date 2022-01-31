@@ -159,12 +159,11 @@ private:
     void SpillNodeReg(GenTree* node, unsigned regIndex);
     void SpillNodeRegs(GenTree* node, unsigned regCount);
     X86_ONLY(void SpillST0(GenTree* node);)
+    TempDsc* UnspillNodeReg(GenTree* node, unsigned regIndex);
 
     SpillDsc* rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc = nullptr);
 
     TempDsc* rsGetSpillTempWord(regNumber oldReg, SpillDsc* dsc, SpillDsc* prevDsc);
-
-    TempDsc* rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regIdx = 0);
 
 public:
     void tmpInit();

@@ -1124,10 +1124,9 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex)
     }
     else
     {
-        var_types dstType        = unspillTree->GetRegTypeByIndex(multiRegIndex);
-        regNumber unspillTreeReg = unspillTree->GetRegNum(multiRegIndex);
-        TempDsc*  t              = regSet.rsUnspillInPlace(unspillTree, unspillTreeReg, multiRegIndex);
-        emitAttr  emitType       = emitActualTypeSize(dstType);
+        var_types dstType  = unspillTree->GetRegTypeByIndex(multiRegIndex);
+        TempDsc*  t        = regSet.UnspillNodeReg(unspillTree, multiRegIndex);
+        emitAttr  emitType = emitActualTypeSize(dstType);
         GetEmitter()->emitIns_R_S(ins_Load(dstType), emitType, dstReg, t->tdTempNum(), 0);
         regSet.tmpRlsTemp(t);
         gcInfo.gcMarkRegPtrVal(dstReg, dstType);
@@ -1253,7 +1252,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
             // The spill temp allocated for it is associated with the original tree that defined the
             // register that it was spilled from.
             // So we use 'unspillTree' to recover that spill temp.
-            TempDsc* t        = regSet.rsUnspillInPlace(unspillTree, unspillTree->GetRegNum());
+            TempDsc* t        = regSet.UnspillNodeReg(unspillTree, 0);
             emitAttr emitType = emitActualTypeSize(type);
             // Reload into the register specified by 'tree' which may be a GT_RELOAD.
             regNumber dstReg = tree->GetRegNum();

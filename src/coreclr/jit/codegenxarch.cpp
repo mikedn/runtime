@@ -1108,7 +1108,7 @@ void CodeGen::genFloatReturn(GenTree* src)
         src->gtFlags |= GTF_SPILL;
         regSet.SpillNodeReg(src, 0);
 
-        TempDsc* temp = regSet.rsUnspillInPlace(src, srcReg);
+        TempDsc* temp = regSet.UnspillNodeReg(src, 0);
         GetEmitter()->emitIns_S(INS_fld, srcSize, temp->tdTempNum(), 0);
         src->gtFlags &= ~GTF_SPILLED;
         regSet.tmpRlsTemp(temp);
