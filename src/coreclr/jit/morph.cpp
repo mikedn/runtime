@@ -111,7 +111,6 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
 
 #if FEATURE_MULTIREG_RET
     call->ClearOtherRegs();
-    call->ClearOtherRegFlags();
 #endif
 
     if (tree->OperMayThrow(this))

@@ -1766,9 +1766,6 @@ public:
     // Returns the type of the regIndex'th register defined by a multi-reg node.
     var_types GetRegTypeByIndex(int regIndex);
 
-    // Returns the GTF flag equivalent for the regIndex'th register of a multi-reg node.
-    GenTreeFlags GetRegSpillFlagByIdx(int regIndex) const;
-
     // Last-use information for either GenTreeLclVar or GenTreeCopyOrReload nodes.
 private:
     GenTreeFlags GetLastUseBit(int regIndex);
@@ -3373,22 +3370,6 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     void SetMultiReg()
     {
         gtFlags |= GTF_VAR_MULTIREG;
-        ClearOtherRegFlags();
-    }
-
-    GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
-    {
-        return GetRegSpillFlags(idx);
-    }
-
-    void SetRegSpillFlagByIdx(GenTreeFlags flags, unsigned idx)
-    {
-        SetRegSpillFlags(idx, flags);
-    }
-
-    void ClearOtherRegFlags()
-    {
-        ClearRegSpillFlags();
     }
 
     unsigned int GetFieldCount(Compiler* compiler) const;
@@ -4225,30 +4206,6 @@ public:
     }
 
     regMaskTP GetOtherRegMask() const;
-
-    GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
-    {
-#if FEATURE_MULTIREG_RET
-        return GetRegSpillFlags(idx);
-#else
-        assert(!"unreached");
-        return GTF_EMPTY;
-#endif
-    }
-
-    void SetRegSpillFlagByIdx(GenTreeFlags flags, unsigned idx)
-    {
-#if FEATURE_MULTIREG_RET
-        SetRegSpillFlags(idx, flags);
-#endif
-    }
-
-    void ClearOtherRegFlags()
-    {
-#if FEATURE_MULTIREG_RET
-        ClearRegSpillFlags();
-#endif
-    }
 
     bool IsUnmanaged() const
     {
@@ -5109,30 +5066,12 @@ struct GenTreeMultiRegOp : public GenTreeOp
     GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 = nullptr)
         : GenTreeOp(oper, type, op1, op2)
     {
-        ClearOtherRegFlags();
         SetRegNum(1, REG_NA);
     }
 
     unsigned GetRegCount() const
     {
         return (TypeGet() == TYP_LONG) ? 2 : 1;
-    }
-
-    GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
-    {
-        return GetRegSpillFlags(idx);
-    }
-
-    void SetRegSpillFlagByIdx(GenTreeFlags flags, unsigned idx)
-    {
-#if FEATURE_MULTIREG_RET
-        SetRegSpillFlags(idx, flags);
-#endif
-    }
-
-    void ClearOtherRegFlags()
-    {
-        ClearRegSpillFlags();
     }
 
     //--------------------------------------------------------------------------
@@ -7135,13 +7074,7 @@ private:
 #else
 #error Unknown FEATURE_ARG_SPLIT target.
 #endif
-
-#ifdef TARGET_ARM
-    // Type required to support multi-reg struct arg.
     var_types m_regType[MAX_SPLIT_ARG_REGS];
-#else
-    var_types                 m_regType;
-#endif
 
 public:
     GenTreePutArgSplit(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
@@ -7151,14 +7084,11 @@ public:
 
 #ifdef TARGET_ARM
         SetType(argInfo->GetRegCount() > 1 ? TYP_STRUCT : varActualType(argInfo->GetRegType(0)));
+        ClearOtherRegs();
 #else
         assert(argInfo->GetSlotCount() == 1);
-
         SetType(varActualType(argInfo->GetRegType(0)));
 #endif
-
-        ClearOtherRegs();
-        ClearOtherRegFlags();
     }
 
     unsigned GetRegCount() const
@@ -7170,42 +7100,13 @@ public:
 #endif
     }
 
-    GenTreeFlags GetRegSpillFlagByIdx(unsigned idx) const
-    {
-#ifdef TARGET_ARM
-        return GetRegSpillFlags(idx);
-#else
-        return gtFlags & (GTF_SPILL | GTF_SPILLED);
-#endif
-    }
-
-    void SetRegSpillFlagByIdx(GenTreeFlags flags, unsigned idx)
-    {
-#if FEATURE_MULTIREG_RET
-#ifdef TARGET_ARM
-        SetRegSpillFlags(idx, flags);
-#else
-        gtFlags = (gtFlags & ~(GTF_SPILL | GTF_SPILLED)) | (flags & (GTF_SPILL | GTF_SPILLED));
-#endif
-#endif
-    }
-
-    void ClearOtherRegFlags()
-    {
-#ifdef TARGET_ARM
-        ClearRegSpillFlags();
-#else
-        gtFlags &= ~(GTF_SPILL | GTF_SPILLED);
-#endif
-    }
-
     var_types GetRegType(unsigned index) const
     {
         assert(index < GetRegCount());
 #ifdef TARGET_ARM
         return m_regType[index];
 #else
-        return m_regType;
+        return m_regType[0];
 #endif
     }
 
@@ -7215,7 +7116,7 @@ public:
 #ifdef TARGET_ARM
         m_regType[index] = type;
 #else
-        m_regType = type;
+        m_regType[0] = type;
 #endif
     }
 
@@ -7967,53 +7868,6 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
 
     assert(!"Invalid node type for GetRegTypeByIndex");
     return TYP_UNDEF;
-}
-
-//-----------------------------------------------------------------------------------
-// GetRegSpillFlagByIdx: Get a specific register's spill flags, based on regIndex,
-//                       for this multi-reg node.
-//
-// Arguments:
-//     regIndex - which register's spill flags to return
-//
-// Return Value:
-//     The spill flags (GTF_SPILL GTF_SPILLED) for this register.
-//
-// Notes:
-//     This must be a multireg node and 'regIndex' must be a valid index for this node.
-//     This method returns the GTF "equivalent" flags based on the packed flags on the multireg node.
-//
-inline GenTreeFlags GenTree::GetRegSpillFlagByIdx(int regIndex) const
-{
-#if FEATURE_MULTIREG_RET
-    if (IsMultiRegCall())
-    {
-        return AsCall()->GetRegSpillFlagByIdx(regIndex);
-    }
-
-#if FEATURE_ARG_SPLIT
-    if (OperIsPutArgSplit())
-    {
-        return AsPutArgSplit()->GetRegSpillFlagByIdx(regIndex);
-    }
-#endif
-
-#if !defined(TARGET_64BIT)
-    if (OperIsMultiRegOp())
-    {
-        return AsMultiRegOp()->GetRegSpillFlagByIdx(regIndex);
-    }
-#endif
-
-#endif // FEATURE_MULTIREG_RET
-
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-    {
-        return AsLclVar()->GetRegSpillFlagByIdx(regIndex);
-    }
-
-    assert(!"Invalid node type for GetRegSpillFlagByIdx");
-    return GTF_EMPTY;
 }
 
 //-----------------------------------------------------------------------------------

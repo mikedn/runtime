@@ -4539,9 +4539,6 @@ GenTreeCall* Compiler::gtNewCallNode(
     // Initialize gtOtherRegs
     node->ClearOtherRegs();
 
-    // Initialize spill flags of gtOtherRegs
-    node->ClearOtherRegFlags();
-
 #ifndef TARGET_64BIT
     if (varTypeIsLong(type))
     {

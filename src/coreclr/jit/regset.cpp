@@ -342,27 +342,28 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     GenTreeFlags regFlags = GTF_EMPTY;
     if (call != nullptr)
     {
-        regFlags = call->GetRegSpillFlagByIdx(regIdx);
+        regFlags = tree->GetRegSpillFlags(regIdx);
         assert((regFlags & GTF_SPILL) != 0);
         regFlags &= ~GTF_SPILL;
     }
 #ifdef TARGET_ARM
     else if (splitArg != nullptr)
     {
-        regFlags = splitArg->GetRegSpillFlagByIdx(regIdx);
+        regFlags = tree->GetRegSpillFlags(regIdx);
         assert((regFlags & GTF_SPILL) != 0);
         regFlags &= ~GTF_SPILL;
     }
     else if (multiReg != nullptr)
     {
-        regFlags = multiReg->GetRegSpillFlagByIdx(regIdx);
+        regFlags = tree->GetRegSpillFlags(regIdx);
         assert((regFlags & GTF_SPILL) != 0);
         regFlags &= ~GTF_SPILL;
     }
 #endif // TARGET_ARM
     else if (lcl != nullptr)
     {
-        regFlags = lcl->GetRegSpillFlagByIdx(regIdx);
+        // TODO-MIKE-Review: Hrm, lcl is always null...
+        regFlags = lcl->GetRegSpillFlags(regIdx);
         assert((regFlags & GTF_SPILL) != 0);
         regFlags &= ~GTF_SPILL;
     }
@@ -427,24 +428,24 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     if (call != nullptr)
     {
         regFlags |= GTF_SPILLED;
-        call->SetRegSpillFlagByIdx(regFlags, regIdx);
+        tree->SetRegSpillFlags(regIdx, regFlags);
     }
 #ifdef TARGET_ARM
     else if (splitArg != nullptr)
     {
         regFlags |= GTF_SPILLED;
-        splitArg->SetRegSpillFlagByIdx(regFlags, regIdx);
+        tree->SetRegSpillFlags(regIdx, regFlags);
     }
     else if (multiReg != nullptr)
     {
         regFlags |= GTF_SPILLED;
-        multiReg->SetRegSpillFlagByIdx(regFlags, regIdx);
+        tree->SetRegSpillFlags(regIdx, regFlags);
     }
 #endif // TARGET_ARM
     else if (lcl != nullptr)
     {
         regFlags |= GTF_SPILLED;
-        lcl->SetRegSpillFlagByIdx(regFlags, regIdx);
+        lcl->SetRegSpillFlags(regIdx, regFlags);
     }
 }
 
@@ -542,33 +543,29 @@ TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regI
     // The value is now unspilled
     if (tree->IsMultiRegCall())
     {
-        GenTreeCall* call  = tree->AsCall();
-        GenTreeFlags flags = call->GetRegSpillFlagByIdx(regIdx);
+        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
         flags &= ~GTF_SPILLED;
-        call->SetRegSpillFlagByIdx(flags, regIdx);
+        tree->SetRegSpillFlags(regIdx, flags);
     }
 #if defined(TARGET_ARM)
     else if (tree->OperIsPutArgSplit())
     {
-        GenTreePutArgSplit* splitArg = tree->AsPutArgSplit();
-        GenTreeFlags        flags    = splitArg->GetRegSpillFlagByIdx(regIdx);
+        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
         flags &= ~GTF_SPILLED;
-        splitArg->SetRegSpillFlagByIdx(flags, regIdx);
+        tree->SetRegSpillFlags(regIdx, flags);
     }
     else if (tree->OperIsMultiRegOp())
     {
-        GenTreeMultiRegOp* multiReg = tree->AsMultiRegOp();
-        GenTreeFlags       flags    = multiReg->GetRegSpillFlagByIdx(regIdx);
+        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
         flags &= ~GTF_SPILLED;
-        multiReg->SetRegSpillFlagByIdx(flags, regIdx);
+        tree->SetRegSpillFlags(regIdx, flags);
     }
 #endif // TARGET_ARM
     else if (tree->IsMultiRegLclVar())
     {
-        GenTreeLclVar* lcl   = tree->AsLclVar();
-        GenTreeFlags   flags = lcl->GetRegSpillFlagByIdx(regIdx);
+        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
         flags &= ~GTF_SPILLED;
-        lcl->SetRegSpillFlagByIdx(flags, regIdx);
+        tree->SetRegSpillFlags(regIdx, flags);
     }
     else
     {

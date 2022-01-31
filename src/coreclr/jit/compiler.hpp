@@ -1163,7 +1163,6 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     {
         // We sometimes bash GT_MUL to GT_MUL_LONG, which converts it from GenTreeOp to GenTreeMultiRegOp.
         AsMultiRegOp()->SetRegNum(1, REG_NA);
-        AsMultiRegOp()->ClearOtherRegFlags();
     }
 #endif
 
@@ -1321,7 +1320,6 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 #ifdef TARGET_ARM
         case GT_BITCAST:
             AsMultiRegOp()->SetRegNum(1, REG_NA);
-            AsMultiRegOp()->ClearOtherRegFlags();
             break;
 #endif
         default:

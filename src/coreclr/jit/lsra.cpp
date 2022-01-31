@@ -5830,7 +5830,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             treeNode->gtFlags |= GTF_SPILLED;
             if (treeNode->IsMultiReg())
             {
-                treeNode->SetRegSpillFlagByIdx(GTF_SPILLED, currentRefPosition->getMultiRegIdx());
+                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILLED);
             }
             if (spillAfter)
             {
@@ -5856,7 +5856,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                     treeNode->gtFlags |= GTF_SPILL;
                     if (treeNode->IsMultiReg())
                     {
-                        treeNode->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
+                        treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
                     }
                 }
             }
@@ -5945,7 +5945,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                 treeNode->gtFlags |= GTF_SPILL;
                 if (treeNode->IsMultiReg())
                 {
-                    treeNode->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
+                    treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
                 }
             }
             assert(interval->isSpilled);
@@ -5966,7 +5966,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                 treeNode->gtFlags |= GTF_SPILLED;
                 if (treeNode->IsMultiReg())
                 {
-                    treeNode->SetRegSpillFlagByIdx(GTF_SPILLED, currentRefPosition->getMultiRegIdx());
+                    treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILLED);
                 }
             }
         }
@@ -5986,7 +5986,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
             if (treeNode->IsMultiReg())
             {
-                treeNode->SetRegSpillFlagByIdx(GTF_SPILLED, currentRefPosition->getMultiRegIdx());
+                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILLED);
             }
 
             varDsc->lvSpillAtSingleDef = true;
@@ -6806,23 +6806,18 @@ void LinearScan::resolveRegisters()
                             // more its allocated registers are in that state.
                             if (treeNode->IsMultiRegCall())
                             {
-                                GenTreeCall* call = treeNode->AsCall();
-                                call->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
-                            }
-#if FEATURE_ARG_SPLIT
-                            else if (treeNode->OperIsPutArgSplit())
-                            {
-                                GenTreePutArgSplit* splitArg = treeNode->AsPutArgSplit();
-                                splitArg->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
+                                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
                             }
 #ifdef TARGET_ARM
+                            else if (treeNode->IsPutArgSplit())
+                            {
+                                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
+                            }
                             else if (treeNode->OperIsMultiRegOp())
                             {
-                                GenTreeMultiRegOp* multiReg = treeNode->AsMultiRegOp();
-                                multiReg->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
+                                treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
                             }
 #endif // TARGET_ARM
-#endif // FEATURE_ARG_SPLIT
                         }
 
                         // If the value is reloaded or moved to a different register, we need to insert
