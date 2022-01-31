@@ -1110,7 +1110,6 @@ void CodeGen::genFloatReturn(GenTree* src)
 
         TempDsc* temp = regSet.UnspillNodeReg(src, 0);
         GetEmitter()->emitIns_S(INS_fld, srcSize, temp->tdTempNum(), 0);
-        src->gtFlags &= ~GTF_SPILLED;
         regSet.tmpRlsTemp(temp);
     }
 }
