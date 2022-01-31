@@ -1106,9 +1106,7 @@ void CodeGen::genFloatReturn(GenTree* src)
         // TODO-X86-CQ: Deal with things that are already in memory (don't call genConsumeReg yet).
 
         src->gtFlags |= GTF_SPILL;
-        regSet.rsSpillTree(srcReg, src);
-        src->gtFlags |= GTF_SPILLED;
-        src->gtFlags &= ~GTF_SPILL;
+        regSet.SpillNodeReg(src, 0);
 
         TempDsc* temp = regSet.rsUnspillInPlace(src, srcReg);
         GetEmitter()->emitIns_S(INS_fld, srcSize, temp->tdTempNum(), 0);
@@ -5220,9 +5218,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // Spill the value from the fp stack.
             // Then, load it into the target register.
             call->gtFlags |= GTF_SPILL;
-            regSet.rsSpillFPStack(call);
-            call->gtFlags |= GTF_SPILLED;
-            call->gtFlags &= ~GTF_SPILL;
+            regSet.SpillST0(call);
         }
         else
 #endif // TARGET_X86

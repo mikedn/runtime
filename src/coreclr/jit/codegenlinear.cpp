@@ -1955,54 +1955,23 @@ void CodeGen::genProduceReg(GenTree* tree)
             // know which of its result regs needs to be spilled.
             if (tree->IsMultiRegCall())
             {
-                for (unsigned i = 0; i < tree->AsCall()->GetRegCount(); ++i)
-                {
-                    GenTreeFlags flags = tree->GetRegSpillFlags(i);
-                    if ((flags & GTF_SPILL) != 0)
-                    {
-                        regNumber reg = tree->GetRegNum(i);
-                        regSet.rsSpillTree(reg, tree, i);
-                        gcInfo.gcMarkRegSetNpt(genRegMask(reg));
-                    }
-                }
+                regSet.SpillNodeRegs(tree, tree->AsCall()->GetRegCount());
             }
 #ifdef TARGET_ARM
             else if (GenTreePutArgSplit* argSplit = tree->IsPutArgSplit())
             {
-                for (unsigned i = 0; i < argSplit->GetRegCount(); ++i)
-                {
-                    GenTreeFlags flags = tree->GetRegSpillFlags(i);
-                    if ((flags & GTF_SPILL) != 0)
-                    {
-                        regNumber reg = tree->GetRegNum(i);
-                        regSet.rsSpillTree(reg, tree, i);
-                        gcInfo.gcMarkRegSetNpt(genRegMask(reg));
-                    }
-                }
+                regSet.SpillNodeRegs(tree, argSplit->GetRegCount());
             }
             else if (GenTreeMultiRegOp* multiReg = tree->IsMultiRegOpLong())
             {
                 // TODO-MIKE-Review: Why the crap is this under ARM? x86 uses MUL_LONG too...
-                for (unsigned i = 0; i < multiReg->GetRegCount(); ++i)
-                {
-                    GenTreeFlags flags = tree->GetRegSpillFlags(i);
-                    if ((flags & GTF_SPILL) != 0)
-                    {
-                        regNumber reg = tree->GetRegNum(i);
-                        regSet.rsSpillTree(reg, tree, i);
-                        gcInfo.gcMarkRegSetNpt(genRegMask(reg));
-                    }
-                }
+                regSet.SpillNodeRegs(tree, multiReg->GetRegCount());
             }
 #endif // TARGET_ARM
             else
             {
-                regSet.rsSpillTree(tree->GetRegNum(), tree);
-                gcInfo.gcMarkRegSetNpt(genRegMask(tree->GetRegNum()));
+                regSet.SpillNodeReg(tree, 0);
             }
-
-            tree->gtFlags |= GTF_SPILLED;
-            tree->gtFlags &= ~GTF_SPILL;
 
             return;
         }
