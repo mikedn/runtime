@@ -275,9 +275,8 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
 {
     assert(tree != nullptr);
 
-    GenTreeCall*   call = nullptr;
-    GenTreeLclVar* lcl  = nullptr;
-    var_types      treeType;
+    GenTreeCall* call = nullptr;
+    var_types    treeType;
 #if defined(TARGET_ARM)
     GenTreePutArgSplit* splitArg = nullptr;
     GenTreeMultiRegOp*  multiReg = nullptr;
@@ -304,15 +303,11 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
         treeType = multiReg->GetRegType(regIdx);
     }
 #endif // TARGET_ARM
-    else if (tree->IsMultiRegLclVar())
-    {
-        GenTreeLclVar* lcl    = tree->AsLclVar();
-        LclVarDsc*     varDsc = m_rsCompiler->lvaGetDesc(lcl->GetLclNum());
-        treeType              = varDsc->TypeGet();
-    }
     else
     {
+        assert(!tree->IsMultiRegLclVar());
         treeType = tree->TypeGet();
+        assert(!varTypeIsMultiReg(treeType));
     }
 
     var_types tempType = RegSet::tmpNormalizeType(treeType);
@@ -360,16 +355,8 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
         regFlags &= ~GTF_SPILL;
     }
 #endif // TARGET_ARM
-    else if (lcl != nullptr)
-    {
-        // TODO-MIKE-Review: Hrm, lcl is always null...
-        regFlags = lcl->GetRegSpillFlags(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
     else
     {
-        assert(!varTypeIsMultiReg(tree));
         tree->gtFlags &= ~GTF_SPILL;
     }
 
@@ -442,11 +429,6 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
         tree->SetRegSpillFlags(regIdx, regFlags);
     }
 #endif // TARGET_ARM
-    else if (lcl != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        lcl->SetRegSpillFlags(regIdx, regFlags);
-    }
 }
 
 #if defined(TARGET_X86)
@@ -561,14 +543,9 @@ TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regI
         tree->SetRegSpillFlags(regIdx, flags);
     }
 #endif // TARGET_ARM
-    else if (tree->IsMultiRegLclVar())
-    {
-        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
-        flags &= ~GTF_SPILLED;
-        tree->SetRegSpillFlags(regIdx, flags);
-    }
     else
     {
+        assert(!tree->IsMultiRegLclVar());
         tree->gtFlags &= ~GTF_SPILLED;
     }
 
