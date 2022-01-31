@@ -6813,7 +6813,7 @@ void LinearScan::resolveRegisters()
                             {
                                 treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
                             }
-                            else if (treeNode->OperIsMultiRegOp())
+                            else if (treeNode->IsMultiRegOpLong())
                             {
                                 treeNode->SetRegSpillFlags(currentRefPosition->getMultiRegIdx(), GTF_SPILL);
                             }
@@ -9121,7 +9121,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                                       unsigned          operandStringLength)
 {
     const char* lastUseChar = "";
-    if (tree->OperIsScalarLocal() && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
     {
         lastUseChar = "*";
     }

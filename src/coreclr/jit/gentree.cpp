@@ -559,37 +559,33 @@ bool GenTree::gtHasReg() const
 int GenTree::GetRegisterDstCount(Compiler* compiler) const
 {
     assert(!isContained());
+
     if (!IsMultiRegNode())
     {
-        return (IsValue()) ? 1 : 0;
+        return IsValue() ? 1 : 0;
     }
-    else if (IsMultiRegCall())
+
+    if (IsMultiRegCall())
     {
         return AsCall()->GetRegCount();
     }
-    else if (IsCopyOrReload())
+
+    if (const GenTreeCopyOrReload* copy = IsCopyOrReload())
     {
-        return gtGetOp1()->GetRegisterDstCount(compiler);
+        return copy->GetOp(0)->GetRegisterDstCount(compiler);
     }
+
 #if FEATURE_ARG_SPLIT
-    else if (OperIsPutArgSplit())
+    if (const GenTreePutArgSplit* argSplit = IsPutArgSplit())
     {
-        return AsPutArgSplit()->GetRegCount();
+        return argSplit->GetRegCount();
     }
 #endif
-#if !defined(TARGET_64BIT)
-    else if (OperIsMultiRegOp())
+
+#ifndef TARGET_64BIT
+    if (const GenTreeMultiRegOp* multiRegOp = IsMultiRegOpLong())
     {
-        // A MultiRegOp is a GT_MUL_LONG, GT_PUTARG_REG, or GT_BITCAST.
-        // For the latter two (ARM-only), they only have multiple registers if they produce a long value
-        // (GT_MUL_LONG always produces a long value).
-        CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef TARGET_ARM
-        return (TypeGet() == TYP_LONG) ? 2 : 1;
-#else
-        assert(OperIs(GT_MUL_LONG));
-        return 2;
-#endif
+        return multiRegOp->GetRegCount();
     }
 #endif
 
@@ -600,10 +596,12 @@ int GenTree::GetRegisterDstCount(Compiler* compiler) const
         return 2;
     }
 #endif
-    if (OperIsScalarLocal())
+
+    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
         return AsLclVar()->GetFieldCount(compiler);
     }
+
     assert(!"Unexpected multi-reg node");
     return 0;
 }

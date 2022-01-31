@@ -273,41 +273,37 @@ RegSet::SpillDsc* RegSet::rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc*
 //
 void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
 {
-    assert(tree != nullptr);
+    assert(tree->GetRegNum(regIdx) == reg);
 
-    GenTreeCall* call = nullptr;
-    var_types    treeType;
-#if defined(TARGET_ARM)
-    GenTreePutArgSplit* splitArg = nullptr;
-    GenTreeMultiRegOp*  multiReg = nullptr;
-#endif
+    bool      isMultiReg = false;
+    var_types treeType   = tree->GetType();
 
     if (tree->IsMultiRegCall())
     {
-        call     = tree->AsCall();
-        treeType = call->GetRegType(regIdx);
+        isMultiReg = true;
+        treeType   = tree->AsCall()->GetRegType(regIdx);
     }
-    else if (tree->TypeIs(TYP_STRUCT) && tree->IsCall())
+    else if (tree->IsCall() && (treeType == TYP_STRUCT))
     {
         treeType = tree->AsCall()->GetRegType(0);
     }
 #ifdef TARGET_ARM
-    else if (tree->OperIsPutArgSplit())
+    else if (GenTreePutArgSplit* putArgSplit = tree->IsPutArgSplit())
     {
-        splitArg = tree->AsPutArgSplit();
-        treeType = splitArg->GetRegType(regIdx);
+        isMultiReg = true;
+        treeType   = putArgSplit->GetRegType(regIdx);
     }
-    else if (tree->OperIsMultiRegOp())
+    else if (GenTreeMultiRegOp* multiRegOp = tree->IsMultiRegOpLong())
     {
-        multiReg = tree->AsMultiRegOp();
-        treeType = multiReg->GetRegType(regIdx);
+        isMultiReg = true;
+        treeType   = multiRegOp->GetRegType(regIdx);
     }
 #endif // TARGET_ARM
     else
     {
         assert(!tree->IsMultiRegLclVar());
-        treeType = tree->TypeGet();
         assert(!varTypeIsMultiReg(treeType));
+        assert(tree->GetRegNum() == reg);
     }
 
     var_types tempType = RegSet::tmpNormalizeType(treeType);
@@ -335,38 +331,17 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     assert((tree->gtFlags & GTF_SPILL) != 0);
 
     GenTreeFlags regFlags = GTF_EMPTY;
-    if (call != nullptr)
+
+    if (isMultiReg)
     {
         regFlags = tree->GetRegSpillFlags(regIdx);
         assert((regFlags & GTF_SPILL) != 0);
         regFlags &= ~GTF_SPILL;
     }
-#ifdef TARGET_ARM
-    else if (splitArg != nullptr)
-    {
-        regFlags = tree->GetRegSpillFlags(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-    else if (multiReg != nullptr)
-    {
-        regFlags = tree->GetRegSpillFlags(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-#endif // TARGET_ARM
     else
     {
         tree->gtFlags &= ~GTF_SPILL;
     }
-
-#if defined(TARGET_ARM)
-    assert(tree->GetRegNum() == reg || (call != nullptr && call->GetRegNum(regIdx) == reg) ||
-           (splitArg != nullptr && splitArg->GetRegNum(regIdx) == reg) ||
-           (multiReg != nullptr && multiReg->GetRegNum(regIdx) == reg));
-#else
-    assert(tree->GetRegNum() == reg || (call != nullptr && call->GetRegNum(regIdx) == reg));
-#endif // !TARGET_ARM
 
     // Are any registers free for spillage?
     SpillDsc* spill = SpillDsc::alloc(m_rsCompiler, this, tempType);
@@ -410,25 +385,11 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     // Mark the tree node as having been spilled
     tree->gtFlags |= GTF_SPILLED;
 
-    // In case of multi-reg call node also mark the specific
-    // result reg as spilled.
-    if (call != nullptr)
+    if (isMultiReg)
     {
         regFlags |= GTF_SPILLED;
         tree->SetRegSpillFlags(regIdx, regFlags);
     }
-#ifdef TARGET_ARM
-    else if (splitArg != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        tree->SetRegSpillFlags(regIdx, regFlags);
-    }
-    else if (multiReg != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        tree->SetRegSpillFlags(regIdx, regFlags);
-    }
-#endif // TARGET_ARM
 }
 
 #if defined(TARGET_X86)
@@ -523,26 +484,12 @@ TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regI
     TempDsc* temp = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
 
     // The value is now unspilled
-    if (tree->IsMultiRegCall())
+    if (tree->IsMultiRegCall() ARM_ONLY(|| tree->IsPutArgSplit() || tree->IsMultiRegOp()))
     {
         GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
         flags &= ~GTF_SPILLED;
         tree->SetRegSpillFlags(regIdx, flags);
     }
-#if defined(TARGET_ARM)
-    else if (tree->OperIsPutArgSplit())
-    {
-        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
-        flags &= ~GTF_SPILLED;
-        tree->SetRegSpillFlags(regIdx, flags);
-    }
-    else if (tree->OperIsMultiRegOp())
-    {
-        GenTreeFlags flags = tree->GetRegSpillFlags(regIdx);
-        flags &= ~GTF_SPILLED;
-        tree->SetRegSpillFlags(regIdx, flags);
-    }
-#endif // TARGET_ARM
     else
     {
         assert(!tree->IsMultiRegLclVar());

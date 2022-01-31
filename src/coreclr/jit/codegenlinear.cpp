@@ -947,7 +947,7 @@ void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
 void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
 {
     // This should not be called for multireg lclVars.
-    assert((tree->OperIsScalarLocal() && !tree->IsMultiRegLclVar()) || (tree->gtOper == GT_COPY));
+    assert((tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && !tree->IsMultiRegLclVar()) || tree->OperIs(GT_COPY));
     varDsc->SetRegNum(tree->GetRegNum());
 }
 
@@ -1967,7 +1967,7 @@ void CodeGen::genProduceReg(GenTree* tree)
                 }
             }
 #ifdef TARGET_ARM
-            else if (tree->OperIsPutArgSplit())
+            else if (GenTreePutArgSplit* argSplit = tree->IsPutArgSplit())
             {
                 for (unsigned i = 0; i < argSplit->GetRegCount(); ++i)
                 {
@@ -1980,8 +1980,9 @@ void CodeGen::genProduceReg(GenTree* tree)
                     }
                 }
             }
-            else if (tree->OperIsMultiRegOp())
+            else if (GenTreeMultiRegOp* multiReg = tree->IsMultiRegOpLong())
             {
+                // TODO-MIKE-Review: Why the crap is this under ARM? x86 uses MUL_LONG too...
                 for (unsigned i = 0; i < multiReg->GetRegCount(); ++i)
                 {
                     GenTreeFlags flags = tree->GetRegSpillFlags(i);

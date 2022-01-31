@@ -1319,11 +1319,6 @@ public:
         return (gtOper == GT_LCL_VAR_ADDR) || (gtOper == GT_LCL_FLD_ADDR);
     }
 
-    static bool OperIsScalarLocal(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_VAR) || (gtOper == GT_STORE_LCL_VAR);
-    }
-
     static bool OperIsNonPhiLocal(genTreeOps gtOper)
     {
         return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_STORE_LCL_VAR) ||
@@ -1374,21 +1369,30 @@ public:
         return OperIsPutArgStk() || OperIsPutArgReg() || OperIsPutArgSplit();
     }
 
-    bool OperIsMultiRegOp() const
+#ifdef TARGET_64BIT
+    GenTree* IsMultiRegOpLong()
+#else
+    GenTreeMultiRegOp* IsMultiRegOpLong()
+#endif
     {
-#if !defined(TARGET_64BIT)
-        if (OperIs(GT_MUL_LONG))
-        {
-            return true;
-        }
-#if defined(TARGET_ARM)
-        if (OperIs(GT_PUTARG_REG, GT_BITCAST) && TypeIs(TYP_LONG))
-        {
-            return true;
-        }
-#endif // TARGET_ARM
-#endif // TARGET_64BIT
-        return false;
+#ifdef TARGET_64BIT
+        return nullptr;
+#else
+        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG) ? AsMultiRegOp() : nullptr;
+#endif
+    }
+
+#ifdef TARGET_64BIT
+    const GenTree* IsMultiRegOpLong() const
+#else
+    const GenTreeMultiRegOp* IsMultiRegOpLong() const
+#endif
+    {
+#ifdef TARGET_64BIT
+        return nullptr;
+#else
+        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG) ? AsMultiRegOp() : nullptr;
+#endif
     }
 
     bool OperIsLocal() const
@@ -1399,11 +1403,6 @@ public:
     bool OperIsLocalAddr() const
     {
         return OperIsLocalAddr(OperGet());
-    }
-
-    bool OperIsScalarLocal() const
-    {
-        return OperIsScalarLocal(OperGet());
     }
 
     bool OperIsNonPhiLocal() const
@@ -5071,32 +5070,14 @@ struct GenTreeMultiRegOp : public GenTreeOp
 
     unsigned GetRegCount() const
     {
-        return (TypeGet() == TYP_LONG) ? 2 : 1;
+        return TypeIs(TYP_LONG) ? 2 : 1;
     }
-
-    //--------------------------------------------------------------------------
-    // GetRegType:  Get var_type of the register specified by index.
-    //
-    // Arguments:
-    //    index - Index of the register.
-    //            First register will have an index 0 and so on.
-    //
-    // Return Value:
-    //    var_type of the register specified by its index.
 
     var_types GetRegType(unsigned index)
     {
         assert(index < 2);
-        // The type of register is usually the same as GenTree type, since GenTreeMultiRegOp usually defines a single
-        // reg.
-        // The special case is when we have TYP_LONG, which may be a MUL_LONG, or a DOUBLE arg passed as LONG,
-        // in which case we need to separate them into int for each index.
-        var_types result = TypeGet();
-        if (result == TYP_LONG)
-        {
-            result = TYP_INT;
-        }
-        return result;
+
+        return TypeIs(TYP_LONG) ? TYP_INT : GetType();
     }
 
 #if DEBUGGABLE_GENTREE
@@ -7732,7 +7713,7 @@ inline bool GenTree::IsMultiRegNode() const
 #endif
 
 #ifndef TARGET_64BIT
-    if (OperIsMultiRegOp())
+    if (IsMultiRegOpLong())
     {
         return true;
     }
@@ -7775,9 +7756,9 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 #endif
 
 #ifndef TARGET_64BIT
-    if (OperIsMultiRegOp())
+    if (const GenTreeMultiRegOp* multiReg = IsMultiRegOpLong())
     {
-        return AsMultiRegOp()->GetRegCount();
+        return multiReg->GetRegCount();
     }
 #endif
 #endif // FEATURE_MULTIREG_RET
@@ -7832,10 +7813,10 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
         return AsPutArgSplit()->GetRegType(regIndex);
     }
 #endif
-#if !defined(TARGET_64BIT)
-    if (OperIsMultiRegOp())
+#ifndef TARGET_64BIT
+    if (GenTreeMultiRegOp* multiReg = IsMultiRegOpLong())
     {
-        return AsMultiRegOp()->GetRegType(regIndex);
+        return multiReg->GetRegType(regIndex);
     }
 #endif
 
