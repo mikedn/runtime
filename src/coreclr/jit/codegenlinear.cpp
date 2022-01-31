@@ -1242,19 +1242,6 @@ void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
     inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
 }
 
-// Do Liveness update for a subnodes that is being consumed by codegen
-// including the logic for reload in case is needed and also takes care
-// of locating the value on the desired register.
-void CodeGen::genConsumeRegAndCopy(GenTree* node, regNumber needReg)
-{
-    if (needReg == REG_NA)
-    {
-        return;
-    }
-    genConsumeReg(node);
-    genCopyRegIfNeeded(node, needReg);
-}
-
 // Check that registers are consumed in the right order for the current node being generated.
 #ifdef DEBUG
 void CodeGen::genNumberOperandUse(GenTree* const operand, int& useNum) const
@@ -1484,23 +1471,16 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
     return tree->GetRegNum();
 }
 
-// Do liveness update for an address tree: one of GT_LEA, GT_LCL_VAR, or GT_CNS_INT (for call indirect).
 void CodeGen::genConsumeAddress(GenTree* addr)
 {
     if (!addr->isContained())
     {
         genConsumeReg(addr);
     }
-    else if (addr->OperGet() == GT_LEA)
+    else if (addr->IsAddrMode())
     {
-        genConsumeAddrMode(addr->AsAddrMode());
+        genConsumeOperands(addr->AsAddrMode());
     }
-}
-
-// do liveness update for a subnode that is being consumed by codegen
-void CodeGen::genConsumeAddrMode(GenTreeAddrMode* addr)
-{
-    genConsumeOperands(addr);
 }
 
 void CodeGen::genConsumeRegs(GenTree* tree)
@@ -1517,78 +1497,78 @@ void CodeGen::genConsumeRegs(GenTree* tree)
     if (tree->isUsedFromSpillTemp())
     {
         // spill temps are un-tracked and hence no need to update life
+        return;
     }
-    else if (tree->isContained())
-    {
-        if (tree->OperIsIndir())
-        {
-            genConsumeAddress(tree->AsIndir()->Addr());
-        }
-        else if (tree->OperIs(GT_LEA))
-        {
-            genConsumeAddress(tree);
-        }
-        else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            // A contained lcl var must be living on stack and marked as reg optional, or not be a
-            // register candidate.
-            LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVarCommon());
 
-            noway_assert(varDsc->GetRegNum() == REG_STK);
-            noway_assert(tree->IsRegOptional() || !varDsc->lvLRACandidate);
-
-            genUpdateLife(tree->AsLclVarCommon());
-        }
-#ifdef FEATURE_HW_INTRINSICS
-        else if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
-        {
-            if (hwi->GetNumOps() != 0)
-            {
-                HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
-                assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
-                genConsumeAddress(hwi->GetOp(0));
-                if (category == HW_Category_MemoryStore)
-                {
-                    assert(hwi->IsBinary());
-                    genConsumeReg(hwi->GetOp(1));
-                }
-                else
-                {
-                    assert(hwi->IsUnary());
-                }
-            }
-        }
-#endif // FEATURE_HW_INTRINSICS
-        else if (tree->OperIs(GT_BITCAST))
-        {
-            genConsumeReg(tree->gtGetOp1());
-        }
-        else
-        {
-#ifdef FEATURE_SIMD
-            // (In)Equality operation that produces bool result, when compared
-            // against Vector zero, marks its Vector Zero operand as contained.
-            assert(tree->OperIsLeaf() || tree->IsHWIntrinsicZero());
-#else
-            assert(tree->OperIsLeaf());
-#endif
-        }
-    }
-    else
+    if (!tree->isContained())
     {
         genConsumeReg(tree);
+        return;
     }
-}
 
-//------------------------------------------------------------------------
-// genConsumeOperands: Do liveness update for the operands of a unary or binary tree
-//
-// Arguments:
-//    tree - the GenTreeOp whose operands will have their liveness updated.
-//
-// Return Value:
-//    None.
-//
+    if (tree->OperIsIndir())
+    {
+        genConsumeAddress(tree->AsIndir()->GetAddr());
+        return;
+    }
+
+    if (tree->IsAddrMode())
+    {
+        genConsumeOperands(tree->AsAddrMode());
+        return;
+    }
+
+    if (tree->OperIs(GT_BITCAST))
+    {
+        genConsumeReg(tree->AsUnOp()->GetOp(0));
+        return;
+    }
+
+    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        // A contained lcl var must be living on stack and marked as reg optional, or not be a
+        // register candidate.
+        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVarCommon());
+
+        noway_assert(varDsc->GetRegNum() == REG_STK);
+        noway_assert(tree->IsRegOptional() || !varDsc->lvLRACandidate);
+
+        genUpdateLife(tree->AsLclVarCommon());
+
+        return;
+    }
+
+#ifdef FEATURE_HW_INTRINSICS
+    if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
+    {
+        if (hwi->GetNumOps() != 0)
+        {
+            HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
+            assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
+            genConsumeAddress(hwi->GetOp(0));
+            if (category == HW_Category_MemoryStore)
+            {
+                assert(hwi->IsBinary());
+                genConsumeReg(hwi->GetOp(1));
+            }
+            else
+            {
+                assert(hwi->IsUnary());
+            }
+        }
+
+        return;
+    }
+#endif // FEATURE_HW_INTRINSICS
+
+#ifdef FEATURE_SIMD
+    // (In)Equality operation that produces bool result, when compared
+    // against Vector zero, marks its Vector Zero operand as contained.
+    assert(tree->OperIsLeaf() || tree->IsHWIntrinsicZero());
+#else
+    assert(tree->OperIsLeaf());
+#endif
+}
 
 void CodeGen::genConsumeOperands(GenTreeOp* tree)
 {
@@ -1606,16 +1586,6 @@ void CodeGen::genConsumeOperands(GenTreeOp* tree)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// genConsumeHWIntrinsicOperands: Do liveness update for the operands of a GT_HWINTRINSIC node
-//
-// Arguments:
-//    node - the GenTreeHWIntrinsic node whose operands will have their liveness updated.
-//
-// Return Value:
-//    None.
-//
-
 void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
 {
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
@@ -1623,32 +1593,7 @@ void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
         genConsumeRegs(use.GetNode());
     }
 }
-#endif // FEATURE_HW_INTRINSICS
-
-#if FEATURE_ARG_SPLIT
-//------------------------------------------------------------------------
-// genConsumeArgRegSplit: Consume register(s) in Call node to set split struct argument.
-//                        Liveness update for the PutArgSplit node is not needed
-//
-// Arguments:
-//    putArgNode - the PUTARG_STK tree.
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode)
-{
-    assert(putArgNode->OperGet() == GT_PUTARG_SPLIT);
-    assert(putArgNode->gtHasReg());
-
-    genUnspillRegIfNeeded(putArgNode);
-
-    // Skip updating GC info
-    // GC info for all argument registers will be cleared in caller
-
-    genCheckConsumeNode(putArgNode);
-}
-#endif // FEATURE_ARG_SPLIT
+#endif
 
 //------------------------------------------------------------------------
 // genPutArgStkFieldList: Generate code for a putArgStk whose source is a GT_FIELD_LIST

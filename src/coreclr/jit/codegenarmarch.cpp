@@ -2627,11 +2627,14 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
 
 #if FEATURE_ARG_SPLIT
-        if (argNode->OperIs(GT_PUTARG_SPLIT))
+        if (GenTreePutArgSplit* argSplit = argNode->IsPutArgSplit())
         {
             assert((argInfo->GetRegCount() >= 1) && (argInfo->GetSlotCount() >= 1));
+            assert(argSplit->gtHasReg());
 
-            genConsumeArgSplitStruct(argNode->AsPutArgSplit());
+            // TODO-MIKE-Review: Why is genUnspillRegIfNeeded called instead of genConsumeReg?
+            genUnspillRegIfNeeded(argSplit);
+            genCheckConsumeNode(argSplit);
 
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
             {

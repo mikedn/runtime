@@ -2092,7 +2092,8 @@ void CodeGen::genLclHeap(GenTree* tree)
     else
     {
         // If 0 bail out by returning null in targetReg
-        genConsumeRegAndCopy(size, targetReg);
+        genConsumeReg(size);
+        genCopyRegIfNeeded(size, targetReg);
         endLabel = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_tst, easz, targetReg, targetReg);
         inst_JMP(EJ_eq, endLabel);

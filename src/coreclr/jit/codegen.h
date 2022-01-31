@@ -1082,7 +1082,6 @@ protected:
     regNumber genConsumeReg(GenTree* tree);
     regNumber genConsumeReg(GenTree* tree, unsigned multiRegIndex);
     void genCopyRegIfNeeded(GenTree* tree, regNumber needReg);
-    void genConsumeRegAndCopy(GenTree* tree, regNumber needReg);
 
     void genConsumeIfReg(GenTree* tree)
     {
@@ -1096,19 +1095,13 @@ protected:
     regNumber genRegCopy(GenTree* tree, unsigned multiRegIndex);
     void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
-    void genConsumeAddrMode(GenTreeAddrMode* mode);
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
-
-#if FEATURE_ARG_SPLIT
-    void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
-#endif // FEATURE_ARG_SPLIT
-
     void genConsumeRegs(GenTree* tree);
     void genConsumeOperands(GenTreeOp* tree);
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
-#endif // FEATURE_HW_INTRINSICS
+#endif
     void genEmitGSCookieCheck(bool pushReg);
     void genSetRegToIcon(regNumber reg,
                          ssize_t   val,

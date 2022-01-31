@@ -2200,7 +2200,8 @@ void CodeGen::genLclHeap(GenTree* tree)
         // The localloc requested memory size is non-constant.
 
         // Put the size value in targetReg. If it is zero, bail out by returning null in targetReg.
-        genConsumeRegAndCopy(size, targetReg);
+        genConsumeReg(size);
+        genCopyRegIfNeeded(size, targetReg);
         endLabel = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, easz, targetReg, targetReg);
         inst_JMP(EJ_je, endLabel);
