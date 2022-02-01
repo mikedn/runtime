@@ -623,7 +623,10 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
     if (RefTypeIsDef(newRP->refType))
     {
         assert(theInterval != nullptr);
-        theInterval->isSingleDef = theInterval->firstRefPosition == newRP;
+        // TODO-MIKE-Review: Disabling single def reg stuff for multireg stores, codegen doesn't
+        // seem to have proper spilling support for this case.
+        theInterval->isSingleDef =
+            theInterval->firstRefPosition == newRP && (theTreeNode == nullptr || !theTreeNode->IsMultiRegLclVar());
     }
 
     DBEXEC(VERBOSE, newRP->dump(this));

@@ -2884,7 +2884,10 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
                 // if (compiler->info.compInitMem || varTypeIsGC(varDsc->TypeGet()))
                 bool needsExplicitZeroInit = fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
 
-                if (varDsc->lvSingleDefRegCandidate || needsExplicitZeroInit)
+                // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
+                // broken. For a multireg store lvSingleDefRegCandidate probably needs to be set
+                // on the fields of the local.
+                if (varDsc->lvSingleDefRegCandidate || needsExplicitZeroInit || varDsc->lvIsMultiRegRet)
                 {
 #ifdef DEBUG
                     if (needsExplicitZeroInit)
