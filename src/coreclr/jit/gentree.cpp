@@ -6687,7 +6687,7 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
 
 #ifdef DEBUG
 
-/* static */ int GenTree::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
+int GenTree::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
 {
     int charsDisplayed = 11; // 11 is the "baseline" number of flag characters displayed
 
@@ -6703,7 +6703,7 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
     printf("%c", (flags & GTF_REVERSE_OPS) ? 'R' : '-');
     printf("%c", (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-');
     printf("%c", '-');
-    printf("%c", (flags & GTF_SPILLED) ? 'z' : (flags & GTF_SPILL) ? 'Z' : '-');
+    printf("%c", IsAnyRegSpilled() ? 'z' : IsAnyRegSpill() ? 'Z' : '-');
 
     return charsDisplayed;
 }
@@ -7252,7 +7252,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             flags &= ~GTF_REVERSE_OPS;
         }
 
-        msgLength -= GenTree::gtDispFlags(flags, tree->gtDebugFlags);
+        msgLength -= tree->gtDispFlags(flags, tree->gtDebugFlags);
     }
 
     return msgLength;

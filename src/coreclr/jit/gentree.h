@@ -422,7 +422,6 @@ enum GenTreeFlags : unsigned int
 
     GTF_REVERSE_OPS = 0x00000020, // operand op2 should be evaluated before op1 (normally, op1 is evaluated first and op2 is evaluated second)
     GTF_CONTAINED   = 0x00000040, // This node is contained (executed as part of its parent)
-    GTF_SPILLED     = 0x00000080, // the value has been spilled
 
     GTF_NOREG_AT_USE = 0x00000100, // tree node is in memory at the point of use
 
@@ -443,7 +442,6 @@ enum GenTreeFlags : unsigned int
 
     GTF_UNSIGNED    = 0x00008000, // With GT_CAST:   the source operand is an unsigned type
                                   // With operators: the specified node is an unsigned operator
-    GTF_SPILL       = 0x00020000, // Needs to be spilled here
 
 // The extra flag GTF_IS_IN_CSE is used to tell the consumer of the side effect flags
 // that we are calling in the context of performing a CSE, thus we
@@ -700,10 +698,16 @@ using RegSpillSet = uint8_t;
 
 static_assert_no_msg(sizeof(RegSpillSet) * 8 >= MAX_MULTIREG_COUNT * 2);
 
+constexpr RegSpillSet RegSpillSetMask = (1 << (MAX_MULTIREG_COUNT * 2)) - 1;
+
+constexpr RegSpillSet AllRegSpillSet = 0x55 & RegSpillSetMask;
+
 constexpr RegSpillSet GetRegSpillSet(unsigned regIndex)
 {
     return 1 << (regIndex * 2);
 }
+
+constexpr RegSpillSet AllRegSpilledSet = (0x55 << 1) & RegSpillSetMask;
 
 constexpr RegSpillSet GetRegSpilledSet(unsigned regIndex)
 {
@@ -1038,12 +1042,16 @@ public:
         return (m_defRegsSpillSet & GetRegSpillSet(i)) != 0;
     }
 
+    bool IsAnyRegSpill() const
+    {
+        return (m_defRegsSpillSet & AllRegSpillSet) != 0;
+    }
+
     void SetRegSpill(unsigned i, bool spill)
     {
         if (spill)
         {
             m_defRegsSpillSet |= GetRegSpillSet(i);
-            gtFlags |= GTF_SPILL;
         }
         else
         {
@@ -1056,12 +1064,16 @@ public:
         return (m_defRegsSpillSet & GetRegSpilledSet(i)) != 0;
     }
 
+    bool IsAnyRegSpilled() const
+    {
+        return (m_defRegsSpillSet & AllRegSpilledSet) != 0;
+    }
+
     void SetRegSpilled(unsigned i, bool spilled)
     {
         if (spilled)
         {
             m_defRegsSpillSet |= GetRegSpilledSet(i);
-            gtFlags |= GTF_SPILLED;
         }
         else
         {
@@ -1998,7 +2010,7 @@ public:
     bool gtOverflow() const;
     bool gtOverflowEx() const;
 
-    INDEBUG(static int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);)
+    INDEBUG(int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);)
 
     // cast operations
     inline var_types  CastFromType();
@@ -7970,12 +7982,7 @@ inline var_types& GenTree::CastToType()
 inline bool GenTree::isUsedFromSpillTemp() const
 {
     // If spilled and no reg at use, then it is used from the spill temp location rather than being reloaded.
-    if (((gtFlags & GTF_SPILLED) != 0) && ((gtFlags & GTF_NOREG_AT_USE) != 0))
-    {
-        return true;
-    }
-
-    return false;
+    return IsAnyRegSpilled() && ((gtFlags & GTF_NOREG_AT_USE) != 0);
 }
 
 /*****************************************************************************/

@@ -8117,10 +8117,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 chars += printf("[REVERSE_OPS]");
             }
         }
-        if (tree->gtFlags & GTF_SPILLED)
-        {
-            chars += printf("[SPILLED_OPER]");
-        }
         if (tree->gtFlags & GTF_IND_NONFAULTING)
         {
             if (tree->OperIsIndirOrArrLength())
@@ -8143,10 +8139,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         if (tree->gtFlags & GTF_UNSIGNED)
         {
             chars += printf("[SMALL_UNSIGNED]");
-        }
-        if (tree->gtFlags & GTF_SPILL)
-        {
-            chars += printf("[SPILL]");
         }
         if (tree->gtFlags & GTF_REUSE_REG_VAL)
         {

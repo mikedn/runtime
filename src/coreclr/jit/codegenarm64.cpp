@@ -1894,7 +1894,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
     // If this is a register candidate that has been spilled, genConsumeReg() will
     // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
 
-    if (!isRegCandidate && !tree->IsMultiReg() && !(tree->gtFlags & GTF_SPILLED))
+    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
     {
         // targetType must be a normal scalar type and not a TYP_STRUCT
         assert(targetType != TYP_STRUCT);
@@ -3520,7 +3520,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 // When a 16-byte SIMD value is live across a call, the register allocator will use this intrinsic
 // to cause the upper half to be saved.  It will first attempt to find another, unused, callee-save
 // register. If such a register cannot be found, it will save it to an available caller-save register.
-// In that case, this node will be marked GTF_SPILL, which will cause this method to save
+// In that case, this node's register will be marked SPILL, which will cause this method to save
 // the upper half to the lclVar's home location.
 void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 {
@@ -3534,7 +3534,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 0, 1);
 
-    if ((node->gtFlags & GTF_SPILL) != 0)
+    if (node->IsRegSpill(0))
     {
         unsigned lclNum = op1->AsLclVar()->GetLclNum();
         assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
@@ -3552,7 +3552,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 // have their home register, this node has its targetReg on the lclVar child, and its source
 // on the simdNode.
 // Regarding spill, please see the note above on genSIMDIntrinsicUpperSave.  If we have spilled
-// an upper-half to the lclVar's home location, this node will be marked GTF_SPILLED.
+// an upper-half to the lclVar's home location, this node's register will be marked SPILLED.
 void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
@@ -3563,7 +3563,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
     regNumber dstReg = genConsumeReg(op1);
     assert(dstReg != REG_NA);
 
-    if ((node->gtFlags & GTF_SPILLED) != 0)
+    if (node->IsRegSpilled(0))
     {
         unsigned lclNum = op1->AsLclVar()->GetLclNum();
         assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);

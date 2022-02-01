@@ -269,16 +269,14 @@ TempDsc* RegSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types type)
 
 void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
 {
-    assert((node->gtFlags & GTF_SPILL) != 0);
+    assert(node->IsRegSpill(regIndex));
     assert(!node->IsMultiRegLclVar());
 
-    bool      isMultiReg = false;
-    var_types type       = node->GetType();
+    var_types type = node->GetType();
 
     if (node->IsMultiRegCall())
     {
-        isMultiReg = true;
-        type       = node->AsCall()->GetRegType(regIndex);
+        type = node->AsCall()->GetRegType(regIndex);
     }
     else if (node->IsCall() && (type == TYP_STRUCT))
     {
@@ -287,13 +285,11 @@ void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
 #ifdef TARGET_ARM
     else if (GenTreePutArgSplit* putArgSplit = node->IsPutArgSplit())
     {
-        isMultiReg = true;
-        type       = putArgSplit->GetRegType(regIndex);
+        type = putArgSplit->GetRegType(regIndex);
     }
     else if (GenTreeMultiRegOp* multiRegOp = node->IsMultiRegOpLong())
     {
-        isMultiReg = true;
-        type       = multiRegOp->GetRegType(regIndex);
+        type = multiRegOp->GetRegType(regIndex);
     }
 #endif // TARGET_ARM
     else
@@ -311,11 +307,6 @@ void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
 
-    if (!isMultiReg)
-    {
-        node->gtFlags &= ~GTF_SPILL;
-    }
-
     m_rsGCInfo.gcMarkRegSetNpt(genRegMask(reg));
 
     INDEBUG(rsNeededSpillReg = true;)
@@ -330,8 +321,6 @@ void RegSet::SpillNodeRegs(GenTree* node, unsigned regCount)
             SpillNodeReg(node, i);
         }
     }
-
-    node->gtFlags &= ~GTF_SPILL;
 }
 
 #ifdef TARGET_X86
@@ -347,8 +336,6 @@ void RegSet::SpillST0(GenTree* node)
 
     node->SetRegSpill(0, false);
     node->SetRegSpilled(0, true);
-
-    node->gtFlags &= ~GTF_SPILL;
 }
 #endif // TARGET_X86
 
@@ -363,11 +350,6 @@ TempDsc* RegSet::UnspillNodeReg(GenTree* node, unsigned regIndex)
     TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
 
     node->SetRegSpilled(regIndex, false);
-
-    if (!node->IsMultiRegCall() ARM_ONLY(&&!node->IsPutArgSplit() && !node->IsMultiRegOpLong()))
-    {
-        node->gtFlags &= ~GTF_SPILLED;
-    }
 
     JITDUMP("Unspilling register %s from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
 

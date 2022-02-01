@@ -625,8 +625,7 @@ regNumber CodeGenInterface::genGetThisArgReg(GenTreeCall* call) const
 //   TempDsc corresponding to tree
 TempDsc* CodeGenInterface::getSpillTempDsc(GenTree* tree)
 {
-    // tree must be in spilled state.
-    assert((tree->gtFlags & GTF_SPILLED) != 0);
+    assert(tree->IsRegSpilled(0));
 
     // Get the tree's SpillDsc.
     RegSet::SpillDsc* prevDsc;

@@ -3195,7 +3195,8 @@ void Compiler::fgDebugCheckDispFlags(GenTree* tree, GenTreeFlags dispFlags, GenT
         printf("%c", (dispFlags & GTF_IND_NONFAULTING) ? 'n' : '-');
         printf("%c", (dispFlags & GTF_IND_NONNULL) ? '@' : '-');
     }
-    GenTree::gtDispFlags(dispFlags, debugFlags);
+
+    tree->gtDispFlags(dispFlags, debugFlags);
 }
 
 //------------------------------------------------------------------------------

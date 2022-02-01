@@ -868,9 +868,9 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
             inst_TT_RV(storeIns, size, tree, tree->GetRegNum());
         }
 
-        // We should only have both GTF_SPILL (i.e. the flag causing this method to be called) and
-        // GTF_SPILLED on a write-thru/single-def def, for which we should not be calling this method.
-        assert((tree->gtFlags & GTF_SPILLED) == 0);
+        // We should only have both SPILL (i.e. the flag causing this method to be called) and
+        // SPILLED on a write-thru/single-def def, for which we should not be calling this method.
+        assert(!tree->IsRegSpilled(0));
 
         // Remove the live var from the register.
         genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(tree));
@@ -893,10 +893,9 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
     }
 
     tree->SetRegSpill(0, false);
-    tree->gtFlags &= ~GTF_SPILL;
 
     // If this is NOT a write-thru, reset the var location.
-    if ((tree->gtFlags & GTF_SPILLED) == 0)
+    if (!tree->IsRegSpilled(0))
     {
         varDsc->SetRegNum(REG_STK);
         if (varTypeIsMultiReg(tree))
@@ -906,7 +905,7 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
     }
     else
     {
-        // We only have 'GTF_SPILL' and 'GTF_SPILLED' on a def of a write-thru lclVar
+        // We only have SPILL and SPILLED on a def of a write-thru lclVar
         // or a single-def var that is to be spilled at its definition.
         assert((varDsc->IsAlwaysAliveInMemory()) && ((tree->gtFlags & GTF_VAR_DEF) != 0));
     }
@@ -1058,14 +1057,6 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex)
         unspillTree = tree->AsOp()->gtOp1;
     }
 
-    // In case of multi-reg node, GTF_SPILLED flag on it indicates that
-    // one or more of its result regs are spilled.  Individual spill flags need to be
-    // queried to determine which specific result regs need to be unspilled.
-    if ((unspillTree->gtFlags & GTF_SPILLED) == 0)
-    {
-        return;
-    }
-
     if (!unspillTree->IsRegSpilled(multiRegIndex))
     {
         return;
@@ -1124,7 +1115,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
         unspillTree = tree->AsOp()->gtOp1;
     }
 
-    if ((unspillTree->gtFlags & GTF_SPILLED) != 0)
+    if (unspillTree->IsAnyRegSpilled())
     {
         if (genIsRegCandidateLclVar(unspillTree))
         {
@@ -1133,7 +1124,6 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
 
             // Reset spilled flag, since we are going to load a local variable from its home location.
             unspillTree->SetRegSpilled(0, false);
-            unspillTree->gtFlags &= ~GTF_SPILLED;
 
             GenTreeLclVar* lcl       = unspillTree->AsLclVar();
             LclVarDsc*     varDsc    = compiler->lvaGetDesc(lcl->GetLclNum());
@@ -1165,7 +1155,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
 #else
             NYI("Unspilling not implemented for this target architecture.");
 #endif
-            bool reSpill   = ((unspillTree->gtFlags & GTF_SPILL) != 0);
+            bool reSpill   = unspillTree->IsRegSpill(0);
             bool isLastUse = lcl->IsLastUse(0);
             genUnspillLocal(lcl->GetLclNum(), spillType, lcl->AsLclVar(), tree->GetRegNum(), reSpill, isLastUse);
         }
@@ -1200,7 +1190,6 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
             {
                 genUnspillRegIfNeeded(tree, i);
             }
-            unspillTree->gtFlags &= ~GTF_SPILLED;
         }
         else
         {
@@ -1223,7 +1212,6 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
             regSet.tmpRlsTemp(t);
 
             unspillTree->SetRegSpilled(0, false);
-            unspillTree->gtFlags &= ~GTF_SPILLED;
             gcInfo.gcMarkRegPtrVal(dstReg, unspillTree->TypeGet());
         }
     }
@@ -1779,13 +1767,13 @@ void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclN
     const LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
     assert(!varDsc->lvNormalizeOnStore() || (type == varDsc->GetActualRegisterType()));
 
-    // We have a register candidate local that is marked with GTF_SPILL.
+    // We have a register candidate local that is marked with SPILL.
     // This flag generally means that we need to spill this local.
     // The exception is the case of a use of an EH/spill-at-single-def var use that is being "spilled"
-    // to the stack, indicated by GTF_SPILL (note that all EH lclVar defs are always
+    // to the stack, indicated by SPILL (note that all EH lclVar defs are always
     // spilled, i.e. write-thru. Likewise, single-def vars that are spilled at its definitions).
     // An EH or single-def var use is always valid on the stack (so we don't need to actually spill it),
-    // but the GTF_SPILL flag records the fact that the register value is going dead.
+    // but the SPILL flag records the fact that the register value is going dead.
     if (((lclNode->gtFlags & GTF_VAR_DEF) != 0) || (!varDsc->IsAlwaysAliveInMemory()))
     {
         // Store local variable to its home location.
@@ -1811,7 +1799,7 @@ void CodeGen::genProduceReg(GenTree* tree)
     tree->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;
 #endif
 
-    if (tree->gtFlags & GTF_SPILL)
+    if (tree->IsAnyRegSpill())
     {
         // Code for GT_COPY node gets generated as part of consuming regs by its parent.
         // A GT_COPY node in turn produces reg result and it should never be marked to

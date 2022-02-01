@@ -4111,7 +4111,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
     // If this is a register candidate that has been spilled, genConsumeReg() will
     // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
 
-    if (!isRegCandidate && !tree->IsMultiReg() && !(tree->gtFlags & GTF_SPILLED))
+    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
     {
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
         if (tree->TypeIs(TYP_SIMD12))
