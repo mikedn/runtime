@@ -1094,7 +1094,8 @@ void CodeGen::genFloatReturn(GenTree* src)
     {
         if (compiler->lvaGetDesc(src->AsLclVar())->GetRegNum() != REG_STK)
         {
-            src->gtFlags |= GTF_SPILL;
+            // TODO-MIKE-Review: This seems pointless, it's not like we're going to unspill it later...
+            src->SetRegSpill(0, true);
             GetEmitter()->emitIns_S_R(ins_Store(srcType), srcSize, srcReg, src->AsLclVar()->GetLclNum(), 0);
         }
 
@@ -1105,7 +1106,7 @@ void CodeGen::genFloatReturn(GenTree* src)
         // Spill the value, which should be in a register, then load it to the fp stack.
         // TODO-X86-CQ: Deal with things that are already in memory (don't call genConsumeReg yet).
 
-        src->gtFlags |= GTF_SPILL;
+        src->SetRegSpill(0, true);
         regSet.SpillNodeReg(src, 0);
 
         TempDsc* temp = regSet.UnspillNodeReg(src, 0);
@@ -5210,9 +5211,10 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_X86
         if (varTypeIsFloating(returnType))
         {
-            // Spill the value from the fp stack.
-            // Then, load it into the target register.
-            call->gtFlags |= GTF_SPILL;
+            // TODO-MIKE-Review: It looks like LSRA is out of sync with codegen here,
+            // it doesn't know about this spill and thinks that whatever register it
+            // allocated to the call is in use, when in fact it will only be in use
+            // when the user calls genConsumeReg.
             regSet.SpillST0(call);
         }
         else

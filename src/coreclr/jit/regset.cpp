@@ -308,16 +308,13 @@ void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
 
     m_rsCompiler->codeGen->spillReg(varTypeUsesFloatReg(type) ? type : temp->tdTempType(), temp, reg);
 
-    if (isMultiReg)
-    {
-        node->SetRegSpill(regIndex, false);
-    }
-    else
+    node->SetRegSpill(regIndex, false);
+    node->SetRegSpilled(regIndex, true);
+
+    if (!isMultiReg)
     {
         node->gtFlags &= ~GTF_SPILL;
     }
-
-    node->SetRegSpilled(regIndex, true);
 
     m_rsGCInfo.gcMarkRegSetNpt(genRegMask(reg));
 
@@ -348,8 +345,10 @@ void RegSet::SpillST0(GenTree* node)
 
     m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->tdTempNum(), 0);
 
+    node->SetRegSpill(0, false);
+    node->SetRegSpilled(0, true);
+
     node->gtFlags &= ~GTF_SPILL;
-    node->gtFlags |= GTF_SPILLED;
 }
 #endif // TARGET_X86
 
@@ -363,11 +362,9 @@ TempDsc* RegSet::UnspillNodeReg(GenTree* node, unsigned regIndex)
     SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
     TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
 
-    if (node->IsMultiRegCall() ARM_ONLY(|| node->IsPutArgSplit() || node->IsMultiRegOpLong()))
-    {
-        node->SetRegSpilled(regIndex, false);
-    }
-    else
+    node->SetRegSpilled(regIndex, false);
+
+    if (!node->IsMultiRegCall() ARM_ONLY(&&!node->IsPutArgSplit() && !node->IsMultiRegOpLong()))
     {
         node->gtFlags &= ~GTF_SPILLED;
     }

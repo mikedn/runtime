@@ -5833,6 +5833,9 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             {
                 if (currentRefPosition->RegOptional())
                 {
+                    // We don't support RegOptional for multi-reg localvars.
+                    assert(!treeNode->IsMultiReg() && (currentRefPosition->getMultiRegIdx() == 0));
+
                     // This is a use of lclVar that is flagged as reg-optional
                     // by lower/codegen and marked for both reload and spillAfter.
                     // In this case we can avoid unnecessary reload and spill
@@ -5842,11 +5845,10 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                     //
                     // Note that varDsc->GetRegNum() is already to REG_STK above.
                     interval->physReg = REG_NA;
-                    writeLocalReg(treeNode->AsLclVar(), interval->varNum, REG_NA);
+                    writeLocalReg(treeNode, interval->varNum, REG_NA);
+                    treeNode->SetRegSpilled(0, false);
                     treeNode->gtFlags &= ~GTF_SPILLED;
                     treeNode->SetContained();
-                    // We don't support RegOptional for multi-reg localvars.
-                    assert(!treeNode->IsMultiReg());
                 }
                 else
                 {
@@ -5944,7 +5946,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         if (writeThru && (treeNode != nullptr))
         {
             // This is a def of a write-thru EH var (only defs are marked 'writeThru').
-            treeNode->gtFlags |= GTF_SPILL;
+            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             // We also mark writeThru defs that are not last-use with GTF_SPILLED to indicate that they are conceptually
             // spilled and immediately "reloaded", i.e. the register remains live.
             // Note that we can have a "last use" write that has no exposed uses in the standard
@@ -5966,7 +5968,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             // `lvSpillAtSingleDef` to decide whether to generate spill or not. In future, see if there is some
             // better way to avoid resolution moves, perhaps by updating the varDsc->SetRegNum(REG_STK) in this
             // method?
-            treeNode->gtFlags |= GTF_SPILL;
+            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
 
             varDsc->lvSpillAtSingleDef = true;
@@ -6190,7 +6192,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     if (spillToMem)
     {
-        simdNode->gtFlags |= GTF_SPILL;
+        simdNode->SetRegSpill(0, true);
         upperVectorInterval->physReg = REG_NA;
     }
     else
@@ -6253,7 +6255,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
         assert(refPosition->assignedReg() == REG_NA);
         simdNode->gtFlags |= GTF_NOREG_AT_USE;
 #else
-        simdNode->gtFlags |= GTF_SPILLED;
+        simdNode->SetRegSpilled(0, true);
         assert(refPosition->assignedReg() != REG_NA);
         restoreReg = refPosition->assignedReg();
 #endif
@@ -7095,12 +7097,12 @@ void LinearScan::insertMove(
     GenTree* dst = src;
     if (fromReg == REG_STK)
     {
-        src->gtFlags |= GTF_SPILLED;
+        src->SetRegSpilled(0, true);
         src->SetRegNum(toReg);
     }
     else if (toReg == REG_STK)
     {
-        src->gtFlags |= GTF_SPILL;
+        src->SetRegSpill(0, true);
         src->SetRegNum(fromReg);
     }
     else

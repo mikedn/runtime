@@ -892,7 +892,9 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
         }
     }
 
+    tree->SetRegSpill(0, false);
     tree->gtFlags &= ~GTF_SPILL;
+
     // If this is NOT a write-thru, reset the var location.
     if ((tree->gtFlags & GTF_SPILLED) == 0)
     {
@@ -1130,6 +1132,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
             assert(tree == unspillTree);
 
             // Reset spilled flag, since we are going to load a local variable from its home location.
+            unspillTree->SetRegSpilled(0, false);
             unspillTree->gtFlags &= ~GTF_SPILLED;
 
             GenTreeLclVar* lcl       = unspillTree->AsLclVar();
@@ -1219,6 +1222,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
             GetEmitter()->emitIns_R_S(ins_Load(type), emitType, dstReg, t->tdTempNum(), 0);
             regSet.tmpRlsTemp(t);
 
+            unspillTree->SetRegSpilled(0, false);
             unspillTree->gtFlags &= ~GTF_SPILLED;
             gcInfo.gcMarkRegPtrVal(dstReg, unspillTree->TypeGet());
         }
