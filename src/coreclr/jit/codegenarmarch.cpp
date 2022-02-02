@@ -1676,7 +1676,8 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genLoadSIMD12(tree);
+        LoadSIMD12(tree);
+        genProduceReg(tree);
         return;
     }
 #endif

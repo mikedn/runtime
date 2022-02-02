@@ -4070,7 +4070,8 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genLoadSIMD12(tree);
+        LoadSIMD12(tree);
+        genProduceReg(tree);
         return;
     }
 #endif
@@ -4116,7 +4117,8 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
         if (tree->TypeIs(TYP_SIMD12))
         {
-            genLoadSIMD12(tree);
+            LoadSIMD12(tree);
+            genProduceReg(tree);
             return;
         }
 #endif
@@ -4483,7 +4485,8 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genLoadSIMD12(tree);
+        LoadSIMD12(tree);
+        genProduceReg(tree);
         return;
     }
 #endif
@@ -8976,7 +8979,7 @@ void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber t
     inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
 }
 
-void CodeGen::genLoadSIMD12(GenTree* load)
+void CodeGen::LoadSIMD12(GenTree* load)
 {
     GenAddrMode src(load, this);
 
@@ -8988,8 +8991,6 @@ void CodeGen::genLoadSIMD12(GenTree* load)
     inst_R_AM(INS_movsdsse2, EA_8BYTE, dstReg, src, 0);
     inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
     GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
-
-    genProduceReg(load);
 }
 
 #ifdef TARGET_X86

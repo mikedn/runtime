@@ -969,7 +969,7 @@ protected:
 #ifdef FEATURE_SIMD
     void genSIMDUpperSpill(GenTreeUnOp* node);
     void genSIMDUpperUnspill(GenTreeUnOp* node);
-    void genLoadSIMD12(GenTree* load);
+    void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
 #endif // TARGET_X86

@@ -3605,12 +3605,7 @@ void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber t
     inst_AM_R(INS_str, EA_4BYTE, tmpReg, dst, 8);
 }
 
-//-----------------------------------------------------------------------------
-// genLoadIndTypeSIMD12: load indirect a TYP_SIMD12 (i.e. Vector3) value.
-// Since Vector3 is not a hardware supported write size, it is performed
-// as two loads: 8 byte followed by 4-byte.
-//
-void CodeGen::genLoadSIMD12(GenTree* load)
+void CodeGen::LoadSIMD12(GenTree* load)
 {
     GenAddrMode src(load, this);
 
@@ -3622,8 +3617,6 @@ void CodeGen::genLoadSIMD12(GenTree* load)
     inst_R_AM(INS_ldr, EA_8BYTE, dstReg, src, 0);
     inst_R_AM(INS_ldr, EA_4BYTE, tmpReg, src, 8);
     GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, dstReg, tmpReg, 2);
-
-    genProduceReg(load);
 }
 
 #endif // FEATURE_SIMD
