@@ -937,6 +937,14 @@ void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
 
     GetEmitter()->emitIns_Mov(ins_Copy(type), emitTypeSize(type), argReg, srcReg, /* canSkip */ true);
 
+#ifdef TARGET_ARM
+    if (putArg->TypeIs(TYP_LONG))
+    {
+        DefLongRegs(putArg->AsMultiRegOp());
+        return;
+    }
+#endif
+
     genProduceReg(putArg);
 }
 
@@ -967,6 +975,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
         unsigned    lclNum = src->AsLclVar()->GetLclNum();
         instruction ins    = ins_Load(dstType);
         GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
+        genProduceReg(bitcast);
     }
 #ifdef TARGET_ARM
     else if (varTypeIsLong(dstType) && src->TypeIs(TYP_DOUBLE))
@@ -974,6 +983,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
         regNumber otherReg = bitcast->AsMultiRegOp()->GetRegNum(1);
         assert(otherReg != REG_NA);
         inst_RV_RV_RV(INS_vmov_d2i, dstReg, otherReg, src->GetRegNum(), EA_8BYTE);
+        DefLongRegs(bitcast->AsMultiRegOp());
     }
     else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
     {
@@ -983,9 +993,8 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     else
     {
         inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
+        genProduceReg(bitcast);
     }
-
-    genProduceReg(bitcast);
 }
 
 #if FEATURE_ARG_SPLIT

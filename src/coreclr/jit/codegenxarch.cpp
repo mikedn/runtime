@@ -623,6 +623,14 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
         inst_Mov(targetType, targetReg, REG_RDX, /* canSkip */ true);
     }
 
+#ifdef TARGET_X86
+    if (treeNode->OperIs(GT_MUL_LONG))
+    {
+        DefLongRegs(treeNode->AsMultiRegOp());
+        return;
+    }
+#endif
+
     genProduceReg(treeNode);
 }
 

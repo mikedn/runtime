@@ -1794,10 +1794,11 @@ void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclN
 //     None.
 void CodeGen::genProduceReg(GenTree* tree)
 {
-#ifdef DEBUG
-    assert((tree->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
-    tree->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;
+#ifndef TARGET_64BIT
+    assert(!tree->IsMultiRegOpLong());
 #endif
+    assert((tree->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
     if (tree->IsAnyRegSpill())
     {
@@ -1851,12 +1852,7 @@ void CodeGen::genProduceReg(GenTree* tree)
             {
                 regSet.SpillNodeRegs(tree, argSplit->GetRegCount());
             }
-            else if (GenTreeMultiRegOp* multiReg = tree->IsMultiRegOpLong())
-            {
-                // TODO-MIKE-Review: Why the crap is this under ARM? x86 uses MUL_LONG too...
-                regSet.SpillNodeRegs(tree, multiReg->GetRegCount());
-            }
-#endif // TARGET_ARM
+#endif
             else
             {
                 regSet.SpillNodeReg(tree, 0);
@@ -1944,6 +1940,28 @@ void CodeGen::genProduceReg(GenTree* tree)
         }
     }
 }
+
+#ifndef TARGET_64BIT
+void CodeGen::DefLongRegs(GenTreeMultiRegOp* node)
+{
+    assert(node->TypeIs(TYP_LONG) && (node->GetRegCount() == 2));
+    assert((node->GetRegType(0) == TYP_INT) && (node->GetRegType(1) == TYP_INT));
+    assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(node->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (node->IsRegSpill(0))
+    {
+        regSet.SpillNodeReg(node, 0);
+    }
+
+    if (node->IsRegSpill(1))
+    {
+        regSet.SpillNodeReg(node, 1);
+    }
+
+    gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));
+}
+#endif // TARGET_64BIT
 
 // transfer gc/byref status of src reg to dst reg
 void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)

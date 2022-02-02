@@ -1429,7 +1429,7 @@ void CodeGen::genCodeForMulLong(GenTreeMultiRegOp* node)
     instruction ins  = node->IsUnsigned() ? INS_umull : INS_smull;
     GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, node->GetRegNum(), node->GetRegNum(1), src1->GetRegNum(),
                                   src2->GetRegNum());
-    genProduceReg(node);
+    DefLongRegs(node);
 }
 
 void CodeGen::genFloatReturn(GenTree* src)

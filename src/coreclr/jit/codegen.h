@@ -1074,6 +1074,9 @@ protected:
     // Do liveness update for register produced by the current node in codegen after
     // code has been emitted for it.
     void genProduceReg(GenTree* tree);
+#ifndef TARGET_64BIT
+    void DefLongRegs(GenTreeMultiRegOp* node);
+#endif
     void genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
     void genUnspillLocal(
         unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum, bool reSpill, bool isLastUse);
