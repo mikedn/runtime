@@ -1323,8 +1323,8 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
     if (tree->IsMultiRegLclVar() && m_liveness.UpdateLifeFieldVar(this, tree->AsLclVar(), multiRegIndex))
     {
         GenTreeLclVar* lcl = tree->AsLclVar();
-        genSpillLocal(lcl->GetLclNum(), lcl->GetFieldTypeByIndex(compiler, multiRegIndex), lcl,
-                      lcl->GetRegNum(multiRegIndex));
+        SpillLclVarReg(lcl->GetLclNum(), lcl->GetFieldTypeByIndex(compiler, multiRegIndex), lcl,
+                       lcl->GetRegNum(multiRegIndex));
     }
 
     if (tree->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR))
@@ -1748,41 +1748,6 @@ void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber sr
     genCopyRegIfNeeded(size, sizeReg);
 }
 
-//-------------------------------------------------------------------------
-// genSpillLocal: Generate the actual spill of a local var.
-//
-// Arguments:
-//     varNum    - The variable number of the local to be spilled.
-//                 It may be a local field.
-//     type      - The type of the local.
-//     lclNode   - The node being spilled. Note that for a multi-reg local,
-//                 the gtLclNum will be that of the parent struct.
-//     regNum    - The register that 'varNum' is currently in.
-//
-// Return Value:
-//     None.
-//
-void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum)
-{
-    const LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-    assert(!varDsc->lvNormalizeOnStore() || (type == varDsc->GetActualRegisterType()));
-
-    // We have a register candidate local that is marked with SPILL.
-    // This flag generally means that we need to spill this local.
-    // The exception is the case of a use of an EH/spill-at-single-def var use that is being "spilled"
-    // to the stack, indicated by SPILL (note that all EH lclVar defs are always
-    // spilled, i.e. write-thru. Likewise, single-def vars that are spilled at its definitions).
-    // An EH or single-def var use is always valid on the stack (so we don't need to actually spill it),
-    // but the SPILL flag records the fact that the register value is going dead.
-    if (((lclNode->gtFlags & GTF_VAR_DEF) != 0) || (!varDsc->IsAlwaysAliveInMemory()))
-    {
-        // Store local variable to its home location.
-        // Ensure that lclVar stores are typed correctly.
-        GetEmitter()->emitIns_S_R(ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(varNum)), emitTypeSize(type),
-                                  regNum, varNum, 0);
-    }
-}
-
 void CodeGen::genProduceReg(GenTree* node)
 {
     DefReg(node);
@@ -1857,7 +1822,7 @@ void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
                 {
                     unsigned  fieldLclNum = lcl->GetPromotedFieldLclNum(i);
                     var_types spillType   = compiler->lvaGetDesc(fieldLclNum)->GetRegisterType();
-                    genSpillLocal(fieldLclNum, spillType, lclVar, lclVar->GetRegNum(i));
+                    SpillLclVarReg(fieldLclNum, spillType, lclVar, lclVar->GetRegNum(i));
                 }
             }
         }
@@ -1865,7 +1830,7 @@ void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
         {
             unsigned  lclNum    = lclVar->GetLclNum();
             var_types spillType = lcl->GetRegisterType(lclVar);
-            genSpillLocal(lclNum, spillType, lclVar, lclVar->GetRegNum());
+            SpillLclVarReg(lclNum, spillType, lclVar, lclVar->GetRegNum());
         }
         else
         {
@@ -1897,6 +1862,29 @@ void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
     {
         gcInfo.gcMarkRegPtrVal(lclVar->GetRegNum(), lclVar->GetType());
     }
+}
+
+void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lclVar, regNumber reg)
+{
+    assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));
+
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
+
+    // We have a register candidate local that is marked with SPILL.
+    // This flag generally means that we need to spill this local.
+    // The exception is the case of a use of an EH/spill-at-single-def var use that is being "spilled"
+    // to the stack, indicated by SPILL (note that all EH lclVar defs are always
+    // spilled, i.e. write-thru. Likewise, single-def vars that are spilled at its definitions).
+    // An EH or single-def var use is always valid on the stack (so we don't need to actually spill it),
+    // but the SPILL flag records the fact that the register value is going dead.
+    if (lclVar->OperIs(GT_LCL_VAR) && lcl->IsAlwaysAliveInMemory())
+    {
+        return;
+    }
+
+    GetEmitter()->emitIns_S_R(ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum)), emitTypeSize(type), reg,
+                              lclNum, 0);
 }
 
 #if FEATURE_ARG_SPLIT

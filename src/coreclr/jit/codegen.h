@@ -1083,7 +1083,7 @@ protected:
 #ifndef TARGET_64BIT
     void DefLongRegs(GenTreeMultiRegOp* node);
 #endif
-    void genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
+    void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
     void genUnspillLocal(
         unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum, bool reSpill, bool isLastUse);
     void genUnspillRegIfNeeded(GenTree* tree);

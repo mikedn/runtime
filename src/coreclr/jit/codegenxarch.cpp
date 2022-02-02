@@ -1844,7 +1844,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     }
 #endif
 
-    genProduceReg(store);
+    DefLclVarRegs(store);
 #endif // UNIX_AMD64_ABI
 }
 
