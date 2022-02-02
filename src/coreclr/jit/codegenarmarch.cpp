@@ -1027,7 +1027,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, putArg->GetRegNum(i), 0);
         }
 
-        genProduceReg(putArg);
+        DefPutArgSplitRegs(putArg);
 
         return;
     }
@@ -1078,7 +1078,8 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 #endif
         }
 
-        genProduceReg(putArg);
+        DefPutArgSplitRegs(putArg);
+
         return;
     }
 
@@ -1214,7 +1215,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
         }
     }
 
-    genProduceReg(putArg);
+    DefPutArgSplitRegs(putArg);
 }
 #endif // FEATURE_ARG_SPLIT
 

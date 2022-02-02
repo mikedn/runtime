@@ -1795,6 +1795,9 @@ void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclN
 void CodeGen::genProduceReg(GenTree* tree)
 {
     assert(!tree->OperIs(GT_STORE_LCL_FLD, GT_CALL));
+#if FEATURE_ARG_SPLIT
+    assert(!tree->IsPutArgSplit());
+#endif
 #ifndef TARGET_64BIT
     assert(!tree->IsMultiRegOpLong());
 #endif
@@ -1840,17 +1843,7 @@ void CodeGen::genProduceReg(GenTree* tree)
         }
         else
         {
-#ifdef TARGET_ARM
-            if (GenTreePutArgSplit* argSplit = tree->IsPutArgSplit())
-            {
-                regSet.SpillNodeRegs(tree, argSplit->GetRegCount());
-            }
-            else
-#endif
-
-            {
-                regSet.SpillNodeReg(tree, 0);
-            }
+            regSet.SpillNodeReg(tree, 0);
 
             return;
         }
@@ -1921,6 +1914,29 @@ void CodeGen::genProduceReg(GenTree* tree)
         }
     }
 }
+
+#if FEATURE_ARG_SPLIT
+void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
+{
+    assert((arg->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(arg->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (arg->IsAnyRegSpill())
+    {
+        regSet.SpillNodeRegs(arg, arg->GetRegCount());
+    }
+    else
+    {
+        // TODO-MIKE-Review: It looks like they forgot about "other regs" and also
+        // passed the wrong type. It probably doesn't matter as arg registers get
+        // killed anyway but still...
+        // The spill check is also dubious, it should probably done for each reg,
+        // it's not an all or nothing case. But then it's unlikely that these regs
+        // ever need spilling.
+        gcInfo.gcMarkRegPtrVal(arg->GetRegNum(), arg->GetType());
+    }
+}
+#endif // FEATURE_ARG_SPLIT
 
 void CodeGen::DefCallRegs(GenTreeCall* call)
 {
