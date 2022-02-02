@@ -435,7 +435,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
     for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
     {
-        BuildDef(putArg, genRegMask(argInfo->GetRegNum(i)), i);
+        BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);
     }
 
     return srcCount;

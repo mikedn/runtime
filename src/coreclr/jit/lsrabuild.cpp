@@ -150,15 +150,12 @@ void RefInfoListNodePool::ReturnNode(RefInfoListNode* listNode)
 // TODO-Cleanup: Consider adding an overload that takes a varDsc, and can appropriately
 // set such fields as isStructField
 //
-Interval* LinearScan::newInterval(RegisterType theRegisterType)
+Interval* LinearScan::newInterval(var_types regType)
 {
-    intervals.emplace_back(theRegisterType, allRegs(theRegisterType));
+    intervals.emplace_back(regType, allRegs(regType));
     Interval* newInt = &intervals.back();
 
-#ifdef DEBUG
-    newInt->intervalIndex = static_cast<unsigned>(intervals.size() - 1);
-#endif // DEBUG
-
+    INDEBUG(newInt->intervalIndex = static_cast<unsigned>(intervals.size() - 1);)
     DBEXEC(VERBOSE, newInt->dump());
     return newInt;
 }
@@ -2708,98 +2705,87 @@ void setTgtPref(Interval* interval, RefPosition* tgtPrefUse)
     }
 }
 #endif // TARGET_XARCH || FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// BuildDef: Build a RefTypeDef RefPosition for the given node
-//
-// Arguments:
-//    tree          - The node that defines a register
-//    dstCandidates - The candidate registers for the definition
-//    multiRegIdx   - The index of the definition, defaults to zero.
-//                    Only non-zero for multi-reg nodes.
-//
-// Return Value:
-//    The newly created RefPosition.
-//
-// Notes:
-//    Adds the RefInfo for the definition to the defList.
-//
-RefPosition* LinearScan::BuildDef(GenTree* tree, regMaskTP dstCandidates, int multiRegIdx)
+
+RefPosition* LinearScan::BuildDef(GenTree* node, regMaskTP regCandidates)
 {
-    assert(!tree->isContained());
+    assert(!node->isContained());
+    assert(!node->IsMultiRegNode());
 
-    if (dstCandidates != RBM_NONE)
-    {
-        assert((tree->GetRegNum() == REG_NA) || (dstCandidates == genRegMask(tree->GetRegNum(multiRegIdx))));
-    }
-
-    RegisterType type;
-    if (!tree->IsMultiRegNode())
-    {
-        type = getDefType(tree);
-    }
-    else
-    {
-        type = tree->GetRegTypeByIndex(multiRegIdx);
-    }
-
-    return BuildDef(tree, type, dstCandidates, multiRegIdx);
+    return BuildDef(node, getDefType(node), regCandidates, 0);
 }
 
-RefPosition* LinearScan::BuildDef(GenTree* tree, var_types type, regMaskTP dstCandidates, int multiRegIdx)
+RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex)
 {
-    if (varTypeUsesFloatReg(type))
+    if (regCandidates != RBM_NONE)
+    {
+        // TODO-MIKE-Cleanup: This ignores regIndex...
+        assert((node->GetRegNum() == REG_NA) || (regCandidates == genRegMask(node->GetRegNum(regIndex))));
+    }
+
+    if (varTypeUsesFloatReg(regType))
     {
         compiler->compFloatingPointUsed = true;
     }
 
-    Interval* interval = newInterval(type);
-    if (tree->GetRegNum() != REG_NA)
+    Interval* interval = newInterval(regType);
+
+    if (node->GetRegNum() != REG_NA)
     {
-        if (!tree->IsMultiRegNode() || (multiRegIdx == 0))
+        if (!node->IsMultiRegNode() || (regIndex == 0))
         {
-            assert((dstCandidates == RBM_NONE) || (dstCandidates == genRegMask(tree->GetRegNum())));
-            dstCandidates = genRegMask(tree->GetRegNum());
+            assert((regCandidates == RBM_NONE) || (regCandidates == genRegMask(node->GetRegNum())));
+            regCandidates = genRegMask(node->GetRegNum());
         }
         else
         {
-            assert(isSingleRegister(dstCandidates));
+            assert(isSingleRegister(regCandidates));
         }
     }
 #ifdef TARGET_X86
-    else if (varTypeIsByte(tree))
+    // TODO-MIKE-Review: This is dubious, only stores need this and stores aren't defs.
+    // SETCC also needs byte regs but it already provides suitable regCandidates. So
+    // what the crap is this code doing here?!?
+    // This also ignores regIndex but presumably this doesn't matter, on x86 the only
+    // multireg case already uses byte regs - call returns.
+    else if (varTypeIsByte(node->GetType()))
     {
-        if (dstCandidates == RBM_NONE)
+        if (regCandidates == RBM_NONE)
         {
-            dstCandidates = allRegs(TYP_INT);
+            regCandidates = allRegs(TYP_INT);
         }
-        dstCandidates &= ~RBM_NON_BYTE_REGS;
-        assert(dstCandidates != RBM_NONE);
+
+        regCandidates &= ~RBM_NON_BYTE_REGS;
+        assert(regCandidates != RBM_NONE);
     }
 #endif // TARGET_X86
+
     if (pendingDelayFree)
     {
         interval->hasInterferingUses = true;
         // pendingDelayFree = false;
     }
-    RefPosition* defRefPosition =
-        newRefPosition(interval, currentLoc + 1, RefTypeDef, tree, dstCandidates, multiRegIdx);
-    if (tree->IsUnusedValue())
+
+    RefPosition* defRefPosition = newRefPosition(interval, currentLoc + 1, RefTypeDef, node, regCandidates, regIndex);
+
+    if (node->IsUnusedValue())
     {
         defRefPosition->isLocalDefUse = true;
         defRefPosition->lastUse       = true;
     }
     else
     {
-        RefInfoListNode* refInfo = listNodePool.GetNode(defRefPosition, tree);
-        defList.Append(refInfo);
+        defList.Append(listNodePool.GetNode(defRefPosition, node));
     }
+
 #if defined(TARGET_XARCH) || defined(FEATURE_HW_INTRINSICS)
     setTgtPref(interval, tgtPrefUse);
     setTgtPref(interval, tgtPrefUse2);
-#endif // TARGET_XARCH
+#endif
+
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     assert(!interval->isPartiallySpilled);
 #endif
+
     return defRefPosition;
 }
 
@@ -3674,8 +3660,8 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
         BuildUse(src, nextArgRegMask, 1);
         srcCount++;
 
-        BuildDef(putArg, argRegMask, 0);
-        BuildDef(putArg, nextArgRegMask, 1);
+        BuildDef(putArg, TYP_INT, argRegMask, 0);
+        BuildDef(putArg, TYP_INT, nextArgRegMask, 1);
     }
     else
 #endif
