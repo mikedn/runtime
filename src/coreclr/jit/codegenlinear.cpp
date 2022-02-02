@@ -1794,6 +1794,7 @@ void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclN
 //     None.
 void CodeGen::genProduceReg(GenTree* tree)
 {
+    assert(!tree->OperIs(GT_STORE_LCL_FLD));
 #ifndef TARGET_64BIT
     assert(!tree->IsMultiRegOpLong());
 #endif
@@ -1862,9 +1863,9 @@ void CodeGen::genProduceReg(GenTree* tree)
         }
     }
 
-    if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (tree->OperIs(GT_STORE_LCL_VAR))
     {
-        genUpdateLife(tree->AsLclVarCommon());
+        genUpdateLife(tree->AsLclVar());
     }
 
     // If we've produced a register, mark it as a pointer, as needed.
