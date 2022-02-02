@@ -5285,7 +5285,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 inst_Mov(returnType, call->GetRegNum(), returnReg, /* canSkip */ true);
             }
 
-            genProduceReg(call);
+            DefCallRegs(call);
         }
     }
 

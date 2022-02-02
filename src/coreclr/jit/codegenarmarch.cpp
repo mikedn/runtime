@@ -2955,7 +2955,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             }
         }
 
-        genProduceReg(call);
+        DefCallRegs(call);
     }
 
     // If there is nothing next, that means the result is thrown away, so this value is not live.

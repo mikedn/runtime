@@ -1794,7 +1794,7 @@ void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclN
 //     None.
 void CodeGen::genProduceReg(GenTree* tree)
 {
-    assert(!tree->OperIs(GT_STORE_LCL_FLD));
+    assert(!tree->OperIs(GT_STORE_LCL_FLD, GT_CALL));
 #ifndef TARGET_64BIT
     assert(!tree->IsMultiRegOpLong());
 #endif
@@ -1840,21 +1840,14 @@ void CodeGen::genProduceReg(GenTree* tree)
         }
         else
         {
-            // In case of multi-reg call node, spill flag on call node
-            // indicates that one or more of its allocated regs need to
-            // be spilled.  Call node needs to be further queried to
-            // know which of its result regs needs to be spilled.
-            if (tree->IsMultiRegCall())
-            {
-                regSet.SpillNodeRegs(tree, tree->AsCall()->GetRegCount());
-            }
 #ifdef TARGET_ARM
-            else if (GenTreePutArgSplit* argSplit = tree->IsPutArgSplit())
+            if (GenTreePutArgSplit* argSplit = tree->IsPutArgSplit())
             {
                 regSet.SpillNodeRegs(tree, argSplit->GetRegCount());
             }
-#endif
             else
+#endif
+
             {
                 regSet.SpillNodeReg(tree, 0);
             }
@@ -1880,20 +1873,7 @@ void CodeGen::genProduceReg(GenTree* tree)
         //    the register as live, with a GC pointer, if the variable is dead.
         if (!genIsRegCandidateLclVar(tree) || ((tree->gtFlags & GTF_VAR_DEATH) == 0))
         {
-            // Multi-reg nodes will produce more than one register result.
-            // Mark all the regs produced by the node.
-            if (tree->IsMultiRegCall())
-            {
-                GenTreeCall* call = tree->AsCall();
-
-                for (unsigned i = 0; i < call->GetRegCount(); ++i)
-                {
-                    regNumber reg  = call->GetRegNum(i);
-                    var_types type = call->GetRegType(i);
-                    gcInfo.gcMarkRegPtrVal(reg, type);
-                }
-            }
-            else if (tree->IsCopyOrReloadOfMultiRegCall())
+            if (tree->IsCopyOrReloadOfMultiRegCall())
             {
                 // we should never see reload of multi-reg call here
                 // because GT_RELOAD gets generated in reg consuming path.
@@ -1938,6 +1918,38 @@ void CodeGen::genProduceReg(GenTree* tree)
             {
                 gcInfo.gcMarkRegPtrVal(tree->GetRegNum(), tree->TypeGet());
             }
+        }
+    }
+}
+
+void CodeGen::DefCallRegs(GenTreeCall* call)
+{
+    assert((call->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (call->IsAnyRegSpill())
+    {
+        if (call->IsMultiRegCall())
+        {
+            regSet.SpillNodeRegs(call, call->GetRegCount());
+        }
+        else
+        {
+            regSet.SpillNodeReg(call, 0);
+        }
+    }
+    else if (call->gtHasReg())
+    {
+        if (call->IsMultiRegCall())
+        {
+            for (unsigned i = 0; i < call->GetRegCount(); ++i)
+            {
+                gcInfo.gcMarkRegPtrVal(call->GetRegNum(i), call->GetRegType(i));
+            }
+        }
+        else
+        {
+            gcInfo.gcMarkRegPtrVal(call->GetRegNum(), call->GetType());
         }
     }
 }
