@@ -1762,6 +1762,7 @@ void CodeGen::DefReg(GenTree* node)
 #ifndef TARGET_64BIT
     assert(!node->IsMultiRegOpLong());
 #endif
+    assert(!node->IsCopyOrReloadOfMultiRegCall());
     assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(node->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
@@ -1775,30 +1776,11 @@ void CodeGen::DefReg(GenTree* node)
         return;
     }
 
-    if (!node->IsCopyOrReloadOfMultiRegCall())
+    // TODO-MIKE-Review: This check is likely bogus, nodes that use this function
+    // likely always have a reg...
+    if (node->GetRegNum() != REG_NA)
     {
-        // TODO-MIKE-Review: This check is likely bogus, nodes that use this function
-        // likely always have a reg...
-        if (node->GetRegNum() != REG_NA)
-        {
-            gcInfo.gcMarkRegPtrVal(node->GetRegNum(), node->GetType());
-        }
-    }
-    else
-    {
-        // RELOAD is handled by genConsumeReg, it does not act as a definition.
-        noway_assert(node->OperIs(GT_COPY));
-
-        const GenTreeCopyOrReload* copy = node->AsCopyOrReload();
-        const GenTreeCall*         call = copy->GetOp(0)->AsCall();
-
-        for (unsigned i = 0; i < call->GetRegCount(); ++i)
-        {
-            if (copy->GetRegNum(i) != REG_NA)
-            {
-                gcInfo.gcMarkRegPtrVal(copy->GetRegNum(i), call->GetRegType(i));
-            }
-        }
+        gcInfo.gcMarkRegPtrVal(node->GetRegNum(), node->GetType());
     }
 }
 
