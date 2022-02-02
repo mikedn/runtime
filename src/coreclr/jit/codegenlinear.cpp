@@ -1794,13 +1794,73 @@ void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclN
 //     None.
 void CodeGen::genProduceReg(GenTree* tree)
 {
-    assert(!tree->OperIs(GT_STORE_LCL_FLD, GT_CALL));
+    assert(!tree->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR, GT_LCL_VAR, GT_CALL));
 #if FEATURE_ARG_SPLIT
     assert(!tree->IsPutArgSplit());
 #endif
 #ifndef TARGET_64BIT
     assert(!tree->IsMultiRegOpLong());
 #endif
+    assert((tree->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (tree->IsAnyRegSpill())
+    {
+        // Code for GT_COPY node gets generated as part of consuming regs by its parent.
+        // A GT_COPY node in turn produces reg result and it should never be marked to
+        // spill.
+        //
+        // Similarly GT_RELOAD node gets generated as part of consuming regs by its
+        // parent and should never be marked for spilling.
+        noway_assert(!tree->IsCopyOrReload());
+
+        regSet.SpillNodeReg(tree, 0);
+
+        return;
+    }
+
+    // If we've produced a register, mark it as a pointer, as needed.
+    if (tree->gtHasReg())
+    {
+        // We only mark the register in the following cases:
+        // 1. It is not a register candidate local. In this case, we're producing a
+        //    register from a local, but the local is not a register candidate. Thus,
+        //    we must be loading it as a temp register, and any "last use" flag on
+        //    the register wouldn't be relevant.
+        // 2. The register candidate local is going dead. There's no point to mark
+        //    the register as live, with a GC pointer, if the variable is dead.
+        if (tree->IsCopyOrReloadOfMultiRegCall())
+        {
+            // we should never see reload of multi-reg call here
+            // because GT_RELOAD gets generated in reg consuming path.
+            noway_assert(tree->OperGet() == GT_COPY);
+
+            // A multi-reg GT_COPY node produces those regs to which
+            // copy has taken place.
+            const GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
+            const GenTreeCall*         call = copy->GetOp(0)->AsCall();
+
+            for (unsigned i = 0; i < call->GetRegCount(); ++i)
+            {
+                var_types type  = call->GetRegType(i);
+                regNumber toReg = copy->GetRegNum(i);
+
+                if (toReg != REG_NA)
+                {
+                    gcInfo.gcMarkRegPtrVal(toReg, type);
+                }
+            }
+        }
+        else
+        {
+            gcInfo.gcMarkRegPtrVal(tree->GetRegNum(), tree->TypeGet());
+        }
+    }
+}
+
+void CodeGen::DefLclVarRegs(GenTreeLclVar* tree)
+{
+    assert(tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
     assert((tree->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
@@ -1851,7 +1911,7 @@ void CodeGen::genProduceReg(GenTree* tree)
 
     if (tree->OperIs(GT_STORE_LCL_VAR))
     {
-        genUpdateLife(tree->AsLclVar());
+        genUpdateLife(tree);
     }
 
     // If we've produced a register, mark it as a pointer, as needed.
@@ -1866,29 +1926,7 @@ void CodeGen::genProduceReg(GenTree* tree)
         //    the register as live, with a GC pointer, if the variable is dead.
         if (!genIsRegCandidateLclVar(tree) || ((tree->gtFlags & GTF_VAR_DEATH) == 0))
         {
-            if (tree->IsCopyOrReloadOfMultiRegCall())
-            {
-                // we should never see reload of multi-reg call here
-                // because GT_RELOAD gets generated in reg consuming path.
-                noway_assert(tree->OperGet() == GT_COPY);
-
-                // A multi-reg GT_COPY node produces those regs to which
-                // copy has taken place.
-                const GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
-                const GenTreeCall*         call = copy->GetOp(0)->AsCall();
-
-                for (unsigned i = 0; i < call->GetRegCount(); ++i)
-                {
-                    var_types type  = call->GetRegType(i);
-                    regNumber toReg = copy->GetRegNum(i);
-
-                    if (toReg != REG_NA)
-                    {
-                        gcInfo.gcMarkRegPtrVal(toReg, type);
-                    }
-                }
-            }
-            else if (tree->IsMultiRegLclVar())
+            if (tree->IsMultiRegLclVar())
             {
                 assert(compiler->lvaEnregMultiRegVars);
                 GenTreeLclVar* lclNode  = tree->AsLclVar();

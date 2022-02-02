@@ -4126,7 +4126,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
         if (tree->TypeIs(TYP_SIMD12))
         {
             LoadSIMD12(tree);
-            genProduceReg(tree);
+            DefLclVarRegs(tree);
             return;
         }
 #endif
@@ -4134,7 +4134,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
         var_types type = varDsc->GetRegisterType(tree);
         GetEmitter()->emitIns_R_S(ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(tree->GetLclNum())),
                                   emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
-        genProduceReg(tree);
+        DefLclVarRegs(tree);
     }
 }
 
@@ -4217,6 +4217,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (lclRegType == TYP_LONG)
     {
         GenStoreLclVarLong(store);
+        // TODO-MIKE-Review: Doesn't this need a DefLclVarRegs call?
         return;
     }
 #endif
@@ -4225,6 +4226,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (lclRegType == TYP_SIMD12)
     {
         genStoreSIMD12(store, src);
+        // TODO-MIKE-Review: Doesn't this need a DefLclVarRegs call?
         return;
     }
 #endif
@@ -4250,7 +4252,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         {
             inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
 
-            genProduceReg(store);
+            DefLclVarRegs(store);
         }
 
         return;
@@ -4323,7 +4325,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         inst_Mov_Extend(lclRegType, true, dstReg, src->GetRegNum(), /* canSkip */ true, emitTypeSize(lclRegType));
     }
 
-    genProduceReg(store);
+    DefLclVarRegs(store);
 }
 
 void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src)

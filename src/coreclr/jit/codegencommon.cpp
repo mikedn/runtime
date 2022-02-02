@@ -10356,7 +10356,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     {
         if (hasRegs)
         {
-            genProduceReg(store);
+            DefLclVarRegs(store);
         }
         else
         {

@@ -1277,7 +1277,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
         }
     }
 
-    genProduceReg(store);
+    DefLclVarRegs(store);
 }
 
 #endif // FEATURE_SIMD

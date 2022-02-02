@@ -844,7 +844,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
         var_types        type   = varDsc->GetRegisterType(tree);
 
         GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
-        genProduceReg(tree);
+        DefLclVarRegs(tree);
     }
 }
 
@@ -953,7 +953,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
 
-    genProduceReg(store);
+    DefLclVarRegs(store);
 }
 
 //------------------------------------------------------------------------
