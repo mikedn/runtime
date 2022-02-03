@@ -289,11 +289,8 @@ public:
 
         ReadOnlyRange GetTreeRange(GenTree* root, bool* isClosed) const;
         ReadOnlyRange GetTreeRange(GenTree* root, bool* isClosed, unsigned* sideEffects) const;
-        ReadOnlyRange GetRangeOfOperandTrees(GenTree* root, bool* isClosed, unsigned* sideEffects) const;
 
-#ifdef DEBUG
-        bool CheckLIR(Compiler* compiler, bool checkUnusedValues = false) const;
-#endif
+        INDEBUG(bool CheckLIR(Compiler* compiler, bool checkUnusedValues = false) const;)
     };
 
 public:

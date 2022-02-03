@@ -1031,27 +1031,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount++;
     }
 
-#ifdef DEBUG
-    // Now, count stack args
-    // Note that these need to be computed into a register, but then
-    // they're just stored to the stack - so the reg doesn't
-    // need to remain live until the call.  In fact, it must not
-    // because the code generator doesn't actually consider it live,
-    // so it can't be spilled.
-
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        GenTree* arg = use.GetNode();
-        if (!(arg->gtFlags & GTF_LATE_ARG) && !arg)
-        {
-            if (arg->IsValue() && !arg->isContained())
-            {
-                assert(arg->IsUnusedValue());
-            }
-        }
-    }
-#endif // DEBUG
-
     // set reg requirements on call target represented as control sequence.
     if (ctrlExpr != nullptr)
     {

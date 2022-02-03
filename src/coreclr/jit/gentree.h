@@ -443,7 +443,6 @@ enum GenTreeFlags : unsigned int
 
     GTF_UNSIGNED    = 0x00008000, // With GT_CAST:   the source operand is an unsigned type
                                   // With operators: the specified node is an unsigned operator
-    GTF_LATE_ARG    = 0x00010000, // The specified node is evaluated to a temp in the arg list, and this temp is added to gtCallLateArgs.
     GTF_SPILL       = 0x00020000, // Needs to be spilled here
 
 // The extra flag GTF_IS_IN_CSE is used to tell the consumer of the side effect flags
@@ -1022,6 +1021,11 @@ public:
     void SetVNsFromNode(GenTree* tree)
     {
         gtVNPair = tree->gtVNPair;
+    }
+
+    ValueNumPair GetVNP() const
+    {
+        return gtVNPair;
     }
 
     void SetVNP(ValueNumPair vnp)
@@ -1976,11 +1980,6 @@ public:
     static bool SameIconHandleFlag(GenTree* t1, GenTree* t2)
     {
         return t1->GetIconHandleFlag() == t2->GetIconHandleFlag();
-    }
-
-    bool IsArgPlaceHolderNode() const
-    {
-        return OperGet() == GT_ARGPLACE;
     }
 
     inline bool IsHelperCall();
@@ -4690,8 +4689,6 @@ public:
 
     bool IsHelperCall(Compiler* compiler, unsigned helper) const;
 
-    void ReplaceCallOperand(GenTree** operandUseEdge, GenTree* replacement);
-
     bool AreArgsComplete() const;
 
     CorInfoCallConvExtension GetUnmanagedCallConv() const
@@ -5053,8 +5050,8 @@ class CallInfo
     bool hasRegArgs : 1;   // true if we have one or more register arguments
     bool argsComplete : 1; // marker for state
 
-    void SortArgs(Compiler* compiler, GenTreeCall* call);
-    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call);
+    void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable);
+    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable);
 
 public:
     CallInfo(class Compiler* comp, GenTreeCall* call, unsigned argCount);
@@ -5075,16 +5072,6 @@ public:
     {
         assert(i < argCount);
         return argTable[i];
-    }
-
-    unsigned ArgCount() const
-    {
-        return argCount;
-    }
-
-    fgArgTabEntry** ArgTable() const
-    {
-        return argTable;
     }
 
     unsigned GetNextSlotNum() const

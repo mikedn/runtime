@@ -932,42 +932,6 @@ bool GenTreeCall::IsHelperCall(Compiler* compiler, unsigned helper) const
     return IsHelperCall(compiler->eeFindHelper(helper));
 }
 
-//------------------------------------------------------------------------
-// GenTreeCall::ReplaceCallOperand:
-//    Replaces a given operand to a call node and updates the call
-//    argument table if necessary.
-//
-// Arguments:
-//    useEdge - the use edge that points to the operand to be replaced.
-//    replacement - the replacement node.
-//
-void GenTreeCall::ReplaceCallOperand(GenTree** useEdge, GenTree* replacement)
-{
-    assert(useEdge != nullptr);
-    assert(replacement != nullptr);
-    assert(FindUse(*useEdge) == useEdge);
-
-    GenTree* originalOperand = *useEdge;
-    *useEdge                 = replacement;
-
-    const bool isArgument =
-        (replacement != gtControlExpr) &&
-        ((gtCallType != CT_INDIRECT) || ((replacement != gtCallCookie) && (replacement != gtCallAddr)));
-
-    if (isArgument)
-    {
-        if ((originalOperand->gtFlags & GTF_LATE_ARG) != 0)
-        {
-            replacement->gtFlags |= GTF_LATE_ARG;
-        }
-        else
-        {
-            assert((replacement->gtFlags & GTF_LATE_ARG) == 0);
-            assert(GetArgInfoByArgNode(replacement)->GetNode() == replacement);
-        }
-    }
-}
-
 //-------------------------------------------------------------------------
 // AreArgsComplete: Determine if this GT_CALL node's arguments have been processed.
 //
@@ -3756,30 +3720,13 @@ GenTree** GenTree::FindUse(GenTree* def)
     return use;
 }
 
-//------------------------------------------------------------------------
-// GenTree::ReplaceOperand:
-//    Replace a given operand to this node with a new operand. If the
-//    current node is a call node, this will also udpate the call
-//    argument table if necessary.
-//
-// Arguments:
-//    useEdge - the use edge that points to the operand to be replaced.
-//    replacement - the replacement node.
-//
 void GenTree::ReplaceOperand(GenTree** useEdge, GenTree* replacement)
 {
     assert(useEdge != nullptr);
     assert(replacement != nullptr);
     assert(FindUse(*useEdge) == useEdge);
 
-    if (OperGet() == GT_CALL)
-    {
-        AsCall()->ReplaceCallOperand(useEdge, replacement);
-    }
-    else
-    {
-        *useEdge = replacement;
-    }
+    *useEdge = replacement;
 }
 
 //------------------------------------------------------------------------
@@ -4745,26 +4692,10 @@ GenTree* GenTreeCall::GetThisArg() const
 CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
 {
     noway_assert(fgArgInfo != nullptr);
-
     assert(argNum < fgArgInfo->GetArgCount());
+    assert(fgArgInfo->GetArgInfo(argNum)->GetArgNum() == argNum);
 
-    if (fgArgInfo->GetArgInfo(argNum)->GetArgNum() == argNum)
-    {
-        return fgArgInfo->GetArgInfo(argNum);
-    }
-
-    // The arg table was sorted and the arg changed its position, do a linear search to find it.
-    for (unsigned i = 0; i < fgArgInfo->GetArgCount(); i++)
-    {
-        CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
-
-        if (argInfo->GetArgNum() == argNum)
-        {
-            return argInfo;
-        }
-    }
-
-    unreached();
+    return fgArgInfo->GetArgInfo(argNum);
 }
 
 GenTree* GenTreeCall::GetArgNodeByArgNum(unsigned argNum) const
@@ -6795,7 +6726,7 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
                      (flags & GTF_MAKE_CSE) ? 'H' : '-'); // H is for Hoist this expr
     printf("%c", (flags & GTF_REVERSE_OPS) ? 'R' : '-');
     printf("%c", (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-');
-    printf("%c", (flags & GTF_LATE_ARG) ? 'L' : '-');
+    printf("%c", '-');
     printf("%c", (flags & GTF_SPILLED) ? 'z' : (flags & GTF_SPILL) ? 'Z' : '-');
 
     return charsDisplayed;
@@ -9185,7 +9116,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
     IndentInfo operandArc = IIArcTop;
     for (GenTree* operand : node->Operands())
     {
-        if (operand->IsArgPlaceHolderNode() || !operand->IsValue())
+        if (operand->OperIs(GT_ARGPLACE) || !operand->IsValue())
         {
             // Either of these situations may happen with calls.
             continue;
@@ -10222,59 +10153,67 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     JITDUMP("\nAttempting to optimize BOX_NULLABLE(&x) %s null [%06u]\n", GenTree::OpName(oper), dspTreeID(tree));
 
     // Get the address of the struct being boxed
-    GenTree* const arg = call->gtCallArgs->GetNext()->GetNode();
+    GenTree* arg;
 
-    if (arg->OperIs(GT_LCL_VAR_ADDR, GT_FIELD_ADDR, GT_INDEX_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
+    if (call->GetInfo() == nullptr)
     {
-        ClassLayout* nullableLayout;
-
-        if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
-        {
-            nullableLayout = fieldAddr->GetLayout(this);
-        }
-        else if (GenTreeIndexAddr* indexAddr = arg->IsIndexAddr())
-        {
-            nullableLayout = indexAddr->GetLayout(this);
-        }
-        else
-        {
-            nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
-        }
-
-        if (nullableLayout == nullptr)
-        {
-            return tree;
-        }
-
-        CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableLayout->GetClassHandle(), 0);
-        unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
-
-        // Replace the box with an access of the nullable 'hasValue' field.
-        JITDUMP("\nSuccess: replacing BOX_NULLABLE(&x) [%06u] with x.hasValue\n", dspTreeID(op));
-
-        GenTree* newOp;
-
-        if (arg->OperIs(GT_LCL_VAR_ADDR) && lvaAddressExposedLocalsMarked)
-        {
-            newOp = arg->ChangeToLclFld(TYP_BOOL, arg->AsLclVar()->GetLclNum(), fieldOffset,
-                                        GetFieldSeqStore()->CreateSingleton(fieldHnd));
-        }
-        else
-        {
-            newOp = gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(arg, fieldHnd, fieldOffset));
-        }
-
-        if (op == op1)
-        {
-            tree->AsOp()->gtOp1 = newOp;
-        }
-        else
-        {
-            tree->AsOp()->gtOp2 = newOp;
-        }
-
-        cons->gtType = TYP_INT;
+        arg = call->gtCallArgs->GetNext()->GetNode();
     }
+    else
+    {
+        arg = call->GetArgNodeByArgNum(1);
+    }
+
+    ClassLayout* nullableLayout = nullptr;
+
+    if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
+    {
+        nullableLayout = fieldAddr->GetLayout(this);
+    }
+    else if (GenTreeIndexAddr* indexAddr = arg->IsIndexAddr())
+    {
+        nullableLayout = indexAddr->GetLayout(this);
+    }
+    else if (arg->OperIs(GT_LCL_VAR_ADDR))
+    {
+        nullableLayout = lvaGetDesc(arg->AsLclVar())->GetLayout();
+    }
+
+    if (nullableLayout == nullptr)
+    {
+        return tree;
+    }
+
+    CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableLayout->GetClassHandle(), 0);
+    unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
+
+    // Replace the box with an access of the nullable 'hasValue' field.
+    JITDUMP("\nSuccess: replacing BOX_NULLABLE(&x) [%06u] with x.hasValue\n", dspTreeID(op));
+
+    GenTree* newOp;
+
+    if (arg->OperIs(GT_LCL_VAR_ADDR) && lvaAddressExposedLocalsMarked)
+    {
+        newOp = arg->ChangeToLclFld(TYP_BOOL, arg->AsLclVar()->GetLclNum(), fieldOffset,
+                                    GetFieldSeqStore()->CreateSingleton(fieldHnd));
+    }
+    else
+    {
+        newOp = gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(arg, fieldHnd, fieldOffset));
+    }
+
+    if (op == op1)
+    {
+        tree->AsOp()->gtOp1 = newOp;
+    }
+    else
+    {
+        tree->AsOp()->gtOp2 = newOp;
+    }
+
+    tree->SetSideEffects(newOp->GetSideEffects());
+
+    cons->gtType = TYP_INT;
 
     return tree;
 }

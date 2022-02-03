@@ -65,7 +65,7 @@ GenTree* Compiler::getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBloc
                 // On arm when compiling on certain platforms for ready to run, a handle will be
                 // inserted before the length. To handle this case, we will grab the last argument
                 // as that's always the length. See fgInitArgInfo for where the handle is inserted.
-                arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->ArgCount() - 1);
+                arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
             }
 #ifdef DEBUG
             if (arrayLength != nullptr)

@@ -1150,14 +1150,24 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
     if (HasRegArgs() || needsTemps)
     {
-        SortArgs(compiler, call);
-        EvalArgsToTemps(compiler, call);
+        CallArgInfo*  sortedArgTableArray[32];
+        CallArgInfo** sortedArgTable = sortedArgTableArray;
+
+        if (argCount > _countof(sortedArgTableArray))
+        {
+            sortedArgTable = compiler->getAllocator(CMK_CallInfo).allocate<CallArgInfo*>(argCount);
+        }
+
+        memcpy(sortedArgTable, argTable, argCount * sizeof(argTable[0]));
+
+        SortArgs(compiler, call, sortedArgTable);
+        EvalArgsToTemps(compiler, call, sortedArgTable);
     }
 
     argsComplete = true;
 }
 
-void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
+void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable)
 {
     // Shuffle the arguments around before we build the gtCallLateArgs list.
     // The idea is to move all "simple" arguments like constants and local vars
@@ -1294,13 +1304,18 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     if (compiler->verbose)
     {
         printf("\nSorted arg table:\n");
-        Dump();
+
+        for (unsigned i = 0; i < argCount; i++)
+        {
+            argTable[i]->Dump();
+        }
+
         printf("\n");
     }
 #endif
 }
 
-void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
+void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable)
 {
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
@@ -1454,15 +1469,8 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             if (setupArg != nullptr)
             {
                 JITDUMPTREE(setupArg, "Created arg setup/placeholder tree:\n");
-
-                setupArg->gtFlags |= GTF_LATE_ARG;
                 argInfo->use->SetNode(setupArg);
-
                 JITDUMP("\n");
-            }
-            else
-            {
-                arg->gtFlags |= GTF_LATE_ARG;
             }
 
             GenTreeCall::Use* lateArgUse = compiler->gtNewCallArgs(lateArg);
@@ -1951,7 +1959,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         GenTree* const argx = args->GetNode();
 
         // We should never have any ArgPlaceHolder nodes at this point.
-        assert(!argx->IsArgPlaceHolderNode());
+        assert(!argx->OperIs(GT_ARGPLACE));
 
         unsigned     size            = 0;
         var_types    sigType         = TYP_UNDEF;
@@ -5392,7 +5400,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     unsigned calleeArgStackSize = 0;
     unsigned callerArgStackSize = info.compArgStackSize;
 
-    for (unsigned index = 0; index < argInfo->ArgCount(); ++index)
+    for (unsigned index = 0; index < argInfo->GetArgCount(); ++index)
     {
         fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
 
@@ -7233,7 +7241,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
 
     // Hoist arg setup statement for the 'this' argument.
     GenTreeCall::Use* thisArg = recursiveTailCall->gtCallThisArg;
-    if ((thisArg != nullptr) && !thisArg->GetNode()->IsNothingNode() && !thisArg->GetNode()->IsArgPlaceHolderNode())
+    if ((thisArg != nullptr) && !thisArg->GetNode()->IsNothingNode() && !thisArg->GetNode()->OperIs(GT_ARGPLACE))
     {
         Statement* thisArgStmt = gtNewStmt(thisArg->GetNode(), callILOffset);
         fgInsertStmtBefore(block, earlyArgInsertionPoint, thisArgStmt);
@@ -7288,9 +7296,12 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     for (GenTreeCall::Use& use : recursiveTailCall->Args())
     {
         GenTree* earlyArg = use.GetNode();
-        if (!earlyArg->IsNothingNode() && !earlyArg->IsArgPlaceHolderNode())
+        if (!earlyArg->IsNothingNode() && !earlyArg->OperIs(GT_ARGPLACE))
         {
-            if ((earlyArg->gtFlags & GTF_LATE_ARG) != 0)
+            // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
+            // and the linear search it performs...
+            CallArgInfo* argInfo = recursiveTailCall->GetArgInfoByArgNode(earlyArg);
+            if (argInfo->HasLateUse())
             {
                 // This is a setup node so we need to hoist it.
                 Statement* earlyArgStmt = gtNewStmt(earlyArg, callILOffset);
@@ -7644,8 +7655,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
                 assert(arg != arr);
                 assert(arg != index);
-
-                arg->gtFlags &= ~GTF_LATE_ARG;
 
                 GenTree* op1 = argSetup;
                 if (op1 == nullptr)
@@ -8078,7 +8087,6 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
             if (promotedTree != nullptr)
             {
-                promotedTree->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
                 INDEBUG(promotedTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
                 JITDUMPTREE(promotedTree, "fgMorphInitStruct (after promotion):\n");
                 return promotedTree;
@@ -8757,8 +8765,6 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         }
     }
 
-    comma->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
-
     INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
     JITDUMPTREE(comma, "fgMorphCopyStruct (after SIMD destination promotion):\n\n");
 
@@ -8770,7 +8776,6 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
 GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
 {
     assert(dynBlk->TypeIs(TYP_VOID));
-    assert((dynBlk->gtFlags & GTF_LATE_ARG) == 0);
 
     GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon();
 
@@ -8826,7 +8831,6 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
 GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-    assert((asg->gtFlags & GTF_LATE_ARG) == 0);
 
     GenTreeBlk* dst = asg->GetOp(0)->AsBlk();
     GenTree*    src = asg->GetOp(1);
@@ -9404,8 +9408,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             asgFieldCommaTree = asgField;
         }
     }
-
-    asgFieldCommaTree->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
 
     INDEBUG(asgFieldCommaTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
@@ -11619,8 +11621,7 @@ DONE_MORPHING_CHILDREN:
                     comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
                 }
 
-                op1->gtFlags |= tree->gtFlags & (GTF_LATE_ARG | GTF_DONT_CSE);
-                tree->gtFlags &= ~GTF_LATE_ARG;
+                op1->gtFlags |= tree->gtFlags & GTF_DONT_CSE;
                 INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
                 return op1;
@@ -11656,7 +11657,7 @@ DONE_MORPHING_CHILDREN:
                 }
                 else
                 {
-                    op2->gtFlags |= (tree->gtFlags & (GTF_DONT_CSE | GTF_LATE_ARG));
+                    op2->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
                     DEBUG_DESTROY_NODE(tree);
                     DEBUG_DESTROY_NODE(op1);
                     return op2;
@@ -11665,7 +11666,7 @@ DONE_MORPHING_CHILDREN:
                 /* If the right operand is just a void nop node, throw it away */
                 if (op2->IsNothingNode() && op1->gtType == TYP_VOID)
                 {
-                    op1->gtFlags |= (tree->gtFlags & (GTF_DONT_CSE | GTF_LATE_ARG));
+                    op1->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
                     DEBUG_DESTROY_NODE(tree);
                     DEBUG_DESTROY_NODE(op2);
                     return op1;

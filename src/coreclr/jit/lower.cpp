@@ -221,7 +221,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerSwitch(node->AsUnOp());
 
         case GT_CALL:
-            LowerCall(node);
+            LowerCall(node->AsCall());
             break;
 
         case GT_JTRUE:
@@ -1189,9 +1189,6 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     assert(!arg->OperIsPutArg());
     assert(!arg->OperIs(GT_STORE_LCL_VAR, GT_ARGPLACE, GT_NOP));
 
-    // Real call arguments should not have GTF_LATE_ARG, only arg setup nodes do.
-    assert((arg->gtFlags & GTF_LATE_ARG) == 0);
-
 #if !defined(TARGET_64BIT)
     if (arg->TypeIs(TYP_LONG))
     {
@@ -1245,17 +1242,8 @@ GenTree* Lowering::AddrGen(void* addr)
     return AddrGen((ssize_t)addr);
 }
 
-// do lowering steps for a call
-// this includes:
-//   - adding the placement nodes (either stack or register variety) for arguments
-//   - lowering the expression that calculates the target address
-//   - adding nodes for other operations that occur after the call sequence starts and before
-//        control transfer occurs (profiling and tail call helpers, pinvoke incantations)
-//
-void Lowering::LowerCall(GenTree* node)
+void Lowering::LowerCall(GenTreeCall* call)
 {
-    GenTreeCall* call = node->AsCall();
-
     JITDUMP("lowering call (before):\n");
     DISPTREERANGE(BlockRange(), call);
     JITDUMP("\n");
@@ -1393,7 +1381,30 @@ void Lowering::LowerCall(GenTree* node)
         LowerStructCall(call);
     }
 
+    for (GenTreeCall::Use& use : call->Args())
+    {
+        // A call argument may be local store when the arg is just setup for a late arg.
+        // A store is not supposed to have an use and this is just an artifact of how
+        // call trees are handled in HIR, it is no longer necessary in LIR. Replace with
+        // with ARGPLACE nodes so dead store removal in liveness doesn't leave us with
+        // args that "use" removed nodes.
+
+        // TODO-MIKE-Cleanup: This should be done earlier, in rationalization. Currently
+        // that's not possible due to GetTreeRange callers that expect a closed range.
+
+        // TODO-MIKE-Throughput: It may be possible to use a single ARGPLACE node for all
+        // args that need this to avoid unnecessary memory allocation. It is not chained
+        // in LIR so its gtNext/gtPrev pointers are always null and it has no other distinct
+        // properties. Well, it does have the type set to the original arg type but that's
+        // pointless since nothing actually looks at these nodes.
+        if (use.GetNode()->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        {
+            use.SetNode(new (comp, GT_ARGPLACE) GenTree(GT_ARGPLACE, use.GetNode()->GetType()));
+        }
+    }
+
     ContainCheckCallOperands(call);
+
     JITDUMP("lowering call (after):\n");
     DISPTREERANGE(BlockRange(), call);
     JITDUMP("\n");
@@ -1869,7 +1880,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     assert(nNewStkArgsWords >= 4); // There must be at least the four special stack args.
     nNewStkArgsWords -= 4;
 
-    unsigned numArgs = call->fgArgInfo->ArgCount();
+    unsigned numArgs = call->fgArgInfo->GetArgCount();
 
     fgArgTabEntry* argEntry;
 
@@ -5014,7 +5025,7 @@ void Lowering::CheckCallArg(GenTree* arg)
 {
     if (!arg->IsValue() && !arg->OperIsPutArgStk())
     {
-        assert(arg->OperIsStore() || arg->IsArgPlaceHolderNode() || arg->IsNothingNode());
+        assert(arg->OperIsStore() || arg->OperIs(GT_ARGPLACE) || arg->IsNothingNode());
         return;
     }
 

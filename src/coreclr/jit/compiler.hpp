@@ -1216,10 +1216,7 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
 
 inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 {
-    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
-    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
-    SetOper(GT_CNS_INT);
-    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+    SetOperResetFlags(GT_CNS_INT);
 
     GenTreeIntCon* intCon = AsIntCon();
     intCon->SetValue(value);
@@ -1230,10 +1227,7 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 #ifndef TARGET_64BIT
 inline GenTreeLngCon* GenTree::ChangeToLngCon(int64_t value)
 {
-    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
-    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
-    SetOper(GT_CNS_LNG);
-    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+    SetOperResetFlags(GT_CNS_LNG);
 
     GenTreeLngCon* lngCon = AsLngCon();
     lngCon->SetType(TYP_LONG);
@@ -1244,10 +1238,7 @@ inline GenTreeLngCon* GenTree::ChangeToLngCon(int64_t value)
 
 inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
 {
-    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
-    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
-    SetOper(GT_CNS_DBL);
-    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+    SetOperResetFlags(GT_CNS_DBL);
 
     GenTreeDblCon* dblCon = AsDblCon();
     dblCon->SetType(type);
@@ -1257,10 +1248,7 @@ inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
 
 inline GenTreeFieldList* GenTree::ChangeToFieldList()
 {
-    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
-    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
-    SetOper(GT_FIELD_LIST);
-    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+    SetOperResetFlags(GT_FIELD_LIST);
 
     GenTreeFieldList* fieldList = AsFieldList();
     fieldList->SetType(TYP_STRUCT);
@@ -1274,10 +1262,7 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
 
-    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
-    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
-    SetOper(GT_LCL_FLD);
-    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+    SetOperResetFlags(GT_LCL_FLD);
 
     GenTreeLclFld* lclFld = AsLclFld();
     lclFld->SetType(type);
@@ -1290,10 +1275,7 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
 
 inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset)
 {
-    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
-    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
-    SetOper(GT_LEA);
-    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+    SetOperResetFlags(GT_LEA);
 
     GenTreeAddrMode* addrMode = AsAddrMode();
     addrMode->SetBase(base);

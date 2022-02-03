@@ -39,7 +39,7 @@ private:
     void RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCommon* location);
 
     // Root visitor
-    Compiler::fgWalkResult RewriteNode(GenTree** useEdge, ArrayStack<GenTree*>& parents);
+    Compiler::fgWalkResult RewriteNode(GenTree** useEdge, GenTree* user);
 };
 
 #endif

@@ -132,10 +132,7 @@ private:
     void LowerBlock(BasicBlock* block);
     GenTree* LowerNode(GenTree* node);
 
-    // ------------------------------
-    // Call Lowering
-    // ------------------------------
-    void LowerCall(GenTree* call);
+    void LowerCall(GenTreeCall* call);
 #ifndef TARGET_64BIT
     GenTree* DecomposeLongCompare(GenTree* cmp);
 #endif
