@@ -466,7 +466,7 @@ public:
     unsigned char lvIsMultiRegArg : 1; // true if this is a multireg LclVar struct used in an argument context
     unsigned char lvIsMultiRegRet : 1; // true if this is a multireg LclVar struct assigned from a multireg call
 
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
     unsigned char m_isHfa : 1;
 #endif
 
@@ -598,7 +598,7 @@ public:
 
     bool lvIsHfa() const
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         return m_isHfa;
 #else
         return false;
@@ -607,7 +607,7 @@ public:
 
     bool lvIsHfaRegArg() const
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         return lvIsRegArg && lvIsHfa();
 #else
         return false;
@@ -944,7 +944,7 @@ public:
 
     void SetIsHfa(bool isHfa)
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         m_isHfa = isHfa;
 #endif
     }
@@ -7549,15 +7549,27 @@ public:
         int compJitSaveFpLrWithCalleeSavedRegisters;
 #endif // defined(TARGET_ARM64)
 
-#ifdef CONFIGURABLE_ARM_ABI
-        bool compUseSoftFP = false;
+        ARM_ONLY(bool compUseSoftFP;)
+
+        bool UseSoftFP()
+        {
+#ifdef TARGET_ARM
+            return compUseSoftFP;
 #else
-#ifdef ARM_SOFTFP
-        static const bool compUseSoftFP = true;
-#else  // !ARM_SOFTFP
-        static const bool compUseSoftFP = false;
-#endif // ARM_SOFTFP
-#endif // CONFIGURABLE_ARM_ABI
+            return false;
+#endif
+        }
+
+        bool UseHfa()
+        {
+#if defined(TARGET_ARM)
+            return !compUseSoftFP;
+#elif defined(TARGET_ARM64)
+            return true;
+#else
+            return false;
+#endif
+        }
     } opts;
 
     static bool                s_pAltJitExcludeAssembliesListInitialized;

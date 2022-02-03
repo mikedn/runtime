@@ -2085,7 +2085,7 @@ inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
 inline var_types Compiler::mangleVarArgsType(var_types type)
 {
 #if defined(TARGET_ARMARCH)
-    if (opts.compUseSoftFP
+    if (opts.UseSoftFP()
 #if defined(TARGET_WINDOWS)
         || info.compIsVarArgs
 #endif // defined(TARGET_WINDOWS)

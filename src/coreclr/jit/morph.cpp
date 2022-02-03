@@ -2449,7 +2449,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     regCount = hfaSlots / 2;
                 }
             }
-            else if (argx->TypeIs(TYP_DOUBLE) && GlobalJitOptions::compFeatureHfa)
+            else if (argx->TypeIs(TYP_DOUBLE) && opts.UseHfa())
             {
                 regCount = 1;
             }
@@ -2484,7 +2484,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 argInfo->SetRegType(hfaType);
             }
-            else if (varTypeIsFloating(argx->GetType()) && GlobalJitOptions::compFeatureHfa)
+            else if (varTypeIsFloating(argx->GetType()) && opts.UseHfa())
             {
                 argInfo->SetRegType(argx->GetType());
             }

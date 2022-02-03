@@ -141,7 +141,7 @@ public:
 
     bool IsHfa() const
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         if (m_gcPtrCount != 0)
         {
             return false;

@@ -4542,7 +4542,7 @@ private:
     var_types      m_regTypes[MAX_ARG_REG_COUNT];
     regNumberSmall m_regNums[MAX_ARG_REG_COUNT];
 #else
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
     var_types m_regType;
 #endif
     // Other multireg targets (ARM, ARM64) always use the same register type so it's enough
@@ -4569,7 +4569,7 @@ public:
 #endif
         , m_isReturn(isReturn)
         , m_regCount(static_cast<uint8_t>(regCount))
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         , m_regType(TYP_I_IMPL)
 #endif
     {
@@ -4694,7 +4694,7 @@ public:
         assert(i < m_regCount);
         m_regTypes[i] = type;
     }
-#elif defined(FEATURE_HFA_FIELDS_PRESENT)
+#elif defined(FEATURE_HFA)
     var_types GetRegType(unsigned i = 0) const
     {
         assert(i < m_regCount);
@@ -4721,7 +4721,7 @@ public:
     regNumber GetRegNum(unsigned i = 0) const
     {
         assert(i < m_regCount);
-#if defined(TARGET_ARM) && defined(FEATURE_HFA_FIELDS_PRESENT)
+#if defined(TARGET_ARM) && defined(FEATURE_HFA)
         if (m_regType == TYP_DOUBLE)
         {
             return static_cast<regNumber>(m_regNum + i * 2);
@@ -4763,7 +4763,7 @@ public:
 
     bool IsHfaArg()
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         return m_regType != TYP_I_IMPL;
 #else
         return false;

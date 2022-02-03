@@ -2843,7 +2843,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     // non-tracked args are assumed live on entry.
                     noway_assert((varDsc->lvRefCnt() == 0) || (varDsc->lvType == TYP_STRUCT) ||
                                  (varDsc->lvAddrExposed && compiler->info.compIsVarArgs) ||
-                                 (varDsc->lvAddrExposed && compiler->opts.compUseSoftFP));
+                                 (varDsc->lvAddrExposed && compiler->opts.UseSoftFP()));
 #endif // !TARGET_X86
                 }
                 // Mark it as processed and be done with it
@@ -3220,8 +3220,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         if (doingFloat)
         {
 #ifndef UNIX_AMD64_ABI
-            if (GlobalJitOptions::compFeatureHfa)
-#endif // !UNIX_AMD64_ABI
+            if (compiler->opts.UseHfa())
+#endif
             {
                 insCopy = ins_Copy(TYP_DOUBLE);
                 // Compute xtraReg here when we have a float argument
@@ -3230,7 +3230,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 regMaskTP fpAvailMask;
 
                 fpAvailMask = RBM_FLT_CALLEE_TRASH & ~regArgMaskLive;
-                if (GlobalJitOptions::compFeatureHfa)
+                if (compiler->opts.UseHfa())
                 {
                     fpAvailMask &= RBM_ALLDOUBLE;
                 }
@@ -3238,7 +3238,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 if (fpAvailMask == RBM_NONE)
                 {
                     fpAvailMask = RBM_ALLFLOAT & ~regArgMaskLive;
-                    if (GlobalJitOptions::compFeatureHfa)
+                    if (compiler->opts.UseHfa())
                     {
                         fpAvailMask &= RBM_ALLDOUBLE;
                     }
