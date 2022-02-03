@@ -10527,37 +10527,12 @@ regNumber CodeGen::genRegCopy(GenTree* treeNode, unsigned multiRegIndex)
         // We shouldn't specify a no-op move.
         assert(sourceReg != targetReg);
         var_types type;
-        if (op1->IsMultiRegLclVar())
-        {
-            LclVarDsc* parentVarDsc = compiler->lvaGetDesc(op1->AsLclVar()->GetLclNum());
-            unsigned   fieldVarNum  = parentVarDsc->lvFieldLclStart + multiRegIndex;
-            LclVarDsc* fieldVarDsc  = compiler->lvaGetDesc(fieldVarNum);
-            type                    = fieldVarDsc->TypeGet();
-            inst_Mov(type, targetReg, sourceReg, /* canSkip */ false);
-            if (!op1->AsLclVar()->IsLastUse(multiRegIndex) && fieldVarDsc->GetRegNum() != REG_STK)
-            {
-                // The old location is dying
-                genUpdateRegLife(fieldVarDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(op1));
-                gcInfo.gcMarkRegSetNpt(genRegMask(sourceReg));
-                genUpdateVarReg(fieldVarDsc, treeNode);
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-                // Report the home change for this variable
-                varLiveKeeper->siUpdateVariableLiveRange(fieldVarDsc, fieldVarNum);
-#endif // USING_VARIABLE_LIVE_RANGE
-
-                // The new location is going live
-                genUpdateRegLife(fieldVarDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(treeNode));
-            }
-        }
-        else
-        {
-            type = op1->GetRegTypeByIndex(multiRegIndex);
-            inst_Mov(type, targetReg, sourceReg, /* canSkip */ false);
-            // We never spill after a copy, so to produce the single register, we simply need to
-            // update the GC info for the defined register.
-            gcInfo.gcMarkRegPtrVal(targetReg, type);
-        }
+        assert(!op1->IsMultiRegLclVar());
+        type = op1->GetRegTypeByIndex(multiRegIndex);
+        inst_Mov(type, targetReg, sourceReg, /* canSkip */ false);
+        // We never spill after a copy, so to produce the single register, we simply need to
+        // update the GC info for the defined register.
+        gcInfo.gcMarkRegPtrVal(targetReg, type);
         return targetReg;
     }
     else

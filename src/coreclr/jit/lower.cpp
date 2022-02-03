@@ -2235,7 +2235,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
             retTypeDesc = src->AsCall()->GetRetDesc();
         }
 
-        MakeMultiRegLclVar(store, retTypeDesc);
+        MakeMultiRegStoreLclVar(store, retTypeDesc);
     }
 #endif
 
@@ -5318,9 +5318,9 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
 
 #if FEATURE_MULTIREG_RET
 
-void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retDesc)
+void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retDesc)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert(lclVar->OperIs(GT_STORE_LCL_VAR));
 
     bool canEnregister = false;
 
@@ -5348,7 +5348,7 @@ void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* r
     // For local stores on XARCH we only handle mismatched src/dest register count for
     // calls of SIMD type. If the source was another lclVar similarly promoted, we would
     // have broken it into multiple stores.
-    if (lclVar->OperIs(GT_STORE_LCL_VAR) && !lclVar->GetOp(0)->OperIs(GT_CALL))
+    if (!lclVar->GetOp(0)->OperIs(GT_CALL))
     {
         canEnregister = false;
     }

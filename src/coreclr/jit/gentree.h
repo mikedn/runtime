@@ -3343,6 +3343,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     }
     void SetMultiReg()
     {
+        assert(OperIs(GT_STORE_LCL_VAR));
         gtFlags |= GTF_VAR_MULTIREG;
     }
 
