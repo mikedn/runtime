@@ -952,24 +952,12 @@ void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
     varDsc->SetRegNum(tree->GetRegNum());
 }
 
-//------------------------------------------------------------------------
-// genUnspillLocal: Reload a register candidate local into a register, if needed.
-//
-// Arguments:
-//     varNum    - The variable number of the local to be reloaded (unspilled).
-//                 It may be a local field.
-//     type      - The type of the local.
-//     lclNode   - The node being unspilled. Note that for a multi-reg local,
-//                 the gtLclNum will be that of the parent struct.
-//     regNum    - The register that 'varNum' should be loaded to.
-//     reSpill   - True if it will be immediately spilled after use.
-//     isLastUse - True if this is a last use of 'varNum'.
-//
-// Notes:
-//     The caller must have determined that this local needs to be unspilled.
-void CodeGen::genUnspillLocal(
-    unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum, bool reSpill, bool isLastUse)
+void CodeGen::genUnspillLocal(GenTreeLclVar* lclNode, var_types type, regNumber regNum)
 {
+    unsigned varNum    = lclNode->GetLclNum();
+    bool     reSpill   = lclNode->IsRegSpill(0);
+    bool     isLastUse = lclNode->IsLastUse(0);
+
     LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
     inst_set_SV_var(lclNode);
     instruction ins = ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(varNum));
@@ -1147,9 +1135,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
 #else
             NYI("Unspilling not implemented for this target architecture.");
 #endif
-            bool reSpill   = unspillTree->IsRegSpill(0);
-            bool isLastUse = lcl->IsLastUse(0);
-            genUnspillLocal(lcl->GetLclNum(), spillType, lcl->AsLclVar(), tree->GetRegNum(), reSpill, isLastUse);
+            genUnspillLocal(lcl, spillType, tree->GetRegNum());
         }
         else if (unspillTree->IsMultiRegNode())
         {
