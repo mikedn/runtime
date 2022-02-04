@@ -6687,11 +6687,11 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
 
 #ifdef DEBUG
 
-int GenTree::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
+int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
 {
     int charsDisplayed = 11; // 11 is the "baseline" number of flag characters displayed
 
-    printf("%c", (flags & GTF_ASG) ? 'A' : (IsContained(flags) ? 'c' : '-'));
+    printf("%c", (flags & GTF_ASG) ? 'A' : ((flags & GTF_CONTAINED) ? 'c' : '-'));
     printf("%c", (flags & GTF_CALL) ? 'C' : '-');
     printf("%c", (flags & GTF_EXCEPT) ? 'X' : '-');
     printf("%c", (flags & GTF_GLOB_REF) ? 'G' : '-');
@@ -6703,7 +6703,7 @@ int GenTree::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
     printf("%c", (flags & GTF_REVERSE_OPS) ? 'R' : '-');
     printf("%c", (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-');
     printf("%c", '-');
-    printf("%c", IsAnyRegSpilled() ? 'z' : IsAnyRegSpill() ? 'Z' : '-');
+    printf("%c", '-');
 
     return charsDisplayed;
 }
@@ -6928,8 +6928,8 @@ void Compiler::gtDispVN(GenTree* tree)
 void Compiler::gtDispCommonEndLine(GenTree* tree)
 {
     gtDispZeroFieldSeq(tree);
-    gtDispRegVal(tree);
     gtDispVN(tree);
+    gtDispNodeRegs(tree);
     printf("\n");
 }
 
@@ -7252,7 +7252,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             flags &= ~GTF_REVERSE_OPS;
         }
 
-        msgLength -= tree->gtDispFlags(flags, tree->gtDebugFlags);
+        msgLength -= gtDispFlags(flags, tree->gtDebugFlags);
     }
 
     return msgLength;
@@ -7423,27 +7423,31 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     }
 }
 
-void Compiler::gtDispRegVal(GenTree* tree)
+void Compiler::gtDispNodeRegs(GenTree* tree)
 {
-    if (!tree->HasRegs())
+    if (tree->TypeIs(TYP_VOID) || !tree->HasRegs())
     {
         return;
     }
 
-    printf(" REG %s", compRegVarName(tree->GetRegNum()));
+    printf(" REGS(");
+
+    unsigned count = 1;
 
 #if FEATURE_MULTIREG_RET
     if (tree->IsMultiRegNode())
     {
-        // 0th reg is GetRegNum(), which is already printed above.
-        // Print the remaining regs of a multi-reg node.
-        for (unsigned i = 1, count = tree->GetMultiRegCount(this); i < count; ++i)
-        {
-            regNumber reg = tree->GetRegNum(i);
-            printf(", %s", genIsValidReg(reg) ? compRegVarName(reg) : "NA");
-        }
+        count = tree->GetMultiRegCount(this);
     }
 #endif
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        printf("%s%s%s%s", i != 0 ? ", " : "", getRegName(tree->GetRegNum(i)), tree->IsRegSpill(i) ? "$" : "",
+               tree->IsRegSpilled(i) ? "#" : "");
+    }
+
+    printf(")");
 }
 
 // We usually/commonly don't expect to print anything longer than this string,

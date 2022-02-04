@@ -2010,8 +2010,6 @@ public:
     bool gtOverflow() const;
     bool gtOverflowEx() const;
 
-    INDEBUG(int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);)
-
     // cast operations
     inline var_types  CastFromType();
     inline var_types& CastToType();

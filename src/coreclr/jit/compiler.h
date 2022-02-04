@@ -2282,13 +2282,13 @@ public:
 #ifdef DEBUG
     void gtDispNode(GenTree* tree, IndentStack* indentStack, __in_z const char* msg, bool isLIR);
     int gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength);
-
+    int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
-    void gtDispRegVal(GenTree* tree);
+    void gtDispNodeRegs(GenTree* tree);
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispVN(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
