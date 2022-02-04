@@ -605,8 +605,8 @@ void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
 
     lvaSetStruct(lclNum, layout, false);
 
-    GenTree* destAddr = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
-    GenTree* asg      = impAssignStructAddr(destAddr, val, layout, curLevel);
+    GenTree* dest = gtNewLclvNode(lclNum, lcl->GetType());
+    GenTree* asg  = impAssignStruct(dest, val, curLevel);
     impAppendTree(asg, curLevel, impCurStmtOffs);
 }
 
@@ -921,93 +921,154 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
+void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
-    assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR) ||
-           (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
+    assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_VAR, GT_OBJ, GT_IND));
+    assert(call->TreatAsHasRetBufArg());
+
+    GenTree* retBufAddr;
+
+    if (dest->OperIs(GT_LCL_VAR))
+    {
+        retBufAddr = dest;
+        retBufAddr->SetOper(GT_LCL_VAR_ADDR);
+        retBufAddr->SetType(TYP_I_IMPL);
+    }
+    else
+    {
+        retBufAddr = dest->AsIndir()->GetAddr();
+    }
+
+#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
+    if (call->IsUnmanaged())
+    {
+        if (callConvIsInstanceMethodCallConv(call->GetUnmanagedCallConv()))
+        {
+#ifdef TARGET_X86
+            // The argument list has already been reversed.
+            // Insert the return buffer as the second-to-last node
+            // so it will be pushed on to the stack after the user args but before the native this arg
+            // as required by the native ABI.
+            GenTreeCall::Use* lastArg = call->gtCallArgs;
+            if (lastArg == nullptr)
+            {
+                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+            }
+            else if (call->GetUnmanagedCallConv() == CorInfoCallConvExtension::Thiscall)
+            {
+                // For thiscall, the "this" parameter is not included in the argument list reversal,
+                // so we need to put the return buffer as the last parameter.
+                for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
+                    ;
+                gtInsertNewCallArgAfter(retBufAddr, lastArg);
+            }
+            else if (lastArg->GetNext() == nullptr)
+            {
+                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, lastArg);
+            }
+            else
+            {
+                assert(lastArg != nullptr && lastArg->GetNext() != nullptr);
+                GenTreeCall::Use* secondLastArg = lastArg;
+                lastArg                         = lastArg->GetNext();
+                for (; lastArg->GetNext() != nullptr; secondLastArg = lastArg, lastArg = lastArg->GetNext())
+                    ;
+                assert(secondLastArg->GetNext() != nullptr);
+                gtInsertNewCallArgAfter(retBufAddr, secondLastArg);
+            }
+#else
+            gtInsertNewCallArgAfter(retBufAddr, call->gtCallArgs);
+#endif
+        }
+        else
+        {
+#ifndef TARGET_X86
+            call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+#else
+            // The argument list has already been reversed.
+            // Insert the return buffer as the last node so it will be pushed on to the stack last
+            // as required by the native ABI.
+            GenTreeCall::Use* lastArg = call->gtCallArgs;
+            if (lastArg == nullptr)
+            {
+                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+            }
+            else
+            {
+                for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
+                    ;
+                gtInsertNewCallArgAfter(retBufAddr, lastArg);
+            }
+#endif
+        }
+    }
+    else
+#endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
+    {
+        call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+    }
+
+    call->SetType(TYP_VOID);
+}
+
+GenTree* Compiler::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel)
+{
+    assert(dest->TypeIs(TYP_STRUCT) && dest->OperIs(GT_LCL_VAR, GT_OBJ));
+    assert(mkRefAny->OperIs(GT_MKREFANY));
+
+    GenTree* destAddr;
+
+    if (dest->OperIs(GT_LCL_VAR))
+    {
+        destAddr = dest;
+        destAddr->SetOper(GT_LCL_VAR_ADDR);
+        destAddr->SetType(TYP_I_IMPL);
+    }
+    else
+    {
+        destAddr = dest->AsObj()->GetAddr();
+    }
+
+    GenTree* destAddrUses[2];
+    impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
+
+    // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
+    // The field is accessed by TypedReference.IsNull, which is only called from
+    // RtFieldInfo.Get/SetValueDirect so chances that this causes problems are slim.
+    GenTree* valueField = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(),
+                                                                    OFFSETOF__CORINFO_TypedReference__dataPtr));
+    impAppendTree(gtNewAssignNode(valueField, mkRefAny->GetOp(0)), curLevel, impCurStmtOffs);
+
+    GenTree* typeField = gtNewFieldIndir(TYP_I_IMPL, gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(),
+                                                                    OFFSETOF__CORINFO_TypedReference__type));
+    return gtNewAssignNode(typeField, mkRefAny->GetOp(1));
+}
+
+GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel)
+{
+    assert(
+        (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
+        varTypeIsSIMD(src->GetType()));
+
+    // Assigning a MKREFANY generates 2 assignments, one for each field of the struct.
+    // One assignment is appended and the other is returned to the caller.
+
+    if (src->OperIs(GT_MKREFANY))
+    {
+        return impAssignMkRefAny(dest, src->AsOp(), curLevel);
+    }
 
     // Handle calls that return structs by reference - the destination address
     // is passed to the call as the return buffer address and no assignment is
     // generated.
 
-    if (src->OperIs(GT_CALL))
+    if (GenTreeCall* call = src->IsCall())
     {
-        GenTreeCall* call = src->AsCall();
-
         if (call->TreatAsHasRetBufArg())
         {
-#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-            if (call->IsUnmanaged())
-            {
-                if (callConvIsInstanceMethodCallConv(call->GetUnmanagedCallConv()))
-                {
-#ifdef TARGET_X86
-                    // The argument list has already been reversed.
-                    // Insert the return buffer as the second-to-last node
-                    // so it will be pushed on to the stack after the user args but before the native this arg
-                    // as required by the native ABI.
-                    GenTreeCall::Use* lastArg = call->gtCallArgs;
-                    if (lastArg == nullptr)
-                    {
-                        call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-                    }
-                    else if (call->GetUnmanagedCallConv() == CorInfoCallConvExtension::Thiscall)
-                    {
-                        // For thiscall, the "this" parameter is not included in the argument list reversal,
-                        // so we need to put the return buffer as the last parameter.
-                        for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
-                            ;
-                        gtInsertNewCallArgAfter(destAddr, lastArg);
-                    }
-                    else if (lastArg->GetNext() == nullptr)
-                    {
-                        call->gtCallArgs = gtPrependNewCallArg(destAddr, lastArg);
-                    }
-                    else
-                    {
-                        assert(lastArg != nullptr && lastArg->GetNext() != nullptr);
-                        GenTreeCall::Use* secondLastArg = lastArg;
-                        lastArg                         = lastArg->GetNext();
-                        for (; lastArg->GetNext() != nullptr; secondLastArg = lastArg, lastArg = lastArg->GetNext())
-                            ;
-                        assert(secondLastArg->GetNext() != nullptr);
-                        gtInsertNewCallArgAfter(destAddr, secondLastArg);
-                    }
-#else
-                    gtInsertNewCallArgAfter(destAddr, call->gtCallArgs);
-#endif
-                }
-                else
-                {
-#ifndef TARGET_X86
-                    call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-#else
-                    // The argument list has already been reversed.
-                    // Insert the return buffer as the last node so it will be pushed on to the stack last
-                    // as required by the native ABI.
-                    GenTreeCall::Use* lastArg = call->gtCallArgs;
-                    if (lastArg == nullptr)
-                    {
-                        call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-                    }
-                    else
-                    {
-                        for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
-                            ;
-                        gtInsertNewCallArgAfter(destAddr, lastArg);
-                    }
-#endif
-                }
-            }
-            else
-#endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-            {
-                call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-            }
+            impAssignCallWithRetBuf(dest, call);
 
-            call->SetType(TYP_VOID);
-
-            return src;
+            return call;
         }
     }
     else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
@@ -1018,115 +1079,23 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
 
         if (call->TreatAsHasRetBufArg())
         {
-            call->gtCallArgs = gtPrependNewCallArg(destAddr, call->gtCallArgs);
-            call->SetType(TYP_VOID);
-            src->SetType(TYP_VOID);
+            impAssignCallWithRetBuf(dest, call);
+            retExpr->SetType(TYP_VOID);
 
-            return src;
+            return retExpr;
         }
-    }
-
-    // Assigning a MKREFANY generates 2 assignments, one for each field of the struct.
-    // One assignment is appended and the other is returned to the caller.
-
-    if (src->OperIs(GT_MKREFANY))
-    {
-        assert(destAddr->TypeIs(TYP_I_IMPL, TYP_BYREF));
-
-        GenTree* destAddrUses[2];
-        impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
-
-        // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
-        // The field is accessed by TypedReference.IsNull, which is only called from
-        // RtFieldInfo.Get/SetValueDirect so chances that this causes problems are slim.
-        GenTree* valueField = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(),
-                                                                        OFFSETOF__CORINFO_TypedReference__dataPtr));
-        impAppendTree(gtNewAssignNode(valueField, src->AsOp()->GetOp(0)), curLevel, impCurStmtOffs);
-
-        GenTree* typeField = gtNewFieldIndir(TYP_I_IMPL, gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(),
-                                                                        OFFSETOF__CORINFO_TypedReference__type));
-        return gtNewAssignNode(typeField, src->AsOp()->GetOp(1));
     }
 
     // In all other cases we create and return a struct assignment node.
 
-    GenTree* dest = nullptr;
-
-    if (src->OperIs(GT_CALL))
+    // TODO-MIKE-Cleanup: There doesn't seem to be any good reason to do this here,
+    // except for VN being weird and failing on SIMD OBJs and old code doing it here.
+    if (dest->OperIs(GT_OBJ) && varTypeIsSIMD(dest->GetType()))
     {
-        if (destAddr->OperIs(GT_LCL_VAR_ADDR) && (lvaGetDesc(destAddr->AsLclVar())->GetType() == src->GetType()))
-        {
-            destAddr->SetOper(GT_LCL_VAR);
-            destAddr->SetType(src->GetType());
-            dest = destAddr;
-        }
-    }
-    else if (src->OperIs(GT_RET_EXPR))
-    {
-    }
-    else if (src->OperIs(GT_OBJ))
-    {
-        assert(src->GetType() == typGetStructType(layout));
-        assert((src->AsObj()->GetLayout() == layout) || varTypeIsSIMD(src->GetType()));
-    }
-    else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-    }
-    else
-    {
-        assert(src->OperIs(GT_IND) || src->OperIsHWIntrinsic());
-        assert((layout == nullptr) || (src->GetType() == typGetStructType(layout)));
+        dest->SetOper(GT_IND);
     }
 
-    var_types srcType = src->GetType();
-
-    if ((dest == nullptr) && destAddr->OperIs(GT_LCL_VAR_ADDR))
-    {
-        LclVarDsc* lcl = lvaGetDesc(destAddr->AsLclVar());
-
-        if (lcl->GetType() == srcType)
-        {
-            if (varTypeIsSIMD(srcType))
-            {
-                dest = destAddr;
-            }
-            else if (lcl->GetLayout() == layout)
-            {
-                dest = destAddr;
-            }
-
-            if (dest != nullptr)
-            {
-                dest->SetOper(GT_LCL_VAR);
-                dest->SetType(lcl->GetType());
-            }
-        }
-    }
-
-    if (dest == nullptr)
-    {
-        if (srcType == TYP_STRUCT)
-        {
-            dest = gtNewObjNode(layout, destAddr);
-        }
-        else
-        {
-            dest = gtNewOperNode(GT_IND, srcType, destAddr);
-        }
-
-        if (GenTreeFieldAddr* fieldAddr = destAddr->IsFieldAddr())
-        {
-            FieldSeqNode* fieldSeq = fieldAddr->GetFieldSeq();
-
-            if (fieldSeq->IsBoxedValueField() ||
-                (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle())))
-            {
-                dest->gtFlags |= GTF_IND_NONFAULTING;
-                dest->gtFlags &= ~GTF_EXCEPT;
-            }
-        }
-    }
-    else if (dest->OperIs(GT_LCL_VAR))
+    if (dest->OperIs(GT_LCL_VAR))
     {
         LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
 
@@ -5068,8 +5037,10 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
                 }
             }
 
-            assert(info.compCompHnd->getClassSize(pResolvedToken->hClass) == info.compCompHnd->getClassSize(operCls));
-            op1 = impAssignStructAddr(op1, exprToBox, typGetObjLayout(operCls), CHECK_SPILL_ALL);
+            ClassLayout* layout = typGetObjLayout(operCls);
+            assert(info.compCompHnd->getClassSize(pResolvedToken->hClass) == layout->GetSize());
+            op1 = gtNewObjNode(layout, op1);
+            op1 = impAssignStruct(op1, exprToBox, CHECK_SPILL_ALL);
         }
         else
         {
@@ -6125,21 +6096,7 @@ GenTree* Compiler::impImportLdSFld(OPCODE                    opcode,
         {
             // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
             // address (we always get an IND/OBJ for a static struct field load). They would be
-            // later transformed by impAssignStructAddr/impCanonicalizeStructCallArg, resulting
-            // redundant work or less than ideal trees.
-            //
-            // impCanonicalizeStructCallArg attempts to sink the COMMA below the indir so we get
-            // the same result by simply doing that here.
-            //
-            // impAssignStructAddr tries to be clever and instead appends the side effect as a
-            // separate statement, or hoists the COMMA above the assignment it generates.
-            // Neither is quite right:
-            //   - Type initialization will happen before whatever side effects the assignment
-            //     destination address has.
-            //   - Static field load loop hoisting depends on the type initialization helper
-            //     call being present in the tree, if it's in a separate statement it doesn't
-            //     know if it's safe to hoist the load.
-            //     This actually prevented hoisting of static SIMD field loads.
+            // later transformed by fgMorphStructComma anyway.
             //
             // Extracting the helper call to a separate statement does have some advantages:
             //   - Avoids "poisoning" the entire tree with side effects from the helper call.
@@ -6147,6 +6104,9 @@ GenTree* Compiler::impImportLdSFld(OPCODE                    opcode,
             //     import so it doesn't really matter.
             //   - Avoids poor register allocation due to a call appearing inside the tree.
             //     PMI diff does show a few diffs caused by register allocation changes.
+            // However, loop hoisting depends on the type initialization helper call being
+            // present in the tree, if it's in a separate statement it doesn't know if it's
+            // safe to hoist the load.
 
             // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
             // extract the helper call to a separate statement without worrying about side effect
@@ -6265,10 +6225,7 @@ GenTree* Compiler::impImportStSFld(GenTree*                  value,
             impAppendTree(helperNode, CHECK_SPILL_NONE, impCurStmtOffs);
         }
 
-        // TODO-1stClassStructs: Avoid creating an address if it is not needed,
-        // or re-creating an indir node if it is.
-        field = field->AsIndir()->GetAddr();
-        field = impAssignStructAddr(field, value, typGetObjLayout(valueStructType), CHECK_SPILL_NONE);
+        field = impAssignStruct(field, value, CHECK_SPILL_NONE);
     }
     else
     {
@@ -10077,17 +10034,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsStruct(lclTyp))
                 {
-#ifdef FEATURE_SIMD
-                    if (varTypeIsSIMD(lclTyp) && (lclTyp != op1->GetType()))
-                    {
-                        assert(op1->TypeGet() == TYP_STRUCT);
-                        op1->gtType = lclTyp;
-                    }
-#endif
-
-                    op2->SetOper(GT_LCL_VAR_ADDR);
-                    op2->SetType(TYP_BYREF);
-                    op1 = impAssignStructAddr(op2, op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -10641,7 +10588,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsIndexAddr()->SetElemSize(layout->GetSize());
                     op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
 
-                    op1 = impAssignStructAddr(op1, op2, layout, CHECK_SPILL_ALL);
+                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
+                    op1 = impAssignStruct(op1, op2, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -12480,10 +12428,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    // TODO-1stClassStructs: Avoid creating an address if it is not needed,
-                    // or re-creating an indir node if it is.
-                    op1 = op1->AsIndir()->GetAddr();
-                    op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_NONE);
+                    op1 = impAssignStruct(op1, op2, CHECK_SPILL_NONE);
                 }
                 else
                 {
@@ -13094,8 +13039,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         unsigned     tmp    = lvaGrabTemp(true DEBUGARG("unbox nullable temp"));
                         lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-                        op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
-                        op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
+                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+                        op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
                         op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
                         op1 = gtNewCommaNode(op1, op2);
                     }
@@ -13124,11 +13069,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // the same helper is used for all struct types.
                 // Doing this here is bad for CQ when the destination is a memory location,
                 // because we introduce a temp instead of just passing in the address of
-                // that location. impAssignStructAddr (TreatAsHasRetBufArg) already handles
+                // that location. impAssignStruct (TreatAsHasRetBufArg) already handles
                 // this case so there's no real need to do this here.
                 // Adding a temp when the destination is a promotable struct local might
                 // be useful because it avoids dependent promotion. But's probably something
-                // that impAssignStructAddr could handle as well.
+                // that impAssignStruct could handle as well.
 
                 ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
                 StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
@@ -13143,8 +13088,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     lvaTable[tmp].lvIsMultiRegArg = true;
                     lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-                    op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
-                    op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
+                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+                    op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
                     op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
                     op1 = gtNewCommaNode(op1, op2);
 
@@ -13397,15 +13342,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp(varTypeIsStruct(op2));
 
-                op1 = impAssignStructAddr(op1, op2, typGetObjLayout(resolvedToken.hClass), CHECK_SPILL_ALL);
+                op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
+                op1 = impAssignStruct(op1, op2, CHECK_SPILL_ALL);
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
                     if (op1->OperIs(GT_ASG))
                     {
-                        // If the store value is MKREFANY impAssignStructAddr will append another indir,
-                        // we don't set unaligned on that. It isn't necessary since the JIT doesn't do
-                        // anything special with unaligned if the indir type is integral.
+                        // If the store value is MKREFANY impAssignStruct will append another indir,
+                        // we don't set unaligned on that. It isn't necessary since the JIT doesn't
+                        // do anything special with unaligned if the indir type is integral.
 
                         if (GenTreeIndir* indir = op1->AsOp()->GetOp(0)->IsIndir())
                         {
@@ -13414,7 +13360,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     else
                     {
-                        // It's possible that impAssignStructAddr returned a CALL node (struct returned
+                        // It's possible that impAssignStruct returned a CALL node (struct returned
                         // via return buffer). We're ignoring the unaligned prefix in this case.
 
                         // TODO-MIKE-Consider: We should probably introduce a temp, pass that as
@@ -13750,8 +13696,10 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
 
         if (info.compRetBuffArg != BAD_VAR_NUM)
         {
-            GenTree* retBuffAddr = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
-            value                = impAssignStructAddr(retBuffAddr, value, info.GetRetLayout(), CHECK_SPILL_ALL);
+            GenTree* retBuffAddr  = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
+            GenTree* retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
+            value                 = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
+
             impAppendTree(value, CHECK_SPILL_NONE, impCurStmtOffs);
 
             if (info.retDesc.GetRegCount() == 0)
@@ -14152,21 +14100,17 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 }
             }
 
+            GenTree* dst = gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType());
             GenTree* asg;
 
             if (varTypeIsStruct(spillTempLcl->GetType()))
             {
-                // TODO-MIKE-Cleanup: Spill temp's layout should be used but doing so results in
-                // asserts in impAssignStructAddr due to A<Canon>/A<SomeRefClass> mismatches.
-                ClassLayout* treeLayout = typGetObjLayout(verCurrentState.esStack[level].seTypeInfo.GetClassHandle());
-
-                asg = impAssignStructAddr(gtNewLclVarAddrNode(spillTempLclNum, TYP_BYREF), tree, treeLayout,
-                                          CHECK_SPILL_NONE);
+                asg = impAssignStruct(dst, tree, CHECK_SPILL_NONE);
                 assert(!asg->IsNothingNode());
             }
             else
             {
-                asg = gtNewAssignNode(gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType()), tree);
+                asg = gtNewAssignNode(dst, tree);
             }
 
             impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);

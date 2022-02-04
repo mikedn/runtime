@@ -888,17 +888,16 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
     {
         unsigned  lclNum  = inlineInfo->retSpillTempLclNum;
         var_types lclType = lvaGetDesc(lclNum)->GetType();
+        GenTree*  dest    = gtNewLclvNode(lclNum, lclType);
         GenTree*  asg;
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            GenTree* lclAddr = gtNewLclVarAddrNode(lclNum, TYP_I_IMPL);
-
-            asg = impAssignStructAddr(lclAddr, retExpr, typGetObjLayout(retExprClass), CHECK_SPILL_NONE);
+            asg = impAssignStruct(dest, retExpr, CHECK_SPILL_NONE);
         }
         else
         {
-            asg = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), retExpr);
+            asg = gtNewAssignNode(dest, retExpr);
         }
 
         impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
@@ -927,9 +926,10 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             // to the return buffer, that seems like an unnecessary copy.
             // Also, what happens if the return address arg has side effects?
 
-            GenTree* retBufAddr = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
+            GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
+            GenTree* retBufIndir = gtNewObjNode(typGetObjLayout(retExprClass), retBufAddr);
 
-            retExpr = impAssignStructAddr(retBufAddr, retExpr, typGetObjLayout(retExprClass), CHECK_SPILL_ALL);
+            retExpr = impAssignStruct(retBufIndir, retExpr, CHECK_SPILL_ALL);
         }
 
         JITDUMPTREE(retExpr, "Inliner return expression:\n");
@@ -2108,11 +2108,12 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
+            GenTree* dst = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
             GenTree* asg;
 
             if (argInfo.paramType != TYP_STRUCT)
             {
-                asg = gtNewAssignNode(gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType), argNode);
+                asg = gtNewAssignNode(dst, argNode);
 
                 if (varTypeIsSIMD(argInfo.paramType))
                 {
@@ -2121,52 +2122,15 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             }
             else
             {
-                ClassLayout* argLayout = gtGetStructLayout(argNode);
-                noway_assert(argLayout != nullptr);
+                // The argument cannot be MKREFANY because TypedReference parameters block
+                // inlining. That's probably an unnecessary limitation but who cares about
+                // TypedReference?
+                // This means that impAssignStruct won't have to add new statements, it
+                // cannot do that since we're not actually importing IL.
 
-                // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
-                // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
-                // have type A<Canon>. In such a case, impAssignStructAddr wraps the dest
-                // temp in an OBJ that then cannot be removed and causes CQ issues.
-                // To avoid that, temporarily change the type of the temp to the argNode's
-                // type.
-                //
-                // In general the JIT doesn't care if the 2 sides of a struct assignment
-                // have the same type so perhaps we can just change impAssignStructAddr to
-                // simply not add the OBJ. But for now it's safer to do this here because
-                // we're 99.99% sure that the types are really the same. If they're not
-                // then the IL is likely invalid (pushed a struct with a different type
-                // than the parameter type).
+                assert(!argNode->OperIs(GT_MKREFANY));
 
-                LclVarDsc*   paramLcl      = lvaGetDesc(argInfo.paramLclNum);
-                ClassLayout* paramLayout   = paramLcl->GetLayout();
-                bool         restoreLayout = false;
-
-                if (argLayout != paramLayout)
-                {
-                    assert(argLayout->GetSize() == paramLayout->GetSize());
-
-                    paramLcl->SetLayout(argLayout);
-                    restoreLayout = true;
-                }
-
-                // The argument cannot be a COMMA, impCanonicalizeStructCallArg should have changed
-                // it to OBJ(COMMA(...)).
-                // It also cannot be MKREFANY because TypedReference parameters block
-                // inlining. That's probably an unnecessary limitation but who cares
-                // about TypedReference?
-                // This means that impAssignStructAddr won't have to add new statements,
-                // it cannot do that since we're not actually importing IL.
-
-                assert(!argNode->OperIs(GT_COMMA));
-
-                GenTree* dstAddr = gtNewLclVarAddrNode(argInfo.paramLclNum, TYP_BYREF);
-                asg              = impAssignStructAddr(dstAddr, argNode, argLayout, CHECK_SPILL_NONE);
-
-                if (restoreLayout)
-                {
-                    paramLcl->SetLayout(paramLayout);
-                }
+                asg = impAssignStruct(dst, argNode, CHECK_SPILL_NONE);
             }
 
             Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
