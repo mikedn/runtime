@@ -1291,33 +1291,10 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
         reg = tree->gtGetOp1()->GetRegNum(multiRegIndex);
         assert(reg != REG_NA);
     }
+
     genUnspillRegIfNeeded(tree, multiRegIndex);
+    gcInfo.gcMarkRegSetNpt(tree->gtGetRegMask());
 
-    if (tree->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR))
-    {
-        GenTreeLclVar* lcl    = tree->gtSkipReloadOrCopy()->AsLclVar();
-        LclVarDsc*     varDsc = compiler->lvaGetDesc(lcl);
-        assert(compiler->lvaEnregMultiRegVars && lcl->IsMultiReg());
-        assert(varDsc->lvPromoted && (multiRegIndex < varDsc->lvFieldCnt));
-        unsigned   fieldVarNum = varDsc->lvFieldLclStart + multiRegIndex;
-        LclVarDsc* fldVarDsc   = compiler->lvaGetDesc(fieldVarNum);
-        assert(fldVarDsc->lvLRACandidate);
-        bool isFieldDying = lcl->IsLastUse(multiRegIndex);
-
-        if (fldVarDsc->GetRegNum() == REG_STK)
-        {
-            // We have loaded this into a register only temporarily
-            gcInfo.gcMarkRegSetNpt(reg);
-        }
-        else if (isFieldDying)
-        {
-            gcInfo.gcMarkRegSetNpt(genRegMask(fldVarDsc->GetRegNum()));
-        }
-    }
-    else
-    {
-        gcInfo.gcMarkRegSetNpt(tree->gtGetRegMask());
-    }
     return reg;
 }
 
