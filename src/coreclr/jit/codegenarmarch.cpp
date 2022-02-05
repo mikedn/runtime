@@ -529,13 +529,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genCodeForArrOffset(treeNode->AsArrOffs());
             break;
 
-#ifdef TARGET_ARM
-        case GT_LONG:
-            assert(treeNode->isUsedFromReg());
-            genConsumeRegs(treeNode);
-            break;
-#endif
-
         case GT_CLS_VAR_ADDR:
 #ifdef TARGET_ARM
             emit->emitIns_R_C(INS_lea, EA_4BYTE, targetReg, treeNode->AsClsVar()->GetFieldHandle(), 0);

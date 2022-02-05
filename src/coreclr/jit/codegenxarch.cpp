@@ -1739,13 +1739,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genProduceReg(treeNode);
             break;
 
-#if !defined(TARGET_64BIT)
-        case GT_LONG:
-            assert(treeNode->isUsedFromReg());
-            genConsumeRegs(treeNode);
-            break;
-#endif
-
         case GT_IL_OFFSET:
             // Do nothing; these nodes are simply markers for debug info.
             break;
