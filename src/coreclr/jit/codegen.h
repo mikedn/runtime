@@ -1107,7 +1107,6 @@ protected:
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     void genConsumeRegs(GenTree* tree);
-    void genConsumeOperands(GenTreeOp* tree);
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif

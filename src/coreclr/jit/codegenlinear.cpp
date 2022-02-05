@@ -1375,9 +1375,17 @@ void CodeGen::genConsumeAddress(GenTree* addr)
     {
         genConsumeReg(addr);
     }
-    else if (addr->IsAddrMode())
+    else if (GenTreeAddrMode* am = addr->IsAddrMode())
     {
-        genConsumeOperands(addr->AsAddrMode());
+        if (GenTree* base = am->GetBase())
+        {
+            UseReg(base);
+        }
+
+        if (GenTree* index = am->GetIndex())
+        {
+            UseReg(index);
+        }
     }
 }
 
@@ -1412,7 +1420,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 
     if (tree->IsAddrMode())
     {
-        genConsumeOperands(tree->AsAddrMode());
+        genConsumeAddress(tree);
         return;
     }
 
@@ -1460,21 +1468,6 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 #endif // FEATURE_HW_INTRINSICS
 
     assert(tree->OperIsLeaf());
-}
-
-void CodeGen::genConsumeOperands(GenTreeOp* tree)
-{
-    GenTree* firstOp  = tree->gtOp1;
-    GenTree* secondOp = tree->gtOp2;
-
-    if (firstOp != nullptr)
-    {
-        genConsumeRegs(firstOp);
-    }
-    if (secondOp != nullptr)
-    {
-        genConsumeRegs(secondOp);
-    }
 }
 
 #ifdef FEATURE_HW_INTRINSICS
