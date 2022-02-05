@@ -4217,7 +4217,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (lclRegType == TYP_LONG)
     {
         GenStoreLclVarLong(store);
-        // TODO-MIKE-Review: Doesn't this need a DefLclVarRegs call?
+        // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
         return;
     }
 #endif
@@ -4226,7 +4226,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (lclRegType == TYP_SIMD12)
     {
         genStoreSIMD12(store, src);
-        // TODO-MIKE-Review: Doesn't this need a DefLclVarRegs call?
+        // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
         return;
     }
 #endif

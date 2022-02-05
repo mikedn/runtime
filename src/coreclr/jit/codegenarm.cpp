@@ -932,6 +932,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (lclRegType == TYP_LONG)
     {
         GenStoreLclVarLong(store);
+        // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
         return;
     }
 
