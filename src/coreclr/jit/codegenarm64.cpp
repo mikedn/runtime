@@ -3322,10 +3322,9 @@ void CodeGen::genCodeForJumpCompare(GenTreeOp* tree)
     assert(op2->IsCnsIntOrI());
     assert(op2->isContained());
 
-    genConsumeOperands(tree);
+    regNumber reg = UseReg(op1);
 
-    regNumber reg  = op1->GetRegNum();
-    emitAttr  attr = emitActualTypeSize(op1->TypeGet());
+    emitAttr attr = emitActualTypeSize(op1->TypeGet());
 
     if (tree->gtFlags & GTF_JCMP_TST)
     {
