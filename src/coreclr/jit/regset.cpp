@@ -315,17 +315,6 @@ void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     INDEBUG(rsNeededSpillReg = true;)
 }
 
-void RegSet::SpillNodeRegs(GenTree* node, unsigned regCount)
-{
-    for (unsigned i = 0; i < regCount; ++i)
-    {
-        if (node->IsRegSpill(i))
-        {
-            SpillNodeReg(node, i);
-        }
-    }
-}
-
 #ifdef TARGET_X86
 void RegSet::SpillST0(GenTree* node)
 {

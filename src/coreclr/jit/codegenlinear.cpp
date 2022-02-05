@@ -1776,7 +1776,13 @@ void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
 
     if (arg->IsAnyRegSpill())
     {
-        regSet.SpillNodeRegs(arg, arg->GetRegCount());
+        for (unsigned i = 0; i < arg->GetRegCount(); ++i)
+        {
+            if (arg->IsRegSpill(i))
+            {
+                regSet.SpillNodeReg(arg, i);
+            }
+        }
     }
     else
     {
@@ -1803,7 +1809,13 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
         // probably be easily done in call lowering or LSRA build.
         if (call->IsMultiRegCall())
         {
-            regSet.SpillNodeRegs(call, call->GetRegCount());
+            for (unsigned i = 0; i < call->GetRegCount(); ++i)
+            {
+                if (call->IsRegSpill(i))
+                {
+                    regSet.SpillNodeReg(call, i);
+                }
+            }
         }
         else
         {
