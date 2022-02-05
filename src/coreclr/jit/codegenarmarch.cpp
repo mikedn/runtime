@@ -286,7 +286,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_LEA:
-            // If we are here, it is the case where there is an LEA that cannot be folded into a parent instruction.
             genLeaInstruction(treeNode->AsAddrMode());
             break;
 
@@ -1207,7 +1206,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
     genConsumeRegs(src);
 
-    // Treat dst register as a homogenous vector with element size equal to the src size
+    // Treat dst register as a homogenous vector with element attr equal to the src attr
     // Insert pieces in reverse order.
 
     regNumber dstReg = store->GetRegNum();
@@ -1368,7 +1367,7 @@ unsigned CodeGen::genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank
 
 //------------------------------------------------------------------------
 // genOffsetOfMDArrayLength: Returns the offset from the Array object to the
-//   size for the given dimension.
+//   attr for the given dimension.
 //
 // Arguments:
 //    elemType  - the element type of the array
@@ -1406,7 +1405,7 @@ void CodeGen::genCodeForArrIndex(GenTreeArrIndex* arrIndex)
     regNumber tgtReg    = arrIndex->GetRegNum();
     noway_assert(tgtReg != REG_NA);
 
-    // We will use a temp register to load the lower bound and dimension size values.
+    // We will use a temp register to load the lower bound and dimension attr values.
 
     regNumber tmpReg = arrIndex->GetSingleTempReg();
     assert(tgtReg != tmpReg);
@@ -1470,7 +1469,7 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
         var_types elemType = arrOffset->gtArrElemType;
         unsigned  offset   = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
 
-        // Load tmpReg with the dimension size and evaluate
+        // Load tmpReg with the dimension attr and evaluate
         // tgtReg = offsetReg*tmpReg + indexReg.
         emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
         emit->emitIns_R_R_R_R(INS_MULADD, EA_PTRSIZE, tgtReg, tmpReg, offsetReg, indexReg);
@@ -1631,9 +1630,9 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
         // dest = base + index * scale
         genScaledAdd(emitActualTypeSize(node), node->GetRegNum(), base->GetRegNum(), index->GetRegNum(), scale);
     }
-    else // we have to load the element size and use a MADD (multiply-add) instruction
+    else // we have to load the element attr and use a MADD (multiply-add) instruction
     {
-        // tmpReg = element size
+        // tmpReg = element attr
         CodeGen::genSetRegToIcon(tmpReg, (ssize_t)node->GetElemSize(), TYP_INT);
 
         // dest = index * tmpReg + base
@@ -1751,7 +1750,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 
     // If the struct contains GC pointers we need to generate GC write barriers, unless
     // the destination is a local variable. Even if the destination is a local we're still
-    // going to use UnrollWB if the size is too large for normal unrolling.
+    // going to use UnrollWB if the attr is too large for normal unrolling.
 
     if (layout->HasGCPtr() && (!isLocalStore || (size > CPBLK_UNROLL_LIMIT)))
     {
@@ -2712,7 +2711,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         genDefineTempLabel(genCreateTempLabel());
     }
 
-    // Determine return value size(s).
+    // Determine return value attr(s).
     emitAttr retSize       = EA_PTRSIZE;
     emitAttr secondRetSize = EA_UNKNOWN;
 
@@ -3263,11 +3262,11 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #endif // !TARGET_ARM64
     }
 
-    // Jmp call to a vararg method - if the method has fewer than fixed arguments that can be max size of reg,
+    // Jmp call to a vararg method - if the method has fewer than fixed arguments that can be max attr of reg,
     // load the remaining integer arg registers from the corresponding
     // shadow stack slots.  This is for the reason that we don't know the number and type
     // of non-fixed params passed by the caller, therefore we have to assume the worst case
-    // of caller passing all integer arg regs that can be max size of reg.
+    // of caller passing all integer arg regs that can be max attr of reg.
     //
     // The caller could have passed gc-ref/byref type var args.  Since these are var args
     // the callee no way of knowing their gc-ness.  Therefore, mark the region that loads
@@ -3623,7 +3622,7 @@ void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
             preservedAreaSize += 1; // bool for synchronized methods
         }
 
-        // Used to signal both that the method is compiled for EnC, and also the size of the block at the top of the
+        // Used to signal both that the method is compiled for EnC, and also the attr of the block at the top of the
         // frame
         gcInfoEncoder->SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
     }
@@ -3757,125 +3756,72 @@ void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg
     }
 }
 
-//------------------------------------------------------------------------
-// genLeaInstruction: Produce code for a GT_LEA node.
-//
-// Arguments:
-//    lea - the node
-//
 void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
 {
-    genConsumeOperands(lea);
+    // TODO-ARM64-CQ: The purpose of the LEA node is to directly reflect a single
+    // target architecture addressing mode instruction.  Currently we're cheating
+    // by producing one or more instructions to generate the addressing mode so we
+    // need to modify lowering to produce LEAs that are a 1:1 relationship to the
+    // ARM64 architecture.
+
+    regNumber baseReg  = UseReg(lea->GetBase());
+    regNumber indexReg = lea->GetIndex() == nullptr ? REG_NA : UseReg(lea->GetIndex());
+    regNumber dstReg   = lea->GetRegNum();
+
     emitter* emit   = GetEmitter();
-    emitAttr size   = emitTypeSize(lea);
-    int      offset = lea->Offset();
+    emitAttr attr   = emitTypeSize(lea);
+    int      offset = lea->GetOffset();
 
-    // In ARM we can only load addresses of the form:
-    //
-    // [Base + index*scale]
-    // [Base + Offset]
-    // [Literal] (PC-Relative)
-    //
-    // So for the case of a LEA node of the form [Base + Index*Scale + Offset] we will generate:
-    // destReg = baseReg + indexReg * scale;
-    // destReg = destReg + offset;
-    //
-    // TODO-ARM64-CQ: The purpose of the GT_LEA node is to directly reflect a single target architecture
-    //             addressing mode instruction.  Currently we're 'cheating' by producing one or more
-    //             instructions to generate the addressing mode so we need to modify lowering to
-    //             produce LEAs that are a 1:1 relationship to the ARM64 architecture.
-    if (lea->Base() && lea->Index())
+    if (indexReg != REG_NA)
     {
-        GenTree* memBase = lea->Base();
-        GenTree* index   = lea->Index();
-
-        DWORD scale;
-
-        assert(isPow2(lea->gtScale));
-        BitScanForward(&scale, lea->gtScale);
-
+        assert(isPow2(lea->GetScale()));
+        unsigned scale = genLog2(lea->GetScale());
         assert(scale <= 4);
 
-        if (offset != 0)
+        if (offset == 0)
+        {
+            genScaledAdd(attr, dstReg, baseReg, indexReg, scale);
+        }
+        else
         {
             regNumber tmpReg = lea->GetSingleTempReg();
 
             // When generating fully interruptible code we have to use the "large offset" sequence
             // when calculating a EA_BYREF as we can't report a byref that points outside of the object
-            //
-            bool useLargeOffsetSeq = compiler->GetInterruptible() && (size == EA_BYREF);
+            bool useLargeOffsetSeq = compiler->GetInterruptible() && (attr == EA_BYREF);
 
             if (!useLargeOffsetSeq && emitter::emitIns_valid_imm_for_add(offset))
             {
-                // Generate code to set tmpReg = base + index*scale
-                genScaledAdd(size, tmpReg, memBase->GetRegNum(), index->GetRegNum(), scale);
-
-                // Then compute target reg from [tmpReg + offset]
-                emit->emitIns_R_R_I(INS_add, size, lea->GetRegNum(), tmpReg, offset);
+                genScaledAdd(attr, tmpReg, baseReg, indexReg, scale);
+                emit->emitIns_R_R_I(INS_add, attr, lea->GetRegNum(), tmpReg, offset);
             }
-            else // large offset sequence
+            else
             {
-                noway_assert(tmpReg != index->GetRegNum());
-                noway_assert(tmpReg != memBase->GetRegNum());
+                noway_assert(tmpReg != indexReg);
+                noway_assert(tmpReg != baseReg);
 
-                // First load/store tmpReg with the offset constant
-                //      rTmp = imm
                 instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-
-                // Then add the scaled index register
-                //      rTmp = rTmp + index*scale
-                genScaledAdd(EA_PTRSIZE, tmpReg, tmpReg, index->GetRegNum(), scale);
-
-                // Then compute target reg from [base + tmpReg ]
-                //      rDst = base + rTmp
-                emit->emitIns_R_R_R(INS_add, size, lea->GetRegNum(), memBase->GetRegNum(), tmpReg);
+                genScaledAdd(EA_PTRSIZE, tmpReg, tmpReg, indexReg, scale);
+                emit->emitIns_R_R_R(INS_add, attr, dstReg, baseReg, tmpReg);
             }
         }
-        else
-        {
-            // Then compute target reg from [base + index*scale]
-            genScaledAdd(size, lea->GetRegNum(), memBase->GetRegNum(), index->GetRegNum(), scale);
-        }
     }
-    else if (lea->Base())
+    else if (!emitter::emitIns_valid_imm_for_add(offset))
     {
-        GenTree* memBase = lea->Base();
-
-        if (emitter::emitIns_valid_imm_for_add(offset))
-        {
-            if (offset != 0)
-            {
-                // Then compute target reg from [memBase + offset]
-                emit->emitIns_R_R_I(INS_add, size, lea->GetRegNum(), memBase->GetRegNum(), offset);
-            }
-            else // offset is zero
-            {
-                emit->emitIns_Mov(INS_mov, size, lea->GetRegNum(), memBase->GetRegNum(), /* canSkip */ true);
-            }
-        }
-        else
-        {
-            // We require a tmpReg to hold the offset
-            regNumber tmpReg = lea->GetSingleTempReg();
-
-            // First load tmpReg with the large offset constant
-            instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-
-            // Then compute target reg from [memBase + tmpReg]
-            emit->emitIns_R_R_R(INS_add, size, lea->GetRegNum(), memBase->GetRegNum(), tmpReg);
-        }
+        regNumber tmpReg = lea->GetSingleTempReg();
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
+        emit->emitIns_R_R_R(INS_add, attr, dstReg, baseReg, tmpReg);
     }
-    else if (lea->Index())
+    else if (offset != 0)
     {
-        // If we encounter a GT_LEA node without a base it means it came out
-        // when attempting to optimize an arbitrary arithmetic expression during lower.
-        // This is currently disabled in ARM64 since we need to adjust lower to account
-        // for the simpler instructions ARM64 supports.
-        // TODO-ARM64-CQ:  Fix this and let LEA optimize arithmetic trees too.
-        assert(!"We shouldn't see a baseless address computation during CodeGen for ARM64");
+        emit->emitIns_R_R_I(INS_add, attr, dstReg, baseReg, offset);
+    }
+    else
+    {
+        emit->emitIns_Mov(INS_mov, attr, dstReg, baseReg, /* canSkip */ true);
     }
 
-    genProduceReg(lea);
+    DefReg(lea);
 }
 
 //------------------------------------------------------------------------
@@ -3978,7 +3924,7 @@ void CodeGen::genPushCalleeSavedRegisters()
     // for pictures of the funclet frame layouts.
     //
     // For most frames, generate, e.g.:
-    //      stp fp,  lr,  [sp,-0x80]!   // predecrement SP with full frame size, and store FP/LR pair.
+    //      stp fp,  lr,  [sp,-0x80]!   // predecrement SP with full frame attr, and store FP/LR pair.
     //      stp r19, r20, [sp, 0x60]    // store at positive offset from SP established above, into callee-saved area
     //                                  // at top of frame (highest addresses).
     //      stp r21, r22, [sp, 0x70]
@@ -4216,7 +4162,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             // Note that any varargs saved space will always be 16-byte aligned, since there are 8 argument
             // registers.
             //
-            // Then, define #remainingFrameSz = #framesz - (callee-saved size + varargs space + possible alignment
+            // Then, define #remainingFrameSz = #framesz - (callee-saved attr + varargs space + possible alignment
             // padding from above). Note that #remainingFrameSz must not be zero, since we still need to save FP,SP.
             //
             // Generate:

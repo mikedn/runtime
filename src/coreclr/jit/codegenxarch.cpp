@@ -1494,7 +1494,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_LEA:
-            // If we are here, it is the case where there is an LEA that cannot be folded into a parent instruction.
             genLeaInstruction(treeNode->AsAddrMode());
             break;
 
@@ -5646,29 +5645,18 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #endif // FEATURE_VARARG
 }
 
-// produce code for a GT_LEA subnode
 void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
 {
-    emitAttr size = emitTypeSize(lea);
-    genConsumeOperands(lea);
+    regNumber baseReg  = lea->GetBase() == nullptr ? REG_NA : UseReg(lea->GetBase());
+    regNumber indexReg = lea->GetIndex() == nullptr ? REG_NA : UseReg(lea->GetIndex());
+    regNumber dstReg   = lea->GetRegNum();
+    // TODO-MIKE-Cleanup: The emitter is dumb and wants scale 1 when index is not present.
+    unsigned scale  = indexReg == REG_NA ? 1 : lea->GetScale();
+    int      offset = lea->GetOffset();
 
-    if (lea->Base() && lea->Index())
-    {
-        regNumber baseReg  = lea->Base()->GetRegNum();
-        regNumber indexReg = lea->Index()->GetRegNum();
-        GetEmitter()->emitIns_R_ARX(INS_lea, size, lea->GetRegNum(), baseReg, indexReg, lea->gtScale, lea->Offset());
-    }
-    else if (lea->Base())
-    {
-        GetEmitter()->emitIns_R_AR(INS_lea, size, lea->GetRegNum(), lea->Base()->GetRegNum(), lea->Offset());
-    }
-    else if (lea->Index())
-    {
-        GetEmitter()->emitIns_R_ARX(INS_lea, size, lea->GetRegNum(), REG_NA, lea->Index()->GetRegNum(), lea->gtScale,
-                                    lea->Offset());
-    }
+    GetEmitter()->emitIns_R_ARX(INS_lea, emitTypeSize(lea->GetType()), dstReg, baseReg, indexReg, scale, offset);
 
-    genProduceReg(lea);
+    DefReg(lea);
 }
 
 //------------------------------------------------------------------------
