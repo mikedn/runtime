@@ -3404,22 +3404,22 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
     GenTree* data = node->gtGetOp2();
     emitAttr size = emitActualTypeSize(data->TypeGet());
 
-    assert(addr->isUsedFromReg());
-    assert(data->isUsedFromReg() || data->isContainedIntOrIImmed());
     assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
-    genConsumeOperands(node);
+    regNumber addrReg = UseReg(addr);
+    regNumber dataReg = data->isUsedFromReg() ? UseReg(data) : REG_NA;
+
     instGen(INS_lock);
 
     if (data->isContainedIntOrIImmed())
     {
         int imm = static_cast<int>(data->AsIntCon()->IconValue());
         assert(imm == data->AsIntCon()->IconValue());
-        GetEmitter()->emitIns_I_AR(INS_add, size, imm, addr->GetRegNum(), 0);
+        GetEmitter()->emitIns_I_AR(INS_add, size, imm, addrReg, 0);
     }
     else
     {
-        GetEmitter()->emitIns_AR_R(INS_add, size, data->GetRegNum(), addr->GetRegNum(), 0);
+        GetEmitter()->emitIns_AR_R(INS_add, size, dataReg, addrReg, 0);
     }
 }
 
@@ -3437,17 +3437,18 @@ void CodeGen::genLockedInstructions(GenTreeOp* node)
     GenTree* data = node->gtGetOp2();
     emitAttr size = emitTypeSize(node->TypeGet());
 
-    assert(addr->isUsedFromReg());
-    assert(data->isUsedFromReg());
     assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
-    genConsumeOperands(node);
+    regNumber addrReg = UseReg(addr);
+    regNumber dataReg = UseReg(data);
+    regNumber dstReg  = node->GetRegNum();
 
     // If the destination register is different from the data register then we need
     // to first move the data to the target register. Make sure we don't overwrite
     // the address, the register allocator should have taken care of this.
-    assert((node->GetRegNum() != addr->GetRegNum()) || (node->GetRegNum() == data->GetRegNum()));
-    GetEmitter()->emitIns_Mov(INS_mov, size, node->GetRegNum(), data->GetRegNum(), /* canSkip */ true);
+    assert((dstReg != addrReg) || (dstReg == dataReg));
+
+    GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, dataReg, /* canSkip */ true);
 
     instruction ins = node->OperIs(GT_XADD) ? INS_xadd : INS_xchg;
 
@@ -3457,7 +3458,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* node)
         instGen(INS_lock);
     }
 
-    GetEmitter()->emitIns_AR_R(ins, size, node->GetRegNum(), addr->GetRegNum(), 0);
+    GetEmitter()->emitIns_AR_R(ins, size, dstReg, addrReg, 0);
     genProduceReg(node);
 }
 
