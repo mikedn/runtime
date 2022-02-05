@@ -961,52 +961,25 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 //
 void CodeGen::genCodeForDivMod(GenTreeOp* tree)
 {
-    assert(tree->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD));
-
-    // We shouldn't be seeing GT_MOD on float/double args as it should get morphed into a
-    // helper call by front-end. Similarly we shouldn't be seeing GT_UDIV and GT_UMOD
-    // on float/double args.
-    noway_assert(tree->OperIs(GT_DIV) || !varTypeIsFloating(tree));
-
-#if defined(USE_HELPERS_FOR_INT_DIV)
-    noway_assert(!varTypeIsIntOrI(tree));
-#endif // USE_HELPERS_FOR_INT_DIV
+    // Only floating point division is supported, integer division must
+    // use helpers (USE_HELPERS_FOR_INT_DIV). In addition to the fact
+    // that integer division instructions are not always available this
+    // code does not check for division by zero and overflow cases.
+    noway_assert(tree->OperIs(GT_DIV) && varTypeIsFloating(tree->GetType()));
 
     var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
     emitter*  emit       = GetEmitter();
 
-    genConsumeOperands(tree);
+    regNumber srcReg1 = UseReg(tree->GetOp(0));
+    regNumber srcReg2 = UseReg(tree->GetOp(1));
+    regNumber dstReg  = tree->GetRegNum();
 
-    noway_assert(targetReg != REG_NA);
+    instruction ins  = genGetInsForOper(tree->OperGet(), targetType);
+    emitAttr    attr = emitTypeSize(tree);
 
-    GenTree*    dst    = tree;
-    GenTree*    src1   = tree->gtGetOp1();
-    GenTree*    src2   = tree->gtGetOp2();
-    instruction ins    = genGetInsForOper(tree->OperGet(), targetType);
-    emitAttr    attr   = emitTypeSize(tree);
-    regNumber   result = REG_NA;
+    emit->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
 
-    // dst can only be a reg
-    assert(!dst->isContained());
-
-    // src can be only reg
-    assert(!src1->isContained() || !src2->isContained());
-
-    if (varTypeIsFloating(targetType))
-    {
-        // Floating point divide never raises an exception
-
-        emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
-    }
-    else // an signed integer divide operation
-    {
-        // TODO-ARM-Bug: handle zero division exception.
-
-        emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
-    }
-
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 //------------------------------------------------------------------------
