@@ -2944,23 +2944,24 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     }
 #endif
 
-    GenTree* data = tree->Data();
-    GenTree* addr = tree->Addr();
+    GenTree* addr = tree->GetAddr();
+    GenTree* data = tree->GetValue();
 
     assert(IsValidSourceType(tree->GetType(), data->GetType()));
 
     GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        genConsumeOperands(tree);
+        regNumber addrReg = UseReg(addr);
+        regNumber dataReg = UseReg(data);
 
         // At this point, we should not have any interference.
         // That is, 'data' must not be in REG_WRITE_BARRIER_DST_BYREF,
         // as that is where 'addr' must go.
-        noway_assert(data->GetRegNum() != REG_WRITE_BARRIER_DST_BYREF);
+        noway_assert(dataReg != REG_WRITE_BARRIER_DST_BYREF);
 
-        genCopyRegIfNeeded(addr, REG_WRITE_BARRIER_DST);
-        genCopyRegIfNeeded(data, REG_WRITE_BARRIER_SRC);
+        inst_Mov(addr->GetType(), REG_WRITE_BARRIER_DST, addrReg, /* canSkip */ true);
+        inst_Mov(data->GetType(), REG_WRITE_BARRIER_SRC, dataReg, /* canSkip */ true);
         genGCWriteBarrier(tree, writeBarrierForm);
 
         return;

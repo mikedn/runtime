@@ -1140,24 +1140,25 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 //
 void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 {
-    GenTree*  data = tree->Data();
-    GenTree*  addr = tree->Addr();
-    var_types type = tree->TypeGet();
+    GenTree*  addr = tree->GetAddr();
+    GenTree*  data = tree->GetValue();
+    var_types type = tree->GetType();
 
     assert(IsValidSourceType(type, data->GetType()));
 
     GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        genConsumeOperands(tree);
+        regNumber addrReg = UseReg(addr);
+        regNumber dataReg = UseReg(data);
 
         // At this point, we should not have any interference.
         // That is, 'data' must not be in REG_ARG_0,
         // as that is where 'addr' must go.
-        noway_assert(data->GetRegNum() != REG_ARG_0);
+        noway_assert(dataReg != REG_ARG_0);
 
-        inst_Mov(addr->GetType(), REG_ARG_0, addr->GetRegNum(), /* canSkip */ true);
-        inst_Mov(data->GetType(), REG_ARG_1, data->GetRegNum(), /* canSkip */ true);
+        inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
+        inst_Mov(data->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
         genGCWriteBarrier(tree, writeBarrierForm);
 
         return;
