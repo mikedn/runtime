@@ -1822,8 +1822,15 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     GenTree*    op2 = treeNode->gtGetOp2();
     instruction ins = genGetInsForOper(treeNode->OperGet(), targetType);
 
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
+    if (op1->isUsedFromReg())
+    {
+        UseReg(op1);
+    }
+
+    if (op2->isUsedFromReg())
+    {
+        UseReg(op2);
+    }
 
     if ((treeNode->gtFlags & GTF_SET_FLAGS) != 0)
     {
@@ -1862,7 +1869,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     regNumber r = emit->emitInsTernary(ins, attr, treeNode, op1, op2);
     assert(r == targetReg);
 
-    genProduceReg(treeNode);
+    DefReg(treeNode);
 }
 
 //------------------------------------------------------------------------
@@ -2505,14 +2512,12 @@ void CodeGen::genJumpTable(GenTree* treeNode)
 //
 void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
 {
-    GenTree*  data      = treeNode->AsOp()->gtOp2;
-    GenTree*  addr      = treeNode->AsOp()->gtOp1;
-    regNumber targetReg = treeNode->GetRegNum();
-    regNumber dataReg   = data->GetRegNum();
-    regNumber addrReg   = addr->GetRegNum();
+    GenTree* addr = treeNode->GetOp(0);
+    GenTree* data = treeNode->GetOp(1);
 
-    genConsumeAddress(addr);
-    genConsumeRegs(data);
+    regNumber addrReg   = UseReg(addr);
+    regNumber dataReg   = data->isUsedFromReg() ? UseReg(data) : REG_NA;
+    regNumber targetReg = treeNode->GetRegNum();
 
     emitAttr dataSize = emitActualTypeSize(data);
 
@@ -2652,14 +2657,10 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
     GenTree* data      = treeNode->GetValue();
     GenTree* comparand = treeNode->GetCompareValue();
 
+    regNumber addrReg      = UseReg(addr);
+    regNumber dataReg      = UseReg(data);
+    regNumber comparandReg = comparand->isUsedFromReg() ? UseReg(comparand) : REG_NA;
     regNumber targetReg    = treeNode->GetRegNum();
-    regNumber dataReg      = data->GetRegNum();
-    regNumber addrReg      = addr->GetRegNum();
-    regNumber comparandReg = comparand->GetRegNum();
-
-    genConsumeAddress(addr);
-    genConsumeRegs(data);
-    genConsumeRegs(comparand);
 
     if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
     {
@@ -2859,9 +2860,9 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
     // based on the contents of 'data'
 
-    GenTree* data = tree->gtOp1;
-    genConsumeRegs(data);
-    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, data->GetRegNum(), 0);
+    regNumber reg = UseReg(tree->GetOp(0));
+
+    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, reg, 0);
 
     BasicBlock* skipLabel = genCreateTempLabel();
 
@@ -2914,25 +2915,19 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     // We must consume the operands in the proper execution order,
     // so that liveness is updated appropriately.
     genConsumeAddress(addr);
-
-    if (!data->isContained())
-    {
-        genConsumeRegs(data);
-    }
-
     var_types type = tree->GetType();
     regNumber dataReg;
 
-    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_HWINTRINSIC))
+    if (data->isContained())
     {
         assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsHWIntrinsicZero());
         assert(varTypeSize(type) <= REGSIZE_BYTES);
+
         dataReg = REG_ZR;
     }
-    else // data is not contained, so evaluate it into a register
+    else
     {
-        assert(!data->isContained());
-        dataReg = data->GetRegNum();
+        dataReg = UseReg(data);
     }
 
     instruction ins = ins_Store(type);

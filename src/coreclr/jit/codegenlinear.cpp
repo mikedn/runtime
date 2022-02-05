@@ -1291,6 +1291,13 @@ regNumber CodeGen::UseReg(GenTree* node)
     return genConsumeReg(node);
 }
 
+void CodeGen::UseRegs(GenTree* node)
+{
+    assert(node->IsMultiRegNode());
+
+    genConsumeReg(node);
+}
+
 //--------------------------------------------------------------------
 // genConsumeReg: Do liveness update for a subnode that is being
 // consumed by codegen.
@@ -1388,6 +1395,16 @@ void CodeGen::genConsumeAddress(GenTree* addr)
     }
 }
 
+bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
+{
+    // A contained local must be living on stack and marked as reg optional,
+    // or not be a register candidate.
+    // TODO-MIKE-Review: If it's reg optional it probably needs to be spilled too...
+    LclVarDsc* lcl = compiler->lvaGetDesc(node);
+
+    return (lcl->GetRegNum() == REG_STK) && (node->IsRegOptional() || !lcl->IsRegCandidate());
+}
+
 void CodeGen::genConsumeRegs(GenTree* tree)
 {
 #if !defined(TARGET_64BIT)
@@ -1431,13 +1448,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 
     if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        // A contained lcl var must be living on stack and marked as reg optional, or not be a
-        // register candidate.
-        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVarCommon());
-
-        noway_assert(varDsc->GetRegNum() == REG_STK);
-        noway_assert(tree->IsRegOptional() || !varDsc->lvLRACandidate);
-
+        IsValidContainedLcl(tree->AsLclVarCommon());
         genUpdateLife(tree->AsLclVarCommon());
 
         return;

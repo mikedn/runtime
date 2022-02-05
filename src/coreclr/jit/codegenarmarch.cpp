@@ -940,23 +940,24 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 {
     GenTree*  src     = bitcast->GetOp(0);
     var_types dstType = bitcast->GetType();
-    regNumber dstReg  = bitcast->GetRegNum();
-
-    genConsumeRegs(src);
 
     if (src->isContained())
     {
-        unsigned    lclNum = src->AsLclVar()->GetLclNum();
-        instruction ins    = ins_Load(dstType);
-        GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
-        genProduceReg(bitcast);
+        IsValidContainedLcl(src->AsLclVar());
+        genUpdateLife(src->AsLclVar());
+        unsigned  lclNum = src->AsLclVar()->GetLclNum();
+        regNumber dstReg = bitcast->GetRegNum();
+
+        GetEmitter()->emitIns_R_S(ins_Load(dstType), emitTypeSize(dstType), dstReg, lclNum, 0);
+        DefReg(bitcast);
     }
 #ifdef TARGET_ARM
     else if (varTypeIsLong(dstType) && src->TypeIs(TYP_DOUBLE))
     {
-        regNumber otherReg = bitcast->AsMultiRegOp()->GetRegNum(1);
-        assert(otherReg != REG_NA);
-        inst_RV_RV_RV(INS_vmov_d2i, dstReg, otherReg, src->GetRegNum(), EA_8BYTE);
+        regNumber srcReg  = UseReg(src);
+        regNumber dstReg1 = bitcast->GetRegNum(0);
+        regNumber dstReg2 = bitcast->GetRegNum(1);
+        inst_RV_RV_RV(INS_vmov_d2i, dstReg1, dstReg2, srcReg, EA_8BYTE);
         DefLongRegs(bitcast->AsMultiRegOp());
     }
     else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
@@ -966,8 +967,10 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 #endif
     else
     {
-        inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
-        genProduceReg(bitcast);
+        regNumber srcReg = UseReg(src);
+        regNumber dstReg = bitcast->GetRegNum();
+        inst_BitCast(dstType, dstReg, src->GetType(), srcReg);
+        DefReg(bitcast);
     }
 }
 
@@ -1203,7 +1206,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     GenTree* actualSrc = src->gtSkipReloadOrCopy();
     unsigned regCount  = src->GetMultiRegCount(compiler);
 
-    genConsumeRegs(src);
+    UseRegs(src);
 
     // Treat dst register as a homogenous vector with element attr equal to the src attr
     // Insert pieces in reverse order.
@@ -1258,17 +1261,24 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
 void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 {
-    GenTree* arrLen    = bndsChk->GetLength();
     GenTree* arrIndex  = bndsChk->GetIndex();
+    GenTree* arrLen    = bndsChk->GetLength();
     GenTree* arrRef    = nullptr;
     int      lenOffset = 0;
+
+    if (arrIndex->isUsedFromReg())
+    {
+        UseReg(arrIndex);
+    }
+
+    if (arrLen->isUsedFromReg())
+    {
+        UseReg(arrLen);
+    }
 
     GenTree*     src1;
     GenTree*     src2;
     emitJumpKind jmpKind;
-
-    genConsumeRegs(arrIndex);
-    genConsumeRegs(arrLen);
 
     if (arrIndex->isContainedIntOrIImmed())
     {
@@ -1337,7 +1347,7 @@ void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
     assert(tree->OperIs(GT_NULLCHECK));
     GenTree* op1 = tree->gtOp1;
 
-    genConsumeRegs(op1);
+    genConsumeAddress(op1);
     regNumber targetReg = REG_ZR;
 
     GetEmitter()->emitInsLoadStoreOp(INS_ldr, EA_4BYTE, targetReg, tree);

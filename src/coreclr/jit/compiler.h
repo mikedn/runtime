@@ -734,6 +734,11 @@ public:
 
     bool lvIsRegCandidate() const
     {
+        return IsRegCandidate();
+    }
+
+    bool IsRegCandidate() const
+    {
         return lvLRACandidate != 0;
     }
 

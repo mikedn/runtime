@@ -10169,7 +10169,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
             // Keep it as is for until non-SIMD multi reg struct returns are changed to also
             // use FIELD_LIST.
 
-            regNumber srcReg = genConsumeReg(use.GetNode());
+            regNumber srcReg = UseReg(use.GetNode());
             regNumber retReg = retDesc.GetRegNum(regIndex++);
 
             if (srcReg != retReg)
@@ -10182,11 +10182,11 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
         return;
     }
 
-    genConsumeRegs(src);
+    UseRegs(src);
 
-    GenTree* actualSrc = !src->IsCopyOrReload() ? src : src->AsUnOp()->GetOp(0);
+    GenTreeCall* actualSrc = (!src->IsCopyOrReload() ? src : src->AsUnOp()->GetOp(0))->AsCall();
 
-    assert(actualSrc->AsCall()->GetRegCount() == retDesc.GetRegCount());
+    assert(actualSrc->GetRegCount() == retDesc.GetRegCount());
 
     for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
     {

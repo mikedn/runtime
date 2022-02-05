@@ -298,8 +298,15 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     GenTree* op1 = treeNode->gtGetOp1();
     GenTree* op2 = treeNode->gtGetOp2();
 
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
+    if (op1->isUsedFromReg())
+    {
+        UseReg(op1);
+    }
+
+    if (op2->isUsedFromReg())
+    {
+        UseReg(op2);
+    }
 
     assert(IsValidSourceType(targetType, op1->GetType()));
     assert(IsValidSourceType(targetType, op2->GetType()));
@@ -322,7 +329,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
         assert(r == targetReg);
     }
 
-    genProduceReg(treeNode);
+    DefReg(treeNode);
 }
 
 //--------------------------------------------------------------------------------------
@@ -1129,11 +1136,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     // We must consume the operands in the proper execution order,
     // so that liveness is updated appropriately.
     genConsumeAddress(addr);
-
-    if (!data->isContained())
-    {
-        genConsumeRegs(data);
-    }
+    regNumber dataReg = UseReg(data);
 
     if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
     {
@@ -1141,7 +1144,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         instGen_MemoryBarrier();
     }
 
-    GetEmitter()->emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), data->GetRegNum(), tree);
+    GetEmitter()->emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
 }
 
 // genLongToIntCast: Generate code for long to int casts.
