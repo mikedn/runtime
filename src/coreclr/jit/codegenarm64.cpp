@@ -2329,7 +2329,7 @@ BAILOUT:
 // Arguments:
 //    tree - the node
 //
-void CodeGen::genCodeForNegNot(GenTree* tree)
+void CodeGen::genCodeForNegNot(GenTreeUnOp* tree)
 {
     assert(tree->OperIs(GT_NEG, GT_NOT));
 

@@ -57,10 +57,10 @@ private:
     CORINFO_FIELD_HANDLE u8ToFltBitmask;
 
     // Generates SSE2 code for the given tree as "Operand BitWiseOp BitMask"
-    void genSSE2BitwiseOp(GenTree* treeNode);
+    void genSSE2BitwiseOp(GenTreeUnOp* node);
 
     // Generates SSE41 code for the given tree as a round operation
-    void genSSE41RoundOp(GenTreeOp* treeNode);
+    void genSSE41RoundOp(GenTreeUnOp* node);
 
     instruction simdAlignedMovIns()
     {
@@ -950,7 +950,7 @@ protected:
 
     void genCkfinite(GenTree* treeNode);
     void genCodeForCompare(GenTreeOp* tree);
-    void genIntrinsic(GenTree* treeNode);
+    void genIntrinsic(GenTreeIntrinsic* node);
     void genPutArgStk(GenTreePutArgStk* treeNode);
     void genPutArgReg(GenTreeUnOp* putArg);
 #if FEATURE_ARG_SPLIT
@@ -1131,7 +1131,7 @@ protected:
     void genCodeForLclAddr(GenTreeLclVarCommon* tree);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void genCodeForIndir(GenTreeIndir* tree);
-    void genCodeForNegNot(GenTree* tree);
+    void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
     void genCodeForLclVar(GenTreeLclVar* tree);
     void genCodeForLclFld(GenTreeLclFld* tree);

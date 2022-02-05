@@ -193,7 +193,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_NOT:
         case GT_NEG:
-            genCodeForNegNot(treeNode);
+            genCodeForNegNot(treeNode->AsUnOp());
             break;
 
 #if defined(TARGET_ARM64)
@@ -328,7 +328,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_INTRINSIC:
-            genIntrinsic(treeNode);
+            genIntrinsic(treeNode->AsIntrinsic());
             break;
 
 #ifdef FEATURE_SIMD
@@ -616,61 +616,44 @@ void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed = false;
 }
 
-//---------------------------------------------------------------------
-// genIntrinsic - generate code for a given intrinsic
-//
-// Arguments
-//    treeNode - the GT_INTRINSIC node
-//
-// Return value:
-//    None
-//
-void CodeGen::genIntrinsic(GenTree* treeNode)
+void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
 {
-    assert(treeNode->OperIs(GT_INTRINSIC));
+    assert(varTypeIsFloating(node->GetType()));
 
-    // Both operand and its result must be of the same floating point type.
-    GenTree* srcNode = treeNode->AsOp()->gtOp1;
-    assert(varTypeIsFloating(srcNode));
-    assert(srcNode->TypeGet() == treeNode->TypeGet());
+    GenTree* src = node->GetOp(0);
+    assert(src->GetType() == node->GetType());
 
-    // Right now only Abs/Ceiling/Floor/Round/Sqrt are treated as math intrinsics.
-    //
-    switch (treeNode->AsIntrinsic()->gtIntrinsicName)
+    regNumber srcReg = UseReg(src);
+    regNumber dstReg = node->GetRegNum();
+
+    instruction ins;
+
+    switch (node->GetIntrinsic())
     {
         case NI_System_Math_Abs:
-            genConsumeOperands(treeNode->AsOp());
-            GetEmitter()->emitInsBinary(INS_ABS, emitActualTypeSize(treeNode), treeNode, srcNode);
+            ins = INS_ABS;
             break;
-
+        case NI_System_Math_Sqrt:
+            ins = INS_SQRT;
+            break;
 #ifdef TARGET_ARM64
         case NI_System_Math_Ceiling:
-            genConsumeOperands(treeNode->AsOp());
-            GetEmitter()->emitInsBinary(INS_frintp, emitActualTypeSize(treeNode), treeNode, srcNode);
+            ins = INS_frintp;
             break;
-
         case NI_System_Math_Floor:
-            genConsumeOperands(treeNode->AsOp());
-            GetEmitter()->emitInsBinary(INS_frintm, emitActualTypeSize(treeNode), treeNode, srcNode);
+            ins = INS_frintm;
             break;
-
         case NI_System_Math_Round:
-            genConsumeOperands(treeNode->AsOp());
-            GetEmitter()->emitInsBinary(INS_frintn, emitActualTypeSize(treeNode), treeNode, srcNode);
+            ins = INS_frintn;
             break;
-#endif // TARGET_ARM64
-
-        case NI_System_Math_Sqrt:
-            genConsumeOperands(treeNode->AsOp());
-            GetEmitter()->emitInsBinary(INS_SQRT, emitActualTypeSize(treeNode), treeNode, srcNode);
-            break;
-
+#endif
         default:
-            assert(!"genIntrinsic: Unsupported intrinsic");
             unreached();
     }
 
-    genProduceReg(treeNode);
+    GetEmitter()->emitIns_R_R(ins, emitTypeSize(node->GetType()), dstReg, srcReg);
+
+    DefReg(node);
 }
 
 //---------------------------------------------------------------------

@@ -5174,6 +5174,11 @@ struct GenTreeIntrinsic : public GenTreeOp
         assert(intrinsicId != CORINFO_INTRINSIC_Illegal || intrinsicName != NI_Illegal);
     }
 
+    NamedIntrinsic GetIntrinsic()
+    {
+        return gtIntrinsicName;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeIntrinsic() : GenTreeOp()
     {

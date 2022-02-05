@@ -493,7 +493,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
 // Arguments:
 //    tree - the node
 //
-void CodeGen::genCodeForNegNot(GenTree* tree)
+void CodeGen::genCodeForNegNot(GenTreeUnOp* tree)
 {
     assert(tree->OperIs(GT_NEG, GT_NOT));
 
@@ -1390,7 +1390,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_NOT:
         case GT_NEG:
-            genCodeForNegNot(treeNode);
+            genCodeForNegNot(treeNode->AsUnOp());
             break;
 
         case GT_BSWAP:
@@ -1518,7 +1518,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_INTRINSIC:
-            genIntrinsic(treeNode);
+            genIntrinsic(treeNode->AsIntrinsic());
             break;
 
 #ifdef FEATURE_SIMD
@@ -6562,10 +6562,10 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 //     i) tree oper is one of GT_NEG or GT_INTRINSIC Abs()
 //    ii) tree type is floating point type.
 //   iii) caller of this routine needs to call genProduceReg()
-void CodeGen::genSSE2BitwiseOp(GenTree* treeNode)
+void CodeGen::genSSE2BitwiseOp(GenTreeUnOp* treeNode)
 {
     regNumber targetReg  = treeNode->GetRegNum();
-    regNumber operandReg = genConsumeReg(treeNode->gtGetOp1());
+    regNumber operandReg = UseReg(treeNode->GetOp(0));
     emitAttr  size       = emitTypeSize(treeNode);
 
     assert(varTypeIsFloating(treeNode->TypeGet()));
@@ -6624,7 +6624,7 @@ void CodeGen::genSSE2BitwiseOp(GenTree* treeNode)
 //    iv) treeNode is not used from memory
 //     v) tree oper is NI_System_Math{F}_Round, _Ceiling, or _Floor
 //    vi) caller of this routine needs to call genProduceReg()
-void CodeGen::genSSE41RoundOp(GenTreeOp* treeNode)
+void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
 {
     // i) SSE4.1 is supported by the underlying hardware
     assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE41));
@@ -6641,7 +6641,7 @@ void CodeGen::genSSE41RoundOp(GenTreeOp* treeNode)
     // iv) treeNode is not used from memory
     assert(!treeNode->isUsedFromMemory());
 
-    genConsumeOperands(treeNode);
+    genConsumeRegs(srcNode);
 
     instruction ins  = (treeNode->TypeGet() == TYP_FLOAT) ? INS_roundss : INS_roundsd;
     emitAttr    size = emitTypeSize(treeNode);
@@ -6773,39 +6773,28 @@ void CodeGen::genSSE41RoundOp(GenTreeOp* treeNode)
     }
 }
 
-//---------------------------------------------------------------------
-// genIntrinsic - generate code for a given intrinsic
-//
-// Arguments
-//    treeNode - the GT_INTRINSIC node
-//
-// Return value:
-//    None
-//
-void CodeGen::genIntrinsic(GenTree* treeNode)
+void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
 {
-    // Handle intrinsics that can be implemented by target-specific instructions
-    switch (treeNode->AsIntrinsic()->gtIntrinsicName)
+    assert(varTypeIsFloating(node->GetType()));
+
+    switch (node->GetIntrinsic())
     {
         case NI_System_Math_Abs:
-            genSSE2BitwiseOp(treeNode);
+            genSSE2BitwiseOp(node);
             break;
 
         case NI_System_Math_Ceiling:
         case NI_System_Math_Floor:
         case NI_System_Math_Round:
-            genSSE41RoundOp(treeNode->AsOp());
+            genSSE41RoundOp(node);
             break;
 
         case NI_System_Math_Sqrt:
         {
-            // Both operand and its result must be of the same floating point type.
-            GenTree* srcNode = treeNode->AsOp()->gtOp1;
-            assert(varTypeIsFloating(srcNode));
-            assert(srcNode->TypeGet() == treeNode->TypeGet());
-
-            genConsumeOperands(treeNode->AsOp());
-            GetEmitter()->emitInsBinary(ins_FloatSqrt(treeNode->TypeGet()), emitTypeSize(treeNode), treeNode, srcNode);
+            GenTree* src = node->GetOp(0);
+            assert(src->GetType() == node->GetType());
+            genConsumeRegs(src);
+            GetEmitter()->emitInsBinary(ins_FloatSqrt(node->GetType()), emitTypeSize(node->GetType()), node, src);
             break;
         }
 
@@ -6814,7 +6803,7 @@ void CodeGen::genIntrinsic(GenTree* treeNode)
             unreached();
     }
 
-    genProduceReg(treeNode);
+    DefReg(node);
 }
 
 void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
