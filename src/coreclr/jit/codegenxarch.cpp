@@ -1724,7 +1724,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_SWITCH_TABLE:
-            genTableBasedSwitch(treeNode);
+            genTableBasedSwitch(treeNode->AsOp());
             break;
 
         case GT_ARR_INDEX:
@@ -3335,11 +3335,10 @@ void CodeGen::genClearStackVec3ArgUpperBits()
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 
 // generate code do a switch statement based on a table of ip-relative offsets
-void CodeGen::genTableBasedSwitch(GenTree* treeNode)
+void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
-    genConsumeOperands(treeNode->AsOp());
-    regNumber idxReg  = treeNode->AsOp()->gtOp1->GetRegNum();
-    regNumber baseReg = treeNode->AsOp()->gtOp2->GetRegNum();
+    regNumber idxReg  = UseReg(treeNode->GetOp(0));
+    regNumber baseReg = UseReg(treeNode->GetOp(1));
 
     regNumber tmpReg = treeNode->GetSingleTempReg();
 

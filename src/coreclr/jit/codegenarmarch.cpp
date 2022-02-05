@@ -518,7 +518,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_SWITCH_TABLE:
-            genTableBasedSwitch(treeNode);
+            genTableBasedSwitch(treeNode->AsOp());
             break;
 
         case GT_ARR_INDEX:

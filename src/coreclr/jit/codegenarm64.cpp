@@ -2498,11 +2498,10 @@ void CodeGen::genCodeForDivMod(GenTreeOp* tree)
 }
 
 // generate code do a switch statement based on a table of ip-relative offsets
-void CodeGen::genTableBasedSwitch(GenTree* treeNode)
+void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
-    genConsumeOperands(treeNode->AsOp());
-    regNumber idxReg  = treeNode->AsOp()->gtOp1->GetRegNum();
-    regNumber baseReg = treeNode->AsOp()->gtOp2->GetRegNum();
+    regNumber idxReg  = UseReg(treeNode->GetOp(0));
+    regNumber baseReg = UseReg(treeNode->GetOp(1));
 
     regNumber tmpReg = treeNode->GetSingleTempReg();
 

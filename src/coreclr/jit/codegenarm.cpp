@@ -608,11 +608,10 @@ BAILOUT:
 //------------------------------------------------------------------------
 // genTableBasedSwitch: generate code for a switch statement based on a table of ip-relative offsets
 //
-void CodeGen::genTableBasedSwitch(GenTree* treeNode)
+void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
-    genConsumeOperands(treeNode->AsOp());
-    regNumber idxReg  = treeNode->AsOp()->gtOp1->GetRegNum();
-    regNumber baseReg = treeNode->AsOp()->gtOp2->GetRegNum();
+    regNumber idxReg  = UseReg(treeNode->GetOp(0));
+    regNumber baseReg = UseReg(treeNode->GetOp(1));
 
     GetEmitter()->emitIns_R_ARX(INS_ldr, EA_4BYTE, REG_PC, baseReg, idxReg, TARGET_POINTER_SIZE, 0);
 }

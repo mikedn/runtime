@@ -1233,7 +1233,7 @@ protected:
     void GenStructStoreUnrollRegsWB(GenTreeObj* store);
 #endif
     void genJumpTable(GenTree* tree);
-    void genTableBasedSwitch(GenTree* tree);
+    void genTableBasedSwitch(GenTreeOp* tree);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);
     void genCodeForArrOffset(GenTreeArrOffs* treeNode);
     instruction genGetInsForOper(genTreeOps oper, var_types type);
