@@ -1670,7 +1670,7 @@ void CodeGen::DefReg(GenTree* node)
         // COPY/RELOAD are never spilled.
         noway_assert(!node->IsCopyOrReload());
 
-        regSet.SpillNodeReg(node, 0);
+        regSet.SpillNodeReg(node, node->GetType(), 0);
 
         return;
     }
@@ -1715,7 +1715,7 @@ void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
         }
         else
         {
-            regSet.SpillNodeReg(lclVar, 0);
+            regSet.SpillNodeReg(lclVar, lclVar->GetType(), 0);
 
             return;
         }
@@ -1780,7 +1780,7 @@ void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
         {
             if (arg->IsRegSpill(i))
             {
-                regSet.SpillNodeReg(arg, i);
+                regSet.SpillNodeReg(arg, arg->GetRegType(i), i);
             }
         }
     }
@@ -1813,13 +1813,20 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
             {
                 if (call->IsRegSpill(i))
                 {
-                    regSet.SpillNodeReg(call, i);
+                    regSet.SpillNodeReg(call, call->GetRegType(i), i);
                 }
             }
         }
         else
         {
-            regSet.SpillNodeReg(call, 0);
+            var_types regType = call->GetType();
+
+            if (regType == TYP_STRUCT)
+            {
+                regType = call->GetRegType(0);
+            }
+
+            regSet.SpillNodeReg(call, regType, 0);
         }
     }
     else if (call->gtHasReg())
@@ -1848,12 +1855,12 @@ void CodeGen::DefLongRegs(GenTreeMultiRegOp* node)
 
     if (node->IsRegSpill(0))
     {
-        regSet.SpillNodeReg(node, 0);
+        regSet.SpillNodeReg(node, TYP_INT, 0);
     }
 
     if (node->IsRegSpill(1))
     {
-        regSet.SpillNodeReg(node, 1);
+        regSet.SpillNodeReg(node, TYP_INT, 1);
     }
 
     gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));

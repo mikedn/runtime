@@ -267,38 +267,11 @@ TempDsc* RegSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types type)
     return temp;
 }
 
-void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
-{
-    assert(node->IsRegSpill(regIndex));
-    assert(!node->IsMultiRegLclVar());
-
-    var_types type = node->GetType();
-
-    if (node->IsMultiRegCall())
-    {
-        type = node->AsCall()->GetRegType(regIndex);
-    }
-    else if (node->IsCall() && (type == TYP_STRUCT))
-    {
-        type = node->AsCall()->GetRegType(0);
-    }
-#ifdef TARGET_ARM
-    else if (GenTreePutArgSplit* putArgSplit = node->IsPutArgSplit())
-    {
-        type = putArgSplit->GetRegType(regIndex);
-    }
-    else if (GenTreeMultiRegOp* multiRegOp = node->IsMultiRegOpLong())
-    {
-        type = multiRegOp->GetRegType(regIndex);
-    }
-#endif // TARGET_ARM
-
-    SpillNodeReg(node, type, regIndex);
-}
-
 void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 {
+    assert(!node->IsMultiRegLclVar());
     assert(!varTypeIsMultiReg(regType));
+    assert(node->IsRegSpill(regIndex));
 
     regNumber reg  = node->GetRegNum(regIndex);
     TempDsc*  temp = AllocSpillTemp(node, reg, regType);
