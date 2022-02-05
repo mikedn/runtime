@@ -586,11 +586,12 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
     GenTree*  op1        = treeNode->AsOp()->gtOp1;
     GenTree*  op2        = treeNode->AsOp()->gtOp2;
 
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
+
     // to get the high bits of the multiply, we are constrained to using the
     // 1-op form:  RDX:RAX = RAX * rm
     // The 3-op form (Rx=Ry*Rz) does not support it.
-
-    genConsumeOperands(treeNode->AsOp());
 
     GenTree* regOp = op1;
     GenTree* rmOp  = op2;
@@ -598,10 +599,8 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
     // Set rmOp to the memory operand (if any)
     if (op1->isUsedFromMemory() || (op2->isUsedFromReg() && (op2->GetRegNum() == REG_RAX)))
     {
-        regOp = op2;
-        rmOp  = op1;
+        std::swap(regOp, rmOp);
     }
-    assert(regOp->isUsedFromReg());
 
     // Setup targetReg when neither of the source operands was a matching register
     inst_Mov(targetType, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
@@ -631,7 +630,7 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
     }
 #endif
 
-    genProduceReg(treeNode);
+    DefReg(treeNode);
 }
 
 #ifdef TARGET_X86
@@ -750,7 +749,9 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
     // dividend is in a register.
     assert(dividend->isUsedFromReg());
 
-    genConsumeOperands(treeNode->AsOp());
+    UseReg(dividend);
+    genConsumeRegs(divisor);
+
     // dividend must be in RAX
     genCopyRegIfNeeded(dividend, REG_RAX);
 
@@ -791,7 +792,8 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
         assert((oper == GT_MOD) || (oper == GT_UMOD));
         inst_Mov(targetType, targetReg, REG_RDX, /* canSkip */ true);
     }
-    genProduceReg(treeNode);
+
+    DefReg(treeNode);
 }
 
 //------------------------------------------------------------------------
@@ -825,8 +827,6 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     assert(isValidOper);
 #endif
 
-    genConsumeOperands(treeNode);
-
     const genTreeOps oper       = treeNode->OperGet();
     regNumber        targetReg  = treeNode->GetRegNum();
     var_types        targetType = treeNode->TypeGet();
@@ -834,6 +834,9 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 
     GenTree* op1 = treeNode->gtGetOp1();
     GenTree* op2 = treeNode->gtGetOp2();
+
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
 
     assert(IsValidSourceType(targetType, op1->GetType()));
     assert(IsValidSourceType(targetType, op2->GetType()));
@@ -950,7 +953,8 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 #endif
         genCheckOverflow(treeNode);
     }
-    genProduceReg(treeNode);
+
+    DefReg(treeNode);
 }
 
 //------------------------------------------------------------------------
@@ -984,7 +988,8 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
     // 2-op form: reg *= rm
     // 3-op form: reg = rm * imm
 
-    genConsumeOperands(treeNode);
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
 
     // This matches the 'mul' lowering in Lowering::SetMulOpCounts()
     //
@@ -5678,7 +5683,8 @@ void CodeGen::genCompareFloat(GenTree* treeNode)
     var_types  op1Type = op1->TypeGet();
     var_types  op2Type = op2->TypeGet();
 
-    genConsumeOperands(tree);
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
 
     assert(varTypeIsFloating(op1Type));
     assert(op1Type == op2Type);
@@ -5739,7 +5745,8 @@ void CodeGen::genCompareInt(GenTree* treeNode)
     emitter*   emit          = GetEmitter();
     bool       canReuseFlags = false;
 
-    genConsumeOperands(tree);
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
 
     assert(!op1->isContainedIntOrIImmed());
     assert(!varTypeIsFloating(op2Type));

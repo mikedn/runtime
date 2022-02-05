@@ -287,7 +287,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
 
 //------------------------------------------------------------------------
 // genCodeForBinary: Generate code for many binary arithmetic operators
-// This method is expected to have called genConsumeOperands() before calling it.
+// This method is expected to have called genConsumeRegs() before calling it.
 //
 // Arguments:
 //    treeNode - The binary operation for which we are generating code.
