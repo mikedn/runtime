@@ -1778,29 +1778,22 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 {
     assert(!treeNode->gtOverflowEx());
 
-    genConsumeOperands(treeNode);
-
-    regNumber targetReg  = treeNode->GetRegNum();
     var_types targetType = treeNode->TypeGet();
     emitter*  emit       = GetEmitter();
     emitAttr  attr       = emitActualTypeSize(treeNode);
     unsigned  isUnsigned = (treeNode->gtFlags & GTF_UNSIGNED);
 
-    GenTree* op1 = treeNode->gtGetOp1();
-    GenTree* op2 = treeNode->gtGetOp2();
+    regNumber srcReg1 = UseReg(treeNode->GetOp(0));
+    regNumber srcReg2 = UseReg(treeNode->GetOp(1));
+    regNumber dstReg  = treeNode->GetRegNum();
 
     assert(!varTypeIsFloating(targetType));
-
-    // The arithmetic node must be sitting in a register (since it's not contained)
-    assert(targetReg != REG_NA);
 
     if (EA_SIZE(attr) == EA_8BYTE)
     {
         instruction ins = isUnsigned ? INS_umulh : INS_smulh;
 
-        regNumber r = emit->emitInsTernary(ins, attr, treeNode, op1, op2);
-
-        assert(r == targetReg);
+        emit->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
     }
     else
     {
@@ -1808,12 +1801,11 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 
         instruction ins = isUnsigned ? INS_umull : INS_smull;
 
-        regNumber r = emit->emitInsTernary(ins, EA_4BYTE, treeNode, op1, op2);
-
-        emit->emitIns_R_R_I(isUnsigned ? INS_lsr : INS_asr, EA_8BYTE, targetReg, targetReg, 32);
+        emit->emitIns_R_R_R(ins, EA_4BYTE, dstReg, srcReg1, srcReg2);
+        emit->emitIns_R_R_I(isUnsigned ? INS_lsr : INS_asr, EA_8BYTE, dstReg, dstReg, 32);
     }
 
-    genProduceReg(treeNode);
+    DefReg(treeNode);
 }
 
 // Generate code for ADD, SUB, MUL, DIV, UDIV, AND, OR and XOR
