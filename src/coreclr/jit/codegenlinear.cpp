@@ -1284,6 +1284,14 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
     return reg;
 }
 
+regNumber CodeGen::UseReg(GenTree* node)
+{
+    assert(node->isUsedFromReg());
+    assert(!node->IsMultiRegNode());
+
+    return genConsumeReg(node);
+}
+
 //--------------------------------------------------------------------
 // genConsumeReg: Do liveness update for a subnode that is being
 // consumed by codegen.

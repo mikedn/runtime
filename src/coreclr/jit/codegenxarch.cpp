@@ -652,18 +652,18 @@ void CodeGen::genCodeForLongUMod(GenTreeOp* node)
     assert(dividend->OperGet() == GT_LONG);
     assert(varTypeIsLong(dividend));
 
-    genConsumeOperands(node);
-
     GenTree* const dividendLo = dividend->gtOp1;
     GenTree* const dividendHi = dividend->gtOp2;
-    assert(dividendLo->isUsedFromReg());
-    assert(dividendHi->isUsedFromReg());
 
     GenTree* const divisor = node->gtOp2;
     assert(divisor->gtSkipReloadOrCopy()->OperGet() == GT_CNS_INT);
     assert(divisor->gtSkipReloadOrCopy()->isUsedFromReg());
     assert(divisor->gtSkipReloadOrCopy()->AsIntCon()->gtIconVal >= 2);
     assert(divisor->gtSkipReloadOrCopy()->AsIntCon()->gtIconVal <= 0x3fffffff);
+
+    UseReg(dividendLo);
+    UseReg(dividendHi);
+    UseReg(divisor);
 
     // dividendLo must be in RAX; dividendHi must be in RDX
     genCopyRegIfNeeded(dividendLo, REG_EAX);
@@ -712,7 +712,8 @@ void CodeGen::genCodeForLongUMod(GenTreeOp* node)
 
     const regNumber targetReg = node->GetRegNum();
     inst_Mov(TYP_INT, targetReg, REG_RDX, /* canSkip */ true);
-    genProduceReg(node);
+
+    DefReg(node);
 }
 #endif // TARGET_X86
 
@@ -3974,10 +3975,9 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     GenTree* operandLo = operand->gtGetOp1();
     GenTree* operandHi = operand->gtGetOp2();
 
-    regNumber regLo = operandLo->GetRegNum();
-    regNumber regHi = operandHi->GetRegNum();
-
-    genConsumeOperands(tree->AsOp());
+    regNumber regLo  = UseReg(operandLo);
+    regNumber regHi  = UseReg(operandHi);
+    regNumder dstReg = tree->GetRegNum();
 
     var_types   targetType = tree->TypeGet();
     instruction ins        = genGetInsForOper(oper, targetType);
@@ -3990,19 +3990,19 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 
     regNumber regResult = (oper == GT_LSH_HI) ? regHi : regLo;
 
-    inst_Mov(targetType, tree->GetRegNum(), regResult, /* canSkip */ true);
+    inst_Mov(targetType, dstReg, regResult, /* canSkip */ true);
 
     if (oper == GT_LSH_HI)
     {
-        inst_RV_RV_IV(ins, emitTypeSize(targetType), tree->GetRegNum(), regLo, count);
+        inst_RV_RV_IV(ins, emitTypeSize(targetType), dstReg, regLo, count);
     }
     else
     {
         assert(oper == GT_RSH_LO);
-        inst_RV_RV_IV(ins, emitTypeSize(targetType), tree->GetRegNum(), regHi, count);
+        inst_RV_RV_IV(ins, emitTypeSize(targetType), dstReg, regHi, count);
     }
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 #endif
 
@@ -5890,12 +5890,10 @@ void CodeGen::genLongToIntCast(GenTree* cast)
     GenTree* src = cast->gtGetOp1();
     noway_assert(src->OperGet() == GT_LONG);
 
-    genConsumeRegs(src);
-
     var_types srcType  = ((cast->gtFlags & GTF_UNSIGNED) != 0) ? TYP_ULONG : TYP_LONG;
     var_types dstType  = cast->CastToType();
-    regNumber loSrcReg = src->gtGetOp1()->GetRegNum();
-    regNumber hiSrcReg = src->gtGetOp2()->GetRegNum();
+    regNumber loSrcReg = UseReg(src->gtGetOp1());
+    regNumber hiSrcReg = UseReg(src->gtGetOp2());
     regNumber dstReg   = cast->GetRegNum();
 
     assert((dstType == TYP_INT) || (dstType == TYP_UINT));

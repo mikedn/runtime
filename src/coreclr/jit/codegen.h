@@ -1087,6 +1087,7 @@ protected:
     void genUnspillLocal(GenTreeLclVar* lclVar, var_types type, regNumber reg);
     void genUnspillRegIfNeeded(GenTree* tree);
     void genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex);
+    regNumber UseReg(GenTree* node);
     regNumber genConsumeReg(GenTree* tree);
     regNumber genConsumeReg(GenTree* tree, unsigned multiRegIndex);
     void genCopyRegIfNeeded(GenTree* tree, regNumber needReg);

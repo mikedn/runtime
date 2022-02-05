@@ -781,16 +781,13 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 
     GenTree* operand = tree->AsOp()->gtOp1;
     assert(operand->OperGet() == GT_LONG);
-    assert(operand->AsOp()->gtOp1->isUsedFromReg());
-    assert(operand->AsOp()->gtOp2->isUsedFromReg());
 
     GenTree* operandLo = operand->gtGetOp1();
     GenTree* operandHi = operand->gtGetOp2();
 
-    regNumber regLo = operandLo->GetRegNum();
-    regNumber regHi = operandHi->GetRegNum();
-
-    genConsumeOperands(tree->AsOp());
+    regNumber regLo  = UseReg(operandLo);
+    regNumber regHi  = UseReg(operandHi);
+    regNumber dstReg = tree->GetRegNum();
 
     var_types   targetType = tree->TypeGet();
     instruction ins        = genGetInsForOper(oper, targetType);
@@ -803,23 +800,23 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 
     regNumber regResult = (oper == GT_LSH_HI) ? regHi : regLo;
 
-    inst_Mov(targetType, tree->GetRegNum(), regResult, /* canSkip */ true);
+    inst_Mov(targetType, dstReg, regResult, /* canSkip */ true);
 
     if (oper == GT_LSH_HI)
     {
-        inst_RV_SH(ins, EA_4BYTE, tree->GetRegNum(), count);
-        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, tree->GetRegNum(), tree->GetRegNum(), regLo, 32 - count,
-                                      INS_FLAGS_DONT_CARE, INS_OPTS_LSR);
+        inst_RV_SH(ins, EA_4BYTE, dstReg, count);
+        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regLo, 32 - count, INS_FLAGS_DONT_CARE,
+                                      INS_OPTS_LSR);
     }
     else
     {
         assert(oper == GT_RSH_LO);
-        inst_RV_SH(INS_lsr, EA_4BYTE, tree->GetRegNum(), count);
-        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, tree->GetRegNum(), tree->GetRegNum(), regHi, 32 - count,
-                                      INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+        inst_RV_SH(INS_lsr, EA_4BYTE, dstReg, count);
+        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regHi, 32 - count, INS_FLAGS_DONT_CARE,
+                                      INS_OPTS_LSL);
     }
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 //------------------------------------------------------------------------
@@ -1204,12 +1201,10 @@ void CodeGen::genLongToIntCast(GenTree* cast)
     GenTree* src = cast->gtGetOp1();
     noway_assert(src->OperGet() == GT_LONG);
 
-    genConsumeRegs(src);
-
     var_types srcType  = ((cast->gtFlags & GTF_UNSIGNED) != 0) ? TYP_ULONG : TYP_LONG;
     var_types dstType  = cast->CastToType();
-    regNumber loSrcReg = src->gtGetOp1()->GetRegNum();
-    regNumber hiSrcReg = src->gtGetOp2()->GetRegNum();
+    regNumber loSrcReg = UseReg(src->gtGetOp1());
+    regNumber hiSrcReg = UseReg(src->gtGetOp2());
     regNumber dstReg   = cast->GetRegNum();
 
     assert((dstType == TYP_INT) || (dstType == TYP_UINT));
@@ -1262,7 +1257,7 @@ void CodeGen::genLongToIntCast(GenTree* cast)
 
     inst_Mov(TYP_INT, dstReg, loSrcReg, /* canSkip */ true);
 
-    genProduceReg(cast);
+    DefReg(cast);
 }
 
 //------------------------------------------------------------------------
@@ -1424,12 +1419,15 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 void CodeGen::genCodeForMulLong(GenTreeMultiRegOp* node)
 {
     assert(node->OperGet() == GT_MUL_LONG);
-    genConsumeOperands(node);
-    GenTree*    src1 = node->gtOp1;
-    GenTree*    src2 = node->gtOp2;
-    instruction ins  = node->IsUnsigned() ? INS_umull : INS_smull;
-    GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, node->GetRegNum(), node->GetRegNum(1), src1->GetRegNum(),
-                                  src2->GetRegNum());
+
+    regNumber srcReg1 = UseReg(node->GetOp(0));
+    regNumber srcReg2 = UseReg(node->GetOp(1));
+    regNumber dstReg1 = node->GetRegNum(0);
+    regNumber dstReg2 = node->GetRegNum(1);
+
+    instruction ins = node->IsUnsigned() ? INS_umull : INS_smull;
+    GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, dstReg1, dstReg2, srcReg1, srcReg2);
+
     DefLongRegs(node);
 }
 
