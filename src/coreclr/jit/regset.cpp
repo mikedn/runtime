@@ -278,7 +278,7 @@ void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 
     JITDUMP("Spilling register %s after [%06u]\n", m_rsCompiler->compRegVarName(reg), node->GetID());
 
-    m_rsCompiler->codeGen->spillReg(varTypeUsesFloatReg(regType) ? regType : temp->tdTempType(), temp, reg);
+    m_rsCompiler->codeGen->spillReg(temp->tdTempType(), temp, reg);
 
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
