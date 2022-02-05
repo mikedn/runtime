@@ -227,8 +227,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_ADD:
         case GT_SUB:
         case GT_MUL:
-            genConsumeRegs(treeNode->AsOp()->GetOp(0));
-            genConsumeRegs(treeNode->AsOp()->GetOp(1));
             genCodeForBinary(treeNode->AsOp());
             break;
 

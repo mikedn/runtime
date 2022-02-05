@@ -1808,8 +1808,6 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-// Generate code for ADD, SUB, MUL, DIV, UDIV, AND, OR and XOR
-// This method is expected to have called genConsumeRegs() before calling it.
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 {
     const genTreeOps oper       = treeNode->OperGet();
@@ -1823,6 +1821,9 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     GenTree*    op1 = treeNode->gtGetOp1();
     GenTree*    op2 = treeNode->gtGetOp2();
     instruction ins = genGetInsForOper(treeNode->OperGet(), targetType);
+
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
 
     if ((treeNode->gtFlags & GTF_SET_FLAGS) != 0)
     {

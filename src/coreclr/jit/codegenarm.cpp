@@ -285,20 +285,6 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForBinary: Generate code for many binary arithmetic operators
-// This method is expected to have called genConsumeRegs() before calling it.
-//
-// Arguments:
-//    treeNode - The binary operation for which we are generating code.
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    Mul and div are not handled here.
-//    See the assert below for the operators that are handled.
-
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 {
     const genTreeOps oper       = treeNode->OperGet();
@@ -311,6 +297,9 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 
     GenTree* op1 = treeNode->gtGetOp1();
     GenTree* op2 = treeNode->gtGetOp2();
+
+    genConsumeRegs(op1);
+    genConsumeRegs(op2);
 
     assert(IsValidSourceType(targetType, op1->GetType()));
     assert(IsValidSourceType(targetType, op2->GetType()));
