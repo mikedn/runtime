@@ -157,6 +157,7 @@ private:
 
     TempDsc* AllocSpillTemp(GenTree* node, regNumber reg, var_types type);
     void SpillNodeReg(GenTree* node, unsigned regIndex);
+    void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
     void SpillNodeRegs(GenTree* node, unsigned regCount);
     X86_ONLY(void SpillST0(GenTree* node);)
     TempDsc* UnspillNodeReg(GenTree* node, unsigned regIndex);

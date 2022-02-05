@@ -292,17 +292,20 @@ void RegSet::SpillNodeReg(GenTree* node, unsigned regIndex)
         type = multiRegOp->GetRegType(regIndex);
     }
 #endif // TARGET_ARM
-    else
-    {
-        assert(!varTypeIsMultiReg(type));
-    }
+
+    SpillNodeReg(node, type, regIndex);
+}
+
+void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
+{
+    assert(!varTypeIsMultiReg(regType));
 
     regNumber reg  = node->GetRegNum(regIndex);
-    TempDsc*  temp = AllocSpillTemp(node, reg, type);
+    TempDsc*  temp = AllocSpillTemp(node, reg, regType);
 
     JITDUMP("Spilling register %s after [%06u]\n", m_rsCompiler->compRegVarName(reg), node->GetID());
 
-    m_rsCompiler->codeGen->spillReg(varTypeUsesFloatReg(type) ? type : temp->tdTempType(), temp, reg);
+    m_rsCompiler->codeGen->spillReg(varTypeUsesFloatReg(regType) ? regType : temp->tdTempType(), temp, reg);
 
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
