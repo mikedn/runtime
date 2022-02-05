@@ -1109,6 +1109,16 @@ public:
     {
         return tdType;
     }
+
+    unsigned GetTempNum() const
+    {
+        return tdNum;
+    }
+
+    var_types GetType() const
+    {
+        return tdType;
+    }
 };
 
 // interface to hide linearscan implementation from rest of compiler

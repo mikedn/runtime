@@ -1059,12 +1059,11 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex)
 
     assert(!tree->IsMultiRegLclVar());
 
-    var_types dstType  = unspillTree->GetRegTypeByIndex(multiRegIndex);
-    TempDsc*  t        = regSet.UnspillNodeReg(unspillTree, multiRegIndex);
-    emitAttr  emitType = emitActualTypeSize(dstType);
-    GetEmitter()->emitIns_R_S(ins_Load(dstType), emitType, dstReg, t->tdTempNum(), 0);
-    regSet.tmpRlsTemp(t);
-    gcInfo.gcMarkRegPtrVal(dstReg, dstType);
+    TempDsc*  temp    = regSet.UnspillNodeReg(unspillTree, multiRegIndex);
+    var_types regType = temp->GetType();
+    GetEmitter()->emitIns_R_S(ins_Load(regType), emitActualTypeSize(regType), dstReg, temp->GetTempNum(), 0);
+    regSet.tmpRlsTemp(temp);
+    gcInfo.gcMarkRegPtrVal(dstReg, regType);
 }
 
 //------------------------------------------------------------------------
