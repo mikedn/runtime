@@ -1170,11 +1170,13 @@ void CodeGen::genCodeForBT(GenTreeOp* bt)
     assert(op1->isUsedFromReg() && op2->isUsedFromReg());
     assert((genTypeSize(type) >= genTypeSize(TYP_INT)) && (genTypeSize(type) <= genTypeSize(TYP_I_IMPL)));
 
-    genConsumeOperands(bt);
+    regNumber srcReg1 = UseReg(op1);
+    regNumber srcReg2 = UseReg(op2);
+
     // Note that the emitter doesn't fully support INS_bt, it only supports the reg,reg
     // form and encodes the registers in reverse order. To get the correct order we need
     // to reverse the operands when calling emitIns_R_R.
-    GetEmitter()->emitIns_R_R(INS_bt, emitTypeSize(type), op2->GetRegNum(), op1->GetRegNum());
+    GetEmitter()->emitIns_R_R(INS_bt, emitTypeSize(type), srcReg2, srcReg1);
 }
 
 // clang-format off
