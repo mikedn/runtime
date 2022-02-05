@@ -1104,7 +1104,7 @@ void CodeGen::genFloatReturn(GenTree* src)
     // Spill the return value register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
 
-    if (genIsRegCandidateLclVar(src) && compiler->lvaGetDesc(src->AsLclVar())->lvOnFrame)
+    if (IsRegCandidateLclVar(src) && compiler->lvaGetDesc(src->AsLclVar())->lvOnFrame)
     {
         if (compiler->lvaGetDesc(src->AsLclVar())->GetRegNum() != REG_STK)
         {
@@ -4676,7 +4676,7 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     // Swap is only supported for lclVar operands that are enregistered
     // We do not consume or produce any registers.  Both operands remain enregistered.
     // However, the gc-ness may change.
-    assert(genIsRegCandidateLclVar(tree->gtOp1) && genIsRegCandidateLclVar(tree->gtOp2));
+    assert(IsRegCandidateLclVar(tree->gtOp1) && IsRegCandidateLclVar(tree->gtOp2));
 
     GenTreeLclVar* lcl1    = tree->gtOp1->AsLclVar();
     LclVarDsc*     varDsc1 = compiler->lvaGetDesc(lcl1);

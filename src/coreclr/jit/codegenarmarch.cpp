@@ -2623,8 +2623,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             assert((argInfo->GetRegCount() >= 1) && (argInfo->GetSlotCount() >= 1));
             assert(argSplit->gtHasReg());
 
-            // TODO-MIKE-Review: Why is genUnspillRegIfNeeded called instead of genConsumeReg?
-            genUnspillRegIfNeeded(argSplit);
+            // TODO-MIKE-Review: Why is UnspillRegIfNeeded called instead of genConsumeReg?
+            UnspillRegIfNeeded(argSplit);
             genCheckConsumeNode(argSplit);
 
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)

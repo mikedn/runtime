@@ -1020,149 +1020,132 @@ void CodeGen::genUnspillLocal(GenTreeLclVar* lclNode, var_types type, regNumber 
     gcInfo.gcMarkRegPtrVal(regNum, type);
 }
 
-//------------------------------------------------------------------------
-// genUnspillRegIfNeeded: Reload a MultiReg source value into a register, if needed
+// Reload a MultiReg source value into a register, if needed
 //
-// Arguments:
-//    tree          - the MultiReg node of interest.
-//    multiRegIndex - the index of the value to reload, if needed.
+// It must *not* be a GT_LCL_VAR (those are handled separately).
+// In the normal case, the value will be reloaded into the register it
+// was originally computed into. However, if that register is not available,
+// the register allocator will have allocated a different register, and
+// inserted a GT_RELOAD to indicate the register into which it should be
+// reloaded.
 //
-// Notes:
-//    It must *not* be a GT_LCL_VAR (those are handled separately).
-//    In the normal case, the value will be reloaded into the register it
-//    was originally computed into. However, if that register is not available,
-//    the register allocator will have allocated a different register, and
-//    inserted a GT_RELOAD to indicate the register into which it should be
-//    reloaded.
-//
-void CodeGen::genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex)
+void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
 {
-    GenTree* unspillTree = tree;
-    assert(unspillTree->IsMultiRegNode());
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
 
-    if (tree->gtOper == GT_RELOAD)
-    {
-        unspillTree = tree->AsOp()->gtOp1;
-    }
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
 
-    if (!unspillTree->IsRegSpilled(multiRegIndex))
+    if (!unspillNode->IsRegSpilled(regIndex))
     {
         return;
     }
 
-    regNumber dstReg = tree->GetRegNum(multiRegIndex);
-    if (dstReg == REG_NA)
+    regNumber reg = node->GetRegNum(regIndex);
+
+    if (reg == REG_NA)
     {
-        assert(tree->IsCopyOrReload());
-        dstReg = unspillTree->GetRegNum(multiRegIndex);
+        assert(node->IsCopyOrReload());
+        reg = unspillNode->GetRegNum(regIndex);
     }
 
-    assert(!tree->IsMultiRegLclVar());
-
-    TempDsc*  temp    = regSet.UnspillNodeReg(unspillTree, multiRegIndex);
+    TempDsc*  temp    = regSet.UnspillNodeReg(unspillNode, regIndex);
     var_types regType = temp->GetType();
-    GetEmitter()->emitIns_R_S(ins_Load(regType), emitActualTypeSize(regType), dstReg, temp->GetTempNum(), 0);
+    GetEmitter()->emitIns_R_S(ins_Load(regType), emitActualTypeSize(regType), reg, temp->GetTempNum(), 0);
     regSet.tmpRlsTemp(temp);
-    gcInfo.gcMarkRegPtrVal(dstReg, regType);
+    gcInfo.gcMarkRegPtrVal(reg, regType);
 }
 
-//------------------------------------------------------------------------
-// genUnspillRegIfNeeded: Reload the value into a register, if needed
+// Reload the value into a register, if needed
 //
-// Arguments:
-//    tree - the node of interest.
+// In the normal case, the value will be reloaded into the register it
+// was originally computed into. However, if that register is not available,
+// the register allocator will have allocated a different register, and
+// inserted a GT_RELOAD to indicate the register into which it should be
+// reloaded.
 //
-// Notes:
-//    In the normal case, the value will be reloaded into the register it
-//    was originally computed into. However, if that register is not available,
-//    the register allocator will have allocated a different register, and
-//    inserted a GT_RELOAD to indicate the register into which it should be
-//    reloaded.
+// A GT_RELOAD never has a reg candidate lclVar or multi-reg lclVar as its child.
+// This is because register candidates locals always have distinct tree nodes
+// for uses and definitions. (This is unlike non-register candidate locals which
+// may be "defined" by a GT_LCL_VAR node that loads it into a register. It may
+// then have a GT_RELOAD inserted if it needs a different register, though this
+// is unlikely to happen except in stress modes.)
 //
-//    A GT_RELOAD never has a reg candidate lclVar or multi-reg lclVar as its child.
-//    This is because register candidates locals always have distinct tree nodes
-//    for uses and definitions. (This is unlike non-register candidate locals which
-//    may be "defined" by a GT_LCL_VAR node that loads it into a register. It may
-//    then have a GT_RELOAD inserted if it needs a different register, though this
-//    is unlikely to happen except in stress modes.)
-//
-void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
+void CodeGen::UnspillRegIfNeeded(GenTree* node)
 {
-    GenTree* unspillTree = tree;
-    if (tree->gtOper == GT_RELOAD)
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
+
+    if (!unspillNode->IsAnyRegSpilled())
     {
-        unspillTree = tree->AsOp()->gtOp1;
+        return;
     }
 
-    if (unspillTree->IsAnyRegSpilled())
+    if (GenTreeLclVar* lclVar = IsRegCandidateLclVar(unspillNode))
     {
-        if (genIsRegCandidateLclVar(unspillTree))
-        {
-            // We never have a GT_RELOAD for this case.
-            assert(tree == unspillTree);
+        // We never have a GT_RELOAD for this case.
+        assert(node == unspillNode);
 
-            // Reset spilled flag, since we are going to load a local variable from its home location.
-            unspillTree->SetRegSpilled(0, false);
+        // Reset spilled flag, since we are going to load a local variable from its home location.
+        unspillNode->SetRegSpilled(0, false);
 
-            GenTreeLclVar* lcl       = unspillTree->AsLclVar();
-            LclVarDsc*     varDsc    = compiler->lvaGetDesc(lcl->GetLclNum());
-            var_types      spillType = varDsc->GetRegisterType(lcl);
-            assert(spillType != TYP_UNDEF);
+        LclVarDsc* lcl       = compiler->lvaGetDesc(lclVar);
+        var_types  spillType = lcl->GetRegisterType(lclVar);
+
+        assert(spillType != TYP_UNDEF);
 
 // TODO-Cleanup: The following code could probably be further merged and cleaned up.
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-            // Load local variable from its home location.
-            // In most cases the tree type will indicate the correct type to use for the load.
-            // However, if it is NOT a normalizeOnLoad lclVar (i.e. NOT a small int that always gets
-            // widened when loaded into a register), and its size is not the same as the actual register type
-            // of the lclVar, then we need to change the type of the tree node when loading.
-            // This situation happens due to "optimizations" that avoid a cast and
-            // simply retype the node when using long type lclVar as an int.
-            // While loading the int in that case would work for this use of the lclVar, if it is
-            // later used as a long, we will have incorrectly truncated the long.
-            // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
-            // extending load.
-            var_types lclActualType = varDsc->GetActualRegisterType();
-            assert(lclActualType != TYP_UNDEF);
-            if (spillType != lclActualType && !varTypeIsGC(spillType) && !varDsc->lvNormalizeOnLoad())
-            {
-                assert(!varTypeIsGC(varDsc));
-                spillType = lclActualType;
-            }
+        // Load local variable from its home location.
+        // In most cases the tree type will indicate the correct type to use for the load.
+        // However, if it is NOT a normalizeOnLoad lclVar (i.e. NOT a small int that always gets
+        // widened when loaded into a register), and its size is not the same as the actual register type
+        // of the lclVar, then we need to change the type of the tree node when loading.
+        // This situation happens due to "optimizations" that avoid a cast and
+        // simply retype the node when using long type lclVar as an int.
+        // While loading the int in that case would work for this use of the lclVar, if it is
+        // later used as a long, we will have incorrectly truncated the long.
+        // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
+        // extending load.
+        var_types lclActualType = lcl->GetActualRegisterType();
+        assert(lclActualType != TYP_UNDEF);
+        if (spillType != lclActualType && !varTypeIsGC(spillType) && !lcl->lvNormalizeOnLoad())
+        {
+            assert(!varTypeIsGC(lcl));
+            spillType = lclActualType;
+        }
 #elif defined(TARGET_ARM)
 // No normalizing for ARM
 #else
-            NYI("Unspilling not implemented for this target architecture.");
+        NYI("Unspilling not implemented for this target architecture.");
 #endif
-            genUnspillLocal(lcl, spillType, tree->GetRegNum());
-        }
-        else if (unspillTree->IsMultiRegNode())
-        {
-            assert(!unspillTree->IsMultiRegLclVar());
 
-            // Here we may have a GT_RELOAD, and we will need to use that node ('tree') to
-            // do the unspilling if needed. However, that tree doesn't have the register
-            // count, so we use 'unspillTree' for that.
-            for (unsigned i = 0, count = unspillTree->GetMultiRegCount(compiler); i < count; ++i)
-            {
-                genUnspillRegIfNeeded(tree, i);
-            }
-        }
-        else
-        {
-            regNumber reg = tree->GetRegNum();
+        genUnspillLocal(lclVar, spillType, node->GetRegNum());
 
-            // Here we may have a GT_RELOAD.
-            // The spill temp allocated for it is associated with the original tree that defined the
-            // register that it was spilled from.
-            // So we use 'unspillTree' to recover that spill temp.
-            TempDsc*  temp    = regSet.UnspillNodeReg(unspillTree, 0);
-            var_types regType = temp->GetType();
-            GetEmitter()->emitIns_R_S(ins_Load(regType), emitActualTypeSize(regType), reg, temp->GetTempNum(), 0);
-            regSet.tmpRlsTemp(temp);
-            gcInfo.gcMarkRegPtrVal(reg, regType);
-        }
+        return;
     }
+
+    if (unspillNode->IsMultiRegNode())
+    {
+        assert(!unspillNode->IsMultiRegLclVar());
+
+        for (unsigned i = 0, count = node->GetMultiRegCount(compiler); i < count; ++i)
+        {
+            UnspillRegIfNeeded(node, i);
+        }
+
+        return;
+    }
+
+    regNumber reg = node->GetRegNum();
+
+    // Here we may have a GT_RELOAD.
+    // The spill temp allocated for it is associated with the original tree that defined the
+    // register that it was spilled from.
+    // So we use 'unspillTree' to recover that spill temp.
+    TempDsc*  temp    = regSet.UnspillNodeReg(unspillNode, 0);
+    var_types regType = temp->GetType();
+    GetEmitter()->emitIns_R_S(ins_Load(regType), emitActualTypeSize(regType), reg, temp->GetTempNum(), 0);
+    regSet.tmpRlsTemp(temp);
+    gcInfo.gcMarkRegPtrVal(reg, regType);
 }
 
 //------------------------------------------------------------------------
@@ -1268,7 +1251,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
         assert(reg != REG_NA);
     }
 
-    genUnspillRegIfNeeded(tree, multiRegIndex);
+    UnspillRegIfNeeded(tree, multiRegIndex);
     gcInfo.gcMarkRegSetNpt(tree->gtGetRegMask());
 
     return reg;
@@ -1315,9 +1298,9 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
     // the lvRegNum will be set to REG_STK and we will lose track of what register currently holds
     // the lclVar (normally when a lclVar is spilled it is then used from its former register
     // location, which matches the GetRegNum() on the node).
-    // (Note that it doesn't matter if we call this before or after genUnspillRegIfNeeded
+    // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
     // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
-    if (genIsRegCandidateLclVar(tree))
+    if (IsRegCandidateLclVar(tree))
     {
         LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
         if (varDsc->GetRegNum() != REG_STK)
@@ -1327,7 +1310,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
         }
     }
 
-    genUnspillRegIfNeeded(tree);
+    UnspillRegIfNeeded(tree);
 
     if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
@@ -1339,7 +1322,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
     // 2. it was produced by a local that is going dead
     // 3. it was produced by a local that does not live in that reg (like one allocated on the stack)
 
-    if (genIsRegCandidateLclVar(tree))
+    if (IsRegCandidateLclVar(tree))
     {
         assert(tree->gtHasReg());
 
