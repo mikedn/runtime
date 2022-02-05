@@ -1116,7 +1116,7 @@ protected:
                          ssize_t   val,
                          var_types type = TYP_INT,
                          insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
-    void genCodeForShift(GenTree* tree);
+    void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     void genCodeForShiftLong(GenTree* tree);

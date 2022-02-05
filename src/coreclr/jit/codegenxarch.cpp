@@ -1444,7 +1444,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_RSZ:
         case GT_ROL:
         case GT_ROR:
-            genCodeForShift(treeNode);
+            genCodeForShift(treeNode->AsOp());
             break;
 
 #if !defined(TARGET_64BIT)
@@ -3868,22 +3868,20 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
 //       it's a register-allocated expression. If it is in a register that is
 //       not RCX, it will be moved to RCX (so RCX better not be in use!).
 //
-void CodeGen::genCodeForShift(GenTree* tree)
+void CodeGen::genCodeForShift(GenTreeOp* tree)
 {
     // Only the non-RMW case here.
     assert(tree->OperIsShiftOrRotate());
-    assert(tree->AsOp()->gtOp1->isUsedFromReg());
-    assert(tree->GetRegNum() != REG_NA);
-
-    genConsumeOperands(tree->AsOp());
 
     var_types   targetType = tree->TypeGet();
     instruction ins        = genGetInsForOper(tree->OperGet(), targetType);
 
-    GenTree*  operand    = tree->gtGetOp1();
-    regNumber operandReg = operand->GetRegNum();
+    GenTree* operand = tree->GetOp(0);
+    GenTree* shiftBy = tree->GetOp(1);
 
-    GenTree* shiftBy = tree->gtGetOp2();
+    regNumber operandReg = UseReg(operand);
+    regNumber shiftByReg = shiftBy->isUsedFromReg() ? UseReg(shiftBy) : REG_NA;
+    regNumber dstReg     = tree->GetRegNum();
 
     if (shiftBy->isContainedIntOrIImmed())
     {
@@ -3895,11 +3893,11 @@ void CodeGen::genCodeForShift(GenTree* tree)
         {
             if (tree->GetRegNum() == operandReg)
             {
-                GetEmitter()->emitIns_R_R(INS_add, size, tree->GetRegNum(), operandReg);
+                GetEmitter()->emitIns_R_R(INS_add, size, dstReg, operandReg);
             }
             else
             {
-                GetEmitter()->emitIns_R_ARX(INS_lea, size, tree->GetRegNum(), operandReg, operandReg, 1, 0);
+                GetEmitter()->emitIns_R_ARX(INS_lea, size, dstReg, operandReg, operandReg, 1, 0);
             }
         }
         else
@@ -3909,12 +3907,12 @@ void CodeGen::genCodeForShift(GenTree* tree)
 #if defined(TARGET_64BIT)
             // Try to emit rorx if BMI2 is available instead of mov+rol
             // it makes sense only for 64bit integers
-            if ((genActualType(targetType) == TYP_LONG) && (tree->GetRegNum() != operandReg) &&
+            if ((genActualType(targetType) == TYP_LONG) && (dstReg != operandReg) &&
                 compiler->compOpportunisticallyDependsOn(InstructionSet_BMI2) && tree->OperIs(GT_ROL, GT_ROR) &&
                 (shiftByValue > 0) && (shiftByValue < 64))
             {
                 const int value = tree->OperIs(GT_ROL) ? (64 - shiftByValue) : shiftByValue;
-                GetEmitter()->emitIns_R_R_I(INS_rorx, size, tree->GetRegNum(), operandReg, value);
+                GetEmitter()->emitIns_R_R_I(INS_rorx, size, dstReg, operandReg, value);
                 genProduceReg(tree);
                 return;
             }
@@ -3922,8 +3920,8 @@ void CodeGen::genCodeForShift(GenTree* tree)
             // First, move the operand to the destination register and
             // later on perform the shift in-place.
             // (LSRA will try to avoid this situation through preferencing.)
-            inst_Mov(targetType, tree->GetRegNum(), operandReg, /* canSkip */ true);
-            inst_RV_SH(ins, size, tree->GetRegNum(), shiftByValue);
+            inst_Mov(targetType, dstReg, operandReg, /* canSkip */ true);
+            inst_RV_SH(ins, size, dstReg, shiftByValue);
         }
     }
     else
@@ -3936,11 +3934,11 @@ void CodeGen::genCodeForShift(GenTree* tree)
         // The operand to be shifted must not be in ECX
         noway_assert(operandReg != REG_RCX);
 
-        inst_Mov(targetType, tree->GetRegNum(), operandReg, /* canSkip */ true);
-        inst_RV(ins, tree->GetRegNum(), targetType);
+        inst_Mov(targetType, dstReg, operandReg, /* canSkip */ true);
+        inst_RV(ins, dstReg, targetType);
     }
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 #ifdef TARGET_X86

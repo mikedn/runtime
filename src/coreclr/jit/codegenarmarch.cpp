@@ -236,7 +236,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_RSZ:
         // case GT_ROL: // No ROL instruction on ARM; it has been lowered to ROR.
         case GT_ROR:
-            genCodeForShift(treeNode);
+            genCodeForShift(treeNode->AsOp());
             break;
 
 #if !defined(TARGET_64BIT)
@@ -1493,32 +1493,33 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 // Assumptions:
 //    a) All GenTrees are register allocated.
 //
-void CodeGen::genCodeForShift(GenTree* tree)
+void CodeGen::genCodeForShift(GenTreeOp* tree)
 {
     var_types   targetType = tree->TypeGet();
     genTreeOps  oper       = tree->OperGet();
     instruction ins        = genGetInsForOper(oper, targetType);
     emitAttr    size       = emitActualTypeSize(tree);
 
-    assert(tree->GetRegNum() != REG_NA);
+    GenTree* value   = tree->GetOp(0);
+    GenTree* shiftBy = tree->GetOp(1);
 
-    genConsumeOperands(tree->AsOp());
+    regNumber valueReg   = UseReg(value);
+    regNumber shiftByReg = shiftBy->isUsedFromReg() ? UseReg(shiftBy) : REG_NA;
+    regNumber dstReg     = tree->GetRegNum();
 
-    GenTree* operand = tree->gtGetOp1();
-    GenTree* shiftBy = tree->gtGetOp2();
-    if (!shiftBy->IsCnsIntOrI())
+    if (shiftBy->isUsedFromReg())
     {
-        GetEmitter()->emitIns_R_R_R(ins, size, tree->GetRegNum(), operand->GetRegNum(), shiftBy->GetRegNum());
+        GetEmitter()->emitIns_R_R_R(ins, size, dstReg, valueReg, shiftByReg);
     }
     else
     {
         unsigned immWidth   = emitter::getBitWidth(size); // For ARM64, immWidth will be set to 32 or 64
         unsigned shiftByImm = (unsigned)shiftBy->AsIntCon()->gtIconVal & (immWidth - 1);
 
-        GetEmitter()->emitIns_R_R_I(ins, size, tree->GetRegNum(), operand->GetRegNum(), shiftByImm);
+        GetEmitter()->emitIns_R_R_I(ins, size, dstReg, valueReg, shiftByImm);
     }
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 //------------------------------------------------------------------------
