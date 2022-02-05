@@ -2384,117 +2384,60 @@ void CodeGen::genCodeForBswap(GenTree* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForDivMod: Produce code for a GT_DIV/GT_UDIV node. We don't see MOD:
-// (1) integer MOD is morphed into a sequence of sub, mul, div in fgMorph;
-// (2) float/double MOD is morphed into a helper call by front-end.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForDivMod(GenTreeOp* tree)
+void CodeGen::genCodeForDivMod(GenTreeOp* div)
 {
-    assert(tree->OperIs(GT_DIV, GT_UDIV));
+    assert(div->OperIs(GT_DIV, GT_UDIV));
 
-    var_types targetType = tree->TypeGet();
-    emitter*  emit       = GetEmitter();
+    GenTree* dividend = div->GetOp(0);
+    GenTree* divisor  = div->GetOp(1);
 
-    genConsumeOperands(tree);
+    regNumber dividendReg = UseReg(dividend);
+    regNumber divisorReg  = UseReg(divisor);
+    regNumber dstReg      = div->GetRegNum();
 
-    if (varTypeIsFloating(targetType))
+    emitAttr attr = emitActualTypeSize(div->GetType());
+    emitter* emit = GetEmitter();
+
+    if (varTypeIsFloating(div->GetType()))
     {
-        // Floating point divide never raises an exception
-        genCodeForBinary(tree);
+        emit->emitIns_R_R_R(INS_fdiv, attr, dstReg, dividendReg, divisorReg);
     }
-    else // an integer divide operation
+    else if (divisor->IsIntegralConst(0))
     {
-        GenTree* divisorOp = tree->gtGetOp2();
-        emitAttr size      = EA_ATTR(genTypeSize(genActualType(tree->TypeGet())));
-
-        if (divisorOp->IsIntegralConst(0))
-        {
-            // We unconditionally throw a divide by zero exception
-            genJumpToThrowHlpBlk(EJ_jmp, SCK_DIV_BY_ZERO);
-
-            // We still need to call genProduceReg
-            genProduceReg(tree);
-        }
-        else // the divisor is not the constant zero
-        {
-            regNumber divisorReg = divisorOp->GetRegNum();
-
-            // Generate the require runtime checks for GT_DIV or GT_UDIV
-            if (tree->gtOper == GT_DIV)
-            {
-                BasicBlock* sdivLabel = genCreateTempLabel();
-
-                // Two possible exceptions:
-                //     (AnyVal /  0) => DivideByZeroException
-                //     (MinInt / -1) => ArithmeticException
-                //
-                bool checkDividend = true;
-
-                // Do we have an immediate for the 'divisorOp'?
-                //
-                if (divisorOp->IsCnsIntOrI())
-                {
-                    GenTreeIntConCommon* intConstTree  = divisorOp->AsIntConCommon();
-                    ssize_t              intConstValue = intConstTree->IconValue();
-                    assert(intConstValue != 0); // already checked above by IsIntegralConst(0)
-                    if (intConstValue != -1)
-                    {
-                        checkDividend = false; // We statically know that the dividend is not -1
-                    }
-                }
-                else // insert check for divison by zero
-                {
-                    // Check if the divisor is zero throw a DivideByZeroException
-                    emit->emitIns_R_I(INS_cmp, size, divisorReg, 0);
-                    genJumpToThrowHlpBlk(EJ_eq, SCK_DIV_BY_ZERO);
-                }
-
-                if (checkDividend)
-                {
-                    // Check if the divisor is not -1 branch to 'sdivLabel'
-                    emit->emitIns_R_I(INS_cmp, size, divisorReg, -1);
-
-                    inst_JMP(EJ_ne, sdivLabel);
-                    // If control flow continues past here the 'divisorReg' is known to be -1
-
-                    regNumber dividendReg = tree->gtGetOp1()->GetRegNum();
-                    // At this point the divisor is known to be -1
-                    //
-                    // Issue the 'adds  zr, dividendReg, dividendReg' instruction
-                    // this will set both the Z and V flags only when dividendReg is MinInt
-                    //
-                    emit->emitIns_R_R_R(INS_adds, size, REG_ZR, dividendReg, dividendReg);
-                    inst_JMP(EJ_ne, sdivLabel);                   // goto sdiv if the Z flag is clear
-                    genJumpToThrowHlpBlk(EJ_vs, SCK_ARITH_EXCPN); // if the V flags is set throw
-                                                                  // ArithmeticException
-
-                    genDefineTempLabel(sdivLabel);
-                }
-                genCodeForBinary(tree); // Generate the sdiv instruction
-            }
-            else // (tree->gtOper == GT_UDIV)
-            {
-                // Only one possible exception
-                //     (AnyVal /  0) => DivideByZeroException
-                //
-                // Note that division by the constant 0 was already checked for above by the
-                // op2->IsIntegralConst(0) check
-                //
-                if (!divisorOp->IsCnsIntOrI())
-                {
-                    // divisorOp is not a constant, so it could be zero
-                    //
-                    emit->emitIns_R_I(INS_cmp, size, divisorReg, 0);
-                    genJumpToThrowHlpBlk(EJ_eq, SCK_DIV_BY_ZERO);
-                }
-                genCodeForBinary(tree);
-            }
-        }
+        genJumpToThrowHlpBlk(EJ_jmp, SCK_DIV_BY_ZERO);
     }
+    else
+    {
+        // (U)DIV(AnyVal, 0) => DivideByZeroException
+        // DIV(MinInt, -1) => ArithmeticException
+
+        bool checkDividend = true;
+
+        if (!divisor->IsIntCon())
+        {
+            emit->emitIns_R_I(INS_cmp, attr, divisorReg, 0);
+            genJumpToThrowHlpBlk(EJ_eq, SCK_DIV_BY_ZERO);
+        }
+        else
+        {
+            checkDividend = divisor->AsIntCon()->GetValue() == -1;
+        }
+
+        if (div->OperIs(GT_DIV) && checkDividend)
+        {
+            BasicBlock* sdivLabel = genCreateTempLabel();
+            emit->emitIns_R_I(INS_cmp, attr, divisorReg, -1);
+            inst_JMP(EJ_ne, sdivLabel);
+            emit->emitIns_R_R_R(INS_adds, attr, REG_ZR, dividendReg, dividendReg);
+            inst_JMP(EJ_ne, sdivLabel);
+            genJumpToThrowHlpBlk(EJ_vs, SCK_ARITH_EXCPN);
+            genDefineTempLabel(sdivLabel);
+        }
+
+        emit->emitIns_R_R_R(div->OperIs(GT_DIV) ? INS_sdiv : INS_udiv, attr, dstReg, dividendReg, divisorReg);
+    }
+
+    DefReg(div);
 }
 
 // generate code do a switch statement based on a table of ip-relative offsets
