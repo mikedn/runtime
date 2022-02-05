@@ -1085,8 +1085,9 @@ protected:
 #endif
     void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
     void genUnspillLocal(GenTreeLclVar* lclVar, var_types type, regNumber reg);
-    void UnspillRegIfNeeded(GenTree* tree);
-    void UnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex);
+    void UnspillReg(GenTree* node, regNumber reg, unsigned regIndex);
+    void UnspillRegIfNeeded(GenTree* node);
+    void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
     regNumber UseReg(GenTree* node);
     void UseRegs(GenTree* node);
     regNumber genConsumeReg(GenTree* tree);
@@ -1280,7 +1281,9 @@ protected:
 
     GenTreeLclVar* IsRegCandidateLclVar(GenTree* node)
     {
-        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(node->AsLclVar())->IsRegCandidate() ? node->AsLclVar() : nullptr;
+        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(node->AsLclVar())->IsRegCandidate()
+                   ? node->AsLclVar()
+                   : nullptr;
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
