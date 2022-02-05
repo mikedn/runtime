@@ -3221,10 +3221,8 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
     var_types op1Type = genActualType(op1->TypeGet());
     var_types op2Type = genActualType(op2->TypeGet());
 
-    assert(!op1->isUsedFromMemory());
-    assert(!op2->isUsedFromMemory());
-
-    genConsumeOperands(tree);
+    regNumber srcReg1 = UseReg(op1);
+    regNumber srcReg2 = op2->isContained() ? REG_NA : UseReg(op2);
 
     emitAttr cmpSize = EA_ATTR(genTypeSize(op1Type));
 
@@ -3233,18 +3231,18 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
     if (varTypeIsFloating(op1Type))
     {
         assert(varTypeIsFloating(op2Type));
-        assert(!op1->isContained());
         assert(op1Type == op2Type);
 
+        // TODO-MIKE-Review: This is nonsense...
         if (op2->IsIntegralConst(0))
         {
             assert(op2->isContained());
-            emit->emitIns_R_F(INS_fcmp, cmpSize, op1->GetRegNum(), 0.0);
+            emit->emitIns_R_F(INS_fcmp, cmpSize, srcReg1, 0.0);
         }
         else
         {
             assert(!op2->isContained());
-            emit->emitIns_R_R(INS_fcmp, cmpSize, op1->GetRegNum(), op2->GetRegNum());
+            emit->emitIns_R_R(INS_fcmp, cmpSize, srcReg1, srcReg2);
         }
     }
     else
@@ -3258,11 +3256,11 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
         if (op2->isContainedIntOrIImmed())
         {
             GenTreeIntConCommon* intConst = op2->AsIntConCommon();
-            emit->emitIns_R_I(ins, cmpSize, op1->GetRegNum(), intConst->IconValue());
+            emit->emitIns_R_I(ins, cmpSize, srcReg1, intConst->IconValue());
         }
         else
         {
-            emit->emitIns_R_R(ins, cmpSize, op1->GetRegNum(), op2->GetRegNum());
+            emit->emitIns_R_R(ins, cmpSize, srcReg1, srcReg2);
         }
     }
 
