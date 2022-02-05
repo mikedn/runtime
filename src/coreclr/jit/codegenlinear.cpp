@@ -1160,7 +1160,6 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
             var_types regType = temp->GetType();
             GetEmitter()->emitIns_R_S(ins_Load(regType), emitActualTypeSize(regType), reg, temp->GetTempNum(), 0);
             regSet.tmpRlsTemp(temp);
-            unspillTree->SetRegSpilled(0, false);
             gcInfo.gcMarkRegPtrVal(reg, regType);
         }
     }
