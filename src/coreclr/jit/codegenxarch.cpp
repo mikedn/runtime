@@ -4855,32 +4855,24 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy());
 
 #ifdef UNIX_AMD64_ABI
-        if (argNode->OperIs(GT_FIELD_LIST))
+        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
         {
-            unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
+            INDEBUG(unsigned regIndex = 0;)
+            for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
                 GenTree* node = use.GetNode();
-
-                regNumber argReg = argInfo->GetRegNum(regIndex++);
-                regNumber srcReg = genConsumeReg(node);
-
-                // TODO-MIKE-Review: Huh, this pulls EA_PTRSIZE out of the hat. Potential GC hole?
-                // It may be that this code is useless. We have reg constraints on PUTARG_REG defs
-                // so the arg is likely in the correct register already and nothing ever needs to
-                // be moved.
-                inst_Mov_Extend(node->GetType(), false, argReg, srcReg, /* canSkip */ true, EA_PTRSIZE);
+                assert(node->gtSkipReloadOrCopy()->OperIs(GT_PUTARG_REG));
+                UseReg(node);
+                assert(node->GetRegNum() == argInfo->GetRegNum(regIndex++));
             }
 
             continue;
         }
 #endif // UNIX_AMD64_ABI
 
-        regNumber argReg = argInfo->GetRegNum();
-        regNumber srcReg = genConsumeReg(argNode);
+        regNumber argReg = UseReg(argNode);
 
-        // TODO-MIKE-Review: Huh, this pulls EA_PTRSIZE out of the hat. Potential GC hole?
-        inst_Mov_Extend(argNode->GetType(), false, argReg, srcReg, /* canSkip */ true, EA_PTRSIZE);
+        assert(argReg == argInfo->GetRegNum());
 
 #if FEATURE_VARARG
         if (call->IsVarargs() && varTypeIsFloating(argNode->GetType()))
@@ -4888,8 +4880,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
             // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
             // to pass an integer argument at the same position.
-            regNumber intArgReg = compiler->getCallArgIntRegister(argNode->GetRegNum());
-            GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(argNode->GetType()), intArgReg, srcReg,
+            regNumber intArgReg = compiler->getCallArgIntRegister(argReg);
+            GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(argNode->GetType()), intArgReg, argReg,
                                       /* canSkip */ false);
         }
 #endif

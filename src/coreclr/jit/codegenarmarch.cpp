@@ -1016,19 +1016,19 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 
-    if (src->OperIs(GT_FIELD_LIST))
+    if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
         unsigned dstOffset = outArgLclOffs;
         unsigned regIndex  = 0;
-        for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
-            GenTree*  fieldNode = use.GetNode();
-            regNumber fieldReg  = genConsumeReg(fieldNode);
+            GenTree* fieldNode = use.GetNode();
 
             if (regIndex >= putArg->GetRegCount())
             {
-                var_types type = fieldNode->GetType();
-                emitAttr  attr = emitTypeSize(type);
+                regNumber fieldReg = UseReg(fieldNode);
+                var_types type     = fieldNode->GetType();
+                emitAttr  attr     = emitTypeSize(type);
 
                 GetEmitter()->emitIns_S_R(ins_Store(type), attr, fieldReg, outArgLclNum, dstOffset);
                 dstOffset += EA_SIZE_IN_BYTES(attr);
@@ -1037,26 +1037,30 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 continue;
             }
 
-            regNumber argReg = putArg->GetRegNum(regIndex);
-
-            emitAttr attr = emitTypeSize(putArg->GetRegType(regIndex));
-            assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
-            GetEmitter()->emitIns_Mov(INS_mov, attr, argReg, fieldReg, /* canSkip*/ true);
-
-            regIndex++;
-
 #ifdef TARGET_ARM
             if (fieldNode->TypeIs(TYP_LONG))
             {
                 assert(fieldNode->OperIs(GT_BITCAST));
 
-                fieldReg = fieldNode->GetRegNum(1);
+                UseRegs(fieldNode);
 
-                regNumber argReg = putArg->GetRegNum(regIndex);
-                GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, argReg, fieldReg, /* canSkip */ true);
-                regIndex++;
+                regNumber fieldReg0 = fieldNode->GetRegNum(0);
+                regNumber fieldReg1 = fieldNode->GetRegNum(1);
+                regNumber argReg0   = putArg->GetRegNum(regIndex++);
+                regNumber argReg1   = putArg->GetRegNum(regIndex++);
+
+                GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, argReg0, fieldReg0, /* canSkip */ true);
+                GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, argReg1, fieldReg1, /* canSkip */ true);
+
+                continue;
             }
 #endif
+
+            regNumber fieldReg = UseReg(fieldNode);
+            regNumber argReg   = putArg->GetRegNum(regIndex);
+            emitAttr  attr     = emitTypeSize(putArg->GetRegType(regIndex++));
+            assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
+            GetEmitter()->emitIns_Mov(INS_mov, attr, argReg, fieldReg, /* canSkip*/ true);
         }
 
         DefPutArgSplitRegs(putArg);
@@ -2595,30 +2599,30 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
         argNode              = argNode->gtSkipReloadOrCopy();
 
-        if (argNode->OperIs(GT_FIELD_LIST))
+        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
         {
-            unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
+            INDEBUG(unsigned regIndex = 0;)
+            for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
                 GenTree* node = use.GetNode();
 
-                UseRegs(node);
+                assert(node->gtSkipReloadOrCopy()->OperIs(GT_PUTARG_REG));
 
-                regNumber argReg = argInfo->GetRegNum(regIndex);
-                regNumber srcReg = node->GetRegNum(0);
-
-                if (srcReg != argReg)
+#ifdef TARGET_ARM
+                if (node->TypeIs(TYP_LONG))
                 {
-                    // TODO-MIKE-Review: Huh, this was using inst_RV_RV with type = TYP_I_IMPL. Potential GC hole?
-                    // And ignores the second reg in case of LONG args on ARM32...
-                    GetEmitter()->emitIns_R_R(ins_Move_Extend(node->GetType(), true), EA_PTRSIZE, argReg, srcReg);
-                }
+                    UseRegs(node);
 
-#ifndef TARGET_64BIT
-                regIndex += node->TypeIs(TYP_LONG) ? 2 : 1;
-#else
-                regIndex++;
+                    assert(node->GetRegNum(0) == argInfo->GetRegNum(regIndex++));
+                    assert(node->GetRegNum(1) == argInfo->GetRegNum(regIndex++));
+
+                    continue;
+                }
 #endif
+
+                UseReg(node);
+
+                assert(node->GetRegNum() == argInfo->GetRegNum(regIndex++));
             }
 
             continue;
@@ -2628,9 +2632,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         if (GenTreePutArgSplit* argSplit = argNode->IsPutArgSplit())
         {
             assert((argInfo->GetRegCount() >= 1) && (argInfo->GetSlotCount() >= 1));
-            assert(argSplit->gtHasReg());
 
             // TODO-MIKE-Review: Why is UnspillRegIfNeeded called instead of UseReg?
+            // Also, we're skipping a RELOAD/COPY above. Probably we can't actually
+            // get a COPY/RELOAD here becuase these nodes have specific, single reg
+            // requirements so there's little point in LSRA adding reloads/copies...
             if (argInfo->GetRegCount() > 1)
             {
                 UnspillRegsIfNeeded(argSplit);
@@ -2644,28 +2650,31 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
             {
-                regNumber argReg = argInfo->GetRegNum(i);
-                regNumber srcReg = argNode->GetRegNum(i);
-
-                if (srcReg != argReg)
-                {
-                    // TODO-MIKE-Review: Huh, this was using inst_RV_RV type = TYP_I_IMPL. Potential GC hole?
-                    GetEmitter()->emitIns_R_R(ins_Move_Extend(argNode->GetType(), true), EA_PTRSIZE, argReg, srcReg);
-                }
+                assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
             }
 
             continue;
         }
 #endif
 
-        regNumber argReg = argInfo->GetRegNum();
-        regNumber srcReg = genConsumeReg(argNode);
+        assert(argNode->OperIs(GT_PUTARG_REG));
 
-        if (srcReg != argReg)
+#ifdef TARGET_ARM
+        if (argNode->TypeIs(TYP_LONG))
         {
-            // TODO-MIKE-Review: Huh, this was using inst_RV_RV type = TYP_I_IMPL. Potential GC hole?
-            GetEmitter()->emitIns_R_R(ins_Move_Extend(argNode->GetType(), true), EA_PTRSIZE, argReg, srcReg);
+            UseRegs(argNode);
+
+            assert(argNode->GetRegNum(0) == argInfo->GetRegNum(0));
+            assert(argNode->GetRegNum(1) == argInfo->GetRegNum(1));
+
+            continue;
         }
+#endif
+
+        UseReg(argNode);
+
+        assert(argInfo->GetRegCount() == 1);
+        assert(argNode->GetRegNum() == argInfo->GetRegNum());
     }
 
     // Insert a null check on "this" pointer if asked.
