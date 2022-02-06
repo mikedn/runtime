@@ -893,33 +893,37 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
     }
 }
 
-void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
+void CodeGen::genPutArgReg(GenTreeUnOp* arg)
 {
-    assert(putArg->OperIs(GT_PUTARG_REG));
+    assert(arg->OperIs(GT_PUTARG_REG));
 
-    GenTree*  src    = putArg->GetOp(0);
-    regNumber srcReg = genConsumeReg(src);
-    var_types type   = putArg->GetType();
-    regNumber argReg = putArg->GetRegNum();
-
-    assert(!varTypeIsSmall(type));
-#ifdef TARGET_ARM
-    assert((type != TYP_LONG) || src->OperIs(GT_BITCAST));
-#endif
-
-    // TODO-MIKE-Review: How come this doesn't check for "other reg" on ARM???
-
-    GetEmitter()->emitIns_Mov(ins_Copy(type), emitTypeSize(type), argReg, srcReg, /* canSkip */ true);
+    GenTree* src = arg->GetOp(0);
 
 #ifdef TARGET_ARM
-    if (putArg->TypeIs(TYP_LONG))
+    if (src->TypeIs(TYP_LONG))
     {
-        DefLongRegs(putArg->AsMultiRegOp());
+        assert(src->OperIs(GT_BITCAST));
+        assert(arg->TypeIs(TYP_LONG));
+
+        UseRegs(src);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, arg->GetRegNum(0), src->GetRegNum(0), /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, arg->GetRegNum(1), src->GetRegNum(1), /* canSkip */ true);
+
+        DefLongRegs(arg->AsMultiRegOp());
+
         return;
     }
 #endif
 
-    genProduceReg(putArg);
+    regNumber srcReg = UseReg(src);
+    regNumber argReg = arg->GetRegNum();
+    var_types type   = arg->GetType();
+
+    assert(!varTypeIsSmall(type));
+
+    GetEmitter()->emitIns_Mov(ins_Copy(type), emitTypeSize(type), argReg, srcReg, /* canSkip */ true);
+
+    DefReg(arg);
 }
 
 void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
@@ -2598,12 +2602,15 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             {
                 GenTree* node = use.GetNode();
 
+                UseRegs(node);
+
                 regNumber argReg = argInfo->GetRegNum(regIndex);
-                regNumber srcReg = genConsumeReg(node);
+                regNumber srcReg = node->GetRegNum(0);
 
                 if (srcReg != argReg)
                 {
                     // TODO-MIKE-Review: Huh, this was using inst_RV_RV with type = TYP_I_IMPL. Potential GC hole?
+                    // And ignores the second reg in case of LONG args on ARM32...
                     GetEmitter()->emitIns_R_R(ins_Move_Extend(node->GetType(), true), EA_PTRSIZE, argReg, srcReg);
                 }
 

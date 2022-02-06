@@ -449,7 +449,7 @@ void CodeGen::genCodeForBBlist()
             genCodeForTreeNode(node);
             if (node->gtHasReg() && node->IsUnusedValue())
             {
-                genConsumeReg(node);
+                UseRegs(node);
             }
         } // end for each node in block
 
@@ -1371,7 +1371,13 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
 
 void CodeGen::UseRegs(GenTree* node)
 {
-    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR));
+    if (!node->IsMultiRegNode())
+    {
+        UseReg(node);
+        return;
+    }
+
+    assert(!node->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR));
 
     if (node->OperIs(GT_COPY))
     {
@@ -1446,12 +1452,6 @@ void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
 
 regNumber CodeGen::genConsumeReg(GenTree* node)
 {
-    if (node->IsMultiRegNode())
-    {
-        UseRegs(node);
-        return node->GetRegNum(0);
-    }
-
     return UseReg(node);
 }
 
@@ -1459,7 +1459,7 @@ void CodeGen::genConsumeAddress(GenTree* addr)
 {
     if (!addr->isContained())
     {
-        genConsumeReg(addr);
+        UseReg(addr);
     }
     else if (GenTreeAddrMode* am = addr->IsAddrMode())
     {
@@ -1504,7 +1504,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 
     if (!tree->isContained())
     {
-        genConsumeReg(tree);
+        UseReg(tree);
         return;
     }
 
@@ -1522,7 +1522,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 
     if (tree->OperIs(GT_BITCAST))
     {
-        genConsumeReg(tree->AsUnOp()->GetOp(0));
+        UseReg(tree->AsUnOp()->GetOp(0));
         return;
     }
 
@@ -1545,7 +1545,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
             if (category == HW_Category_MemoryStore)
             {
                 assert(hwi->IsBinary());
-                genConsumeReg(hwi->GetOp(1));
+                UseReg(hwi->GetOp(1));
             }
             else
             {
