@@ -1016,17 +1016,8 @@ public:
         return lvLiveInOutOfHndlr || lvSpillAtSingleDef;
     }
 
-#ifdef DEBUG
-public:
-    const char* lvReason;
-
-    void PrintVarReg() const
-    {
-        printf("%s", getRegName(GetRegNum()));
-    }
-#endif // DEBUG
-
-}; // class LclVarDsc
+    INDEBUG(const char* lvReason;)
+};
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

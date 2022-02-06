@@ -463,16 +463,8 @@ void CodeGen::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDyin
 {
     regMaskTP regMask = genGetRegMask(varDsc);
 
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("V%02u in reg ", (varDsc - compiler->lvaTable));
-        varDsc->PrintVarReg();
-        printf(" is becoming %s  ", (isDying) ? "dead" : "live");
-        Compiler::printTreeID(tree);
-        printf("\n");
-    }
-#endif // DEBUG
+    JITDUMP("V%02u in reg %s is becoming %s at [%06u]\n", (varDsc - compiler->lvaTable),
+            getRegName(varDsc->GetRegNum()), isDying ? "dead" : "live", tree == nullptr ? 0 : tree->GetID());
 
     if (isDying)
     {

@@ -1188,13 +1188,14 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     // Reset spilled flag, since we are going to load a local variable from its home location.
     node->SetRegSpilled(0, false);
 
-    LclVarDsc* lcl       = compiler->lvaGetDesc(node);
-    var_types  spillType = lcl->GetRegisterType(node);
+    LclVarDsc* lcl     = compiler->lvaGetDesc(node);
+    var_types  regType = lcl->GetRegisterType(node);
 
-    assert(spillType != TYP_UNDEF);
+    assert(regType != TYP_UNDEF);
 
-// TODO-Cleanup: The following code could probably be further merged and cleaned up.
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    // TODO-MIKE-Review: This stuff is dubious...
+
     // Load local variable from its home location.
     // In most cases the tree type will indicate the correct type to use for the load.
     // However, if it is NOT a normalizeOnLoad lclVar (i.e. NOT a small int that always gets
@@ -1208,26 +1209,19 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     // extending load.
     var_types lclActualType = lcl->GetActualRegisterType();
     assert(lclActualType != TYP_UNDEF);
-    if (spillType != lclActualType && !varTypeIsGC(spillType) && !lcl->lvNormalizeOnLoad())
+    if (regType != lclActualType && !varTypeIsGC(regType) && !lcl->lvNormalizeOnLoad())
     {
-        assert(!varTypeIsGC(lcl));
-        spillType = lclActualType;
+        assert(!varTypeIsGC(lcl->GetType()));
+        regType = lclActualType;
     }
-#elif defined(TARGET_ARM)
-// No normalizing for ARM
-#else
-    NYI("Unspilling not implemented for this target architecture.");
 #endif
 
-    regNumber regNum    = node->GetRegNum();
-    unsigned  varNum    = node->GetLclNum();
-    bool      reSpill   = node->IsRegSpill(0);
-    bool      isLastUse = node->IsLastUse(0);
+    regNumber dstReg = node->GetRegNum();
+    unsigned  lclNum = node->GetLclNum();
 
-    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
     inst_set_SV_var(node);
-    instruction ins = ins_Load(spillType, compiler->lvaIsSimdTypedLocalAligned(varNum));
-    GetEmitter()->emitIns_R_S(ins, emitTypeSize(spillType), regNum, varNum, 0);
+    instruction ins = ins_Load(regType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
 
     // TODO-Review: We would like to call:
     //      genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(tree));
@@ -1243,47 +1237,38 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
 
     // Don't update the variable's location if we are just re-spilling it again.
 
-    if (!reSpill)
+    if (!node->IsRegSpill(0))
     {
-        varDsc->SetRegNum(regNum);
+        lcl->SetRegNum(dstReg);
 
 #ifdef USING_VARIABLE_LIVE_RANGE
         // We want "VariableLiveRange" inclusive on the beginning and exclusive on the ending.
         // For that we shouldn't report an update of the variable location if is becoming dead
         // on the same native offset.
-        if (!isLastUse)
+        if (!node->IsLastUse(0))
         {
-            // Report the home change for this variable
-            varLiveKeeper->siUpdateVariableLiveRange(varDsc, varNum);
+            varLiveKeeper->siUpdateVariableLiveRange(lcl, lclNum);
         }
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
 
-        if (!varDsc->IsAlwaysAliveInMemory())
+        if (!lcl->IsAlwaysAliveInMemory())
         {
 #ifdef DEBUG
-            if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
+            if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
             {
-                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
+                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", lclNum);
             }
-#endif // DEBUG
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
+#endif
+
+            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
         }
 
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("V%02u in reg ", varNum);
-            varDsc->PrintVarReg();
-            printf(" is becoming live  ");
-            compiler->printTreeID(node);
-            printf("\n");
-        }
-#endif // DEBUG
+        JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lclNum, getRegName(lcl->GetRegNum()), node->GetID());
 
-        regSet.AddMaskVars(genGetRegMask(varDsc));
+        regSet.AddMaskVars(genGetRegMask(lcl));
     }
 
-    gcInfo.gcMarkRegPtrVal(regNum, spillType);
+    gcInfo.gcMarkRegPtrVal(dstReg, regType);
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
