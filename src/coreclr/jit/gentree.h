@@ -7661,7 +7661,7 @@ inline bool GenTree::IsMultiRegCall() const
 
 inline bool GenTree::IsMultiRegLclVar() const
 {
-    return OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && AsLclVar()->IsMultiReg();
+    return OperIs(GT_STORE_LCL_VAR) && AsLclVar()->IsMultiReg();
 }
 
 inline bool GenTree::IsMultiRegNode() const
@@ -7699,7 +7699,7 @@ inline bool GenTree::IsMultiRegNode() const
     }
 #endif
 
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+    if (OperIs(GT_STORE_LCL_VAR))
     {
         return AsLclVar()->IsMultiReg();
     }
@@ -7743,7 +7743,7 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
     }
 #endif
 
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+    if (OperIs(GT_STORE_LCL_VAR))
     {
         assert(AsLclVar()->IsMultiReg());
         return AsLclVar()->GetFieldCount(compiler);
@@ -7804,7 +7804,7 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
     }
 #endif
 
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+    if (OperIs(GT_STORE_LCL_VAR))
     {
         if (TypeIs(TYP_LONG))
         {
