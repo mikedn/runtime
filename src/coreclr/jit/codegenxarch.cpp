@@ -3981,7 +3981,7 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 
     regNumber regLo  = UseReg(operandLo);
     regNumber regHi  = UseReg(operandHi);
-    regNumder dstReg = tree->GetRegNum();
+    regNumber dstReg = tree->GetRegNum();
 
     var_types   targetType = tree->TypeGet();
     instruction ins        = genGetInsForOper(oper, targetType);
