@@ -1279,78 +1279,55 @@ regNumber CodeGen::UseReg(GenTree* node)
     return node->GetRegNum();
 }
 
-//------------------------------------------------------------------------
-// CopyReg: Produce code for a GT_COPY node.
-//
-// Arguments:
-//    tree - the GT_COPY node
-//
-// Notes:
-//    This will copy the register produced by this node's source, to
-//    the register allocated to this GT_COPY node.
-//    It has some special handling for these cases:
-//    - when the source and target registers are in different register files
-//      (note that this is *not* a conversion).
-//    - when the source is a lclVar whose home location is being moved to a new
-//      register (rather than just being copied for temporary use).
+// This will copy the register produced by this node's source, to the register
+// allocated to this GT_COPY node. It has some special handling for these cases:
+//  - when the source and target registers are in different register files
+//    (note that this is *not* a conversion).
+//  - when the source is a lclVar whose home location is being moved to a new
+//    register (rather than just being copied for temporary use).
 //
 void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 {
-    assert(copy->OperIs(GT_COPY));
+    assert(copy->OperIs(GT_COPY) && !copy->IsMultiRegNode());
 
-    GenTree* src = copy->GetOp(0);
+    GenTree*  src     = copy->GetOp(0);
+    regNumber srcReg  = UseReg(src);
+    regNumber dstReg  = copy->GetRegNum();
+    var_types dstType = copy->GetType();
 
-    assert(!src->IsMultiRegNode());
-
-    regNumber srcReg     = genConsumeReg(src);
-    var_types targetType = copy->TypeGet();
-    regNumber targetReg  = copy->GetRegNum();
-    assert(srcReg != REG_NA);
-    assert(targetReg != REG_NA);
-    assert(targetType != TYP_STRUCT);
-
-    inst_Mov(targetType, targetReg, srcReg, /* canSkip */ false);
+    inst_Mov(dstType, dstReg, srcReg, /* canSkip */ false);
 
     if (src->OperIs(GT_LCL_VAR))
     {
-        // The lclVar will never be a def.
-        // If it is a last use, the lclVar will be killed by genConsumeReg(), as usual, and genProduceReg will
+        // If it is a last use, the local will be killed by UseReg, as usual, and DefReg will
         // appropriately set the gcInfo for the copied value.
         // If not, there are two cases we need to handle:
         // - If this is a TEMPORARY copy (indicated by the GTF_VAR_DEATH flag) the variable
         //   will remain live in its original register.
-        //   genProduceReg() will appropriately set the gcInfo for the copied value,
-        //   and genConsumeReg will reset it.
+        //   DefReg will appropriately set the gcInfo for the copied value,
+        //   and UseReg will reset it.
         // - Otherwise, we need to update register info for the lclVar.
 
-        GenTreeLclVar* lcl = src->AsLclVar();
-
-        if ((lcl->gtFlags & GTF_VAR_DEATH) == 0 && (copy->gtFlags & GTF_VAR_DEATH) == 0)
+        if (!src->IsLastUse(0) && !copy->IsLastUse(0))
         {
-            LclVarDsc* varDsc = compiler->lvaGetDesc(lcl);
+            LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVar());
 
-            // If we didn't just spill it (in genConsumeReg, above), then update the register info
-            if (varDsc->GetRegNum() != REG_STK)
+            // If we didn't just spill it (in UseReg, above), then update the register info
+            if (lcl->GetRegNum() != REG_STK)
             {
-                // The old location is dying
-                genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
-
+                genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
                 gcInfo.gcMarkRegSetNpt(genRegMask(src->GetRegNum()));
-
-                genUpdateVarReg(varDsc, copy);
-
+                genUpdateVarReg(lcl, copy);
 #ifdef USING_VARIABLE_LIVE_RANGE
-                // Report the home change for this variable
-                varLiveKeeper->siUpdateVariableLiveRange(varDsc, lcl->GetLclNum());
-#endif // USING_VARIABLE_LIVE_RANGE
-
-                // The new location is going live
-                genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(copy));
+                varLiveKeeper->siUpdateVariableLiveRange(lcl, src->AsLclVar()->GetLclNum());
+#endif
+                genUpdateRegLife(lcl, /*isBorn*/ true, /*isDying*/ false DEBUGARG(copy));
             }
         }
     }
 
-    genProduceReg(copy);
+    // TODO-MIKE-Review: This probably should not call DefReg since copies are not spilled.
+    DefReg(copy);
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
