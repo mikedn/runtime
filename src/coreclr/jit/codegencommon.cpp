@@ -10191,7 +10191,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
             // TODO-Cleanup: It would probably be better to always have a valid reg
             // on a GT_COPY, unless the operand is actually spilled. Then we wouldn't have
-            // to check for this case (though we'd have to check in the genRegCopy that the
+            // to check for this case (though we'd have to check in the CopyReg that the
             // reg is valid).
 
             srcReg = actualSrc->GetRegNum(i);
@@ -10361,7 +10361,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 }
 
 //------------------------------------------------------------------------
-// genRegCopy: Produce code for a GT_COPY node.
+// CopyReg: Produce code for a GT_COPY node.
 //
 // Arguments:
 //    tree - the GT_COPY node
@@ -10375,68 +10375,24 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 //    - when the source is a lclVar whose home location is being moved to a new
 //      register (rather than just being copied for temporary use).
 //
-void CodeGen::genRegCopy(GenTree* treeNode)
+void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 {
-    assert(treeNode->OperGet() == GT_COPY);
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
+    assert(copy->OperIs(GT_COPY));
 
-    if (op1->IsMultiRegNode())
-    {
-        // Register allocation assumes that any reload and copy are done in operand order.
-        // That is, we can have:
-        //    (reg0, reg1) = COPY(V0,V1) where V0 is in reg1 and V1 is in memory
-        // The register allocation model assumes:
-        //     First, V0 is moved to reg0 (v1 can't be in reg0 because it is still live, which would be a conflict).
-        //     Then, V1 is moved to reg1
-        // However, if we call genConsumeRegs on op1, it will do the reload of V1 before we do the copy of V0.
-        // So we need to handle that case first.
-        //
-        // There should never be any circular dependencies, and we will check that here.
+    GenTree* src = copy->GetOp(0);
 
-        // GenTreeCopyOrReload only reports the highest index that has a valid register.
-        // However, we need to ensure that we consume all the registers of the child node,
-        // so we use its regCount.
-        unsigned regCount = op1->GetMultiRegCount(compiler);
-        assert(regCount <= MAX_MULTIREG_COUNT);
+    assert(!src->IsMultiRegNode());
 
-        // First set the source registers as busy if they haven't been spilled.
-        // (Note that this is just for verification that we don't have circular dependencies.)
-        regMaskTP busyRegs = RBM_NONE;
-        for (unsigned i = 0; i < regCount; ++i)
-        {
-            if (!op1->IsRegSpilled(i))
-            {
-                busyRegs |= genRegMask(op1->GetRegNum(i));
-            }
-        }
-        for (unsigned i = 0; i < regCount; ++i)
-        {
-            regNumber sourceReg = op1->GetRegNum(i);
-            // genRegCopy will consume the source register, perform any required reloads,
-            // and will return either the register copied to, or the original register if there's no copy.
-            regNumber targetReg = genRegCopy(treeNode->AsCopyOrReload(), i);
-            if (targetReg != sourceReg)
-            {
-                regMaskTP targetRegMask = genRegMask(targetReg);
-                assert((busyRegs & targetRegMask) == 0);
-                // Clear sourceReg from the busyRegs, and add targetReg.
-                busyRegs &= ~genRegMask(sourceReg);
-            }
-            busyRegs |= genRegMask(targetReg);
-        }
-        return;
-    }
-
-    regNumber srcReg     = genConsumeReg(op1);
-    var_types targetType = treeNode->TypeGet();
-    regNumber targetReg  = treeNode->GetRegNum();
+    regNumber srcReg     = genConsumeReg(src);
+    var_types targetType = copy->TypeGet();
+    regNumber targetReg  = copy->GetRegNum();
     assert(srcReg != REG_NA);
     assert(targetReg != REG_NA);
     assert(targetType != TYP_STRUCT);
 
     inst_Mov(targetType, targetReg, srcReg, /* canSkip */ false);
 
-    if (op1->IsLocal())
+    if (src->IsLocal())
     {
         // The lclVar will never be a def.
         // If it is a last use, the lclVar will be killed by genConsumeReg(), as usual, and genProduceReg will
@@ -10448,10 +10404,10 @@ void CodeGen::genRegCopy(GenTree* treeNode)
         //   and genConsumeReg will reset it.
         // - Otherwise, we need to update register info for the lclVar.
 
-        GenTreeLclVarCommon* lcl = op1->AsLclVarCommon();
+        GenTreeLclVarCommon* lcl = src->AsLclVarCommon();
         assert((lcl->gtFlags & GTF_VAR_DEF) == 0);
 
-        if ((lcl->gtFlags & GTF_VAR_DEATH) == 0 && (treeNode->gtFlags & GTF_VAR_DEATH) == 0)
+        if ((lcl->gtFlags & GTF_VAR_DEATH) == 0 && (copy->gtFlags & GTF_VAR_DEATH) == 0)
         {
             LclVarDsc* varDsc = compiler->lvaGetDesc(lcl);
 
@@ -10459,11 +10415,11 @@ void CodeGen::genRegCopy(GenTree* treeNode)
             if (varDsc->GetRegNum() != REG_STK)
             {
                 // The old location is dying
-                genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(op1));
+                genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
 
-                gcInfo.gcMarkRegSetNpt(genRegMask(op1->GetRegNum()));
+                gcInfo.gcMarkRegSetNpt(genRegMask(src->GetRegNum()));
 
-                genUpdateVarReg(varDsc, treeNode);
+                genUpdateVarReg(varDsc, copy);
 
 #ifdef USING_VARIABLE_LIVE_RANGE
                 // Report the home change for this variable
@@ -10471,12 +10427,63 @@ void CodeGen::genRegCopy(GenTree* treeNode)
 #endif // USING_VARIABLE_LIVE_RANGE
 
                 // The new location is going live
-                genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(treeNode));
+                genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(copy));
             }
         }
     }
 
-    genProduceReg(treeNode);
+    genProduceReg(copy);
+}
+
+void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
+{
+    assert(copy->OperGet() == GT_COPY);
+    GenTree* op1 = copy->AsOp()->gtOp1;
+
+    assert(op1->IsMultiRegNode());
+
+    // Register allocation assumes that any reload and copy are done in operand order.
+    // That is, we can have:
+    //    (reg0, reg1) = COPY(V0,V1) where V0 is in reg1 and V1 is in memory
+    // The register allocation model assumes:
+    //     First, V0 is moved to reg0 (v1 can't be in reg0 because it is still live, which would be a conflict).
+    //     Then, V1 is moved to reg1
+    // However, if we call genConsumeRegs on op1, it will do the reload of V1 before we do the copy of V0.
+    // So we need to handle that case first.
+    //
+    // There should never be any circular dependencies, and we will check that here.
+
+    // GenTreeCopyOrReload only reports the highest index that has a valid register.
+    // However, we need to ensure that we consume all the registers of the child node,
+    // so we use its regCount.
+    unsigned regCount = op1->GetMultiRegCount(compiler);
+    assert(regCount <= MAX_MULTIREG_COUNT);
+
+    // First set the source registers as busy if they haven't been spilled.
+    // (Note that this is just for verification that we don't have circular dependencies.)
+    regMaskTP busyRegs = RBM_NONE;
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        if (!op1->IsRegSpilled(i))
+        {
+            busyRegs |= genRegMask(op1->GetRegNum(i));
+        }
+    }
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        regNumber sourceReg = op1->GetRegNum(i);
+        // CopyReg will consume the source register, perform any required reloads,
+        // and will return either the register copied to, or the original register if there's no copy.
+        regNumber targetReg = CopyReg(copy->AsCopyOrReload(), i);
+        if (targetReg != sourceReg)
+        {
+            regMaskTP targetRegMask = genRegMask(targetReg);
+            assert((busyRegs & targetRegMask) == 0);
+            // Clear sourceReg from the busyRegs, and add targetReg.
+            busyRegs &= ~genRegMask(sourceReg);
+        }
+        busyRegs |= genRegMask(targetReg);
+    }
 }
 
 // This will copy the corresponding register produced by this node's source, to
@@ -10484,7 +10491,7 @@ void CodeGen::genRegCopy(GenTree* treeNode)
 // A multireg copy doesn't support moving between register files, as the GT_COPY
 // node does not retain separate types for each index.
 //
-regNumber CodeGen::genRegCopy(GenTreeCopyOrReload* copy, unsigned regIndex)
+regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
 {
     assert(copy->OperIs(GT_COPY));
     assert(!copy->IsAnyRegSpill());

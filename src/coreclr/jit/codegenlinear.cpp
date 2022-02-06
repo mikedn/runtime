@@ -1217,7 +1217,7 @@ regNumber CodeGen::UseReg(GenTree* node)
 
     if (node->OperGet() == GT_COPY)
     {
-        genRegCopy(node);
+        CopyReg(node->AsCopyOrReload());
     }
 
     // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
@@ -1287,7 +1287,7 @@ regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
 
     if (node->OperIs(GT_COPY))
     {
-        reg = genRegCopy(node->AsCopyOrReload(), regIndex);
+        reg = CopyReg(node->AsCopyOrReload(), regIndex);
     }
     else if (reg == REG_NA)
     {
@@ -1317,7 +1317,7 @@ void CodeGen::UseRegs(GenTree* node)
 
     if (node->OperIs(GT_COPY))
     {
-        genRegCopy(node);
+        CopyRegs(node->AsCopyOrReload());
     }
 
     UnspillRegIfNeeded(node);
