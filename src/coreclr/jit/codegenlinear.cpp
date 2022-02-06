@@ -1020,120 +1020,6 @@ void CodeGen::genUnspillLocal(GenTreeLclVar* lclNode, var_types type, regNumber 
     gcInfo.gcMarkRegPtrVal(regNum, type);
 }
 
-// Reload a MultiReg source value into a register, if needed
-//
-// It must *not* be a GT_LCL_VAR (those are handled separately).
-// In the normal case, the value will be reloaded into the register it
-// was originally computed into. However, if that register is not available,
-// the register allocator will have allocated a different register, and
-// inserted a GT_RELOAD to indicate the register into which it should be
-// reloaded.
-//
-void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
-{
-    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
-
-    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
-
-    if (!unspillNode->IsRegSpilled(regIndex))
-    {
-        return;
-    }
-
-    regNumber reg = node->GetRegNum(regIndex);
-
-    if (reg == REG_NA)
-    {
-        assert(node->IsCopyOrReload());
-        reg = unspillNode->GetRegNum(regIndex);
-    }
-
-    regSet.UnspillNodeReg(unspillNode, reg, regIndex);
-}
-
-// Reload the value into a register, if needed
-//
-// In the normal case, the value will be reloaded into the register it
-// was originally computed into. However, if that register is not available,
-// the register allocator will have allocated a different register, and
-// inserted a GT_RELOAD to indicate the register into which it should be
-// reloaded.
-//
-// A GT_RELOAD never has a reg candidate lclVar or multi-reg lclVar as its child.
-// This is because register candidates locals always have distinct tree nodes
-// for uses and definitions. (This is unlike non-register candidate locals which
-// may be "defined" by a GT_LCL_VAR node that loads it into a register. It may
-// then have a GT_RELOAD inserted if it needs a different register, though this
-// is unlikely to happen except in stress modes.)
-//
-void CodeGen::UnspillRegIfNeeded(GenTree* node)
-{
-    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
-
-    if (!unspillNode->IsAnyRegSpilled())
-    {
-        return;
-    }
-
-    if (GenTreeLclVar* lclVar = IsRegCandidateLclVar(unspillNode))
-    {
-        // We never have a GT_RELOAD for this case.
-        assert(node == unspillNode);
-
-        // Reset spilled flag, since we are going to load a local variable from its home location.
-        unspillNode->SetRegSpilled(0, false);
-
-        LclVarDsc* lcl       = compiler->lvaGetDesc(lclVar);
-        var_types  spillType = lcl->GetRegisterType(lclVar);
-
-        assert(spillType != TYP_UNDEF);
-
-// TODO-Cleanup: The following code could probably be further merged and cleaned up.
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-        // Load local variable from its home location.
-        // In most cases the tree type will indicate the correct type to use for the load.
-        // However, if it is NOT a normalizeOnLoad lclVar (i.e. NOT a small int that always gets
-        // widened when loaded into a register), and its size is not the same as the actual register type
-        // of the lclVar, then we need to change the type of the tree node when loading.
-        // This situation happens due to "optimizations" that avoid a cast and
-        // simply retype the node when using long type lclVar as an int.
-        // While loading the int in that case would work for this use of the lclVar, if it is
-        // later used as a long, we will have incorrectly truncated the long.
-        // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
-        // extending load.
-        var_types lclActualType = lcl->GetActualRegisterType();
-        assert(lclActualType != TYP_UNDEF);
-        if (spillType != lclActualType && !varTypeIsGC(spillType) && !lcl->lvNormalizeOnLoad())
-        {
-            assert(!varTypeIsGC(lcl));
-            spillType = lclActualType;
-        }
-#elif defined(TARGET_ARM)
-// No normalizing for ARM
-#else
-        NYI("Unspilling not implemented for this target architecture.");
-#endif
-
-        genUnspillLocal(lclVar, spillType, node->GetRegNum());
-
-        return;
-    }
-
-    if (unspillNode->IsMultiRegNode())
-    {
-        assert(!unspillNode->IsMultiRegLclVar());
-
-        for (unsigned i = 0, count = node->GetMultiRegCount(compiler); i < count; ++i)
-        {
-            UnspillRegIfNeeded(node, i);
-        }
-
-        return;
-    }
-
-    regSet.UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
-}
-
 //------------------------------------------------------------------------
 // genCopyRegIfNeeded: Copy the given node into the specified register
 //
@@ -1216,7 +1102,7 @@ regNumber CodeGen::UseReg(GenTree* node)
 
     if (GenTreeLclVar* lclVar = IsRegCandidateLclVar(node))
     {
-        return UseRegCandidateLclVarReg(lclVar);
+        return UseRegCandidateLclVar(lclVar);
     }
 
     if (node->OperIs(GT_COPY))
@@ -1238,7 +1124,7 @@ regNumber CodeGen::UseReg(GenTree* node)
     return node->GetRegNum();
 }
 
-regNumber CodeGen::UseRegCandidateLclVarReg(GenTreeLclVar* node)
+regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
 {
     assert(IsRegCandidateLclVar(node));
 
@@ -1260,7 +1146,11 @@ regNumber CodeGen::UseRegCandidateLclVarReg(GenTreeLclVar* node)
         inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
     }
 
-    UnspillRegIfNeeded(node);
+    if (node->IsAnyRegSpilled())
+    {
+        UnspillRegCandidateLclVar(node);
+    }
+
     genUpdateLife(node);
 
     assert(node->gtHasReg());
@@ -1328,6 +1218,74 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
     }
 
     gcInfo.gcMarkRegPtrVal(dstReg, dstType);
+}
+
+// Reload the value into a register, if needed
+//
+// In the normal case, the value will be reloaded into the register it
+// was originally computed into. However, if that register is not available,
+// the register allocator will have allocated a different register, and
+// inserted a GT_RELOAD to indicate the register into which it should be
+// reloaded.
+//
+// A GT_RELOAD never has a reg candidate lclVar or multi-reg lclVar as its child.
+// This is because register candidates locals always have distinct tree nodes
+// for uses and definitions. (This is unlike non-register candidate locals which
+// may be "defined" by a GT_LCL_VAR node that loads it into a register. It may
+// then have a GT_RELOAD inserted if it needs a different register, though this
+// is unlikely to happen except in stress modes.)
+//
+void CodeGen::UnspillRegIfNeeded(GenTree* node)
+{
+    assert(!node->IsMultiRegNode() && !IsRegCandidateLclVar(node));
+
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
+
+    if (unspillNode->IsAnyRegSpilled())
+    {
+        regSet.UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
+    }
+}
+
+void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
+{
+    assert(IsRegCandidateLclVar(node) && node->IsAnyRegSpilled());
+
+    // Reset spilled flag, since we are going to load a local variable from its home location.
+    node->SetRegSpilled(0, false);
+
+    LclVarDsc* lcl       = compiler->lvaGetDesc(node);
+    var_types  spillType = lcl->GetRegisterType(node);
+
+    assert(spillType != TYP_UNDEF);
+
+// TODO-Cleanup: The following code could probably be further merged and cleaned up.
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    // Load local variable from its home location.
+    // In most cases the tree type will indicate the correct type to use for the load.
+    // However, if it is NOT a normalizeOnLoad lclVar (i.e. NOT a small int that always gets
+    // widened when loaded into a register), and its size is not the same as the actual register type
+    // of the lclVar, then we need to change the type of the tree node when loading.
+    // This situation happens due to "optimizations" that avoid a cast and
+    // simply retype the node when using long type lclVar as an int.
+    // While loading the int in that case would work for this use of the lclVar, if it is
+    // later used as a long, we will have incorrectly truncated the long.
+    // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
+    // extending load.
+    var_types lclActualType = lcl->GetActualRegisterType();
+    assert(lclActualType != TYP_UNDEF);
+    if (spillType != lclActualType && !varTypeIsGC(spillType) && !lcl->lvNormalizeOnLoad())
+    {
+        assert(!varTypeIsGC(lcl));
+        spillType = lclActualType;
+    }
+#elif defined(TARGET_ARM)
+// No normalizing for ARM
+#else
+    NYI("Unspilling not implemented for this target architecture.");
+#endif
+
+    genUnspillLocal(node, spillType, node->GetRegNum());
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
@@ -1399,6 +1357,37 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
     return dstReg;
 }
 
+// Reload a MultiReg source value into a register, if needed
+//
+// It must *not* be a GT_LCL_VAR (those are handled separately).
+// In the normal case, the value will be reloaded into the register it
+// was originally computed into. However, if that register is not available,
+// the register allocator will have allocated a different register, and
+// inserted a GT_RELOAD to indicate the register into which it should be
+// reloaded.
+//
+void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
+{
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
+
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
+
+    if (!unspillNode->IsRegSpilled(regIndex))
+    {
+        return;
+    }
+
+    regNumber reg = node->GetRegNum(regIndex);
+
+    if (reg == REG_NA)
+    {
+        assert(node->IsCopyOrReload());
+        reg = unspillNode->GetRegNum(regIndex);
+    }
+
+    regSet.UnspillNodeReg(unspillNode, reg, regIndex);
+}
+
 void CodeGen::UseRegs(GenTree* node)
 {
     assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR));
@@ -1408,11 +1397,26 @@ void CodeGen::UseRegs(GenTree* node)
         CopyRegs(node->AsCopyOrReload());
     }
 
-    UnspillRegIfNeeded(node);
+    UnspillRegsIfNeeded(node);
 
     gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
 
     genCheckConsumeNode(node);
+}
+
+void CodeGen::UnspillRegsIfNeeded(GenTree* node)
+{
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
+
+    assert(unspillNode->IsMultiRegNode() && !unspillNode->IsMultiRegLclVar());
+
+    if (unspillNode->IsAnyRegSpilled())
+    {
+        for (unsigned i = 0, count = node->GetMultiRegCount(compiler); i < count; ++i)
+        {
+            UnspillRegIfNeeded(node, i);
+        }
+    }
 }
 
 void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
