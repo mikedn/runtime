@@ -1212,10 +1212,9 @@ void CodeGen::genCheckConsumeNode(GenTree* const node)
 
 regNumber CodeGen::UseReg(GenTree* node)
 {
-    assert(node->isUsedFromReg());
-    assert(!node->IsMultiRegNode());
+    assert(node->isUsedFromReg() && !node->IsMultiRegNode());
 
-    if (node->OperGet() == GT_COPY)
+    if (node->OperIs(GT_COPY))
     {
         CopyReg(node->AsCopyOrReload());
     }
@@ -1232,11 +1231,12 @@ regNumber CodeGen::UseReg(GenTree* node)
     // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
     if (IsRegCandidateLclVar(node))
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(node->AsLclVar());
-        if (varDsc->GetRegNum() != REG_STK)
+        LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
+
+        if (lcl->GetRegNum() != REG_STK)
         {
-            var_types regType = varDsc->GetRegisterType(node->AsLclVar());
-            inst_Mov(regType, node->GetRegNum(), varDsc->GetRegNum(), /* canSkip */ true);
+            var_types dstType = lcl->GetRegisterType(node->AsLclVar());
+            inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
         }
     }
 
@@ -1247,35 +1247,30 @@ regNumber CodeGen::UseReg(GenTree* node)
         genUpdateLife(node->AsLclVarCommon());
     }
 
-    // there are three cases where consuming a reg means clearing the bit in the live mask
-    // 1. it was not produced by a local
-    // 2. it was produced by a local that is going dead
-    // 3. it was produced by a local that does not live in that reg (like one allocated on the stack)
-
     if (IsRegCandidateLclVar(node))
     {
         assert(node->gtHasReg());
 
-        LclVarDsc* varDsc = compiler->lvaGetDesc(node->AsLclVar());
-        assert(varDsc->lvLRACandidate);
+        LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
+        assert(lcl->IsRegCandidate());
 
-        if (varDsc->GetRegNum() == REG_STK)
+        if (lcl->GetRegNum() == REG_STK)
         {
             // We have loaded this into a register only temporarily
             gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
         }
-        else if ((node->gtFlags & GTF_VAR_DEATH) != 0)
+        else if (node->IsLastUse(0))
         {
-            gcInfo.gcMarkRegSetNpt(genRegMask(varDsc->GetRegNum()));
+            gcInfo.gcMarkRegSetNpt(genRegMask(lcl->GetRegNum()));
         }
     }
     else
     {
-        assert(!node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
-        gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+        gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
     }
 
     genCheckConsumeNode(node);
+
     return node->GetRegNum();
 }
 
