@@ -1084,7 +1084,6 @@ protected:
     void DefLongRegs(GenTreeMultiRegOp* node);
 #endif
     void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
-    void genUnspillLocal(GenTreeLclVar* lclVar, var_types type, regNumber reg);
     void UnspillRegIfNeeded(GenTree* node);
     void UnspillRegCandidateLclVar(GenTreeLclVar* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);

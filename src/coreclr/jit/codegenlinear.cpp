@@ -952,74 +952,6 @@ void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
     varDsc->SetRegNum(tree->GetRegNum());
 }
 
-void CodeGen::genUnspillLocal(GenTreeLclVar* lclNode, var_types type, regNumber regNum)
-{
-    unsigned varNum    = lclNode->GetLclNum();
-    bool     reSpill   = lclNode->IsRegSpill(0);
-    bool     isLastUse = lclNode->IsLastUse(0);
-
-    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-    inst_set_SV_var(lclNode);
-    instruction ins = ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(varNum));
-    GetEmitter()->emitIns_R_S(ins, emitTypeSize(type), regNum, varNum, 0);
-
-    // TODO-Review: We would like to call:
-    //      genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(tree));
-    // instead of the following code, but this ends up hitting this assert:
-    //      assert((regSet.GetMaskVars() & regMask) == 0);
-    // due to issues with LSRA resolution moves.
-    // So, just force it for now. This probably indicates a condition that creates a GC hole!
-    //
-    // Extra note: I think we really want to call something like gcInfo.gcUpdateForRegVarMove,
-    // because the variable is not really going live or dead, but that method is somewhat poorly
-    // factored because it, in turn, updates rsMaskVars which is part of RegSet not GCInfo.
-    // TODO-Cleanup: This code exists in other CodeGen*.cpp files, and should be moved to CodeGenCommon.cpp.
-
-    // Don't update the variable's location if we are just re-spilling it again.
-
-    if (!reSpill)
-    {
-        varDsc->SetRegNum(regNum);
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-        // We want "VariableLiveRange" inclusive on the beginning and exclusive on the ending.
-        // For that we shouldn't report an update of the variable location if is becoming dead
-        // on the same native offset.
-        if (!isLastUse)
-        {
-            // Report the home change for this variable
-            varLiveKeeper->siUpdateVariableLiveRange(varDsc, varNum);
-        }
-#endif // USING_VARIABLE_LIVE_RANGE
-
-        if (!varDsc->IsAlwaysAliveInMemory())
-        {
-#ifdef DEBUG
-            if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
-            {
-                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
-            }
-#endif // DEBUG
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-        }
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("V%02u in reg ", varNum);
-            varDsc->PrintVarReg();
-            printf(" is becoming live  ");
-            compiler->printTreeID(lclNode);
-            printf("\n");
-        }
-#endif // DEBUG
-
-        regSet.AddMaskVars(genGetRegMask(varDsc));
-    }
-
-    gcInfo.gcMarkRegPtrVal(regNum, type);
-}
-
 //------------------------------------------------------------------------
 // genCopyRegIfNeeded: Copy the given node into the specified register
 //
@@ -1287,7 +1219,71 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     NYI("Unspilling not implemented for this target architecture.");
 #endif
 
-    genUnspillLocal(node, spillType, node->GetRegNum());
+    regNumber regNum    = node->GetRegNum();
+    unsigned  varNum    = node->GetLclNum();
+    bool      reSpill   = node->IsRegSpill(0);
+    bool      isLastUse = node->IsLastUse(0);
+
+    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+    inst_set_SV_var(node);
+    instruction ins = ins_Load(spillType, compiler->lvaIsSimdTypedLocalAligned(varNum));
+    GetEmitter()->emitIns_R_S(ins, emitTypeSize(spillType), regNum, varNum, 0);
+
+    // TODO-Review: We would like to call:
+    //      genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(tree));
+    // instead of the following code, but this ends up hitting this assert:
+    //      assert((regSet.GetMaskVars() & regMask) == 0);
+    // due to issues with LSRA resolution moves.
+    // So, just force it for now. This probably indicates a condition that creates a GC hole!
+    //
+    // Extra note: I think we really want to call something like gcInfo.gcUpdateForRegVarMove,
+    // because the variable is not really going live or dead, but that method is somewhat poorly
+    // factored because it, in turn, updates rsMaskVars which is part of RegSet not GCInfo.
+    // TODO-Cleanup: This code exists in other CodeGen*.cpp files, and should be moved to CodeGenCommon.cpp.
+
+    // Don't update the variable's location if we are just re-spilling it again.
+
+    if (!reSpill)
+    {
+        varDsc->SetRegNum(regNum);
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+        // We want "VariableLiveRange" inclusive on the beginning and exclusive on the ending.
+        // For that we shouldn't report an update of the variable location if is becoming dead
+        // on the same native offset.
+        if (!isLastUse)
+        {
+            // Report the home change for this variable
+            varLiveKeeper->siUpdateVariableLiveRange(varDsc, varNum);
+        }
+#endif // USING_VARIABLE_LIVE_RANGE
+
+        if (!varDsc->IsAlwaysAliveInMemory())
+        {
+#ifdef DEBUG
+            if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
+            {
+                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
+            }
+#endif // DEBUG
+            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
+        }
+
+#ifdef DEBUG
+        if (compiler->verbose)
+        {
+            printf("V%02u in reg ", varNum);
+            varDsc->PrintVarReg();
+            printf(" is becoming live  ");
+            compiler->printTreeID(node);
+            printf("\n");
+        }
+#endif // DEBUG
+
+        regSet.AddMaskVars(genGetRegMask(varDsc));
+    }
+
+    gcInfo.gcMarkRegPtrVal(regNum, spillType);
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
