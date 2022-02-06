@@ -348,7 +348,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     {
         assert(!lcl->IsPromoted());
 
-        codeGen->genSpillVar(lclNode->AsLclVar());
+        codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar());
 
         if (lcl->HasStackGCPtrLiveness() &&
             VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))

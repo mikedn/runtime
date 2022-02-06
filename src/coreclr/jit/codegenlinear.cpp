@@ -835,79 +835,76 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-//------------------------------------------------------------------------
-// genSpillVar: Spill a local variable
-//
-// Assumptions:
-//    The lclVar must be a register candidate (lvRegCandidate)
-
-void CodeGen::genSpillVar(GenTreeLclVar* tree)
+void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 {
-    unsigned   varNum = tree->GetLclNum();
-    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
-    assert(varDsc->lvIsRegCandidate());
+    assert(lcl->IsRegCandidate());
 
     // We don't actually need to spill if it is already living in memory
-    bool needsSpill = ((tree->gtFlags & GTF_VAR_DEF) == 0 && varDsc->lvIsInReg());
+    bool needsSpill = ((lclVar->gtFlags & GTF_VAR_DEF) == 0) && (lcl->GetRegNum() != REG_STK);
+
     if (needsSpill)
     {
-        // In order for a lclVar to have been allocated to a register, it must not have been aliasable, and can
-        // therefore be store-normalized (rather than load-normalized). In fact, not performing store normalization
-        // can lead to problems on architectures where a lclVar may be allocated to a register that is not
-        // addressable at the granularity of the lclVar's defined type (e.g. x86).
-        var_types lclType = varDsc->GetActualRegisterType();
-        emitAttr  size    = emitTypeSize(lclType);
+        unsigned lclNum = lclVar->GetLclNum();
 
         // If this is a write-thru or a single-def variable, we don't actually spill at a use,
         // but we will kill the var in the reg (below).
-        if (!varDsc->IsAlwaysAliveInMemory())
+        if (!lcl->IsAlwaysAliveInMemory())
         {
-            instruction storeIns = ins_Store(lclType, compiler->lvaIsSimdTypedLocalAligned(varNum));
-            assert(varDsc->GetRegNum() == tree->GetRegNum());
-            inst_TT_RV(storeIns, size, tree, tree->GetRegNum());
+            assert(lcl->GetRegNum() == lclVar->GetRegNum());
+
+            // In order for a local to have been allocated to a register, it must not have been address
+            // exposed, and can therefore be store-normalized (rather than load-normalized).
+            // In fact, not performing store normalization can lead to problems on architectures where
+            // a local may be allocated to a register that is not addressable at the granularity of the
+            // local's defined type (e.g. x86).
+            var_types   type = lcl->GetActualRegisterType();
+            instruction ins  = ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+
+            inst_TT_RV(ins, emitTypeSize(type), lclVar, lclVar->GetRegNum());
         }
 
         // We should only have both SPILL (i.e. the flag causing this method to be called) and
         // SPILLED on a write-thru/single-def def, for which we should not be calling this method.
-        assert(!tree->IsRegSpilled(0));
+        assert(!lclVar->IsRegSpilled(0));
 
         // Remove the live var from the register.
-        genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(tree));
-        gcInfo.gcMarkRegSetNpt(varDsc->lvRegMask());
+        genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
+        gcInfo.gcMarkRegSetNpt(lcl->lvRegMask());
 
-        if (varDsc->HasStackGCPtrLiveness())
+        if (lcl->HasStackGCPtrLiveness())
         {
-#ifdef DEBUG
-            if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
+            if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
             {
-                JITDUMP("GC pointer V%02u becoming live on stack\n", varNum);
+                JITDUMP("GC pointer V%02u becoming live on stack\n", lclNum);
             }
             else
             {
-                JITDUMP("GC pointer V%02u continuing live on stack\n", varNum);
+                JITDUMP("GC pointer V%02u continuing live on stack\n", lclNum);
             }
-#endif
-            VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
+
+            VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
         }
     }
 
-    tree->SetRegSpill(0, false);
+    lclVar->SetRegSpill(0, false);
 
     // If this is NOT a write-thru, reset the var location.
-    if (!tree->IsRegSpilled(0))
+    if (!lclVar->IsRegSpilled(0))
     {
-        varDsc->SetRegNum(REG_STK);
-        if (varTypeIsMultiReg(tree))
+        lcl->SetRegNum(REG_STK);
+
+        if (varTypeIsMultiReg(lclVar->GetType()))
         {
-            varDsc->SetOtherReg(REG_STK);
+            lcl->SetOtherReg(REG_STK);
         }
     }
     else
     {
         // We only have SPILL and SPILLED on a def of a write-thru lclVar
         // or a single-def var that is to be spilled at its definition.
-        assert((varDsc->IsAlwaysAliveInMemory()) && ((tree->gtFlags & GTF_VAR_DEF) != 0));
+        assert(lcl->IsAlwaysAliveInMemory() && ((lclVar->gtFlags & GTF_VAR_DEF) != 0));
     }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
@@ -915,9 +912,9 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
     {
         // We need this after "lvRegNum" has change because now we are sure that varDsc->lvIsInReg() is false.
         // "SiVarLoc" constructor uses the "LclVarDsc" of the variable.
-        varLiveKeeper->siUpdateVariableLiveRange(varDsc, varNum);
+        varLiveKeeper->siUpdateVariableLiveRange(lcl, lclVar->GetLclNum());
     }
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
 }
 
 //------------------------------------------------------------------------

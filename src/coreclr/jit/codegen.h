@@ -221,7 +221,7 @@ protected:
     void genCodeForBBlist();
 
 public:
-    void genSpillVar(GenTreeLclVar* node);
+    void SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 protected:
     void genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
