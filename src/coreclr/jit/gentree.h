@@ -487,9 +487,6 @@ enum GenTreeFlags : unsigned int
     GTF_VAR_MULTIREG_DEATH3 = 0x20000000, // GT_LCL_VAR -- The last-use bit for the fourth register of a multireg lclVar.
     GTF_VAR_DEATH_MASK      = GTF_VAR_MULTIREG_DEATH0 | GTF_VAR_MULTIREG_DEATH1 | GTF_VAR_MULTIREG_DEATH2 | GTF_VAR_MULTIREG_DEATH3,
 
-// This is the amount we have to shift, plus the regIndex, to get the last use bit we want.
-#define MULTIREG_LAST_USE_SHIFT 26
-
     GTF_VAR_MULTIREG        = 0x02000000, // This is a struct or (on 32-bit platforms) long variable that is used or defined
                                           // to/from a multireg source or destination (e.g. a call arg or return, or an op
                                           // that returns its result in multiple registers such as a long multiply).
@@ -1741,14 +1738,10 @@ public:
     var_types GetRegTypeByIndex(int regIndex);
 
     // Last-use information for either GenTreeLclVar or GenTreeCopyOrReload nodes.
-private:
-    GenTreeFlags GetLastUseBit(int regIndex);
-
-public:
-    bool IsLastUse(int regIndex);
+    bool IsLastUse(unsigned regIndex);
     bool HasLastUse();
-    void SetLastUse(int regIndex);
-    void ClearLastUse(int regIndex);
+    void SetLastUse(unsigned regIndex);
+    void ClearLastUse(unsigned regIndex);
 
     // Returns true if it is a GT_COPY or GT_RELOAD of a multi-reg call node
     inline bool IsCopyOrReloadOfMultiRegCall() const;
@@ -7830,84 +7823,38 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
     return TYP_UNDEF;
 }
 
-//-----------------------------------------------------------------------------------
-// GetLastUseBit: Get the last use bit for regIndex
-//
-// Arguments:
-//     regIndex - the register index
-//
-// Return Value:
-//     The bit to set, clear or query for the last-use of the regIndex'th value.
-//
-// Notes:
-//     This must be a GenTreeLclVar or GenTreeCopyOrReload node.
-//
-inline GenTreeFlags GenTree::GetLastUseBit(int regIndex)
+constexpr GenTreeFlags GetLastUseFlag(unsigned regIndex)
 {
     assert(regIndex < 4);
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
-    static_assert_no_msg((1 << MULTIREG_LAST_USE_SHIFT) == GTF_VAR_MULTIREG_DEATH0);
-    return (GenTreeFlags)(1 << (MULTIREG_LAST_USE_SHIFT + regIndex));
+    return static_cast<GenTreeFlags>(GTF_VAR_MULTIREG_DEATH0 << regIndex);
 }
 
-//-----------------------------------------------------------------------------------
-// IsLastUse: Determine whether this node is a last use of the regIndex'th value
-//
-// Arguments:
-//     regIndex - the register index
-//
-// Return Value:
-//     true iff this is a last use.
-//
-// Notes:
-//     This must be a GenTreeLclVar or GenTreeCopyOrReload node.
-//
-inline bool GenTree::IsLastUse(int regIndex)
+inline bool GenTree::IsLastUse(unsigned regIndex)
 {
     assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
-    return (gtFlags & GetLastUseBit(regIndex)) != 0;
+
+    return (gtFlags & GetLastUseFlag(regIndex)) != 0;
 }
 
-//-----------------------------------------------------------------------------------
-// IsLastUse: Determine whether this node is a last use of any value
-//
-// Return Value:
-//     true iff this has any last uses (i.e. at any index).
-//
-// Notes:
-//     This must be a GenTreeLclVar or GenTreeCopyOrReload node.
-//
 inline bool GenTree::HasLastUse()
 {
+    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
+
     return (gtFlags & (GTF_VAR_DEATH_MASK)) != 0;
 }
 
-//-----------------------------------------------------------------------------------
-// SetLastUse: Set the last use bit for the given index
-//
-// Arguments:
-//     regIndex - the register index
-//
-// Notes:
-//     This must be a GenTreeLclVar or GenTreeCopyOrReload node.
-//
-inline void GenTree::SetLastUse(int regIndex)
+inline void GenTree::SetLastUse(unsigned regIndex)
 {
-    gtFlags |= GetLastUseBit(regIndex);
+    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
+
+    gtFlags |= GetLastUseFlag(regIndex);
 }
 
-//-----------------------------------------------------------------------------------
-// ClearLastUse: Clear the last use bit for the given index
-//
-// Arguments:
-//     regIndex - the register index
-//
-// Notes:
-//     This must be a GenTreeLclVar or GenTreeCopyOrReload node.
-//
-inline void GenTree::ClearLastUse(int regIndex)
+inline void GenTree::ClearLastUse(unsigned regIndex)
 {
-    gtFlags &= ~GetLastUseBit(regIndex);
+    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
+
+    gtFlags &= ~GetLastUseFlag(regIndex);
 }
 
 //-----------------------------------------------------------------------------------
