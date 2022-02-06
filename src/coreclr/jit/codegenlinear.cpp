@@ -1311,7 +1311,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 
     inst_Mov(targetType, targetReg, srcReg, /* canSkip */ false);
 
-    if (src->IsLocal())
+    if (src->OperIs(GT_LCL_VAR))
     {
         // The lclVar will never be a def.
         // If it is a last use, the lclVar will be killed by genConsumeReg(), as usual, and genProduceReg will
@@ -1323,8 +1323,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
         //   and genConsumeReg will reset it.
         // - Otherwise, we need to update register info for the lclVar.
 
-        GenTreeLclVarCommon* lcl = src->AsLclVarCommon();
-        assert((lcl->gtFlags & GTF_VAR_DEF) == 0);
+        GenTreeLclVar* lcl = src->AsLclVar();
 
         if ((lcl->gtFlags & GTF_VAR_DEATH) == 0 && (copy->gtFlags & GTF_VAR_DEATH) == 0)
         {
