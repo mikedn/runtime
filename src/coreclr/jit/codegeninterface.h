@@ -262,9 +262,6 @@ public:
     instruction ins_Store(var_types dstType, bool aligned = false);
     instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
 
-    // Methods for spilling - used by RegSet
-    void spillReg(var_types type, TempDsc* tmp, regNumber reg);
-
     // The following method is used by xarch emitter for handling contained tree temps.
     TempDsc* getSpillTempDsc(GenTree* tree);
 

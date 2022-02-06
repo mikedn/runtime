@@ -278,7 +278,11 @@ void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 
     JITDUMP("Spilling register %s after [%06u]\n", m_rsCompiler->compRegVarName(reg), node->GetID());
 
-    m_rsCompiler->codeGen->spillReg(temp->tdTempType(), temp, reg);
+    regType          = temp->GetType();
+    instruction ins  = m_rsCompiler->codeGen->ins_Store(regType);
+    emitAttr    attr = emitActualTypeSize(regType);
+
+    m_rsCompiler->codeGen->GetEmitter()->emitIns_S_R(ins, attr, reg, temp->tdTempNum(), 0);
 
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
@@ -304,12 +308,12 @@ void RegSet::SpillST0(GenTree* node)
 }
 #endif // TARGET_X86
 
-TempDsc* RegSet::UnspillNodeReg(GenTree* node, unsigned regIndex)
+void RegSet::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 {
+    assert(!node->IsCopyOrReload());
     assert(!node->IsMultiRegLclVar());
 
     regNumber oldReg = node->GetRegNum(regIndex);
-
     SpillDsc* prevDsc;
     SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
     TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
@@ -318,8 +322,34 @@ TempDsc* RegSet::UnspillNodeReg(GenTree* node, unsigned regIndex)
 
     JITDUMP("Unspilling register %s from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
 
-    return temp;
+    var_types   regType = temp->GetType();
+    instruction ins     = m_rsCompiler->codeGen->ins_Load(regType);
+    emitAttr    attr    = emitActualTypeSize(regType);
+
+    m_rsCompiler->codeGen->GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetTempNum(), 0);
+
+    tmpRlsTemp(temp);
+
+    m_rsGCInfo.gcMarkRegPtrVal(reg, regType);
 }
+
+#ifdef TARGET_X86
+void RegSet::UnspillST0(GenTree* node)
+{
+    regNumber oldReg = node->GetRegNum();
+    SpillDsc* prevDsc;
+    SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
+    TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+
+    node->SetRegSpilled(0, false);
+
+    JITDUMP("Unspilling ST0 from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
+
+    var_types regType = temp->GetType();
+    m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetTempNum(), 0);
+    tmpRlsTemp(temp);
+}
+#endif // TARGET_X86
 
 /*****************************************************************************
  *

@@ -1020,15 +1020,6 @@ void CodeGen::genUnspillLocal(GenTreeLclVar* lclNode, var_types type, regNumber 
     gcInfo.gcMarkRegPtrVal(regNum, type);
 }
 
-void CodeGen::UnspillReg(GenTree* node, regNumber reg, unsigned regIndex)
-{
-    TempDsc*  temp    = regSet.UnspillNodeReg(node, regIndex);
-    var_types regType = temp->GetType();
-    GetEmitter()->emitIns_R_S(ins_Load(regType), emitActualTypeSize(regType), reg, temp->GetTempNum(), 0);
-    regSet.tmpRlsTemp(temp);
-    gcInfo.gcMarkRegPtrVal(reg, regType);
-}
-
 // Reload a MultiReg source value into a register, if needed
 //
 // It must *not* be a GT_LCL_VAR (those are handled separately).
@@ -1057,7 +1048,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
         reg = unspillNode->GetRegNum(regIndex);
     }
 
-    UnspillReg(unspillNode, reg, regIndex);
+    regSet.UnspillNodeReg(unspillNode, reg, regIndex);
 }
 
 // Reload the value into a register, if needed
@@ -1140,7 +1131,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node)
         return;
     }
 
-    UnspillReg(unspillNode, node->GetRegNum(), 0);
+    regSet.UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
 }
 
 //------------------------------------------------------------------------

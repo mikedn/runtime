@@ -600,16 +600,6 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
     }
 }
 
-/*****************************************************************************
- *
- *  Generate a spill.
- */
-void CodeGenInterface::spillReg(var_types type, TempDsc* tmp, regNumber reg)
-{
-    GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), reg, tmp->tdTempNum(), 0);
-}
-
-// inline
 regNumber CodeGenInterface::genGetThisArgReg(GenTreeCall* call) const
 {
     return REG_ARG_0;

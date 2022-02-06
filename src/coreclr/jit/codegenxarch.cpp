@@ -1099,7 +1099,7 @@ void CodeGen::genFloatReturn(GenTree* src)
 
     var_types srcType = src->GetType();
     emitAttr  srcSize = emitTypeSize(srcType);
-    regNumber srcReg  = genConsumeReg(src);
+    regNumber srcReg  = UseReg(src);
 
     // Spill the return value register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
@@ -1118,14 +1118,11 @@ void CodeGen::genFloatReturn(GenTree* src)
     else
     {
         // Spill the value, which should be in a register, then load it to the fp stack.
-        // TODO-X86-CQ: Deal with things that are already in memory (don't call genConsumeReg yet).
+        // TODO-X86-CQ: Deal with things that are already spilled or in memory.
 
         src->SetRegSpill(0, true);
         regSet.SpillNodeReg(src, srcType, 0);
-
-        TempDsc* temp = regSet.UnspillNodeReg(src, 0);
-        GetEmitter()->emitIns_S(INS_fld, srcSize, temp->tdTempNum(), 0);
-        regSet.tmpRlsTemp(temp);
+        regSet.UnspillST0(src);
     }
 }
 
