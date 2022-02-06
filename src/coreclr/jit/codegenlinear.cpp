@@ -1228,7 +1228,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
     regNumber reg = tree->GetRegNum(multiRegIndex);
     if (tree->OperIs(GT_COPY))
     {
-        reg = genRegCopy(tree, multiRegIndex);
+        reg = genRegCopy(tree->AsCopyOrReload(), multiRegIndex);
     }
     else if (reg == REG_NA)
     {

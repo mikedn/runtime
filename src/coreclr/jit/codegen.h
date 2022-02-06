@@ -1102,7 +1102,7 @@ protected:
     }
 
     void genRegCopy(GenTree* tree);
-    regNumber genRegCopy(GenTree* tree, unsigned multiRegIndex);
+    regNumber genRegCopy(GenTreeCopyOrReload* copy, unsigned regIndex);
     void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
