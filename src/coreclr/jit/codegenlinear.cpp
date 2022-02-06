@@ -1288,7 +1288,7 @@ regNumber CodeGen::UseReg(GenTree* node)
 //
 void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 {
-    assert(copy->OperIs(GT_COPY) && !copy->IsMultiRegNode());
+    assert(copy->OperIs(GT_COPY) && !copy->IsMultiRegNode() && !copy->IsAnyRegSpill());
 
     GenTree*  src     = copy->GetOp(0);
     regNumber srcReg  = UseReg(src);
@@ -1326,8 +1326,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
         }
     }
 
-    // TODO-MIKE-Review: This probably should not call DefReg since copies are not spilled.
-    DefReg(copy);
+    gcInfo.gcMarkRegPtrVal(dstReg, dstType);
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
@@ -1766,23 +1765,17 @@ void CodeGen::DefReg(GenTree* node)
 #ifndef TARGET_64BIT
     assert(!node->IsMultiRegOpLong());
 #endif
-    assert(!node->IsCopyOrReloadOfMultiRegCall());
+    assert(!node->IsCopyOrReload());
     assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(node->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
     if (node->IsAnyRegSpill())
     {
-        // COPY/RELOAD are never spilled.
-        noway_assert(!node->IsCopyOrReload());
-
         regSet.SpillNodeReg(node, node->GetType(), 0);
-
-        return;
     }
-
     // TODO-MIKE-Review: This check is likely bogus, nodes that use this function
     // likely always have a reg...
-    if (node->GetRegNum() != REG_NA)
+    else if (node->GetRegNum() != REG_NA)
     {
         gcInfo.gcMarkRegPtrVal(node->GetRegNum(), node->GetType());
     }
