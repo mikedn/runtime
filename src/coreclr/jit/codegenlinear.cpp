@@ -1109,8 +1109,10 @@ regNumber CodeGen::UseReg(GenTree* node)
     {
         CopyReg(node->AsCopyOrReload());
     }
-
-    UnspillRegIfNeeded(node);
+    else
+    {
+        UnspillRegIfNeeded(node);
+    }
 
     if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
