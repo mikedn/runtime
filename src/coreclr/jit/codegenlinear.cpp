@@ -840,12 +840,17 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
     assert(lcl->IsRegCandidate());
+    assert(lclVar->IsRegSpill(0));
 
     // We don't actually need to spill if it is already living in memory
     bool needsSpill = ((lclVar->gtFlags & GTF_VAR_DEF) == 0) && (lcl->GetRegNum() != REG_STK);
 
     if (needsSpill)
     {
+        // We should only have both SPILL (i.e. the flag causing this method to be called) and
+        // SPILLED on a write-thru/single-def def, for which we should not be calling this method.
+        assert(!lclVar->IsRegSpilled(0));
+
         unsigned lclNum = lclVar->GetLclNum();
 
         // If this is a write-thru or a single-def variable, we don't actually spill at a use,
@@ -862,12 +867,8 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             var_types   type = lcl->GetActualRegisterType();
             instruction ins  = ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum));
 
-            inst_TT_RV(ins, emitTypeSize(type), lclVar, lclVar->GetRegNum());
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
         }
-
-        // We should only have both SPILL (i.e. the flag causing this method to be called) and
-        // SPILLED on a write-thru/single-def def, for which we should not be calling this method.
-        assert(!lclVar->IsRegSpilled(0));
 
         // Remove the live var from the register.
         genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
