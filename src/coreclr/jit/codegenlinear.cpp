@@ -1215,7 +1215,68 @@ regNumber CodeGen::UseReg(GenTree* node)
     assert(node->isUsedFromReg());
     assert(!node->IsMultiRegNode());
 
-    return genConsumeReg(node);
+    if (node->OperGet() == GT_COPY)
+    {
+        genRegCopy(node);
+    }
+
+    // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
+    // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
+    // TODO-Cleanup: This is a special copyReg case in LSRA - consider eliminating these and
+    // always using GT_COPY to make the lclVar location explicit.
+    // Note that we have to do this before calling genUpdateLife because otherwise if we spill it
+    // the lvRegNum will be set to REG_STK and we will lose track of what register currently holds
+    // the lclVar (normally when a lclVar is spilled it is then used from its former register
+    // location, which matches the GetRegNum() on the node).
+    // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
+    // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
+    if (IsRegCandidateLclVar(node))
+    {
+        LclVarDsc* varDsc = compiler->lvaGetDesc(node->AsLclVar());
+        if (varDsc->GetRegNum() != REG_STK)
+        {
+            var_types regType = varDsc->GetRegisterType(node->AsLclVar());
+            inst_Mov(regType, node->GetRegNum(), varDsc->GetRegNum(), /* canSkip */ true);
+        }
+    }
+
+    UnspillRegIfNeeded(node);
+
+    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        genUpdateLife(node->AsLclVarCommon());
+    }
+
+    // there are three cases where consuming a reg means clearing the bit in the live mask
+    // 1. it was not produced by a local
+    // 2. it was produced by a local that is going dead
+    // 3. it was produced by a local that does not live in that reg (like one allocated on the stack)
+
+    if (IsRegCandidateLclVar(node))
+    {
+        assert(node->gtHasReg());
+
+        LclVarDsc* varDsc = compiler->lvaGetDesc(node->AsLclVar());
+        assert(varDsc->lvLRACandidate);
+
+        if (varDsc->GetRegNum() == REG_STK)
+        {
+            // We have loaded this into a register only temporarily
+            gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
+        }
+        else if ((node->gtFlags & GTF_VAR_DEATH) != 0)
+        {
+            gcInfo.gcMarkRegSetNpt(genRegMask(varDsc->GetRegNum()));
+        }
+    }
+    else
+    {
+        assert(!node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
+        gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+    }
+
+    genCheckConsumeNode(node);
+    return node->GetRegNum();
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
@@ -1252,86 +1313,29 @@ regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
 
 void CodeGen::UseRegs(GenTree* node)
 {
-    assert(node->IsMultiRegNode());
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR));
 
-    genConsumeReg(node);
+    if (node->OperIs(GT_COPY))
+    {
+        genRegCopy(node);
+    }
+
+    UnspillRegIfNeeded(node);
+
+    gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+
+    genCheckConsumeNode(node);
 }
 
-//--------------------------------------------------------------------
-// genConsumeReg: Do liveness update for a subnode that is being
-// consumed by codegen.
-//
-// Arguments:
-//    tree - GenTree node
-//
-// Return Value:
-//    Returns the reg number of tree.
-//    In case of multi-reg call node returns the first reg number
-//    of the multi-reg return.
-regNumber CodeGen::genConsumeReg(GenTree* tree)
+regNumber CodeGen::genConsumeReg(GenTree* node)
 {
-    if (tree->OperGet() == GT_COPY)
+    if (node->IsMultiRegNode())
     {
-        genRegCopy(tree);
+        UseRegs(node);
+        return node->GetRegNum(0);
     }
 
-    // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
-    // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
-    // TODO-Cleanup: This is a special copyReg case in LSRA - consider eliminating these and
-    // always using GT_COPY to make the lclVar location explicit.
-    // Note that we have to do this before calling genUpdateLife because otherwise if we spill it
-    // the lvRegNum will be set to REG_STK and we will lose track of what register currently holds
-    // the lclVar (normally when a lclVar is spilled it is then used from its former register
-    // location, which matches the GetRegNum() on the node).
-    // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
-    // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
-    if (IsRegCandidateLclVar(tree))
-    {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
-        if (varDsc->GetRegNum() != REG_STK)
-        {
-            var_types regType = varDsc->GetRegisterType(tree->AsLclVar());
-            inst_Mov(regType, tree->GetRegNum(), varDsc->GetRegNum(), /* canSkip */ true);
-        }
-    }
-
-    UnspillRegIfNeeded(tree);
-
-    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        genUpdateLife(tree->AsLclVarCommon());
-    }
-
-    // there are three cases where consuming a reg means clearing the bit in the live mask
-    // 1. it was not produced by a local
-    // 2. it was produced by a local that is going dead
-    // 3. it was produced by a local that does not live in that reg (like one allocated on the stack)
-
-    if (IsRegCandidateLclVar(tree))
-    {
-        assert(tree->gtHasReg());
-
-        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
-        assert(varDsc->lvLRACandidate);
-
-        if (varDsc->GetRegNum() == REG_STK)
-        {
-            // We have loaded this into a register only temporarily
-            gcInfo.gcMarkRegSetNpt(genRegMask(tree->GetRegNum()));
-        }
-        else if ((tree->gtFlags & GTF_VAR_DEATH) != 0)
-        {
-            gcInfo.gcMarkRegSetNpt(genRegMask(varDsc->GetRegNum()));
-        }
-    }
-    else
-    {
-        assert(!tree->gtSkipReloadOrCopy()->IsMultiRegLclVar());
-        gcInfo.gcMarkRegSetNpt(tree->gtGetRegMask());
-    }
-
-    genCheckConsumeNode(tree);
-    return tree->GetRegNum();
+    return UseReg(node);
 }
 
 void CodeGen::genConsumeAddress(GenTree* addr)
