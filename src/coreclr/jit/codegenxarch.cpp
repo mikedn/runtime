@@ -1121,7 +1121,7 @@ void CodeGen::genFloatReturn(GenTree* src)
         // TODO-X86-CQ: Deal with things that are already in memory (don't call genConsumeReg yet).
 
         src->SetRegSpill(0, true);
-        regSet.SpillNodeReg(src, 0);
+        regSet.SpillNodeReg(src, srcType, 0);
 
         TempDsc* temp = regSet.UnspillNodeReg(src, 0);
         GetEmitter()->emitIns_S(INS_fld, srcSize, temp->tdTempNum(), 0);
