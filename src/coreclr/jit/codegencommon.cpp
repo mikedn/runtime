@@ -10279,7 +10279,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 
     for (unsigned i = 0; i < regCount; ++i)
     {
-        regNumber reg  = genConsumeReg(src, i);
+        regNumber reg  = UseReg(src, i);
         var_types type = actualSrc->GetRegTypeByIndex(i);
 
         // genConsumeReg will return the valid register, either from the COPY
@@ -10495,7 +10495,7 @@ regNumber CodeGen::genRegCopy(GenTreeCopyOrReload* copy, unsigned regIndex)
     assert(regIndex < src->GetMultiRegCount(compiler));
 
     // TODO-MIKE-Cleanup: This is recursive for no obvious reason...
-    genConsumeReg(src, regIndex);
+    UseReg(src, regIndex);
 
     regNumber srcReg = src->GetRegNum(regIndex);
     regNumber dstReg = copy->GetRegNum(regIndex);

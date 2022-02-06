@@ -2216,7 +2216,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
     for (unsigned i = 0; i < regCount; i++)
     {
-        regs[i] = regCount == 1 ? genConsumeReg(src) : genConsumeReg(src, i);
+        regs[i] = regCount == 1 ? genConsumeReg(src) : UseReg(src, i);
 
         var_types regType = call->GetRegType(i);
         unsigned  regSize = varTypeSize(regType);
@@ -2527,11 +2527,11 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
     regMaskTP inByrefRegSet = gcInfo.gcRegByrefSetCur;
 
     GenTree*  addr       = store->GetAddr();
-    regNumber addrReg    = addr->isUsedFromReg() ? genConsumeReg(addr) : genConsumeReg(addr->AsAddrMode()->GetBase());
+    regNumber addrReg    = addr->isUsedFromReg() ? UseReg(addr) : UseReg(addr->AsAddrMode()->GetBase());
     int       addrOffset = addr->isUsedFromReg() ? 0 : addr->AsAddrMode()->GetOffset();
     GenTree*  val        = store->GetValue();
-    regNumber valReg0    = genConsumeReg(val, 0);
-    regNumber valReg1    = genConsumeReg(val, 1);
+    regNumber valReg0    = UseReg(val, 0);
+    regNumber valReg1    = UseReg(val, 1);
     emitter*  emit       = GetEmitter();
 
     regMaskTP outGCrefRegSet = gcInfo.gcRegGCrefSetCur;

@@ -1090,7 +1090,7 @@ protected:
     regNumber UseReg(GenTree* node);
     void UseRegs(GenTree* node);
     regNumber genConsumeReg(GenTree* tree);
-    regNumber genConsumeReg(GenTree* tree, unsigned multiRegIndex);
+    regNumber UseReg(GenTree* node, unsigned regIndex);
     void genCopyRegIfNeeded(GenTree* tree, regNumber needReg);
 
     void genConsumeIfReg(GenTree* tree)

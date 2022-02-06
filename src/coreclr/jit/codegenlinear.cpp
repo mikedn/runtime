@@ -1210,45 +1210,44 @@ void CodeGen::genCheckConsumeNode(GenTree* const node)
 }
 #endif // DEBUG
 
-//--------------------------------------------------------------------
-// genConsumeReg: Do liveness update for a single register of a multireg child node
-//                that is being consumed by codegen.
-//
-// Arguments:
-//    tree          - GenTree node
-//    multiRegIndex - The index of the register to be consumed
-//
-// Return Value:
-//    Returns the reg number for the given multiRegIndex.
-//
-regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
-{
-    assert(!tree->IsMultiRegLclVar());
-
-    regNumber reg = tree->GetRegNum(multiRegIndex);
-    if (tree->OperIs(GT_COPY))
-    {
-        reg = genRegCopy(tree->AsCopyOrReload(), multiRegIndex);
-    }
-    else if (reg == REG_NA)
-    {
-        assert(tree->OperIs(GT_RELOAD));
-        reg = tree->gtGetOp1()->GetRegNum(multiRegIndex);
-        assert(reg != REG_NA);
-    }
-
-    UnspillRegIfNeeded(tree, multiRegIndex);
-    gcInfo.gcMarkRegSetNpt(tree->gtGetRegMask());
-
-    return reg;
-}
-
 regNumber CodeGen::UseReg(GenTree* node)
 {
     assert(node->isUsedFromReg());
     assert(!node->IsMultiRegNode());
 
     return genConsumeReg(node);
+}
+
+regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
+{
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
+
+    regNumber reg = node->GetRegNum(regIndex);
+
+    if (node->OperIs(GT_COPY))
+    {
+        reg = genRegCopy(node->AsCopyOrReload(), regIndex);
+    }
+    else if (reg == REG_NA)
+    {
+        // TODO-MIKE-Review: This looks bogus. How could a multireg node
+        // not have register? Maybe this was for multireg LCL_VARs which
+        // no longer exist now?
+        assert(node->OperIs(GT_RELOAD));
+        reg = node->AsCopyOrReload()->GetOp(0)->GetRegNum(regIndex);
+    }
+
+    assert(reg != REG_NA);
+
+    UnspillRegIfNeeded(node, regIndex);
+
+    // TODO-MIKE-Review: This kills ALL the multireg node's registers.
+    // Seems unnecessary and confusing, it's likely enough to kill
+    // only the specific register we're dealing with now. Oh well,
+    // the whole GC info tracking is a bunch of crap to begin with.
+    gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+
+    return reg;
 }
 
 void CodeGen::UseRegs(GenTree* node)
