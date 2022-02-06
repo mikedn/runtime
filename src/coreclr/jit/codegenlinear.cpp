@@ -1279,6 +1279,81 @@ regNumber CodeGen::UseReg(GenTree* node)
     return node->GetRegNum();
 }
 
+//------------------------------------------------------------------------
+// CopyReg: Produce code for a GT_COPY node.
+//
+// Arguments:
+//    tree - the GT_COPY node
+//
+// Notes:
+//    This will copy the register produced by this node's source, to
+//    the register allocated to this GT_COPY node.
+//    It has some special handling for these cases:
+//    - when the source and target registers are in different register files
+//      (note that this is *not* a conversion).
+//    - when the source is a lclVar whose home location is being moved to a new
+//      register (rather than just being copied for temporary use).
+//
+void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
+{
+    assert(copy->OperIs(GT_COPY));
+
+    GenTree* src = copy->GetOp(0);
+
+    assert(!src->IsMultiRegNode());
+
+    regNumber srcReg     = genConsumeReg(src);
+    var_types targetType = copy->TypeGet();
+    regNumber targetReg  = copy->GetRegNum();
+    assert(srcReg != REG_NA);
+    assert(targetReg != REG_NA);
+    assert(targetType != TYP_STRUCT);
+
+    inst_Mov(targetType, targetReg, srcReg, /* canSkip */ false);
+
+    if (src->IsLocal())
+    {
+        // The lclVar will never be a def.
+        // If it is a last use, the lclVar will be killed by genConsumeReg(), as usual, and genProduceReg will
+        // appropriately set the gcInfo for the copied value.
+        // If not, there are two cases we need to handle:
+        // - If this is a TEMPORARY copy (indicated by the GTF_VAR_DEATH flag) the variable
+        //   will remain live in its original register.
+        //   genProduceReg() will appropriately set the gcInfo for the copied value,
+        //   and genConsumeReg will reset it.
+        // - Otherwise, we need to update register info for the lclVar.
+
+        GenTreeLclVarCommon* lcl = src->AsLclVarCommon();
+        assert((lcl->gtFlags & GTF_VAR_DEF) == 0);
+
+        if ((lcl->gtFlags & GTF_VAR_DEATH) == 0 && (copy->gtFlags & GTF_VAR_DEATH) == 0)
+        {
+            LclVarDsc* varDsc = compiler->lvaGetDesc(lcl);
+
+            // If we didn't just spill it (in genConsumeReg, above), then update the register info
+            if (varDsc->GetRegNum() != REG_STK)
+            {
+                // The old location is dying
+                genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
+
+                gcInfo.gcMarkRegSetNpt(genRegMask(src->GetRegNum()));
+
+                genUpdateVarReg(varDsc, copy);
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+                // Report the home change for this variable
+                varLiveKeeper->siUpdateVariableLiveRange(varDsc, lcl->GetLclNum());
+#endif // USING_VARIABLE_LIVE_RANGE
+
+                // The new location is going live
+                genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(copy));
+            }
+        }
+    }
+
+    genProduceReg(copy);
+}
+
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
 {
     assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
@@ -1311,6 +1386,43 @@ regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
     return reg;
 }
 
+// This will copy the corresponding register produced by this node's source, to
+// the register allocated to the register specified by this GT_COPY node.
+// A multireg copy doesn't support moving between register files, as the GT_COPY
+// node does not retain separate types for each index.
+//
+regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
+{
+    assert(copy->OperIs(GT_COPY));
+    assert(!copy->IsAnyRegSpill());
+
+    GenTree* src = copy->GetOp(0);
+
+    assert(src->IsMultiRegNode() && !src->IsMultiRegLclVar());
+    assert(regIndex < src->GetMultiRegCount(compiler));
+
+    // TODO-MIKE-Cleanup: This is recursive for no obvious reason...
+    UseReg(src, regIndex);
+
+    regNumber srcReg = src->GetRegNum(regIndex);
+    regNumber dstReg = copy->GetRegNum(regIndex);
+
+    // Not all registers of a multireg COPY need copying.
+    if (dstReg == REG_NA)
+    {
+        return srcReg;
+    }
+
+    assert(srcReg != dstReg);
+
+    var_types type = src->GetRegTypeByIndex(regIndex);
+    inst_Mov(type, dstReg, srcReg, /* canSkip */ false);
+
+    gcInfo.gcMarkRegPtrVal(dstReg, type);
+
+    return dstReg;
+}
+
 void CodeGen::UseRegs(GenTree* node)
 {
     assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR));
@@ -1325,6 +1437,57 @@ void CodeGen::UseRegs(GenTree* node)
     gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
 
     genCheckConsumeNode(node);
+}
+
+void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
+{
+    assert(copy->OperGet() == GT_COPY);
+    GenTree* op1 = copy->AsOp()->gtOp1;
+
+    assert(op1->IsMultiRegNode());
+
+    // Register allocation assumes that any reload and copy are done in operand order.
+    // That is, we can have:
+    //    (reg0, reg1) = COPY(V0,V1) where V0 is in reg1 and V1 is in memory
+    // The register allocation model assumes:
+    //     First, V0 is moved to reg0 (v1 can't be in reg0 because it is still live, which would be a conflict).
+    //     Then, V1 is moved to reg1
+    // However, if we call genConsumeRegs on op1, it will do the reload of V1 before we do the copy of V0.
+    // So we need to handle that case first.
+    //
+    // There should never be any circular dependencies, and we will check that here.
+
+    // GenTreeCopyOrReload only reports the highest index that has a valid register.
+    // However, we need to ensure that we consume all the registers of the child node,
+    // so we use its regCount.
+    unsigned regCount = op1->GetMultiRegCount(compiler);
+    assert(regCount <= MAX_MULTIREG_COUNT);
+
+    // First set the source registers as busy if they haven't been spilled.
+    // (Note that this is just for verification that we don't have circular dependencies.)
+    regMaskTP busyRegs = RBM_NONE;
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        if (!op1->IsRegSpilled(i))
+        {
+            busyRegs |= genRegMask(op1->GetRegNum(i));
+        }
+    }
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        regNumber sourceReg = op1->GetRegNum(i);
+        // CopyReg will consume the source register, perform any required reloads,
+        // and will return either the register copied to, or the original register if there's no copy.
+        regNumber targetReg = CopyReg(copy->AsCopyOrReload(), i);
+        if (targetReg != sourceReg)
+        {
+            regMaskTP targetRegMask = genRegMask(targetReg);
+            assert((busyRegs & targetRegMask) == 0);
+            // Clear sourceReg from the busyRegs, and add targetReg.
+            busyRegs &= ~genRegMask(sourceReg);
+        }
+        busyRegs |= genRegMask(targetReg);
+    }
 }
 
 regNumber CodeGen::genConsumeReg(GenTree* node)
