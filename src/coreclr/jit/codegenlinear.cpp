@@ -1214,10 +1214,35 @@ regNumber CodeGen::UseReg(GenTree* node)
 {
     assert(node->isUsedFromReg() && !node->IsMultiRegNode());
 
+    if (GenTreeLclVar* lclVar = IsRegCandidateLclVar(node))
+    {
+        return UseRegCandidateLclVarReg(lclVar);
+    }
+
     if (node->OperIs(GT_COPY))
     {
         CopyReg(node->AsCopyOrReload());
     }
+
+    UnspillRegIfNeeded(node);
+
+    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        genUpdateLife(node->AsLclVarCommon());
+    }
+
+    gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
+
+    genCheckConsumeNode(node);
+
+    return node->GetRegNum();
+}
+
+regNumber CodeGen::UseRegCandidateLclVarReg(GenTreeLclVar* node)
+{
+    assert(IsRegCandidateLclVar(node));
+
+    LclVarDsc* lcl = compiler->lvaGetDesc(node);
 
     // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
     // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
@@ -1229,44 +1254,25 @@ regNumber CodeGen::UseReg(GenTree* node)
     // location, which matches the GetRegNum() on the node).
     // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
     // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
-    if (IsRegCandidateLclVar(node))
+    if (lcl->GetRegNum() != REG_STK)
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
-
-        if (lcl->GetRegNum() != REG_STK)
-        {
-            var_types dstType = lcl->GetRegisterType(node->AsLclVar());
-            inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
-        }
+        var_types dstType = lcl->GetRegisterType(node->AsLclVar());
+        inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
     }
 
     UnspillRegIfNeeded(node);
+    genUpdateLife(node);
 
-    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    assert(node->gtHasReg());
+
+    if (lcl->GetRegNum() == REG_STK)
     {
-        genUpdateLife(node->AsLclVarCommon());
-    }
-
-    if (IsRegCandidateLclVar(node))
-    {
-        assert(node->gtHasReg());
-
-        LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
-        assert(lcl->IsRegCandidate());
-
-        if (lcl->GetRegNum() == REG_STK)
-        {
-            // We have loaded this into a register only temporarily
-            gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
-        }
-        else if (node->IsLastUse(0))
-        {
-            gcInfo.gcMarkRegSetNpt(genRegMask(lcl->GetRegNum()));
-        }
-    }
-    else
-    {
+        // We have loaded this into a register only temporarily
         gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
+    }
+    else if (node->IsLastUse(0))
+    {
+        gcInfo.gcMarkRegSetNpt(genRegMask(lcl->GetRegNum()));
     }
 
     genCheckConsumeNode(node);

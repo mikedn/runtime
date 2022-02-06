@@ -1088,6 +1088,7 @@ protected:
     void UnspillRegIfNeeded(GenTree* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
     regNumber UseReg(GenTree* node);
+    regNumber UseRegCandidateLclVarReg(GenTreeLclVar* node);
     void UseRegs(GenTree* node);
     regNumber genConsumeReg(GenTree* node);
     regNumber UseReg(GenTree* node, unsigned regIndex);
