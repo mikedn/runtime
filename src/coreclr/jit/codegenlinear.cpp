@@ -1441,52 +1441,45 @@ void CodeGen::UseRegs(GenTree* node)
 
 void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
 {
-    assert(copy->OperGet() == GT_COPY);
-    GenTree* op1 = copy->AsOp()->gtOp1;
-
-    assert(op1->IsMultiRegNode());
+    assert(copy->OperIs(GT_COPY) && copy->IsMultiRegNode());
 
     // Register allocation assumes that any reload and copy are done in operand order.
     // That is, we can have:
-    //    (reg0, reg1) = COPY(V0,V1) where V0 is in reg1 and V1 is in memory
-    // The register allocation model assumes:
-    //     First, V0 is moved to reg0 (v1 can't be in reg0 because it is still live, which would be a conflict).
-    //     Then, V1 is moved to reg1
-    // However, if we call genConsumeRegs on op1, it will do the reload of V1 before we do the copy of V0.
-    // So we need to handle that case first.
-    //
+    //     (reg0, reg1) = COPY(V0, V1) where V0 is in reg1 and V1 is in memory
+    // The register allocation model assumes that copies are done one by one:
+    //     reg0 = V0 ; V1 can't be in reg0 because it is still live,
+    //     reg1 = V1
     // There should never be any circular dependencies, and we will check that here.
 
-    // GenTreeCopyOrReload only reports the highest index that has a valid register.
-    // However, we need to ensure that we consume all the registers of the child node,
-    // so we use its regCount.
-    unsigned regCount = op1->GetMultiRegCount(compiler);
-    assert(regCount <= MAX_MULTIREG_COUNT);
+    GenTree* src      = copy->GetOp(0);
+    unsigned regCount = src->GetMultiRegCount(compiler);
 
-    // First set the source registers as busy if they haven't been spilled.
-    // (Note that this is just for verification that we don't have circular dependencies.)
+#ifdef DEBUG
     regMaskTP busyRegs = RBM_NONE;
+
     for (unsigned i = 0; i < regCount; ++i)
     {
-        if (!op1->IsRegSpilled(i))
+        if (!src->IsRegSpilled(i))
         {
-            busyRegs |= genRegMask(op1->GetRegNum(i));
+            busyRegs |= genRegMask(src->GetRegNum(i));
         }
     }
+#endif
+
     for (unsigned i = 0; i < regCount; ++i)
     {
-        regNumber sourceReg = op1->GetRegNum(i);
-        // CopyReg will consume the source register, perform any required reloads,
-        // and will return either the register copied to, or the original register if there's no copy.
-        regNumber targetReg = CopyReg(copy->AsCopyOrReload(), i);
-        if (targetReg != sourceReg)
+        INDEBUG(regNumber srcReg =) src->GetRegNum(i);
+        INDEBUG(regNumber dstReg =) CopyReg(copy, i);
+
+#ifdef DEBUG
+        if (dstReg != srcReg)
         {
-            regMaskTP targetRegMask = genRegMask(targetReg);
-            assert((busyRegs & targetRegMask) == 0);
-            // Clear sourceReg from the busyRegs, and add targetReg.
-            busyRegs &= ~genRegMask(sourceReg);
+            assert((busyRegs & genRegMask(dstReg)) == 0);
+            busyRegs &= ~genRegMask(srcReg);
         }
-        busyRegs |= genRegMask(targetReg);
+
+        busyRegs |= genRegMask(dstReg);
+#endif
     }
 }
 
