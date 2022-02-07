@@ -186,7 +186,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         {
             VarSetOps::AddElemD(compiler, varDeltaSet, lcl->GetLivenessBitIndex());
 
-            if (isBorn && lcl->lvIsRegCandidate() && lclNode->gtHasReg())
+            if (isBorn && lcl->IsRegCandidate() && (lclNode->GetRegNum() != REG_NA))
             {
                 codeGen->genUpdateVarReg(lcl, lclNode);
             }

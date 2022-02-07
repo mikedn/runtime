@@ -1085,7 +1085,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
 
     genUpdateLife(node);
 
-    assert(node->gtHasReg());
+    assert(node->GetRegNum() != REG_NA);
 
     if (lcl->GetRegNum() == REG_STK)
     {
@@ -1913,7 +1913,7 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
             regSet.SpillNodeReg(call, regType, 0);
         }
     }
-    else if (call->gtHasReg())
+    else
     {
         if (call->IsMultiRegCall())
         {

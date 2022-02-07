@@ -8929,7 +8929,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
         {
             int len = sprintf_s(dest, sizeof(dest), "t%u.%s", instr->gtTreeID, varTypeName(instr->GetType()));
 
-            if (instr->gtHasReg())
+            if (instr->GetRegNum() != REG_NA)
             {
                 len += sprintf_s(dest + len, sizeof(dest) - len, " @%s", compRegVarName(instr->GetRegNum()));
             }
@@ -8946,7 +8946,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
 
             printf("t%u.%s", op->gtTreeID, varTypeName(op->GetType()));
 
-            if (op->gtHasReg())
+            if (op->GetRegNum() != REG_NA)
             {
                 printf(" @%s", compRegVarName(op->GetRegNum()));
             }

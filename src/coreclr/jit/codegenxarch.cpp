@@ -3723,7 +3723,7 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
     regNumber tmpReg    = REG_NA;
     if (!offsetNode->IsIntegralConst(0))
     {
-        offsetReg = genConsumeReg(offsetNode);
+        offsetReg = UseReg(offsetNode);
 
         // We will use a temp register for the offset*scale+effectiveIndex computation.
         tmpReg = arrOffset->GetSingleTempReg();
@@ -3732,18 +3732,14 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
     {
         assert(offsetNode->isContained());
     }
-    regNumber indexReg = genConsumeReg(indexNode);
+    regNumber indexReg = UseReg(indexNode);
     // Although arrReg may not be used in the constant-index case, if we have generated
     // the value into a register, we must consume it, otherwise we will fail to end the
     // live range of the gc ptr.
     // TODO-CQ: Currently arrObj will always have a register allocated to it.
     // We could avoid allocating a register for it, which would be of value if the arrObj
     // is an on-stack lclVar.
-    regNumber arrReg = REG_NA;
-    if (arrObj->gtHasReg())
-    {
-        arrReg = genConsumeReg(arrObj);
-    }
+    regNumber arrReg = UseReg(arrObj);
 
     if (!offsetNode->IsIntegralConst(0))
     {

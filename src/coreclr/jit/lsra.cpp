@@ -9163,10 +9163,6 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     }
     if (hasDest)
     {
-        if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
-        {
-            assert(tree->gtHasReg());
-        }
         lsraGetOperandString(tree, mode, operandString, operandStringLength);
         printf("%-15s =", operandString);
     }
@@ -9196,11 +9192,6 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
         {
             printf("  V%02u MEM", varNum);
         }
-    }
-    else if (tree->OperIs(GT_ASG))
-    {
-        assert(!tree->gtHasReg());
-        printf("  asg%s  ", GenTree::OpName(tree->OperGet()));
     }
     else
     {
