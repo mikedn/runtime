@@ -1213,40 +1213,19 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
     UseRegs(src);
 
-    // Treat dst register as a homogenous vector with element attr equal to the src attr
-    // Insert pieces in reverse order.
-
     GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
     unsigned     regCount = call->GetRegCount();
     regNumber    dstReg   = store->GetRegNum();
 
-    for (int i = regCount - 1; i >= 0; --i)
+    for (unsigned i = 0; i < regCount; i++)
     {
-        var_types type   = call->GetRegType(i);
-        regNumber srcReg = call->GetRegNum(i);
+        // Vector2/3/4 are returned only in FLOAT regs.
+        assert(call->GetRegType(i) == TYP_FLOAT);
 
-        assert(srcReg != REG_NA);
-
-        if (varTypeIsFloating(type))
-        {
-            // If the register piece was passed in a floating point register
-            // Use a vector mov element instruction
-            // src is not a vector, so it is in the first element reg[0]
-            // mov dst[i], reg[0]
-            // This effectively moves from `reg[0]` to `dst[i]`, leaving other dst bits unchanged till further
-            // iterations
-            // For the case where reg == dst, if we iterate so that we write dst[0] last, we eliminate the need for
-            // a temporary
-            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(type), dstReg, srcReg, i, 0);
-        }
-        else
-        {
-            // If the register piece was passed in an integer register
-            // Use a vector mov from general purpose register instruction
-            // mov dst[i], reg
-            // This effectively moves from `reg` to `dst[i]`
-            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(type), dstReg, srcReg, i);
-        }
+        // Insert elements in reverse order, so that the first element in the destination
+        // register is last, in case the destination register is also a source register.
+        int regIndex = regCount - 1 - i;
+        GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_4BYTE, dstReg, call->GetRegNum(regIndex), regIndex, 0);
     }
 
     DefLclVarRegs(store);
