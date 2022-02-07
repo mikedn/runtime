@@ -7694,13 +7694,6 @@ inline bool GenTree::IsMultiRegNode() const
     }
 #endif
 
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    if (OperIs(GT_HWINTRINSIC))
-    {
-        return gtType == TYP_STRUCT;
-    }
-#endif
-
     if (OperIs(GT_STORE_LCL_VAR))
     {
         return AsLclVar()->IsMultiReg();
@@ -7737,14 +7730,6 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
     }
 #endif
 
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    if (OperIs(GT_HWINTRINSIC))
-    {
-        assert(gtType == TYP_STRUCT);
-        return 2;
-    }
-#endif
-
     if (OperIs(GT_STORE_LCL_VAR))
     {
         return AsLclVar()->GetMultiRegCount(compiler);
@@ -7774,17 +7759,6 @@ inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
     if (IsMultiRegCall())
     {
         return AsCall()->GetRegType(regIndex);
-    }
-#endif
-
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    if (GenTreeHWIntrinsic* hwi = IsHWIntrinsic())
-    {
-        assert(TypeIs(TYP_STRUCT));
-
-        // At this time, the only multi-reg HW intrinsics all return the type of their
-        // arguments. If this changes, we will need a way to record or determine this.
-        return hwi->GetOp(0)->GetType();
     }
 #endif
 
