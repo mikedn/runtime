@@ -7666,6 +7666,15 @@ inline bool GenTree::IsMultiRegLclVar() const
 
 inline bool GenTree::IsMultiRegNode() const
 {
+#if FEATURE_ARG_SPLIT
+    if (IsPutArgSplit())
+    {
+        // Treat as "multi-reg" even if it has a single reg, node's type is always
+        // STRUCT and we need to make sure we get the correct register type.
+        return true;
+    }
+#endif
+
 #if FEATURE_MULTIREG_RET
     if (const GenTreeUnOp* copy = IsCopyOrReload())
     {
@@ -7676,13 +7685,6 @@ inline bool GenTree::IsMultiRegNode() const
     {
         return call->GetRegCount() > 1;
     }
-
-#if FEATURE_ARG_SPLIT
-    if (const GenTreePutArgSplit* splitArg = IsPutArgSplit())
-    {
-        return splitArg->GetRegCount() > 1;
-    }
-#endif
 
 #ifndef TARGET_64BIT
     if (IsMultiRegOpLong())
@@ -7709,6 +7711,13 @@ inline bool GenTree::IsMultiRegNode() const
 
 inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 {
+#if FEATURE_ARG_SPLIT
+    if (const GenTreePutArgSplit* arg = IsPutArgSplit())
+    {
+        return arg->GetRegCount();
+    }
+#endif
+
 #if FEATURE_MULTIREG_RET
     if (const GenTreeUnOp* copy = IsCopyOrReload())
     {
@@ -7719,13 +7728,6 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
     {
         return call->GetRegCount();
     }
-
-#if FEATURE_ARG_SPLIT
-    if (const GenTreePutArgSplit* splitArg = IsPutArgSplit())
-    {
-        return splitArg->GetRegCount();
-    }
-#endif
 
 #ifndef TARGET_64BIT
     if (const GenTreeMultiRegOp* multiReg = IsMultiRegOpLong())
@@ -7754,18 +7756,18 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 
 inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 {
-#if FEATURE_MULTIREG_RET
-    if (IsMultiRegCall())
-    {
-        return AsCall()->GetRegType(regIndex);
-    }
-
 #if FEATURE_ARG_SPLIT
     if (GenTreePutArgSplit* arg = IsPutArgSplit())
     {
         return arg->GetRegType(regIndex);
     }
 #endif
+
+#if FEATURE_MULTIREG_RET
+    if (IsMultiRegCall())
+    {
+        return AsCall()->GetRegType(regIndex);
+    }
 
 #ifndef TARGET_64BIT
     if (GenTreeMultiRegOp* multiReg = IsMultiRegOpLong())

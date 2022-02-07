@@ -2633,19 +2633,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             assert((argInfo->GetRegCount() >= 1) && (argInfo->GetSlotCount() >= 1));
 
-            // TODO-MIKE-Review: Why is UnspillRegIfNeeded called instead of UseReg?
+            // TODO-MIKE-Review: Why is UnspillRegsIfNeeded called instead of UseRegs?
             // Also, we're skipping a RELOAD/COPY above. Probably we can't actually
             // get a COPY/RELOAD here becuase these nodes have specific, single reg
             // requirements so there's little point in LSRA adding reloads/copies...
-            if (argInfo->GetRegCount() > 1)
-            {
-                UnspillRegsIfNeeded(argSplit);
-            }
-            else
-            {
-                UnspillRegIfNeeded(argSplit);
-            }
-
+            UnspillRegsIfNeeded(argSplit);
             genCheckConsumeNode(argSplit);
 
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
