@@ -1281,11 +1281,9 @@ regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
     }
     else if (reg == REG_NA)
     {
-        // TODO-MIKE-Review: This looks bogus. How could a multireg node
-        // not have register? Maybe this was for multireg LCL_VARs which
-        // no longer exist now?
         assert(node->OperIs(GT_RELOAD));
-        reg = node->AsCopyOrReload()->GetOp(0)->GetRegNum(regIndex);
+        reg = node->AsUnOp()->GetOp(0)->GetRegNum(regIndex);
+        node->SetRegNum(regIndex, reg);
     }
 
     assert(reg != REG_NA);
@@ -1325,6 +1323,7 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
     // Not all registers of a multireg COPY need copying.
     if (dstReg == REG_NA)
     {
+        copy->SetRegNum(regIndex, srcReg);
         return srcReg;
     }
 
@@ -1364,6 +1363,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
     {
         assert(node->IsCopyOrReload());
         reg = unspillNode->GetRegNum(regIndex);
+        node->SetRegNum(regIndex, reg);
     }
 
     regSet.UnspillNodeReg(unspillNode, reg, regIndex);

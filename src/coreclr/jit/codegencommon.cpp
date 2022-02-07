@@ -10166,30 +10166,15 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
     UseRegs(src);
 
-    GenTreeCall* actualSrc = (!src->IsCopyOrReload() ? src : src->AsUnOp()->GetOp(0))->AsCall();
+    GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
 
-    assert(actualSrc->GetRegCount() == retDesc.GetRegCount());
+    assert(call->GetRegCount() == retDesc.GetRegCount());
 
     for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
     {
+        regNumber srcReg  = src->GetRegNum(i);
         var_types retType = retDesc.GetRegType(i);
         regNumber retReg  = retDesc.GetRegNum(i);
-
-        regNumber srcReg = src->GetRegNum(i);
-
-        if ((srcReg == REG_NA) && src->OperIs(GT_COPY))
-        {
-            // A copy that doesn't copy this field will have REG_NA.
-
-            // TODO-Cleanup: It would probably be better to always have a valid reg
-            // on a GT_COPY, unless the operand is actually spilled. Then we wouldn't have
-            // to check for this case (though we'd have to check in the CopyReg that the
-            // reg is valid).
-
-            srcReg = actualSrc->GetRegNum(i);
-        }
-
-        assert(srcReg != REG_NA);
 
         inst_Mov(retType, retReg, srcReg, /* canSkip */ true);
     }

@@ -1225,18 +1225,6 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
         var_types type   = call->GetRegType(i);
         regNumber srcReg = call->GetRegNum(i);
 
-        if (src->IsCopyOrReload())
-        {
-            // COPY/RELOAD will have valid reg for those positions that need to be copied or reloaded.
-
-            regNumber reloadReg = src->GetRegNum(i);
-
-            if (reloadReg != REG_NA)
-            {
-                srcReg = reloadReg;
-            }
-        }
-
         assert(srcReg != REG_NA);
 
         if (varTypeIsFloating(type))

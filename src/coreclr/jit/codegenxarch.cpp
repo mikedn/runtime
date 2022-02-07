@@ -1773,10 +1773,14 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     assert(!"Multireg store to SIMD reg not supported on X64 Windows");
 #else
     GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
+
+    UseRegs(src);
 
     // This is used to store a Vector3/4 call return value, on UNIX_AMD64_ABI
     // such a value is returned into 2 XMM registers and we need to pack it
     // into the XMM destination register.
+    // This also handles the case of Vector2 being returned in 2 GPRs on x86.
 
     GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
 
@@ -1789,55 +1793,34 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     assert(varTypeUsesFloatReg(call->GetRegType(1)));
 #endif
 
-    genConsumeRegs(src);
-
-    regNumber retReg0 = call->GetRegNum(0);
-    regNumber retReg1 = call->GetRegNum(1);
-
-    if (src->IsCopyOrReload())
-    {
-        // COPY/RELOAD will have valid reg for those positions
-        // that need to be copied or reloaded.
-
-        regNumber reloadReg = src->AsCopyOrReload()->GetRegNum(0);
-        if (reloadReg != REG_NA)
-        {
-            retReg0 = reloadReg;
-        }
-
-        reloadReg = src->AsCopyOrReload()->GetRegNum(1);
-        if (reloadReg != REG_NA)
-        {
-            retReg1 = reloadReg;
-        }
-    }
-
-    regNumber dstReg = store->GetRegNum();
+    regNumber srcReg0 = call->GetRegNum(0);
+    regNumber srcReg1 = call->GetRegNum(1);
+    regNumber dstReg  = store->GetRegNum();
 
 #ifdef TARGET_X86
-    regNumber tmpReg = store->GetSingleTempReg();
+    regNumber tmpReg  = store->GetSingleTempReg();
 
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, retReg0, false);
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, retReg1, false);
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, srcReg0, false);
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, srcReg1, false);
     GetEmitter()->emitIns_R_R(INS_unpcklps, EA_16BYTE, dstReg, tmpReg);
 #else
-    if (dstReg == retReg0)
+    if (dstReg == srcReg0)
     {
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
     }
     else if (compiler->canUseVexEncoding())
     {
-        GetEmitter()->emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, retReg0, retReg1);
+        GetEmitter()->emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, srcReg0, srcReg1);
     }
-    else if (dstReg == retReg1)
+    else if (dstReg == srcReg1)
     {
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
-        GetEmitter()->emitIns_Mov(INS_movsdsse2, EA_16BYTE, dstReg, retReg0, /* canSkip */ false);
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
+        GetEmitter()->emitIns_Mov(INS_movsdsse2, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
     }
     else
     {
-        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, retReg0, /* canSkip */ false);
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
+        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
     }
 #endif
 
