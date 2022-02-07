@@ -1211,20 +1211,19 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
 
-    GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount  = src->GetMultiRegCount(compiler);
-
     UseRegs(src);
 
     // Treat dst register as a homogenous vector with element attr equal to the src attr
     // Insert pieces in reverse order.
 
-    regNumber dstReg = store->GetRegNum();
+    GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     regCount = call->GetRegCount();
+    regNumber    dstReg   = store->GetRegNum();
 
     for (int i = regCount - 1; i >= 0; --i)
     {
-        var_types type   = actualSrc->GetMultiRegType(compiler, i);
-        regNumber srcReg = actualSrc->GetRegNum(i);
+        var_types type   = call->GetRegType(i);
+        regNumber srcReg = call->GetRegNum(i);
 
         if (src->IsCopyOrReload())
         {
