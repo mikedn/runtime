@@ -1146,6 +1146,7 @@ protected:
     void GenStoreLclVarLong(GenTreeLclVar* store);
 #endif
     void GenStoreLclVarMultiReg(GenTreeLclVar* store);
+    void GenStoreLclVarMultiRegMem(GenTreeLclVar* store);
     void GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void genCodeForJcc(GenTreeCC* tree);

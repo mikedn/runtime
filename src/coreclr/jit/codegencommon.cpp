@@ -10211,6 +10211,12 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     }
 #endif
 
+    if (!store->IsMultiReg())
+    {
+        GenStoreLclVarMultiRegMem(store);
+        return;
+    }
+
     // We have either a multi-reg local or a local with multiple fields in memory.
     //
     // The liveness model is as follows:
@@ -10244,15 +10250,10 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     // For our example, the register allocator would simple spill r1 because the first def requires it.
     // The code generator would move r3  to r1, leave r2 alone, and then load the spilled value into r3.
 
-    unsigned offset        = 0;
-    bool     isMultiRegVar = store->IsMultiReg();
-    bool     hasRegs       = false;
+    bool hasRegs = false;
 
-    if (isMultiRegVar)
-    {
-        assert(compiler->lvaEnregMultiRegVars);
-        assert(regCount == lcl->GetPromotedFieldCount());
-    }
+    assert(compiler->lvaEnregMultiRegVars);
+    assert(regCount == lcl->GetPromotedFieldCount());
 
     for (unsigned i = 0; i < regCount; ++i)
     {
@@ -10263,78 +10264,101 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         // or from the original source.
 
         assert(reg != REG_NA);
-        if (isMultiRegVar)
+        regNumber  varReg      = store->GetRegNum(i);
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldLclNum);
+        var_types  destType    = fieldVarDsc->TypeGet();
+        if (varReg != REG_NA)
         {
-            regNumber  varReg      = store->GetRegNum(i);
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-            LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldLclNum);
-            var_types  destType    = fieldVarDsc->TypeGet();
-            if (varReg != REG_NA)
-            {
-                hasRegs = true;
+            hasRegs = true;
 
-                inst_Mov(destType, varReg, reg, /* canSkip */ true);
-
-                fieldVarDsc->SetRegNum(varReg);
-            }
-            else
-            {
-                varReg = REG_STK;
-            }
-
-            if ((varReg == REG_STK) || fieldVarDsc->IsAlwaysAliveInMemory())
-            {
-                if (!store->AsLclVar()->IsLastUse(i))
-                {
-                    // A byte field passed in a long register should be written on the stack as a byte.
-                    instruction storeIns = ins_StoreFromSrc(reg, destType);
-                    GetEmitter()->emitIns_S_R(storeIns, emitTypeSize(destType), reg, fieldLclNum, 0);
-                }
-            }
+            inst_Mov(destType, varReg, reg, /* canSkip */ true);
 
             fieldVarDsc->SetRegNum(varReg);
         }
         else
         {
-            // Several fields could be passed in one register, copy using the register type.
-            // It could rewrite memory outside of the fields but local on the stack are rounded to POINTER_SIZE so
-            // it is safe to store a long register into a byte field as it is known that we have enough padding after.
-            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, lclNum, static_cast<int>(offset));
-            offset += genTypeSize(type);
-#ifdef DEBUG
-#ifdef TARGET_64BIT
-            assert(offset <= lcl->lvSize());
-#else  // !TARGET_64BIT
-            if (varTypeIsStruct(lcl->GetType()))
-            {
-                assert(offset <= lcl->lvSize());
-            }
-            else
-            {
-                assert(lcl->GetType() == TYP_LONG);
-                assert(offset <= varTypeSize(TYP_LONG));
-            }
-#endif // !TARGET_64BIT
-#endif // DEBUG
+            varReg = REG_STK;
         }
+
+        if ((varReg == REG_STK) || fieldVarDsc->IsAlwaysAliveInMemory())
+        {
+            if (!store->AsLclVar()->IsLastUse(i))
+            {
+                // A byte field passed in a long register should be written on the stack as a byte.
+                instruction storeIns = ins_StoreFromSrc(reg, destType);
+                GetEmitter()->emitIns_S_R(storeIns, emitTypeSize(destType), reg, fieldLclNum, 0);
+            }
+        }
+
+        fieldVarDsc->SetRegNum(varReg);
     }
 
-    if (isMultiRegVar)
+    if (hasRegs)
     {
-        if (hasRegs)
-        {
-            DefLclVarRegs(store);
-        }
-        else
-        {
-            genUpdateLife(store);
-        }
+        DefLclVarRegs(store);
     }
     else
     {
         genUpdateLife(store);
-        lcl->SetRegNum(REG_STK);
     }
+}
+
+void CodeGen::GenStoreLclVarMultiRegMem(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR) && !store->IsMultiReg());
+    assert(varTypeIsStruct(store->GetType()) || varTypeIsMultiReg(store->GetType()));
+
+    GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
+
+    GenTree* actualSrc = src->gtSkipReloadOrCopy();
+    unsigned regCount  = src->GetMultiRegCount(compiler);
+
+    unsigned   lclNum = store->GetLclNum();
+    LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+    if (src->OperIs(GT_CALL))
+    {
+        assert(regCount <= MAX_RET_REG_COUNT);
+        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsIndependentPromoted());
+    }
+
+    unsigned offset = 0;
+
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        regNumber reg  = UseReg(src, i);
+        var_types type = actualSrc->GetMultiRegType(compiler, i);
+
+        // genConsumeReg will return the valid register, either from the COPY
+        // or from the original source.
+
+        assert(reg != REG_NA);
+        // Several fields could be passed in one register, copy using the register type.
+        // It could rewrite memory outside of the fields but local on the stack are rounded to POINTER_SIZE so
+        // it is safe to store a long register into a byte field as it is known that we have enough padding after.
+        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, lclNum, static_cast<int>(offset));
+        offset += genTypeSize(type);
+#ifdef DEBUG
+#ifdef TARGET_64BIT
+        assert(offset <= lcl->lvSize());
+#else  // !TARGET_64BIT
+        if (varTypeIsStruct(lcl->GetType()))
+        {
+            assert(offset <= lcl->lvSize());
+        }
+        else
+        {
+            assert(lcl->GetType() == TYP_LONG);
+            assert(offset <= varTypeSize(TYP_LONG));
+        }
+#endif // !TARGET_64BIT
+#endif // DEBUG
+    }
+
+    genUpdateLife(store);
+    lcl->SetRegNum(REG_STK);
 }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
