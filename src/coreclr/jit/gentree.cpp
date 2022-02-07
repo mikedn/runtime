@@ -560,50 +560,12 @@ int GenTree::GetRegisterDstCount(Compiler* compiler) const
 {
     assert(!isContained());
 
-    if (!IsMultiRegNode())
+    if (IsMultiRegNode())
     {
-        return IsValue() ? 1 : 0;
+        return GetMultiRegCount(compiler);
     }
 
-    if (IsMultiRegCall())
-    {
-        return AsCall()->GetRegCount();
-    }
-
-    if (const GenTreeCopyOrReload* copy = IsCopyOrReload())
-    {
-        return copy->GetOp(0)->GetRegisterDstCount(compiler);
-    }
-
-#if FEATURE_ARG_SPLIT
-    if (const GenTreePutArgSplit* argSplit = IsPutArgSplit())
-    {
-        return argSplit->GetRegCount();
-    }
-#endif
-
-#ifndef TARGET_64BIT
-    if (const GenTreeMultiRegOp* multiRegOp = IsMultiRegOpLong())
-    {
-        return multiRegOp->GetRegCount();
-    }
-#endif
-
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    if (OperIs(GT_HWINTRINSIC))
-    {
-        assert(TypeGet() == TYP_STRUCT);
-        return 2;
-    }
-#endif
-
-    if (OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-    {
-        return AsLclVar()->GetFieldCount(compiler);
-    }
-
-    assert(!"Unexpected multi-reg node");
-    return 0;
+    return IsValue() ? 1 : 0;
 }
 #endif // DEBUG
 
@@ -3966,46 +3928,21 @@ bool GenTree::OperMayThrow(Compiler* comp)
     return false;
 }
 
-//-----------------------------------------------------------------------------------
-// GetFieldCount: Return the register count for a multi-reg lclVar.
-//
-// Arguments:
-//     compiler - the current Compiler instance.
-//
-// Return Value:
-//     Returns the number of registers defined by this node.
-//
-// Notes:
-//     This must be a multireg lclVar.
-//
-unsigned int GenTreeLclVar::GetFieldCount(Compiler* compiler) const
+unsigned GenTreeLclVar::GetMultiRegCount(Compiler* compiler) const
 {
     assert(IsMultiReg());
-    LclVarDsc* varDsc = compiler->lvaGetDesc(GetLclNum());
-    return varDsc->lvFieldCnt;
+
+    return compiler->lvaGetDesc(GetLclNum())->GetPromotedFieldCount();
 }
 
-//-----------------------------------------------------------------------------------
-// GetFieldTypeByIndex: Get a specific register's type, based on regIndex, that is produced
-//                    by this multi-reg node.
-//
-// Arguments:
-//     compiler - the current Compiler instance.
-//     idx      - which register type to return.
-//
-// Return Value:
-//     The register type assigned to this index for this node.
-//
-// Notes:
-//     This must be a multireg lclVar and 'regIndex' must be a valid index for this node.
-//
-var_types GenTreeLclVar::GetFieldTypeByIndex(Compiler* compiler, unsigned idx)
+var_types GenTreeLclVar::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 {
     assert(IsMultiReg());
-    LclVarDsc* varDsc      = compiler->lvaGetDesc(GetLclNum());
-    LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + idx);
-    assert(fieldVarDsc->TypeGet() != TYP_STRUCT); // Don't expect struct fields.
-    return fieldVarDsc->TypeGet();
+
+    LclVarDsc* lcl      = compiler->lvaGetDesc(GetLclNum());
+    LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
+    assert(!fieldLcl->TypeIs(TYP_STRUCT));
+    return fieldLcl->GetType();
 }
 
 #if DEBUGGABLE_GENTREE

@@ -3199,7 +3199,7 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 
     GenTree* src           = store->GetOp(0);
     bool     isMultiRegSrc = src->IsMultiRegNode();
-    unsigned dstCount      = store->GetFieldCount(compiler);
+    unsigned dstCount      = store->GetMultiRegCount(compiler);
     unsigned srcCount;
 
     if (isMultiRegSrc)

@@ -1223,7 +1223,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
     for (int i = regCount - 1; i >= 0; --i)
     {
-        var_types type   = actualSrc->GetRegTypeByIndex(i);
+        var_types type   = actualSrc->GetMultiRegType(compiler, i);
         regNumber srcReg = actualSrc->GetRegNum(i);
 
         if (src->IsCopyOrReload())

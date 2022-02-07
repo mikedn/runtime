@@ -1330,7 +1330,7 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
 
     assert(srcReg != dstReg);
 
-    var_types type = src->GetRegTypeByIndex(regIndex);
+    var_types type = src->GetMultiRegType(compiler, regIndex);
     inst_Mov(type, dstReg, srcReg, /* canSkip */ false);
 
     gcInfo.gcMarkRegPtrVal(dstReg, type);

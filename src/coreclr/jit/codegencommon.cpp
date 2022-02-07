@@ -10272,7 +10272,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     for (unsigned i = 0; i < regCount; ++i)
     {
         regNumber reg  = UseReg(src, i);
-        var_types type = actualSrc->GetRegTypeByIndex(i);
+        var_types type = actualSrc->GetMultiRegType(compiler, i);
 
         // genConsumeReg will return the valid register, either from the COPY
         // or from the original source.

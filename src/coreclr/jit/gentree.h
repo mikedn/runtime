@@ -1735,7 +1735,7 @@ public:
     unsigned GetMultiRegCount(Compiler* compiler) const;
 
     // Returns the type of the regIndex'th register defined by a multi-reg node.
-    var_types GetRegTypeByIndex(int regIndex);
+    var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
     // Last-use information for either GenTreeLclVar or GenTreeCopyOrReload nodes.
     bool IsLastUse(unsigned regIndex);
@@ -3338,8 +3338,8 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
         gtFlags |= GTF_VAR_MULTIREG;
     }
 
-    unsigned int GetFieldCount(Compiler* compiler) const;
-    var_types GetFieldTypeByIndex(Compiler* compiler, unsigned idx);
+    unsigned GetMultiRegCount(Compiler* compiler) const;
+    var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
     GenTreeLclVar(genTreeOps oper,
                   var_types  type,
@@ -7745,46 +7745,28 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 
     if (OperIs(GT_STORE_LCL_VAR))
     {
-        assert(AsLclVar()->IsMultiReg());
-        return AsLclVar()->GetFieldCount(compiler);
+        return AsLclVar()->GetMultiRegCount(compiler);
     }
 
     assert(!"GetMultiRegCount called with non-multireg node");
     return 1;
 }
 
-//-----------------------------------------------------------------------------------
-// GetRegTypeByIndex: Get a specific register's type, based on regIndex, that is produced
-//                    by this multi-reg node.
-//
-// Arguments:
-//     regIndex - which register type to return
-//
-// Return Value:
-//     The register type assigned to this index for this node.
-//
-// Notes:
-//     This must be a multireg node that is *not* a copy or reload (which must retrieve the
-//     type from its source), and 'regIndex' must be a valid index for this node.
-//
-//     All targets that support multi-reg ops of any kind also support multi-reg return
-//     values for calls. Should that change with a future target, this method will need
-//     to change accordingly.
-//
-inline var_types GenTree::GetRegTypeByIndex(int regIndex)
+inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 {
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
-        return AsCall()->AsCall()->GetRegType(regIndex);
+        return AsCall()->GetRegType(regIndex);
     }
 
 #if FEATURE_ARG_SPLIT
-    if (OperIsPutArgSplit())
+    if (GenTreePutArgSplit* arg = IsPutArgSplit())
     {
-        return AsPutArgSplit()->GetRegType(regIndex);
+        return arg->GetRegType(regIndex);
     }
 #endif
+
 #ifndef TARGET_64BIT
     if (GenTreeMultiRegOp* multiReg = IsMultiRegOpLong())
     {
@@ -7795,12 +7777,13 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
 #endif // FEATURE_MULTIREG_RET
 
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    if (OperIs(GT_HWINTRINSIC))
+    if (GenTreeHWIntrinsic* hwi = IsHWIntrinsic())
     {
+        assert(TypeIs(TYP_STRUCT));
+
         // At this time, the only multi-reg HW intrinsics all return the type of their
         // arguments. If this changes, we will need a way to record or determine this.
-        assert(TypeGet() == TYP_STRUCT);
-        return gtGetOp1()->TypeGet();
+        return hwi->GetOp(0)->GetType();
     }
 #endif
 
@@ -7811,16 +7794,13 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
             return TYP_INT;
         }
 
+        // TODO-MIKE-Review: Hmm, what about Vector2/3/4?
         assert(TypeIs(TYP_STRUCT));
-        assert(AsLclVar()->IsMultiReg());
-        // The register type for a multireg lclVar requires looking at the LclVarDsc,
-        // which requires a Compiler instance. The caller must use the GetFieldTypeByIndex
-        // on GenTreeLclVar.
-        assert(!"GetRegTypeByIndex for LclVar");
+
+        return AsLclVar()->GetMultiRegType(compiler, regIndex);
     }
 
-    assert(!"Invalid node type for GetRegTypeByIndex");
-    return TYP_UNDEF;
+    unreached();
 }
 
 constexpr GenTreeFlags GetLastUseFlag(unsigned regIndex)
