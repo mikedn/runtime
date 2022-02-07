@@ -12489,6 +12489,7 @@ unsigned GenTree::IsLclVarUpdateTree(GenTree** pOtherTree, genTreeOps* pOper)
     return lclNum;
 }
 
+#ifdef DEBUG
 //------------------------------------------------------------------------
 // canBeContained: check whether this tree node may be a subcomponent of its parent for purposes
 //                 of code generation.
@@ -12512,6 +12513,7 @@ bool GenTree::canBeContained() const
 
     return true;
 }
+#endif // DEBUG
 
 //------------------------------------------------------------------------
 // isContained: check whether this tree node is a subcomponent of its parent for codegen purposes

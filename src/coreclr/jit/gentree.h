@@ -914,7 +914,7 @@ public:
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
     // a full-size (unsigned) format, to localize the casts here.
 
-    bool canBeContained() const;
+    INDEBUG(bool canBeContained() const;)
 
     // for codegen purposes, is this node a subnode of its parent
     bool isContained() const;
