@@ -12531,29 +12531,16 @@ bool GenTree::canBeContained() const
 bool GenTree::isContained() const
 {
     assert(IsLIR());
-    const bool isMarkedContained = ((gtFlags & GTF_CONTAINED) != 0);
 
-#ifdef DEBUG
-    if (!canBeContained())
+    if ((gtFlags & GTF_CONTAINED) == 0)
     {
-        assert(!isMarkedContained);
+        return false;
     }
 
-    // these actually produce a register (the flags reg, we just don't model it)
-    // and are a separate instruction from the branch that consumes the result.
-    // They can only produce a result if the child is a SIMD equality comparison.
-    else if (OperIsCompare())
-    {
-        assert(isMarkedContained == false);
-    }
+    assert(canBeContained());
+    assert(!IsUnusedValue());
 
-    // if it's contained it can't be unused.
-    if (isMarkedContained)
-    {
-        assert(!IsUnusedValue());
-    }
-#endif // DEBUG
-    return isMarkedContained;
+    return true;
 }
 
 bool GenTree::isIndirAddrMode()
