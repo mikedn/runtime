@@ -7666,6 +7666,11 @@ inline bool GenTree::IsMultiRegLclVar() const
 
 inline bool GenTree::IsMultiRegNode() const
 {
+    if (const GenTreeUnOp* copy = IsCopyOrReload())
+    {
+        return copy->GetOp(0)->IsMultiRegNode();
+    }
+
 #if FEATURE_ARG_SPLIT
     if (IsPutArgSplit())
     {
@@ -7675,24 +7680,19 @@ inline bool GenTree::IsMultiRegNode() const
     }
 #endif
 
-#if FEATURE_MULTIREG_RET
-    if (const GenTreeUnOp* copy = IsCopyOrReload())
-    {
-        return copy->GetOp(0)->IsMultiRegNode();
-    }
-
-    if (const GenTreeCall* call = IsCall())
-    {
-        return call->GetRegCount() > 1;
-    }
-
 #ifndef TARGET_64BIT
     if (IsMultiRegOpLong())
     {
         return true;
     }
 #endif
-#endif // FEATURE_MULTIREG_RET
+
+#if FEATURE_MULTIREG_RET
+    if (const GenTreeCall* call = IsCall())
+    {
+        return call->GetRegCount() > 1;
+    }
+#endif
 
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
     if (OperIs(GT_HWINTRINSIC))
@@ -7711,6 +7711,11 @@ inline bool GenTree::IsMultiRegNode() const
 
 inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 {
+    if (const GenTreeUnOp* copy = IsCopyOrReload())
+    {
+        return copy->GetOp(0)->GetMultiRegCount(compiler);
+    }
+
 #if FEATURE_ARG_SPLIT
     if (const GenTreePutArgSplit* arg = IsPutArgSplit())
     {
@@ -7718,24 +7723,19 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
     }
 #endif
 
-#if FEATURE_MULTIREG_RET
-    if (const GenTreeUnOp* copy = IsCopyOrReload())
+#ifndef TARGET_64BIT
+    if (IsMultiRegOpLong())
     {
-        return copy->GetOp(0)->GetMultiRegCount(compiler);
+        return 2;
     }
+#endif
 
+#if FEATURE_MULTIREG_RET
     if (const GenTreeCall* call = IsCall())
     {
         return call->GetRegCount();
     }
-
-#ifndef TARGET_64BIT
-    if (const GenTreeMultiRegOp* multiReg = IsMultiRegOpLong())
-    {
-        return multiReg->GetRegCount();
-    }
 #endif
-#endif // FEATURE_MULTIREG_RET
 
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
     if (OperIs(GT_HWINTRINSIC))
@@ -7763,20 +7763,19 @@ inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
     }
 #endif
 
+#ifndef TARGET_64BIT
+    if (IsMultiRegOpLong())
+    {
+        return TYP_INT;
+    }
+#endif
+
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
         return AsCall()->GetRegType(regIndex);
     }
-
-#ifndef TARGET_64BIT
-    if (GenTreeMultiRegOp* multiReg = IsMultiRegOpLong())
-    {
-        return multiReg->GetRegType(regIndex);
-    }
 #endif
-
-#endif // FEATURE_MULTIREG_RET
 
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
     if (GenTreeHWIntrinsic* hwi = IsHWIntrinsic())
