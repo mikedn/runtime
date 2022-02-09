@@ -327,6 +327,7 @@ GenTree* DecomposeLongs::FinalizeDecomposition(LIR::Use& use,
     }
 
     GenTree* gtLong = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loResult, hiResult);
+    gtLong->SetSideEffects(GTF_EMPTY);
 
     loResult->ClearUnusedValue();
     hiResult->ClearUnusedValue();
