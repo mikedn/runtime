@@ -449,7 +449,7 @@ void CodeGen::genCodeForBBlist()
             genCodeForTreeNode(node);
             if (node->gtHasReg() && node->IsUnusedValue())
             {
-                genConsumeReg(node);
+                UseRegs(node);
             }
         } // end for each node in block
 
@@ -835,78 +835,77 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-//------------------------------------------------------------------------
-// genSpillVar: Spill a local variable
-//
-// Assumptions:
-//    The lclVar must be a register candidate (lvRegCandidate)
-
-void CodeGen::genSpillVar(GenTreeLclVar* tree)
+void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 {
-    unsigned   varNum = tree->GetLclNum();
-    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
-    assert(varDsc->lvIsRegCandidate());
+    assert(lcl->IsRegCandidate());
+    assert(lclVar->IsRegSpill(0));
 
     // We don't actually need to spill if it is already living in memory
-    bool needsSpill = ((tree->gtFlags & GTF_VAR_DEF) == 0 && varDsc->lvIsInReg());
+    bool needsSpill = ((lclVar->gtFlags & GTF_VAR_DEF) == 0) && (lcl->GetRegNum() != REG_STK);
+
     if (needsSpill)
     {
-        // In order for a lclVar to have been allocated to a register, it must not have been aliasable, and can
-        // therefore be store-normalized (rather than load-normalized). In fact, not performing store normalization
-        // can lead to problems on architectures where a lclVar may be allocated to a register that is not
-        // addressable at the granularity of the lclVar's defined type (e.g. x86).
-        var_types lclType = varDsc->GetActualRegisterType();
-        emitAttr  size    = emitTypeSize(lclType);
+        // We should only have both SPILL (i.e. the flag causing this method to be called) and
+        // SPILLED on a write-thru/single-def def, for which we should not be calling this method.
+        assert(!lclVar->IsRegSpilled(0));
+
+        unsigned lclNum = lclVar->GetLclNum();
 
         // If this is a write-thru or a single-def variable, we don't actually spill at a use,
         // but we will kill the var in the reg (below).
-        if (!varDsc->IsAlwaysAliveInMemory())
+        if (!lcl->IsAlwaysAliveInMemory())
         {
-            instruction storeIns = ins_Store(lclType, compiler->lvaIsSimdTypedLocalAligned(varNum));
-            assert(varDsc->GetRegNum() == tree->GetRegNum());
-            inst_TT_RV(storeIns, size, tree, tree->GetRegNum());
+            assert(lcl->GetRegNum() == lclVar->GetRegNum());
+
+            // In order for a local to have been allocated to a register, it must not have been address
+            // exposed, and can therefore be store-normalized (rather than load-normalized).
+            // In fact, not performing store normalization can lead to problems on architectures where
+            // a local may be allocated to a register that is not addressable at the granularity of the
+            // local's defined type (e.g. x86).
+            var_types   type = lcl->GetActualRegisterType();
+            instruction ins  = ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
         }
 
-        // We should only have both GTF_SPILL (i.e. the flag causing this method to be called) and
-        // GTF_SPILLED on a write-thru/single-def def, for which we should not be calling this method.
-        assert((tree->gtFlags & GTF_SPILLED) == 0);
-
         // Remove the live var from the register.
-        genUpdateRegLife(varDsc, /*isBorn*/ false, /*isDying*/ true DEBUGARG(tree));
-        gcInfo.gcMarkRegSetNpt(varDsc->lvRegMask());
+        genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
+        gcInfo.gcMarkRegSetNpt(lcl->lvRegMask());
 
-        if (varDsc->HasStackGCPtrLiveness())
+        if (lcl->HasStackGCPtrLiveness())
         {
-#ifdef DEBUG
-            if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
+            if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
             {
-                JITDUMP("GC pointer V%02u becoming live on stack\n", varNum);
+                JITDUMP("GC pointer V%02u becoming live on stack\n", lclNum);
             }
             else
             {
-                JITDUMP("GC pointer V%02u continuing live on stack\n", varNum);
+                JITDUMP("GC pointer V%02u continuing live on stack\n", lclNum);
             }
-#endif
-            VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
+
+            VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
         }
     }
 
-    tree->gtFlags &= ~GTF_SPILL;
+    lclVar->SetRegSpill(0, false);
+
     // If this is NOT a write-thru, reset the var location.
-    if ((tree->gtFlags & GTF_SPILLED) == 0)
+    if (!lclVar->IsRegSpilled(0))
     {
-        varDsc->SetRegNum(REG_STK);
-        if (varTypeIsMultiReg(tree))
+        lcl->SetRegNum(REG_STK);
+
+        if (varTypeIsMultiReg(lclVar->GetType()))
         {
-            varDsc->SetOtherReg(REG_STK);
+            lcl->SetOtherReg(REG_STK);
         }
     }
     else
     {
-        // We only have 'GTF_SPILL' and 'GTF_SPILLED' on a def of a write-thru lclVar
+        // We only have SPILL and SPILLED on a def of a write-thru lclVar
         // or a single-def var that is to be spilled at its definition.
-        assert((varDsc->IsAlwaysAliveInMemory()) && ((tree->gtFlags & GTF_VAR_DEF) != 0));
+        assert(lcl->IsAlwaysAliveInMemory() && ((lclVar->gtFlags & GTF_VAR_DEF) != 0));
     }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
@@ -914,9 +913,9 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
     {
         // We need this after "lvRegNum" has change because now we are sure that varDsc->lvIsInReg() is false.
         // "SiVarLoc" constructor uses the "LclVarDsc" of the variable.
-        varLiveKeeper->siUpdateVariableLiveRange(varDsc, varNum);
+        varLiveKeeper->siUpdateVariableLiveRange(lcl, lclVar->GetLclNum());
     }
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -933,7 +932,7 @@ void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
     // This should only be called for multireg lclVars.
     assert(compiler->lvaEnregMultiRegVars);
     assert(tree->IsMultiRegLclVar() || (tree->gtOper == GT_COPY));
-    varDsc->SetRegNum(tree->GetRegByIndex(regIndex));
+    varDsc->SetRegNum(tree->GetRegNum(regIndex));
 }
 
 //------------------------------------------------------------------------
@@ -947,323 +946,8 @@ void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
 void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
 {
     // This should not be called for multireg lclVars.
-    assert((tree->OperIsScalarLocal() && !tree->IsMultiRegLclVar()) || (tree->gtOper == GT_COPY));
+    assert((tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && !tree->IsMultiRegLclVar()) || tree->OperIs(GT_COPY));
     varDsc->SetRegNum(tree->GetRegNum());
-}
-
-//------------------------------------------------------------------------
-// sameRegAsDst: Return the child that has the same reg as the dst (if any)
-//
-// Arguments:
-//    tree  - the node of interest
-//    other - an out parameter to return the other child
-//
-// Notes:
-//    If 'tree' has a child with the same assigned register as its target reg,
-//    that child will be returned, and 'other' will contain the non-matching child.
-//    Otherwise, both other and the return value will be nullptr.
-//
-GenTree* sameRegAsDst(GenTree* tree, GenTree*& other /*out*/)
-{
-    if (tree->GetRegNum() == REG_NA)
-    {
-        other = nullptr;
-        return nullptr;
-    }
-
-    GenTree* op1 = tree->AsOp()->gtOp1;
-    GenTree* op2 = tree->AsOp()->gtOp2;
-    if (op1->GetRegNum() == tree->GetRegNum())
-    {
-        other = op2;
-        return op1;
-    }
-    if (op2->GetRegNum() == tree->GetRegNum())
-    {
-        other = op1;
-        return op2;
-    }
-    else
-    {
-        other = nullptr;
-        return nullptr;
-    }
-}
-
-//------------------------------------------------------------------------
-// genUnspillLocal: Reload a register candidate local into a register, if needed.
-//
-// Arguments:
-//     varNum    - The variable number of the local to be reloaded (unspilled).
-//                 It may be a local field.
-//     type      - The type of the local.
-//     lclNode   - The node being unspilled. Note that for a multi-reg local,
-//                 the gtLclNum will be that of the parent struct.
-//     regNum    - The register that 'varNum' should be loaded to.
-//     reSpill   - True if it will be immediately spilled after use.
-//     isLastUse - True if this is a last use of 'varNum'.
-//
-// Notes:
-//     The caller must have determined that this local needs to be unspilled.
-void CodeGen::genUnspillLocal(
-    unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum, bool reSpill, bool isLastUse)
-{
-    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-    inst_set_SV_var(lclNode);
-    instruction ins = ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(varNum));
-    GetEmitter()->emitIns_R_S(ins, emitTypeSize(type), regNum, varNum, 0);
-
-    // TODO-Review: We would like to call:
-    //      genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(tree));
-    // instead of the following code, but this ends up hitting this assert:
-    //      assert((regSet.GetMaskVars() & regMask) == 0);
-    // due to issues with LSRA resolution moves.
-    // So, just force it for now. This probably indicates a condition that creates a GC hole!
-    //
-    // Extra note: I think we really want to call something like gcInfo.gcUpdateForRegVarMove,
-    // because the variable is not really going live or dead, but that method is somewhat poorly
-    // factored because it, in turn, updates rsMaskVars which is part of RegSet not GCInfo.
-    // TODO-Cleanup: This code exists in other CodeGen*.cpp files, and should be moved to CodeGenCommon.cpp.
-
-    // Don't update the variable's location if we are just re-spilling it again.
-
-    if (!reSpill)
-    {
-        varDsc->SetRegNum(regNum);
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-        // We want "VariableLiveRange" inclusive on the beginning and exclusive on the ending.
-        // For that we shouldn't report an update of the variable location if is becoming dead
-        // on the same native offset.
-        if (!isLastUse)
-        {
-            // Report the home change for this variable
-            varLiveKeeper->siUpdateVariableLiveRange(varDsc, varNum);
-        }
-#endif // USING_VARIABLE_LIVE_RANGE
-
-        if (!varDsc->IsAlwaysAliveInMemory())
-        {
-#ifdef DEBUG
-            if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
-            {
-                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", varNum);
-            }
-#endif // DEBUG
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-        }
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("V%02u in reg ", varNum);
-            varDsc->PrintVarReg();
-            printf(" is becoming live  ");
-            compiler->printTreeID(lclNode);
-            printf("\n");
-        }
-#endif // DEBUG
-
-        regSet.AddMaskVars(genGetRegMask(varDsc));
-    }
-
-    gcInfo.gcMarkRegPtrVal(regNum, type);
-}
-
-//------------------------------------------------------------------------
-// genUnspillRegIfNeeded: Reload a MultiReg source value into a register, if needed
-//
-// Arguments:
-//    tree          - the MultiReg node of interest.
-//    multiRegIndex - the index of the value to reload, if needed.
-//
-// Notes:
-//    It must *not* be a GT_LCL_VAR (those are handled separately).
-//    In the normal case, the value will be reloaded into the register it
-//    was originally computed into. However, if that register is not available,
-//    the register allocator will have allocated a different register, and
-//    inserted a GT_RELOAD to indicate the register into which it should be
-//    reloaded.
-//
-void CodeGen::genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex)
-{
-    GenTree* unspillTree = tree;
-    assert(unspillTree->IsMultiRegNode());
-
-    if (tree->gtOper == GT_RELOAD)
-    {
-        unspillTree = tree->AsOp()->gtOp1;
-    }
-
-    // In case of multi-reg node, GTF_SPILLED flag on it indicates that
-    // one or more of its result regs are spilled.  Individual spill flags need to be
-    // queried to determine which specific result regs need to be unspilled.
-    if ((unspillTree->gtFlags & GTF_SPILLED) == 0)
-    {
-        return;
-    }
-    GenTreeFlags spillFlags = unspillTree->GetRegSpillFlagByIdx(multiRegIndex);
-    if ((spillFlags & GTF_SPILLED) == 0)
-    {
-        return;
-    }
-
-    regNumber dstReg = tree->GetRegByIndex(multiRegIndex);
-    if (dstReg == REG_NA)
-    {
-        assert(tree->IsCopyOrReload());
-        dstReg = unspillTree->GetRegByIndex(multiRegIndex);
-    }
-    if (tree->IsMultiRegLclVar())
-    {
-        GenTreeLclVar* lclNode     = tree->AsLclVar();
-        unsigned       fieldVarNum = compiler->lvaGetDesc(lclNode)->lvFieldLclStart + multiRegIndex;
-        bool           reSpill     = ((spillFlags & GTF_SPILL) != 0);
-        bool           isLastUse   = lclNode->IsLastUse(multiRegIndex);
-        genUnspillLocal(fieldVarNum, compiler->lvaGetDesc(fieldVarNum)->TypeGet(), lclNode, dstReg, reSpill, isLastUse);
-    }
-    else
-    {
-        var_types dstType        = unspillTree->GetRegTypeByIndex(multiRegIndex);
-        regNumber unspillTreeReg = unspillTree->GetRegByIndex(multiRegIndex);
-        TempDsc*  t              = regSet.rsUnspillInPlace(unspillTree, unspillTreeReg, multiRegIndex);
-        emitAttr  emitType       = emitActualTypeSize(dstType);
-        GetEmitter()->emitIns_R_S(ins_Load(dstType), emitType, dstReg, t->tdTempNum(), 0);
-        regSet.tmpRlsTemp(t);
-        gcInfo.gcMarkRegPtrVal(dstReg, dstType);
-    }
-}
-
-//------------------------------------------------------------------------
-// genUnspillRegIfNeeded: Reload the value into a register, if needed
-//
-// Arguments:
-//    tree - the node of interest.
-//
-// Notes:
-//    In the normal case, the value will be reloaded into the register it
-//    was originally computed into. However, if that register is not available,
-//    the register allocator will have allocated a different register, and
-//    inserted a GT_RELOAD to indicate the register into which it should be
-//    reloaded.
-//
-//    A GT_RELOAD never has a reg candidate lclVar or multi-reg lclVar as its child.
-//    This is because register candidates locals always have distinct tree nodes
-//    for uses and definitions. (This is unlike non-register candidate locals which
-//    may be "defined" by a GT_LCL_VAR node that loads it into a register. It may
-//    then have a GT_RELOAD inserted if it needs a different register, though this
-//    is unlikely to happen except in stress modes.)
-//
-void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
-{
-    GenTree* unspillTree = tree;
-    if (tree->gtOper == GT_RELOAD)
-    {
-        unspillTree = tree->AsOp()->gtOp1;
-    }
-
-    if ((unspillTree->gtFlags & GTF_SPILLED) != 0)
-    {
-        if (genIsRegCandidateLclVar(unspillTree))
-        {
-            // We never have a GT_RELOAD for this case.
-            assert(tree == unspillTree);
-
-            // Reset spilled flag, since we are going to load a local variable from its home location.
-            unspillTree->gtFlags &= ~GTF_SPILLED;
-
-            GenTreeLclVar* lcl       = unspillTree->AsLclVar();
-            LclVarDsc*     varDsc    = compiler->lvaGetDesc(lcl->GetLclNum());
-            var_types      spillType = varDsc->GetRegisterType(lcl);
-            assert(spillType != TYP_UNDEF);
-
-// TODO-Cleanup: The following code could probably be further merged and cleaned up.
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-            // Load local variable from its home location.
-            // In most cases the tree type will indicate the correct type to use for the load.
-            // However, if it is NOT a normalizeOnLoad lclVar (i.e. NOT a small int that always gets
-            // widened when loaded into a register), and its size is not the same as the actual register type
-            // of the lclVar, then we need to change the type of the tree node when loading.
-            // This situation happens due to "optimizations" that avoid a cast and
-            // simply retype the node when using long type lclVar as an int.
-            // While loading the int in that case would work for this use of the lclVar, if it is
-            // later used as a long, we will have incorrectly truncated the long.
-            // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
-            // extending load.
-            var_types lclActualType = varDsc->GetActualRegisterType();
-            assert(lclActualType != TYP_UNDEF);
-            if (spillType != lclActualType && !varTypeIsGC(spillType) && !varDsc->lvNormalizeOnLoad())
-            {
-                assert(!varTypeIsGC(varDsc));
-                spillType = lclActualType;
-            }
-#elif defined(TARGET_ARM)
-// No normalizing for ARM
-#else
-            NYI("Unspilling not implemented for this target architecture.");
-#endif
-            bool reSpill   = ((unspillTree->gtFlags & GTF_SPILL) != 0);
-            bool isLastUse = lcl->IsLastUse(0);
-            genUnspillLocal(lcl->GetLclNum(), spillType, lcl->AsLclVar(), tree->GetRegNum(), reSpill, isLastUse);
-        }
-        else if (unspillTree->IsMultiRegLclVar())
-        {
-            // We never have a GT_RELOAD for this case.
-            assert(tree == unspillTree);
-
-            GenTreeLclVar* lclNode  = unspillTree->AsLclVar();
-            LclVarDsc*     varDsc   = compiler->lvaGetDesc(lclNode->GetLclNum());
-            unsigned       regCount = varDsc->lvFieldCnt;
-
-            for (unsigned i = 0; i < regCount; ++i)
-            {
-                GenTreeFlags spillFlags = lclNode->GetRegSpillFlagByIdx(i);
-                if ((spillFlags & GTF_SPILLED) != 0)
-                {
-                    regNumber reg         = lclNode->GetRegNumByIdx(i);
-                    unsigned  fieldVarNum = varDsc->lvFieldLclStart + i;
-                    bool      reSpill     = ((spillFlags & GTF_SPILL) != 0);
-                    bool      isLastUse   = lclNode->IsLastUse(i);
-                    genUnspillLocal(fieldVarNum, compiler->lvaGetDesc(fieldVarNum)->TypeGet(), lclNode, reg, reSpill,
-                                    isLastUse);
-                }
-            }
-        }
-        else if (unspillTree->IsMultiRegNode())
-        {
-            // Here we may have a GT_RELOAD, and we will need to use that node ('tree') to
-            // do the unspilling if needed. However, that tree doesn't have the register
-            // count, so we use 'unspillTree' for that.
-            for (unsigned i = 0, count = unspillTree->GetMultiRegCount(compiler); i < count; ++i)
-            {
-                genUnspillRegIfNeeded(tree, i);
-            }
-            unspillTree->gtFlags &= ~GTF_SPILLED;
-        }
-        else
-        {
-            var_types type = unspillTree->GetType();
-
-            if ((type == TYP_STRUCT) && unspillTree->IsCall())
-            {
-                type = unspillTree->AsCall()->GetRegType(0);
-            }
-
-            // Here we may have a GT_RELOAD.
-            // The spill temp allocated for it is associated with the original tree that defined the
-            // register that it was spilled from.
-            // So we use 'unspillTree' to recover that spill temp.
-            TempDsc* t        = regSet.rsUnspillInPlace(unspillTree, unspillTree->GetRegNum());
-            emitAttr emitType = emitActualTypeSize(type);
-            // Reload into the register specified by 'tree' which may be a GT_RELOAD.
-            regNumber dstReg = tree->GetRegNum();
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitType, dstReg, t->tdTempNum(), 0);
-            regSet.tmpRlsTemp(t);
-
-            unspillTree->gtFlags &= ~GTF_SPILLED;
-            gcInfo.gcMarkRegPtrVal(dstReg, unspillTree->TypeGet());
-        }
-    }
 }
 
 //------------------------------------------------------------------------
@@ -1281,19 +965,6 @@ void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
     assert((node->GetRegNum() != REG_NA) && (needReg != REG_NA));
     assert(!node->isUsedFromSpillTemp());
     inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
-}
-
-// Do Liveness update for a subnodes that is being consumed by codegen
-// including the logic for reload in case is needed and also takes care
-// of locating the value on the desired register.
-void CodeGen::genConsumeRegAndCopy(GenTree* node, regNumber needReg)
-{
-    if (needReg == REG_NA)
-    {
-        return;
-    }
-    genConsumeReg(node);
-    genCopyRegIfNeeded(node, needReg);
 }
 
 // Check that registers are consumed in the right order for the current node being generated.
@@ -1355,85 +1026,41 @@ void CodeGen::genCheckConsumeNode(GenTree* const node)
 }
 #endif // DEBUG
 
-//--------------------------------------------------------------------
-// genConsumeReg: Do liveness update for a single register of a multireg child node
-//                that is being consumed by codegen.
-//
-// Arguments:
-//    tree          - GenTree node
-//    multiRegIndex - The index of the register to be consumed
-//
-// Return Value:
-//    Returns the reg number for the given multiRegIndex.
-//
-regNumber CodeGen::genConsumeReg(GenTree* tree, unsigned multiRegIndex)
+regNumber CodeGen::UseReg(GenTree* node)
 {
-    regNumber reg = tree->GetRegByIndex(multiRegIndex);
-    if (tree->OperIs(GT_COPY))
-    {
-        reg = genRegCopy(tree, multiRegIndex);
-    }
-    else if (reg == REG_NA)
-    {
-        assert(tree->OperIs(GT_RELOAD));
-        reg = tree->gtGetOp1()->GetRegByIndex(multiRegIndex);
-        assert(reg != REG_NA);
-    }
-    genUnspillRegIfNeeded(tree, multiRegIndex);
+    assert(node->isUsedFromReg() && !node->IsMultiRegNode());
 
-    // UpdateLifeFieldVar() will return true if local var should be spilled.
-    if (tree->IsMultiRegLclVar() && m_liveness.UpdateLifeFieldVar(this, tree->AsLclVar(), multiRegIndex))
+    if (GenTreeLclVar* lclVar = IsRegCandidateLclVar(node))
     {
-        GenTreeLclVar* lcl = tree->AsLclVar();
-        genSpillLocal(lcl->GetLclNum(), lcl->GetFieldTypeByIndex(compiler, multiRegIndex), lcl,
-                      lcl->GetRegByIndex(multiRegIndex));
+        return UseRegCandidateLclVar(lclVar);
     }
 
-    if (tree->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR))
+    if (node->OperIs(GT_COPY))
     {
-        GenTreeLclVar* lcl    = tree->gtSkipReloadOrCopy()->AsLclVar();
-        LclVarDsc*     varDsc = compiler->lvaGetDesc(lcl);
-        assert(compiler->lvaEnregMultiRegVars && lcl->IsMultiReg());
-        assert(varDsc->lvPromoted && (multiRegIndex < varDsc->lvFieldCnt));
-        unsigned   fieldVarNum = varDsc->lvFieldLclStart + multiRegIndex;
-        LclVarDsc* fldVarDsc   = compiler->lvaGetDesc(fieldVarNum);
-        assert(fldVarDsc->lvLRACandidate);
-        bool isFieldDying = lcl->IsLastUse(multiRegIndex);
-
-        if (fldVarDsc->GetRegNum() == REG_STK)
-        {
-            // We have loaded this into a register only temporarily
-            gcInfo.gcMarkRegSetNpt(reg);
-        }
-        else if (isFieldDying)
-        {
-            gcInfo.gcMarkRegSetNpt(genRegMask(fldVarDsc->GetRegNum()));
-        }
+        CopyReg(node->AsCopyOrReload());
     }
     else
     {
-        gcInfo.gcMarkRegSetNpt(tree->gtGetRegMask());
+        UnspillRegIfNeeded(node);
     }
-    return reg;
+
+    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        genUpdateLife(node->AsLclVarCommon());
+    }
+
+    gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
+
+    genCheckConsumeNode(node);
+
+    return node->GetRegNum();
 }
 
-//--------------------------------------------------------------------
-// genConsumeReg: Do liveness update for a subnode that is being
-// consumed by codegen.
-//
-// Arguments:
-//    tree - GenTree node
-//
-// Return Value:
-//    Returns the reg number of tree.
-//    In case of multi-reg call node returns the first reg number
-//    of the multi-reg return.
-regNumber CodeGen::genConsumeReg(GenTree* tree)
+regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
 {
-    if (tree->OperGet() == GT_COPY)
-    {
-        genRegCopy(tree);
-    }
+    assert(IsRegCandidateLclVar(node));
+
+    LclVarDsc* lcl = compiler->lvaGetDesc(node);
 
     // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
     // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
@@ -1443,105 +1070,419 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
     // the lvRegNum will be set to REG_STK and we will lose track of what register currently holds
     // the lclVar (normally when a lclVar is spilled it is then used from its former register
     // location, which matches the GetRegNum() on the node).
-    // (Note that it doesn't matter if we call this before or after genUnspillRegIfNeeded
+    // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
     // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
-    if (genIsRegCandidateLclVar(tree))
+    if (lcl->GetRegNum() != REG_STK)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
-        if (varDsc->GetRegNum() != REG_STK)
-        {
-            var_types regType = varDsc->GetRegisterType(tree->AsLclVar());
-            inst_Mov(regType, tree->GetRegNum(), varDsc->GetRegNum(), /* canSkip */ true);
-        }
+        var_types dstType = lcl->GetRegisterType(node->AsLclVar());
+        inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
     }
 
-    genUnspillRegIfNeeded(tree);
-
-    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (node->IsAnyRegSpilled())
     {
-        genUpdateLife(tree->AsLclVarCommon());
+        UnspillRegCandidateLclVar(node);
     }
 
-    // there are three cases where consuming a reg means clearing the bit in the live mask
-    // 1. it was not produced by a local
-    // 2. it was produced by a local that is going dead
-    // 3. it was produced by a local that does not live in that reg (like one allocated on the stack)
+    genUpdateLife(node);
 
-    if (genIsRegCandidateLclVar(tree))
+    assert(node->GetRegNum() != REG_NA);
+
+    if (lcl->GetRegNum() == REG_STK)
     {
-        assert(tree->gtHasReg());
-
-        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
-        assert(varDsc->lvLRACandidate);
-
-        if (varDsc->GetRegNum() == REG_STK)
-        {
-            // We have loaded this into a register only temporarily
-            gcInfo.gcMarkRegSetNpt(genRegMask(tree->GetRegNum()));
-        }
-        else if ((tree->gtFlags & GTF_VAR_DEATH) != 0)
-        {
-            gcInfo.gcMarkRegSetNpt(genRegMask(varDsc->GetRegNum()));
-        }
+        // We have loaded this into a register only temporarily
+        gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
     }
-    else if (tree->gtSkipReloadOrCopy()->IsMultiRegLclVar())
+    else if (node->IsLastUse(0))
     {
-        assert(compiler->lvaEnregMultiRegVars);
-        GenTreeLclVar* lcl              = tree->gtSkipReloadOrCopy()->AsLclVar();
-        LclVarDsc*     varDsc           = compiler->lvaGetDesc(lcl);
-        unsigned       firstFieldVarNum = varDsc->lvFieldLclStart;
-        for (unsigned i = 0; i < varDsc->lvFieldCnt; ++i)
-        {
-            LclVarDsc* fldVarDsc = &(compiler->lvaTable[firstFieldVarNum + i]);
-            assert(fldVarDsc->lvLRACandidate);
-            regNumber reg;
-            if (tree->OperIs(GT_COPY, GT_RELOAD) && (tree->AsCopyOrReload()->GetRegByIndex(i) != REG_NA))
-            {
-                reg = tree->AsCopyOrReload()->GetRegByIndex(i);
-            }
-            else
-            {
-                reg = lcl->AsLclVar()->GetRegNumByIdx(i);
-            }
-            bool isFieldDying = lcl->IsLastUse(i);
-
-            if (fldVarDsc->GetRegNum() == REG_STK)
-            {
-                // We have loaded this into a register only temporarily
-                gcInfo.gcMarkRegSetNpt(reg);
-            }
-            else if (isFieldDying)
-            {
-                gcInfo.gcMarkRegSetNpt(genRegMask(fldVarDsc->GetRegNum()));
-            }
-        }
-    }
-    else
-    {
-        gcInfo.gcMarkRegSetNpt(tree->gtGetRegMask());
+        gcInfo.gcMarkRegSetNpt(genRegMask(lcl->GetRegNum()));
     }
 
-    genCheckConsumeNode(tree);
-    return tree->GetRegNum();
+    genCheckConsumeNode(node);
+
+    return node->GetRegNum();
 }
 
-// Do liveness update for an address tree: one of GT_LEA, GT_LCL_VAR, or GT_CNS_INT (for call indirect).
+// This will copy the register produced by this node's source, to the register
+// allocated to this GT_COPY node. It has some special handling for these cases:
+//  - when the source and target registers are in different register files
+//    (note that this is *not* a conversion).
+//  - when the source is a lclVar whose home location is being moved to a new
+//    register (rather than just being copied for temporary use).
+//
+void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
+{
+    assert(copy->OperIs(GT_COPY) && !copy->IsMultiRegNode() && !copy->IsAnyRegSpill());
+
+    GenTree*  src     = copy->GetOp(0);
+    regNumber srcReg  = UseReg(src);
+    regNumber dstReg  = copy->GetRegNum();
+    var_types dstType = copy->GetType();
+
+    inst_Mov(dstType, dstReg, srcReg, /* canSkip */ false);
+
+    if (src->OperIs(GT_LCL_VAR))
+    {
+        // If it is a last use, the local will be killed by UseReg, as usual, and DefReg will
+        // appropriately set the gcInfo for the copied value.
+        // If not, there are two cases we need to handle:
+        // - If this is a TEMPORARY copy (indicated by the GTF_VAR_DEATH flag) the variable
+        //   will remain live in its original register.
+        //   DefReg will appropriately set the gcInfo for the copied value,
+        //   and UseReg will reset it.
+        // - Otherwise, we need to update register info for the lclVar.
+
+        if (!src->IsLastUse(0) && !copy->IsLastUse(0))
+        {
+            LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVar());
+
+            // If we didn't just spill it (in UseReg, above), then update the register info
+            if (lcl->GetRegNum() != REG_STK)
+            {
+                genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
+                gcInfo.gcMarkRegSetNpt(genRegMask(src->GetRegNum()));
+                genUpdateVarReg(lcl, copy);
+#ifdef USING_VARIABLE_LIVE_RANGE
+                varLiveKeeper->siUpdateVariableLiveRange(lcl, src->AsLclVar()->GetLclNum());
+#endif
+                genUpdateRegLife(lcl, /*isBorn*/ true, /*isDying*/ false DEBUGARG(copy));
+            }
+        }
+    }
+
+    gcInfo.gcMarkRegPtrVal(dstReg, dstType);
+}
+
+// Reload the value into a register, if needed
+//
+// In the normal case, the value will be reloaded into the register it
+// was originally computed into. However, if that register is not available,
+// the register allocator will have allocated a different register, and
+// inserted a GT_RELOAD to indicate the register into which it should be
+// reloaded.
+//
+// A GT_RELOAD never has a reg candidate lclVar or multi-reg lclVar as its child.
+// This is because register candidates locals always have distinct tree nodes
+// for uses and definitions. (This is unlike non-register candidate locals which
+// may be "defined" by a GT_LCL_VAR node that loads it into a register. It may
+// then have a GT_RELOAD inserted if it needs a different register, though this
+// is unlikely to happen except in stress modes.)
+//
+void CodeGen::UnspillRegIfNeeded(GenTree* node)
+{
+    assert(!node->IsMultiRegNode() && !IsRegCandidateLclVar(node));
+
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
+
+    if (unspillNode->IsAnyRegSpilled())
+    {
+        regSet.UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
+    }
+}
+
+void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
+{
+    assert(IsRegCandidateLclVar(node) && node->IsAnyRegSpilled());
+
+    // Reset spilled flag, since we are going to load a local variable from its home location.
+    node->SetRegSpilled(0, false);
+
+    LclVarDsc* lcl     = compiler->lvaGetDesc(node);
+    var_types  regType = lcl->GetRegisterType(node);
+
+    assert(regType != TYP_UNDEF);
+
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    // TODO-MIKE-Review: This stuff is dubious...
+
+    // Load local variable from its home location.
+    // In most cases the tree type will indicate the correct type to use for the load.
+    // However, if it is NOT a normalizeOnLoad lclVar (i.e. NOT a small int that always gets
+    // widened when loaded into a register), and its size is not the same as the actual register type
+    // of the lclVar, then we need to change the type of the tree node when loading.
+    // This situation happens due to "optimizations" that avoid a cast and
+    // simply retype the node when using long type lclVar as an int.
+    // While loading the int in that case would work for this use of the lclVar, if it is
+    // later used as a long, we will have incorrectly truncated the long.
+    // In the normalizeOnLoad case ins_Load will return an appropriate sign- or zero-
+    // extending load.
+    var_types lclActualType = lcl->GetActualRegisterType();
+    assert(lclActualType != TYP_UNDEF);
+    if (regType != lclActualType && !varTypeIsGC(regType) && !lcl->lvNormalizeOnLoad())
+    {
+        assert(!varTypeIsGC(lcl->GetType()));
+        regType = lclActualType;
+    }
+#endif
+
+    regNumber dstReg = node->GetRegNum();
+    unsigned  lclNum = node->GetLclNum();
+
+    inst_set_SV_var(node);
+    instruction ins = ins_Load(regType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
+
+    // TODO-Review: We would like to call:
+    //      genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(tree));
+    // instead of the following code, but this ends up hitting this assert:
+    //      assert((regSet.GetMaskVars() & regMask) == 0);
+    // due to issues with LSRA resolution moves.
+    // So, just force it for now. This probably indicates a condition that creates a GC hole!
+    //
+    // Extra note: I think we really want to call something like gcInfo.gcUpdateForRegVarMove,
+    // because the variable is not really going live or dead, but that method is somewhat poorly
+    // factored because it, in turn, updates rsMaskVars which is part of RegSet not GCInfo.
+    // TODO-Cleanup: This code exists in other CodeGen*.cpp files, and should be moved to CodeGenCommon.cpp.
+
+    // Don't update the variable's location if we are just re-spilling it again.
+
+    if (!node->IsRegSpill(0))
+    {
+        lcl->SetRegNum(dstReg);
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+        // We want "VariableLiveRange" inclusive on the beginning and exclusive on the ending.
+        // For that we shouldn't report an update of the variable location if is becoming dead
+        // on the same native offset.
+        if (!node->IsLastUse(0))
+        {
+            varLiveKeeper->siUpdateVariableLiveRange(lcl, lclNum);
+        }
+#endif
+
+        if (!lcl->IsAlwaysAliveInMemory())
+        {
+#ifdef DEBUG
+            if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
+            {
+                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", lclNum);
+            }
+#endif
+
+            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
+        }
+
+        JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lclNum, getRegName(lcl->GetRegNum()), node->GetID());
+
+        regSet.AddMaskVars(genGetRegMask(lcl));
+    }
+
+    gcInfo.gcMarkRegPtrVal(dstReg, regType);
+}
+
+regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
+{
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
+
+    regNumber reg = node->GetRegNum(regIndex);
+
+    if (node->OperIs(GT_COPY))
+    {
+        reg = CopyReg(node->AsCopyOrReload(), regIndex);
+    }
+    else if (reg == REG_NA)
+    {
+        assert(node->OperIs(GT_RELOAD));
+        reg = node->AsUnOp()->GetOp(0)->GetRegNum(regIndex);
+        node->SetRegNum(regIndex, reg);
+    }
+
+    assert(reg != REG_NA);
+
+    UnspillRegIfNeeded(node, regIndex);
+
+    // TODO-MIKE-Review: This kills ALL the multireg node's registers.
+    // Seems unnecessary and confusing, it's likely enough to kill
+    // only the specific register we're dealing with now. Oh well,
+    // the whole GC info tracking is a bunch of crap to begin with.
+    gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+
+    return reg;
+}
+
+// This will copy the corresponding register produced by this node's source, to
+// the register allocated to the register specified by this GT_COPY node.
+// A multireg copy doesn't support moving between register files, as the GT_COPY
+// node does not retain separate types for each index.
+//
+regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
+{
+    assert(copy->OperIs(GT_COPY));
+    assert(!copy->IsAnyRegSpill());
+
+    GenTree* src = copy->GetOp(0);
+
+    assert(src->IsMultiRegNode() && !src->IsMultiRegLclVar());
+    assert(regIndex < src->GetMultiRegCount(compiler));
+
+    // TODO-MIKE-Cleanup: This is recursive for no obvious reason...
+    UseReg(src, regIndex);
+
+    regNumber srcReg = src->GetRegNum(regIndex);
+    regNumber dstReg = copy->GetRegNum(regIndex);
+
+    // Not all registers of a multireg COPY need copying.
+    if (dstReg == REG_NA)
+    {
+        copy->SetRegNum(regIndex, srcReg);
+        return srcReg;
+    }
+
+    assert(srcReg != dstReg);
+
+    var_types type = src->GetMultiRegType(compiler, regIndex);
+    inst_Mov(type, dstReg, srcReg, /* canSkip */ false);
+
+    gcInfo.gcMarkRegPtrVal(dstReg, type);
+
+    return dstReg;
+}
+
+// Reload a MultiReg source value into a register, if needed
+//
+// It must *not* be a GT_LCL_VAR (those are handled separately).
+// In the normal case, the value will be reloaded into the register it
+// was originally computed into. However, if that register is not available,
+// the register allocator will have allocated a different register, and
+// inserted a GT_RELOAD to indicate the register into which it should be
+// reloaded.
+//
+void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
+{
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
+
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
+
+    if (!unspillNode->IsRegSpilled(regIndex))
+    {
+        return;
+    }
+
+    regNumber reg = node->GetRegNum(regIndex);
+
+    if (reg == REG_NA)
+    {
+        assert(node->IsCopyOrReload());
+        reg = unspillNode->GetRegNum(regIndex);
+        node->SetRegNum(regIndex, reg);
+    }
+
+    regSet.UnspillNodeReg(unspillNode, reg, regIndex);
+}
+
+void CodeGen::UseRegs(GenTree* node)
+{
+    if (!node->IsMultiRegNode())
+    {
+        UseReg(node);
+        return;
+    }
+
+    assert(!node->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR));
+
+    if (node->OperIs(GT_COPY))
+    {
+        CopyRegs(node->AsCopyOrReload());
+    }
+
+    UnspillRegsIfNeeded(node);
+
+    gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+
+    genCheckConsumeNode(node);
+}
+
+void CodeGen::UnspillRegsIfNeeded(GenTree* node)
+{
+    GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
+
+    assert(unspillNode->IsMultiRegNode() && !unspillNode->IsMultiRegLclVar());
+
+    if (unspillNode->IsAnyRegSpilled())
+    {
+        for (unsigned i = 0, count = node->GetMultiRegCount(compiler); i < count; ++i)
+        {
+            UnspillRegIfNeeded(node, i);
+        }
+    }
+}
+
+void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
+{
+    assert(copy->OperIs(GT_COPY) && copy->IsMultiRegNode());
+
+    // Register allocation assumes that any reload and copy are done in operand order.
+    // That is, we can have:
+    //     (reg0, reg1) = COPY(V0, V1) where V0 is in reg1 and V1 is in memory
+    // The register allocation model assumes that copies are done one by one:
+    //     reg0 = V0 ; V1 can't be in reg0 because it is still live,
+    //     reg1 = V1
+    // There should never be any circular dependencies, and we will check that here.
+
+    GenTree* src      = copy->GetOp(0);
+    unsigned regCount = src->GetMultiRegCount(compiler);
+
+#ifdef DEBUG
+    regMaskTP busyRegs = RBM_NONE;
+
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        if (!src->IsRegSpilled(i))
+        {
+            busyRegs |= genRegMask(src->GetRegNum(i));
+        }
+    }
+#endif
+
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        INDEBUG(regNumber srcReg =) src->GetRegNum(i);
+        INDEBUG(regNumber dstReg =) CopyReg(copy, i);
+
+#ifdef DEBUG
+        if (dstReg != srcReg)
+        {
+            assert((busyRegs & genRegMask(dstReg)) == 0);
+            busyRegs &= ~genRegMask(srcReg);
+        }
+
+        busyRegs |= genRegMask(dstReg);
+#endif
+    }
+}
+
+regNumber CodeGen::genConsumeReg(GenTree* node)
+{
+    return UseReg(node);
+}
+
 void CodeGen::genConsumeAddress(GenTree* addr)
 {
     if (!addr->isContained())
     {
-        genConsumeReg(addr);
+        UseReg(addr);
     }
-    else if (addr->OperGet() == GT_LEA)
+    else if (GenTreeAddrMode* am = addr->IsAddrMode())
     {
-        genConsumeAddrMode(addr->AsAddrMode());
+        if (GenTree* base = am->GetBase())
+        {
+            UseReg(base);
+        }
+
+        if (GenTree* index = am->GetIndex())
+        {
+            UseReg(index);
+        }
     }
 }
 
-// do liveness update for a subnode that is being consumed by codegen
-void CodeGen::genConsumeAddrMode(GenTreeAddrMode* addr)
+bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
 {
-    genConsumeOperands(addr);
+    // A contained local must be living on stack and marked as reg optional,
+    // or not be a register candidate.
+    // TODO-MIKE-Review: If it's reg optional it probably needs to be spilled too...
+    LclVarDsc* lcl = compiler->lvaGetDesc(node);
+
+    return (lcl->GetRegNum() == REG_STK) && (node->IsRegOptional() || !lcl->IsRegCandidate());
 }
 
 void CodeGen::genConsumeRegs(GenTree* tree)
@@ -1558,105 +1499,68 @@ void CodeGen::genConsumeRegs(GenTree* tree)
     if (tree->isUsedFromSpillTemp())
     {
         // spill temps are un-tracked and hence no need to update life
+        return;
     }
-    else if (tree->isContained())
+
+    if (!tree->isContained())
     {
-        if (tree->OperIsIndir())
-        {
-            genConsumeAddress(tree->AsIndir()->Addr());
-        }
-        else if (tree->OperIs(GT_LEA))
-        {
-            genConsumeAddress(tree);
-        }
-        else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            // A contained lcl var must be living on stack and marked as reg optional, or not be a
-            // register candidate.
-            LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVarCommon());
+        UseReg(tree);
+        return;
+    }
 
-            noway_assert(varDsc->GetRegNum() == REG_STK);
-            noway_assert(tree->IsRegOptional() || !varDsc->lvLRACandidate);
+    if (tree->OperIsIndir())
+    {
+        genConsumeAddress(tree->AsIndir()->GetAddr());
+        return;
+    }
 
-            genUpdateLife(tree->AsLclVarCommon());
-        }
+    if (tree->IsAddrMode())
+    {
+        genConsumeAddress(tree);
+        return;
+    }
+
+    if (tree->OperIs(GT_BITCAST))
+    {
+        UseReg(tree->AsUnOp()->GetOp(0));
+        return;
+    }
+
+    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        IsValidContainedLcl(tree->AsLclVarCommon());
+        genUpdateLife(tree->AsLclVarCommon());
+
+        return;
+    }
+
 #ifdef FEATURE_HW_INTRINSICS
-        else if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
+    if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
+    {
+        if (hwi->GetNumOps() != 0)
         {
-            if (hwi->GetNumOps() != 0)
+            HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
+            assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
+            genConsumeAddress(hwi->GetOp(0));
+            if (category == HW_Category_MemoryStore)
             {
-                HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
-                assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
-                genConsumeAddress(hwi->GetOp(0));
-                if (category == HW_Category_MemoryStore)
-                {
-                    assert(hwi->IsBinary());
-                    genConsumeReg(hwi->GetOp(1));
-                }
-                else
-                {
-                    assert(hwi->IsUnary());
-                }
+                assert(hwi->IsBinary());
+                UseReg(hwi->GetOp(1));
+            }
+            else
+            {
+                assert(hwi->IsUnary());
             }
         }
+
+        return;
+    }
 #endif // FEATURE_HW_INTRINSICS
-        else if (tree->OperIs(GT_BITCAST))
-        {
-            genConsumeReg(tree->gtGetOp1());
-        }
-        else
-        {
-#ifdef FEATURE_SIMD
-            // (In)Equality operation that produces bool result, when compared
-            // against Vector zero, marks its Vector Zero operand as contained.
-            assert(tree->OperIsLeaf() || tree->IsHWIntrinsicZero());
-#else
-            assert(tree->OperIsLeaf());
-#endif
-        }
-    }
-    else
-    {
-        genConsumeReg(tree);
-    }
-}
 
-//------------------------------------------------------------------------
-// genConsumeOperands: Do liveness update for the operands of a unary or binary tree
-//
-// Arguments:
-//    tree - the GenTreeOp whose operands will have their liveness updated.
-//
-// Return Value:
-//    None.
-//
-
-void CodeGen::genConsumeOperands(GenTreeOp* tree)
-{
-    GenTree* firstOp  = tree->gtOp1;
-    GenTree* secondOp = tree->gtOp2;
-
-    if (firstOp != nullptr)
-    {
-        genConsumeRegs(firstOp);
-    }
-    if (secondOp != nullptr)
-    {
-        genConsumeRegs(secondOp);
-    }
+    assert(tree->OperIsLeaf());
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// genConsumeHWIntrinsicOperands: Do liveness update for the operands of a GT_HWINTRINSIC node
-//
-// Arguments:
-//    node - the GenTreeHWIntrinsic node whose operands will have their liveness updated.
-//
-// Return Value:
-//    None.
-//
-
 void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
 {
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
@@ -1664,32 +1568,7 @@ void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
         genConsumeRegs(use.GetNode());
     }
 }
-#endif // FEATURE_HW_INTRINSICS
-
-#if FEATURE_ARG_SPLIT
-//------------------------------------------------------------------------
-// genConsumeArgRegSplit: Consume register(s) in Call node to set split struct argument.
-//                        Liveness update for the PutArgSplit node is not needed
-//
-// Arguments:
-//    putArgNode - the PUTARG_STK tree.
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode)
-{
-    assert(putArgNode->OperGet() == GT_PUTARG_SPLIT);
-    assert(putArgNode->gtHasReg());
-
-    genUnspillRegIfNeeded(putArgNode);
-
-    // Skip updating GC info
-    // GC info for all argument registers will be cleared in caller
-
-    genCheckConsumeNode(putArgNode);
-}
-#endif // FEATURE_ARG_SPLIT
+#endif
 
 //------------------------------------------------------------------------
 // genPutArgStkFieldList: Generate code for a putArgStk whose source is a GT_FIELD_LIST
@@ -1858,243 +1737,219 @@ void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber sr
     genCopyRegIfNeeded(size, sizeReg);
 }
 
-//-------------------------------------------------------------------------
-// genSpillLocal: Generate the actual spill of a local var.
-//
-// Arguments:
-//     varNum    - The variable number of the local to be spilled.
-//                 It may be a local field.
-//     type      - The type of the local.
-//     lclNode   - The node being spilled. Note that for a multi-reg local,
-//                 the gtLclNum will be that of the parent struct.
-//     regNum    - The register that 'varNum' is currently in.
-//
-// Return Value:
-//     None.
-//
-void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum)
+void CodeGen::genProduceReg(GenTree* node)
 {
-    const LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-    assert(!varDsc->lvNormalizeOnStore() || (type == varDsc->GetActualRegisterType()));
+    DefReg(node);
+}
 
-    // We have a register candidate local that is marked with GTF_SPILL.
-    // This flag generally means that we need to spill this local.
-    // The exception is the case of a use of an EH/spill-at-single-def var use that is being "spilled"
-    // to the stack, indicated by GTF_SPILL (note that all EH lclVar defs are always
-    // spilled, i.e. write-thru. Likewise, single-def vars that are spilled at its definitions).
-    // An EH or single-def var use is always valid on the stack (so we don't need to actually spill it),
-    // but the GTF_SPILL flag records the fact that the register value is going dead.
-    if (((lclNode->gtFlags & GTF_VAR_DEF) != 0) || (!varDsc->IsAlwaysAliveInMemory()))
+void CodeGen::DefReg(GenTree* node)
+{
+    assert(!node->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR, GT_LCL_VAR, GT_CALL));
+#if FEATURE_ARG_SPLIT
+    assert(!node->IsPutArgSplit());
+#endif
+#ifndef TARGET_64BIT
+    assert(!node->IsMultiRegOpLong());
+#endif
+    assert(!node->IsCopyOrReload());
+    assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(node->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (node->IsAnyRegSpill())
     {
-        // Store local variable to its home location.
-        // Ensure that lclVar stores are typed correctly.
-        GetEmitter()->emitIns_S_R(ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(varNum)), emitTypeSize(type),
-                                  regNum, varNum, 0);
+        regSet.SpillNodeReg(node, node->GetType(), 0);
+    }
+    // TODO-MIKE-Review: This check is likely bogus, nodes that use this function
+    // likely always have a reg...
+    else if (node->GetRegNum() != REG_NA)
+    {
+        gcInfo.gcMarkRegPtrVal(node->GetRegNum(), node->GetType());
     }
 }
 
-//-------------------------------------------------------------------------
-// genProduceReg: do liveness update for register produced by the current
-// node in codegen after code has been emitted for it.
-//
-// Arguments:
-//     tree   -  Gentree node
-//
-// Return Value:
-//     None.
-void CodeGen::genProduceReg(GenTree* tree)
+void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
 {
-#ifdef DEBUG
-    assert((tree->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
-    tree->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;
-#endif
+    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(lclVar->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
-    if (tree->gtFlags & GTF_SPILL)
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+
+    if (lclVar->IsAnyRegSpill())
     {
-        // Code for GT_COPY node gets generated as part of consuming regs by its parent.
-        // A GT_COPY node in turn produces reg result and it should never be marked to
-        // spill.
-        //
-        // Similarly GT_RELOAD node gets generated as part of consuming regs by its
-        // parent and should never be marked for spilling.
-        noway_assert(!tree->IsCopyOrReload());
-
-        if (genIsRegCandidateLclVar(tree))
-        {
-            GenTreeLclVar*   lclNode   = tree->AsLclVar();
-            const LclVarDsc* varDsc    = compiler->lvaGetDesc(lclNode);
-            const unsigned   varNum    = lclNode->GetLclNum();
-            const var_types  spillType = varDsc->GetRegisterType(lclNode);
-            genSpillLocal(varNum, spillType, lclNode, tree->GetRegNum());
-        }
-        else if (tree->IsMultiRegLclVar())
+        if (lclVar->IsMultiRegLclVar())
         {
             assert(compiler->lvaEnregMultiRegVars);
 
-            GenTreeLclVar*   lclNode  = tree->AsLclVar();
-            const LclVarDsc* varDsc   = compiler->lvaGetDesc(lclNode);
-            const unsigned   regCount = lclNode->GetFieldCount(compiler);
-
-            for (unsigned i = 0; i < regCount; ++i)
+            for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; ++i)
             {
-                GenTreeFlags flags = lclNode->GetRegSpillFlagByIdx(i);
-                if ((flags & GTF_SPILL) != 0)
+                if (lclVar->IsRegSpill(i))
                 {
-                    const regNumber reg         = lclNode->GetRegNumByIdx(i);
-                    const unsigned  fieldVarNum = varDsc->lvFieldLclStart + i;
-                    const var_types spillType   = compiler->lvaGetDesc(fieldVarNum)->GetRegisterType();
-                    genSpillLocal(fieldVarNum, spillType, lclNode, reg);
+                    unsigned  fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+                    var_types spillType   = compiler->lvaGetDesc(fieldLclNum)->GetRegisterType();
+                    SpillLclVarReg(fieldLclNum, spillType, lclVar, lclVar->GetRegNum(i));
                 }
             }
         }
+        else if (lcl->lvIsRegCandidate())
+        {
+            unsigned  lclNum    = lclVar->GetLclNum();
+            var_types spillType = lcl->GetRegisterType(lclVar);
+            SpillLclVarReg(lclNum, spillType, lclVar, lclVar->GetRegNum());
+        }
         else
         {
-            // In case of multi-reg call node, spill flag on call node
-            // indicates that one or more of its allocated regs need to
-            // be spilled.  Call node needs to be further queried to
-            // know which of its result regs needs to be spilled.
-            if (tree->IsMultiRegCall())
-            {
-                GenTreeCall* call = tree->AsCall();
-
-                for (unsigned i = 0; i < call->GetRegCount(); ++i)
-                {
-                    GenTreeFlags flags = call->GetRegSpillFlagByIdx(i);
-                    if ((flags & GTF_SPILL) != 0)
-                    {
-                        regNumber reg = call->GetRegNumByIdx(i);
-                        regSet.rsSpillTree(reg, call, i);
-                        gcInfo.gcMarkRegSetNpt(genRegMask(reg));
-                    }
-                }
-            }
-#if FEATURE_ARG_SPLIT
-            else if (tree->OperIsPutArgSplit())
-            {
-                GenTreePutArgSplit* argSplit = tree->AsPutArgSplit();
-                unsigned            regCount = argSplit->GetRegCount();
-
-                for (unsigned i = 0; i < regCount; ++i)
-                {
-                    GenTreeFlags flags = argSplit->GetRegSpillFlagByIdx(i);
-                    if ((flags & GTF_SPILL) != 0)
-                    {
-                        regNumber reg = argSplit->GetRegNumByIdx(i);
-                        regSet.rsSpillTree(reg, argSplit, i);
-                        gcInfo.gcMarkRegSetNpt(genRegMask(reg));
-                    }
-                }
-            }
-#ifdef TARGET_ARM
-            else if (tree->OperIsMultiRegOp())
-            {
-                GenTreeMultiRegOp* multiReg = tree->AsMultiRegOp();
-                unsigned           regCount = multiReg->GetRegCount();
-
-                for (unsigned i = 0; i < regCount; ++i)
-                {
-                    GenTreeFlags flags = multiReg->GetRegSpillFlagByIdx(i);
-                    if ((flags & GTF_SPILL) != 0)
-                    {
-                        regNumber reg = multiReg->GetRegNumByIdx(i);
-                        regSet.rsSpillTree(reg, multiReg, i);
-                        gcInfo.gcMarkRegSetNpt(genRegMask(reg));
-                    }
-                }
-            }
-#endif // TARGET_ARM
-#endif // FEATURE_ARG_SPLIT
-            else
-            {
-                regSet.rsSpillTree(tree->GetRegNum(), tree);
-                gcInfo.gcMarkRegSetNpt(genRegMask(tree->GetRegNum()));
-            }
-
-            tree->gtFlags |= GTF_SPILLED;
-            tree->gtFlags &= ~GTF_SPILL;
+            regSet.SpillNodeReg(lclVar, lclVar->GetType(), 0);
 
             return;
         }
     }
 
-    if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (lclVar->OperIs(GT_STORE_LCL_VAR))
     {
-        genUpdateLife(tree->AsLclVarCommon());
+        genUpdateLife(lclVar);
     }
 
-    // If we've produced a register, mark it as a pointer, as needed.
-    if (tree->gtHasReg())
+    if (lclVar->IsMultiRegLclVar())
     {
-        // We only mark the register in the following cases:
-        // 1. It is not a register candidate local. In this case, we're producing a
-        //    register from a local, but the local is not a register candidate. Thus,
-        //    we must be loading it as a temp register, and any "last use" flag on
-        //    the register wouldn't be relevant.
-        // 2. The register candidate local is going dead. There's no point to mark
-        //    the register as live, with a GC pointer, if the variable is dead.
-        if (!genIsRegCandidateLclVar(tree) || ((tree->gtFlags & GTF_VAR_DEATH) == 0))
+        assert(compiler->lvaEnregMultiRegVars);
+
+        for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; i++)
         {
-            // Multi-reg nodes will produce more than one register result.
-            // Mark all the regs produced by the node.
-            if (tree->IsMultiRegCall())
+            if ((lclVar->GetRegNum(i) != REG_NA) && !lclVar->IsLastUse(i))
             {
-                GenTreeCall* call = tree->AsCall();
-
-                for (unsigned i = 0; i < call->GetRegCount(); ++i)
-                {
-                    regNumber reg  = call->GetRegNumByIdx(i);
-                    var_types type = call->GetRegType(i);
-                    gcInfo.gcMarkRegPtrVal(reg, type);
-                }
-            }
-            else if (tree->IsCopyOrReloadOfMultiRegCall())
-            {
-                // we should never see reload of multi-reg call here
-                // because GT_RELOAD gets generated in reg consuming path.
-                noway_assert(tree->OperGet() == GT_COPY);
-
-                // A multi-reg GT_COPY node produces those regs to which
-                // copy has taken place.
-                const GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
-                const GenTreeCall*         call = copy->GetOp(0)->AsCall();
-
-                for (unsigned i = 0; i < call->GetRegCount(); ++i)
-                {
-                    var_types type  = call->GetRegType(i);
-                    regNumber toReg = copy->GetRegNumByIdx(i);
-
-                    if (toReg != REG_NA)
-                    {
-                        gcInfo.gcMarkRegPtrVal(toReg, type);
-                    }
-                }
-            }
-            else if (tree->IsMultiRegLclVar())
-            {
-                assert(compiler->lvaEnregMultiRegVars);
-                GenTreeLclVar* lclNode  = tree->AsLclVar();
-                LclVarDsc*     varDsc   = compiler->lvaGetDesc(lclNode->GetLclNum());
-                unsigned       regCount = varDsc->lvFieldCnt;
-                for (unsigned i = 0; i < regCount; i++)
-                {
-                    if (!lclNode->IsLastUse(i))
-                    {
-                        regNumber reg = lclNode->GetRegByIndex(i);
-                        if (reg != REG_NA)
-                        {
-                            var_types type = compiler->lvaGetDesc(varDsc->lvFieldLclStart + i)->TypeGet();
-                            gcInfo.gcMarkRegPtrVal(reg, type);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                gcInfo.gcMarkRegPtrVal(tree->GetRegNum(), tree->TypeGet());
+                gcInfo.gcMarkRegPtrVal(lclVar->GetRegNum(i),
+                                       compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetType());
             }
         }
     }
+    else if ((lclVar->GetRegNum() != REG_NA) && (!lcl->lvIsRegCandidate() || !lclVar->IsLastUse(0)))
+    {
+        gcInfo.gcMarkRegPtrVal(lclVar->GetRegNum(), lclVar->GetType());
+    }
 }
+
+void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lclVar, regNumber reg)
+{
+    assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));
+
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
+
+    // We have a register candidate local that is marked with SPILL.
+    // This flag generally means that we need to spill this local.
+    // The exception is the case of a use of an EH/spill-at-single-def var use that is being "spilled"
+    // to the stack, indicated by SPILL (note that all EH lclVar defs are always
+    // spilled, i.e. write-thru. Likewise, single-def vars that are spilled at its definitions).
+    // An EH or single-def var use is always valid on the stack (so we don't need to actually spill it),
+    // but the SPILL flag records the fact that the register value is going dead.
+    if (lclVar->OperIs(GT_LCL_VAR) && lcl->IsAlwaysAliveInMemory())
+    {
+        return;
+    }
+
+    GetEmitter()->emitIns_S_R(ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum)), emitTypeSize(type), reg,
+                              lclNum, 0);
+}
+
+#if FEATURE_ARG_SPLIT
+void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
+{
+    assert((arg->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(arg->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (arg->IsAnyRegSpill())
+    {
+        for (unsigned i = 0; i < arg->GetRegCount(); ++i)
+        {
+            if (arg->IsRegSpill(i))
+            {
+                regSet.SpillNodeReg(arg, arg->GetRegType(i), i);
+            }
+        }
+    }
+    else
+    {
+        // TODO-MIKE-Review: It looks like they forgot about "other regs" and also
+        // passed the wrong type. It probably doesn't matter as arg registers get
+        // killed anyway but still...
+        // The spill check is also dubious, it should probably done for each reg,
+        // it's not an all or nothing case. But then it's unlikely that these regs
+        // ever need spilling.
+        gcInfo.gcMarkRegPtrVal(arg->GetRegNum(), arg->GetType());
+    }
+}
+#endif // FEATURE_ARG_SPLIT
+
+void CodeGen::DefCallRegs(GenTreeCall* call)
+{
+    assert((call->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (call->IsAnyRegSpill())
+    {
+        // TODO-MIKE-Cleanup: There should not be any multireg distinction here, it's
+        // just that non-struct calls usually don't have reg count/types set. That can
+        // probably be easily done in call lowering or LSRA build.
+        if (call->IsMultiRegCall())
+        {
+            for (unsigned i = 0; i < call->GetRegCount(); ++i)
+            {
+                if (call->IsRegSpill(i))
+                {
+                    regSet.SpillNodeReg(call, call->GetRegType(i), i);
+                }
+            }
+        }
+        else
+        {
+            var_types regType = call->GetType();
+
+            if (regType == TYP_STRUCT)
+            {
+                regType = call->GetRegType(0);
+            }
+
+            regSet.SpillNodeReg(call, regType, 0);
+        }
+    }
+    else
+    {
+        if (call->IsMultiRegCall())
+        {
+            for (unsigned i = 0; i < call->GetRegCount(); ++i)
+            {
+                gcInfo.gcMarkRegPtrVal(call->GetRegNum(i), call->GetRegType(i));
+            }
+        }
+        else
+        {
+            gcInfo.gcMarkRegPtrVal(call->GetRegNum(), call->GetType());
+        }
+    }
+}
+
+#ifndef TARGET_64BIT
+void CodeGen::DefLongRegs(GenTreeMultiRegOp* node)
+{
+    assert(node->TypeIs(TYP_LONG) && (node->GetRegCount() == 2));
+    assert((node->GetRegType(0) == TYP_INT) && (node->GetRegType(1) == TYP_INT));
+    assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
+    INDEBUG(node->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
+
+    if (node->IsRegSpill(0))
+    {
+        regSet.SpillNodeReg(node, TYP_INT, 0);
+    }
+
+    if (node->IsRegSpill(1))
+    {
+        regSet.SpillNodeReg(node, TYP_INT, 1);
+    }
+
+    gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));
+}
+#endif // TARGET_64BIT
 
 // transfer gc/byref status of src reg to dst reg
 void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)
@@ -2455,33 +2310,15 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
 void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 {
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
-
-    assert(lcl->GetType() == TYP_LONG);
+    assert(lcl->TypeIs(TYP_LONG));
     assert(!lcl->IsPromoted());
 
-    GenTree*  src = store->GetOp(0);
-    regNumber loSrcReg;
-    regNumber hiSrcReg;
+    GenTreeOp* src = store->GetOp(0)->AsOp();
+    assert(src->OperIs(GT_LONG));
+    assert(src->isContained());
 
-    if (src->OperIs(GT_LONG))
-    {
-        assert(src->isContained());
-
-        loSrcReg = genConsumeReg(src->AsOp()->GetOp(0));
-        hiSrcReg = genConsumeReg(src->AsOp()->GetOp(1));
-    }
-    else
-    {
-        assert(src->GetMultiRegCount(compiler) == 2);
-
-        genConsumeRegs(src);
-
-        loSrcReg = src->GetRegByIndex(0);
-        hiSrcReg = src->GetRegByIndex(1);
-
-        assert(genIsValidIntReg(loSrcReg));
-        assert(genIsValidIntReg(hiSrcReg));
-    }
+    regNumber loSrcReg = genConsumeReg(src->GetOp(0));
+    regNumber hiSrcReg = genConsumeReg(src->GetOp(1));
 
     GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, loSrcReg, store->GetLclNum(), 0);
     GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, hiSrcReg, store->GetLclNum(), 4);

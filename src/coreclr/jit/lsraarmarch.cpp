@@ -228,9 +228,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
 
             for (unsigned int i = 0; i < regCount; i++)
             {
-                assert(argNode->AsPutArgSplit()->GetRegNumByIdx(i) == argInfo->GetRegNum(i));
+                assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
 
-                BuildUse(argNode, genRegMask(argNode->AsPutArgSplit()->GetRegNumByIdx(i)), i);
+                BuildUse(argNode, genRegMask(argNode->GetRegNum(i)), i);
                 srcCount++;
             }
 
@@ -435,7 +435,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
     for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
     {
-        BuildDef(putArg, genRegMask(argInfo->GetRegNum(i)), i);
+        BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);
     }
 
     return srcCount;

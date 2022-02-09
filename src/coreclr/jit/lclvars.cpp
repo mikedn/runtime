@@ -655,7 +655,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         // ARM softfp calling convention should affect only the floating point arguments.
         // Otherwise there appear too many surplus pre-spills and other memory operations
         // with the associated locations .
-        bool     isSoftFPPreSpill = opts.compUseSoftFP && varTypeIsFloating(varDsc->TypeGet());
+        bool     isSoftFPPreSpill = opts.UseSoftFP() && varTypeIsFloating(varDsc->TypeGet());
         unsigned argSize          = eeGetArgSize(argLst, &info.compMethodInfo->args);
         unsigned cSlots =
             (argSize + TARGET_POINTER_SIZE - 1) / TARGET_POINTER_SIZE; // the total number of slots of this argument
@@ -1668,7 +1668,7 @@ bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
 
     switch (abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind)
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         case SPK_ByValueAsHfa:
             return true;
 #endif
@@ -2884,7 +2884,10 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
                 // if (compiler->info.compInitMem || varTypeIsGC(varDsc->TypeGet()))
                 bool needsExplicitZeroInit = fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
 
-                if (varDsc->lvSingleDefRegCandidate || needsExplicitZeroInit)
+                // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
+                // broken. For a multireg store lvSingleDefRegCandidate probably needs to be set
+                // on the fields of the local.
+                if (varDsc->lvSingleDefRegCandidate || needsExplicitZeroInit || varDsc->lvIsMultiRegRet)
                 {
 #ifdef DEBUG
                     if (needsExplicitZeroInit)

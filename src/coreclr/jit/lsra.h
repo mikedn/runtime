@@ -1092,7 +1092,7 @@ private:
         BasicBlock* block, GenTree* insertionPoint, unsigned lclNum1, regNumber reg1, unsigned lclNum2, regNumber reg2);
 
 private:
-    Interval* newInterval(RegisterType regType);
+    Interval* newInterval(var_types regType);
 
     Interval* getIntervalForLocalVar(unsigned varIndex)
     {
@@ -1827,8 +1827,8 @@ private:
 #if defined(TARGET_XARCH) && FEATURE_VARARG
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
-    RefPosition* BuildDef(GenTree* tree, regMaskTP dstCandidates = RBM_NONE, int multiRegIdx = 0);
-    RefPosition* BuildDef(GenTree* tree, var_types type, regMaskTP dstCandidates, int multiRegIdx);
+    RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
+    RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
     void BuildKills(GenTree* tree, regMaskTP killMask);
 
     int BuildReturn(GenTreeUnOp* ret);
@@ -1974,7 +1974,7 @@ public:
     // The register to which it is currently assigned.
     regNumber physReg;
 
-    RegisterType registerType;
+    const RegisterType registerType;
 
     // Is this Interval currently in a register and live?
     bool isActive;

@@ -57,10 +57,10 @@ private:
     CORINFO_FIELD_HANDLE u8ToFltBitmask;
 
     // Generates SSE2 code for the given tree as "Operand BitWiseOp BitMask"
-    void genSSE2BitwiseOp(GenTree* treeNode);
+    void genSSE2BitwiseOp(GenTreeUnOp* node);
 
     // Generates SSE41 code for the given tree as a round operation
-    void genSSE41RoundOp(GenTreeOp* treeNode);
+    void genSSE41RoundOp(GenTreeUnOp* node);
 
     instruction simdAlignedMovIns()
     {
@@ -221,7 +221,7 @@ protected:
     void genCodeForBBlist();
 
 public:
-    void genSpillVar(GenTreeLclVar* node);
+    void SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 protected:
     void genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
@@ -950,7 +950,7 @@ protected:
 
     void genCkfinite(GenTree* treeNode);
     void genCodeForCompare(GenTreeOp* tree);
-    void genIntrinsic(GenTree* treeNode);
+    void genIntrinsic(GenTreeIntrinsic* node);
     void genPutArgStk(GenTreePutArgStk* treeNode);
     void genPutArgReg(GenTreeUnOp* putArg);
 #if FEATURE_ARG_SPLIT
@@ -969,7 +969,7 @@ protected:
 #ifdef FEATURE_SIMD
     void genSIMDUpperSpill(GenTreeUnOp* node);
     void genSIMDUpperUnspill(GenTreeUnOp* node);
-    void genLoadSIMD12(GenTree* load);
+    void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
 #endif // TARGET_X86
@@ -1073,16 +1073,27 @@ protected:
 
     // Do liveness update for register produced by the current node in codegen after
     // code has been emitted for it.
-    void genProduceReg(GenTree* tree);
-    void genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
-    void genUnspillLocal(
-        unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum, bool reSpill, bool isLastUse);
-    void genUnspillRegIfNeeded(GenTree* tree);
-    void genUnspillRegIfNeeded(GenTree* tree, unsigned multiRegIndex);
-    regNumber genConsumeReg(GenTree* tree);
-    regNumber genConsumeReg(GenTree* tree, unsigned multiRegIndex);
+    void genProduceReg(GenTree* node);
+    void DefReg(GenTree* node);
+    void DefLclVarRegs(GenTreeLclVar* lclVar);
+#if FEATURE_ARG_SPLIT
+    void DefPutArgSplitRegs(GenTreePutArgSplit* arg);
+#endif
+    void DefCallRegs(GenTreeCall* call);
+#ifndef TARGET_64BIT
+    void DefLongRegs(GenTreeMultiRegOp* node);
+#endif
+    void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
+    void UnspillRegIfNeeded(GenTree* node);
+    void UnspillRegCandidateLclVar(GenTreeLclVar* node);
+    void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
+    void UnspillRegsIfNeeded(GenTree* node);
+    regNumber UseReg(GenTree* node);
+    regNumber UseRegCandidateLclVar(GenTreeLclVar* node);
+    void UseRegs(GenTree* node);
+    regNumber genConsumeReg(GenTree* node);
+    regNumber UseReg(GenTree* node, unsigned regIndex);
     void genCopyRegIfNeeded(GenTree* tree, regNumber needReg);
-    void genConsumeRegAndCopy(GenTree* tree, regNumber needReg);
 
     void genConsumeIfReg(GenTree* tree)
     {
@@ -1092,29 +1103,24 @@ protected:
         }
     }
 
-    void genRegCopy(GenTree* tree);
-    regNumber genRegCopy(GenTree* tree, unsigned multiRegIndex);
+    void CopyReg(GenTreeCopyOrReload* copy);
+    void CopyRegs(GenTreeCopyOrReload* copy);
+    regNumber CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex);
     void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
-    void genConsumeAddrMode(GenTreeAddrMode* mode);
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
-
-#if FEATURE_ARG_SPLIT
-    void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
-#endif // FEATURE_ARG_SPLIT
-
+    bool IsValidContainedLcl(GenTreeLclVarCommon* node);
     void genConsumeRegs(GenTree* tree);
-    void genConsumeOperands(GenTreeOp* tree);
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
-#endif // FEATURE_HW_INTRINSICS
+#endif
     void genEmitGSCookieCheck(bool pushReg);
     void genSetRegToIcon(regNumber reg,
                          ssize_t   val,
                          var_types type = TYP_INT,
                          insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
-    void genCodeForShift(GenTree* tree);
+    void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     void genCodeForShiftLong(GenTree* tree);
@@ -1129,7 +1135,7 @@ protected:
     void genCodeForLclAddr(GenTreeLclVarCommon* tree);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void genCodeForIndir(GenTreeIndir* tree);
-    void genCodeForNegNot(GenTree* tree);
+    void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
     void genCodeForLclVar(GenTreeLclVar* tree);
     void genCodeForLclFld(GenTreeLclFld* tree);
@@ -1140,6 +1146,7 @@ protected:
     void GenStoreLclVarLong(GenTreeLclVar* store);
 #endif
     void GenStoreLclVarMultiReg(GenTreeLclVar* store);
+    void GenStoreLclVarMultiRegMem(GenTreeLclVar* store);
     void GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void genCodeForJcc(GenTreeCC* tree);
@@ -1231,7 +1238,7 @@ protected:
     void GenStructStoreUnrollRegsWB(GenTreeObj* store);
 #endif
     void genJumpTable(GenTree* tree);
-    void genTableBasedSwitch(GenTree* tree);
+    void genTableBasedSwitch(GenTreeOp* tree);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);
     void genCodeForArrOffset(GenTreeArrOffs* treeNode);
     instruction genGetInsForOper(genTreeOps oper, var_types type);
@@ -1275,9 +1282,11 @@ protected:
 
     void genLclHeap(GenTree* tree);
 
-    bool genIsRegCandidateLclVar(GenTree* node)
+    GenTreeLclVar* IsRegCandidateLclVar(GenTree* node)
     {
-        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(node->AsLclVar())->lvIsRegCandidate();
+        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(node->AsLclVar())->IsRegCandidate()
+                   ? node->AsLclVar()
+                   : nullptr;
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
@@ -1320,7 +1329,6 @@ public:
     void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
     void inst_TT(instruction ins, GenTreeLclVar* node);
-    void inst_TT_RV(instruction ins, emitAttr size, GenTreeLclVar* node, regNumber reg);
     void inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* tree);
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
 #if defined(TARGET_XARCH)

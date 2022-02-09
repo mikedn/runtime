@@ -111,7 +111,6 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
 
 #if FEATURE_MULTIREG_RET
     call->ClearOtherRegs();
-    call->ClearOtherRegFlags();
 #endif
 
     if (tree->OperMayThrow(this))
@@ -1707,7 +1706,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         *insertionPoint = gtNewCallArgs(newArg);
 
         numArgs++;
-        nonStandardArgs.Add(newArg, virtualStubParamInfo->GetReg());
+        nonStandardArgs.Add(newArg, virtualStubParamInfo.GetRegNum());
     }
 #endif // defined(TARGET_ARM)
 #if defined(TARGET_X86)
@@ -1762,7 +1761,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             call->gtCallArgs = gtPrependNewCallArg(stubAddrArg, call->gtCallArgs);
 
             numArgs++;
-            nonStandardArgs.Add(stubAddrArg, stubAddrArg->GetRegNum());
+            nonStandardArgs.Add(stubAddrArg, virtualStubParamInfo.GetRegNum());
         }
         else
         {
@@ -1809,7 +1808,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         call->gtCallMethHnd = eeFindHelper(CORINFO_HELP_PINVOKE_CALLI);
     }
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-    // For arm, we dispatch code same as VSD using virtualStubParamInfo->GetReg()
+    // For arm, we dispatch code same as VSD using virtualStubParamInfo.GetRegNum()
     // for indirection cell address, which ZapIndirectHelperThunk expects.
     if (call->IsR2RRelativeIndir())
     {
@@ -1820,7 +1819,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef DEBUG
         indirectCellAddress->AsIntCon()->gtTargetHandle = (size_t)call->gtCallMethHnd;
 #endif
-        indirectCellAddress->SetRegNum(REG_R2R_INDIRECT_PARAM);
 #ifdef TARGET_ARM
         // Issue #xxxx : Don't attempt to CSE this constant on ARM32
         //
@@ -1833,7 +1831,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         call->gtCallArgs = gtPrependNewCallArg(indirectCellAddress, call->gtCallArgs);
 
         numArgs++;
-        nonStandardArgs.Add(indirectCellAddress, indirectCellAddress->GetRegNum());
+        nonStandardArgs.Add(indirectCellAddress, REG_R2R_INDIRECT_PARAM);
     }
 
 #endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
@@ -2451,7 +2449,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     regCount = hfaSlots / 2;
                 }
             }
-            else if (argx->TypeIs(TYP_DOUBLE) && GlobalJitOptions::compFeatureHfa)
+            else if (argx->TypeIs(TYP_DOUBLE) && opts.UseHfa())
             {
                 regCount = 1;
             }
@@ -2486,7 +2484,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 argInfo->SetRegType(hfaType);
             }
-            else if (varTypeIsFloating(argx->GetType()) && GlobalJitOptions::compFeatureHfa)
+            else if (varTypeIsFloating(argx->GetType()) && opts.UseHfa())
             {
                 argInfo->SetRegType(argx->GetType());
             }
@@ -7213,7 +7211,6 @@ GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
 #endif
     }
     assert(stubAddrArg != nullptr);
-    stubAddrArg->SetRegNum(virtualStubParamInfo->GetReg());
     return stubAddrArg;
 }
 

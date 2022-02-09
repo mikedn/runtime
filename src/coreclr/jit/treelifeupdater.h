@@ -32,7 +32,6 @@ public:
 
     void ChangeLife(class CodeGen* codeGen, VARSET_VALARG_TP newLife);
     void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
-    bool UpdateLifeFieldVar(class CodeGen* codeGen, GenTreeLclVar* lclNode, unsigned regIndex);
 
     VARSET_VALARG_TP GetLiveSet() const
     {

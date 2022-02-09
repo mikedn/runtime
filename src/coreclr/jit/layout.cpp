@@ -782,10 +782,10 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
         return;
     }
 
-#ifndef FEATURE_HFA_FIELDS_PRESENT
+#ifndef FEATURE_HFA
     m_layoutInfo.hfaElementType = TYP_VOID;
 #else
-    if (!GlobalJitOptions::compFeatureHfa || (m_size > MAX_PASS_MULTIREG_BYTES))
+    if (!compiler->opts.UseHfa() || (m_size > MAX_PASS_MULTIREG_BYTES))
     {
         m_layoutInfo.hfaElementType = TYP_VOID;
 

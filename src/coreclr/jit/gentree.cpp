@@ -481,31 +481,6 @@ void Compiler::fgWalkAllTreesPre(fgWalkPreFn* visitor, void* pCallBackData)
     }
 }
 
-//-----------------------------------------------------------
-// CopyReg: Copy the _gtRegNum/gtRegTag fields.
-//
-// Arguments:
-//     from   -  GenTree node from which to copy
-//
-// Return Value:
-//     None
-void GenTree::CopyReg(GenTree* from)
-{
-    _gtRegNum = from->_gtRegNum;
-    INDEBUG(gtRegTag = from->gtRegTag;)
-
-    // Also copy multi-reg state if this is a call node
-    if (IsCall())
-    {
-        assert(from->IsCall());
-        this->AsCall()->CopyOtherRegs(from->AsCall());
-    }
-    else if (IsCopyOrReload())
-    {
-        this->AsCopyOrReload()->CopyOtherRegs(from->AsCopyOrReload());
-    }
-}
-
 //------------------------------------------------------------------
 // gtHasReg: Whether node beeen assigned a register by LSRA
 //
@@ -535,7 +510,7 @@ bool GenTree::gtHasReg() const
         // reg assigned to each of its result registers.
         for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
-            hasReg = (call->GetRegNumByIdx(i) != REG_NA);
+            hasReg = (call->GetRegNum(i) != REG_NA);
             if (!hasReg)
             {
                 break;
@@ -551,7 +526,7 @@ bool GenTree::gtHasReg() const
         // if it has valid regs in any of the positions.
         for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
-            hasReg = (copyOrReload->GetRegNumByIdx(i) != REG_NA);
+            hasReg = (copyOrReload->GetRegNum(i) != REG_NA);
             if (hasReg)
             {
                 break;
@@ -566,6 +541,7 @@ bool GenTree::gtHasReg() const
     return hasReg;
 }
 
+#ifdef DEBUG
 //-----------------------------------------------------------------------------
 // GetRegisterDstCount: Get the number of registers defined by the node.
 //
@@ -583,54 +559,15 @@ bool GenTree::gtHasReg() const
 int GenTree::GetRegisterDstCount(Compiler* compiler) const
 {
     assert(!isContained());
-    if (!IsMultiRegNode())
-    {
-        return (IsValue()) ? 1 : 0;
-    }
-    else if (IsMultiRegCall())
-    {
-        return AsCall()->GetRegCount();
-    }
-    else if (IsCopyOrReload())
-    {
-        return gtGetOp1()->GetRegisterDstCount(compiler);
-    }
-#if FEATURE_ARG_SPLIT
-    else if (OperIsPutArgSplit())
-    {
-        return AsPutArgSplit()->GetRegCount();
-    }
-#endif
-#if !defined(TARGET_64BIT)
-    else if (OperIsMultiRegOp())
-    {
-        // A MultiRegOp is a GT_MUL_LONG, GT_PUTARG_REG, or GT_BITCAST.
-        // For the latter two (ARM-only), they only have multiple registers if they produce a long value
-        // (GT_MUL_LONG always produces a long value).
-        CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef TARGET_ARM
-        return (TypeGet() == TYP_LONG) ? 2 : 1;
-#else
-        assert(OperIs(GT_MUL_LONG));
-        return 2;
-#endif
-    }
-#endif
 
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    if (OperIs(GT_HWINTRINSIC))
+    if (IsMultiRegNode())
     {
-        assert(TypeGet() == TYP_STRUCT);
-        return 2;
+        return GetMultiRegCount(compiler);
     }
-#endif
-    if (OperIsScalarLocal())
-    {
-        return AsLclVar()->GetFieldCount(compiler);
-    }
-    assert(!"Unexpected multi-reg node");
-    return 0;
+
+    return IsValue() ? 1 : 0;
 }
+#endif // DEBUG
 
 //---------------------------------------------------------------
 // gtGetRegMask: Get the reg mask of the node.
@@ -662,7 +599,7 @@ regMaskTP GenTree::gtGetRegMask() const
         resultMask = RBM_NONE;
         for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
-            regNumber reg = copyOrReload->GetRegNumByIdx(i);
+            regNumber reg = copyOrReload->GetRegNum(i);
             if (reg != REG_NA)
             {
                 resultMask |= genRegMask(reg);
@@ -678,7 +615,7 @@ regMaskTP GenTree::gtGetRegMask() const
         resultMask = RBM_NONE;
         for (unsigned i = 0; i < regCount; ++i)
         {
-            regNumber reg = splitArg->GetRegNumByIdx(i);
+            regNumber reg = splitArg->GetRegNum(i);
             assert(reg != REG_NA);
             resultMask |= genRegMask(reg);
         }
@@ -729,14 +666,16 @@ regMaskTP GenTreeCall::GetOtherRegMask() const
     regMaskTP resultMask = RBM_NONE;
 
 #if FEATURE_MULTIREG_RET
-    for (unsigned i = 0; i < MAX_RET_REG_COUNT - 1; ++i)
+    for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
     {
-        if (gtOtherRegs[i] != REG_NA)
+        regNumber reg = GetRegNum(i);
+
+        if (reg == REG_NA)
         {
-            resultMask |= genRegMask((regNumber)gtOtherRegs[i]);
-            continue;
+            break;
         }
-        break;
+
+        resultMask |= genRegMask(reg);
     }
 #endif
 
@@ -3989,46 +3928,21 @@ bool GenTree::OperMayThrow(Compiler* comp)
     return false;
 }
 
-//-----------------------------------------------------------------------------------
-// GetFieldCount: Return the register count for a multi-reg lclVar.
-//
-// Arguments:
-//     compiler - the current Compiler instance.
-//
-// Return Value:
-//     Returns the number of registers defined by this node.
-//
-// Notes:
-//     This must be a multireg lclVar.
-//
-unsigned int GenTreeLclVar::GetFieldCount(Compiler* compiler) const
+unsigned GenTreeLclVar::GetMultiRegCount(Compiler* compiler) const
 {
     assert(IsMultiReg());
-    LclVarDsc* varDsc = compiler->lvaGetDesc(GetLclNum());
-    return varDsc->lvFieldCnt;
+
+    return compiler->lvaGetDesc(GetLclNum())->GetPromotedFieldCount();
 }
 
-//-----------------------------------------------------------------------------------
-// GetFieldTypeByIndex: Get a specific register's type, based on regIndex, that is produced
-//                    by this multi-reg node.
-//
-// Arguments:
-//     compiler - the current Compiler instance.
-//     idx      - which register type to return.
-//
-// Return Value:
-//     The register type assigned to this index for this node.
-//
-// Notes:
-//     This must be a multireg lclVar and 'regIndex' must be a valid index for this node.
-//
-var_types GenTreeLclVar::GetFieldTypeByIndex(Compiler* compiler, unsigned idx)
+var_types GenTreeLclVar::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 {
     assert(IsMultiReg());
-    LclVarDsc* varDsc      = compiler->lvaGetDesc(GetLclNum());
-    LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + idx);
-    assert(fieldVarDsc->TypeGet() != TYP_STRUCT); // Don't expect struct fields.
-    return fieldVarDsc->TypeGet();
+
+    LclVarDsc* lcl      = compiler->lvaGetDesc(GetLclNum());
+    LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
+    assert(!fieldLcl->TypeIs(TYP_STRUCT));
+    return fieldLcl->GetType();
 }
 
 #if DEBUGGABLE_GENTREE
@@ -4559,9 +4473,6 @@ GenTreeCall* Compiler::gtNewCallNode(
 
     // Initialize gtOtherRegs
     node->ClearOtherRegs();
-
-    // Initialize spill flags of gtOtherRegs
-    node->ClearOtherRegFlags();
 
 #ifndef TARGET_64BIT
     if (varTypeIsLong(type))
@@ -5728,16 +5639,14 @@ DONE:
         gtUpdateNodeSideEffects(copy);
     }
 
-#if defined(DEBUG)
     // Non-node debug flags should be propagated from 'tree' to 'copy'
-    copy->gtDebugFlags |= (tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
-#endif
+    INDEBUG(copy->gtDebugFlags |= (tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);)
 
-    /* Make sure to copy back fields that may have been initialized */
+    copy->CopyCosts(tree);
 
-    copy->CopyRawCosts(tree);
-    copy->gtRsvdRegs = tree->gtRsvdRegs;
-    copy->CopyReg(tree);
+    // We don't expect to clone trees after register allocation.
+    assert(!tree->HasRegs() || (tree->GetRegNum() == REG_NA));
+
     return copy;
 }
 
@@ -5829,8 +5738,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
     copy->gtRawILOffset       = tree->AsCall()->gtRawILOffset;
 #endif
 
-    copy->CopyOtherRegFlags(tree);
-
     // We keep track of the number of no return calls, so if we've cloned
     // one of these, update the tracking.
     //
@@ -5871,8 +5778,6 @@ GenTreeCall* Compiler::gtCloneCandidateCall(GenTreeCall* call)
 #if defined(DEBUG)
     result->gtDebugFlags |= (call->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
 #endif
-
-    result->CopyReg(call);
 
     return result;
 }
@@ -6719,11 +6624,11 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
 
 #ifdef DEBUG
 
-/* static */ int GenTree::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
+int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
 {
     int charsDisplayed = 11; // 11 is the "baseline" number of flag characters displayed
 
-    printf("%c", (flags & GTF_ASG) ? 'A' : (IsContained(flags) ? 'c' : '-'));
+    printf("%c", (flags & GTF_ASG) ? 'A' : ((flags & GTF_CONTAINED) ? 'c' : '-'));
     printf("%c", (flags & GTF_CALL) ? 'C' : '-');
     printf("%c", (flags & GTF_EXCEPT) ? 'X' : '-');
     printf("%c", (flags & GTF_GLOB_REF) ? 'G' : '-');
@@ -6735,7 +6640,7 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
     printf("%c", (flags & GTF_REVERSE_OPS) ? 'R' : '-');
     printf("%c", (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-');
     printf("%c", '-');
-    printf("%c", (flags & GTF_SPILLED) ? 'z' : (flags & GTF_SPILL) ? 'Z' : '-');
+    printf("%c", '-');
 
     return charsDisplayed;
 }
@@ -6960,8 +6865,8 @@ void Compiler::gtDispVN(GenTree* tree)
 void Compiler::gtDispCommonEndLine(GenTree* tree)
 {
     gtDispZeroFieldSeq(tree);
-    gtDispRegVal(tree);
     gtDispVN(tree);
+    gtDispNodeRegs(tree);
     printf("\n");
 }
 
@@ -6975,7 +6880,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
     if (tree->gtSeqNum)
     {
         printf("N%03u ", tree->gtSeqNum);
-        if (tree->gtCostsInitialized)
+        if (tree->HasCosts())
         {
             printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
         }
@@ -7018,7 +6923,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             printf("     ");
         }
 
-        if (tree->gtCostsInitialized)
+        if (tree->HasCosts())
         {
             printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
         }
@@ -7284,7 +7189,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             flags &= ~GTF_REVERSE_OPS;
         }
 
-        msgLength -= GenTree::gtDispFlags(flags, tree->gtDebugFlags);
+        msgLength -= gtDispFlags(flags, tree->gtDebugFlags);
     }
 
     return msgLength;
@@ -7455,39 +7360,31 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     }
 }
 
-//----------------------------------------------------------------------------------
-// gtDispRegVal: Print the register(s) defined by the given node
-//
-// Arguments:
-//    tree  -  Gentree node whose registers we want to print
-//
-void Compiler::gtDispRegVal(GenTree* tree)
+void Compiler::gtDispNodeRegs(GenTree* tree)
 {
-    switch (tree->GetRegTag())
+    if (tree->TypeIs(TYP_VOID) || !tree->HasRegs())
     {
-        // Don't display anything for the GT_REGTAG_NONE case;
-        // the absence of printed register values will imply this state.
-
-        case GenTree::GT_REGTAG_REG:
-            printf(" REG %s", compRegVarName(tree->GetRegNum()));
-            break;
-
-        default:
-            return;
+        return;
     }
+
+    printf(" REGS(");
+
+    unsigned count = 1;
 
 #if FEATURE_MULTIREG_RET
     if (tree->IsMultiRegNode())
     {
-        // 0th reg is GetRegNum(), which is already printed above.
-        // Print the remaining regs of a multi-reg node.
-        for (unsigned i = 1, count = tree->GetMultiRegCount(this); i < count; ++i)
-        {
-            regNumber reg = tree->GetRegByIndex(i);
-            printf(", %s", genIsValidReg(reg) ? compRegVarName(reg) : "NA");
-        }
+        count = tree->GetMultiRegCount(this);
     }
 #endif
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        printf("%s%s%s%s", i != 0 ? ", " : "", getRegName(tree->GetRegNum(i)), tree->IsRegSpill(i) ? "$" : "",
+               tree->IsRegSpilled(i) ? "#" : "");
+    }
+
+    printf(")");
 }
 
 // We usually/commonly don't expect to print anything longer than this string,
@@ -9032,7 +8929,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
         {
             int len = sprintf_s(dest, sizeof(dest), "t%u.%s", instr->gtTreeID, varTypeName(instr->GetType()));
 
-            if (instr->gtHasReg())
+            if (instr->GetRegNum() != REG_NA)
             {
                 len += sprintf_s(dest + len, sizeof(dest) - len, " @%s", compRegVarName(instr->GetRegNum()));
             }
@@ -9049,7 +8946,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
 
             printf("t%u.%s", op->gtTreeID, varTypeName(op->GetType()));
 
-            if (op->gtHasReg())
+            if (op->GetRegNum() != REG_NA)
             {
                 printf(" @%s", compRegVarName(op->GetRegNum()));
             }
@@ -12592,6 +12489,7 @@ unsigned GenTree::IsLclVarUpdateTree(GenTree** pOtherTree, genTreeOps* pOper)
     return lclNum;
 }
 
+#ifdef DEBUG
 //------------------------------------------------------------------------
 // canBeContained: check whether this tree node may be a subcomponent of its parent for purposes
 //                 of code generation.
@@ -12615,6 +12513,7 @@ bool GenTree::canBeContained() const
 
     return true;
 }
+#endif // DEBUG
 
 //------------------------------------------------------------------------
 // isContained: check whether this tree node is a subcomponent of its parent for codegen purposes
@@ -12632,29 +12531,16 @@ bool GenTree::canBeContained() const
 bool GenTree::isContained() const
 {
     assert(IsLIR());
-    const bool isMarkedContained = ((gtFlags & GTF_CONTAINED) != 0);
 
-#ifdef DEBUG
-    if (!canBeContained())
+    if ((gtFlags & GTF_CONTAINED) == 0)
     {
-        assert(!isMarkedContained);
+        return false;
     }
 
-    // these actually produce a register (the flags reg, we just don't model it)
-    // and are a separate instruction from the branch that consumes the result.
-    // They can only produce a result if the child is a SIMD equality comparison.
-    else if (OperIsCompare())
-    {
-        assert(isMarkedContained == false);
-    }
+    assert(canBeContained());
+    assert(!IsUnusedValue());
 
-    // if it's contained it can't be unused.
-    if (isMarkedContained)
-    {
-        assert(!IsUnusedValue());
-    }
-#endif // DEBUG
-    return isMarkedContained;
+    return true;
 }
 
 bool GenTree::isIndirAddrMode()

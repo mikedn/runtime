@@ -1162,8 +1162,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     if (oper == GT_MUL_LONG)
     {
         // We sometimes bash GT_MUL to GT_MUL_LONG, which converts it from GenTreeOp to GenTreeMultiRegOp.
-        AsMultiRegOp()->gtOtherReg = REG_NA;
-        AsMultiRegOp()->ClearOtherRegFlags();
+        AsMultiRegOp()->SetRegNum(1, REG_NA);
     }
 #endif
 
@@ -1320,8 +1319,7 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
 #ifdef TARGET_ARM
         case GT_BITCAST:
-            AsMultiRegOp()->gtOtherReg = REG_NA;
-            AsMultiRegOp()->ClearOtherRegFlags();
+            AsMultiRegOp()->SetRegNum(1, REG_NA);
             break;
 #endif
         default:
@@ -2087,7 +2085,7 @@ inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
 inline var_types Compiler::mangleVarArgsType(var_types type)
 {
 #if defined(TARGET_ARMARCH)
-    if (opts.compUseSoftFP
+    if (opts.UseSoftFP()
 #if defined(TARGET_WINDOWS)
         || info.compIsVarArgs
 #endif // defined(TARGET_WINDOWS)

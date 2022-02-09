@@ -327,9 +327,9 @@ CONFIG_INTEGER(EnableArm64Sm4,          W("EnableArm64Sm4"), 1)
 CONFIG_INTEGER(EnableArm64Sve,          W("EnableArm64Sve"), 1)
 #endif // defined(TARGET_ARM64)
 
-#if defined(CONFIGURABLE_ARM_ABI)
+#ifdef TARGET_ARM
 CONFIG_INTEGER(JitSoftFP, W("JitSoftFP"), 0)
-#endif // defined(CONFIGURABLE_ARM_ABI)
+#endif
 
 // clang-format on
 

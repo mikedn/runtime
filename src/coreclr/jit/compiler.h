@@ -466,7 +466,7 @@ public:
     unsigned char lvIsMultiRegArg : 1; // true if this is a multireg LclVar struct used in an argument context
     unsigned char lvIsMultiRegRet : 1; // true if this is a multireg LclVar struct assigned from a multireg call
 
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
     unsigned char m_isHfa : 1;
 #endif
 
@@ -598,7 +598,7 @@ public:
 
     bool lvIsHfa() const
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         return m_isHfa;
 #else
         return false;
@@ -607,7 +607,7 @@ public:
 
     bool lvIsHfaRegArg() const
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         return lvIsRegArg && lvIsHfa();
 #else
         return false;
@@ -733,6 +733,11 @@ public:
     /////////////////////
 
     bool lvIsRegCandidate() const
+    {
+        return IsRegCandidate();
+    }
+
+    bool IsRegCandidate() const
     {
         return lvLRACandidate != 0;
     }
@@ -944,7 +949,7 @@ public:
 
     void SetIsHfa(bool isHfa)
     {
-#ifdef FEATURE_HFA_FIELDS_PRESENT
+#ifdef FEATURE_HFA
         m_isHfa = isHfa;
 #endif
     }
@@ -1011,17 +1016,8 @@ public:
         return lvLiveInOutOfHndlr || lvSpillAtSingleDef;
     }
 
-#ifdef DEBUG
-public:
-    const char* lvReason;
-
-    void PrintVarReg() const
-    {
-        printf("%s", getRegName(GetRegNum()));
-    }
-#endif // DEBUG
-
-}; // class LclVarDsc
+    INDEBUG(const char* lvReason;)
+};
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -1106,6 +1102,16 @@ public:
         return tdSize;
     }
     var_types tdTempType() const
+    {
+        return tdType;
+    }
+
+    unsigned GetTempNum() const
+    {
+        return tdNum;
+    }
+
+    var_types GetType() const
     {
         return tdType;
     }
@@ -2282,13 +2288,13 @@ public:
 #ifdef DEBUG
     void gtDispNode(GenTree* tree, IndentStack* indentStack, __in_z const char* msg, bool isLIR);
     int gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength);
-
+    int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
-    void gtDispRegVal(GenTree* tree);
+    void gtDispNodeRegs(GenTree* tree);
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispVN(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
@@ -6580,58 +6586,31 @@ public:
     //
     class VirtualStubParamInfo
     {
+        const regNumber regNum;
+
     public:
         VirtualStubParamInfo(bool isCoreRTABI)
-        {
 #if defined(TARGET_X86)
-            reg     = REG_EAX;
-            regMask = RBM_EAX;
+            : regNum(REG_EAX)
 #elif defined(TARGET_AMD64)
-            if (isCoreRTABI)
-            {
-                reg     = REG_R10;
-                regMask = RBM_R10;
-            }
-            else
-            {
-                reg     = REG_R11;
-                regMask = RBM_R11;
-            }
+            : regNum(isCoreRTABI ? REG_R10 : REG_R11)
 #elif defined(TARGET_ARM)
-            if (isCoreRTABI)
-            {
-                reg     = REG_R12;
-                regMask = RBM_R12;
-            }
-            else
-            {
-                reg     = REG_R4;
-                regMask = RBM_R4;
-            }
+            : regNum(isCoreRTABI ? REG_R12 : REG_R4)
 #elif defined(TARGET_ARM64)
-            reg     = REG_R11;
-            regMask = RBM_R11;
+            : regNum(REG_R11)
 #else
 #error Unsupported or unset target architecture
 #endif
-        }
-
-        regNumber GetReg() const
         {
-            return reg;
         }
 
-        _regMask_enum GetRegMask() const
+        regNumber GetRegNum() const
         {
-            return regMask;
+            return regNum;
         }
-
-    private:
-        regNumber     reg;
-        _regMask_enum regMask;
     };
 
-    VirtualStubParamInfo* virtualStubParamInfo;
+    VirtualStubParamInfo virtualStubParamInfo;
 
     bool IsTargetAbi(CORINFO_RUNTIME_ABI abi)
     {
@@ -7576,15 +7555,27 @@ public:
         int compJitSaveFpLrWithCalleeSavedRegisters;
 #endif // defined(TARGET_ARM64)
 
-#ifdef CONFIGURABLE_ARM_ABI
-        bool compUseSoftFP = false;
+        ARM_ONLY(bool compUseSoftFP;)
+
+        bool UseSoftFP()
+        {
+#ifdef TARGET_ARM
+            return compUseSoftFP;
 #else
-#ifdef ARM_SOFTFP
-        static const bool compUseSoftFP = true;
-#else  // !ARM_SOFTFP
-        static const bool compUseSoftFP = false;
-#endif // ARM_SOFTFP
-#endif // CONFIGURABLE_ARM_ABI
+            return false;
+#endif
+        }
+
+        bool UseHfa()
+        {
+#if defined(TARGET_ARM)
+            return !compUseSoftFP;
+#elif defined(TARGET_ARM64)
+            return true;
+#else
+            return false;
+#endif
+        }
     } opts;
 
     static bool                s_pAltJitExcludeAssembliesListInitialized;

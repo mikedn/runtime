@@ -1006,7 +1006,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 
         for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
         {
-            putArgSplit->SetRegNumByIdx(info->GetRegNum(regIndex), regIndex);
+            putArgSplit->SetRegNum(regIndex, info->GetRegNum(regIndex));
 
             // We don't have GC info in CallArgInfo on ARMARCH (the only user of split args)
             // and only integer registers are used. We'll just set everyting to TYP_I_IMPL
@@ -1040,7 +1040,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
                     GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, node);
                     bitcast->SetRegNum(info->GetRegNum(regIndex));
                     regIndex++;
-                    bitcast->AsMultiRegOp()->gtOtherReg = info->GetRegNum(regIndex);
+                    bitcast->AsMultiRegOp()->SetRegNum(1, info->GetRegNum(regIndex));
                     BlockRange().InsertAfter(node, bitcast);
                     use.SetNode(bitcast);
                 }
@@ -1136,7 +1136,7 @@ GenTree* Lowering::InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned 
     {
         GenTree* intArg = comp->gtNewBitCastNode(TYP_LONG, arg);
         intArg->SetRegNum(argReg);
-        intArg->AsMultiRegOp()->gtOtherReg = argInfo->GetRegNum(regIndex + 1);
+        intArg->AsMultiRegOp()->SetRegNum(1, argInfo->GetRegNum(regIndex + 1));
         BlockRange().InsertAfter(arg, intArg);
 
         arg  = intArg;
@@ -1147,7 +1147,7 @@ GenTree* Lowering::InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned 
 
     if (type == TYP_LONG)
     {
-        putArg->gtOtherReg = argInfo->GetRegNum(regIndex + 1);
+        putArg->SetRegNum(1, argInfo->GetRegNum(regIndex + 1));
     }
 #else
     GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, type, arg);
@@ -2235,7 +2235,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
             retTypeDesc = src->AsCall()->GetRetDesc();
         }
 
-        MakeMultiRegLclVar(store, retTypeDesc);
+        MakeMultiRegStoreLclVar(store, retTypeDesc);
     }
 #endif
 
@@ -5318,9 +5318,9 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
 
 #if FEATURE_MULTIREG_RET
 
-void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retDesc)
+void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retDesc)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert(lclVar->OperIs(GT_STORE_LCL_VAR));
 
     bool canEnregister = false;
 
@@ -5348,7 +5348,7 @@ void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* r
     // For local stores on XARCH we only handle mismatched src/dest register count for
     // calls of SIMD type. If the source was another lclVar similarly promoted, we would
     // have broken it into multiple stores.
-    if (lclVar->OperIs(GT_STORE_LCL_VAR) && !lclVar->GetOp(0)->OperIs(GT_CALL))
+    if (!lclVar->GetOp(0)->OperIs(GT_CALL))
     {
         canEnregister = false;
     }

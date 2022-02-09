@@ -392,41 +392,13 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
 void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
 {
     assert(node->OperIs(GT_LCL_VAR));
-    assert((node->gtFlags & GTF_SPILLED) == 0);
+    assert(!node->IsRegSpilled(0));
 
     inst_set_SV_var(node);
 
     unsigned lclNum = node->GetLclNum();
     assert(lclNum < compiler->lvaCount);
     GetEmitter()->emitIns_S(ins, emitActualTypeSize(node->GetType()), lclNum, 0);
-}
-
-void CodeGen::inst_TT_RV(instruction ins, emitAttr size, GenTreeLclVar* node, regNumber reg)
-{
-#ifdef TARGET_ARMARCH
-    assert(GetEmitter()->emitInsIsStore(ins));
-#endif
-    assert(size != EA_UNKNOWN);
-    assert(node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
-    assert(reg != REG_STK);
-
-#ifdef DEBUG
-    bool isValidInReg = ((node->gtFlags & GTF_SPILLED) == 0);
-
-    if (!isValidInReg)
-    {
-        // Is this the special case of a write-thru lclVar?
-        // We mark it as SPILLED to denote that its value is valid in memory.
-        if (((node->gtFlags & GTF_SPILL) != 0) && node->OperIs(GT_STORE_LCL_VAR))
-        {
-            isValidInReg = true;
-        }
-    }
-
-    assert(isValidInReg);
-#endif
-
-    GetEmitter()->emitIns_S_R(ins, size, reg, node->GetLclNum(), 0);
 }
 
 void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* node)
@@ -436,7 +408,7 @@ void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeL
 #endif
     assert(reg != REG_STK);
     assert(size != EA_UNKNOWN);
-    assert((node->gtFlags & GTF_SPILLED) == 0);
+    assert(!node->IsRegSpilled(0));
 
     if (node->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR))
     {

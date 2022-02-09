@@ -411,8 +411,8 @@ int LinearScan::BuildNode(GenTree* tree)
             dstCount = 2;
             srcCount = BuildBinaryUses(tree->AsOp());
             assert(srcCount == 2);
-            BuildDef(tree, RBM_NONE, 0);
-            BuildDef(tree, RBM_NONE, 1);
+            BuildDef(tree, TYP_INT, RBM_NONE, 0);
+            BuildDef(tree, TYP_INT, RBM_NONE, 1);
             break;
 
         case GT_NO_OP:
@@ -704,8 +704,8 @@ int LinearScan::BuildNode(GenTree* tree)
                 assert(genRegArgNext(argReg) == REG_NEXT(argReg));
                 regMaskTP argMaskNext = argReg == REG_NA ? RBM_NONE : genRegMask(REG_NEXT(argReg));
 
-                BuildDef(tree, argMask, 0);
-                BuildDef(tree, argMaskNext, 1);
+                BuildDef(tree, TYP_INT, argMask, 0);
+                BuildDef(tree, TYP_INT, argMaskNext, 1);
 
                 dstCount = 2;
             }

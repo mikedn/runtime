@@ -1778,29 +1778,22 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 {
     assert(!treeNode->gtOverflowEx());
 
-    genConsumeOperands(treeNode);
-
-    regNumber targetReg  = treeNode->GetRegNum();
     var_types targetType = treeNode->TypeGet();
     emitter*  emit       = GetEmitter();
     emitAttr  attr       = emitActualTypeSize(treeNode);
     unsigned  isUnsigned = (treeNode->gtFlags & GTF_UNSIGNED);
 
-    GenTree* op1 = treeNode->gtGetOp1();
-    GenTree* op2 = treeNode->gtGetOp2();
+    regNumber srcReg1 = UseReg(treeNode->GetOp(0));
+    regNumber srcReg2 = UseReg(treeNode->GetOp(1));
+    regNumber dstReg  = treeNode->GetRegNum();
 
     assert(!varTypeIsFloating(targetType));
-
-    // The arithmetic node must be sitting in a register (since it's not contained)
-    assert(targetReg != REG_NA);
 
     if (EA_SIZE(attr) == EA_8BYTE)
     {
         instruction ins = isUnsigned ? INS_umulh : INS_smulh;
 
-        regNumber r = emit->emitInsTernary(ins, attr, treeNode, op1, op2);
-
-        assert(r == targetReg);
+        emit->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
     }
     else
     {
@@ -1808,16 +1801,13 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 
         instruction ins = isUnsigned ? INS_umull : INS_smull;
 
-        regNumber r = emit->emitInsTernary(ins, EA_4BYTE, treeNode, op1, op2);
-
-        emit->emitIns_R_R_I(isUnsigned ? INS_lsr : INS_asr, EA_8BYTE, targetReg, targetReg, 32);
+        emit->emitIns_R_R_R(ins, EA_4BYTE, dstReg, srcReg1, srcReg2);
+        emit->emitIns_R_R_I(isUnsigned ? INS_lsr : INS_asr, EA_8BYTE, dstReg, dstReg, 32);
     }
 
-    genProduceReg(treeNode);
+    DefReg(treeNode);
 }
 
-// Generate code for ADD, SUB, MUL, DIV, UDIV, AND, OR and XOR
-// This method is expected to have called genConsumeOperands() before calling it.
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 {
     const genTreeOps oper       = treeNode->OperGet();
@@ -1831,6 +1821,16 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     GenTree*    op1 = treeNode->gtGetOp1();
     GenTree*    op2 = treeNode->gtGetOp2();
     instruction ins = genGetInsForOper(treeNode->OperGet(), targetType);
+
+    if (op1->isUsedFromReg())
+    {
+        UseReg(op1);
+    }
+
+    if (op2->isUsedFromReg())
+    {
+        UseReg(op2);
+    }
 
     if ((treeNode->gtFlags & GTF_SET_FLAGS) != 0)
     {
@@ -1869,7 +1869,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     regNumber r = emit->emitInsTernary(ins, attr, treeNode, op1, op2);
     assert(r == targetReg);
 
-    genProduceReg(treeNode);
+    DefReg(treeNode);
 }
 
 //------------------------------------------------------------------------
@@ -1894,7 +1894,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
     // If this is a register candidate that has been spilled, genConsumeReg() will
     // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
 
-    if (!isRegCandidate && !tree->IsMultiReg() && !(tree->gtFlags & GTF_SPILLED))
+    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
     {
         // targetType must be a normal scalar type and not a TYP_STRUCT
         assert(targetType != TYP_STRUCT);
@@ -1904,7 +1904,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 
         emitter* emit = GetEmitter();
         emit->emitIns_R_S(ins, attr, tree->GetRegNum(), varNum, 0);
-        genProduceReg(tree);
+        DefLclVarRegs(tree);
     }
 }
 
@@ -1991,6 +1991,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (lclRegType == TYP_SIMD12)
     {
         genStoreSIMD12(store, store->GetOp(0));
+        // TODO-MIKE-Review: Doesn't this need a DefLclVarRegs call?
         return;
     }
 #endif
@@ -2042,7 +2043,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
                                   /* canSkip */ true);
     }
 
-    genProduceReg(store);
+    DefLclVarRegs(store);
 }
 
 /***********************************************************************************************
@@ -2092,7 +2093,8 @@ void CodeGen::genLclHeap(GenTree* tree)
     else
     {
         // If 0 bail out by returning null in targetReg
-        genConsumeRegAndCopy(size, targetReg);
+        genConsumeReg(size);
+        genCopyRegIfNeeded(size, targetReg);
         endLabel = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_tst, easz, targetReg, targetReg);
         inst_JMP(EJ_eq, endLabel);
@@ -2335,7 +2337,7 @@ BAILOUT:
 // Arguments:
 //    tree - the node
 //
-void CodeGen::genCodeForNegNot(GenTree* tree)
+void CodeGen::genCodeForNegNot(GenTreeUnOp* tree)
 {
     assert(tree->OperIs(GT_NEG, GT_NOT));
 
@@ -2390,125 +2392,67 @@ void CodeGen::genCodeForBswap(GenTree* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForDivMod: Produce code for a GT_DIV/GT_UDIV node. We don't see MOD:
-// (1) integer MOD is morphed into a sequence of sub, mul, div in fgMorph;
-// (2) float/double MOD is morphed into a helper call by front-end.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForDivMod(GenTreeOp* tree)
+void CodeGen::genCodeForDivMod(GenTreeOp* div)
 {
-    assert(tree->OperIs(GT_DIV, GT_UDIV));
+    assert(div->OperIs(GT_DIV, GT_UDIV));
 
-    var_types targetType = tree->TypeGet();
-    emitter*  emit       = GetEmitter();
+    GenTree* dividend = div->GetOp(0);
+    GenTree* divisor  = div->GetOp(1);
 
-    genConsumeOperands(tree);
+    regNumber dividendReg = UseReg(dividend);
+    regNumber divisorReg  = UseReg(divisor);
+    regNumber dstReg      = div->GetRegNum();
 
-    if (varTypeIsFloating(targetType))
+    emitAttr attr = emitActualTypeSize(div->GetType());
+    emitter* emit = GetEmitter();
+
+    if (varTypeIsFloating(div->GetType()))
     {
-        // Floating point divide never raises an exception
-        genCodeForBinary(tree);
+        emit->emitIns_R_R_R(INS_fdiv, attr, dstReg, dividendReg, divisorReg);
     }
-    else // an integer divide operation
+    else if (divisor->IsIntegralConst(0))
     {
-        GenTree* divisorOp = tree->gtGetOp2();
-        emitAttr size      = EA_ATTR(genTypeSize(genActualType(tree->TypeGet())));
-
-        if (divisorOp->IsIntegralConst(0))
-        {
-            // We unconditionally throw a divide by zero exception
-            genJumpToThrowHlpBlk(EJ_jmp, SCK_DIV_BY_ZERO);
-
-            // We still need to call genProduceReg
-            genProduceReg(tree);
-        }
-        else // the divisor is not the constant zero
-        {
-            regNumber divisorReg = divisorOp->GetRegNum();
-
-            // Generate the require runtime checks for GT_DIV or GT_UDIV
-            if (tree->gtOper == GT_DIV)
-            {
-                BasicBlock* sdivLabel = genCreateTempLabel();
-
-                // Two possible exceptions:
-                //     (AnyVal /  0) => DivideByZeroException
-                //     (MinInt / -1) => ArithmeticException
-                //
-                bool checkDividend = true;
-
-                // Do we have an immediate for the 'divisorOp'?
-                //
-                if (divisorOp->IsCnsIntOrI())
-                {
-                    GenTreeIntConCommon* intConstTree  = divisorOp->AsIntConCommon();
-                    ssize_t              intConstValue = intConstTree->IconValue();
-                    assert(intConstValue != 0); // already checked above by IsIntegralConst(0)
-                    if (intConstValue != -1)
-                    {
-                        checkDividend = false; // We statically know that the dividend is not -1
-                    }
-                }
-                else // insert check for divison by zero
-                {
-                    // Check if the divisor is zero throw a DivideByZeroException
-                    emit->emitIns_R_I(INS_cmp, size, divisorReg, 0);
-                    genJumpToThrowHlpBlk(EJ_eq, SCK_DIV_BY_ZERO);
-                }
-
-                if (checkDividend)
-                {
-                    // Check if the divisor is not -1 branch to 'sdivLabel'
-                    emit->emitIns_R_I(INS_cmp, size, divisorReg, -1);
-
-                    inst_JMP(EJ_ne, sdivLabel);
-                    // If control flow continues past here the 'divisorReg' is known to be -1
-
-                    regNumber dividendReg = tree->gtGetOp1()->GetRegNum();
-                    // At this point the divisor is known to be -1
-                    //
-                    // Issue the 'adds  zr, dividendReg, dividendReg' instruction
-                    // this will set both the Z and V flags only when dividendReg is MinInt
-                    //
-                    emit->emitIns_R_R_R(INS_adds, size, REG_ZR, dividendReg, dividendReg);
-                    inst_JMP(EJ_ne, sdivLabel);                   // goto sdiv if the Z flag is clear
-                    genJumpToThrowHlpBlk(EJ_vs, SCK_ARITH_EXCPN); // if the V flags is set throw
-                                                                  // ArithmeticException
-
-                    genDefineTempLabel(sdivLabel);
-                }
-                genCodeForBinary(tree); // Generate the sdiv instruction
-            }
-            else // (tree->gtOper == GT_UDIV)
-            {
-                // Only one possible exception
-                //     (AnyVal /  0) => DivideByZeroException
-                //
-                // Note that division by the constant 0 was already checked for above by the
-                // op2->IsIntegralConst(0) check
-                //
-                if (!divisorOp->IsCnsIntOrI())
-                {
-                    // divisorOp is not a constant, so it could be zero
-                    //
-                    emit->emitIns_R_I(INS_cmp, size, divisorReg, 0);
-                    genJumpToThrowHlpBlk(EJ_eq, SCK_DIV_BY_ZERO);
-                }
-                genCodeForBinary(tree);
-            }
-        }
+        genJumpToThrowHlpBlk(EJ_jmp, SCK_DIV_BY_ZERO);
     }
+    else
+    {
+        // (U)DIV(AnyVal, 0) => DivideByZeroException
+        // DIV(MinInt, -1) => ArithmeticException
+
+        bool checkDividend = true;
+
+        if (!divisor->IsIntCon())
+        {
+            emit->emitIns_R_I(INS_cmp, attr, divisorReg, 0);
+            genJumpToThrowHlpBlk(EJ_eq, SCK_DIV_BY_ZERO);
+        }
+        else
+        {
+            checkDividend = divisor->AsIntCon()->GetValue() == -1;
+        }
+
+        if (div->OperIs(GT_DIV) && checkDividend)
+        {
+            BasicBlock* sdivLabel = genCreateTempLabel();
+            emit->emitIns_R_I(INS_cmp, attr, divisorReg, -1);
+            inst_JMP(EJ_ne, sdivLabel);
+            emit->emitIns_R_R_R(INS_adds, attr, REG_ZR, dividendReg, dividendReg);
+            inst_JMP(EJ_ne, sdivLabel);
+            genJumpToThrowHlpBlk(EJ_vs, SCK_ARITH_EXCPN);
+            genDefineTempLabel(sdivLabel);
+        }
+
+        emit->emitIns_R_R_R(div->OperIs(GT_DIV) ? INS_sdiv : INS_udiv, attr, dstReg, dividendReg, divisorReg);
+    }
+
+    DefReg(div);
 }
 
 // generate code do a switch statement based on a table of ip-relative offsets
-void CodeGen::genTableBasedSwitch(GenTree* treeNode)
+void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 {
-    genConsumeOperands(treeNode->AsOp());
-    regNumber idxReg  = treeNode->AsOp()->gtOp1->GetRegNum();
-    regNumber baseReg = treeNode->AsOp()->gtOp2->GetRegNum();
+    regNumber idxReg  = UseReg(treeNode->GetOp(0));
+    regNumber baseReg = UseReg(treeNode->GetOp(1));
 
     regNumber tmpReg = treeNode->GetSingleTempReg();
 
@@ -2568,14 +2512,12 @@ void CodeGen::genJumpTable(GenTree* treeNode)
 //
 void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
 {
-    GenTree*  data      = treeNode->AsOp()->gtOp2;
-    GenTree*  addr      = treeNode->AsOp()->gtOp1;
-    regNumber targetReg = treeNode->GetRegNum();
-    regNumber dataReg   = data->GetRegNum();
-    regNumber addrReg   = addr->GetRegNum();
+    GenTree* addr = treeNode->GetOp(0);
+    GenTree* data = treeNode->GetOp(1);
 
-    genConsumeAddress(addr);
-    genConsumeRegs(data);
+    regNumber addrReg   = UseReg(addr);
+    regNumber dataReg   = data->isUsedFromReg() ? UseReg(data) : REG_NA;
+    regNumber targetReg = treeNode->GetRegNum();
 
     emitAttr dataSize = emitActualTypeSize(data);
 
@@ -2639,6 +2581,8 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
         noway_assert(exResultReg != storeDataReg);
         noway_assert(exResultReg != addrReg);
 
+        // TODO-MIKE-Review: This is dubious, gcInfo stuff doesn't really matter until we reach a call...
+
         // NOTE: `genConsumeAddress` marks the consumed register as not a GC pointer, as it assumes that the input
         // registers
         // die at the first instruction generated by the node. This is not the case for these atomics as the  input
@@ -2692,7 +2636,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
 
         instGen_MemoryBarrier();
 
-        gcInfo.gcMarkRegSetNpt(addr->gtGetRegMask());
+        gcInfo.gcMarkRegSetNpt(genRegMask(addrReg));
     }
 
     if (treeNode->GetRegNum() != REG_NA)
@@ -2715,14 +2659,10 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
     GenTree* data      = treeNode->GetValue();
     GenTree* comparand = treeNode->GetCompareValue();
 
+    regNumber addrReg      = UseReg(addr);
+    regNumber dataReg      = UseReg(data);
+    regNumber comparandReg = comparand->isUsedFromReg() ? UseReg(comparand) : REG_NA;
     regNumber targetReg    = treeNode->GetRegNum();
-    regNumber dataReg      = data->GetRegNum();
-    regNumber addrReg      = addr->GetRegNum();
-    regNumber comparandReg = comparand->GetRegNum();
-
-    genConsumeAddress(addr);
-    genConsumeRegs(data);
-    genConsumeRegs(comparand);
 
     if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
     {
@@ -2760,6 +2700,8 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         // Store exclusive unpredictable cases must be avoided
         noway_assert(exResultReg != dataReg);
         noway_assert(exResultReg != addrReg);
+
+        // TODO-MIKE-Review: This is dubious, gcInfo stuff doesn't really matter until we reach a call...
 
         // NOTE: `genConsumeAddress` marks the consumed register as not a GC pointer, as it assumes that the input
         // registers
@@ -2817,7 +2759,7 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
 
         instGen_MemoryBarrier();
 
-        gcInfo.gcMarkRegSetNpt(addr->gtGetRegMask());
+        gcInfo.gcMarkRegSetNpt(genRegMask(addrReg));
     }
 
     genProduceReg(treeNode);
@@ -2922,9 +2864,9 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
     // based on the contents of 'data'
 
-    GenTree* data = tree->gtOp1;
-    genConsumeRegs(data);
-    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, data->GetRegNum(), 0);
+    regNumber reg = UseReg(tree->GetOp(0));
+
+    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, reg, 0);
 
     BasicBlock* skipLabel = genCreateTempLabel();
 
@@ -2951,23 +2893,24 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     }
 #endif
 
-    GenTree* data = tree->Data();
-    GenTree* addr = tree->Addr();
+    GenTree* addr = tree->GetAddr();
+    GenTree* data = tree->GetValue();
 
     assert(IsValidSourceType(tree->GetType(), data->GetType()));
 
     GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        genConsumeOperands(tree);
+        regNumber addrReg = UseReg(addr);
+        regNumber dataReg = UseReg(data);
 
         // At this point, we should not have any interference.
         // That is, 'data' must not be in REG_WRITE_BARRIER_DST_BYREF,
         // as that is where 'addr' must go.
-        noway_assert(data->GetRegNum() != REG_WRITE_BARRIER_DST_BYREF);
+        noway_assert(dataReg != REG_WRITE_BARRIER_DST_BYREF);
 
-        genCopyRegIfNeeded(addr, REG_WRITE_BARRIER_DST);
-        genCopyRegIfNeeded(data, REG_WRITE_BARRIER_SRC);
+        inst_Mov(addr->GetType(), REG_WRITE_BARRIER_DST, addrReg, /* canSkip */ true);
+        inst_Mov(data->GetType(), REG_WRITE_BARRIER_SRC, dataReg, /* canSkip */ true);
         genGCWriteBarrier(tree, writeBarrierForm);
 
         return;
@@ -2976,25 +2919,19 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     // We must consume the operands in the proper execution order,
     // so that liveness is updated appropriately.
     genConsumeAddress(addr);
-
-    if (!data->isContained())
-    {
-        genConsumeRegs(data);
-    }
-
     var_types type = tree->GetType();
     regNumber dataReg;
 
-    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_HWINTRINSIC))
+    if (data->isContained())
     {
         assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsHWIntrinsicZero());
         assert(varTypeSize(type) <= REGSIZE_BYTES);
+
         dataReg = REG_ZR;
     }
-    else // data is not contained, so evaluate it into a register
+    else
     {
-        assert(!data->isContained());
-        dataReg = data->GetRegNum();
+        dataReg = UseReg(data);
     }
 
     instruction ins = ins_Store(type);
@@ -3039,7 +2976,7 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     // Swap is only supported for lclVar operands that are enregistered
     // We do not consume or produce any registers.  Both operands remain enregistered.
     // However, the gc-ness may change.
-    assert(genIsRegCandidateLclVar(tree->gtOp1) && genIsRegCandidateLclVar(tree->gtOp2));
+    assert(IsRegCandidateLclVar(tree->gtOp1) && IsRegCandidateLclVar(tree->gtOp2));
 
     GenTreeLclVarCommon* lcl1    = tree->gtOp1->AsLclVar();
     LclVarDsc*           varDsc1 = compiler->lvaGetDesc(lcl1);
@@ -3227,10 +3164,8 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
     var_types op1Type = genActualType(op1->TypeGet());
     var_types op2Type = genActualType(op2->TypeGet());
 
-    assert(!op1->isUsedFromMemory());
-    assert(!op2->isUsedFromMemory());
-
-    genConsumeOperands(tree);
+    regNumber srcReg1 = UseReg(op1);
+    regNumber srcReg2 = op2->isContained() ? REG_NA : UseReg(op2);
 
     emitAttr cmpSize = EA_ATTR(genTypeSize(op1Type));
 
@@ -3239,18 +3174,18 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
     if (varTypeIsFloating(op1Type))
     {
         assert(varTypeIsFloating(op2Type));
-        assert(!op1->isContained());
         assert(op1Type == op2Type);
 
+        // TODO-MIKE-Review: This is nonsense...
         if (op2->IsIntegralConst(0))
         {
             assert(op2->isContained());
-            emit->emitIns_R_F(INS_fcmp, cmpSize, op1->GetRegNum(), 0.0);
+            emit->emitIns_R_F(INS_fcmp, cmpSize, srcReg1, 0.0);
         }
         else
         {
             assert(!op2->isContained());
-            emit->emitIns_R_R(INS_fcmp, cmpSize, op1->GetRegNum(), op2->GetRegNum());
+            emit->emitIns_R_R(INS_fcmp, cmpSize, srcReg1, srcReg2);
         }
     }
     else
@@ -3264,11 +3199,11 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
         if (op2->isContainedIntOrIImmed())
         {
             GenTreeIntConCommon* intConst = op2->AsIntConCommon();
-            emit->emitIns_R_I(ins, cmpSize, op1->GetRegNum(), intConst->IconValue());
+            emit->emitIns_R_I(ins, cmpSize, srcReg1, intConst->IconValue());
         }
         else
         {
-            emit->emitIns_R_R(ins, cmpSize, op1->GetRegNum(), op2->GetRegNum());
+            emit->emitIns_R_R(ins, cmpSize, srcReg1, srcReg2);
         }
     }
 
@@ -3328,10 +3263,9 @@ void CodeGen::genCodeForJumpCompare(GenTreeOp* tree)
     assert(op2->IsCnsIntOrI());
     assert(op2->isContained());
 
-    genConsumeOperands(tree);
+    regNumber reg = UseReg(op1);
 
-    regNumber reg  = op1->GetRegNum();
-    emitAttr  attr = emitActualTypeSize(op1->TypeGet());
+    emitAttr attr = emitActualTypeSize(op1->TypeGet());
 
     if (tree->gtFlags & GTF_JCMP_TST)
     {
@@ -3519,7 +3453,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 // When a 16-byte SIMD value is live across a call, the register allocator will use this intrinsic
 // to cause the upper half to be saved.  It will first attempt to find another, unused, callee-save
 // register. If such a register cannot be found, it will save it to an available caller-save register.
-// In that case, this node will be marked GTF_SPILL, which will cause this method to save
+// In that case, this node's register will be marked SPILL, which will cause this method to save
 // the upper half to the lclVar's home location.
 void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 {
@@ -3533,7 +3467,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 0, 1);
 
-    if ((node->gtFlags & GTF_SPILL) != 0)
+    if (node->IsRegSpill(0))
     {
         unsigned lclNum = op1->AsLclVar()->GetLclNum();
         assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
@@ -3551,7 +3485,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 // have their home register, this node has its targetReg on the lclVar child, and its source
 // on the simdNode.
 // Regarding spill, please see the note above on genSIMDIntrinsicUpperSave.  If we have spilled
-// an upper-half to the lclVar's home location, this node will be marked GTF_SPILLED.
+// an upper-half to the lclVar's home location, this node's register will be marked SPILLED.
 void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
@@ -3562,7 +3496,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
     regNumber dstReg = genConsumeReg(op1);
     assert(dstReg != REG_NA);
 
-    if ((node->gtFlags & GTF_SPILLED) != 0)
+    if (node->IsRegSpilled(0))
     {
         unsigned lclNum = op1->AsLclVar()->GetLclNum();
         assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
@@ -3604,12 +3538,7 @@ void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber t
     inst_AM_R(INS_str, EA_4BYTE, tmpReg, dst, 8);
 }
 
-//-----------------------------------------------------------------------------
-// genLoadIndTypeSIMD12: load indirect a TYP_SIMD12 (i.e. Vector3) value.
-// Since Vector3 is not a hardware supported write size, it is performed
-// as two loads: 8 byte followed by 4-byte.
-//
-void CodeGen::genLoadSIMD12(GenTree* load)
+void CodeGen::LoadSIMD12(GenTree* load)
 {
     GenAddrMode src(load, this);
 
@@ -3621,8 +3550,6 @@ void CodeGen::genLoadSIMD12(GenTree* load)
     inst_R_AM(INS_ldr, EA_8BYTE, dstReg, src, 0);
     inst_R_AM(INS_ldr, EA_4BYTE, tmpReg, src, 8);
     GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, dstReg, tmpReg, 2);
-
-    genProduceReg(load);
 }
 
 #endif // FEATURE_SIMD

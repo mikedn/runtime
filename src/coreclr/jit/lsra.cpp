@@ -66,11 +66,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
         requirement, LSRA must insert a GT_COPY node between the node and its parent.  The GetRegNum() on the GT_COPY
         node must satisfy the register requirement of the parent.
     - GenTree::gtRsvdRegs has a set of registers used for internal temps.
-    - A tree node is marked GTF_SPILL if the tree node must be spilled by the code generator after it has been
+    - A node's register is marked SPILL if the register must be spilled by the code generator after it has been
       evaluated.
-      - LSRA currently does not set GTF_SPILLED on such nodes, because it caused problems in the old code generator.
+      - LSRA currently does not set SPILLED on such registers, because it caused problems in the old code generator.
         In the new backend perhaps this should change (see also the note below under CodeGen).
-    - A tree node is marked GTF_SPILLED if it is a lclVar that must be reloaded prior to use.
+    - A node's register is marked SPILLED if the node is a local that must be reloaded prior to use.
       - The register (GetRegNum()) on the node indicates the register to which it must be reloaded.
       - For lclVar nodes, since the uses and defs are distinct tree nodes, it is always possible to annotate the node
         with the register to which the variable must be reloaded.
@@ -110,66 +110,6 @@ XX                                                                           XX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
-
-//--------------------------------------------------------------
-// lsraAssignRegToTree: Assign the given reg to tree node.
-//
-// Arguments:
-//    tree    -    Gentree node
-//    reg     -    register to be assigned
-//    regIdx  -    register idx, if tree is a multi-reg call node.
-//                 regIdx will be zero for single-reg result producing tree nodes.
-//
-// Return Value:
-//    None
-//
-void lsraAssignRegToTree(GenTree* tree, regNumber reg, unsigned regIdx)
-{
-    if (regIdx == 0)
-    {
-        tree->SetRegNum(reg);
-    }
-#if !defined(TARGET_64BIT)
-    else if (tree->OperIsMultiRegOp())
-    {
-        assert(regIdx == 1);
-        GenTreeMultiRegOp* mul = tree->AsMultiRegOp();
-        mul->gtOtherReg        = reg;
-    }
-#endif // TARGET_64BIT
-#if FEATURE_MULTIREG_RET
-    else if (tree->OperGet() == GT_COPY)
-    {
-        assert(regIdx == 1);
-        GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
-        copy->gtOtherRegs[0]      = (regNumberSmall)reg;
-    }
-#endif // FEATURE_MULTIREG_RET
-#if FEATURE_ARG_SPLIT
-    else if (tree->OperIsPutArgSplit())
-    {
-        GenTreePutArgSplit* putArg = tree->AsPutArgSplit();
-        putArg->SetRegNumByIdx(reg, regIdx);
-    }
-#endif // FEATURE_ARG_SPLIT
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-    else if (tree->OperIs(GT_HWINTRINSIC))
-    {
-        assert(regIdx == 1);
-        tree->AsHWIntrinsic()->SetOtherReg(reg);
-    }
-#endif
-    else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-    {
-        tree->AsLclVar()->SetRegNumByIdx(reg, regIdx);
-    }
-    else
-    {
-        assert(tree->IsMultiRegCall());
-        GenTreeCall* call = tree->AsCall();
-        call->SetRegNumByIdx(reg, regIdx);
-    }
-}
 
 //-------------------------------------------------------------
 // getWeight: Returns the weight of the RefPosition.
@@ -5728,8 +5668,8 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumbe
         LclVarDsc* parentVarDsc = compiler->lvaGetDesc(lclNode->GetLclNum());
         assert(parentVarDsc->lvPromoted);
         unsigned regIndex = varNum - parentVarDsc->lvFieldLclStart;
-        assert(regIndex < MAX_MULTIREG_COUNT);
-        lclNode->SetRegNumByIdx(reg, regIndex);
+
+        lclNode->SetRegNum(regIndex, reg);
     }
 }
 
@@ -5757,8 +5697,8 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumbe
 //     the register
 //   - For each lclVar node:
 //     - GetRegNum()/gtRegPair is set to the currently allocated register(s).
-//     - GTF_SPILLED is set on a use if it must be reloaded prior to use.
-//     - GTF_SPILL is set if it must be spilled after use.
+//     - SPILLED is set on a use if it must be reloaded prior to use.
+//     - SPILL is set if it must be spilled after use.
 //
 // A copyReg is an ugly case where the variable must be in a specific (fixed) register,
 // but it currently resides elsewhere.  The register allocator must track the use of the
@@ -5872,7 +5812,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
     // In the reload case we either:
     // - Set the register to REG_STK if it will be referenced only from the home location, or
-    // - Set the register to the assigned register and set GTF_SPILLED if it must be loaded into a register.
+    // - Set the register to the assigned register and set SPILLED if it must be loaded into a register.
     if (reload)
     {
         assert(currentRefPosition->refType != RefTypeDef);
@@ -5887,15 +5827,15 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         // which case we did the reload already
         if (treeNode != nullptr)
         {
-            treeNode->gtFlags |= GTF_SPILLED;
-            if (treeNode->IsMultiReg())
-            {
-                treeNode->SetRegSpillFlagByIdx(GTF_SPILLED, currentRefPosition->getMultiRegIdx());
-            }
+            treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+
             if (spillAfter)
             {
                 if (currentRefPosition->RegOptional())
                 {
+                    // We don't support RegOptional for multi-reg localvars.
+                    assert(!treeNode->IsMultiReg() && (currentRefPosition->getMultiRegIdx() == 0));
+
                     // This is a use of lclVar that is flagged as reg-optional
                     // by lower/codegen and marked for both reload and spillAfter.
                     // In this case we can avoid unnecessary reload and spill
@@ -5905,19 +5845,13 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                     //
                     // Note that varDsc->GetRegNum() is already to REG_STK above.
                     interval->physReg = REG_NA;
-                    writeLocalReg(treeNode->AsLclVar(), interval->varNum, REG_NA);
-                    treeNode->gtFlags &= ~GTF_SPILLED;
+                    writeLocalReg(treeNode, interval->varNum, REG_NA);
+                    treeNode->SetRegSpilled(0, false);
                     treeNode->SetContained();
-                    // We don't support RegOptional for multi-reg localvars.
-                    assert(!treeNode->IsMultiReg());
                 }
                 else
                 {
-                    treeNode->gtFlags |= GTF_SPILL;
-                    if (treeNode->IsMultiReg())
-                    {
-                        treeNode->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
-                    }
+                    treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                 }
             }
         }
@@ -6002,11 +5936,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         {
             if (treeNode != nullptr)
             {
-                treeNode->gtFlags |= GTF_SPILL;
-                if (treeNode->IsMultiReg())
-                {
-                    treeNode->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
-                }
+                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             }
             assert(interval->isSpilled);
             interval->physReg = REG_NA;
@@ -6015,39 +5945,30 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         if (writeThru && (treeNode != nullptr))
         {
             // This is a def of a write-thru EH var (only defs are marked 'writeThru').
-            treeNode->gtFlags |= GTF_SPILL;
-            // We also mark writeThru defs that are not last-use with GTF_SPILLED to indicate that they are conceptually
-            // spilled and immediately "reloaded", i.e. the register remains live.
+            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+            // We also mark writeThru defs that are not last-use with SPILLED to indicate that they are
+            // conceptually spilled and immediately "reloaded", i.e. the register remains live.
             // Note that we can have a "last use" write that has no exposed uses in the standard
             // (non-eh) control flow, but that may be used on an exception path. Hence the need
             // to retain these defs, and to ensure that they write.
             if (!currentRefPosition->lastUse)
             {
-                treeNode->gtFlags |= GTF_SPILLED;
-                if (treeNode->IsMultiReg())
-                {
-                    treeNode->SetRegSpillFlagByIdx(GTF_SPILLED, currentRefPosition->getMultiRegIdx());
-                }
+                treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
             }
         }
 
         if (currentRefPosition->singleDefSpill && (treeNode != nullptr))
         {
             // This is the first (and only) def of a single-def var (only defs are marked 'singleDefSpill').
-            // Mark it as GTF_SPILL, so it is spilled immediately to the stack at definition and
-            // GTF_SPILLED, so the variable stays live in the register.
+            // Mark it as SPILL, so it is spilled immediately to the stack at definition and
+            // SPILLED, so the variable stays live in the register.
             //
             // TODO: This approach would still create the resolution moves but during codegen, will check for
             // `lvSpillAtSingleDef` to decide whether to generate spill or not. In future, see if there is some
             // better way to avoid resolution moves, perhaps by updating the varDsc->SetRegNum(REG_STK) in this
             // method?
-            treeNode->gtFlags |= GTF_SPILL;
-            treeNode->gtFlags |= GTF_SPILLED;
-
-            if (treeNode->IsMultiReg())
-            {
-                treeNode->SetRegSpillFlagByIdx(GTF_SPILLED, currentRefPosition->getMultiRegIdx());
-            }
+            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+            treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
 
             varDsc->lvSpillAtSingleDef = true;
         }
@@ -6075,7 +5996,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
 void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* tree)
 {
-    lsraAssignRegToTree(tree, currentRefPosition->assignedReg(), currentRefPosition->getMultiRegIdx());
+    tree->SetRegNum(currentRefPosition->getMultiRegIdx(), currentRefPosition->assignedReg());
 }
 
 //------------------------------------------------------------------------
@@ -6131,7 +6052,7 @@ void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* tree)
 // to reload immediately, of course. So we put GT_RELOAD where the reload should actually happen.
 //
 // Note that GT_RELOAD is required when we reload to a different register than the one we spilled to. It can also be
-// used if we reload to the same register. Normally, though, in that case we just mark the node with GTF_SPILLED,
+// used if we reload to the same register. Normally, though, in that case we just mark the node's reg  with SPILLED,
 // and the unspilling code automatically reuses the same register, and does the reload when it notices that flag
 // when considering a node's operands.
 //
@@ -6172,8 +6093,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         noway_assert(parent->OperGet() == oper);
         noway_assert(tree->IsMultiRegNode());
         GenTreeCopyOrReload* copyOrReload = parent->AsCopyOrReload();
-        noway_assert(copyOrReload->GetRegNumByIdx(multiRegIdx) == REG_NA);
-        copyOrReload->SetRegNumByIdx(refPosition->assignedReg(), multiRegIdx);
+        noway_assert(copyOrReload->GetRegNum(multiRegIdx) == REG_NA);
+        copyOrReload->SetRegNum(multiRegIdx, refPosition->assignedReg());
     }
     else
     {
@@ -6190,11 +6111,13 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
             assert(regType != TYP_UNDEF);
         }
 
-        // Create the new node, with "tree" as its only child.
-        GenTreeCopyOrReload* newNode = new (compiler, oper) GenTreeCopyOrReload(oper, regType, tree);
         assert(refPosition->registerAssignment != RBM_NONE);
+
+        GenTreeCopyOrReload* newNode = new (compiler, oper) GenTreeCopyOrReload(oper, regType, tree);
+        newNode->SetRegNum(multiRegIdx, refPosition->assignedReg());
+        newNode->ClearRegSpillSet();
         SetLsraAdded(newNode);
-        newNode->SetRegNumByIdx(refPosition->assignedReg(), multiRegIdx);
+
         if (refPosition->copyReg)
         {
             // This is a TEMPORARY copy
@@ -6258,15 +6181,17 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     GenTree* saveLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
     saveLcl->SetRegNum(lclVarReg);
+    saveLcl->ClearRegSpillSet();
     SetLsraAdded(saveLcl);
 
     GenTree* simdNode = compiler->gtNewOperNode(GT_SIMD_UPPER_SPILL, LargeVectorSaveType, saveLcl);
-
-    SetLsraAdded(simdNode);
     simdNode->SetRegNum(spillReg);
+    simdNode->ClearRegSpillSet();
+    SetLsraAdded(simdNode);
+
     if (spillToMem)
     {
-        simdNode->gtFlags |= GTF_SPILL;
+        simdNode->SetRegSpill(0, true);
         upperVectorInterval->physReg = REG_NA;
     }
     else
@@ -6310,15 +6235,16 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     LclVarDsc* lcl = compiler->lvaGetDesc(lclVarInterval->varNum);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
-    GenTree* restoreLcl = nullptr;
-    restoreLcl          = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
+    GenTree* restoreLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
     restoreLcl->SetRegNum(lclVarReg);
+    restoreLcl->ClearRegSpillSet();
     SetLsraAdded(restoreLcl);
 
     GenTree* simdNode = compiler->gtNewOperNode(GT_SIMD_UPPER_UNSPILL, lcl->GetType(), restoreLcl);
+    simdNode->ClearRegSpillSet();
+    SetLsraAdded(simdNode);
 
     regNumber restoreReg = upperVectorInterval->physReg;
-    SetLsraAdded(simdNode);
 
     if (restoreReg == REG_NA)
     {
@@ -6328,7 +6254,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
         assert(refPosition->assignedReg() == REG_NA);
         simdNode->gtFlags |= GTF_NOREG_AT_USE;
 #else
-        simdNode->gtFlags |= GTF_SPILLED;
+        simdNode->SetRegSpilled(0, true);
         assert(refPosition->assignedReg() != REG_NA);
         restoreReg = refPosition->assignedReg();
 #endif
@@ -6507,21 +6433,8 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
             // 8-byte non-GC items, and 16-byte or 32-byte SIMD vectors.
             // LSRA is agnostic to those choices but needs
             // to know what they are here.
-            var_types type;
-            if (treeNode->TypeIs(TYP_STRUCT) && treeNode->IsCall())
-            {
-                type = treeNode->AsCall()->GetRegType(refPosition->getMultiRegIdx());
-            }
-            else if (!treeNode->IsMultiRegNode())
-            {
-                type = getDefType(treeNode);
-            }
-            else
-            {
-                type = treeNode->GetRegTypeByIndex(refPosition->getMultiRegIdx());
-            }
 
-            type = RegSet::tmpNormalizeType(type);
+            var_types type = RegSet::tmpNormalizeType(interval->registerType);
 
             if (refPosition->spillAfter && !refPosition->reload)
             {
@@ -6837,7 +6750,7 @@ void LinearScan::resolveRegisters()
 
                 // Mark spill locations on temps
                 // (local vars are handled in resolveLocalRef, above)
-                // Note that the tree node will be changed from GTF_SPILL to GTF_SPILLED
+                // Note that the node's register will be changed from SPILL to SPILLED
                 // in codegen, taking care of the "reload" case for temps
                 else if (currentRefPosition->spillAfter || (currentRefPosition->nextRefPosition != nullptr &&
                                                             currentRefPosition->nextRefPosition->moveReg))
@@ -6846,7 +6759,7 @@ void LinearScan::resolveRegisters()
                     {
                         if (currentRefPosition->spillAfter)
                         {
-                            treeNode->gtFlags |= GTF_SPILL;
+                            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
 
                             // If this is a constant interval that is reusing a pre-existing value, we actually need
                             // to generate the value at this point in order to spill it.
@@ -6854,30 +6767,6 @@ void LinearScan::resolveRegisters()
                             {
                                 treeNode->ResetReuseRegVal();
                             }
-
-                            // In case of multi-reg node, also set spill flag on the
-                            // register specified by multi-reg index of current RefPosition.
-                            // Note that the spill flag on treeNode indicates that one or
-                            // more its allocated registers are in that state.
-                            if (treeNode->IsMultiRegCall())
-                            {
-                                GenTreeCall* call = treeNode->AsCall();
-                                call->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
-                            }
-#if FEATURE_ARG_SPLIT
-                            else if (treeNode->OperIsPutArgSplit())
-                            {
-                                GenTreePutArgSplit* splitArg = treeNode->AsPutArgSplit();
-                                splitArg->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
-                            }
-#ifdef TARGET_ARM
-                            else if (treeNode->OperIsMultiRegOp())
-                            {
-                                GenTreeMultiRegOp* multiReg = treeNode->AsMultiRegOp();
-                                multiReg->SetRegSpillFlagByIdx(GTF_SPILL, currentRefPosition->getMultiRegIdx());
-                            }
-#endif // TARGET_ARM
-#endif // FEATURE_ARG_SPLIT
                         }
 
                         // If the value is reloaded or moved to a different register, we need to insert
@@ -7176,6 +7065,7 @@ void LinearScan::insertMove(
     varDsc->SetRegNum(REG_STK);
 
     GenTree* src = compiler->gtNewLclvNode(lclNum, varDsc->TypeGet());
+    src->ClearRegSpillSet();
     SetLsraAdded(src);
 
     // There are three cases we need to handle:
@@ -7183,7 +7073,7 @@ void LinearScan::insertMove(
     // - We are storing a lclVar to the stack.
     // - We are copying a lclVar between registers.
     //
-    // In the first and second cases, the lclVar node will be marked with GTF_SPILLED and GTF_SPILL, respectively.
+    // In the first and second cases, the local node's register will be marked with SPILLED and SPILL, respectively.
     // It is up to the code generator to ensure that any necessary normalization is done when loading or storing the
     // lclVar's value.
     //
@@ -7193,12 +7083,12 @@ void LinearScan::insertMove(
     GenTree* dst = src;
     if (fromReg == REG_STK)
     {
-        src->gtFlags |= GTF_SPILLED;
+        src->SetRegSpilled(0, true);
         src->SetRegNum(toReg);
     }
     else if (toReg == REG_STK)
     {
-        src->gtFlags |= GTF_SPILL;
+        src->SetRegSpill(0, true);
         src->SetRegNum(fromReg);
     }
     else
@@ -7212,6 +7102,7 @@ void LinearScan::insertMove(
         dst->gtFlags &= ~(GTF_VAR_DEATH);
         src->SetRegNum(fromReg);
         dst->SetRegNum(toReg);
+        dst->ClearRegSpillSet();
         SetLsraAdded(dst);
     }
     dst->SetUnusedValue();
@@ -7269,14 +7160,17 @@ void LinearScan::insertSwap(
 
     GenTree* lcl1 = compiler->gtNewLclvNode(lclNum1, varDsc1->TypeGet());
     lcl1->SetRegNum(reg1);
+    lcl1->ClearRegSpillSet();
     SetLsraAdded(lcl1);
 
     GenTree* lcl2 = compiler->gtNewLclvNode(lclNum2, varDsc2->TypeGet());
     lcl2->SetRegNum(reg2);
+    lcl2->ClearRegSpillSet();
     SetLsraAdded(lcl2);
 
     GenTree* swap = compiler->gtNewOperNode(GT_SWAP, TYP_VOID, lcl1, lcl2);
     swap->SetRegNum(REG_NA);
+    swap->ClearRegSpillSet();
     SetLsraAdded(swap);
 
     lcl1->gtNext = lcl2;
@@ -9176,7 +9070,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                                       unsigned          operandStringLength)
 {
     const char* lastUseChar = "";
-    if (tree->OperIsScalarLocal() && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
     {
         lastUseChar = "*";
     }
@@ -9206,7 +9100,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                 {
                     for (unsigned i = 1, count = tree->GetMultiRegCount(compiler); i < count; i++)
                     {
-                        regNumber reg = tree->GetRegByIndex(i);
+                        regNumber reg = tree->GetRegNum(i);
                         charCount     = _snprintf_s(operandString, operandStringLength, operandStringLength, ",%s%s",
                                                 getRegName(reg), lastUseChar);
                         operandString += charCount;
@@ -9231,7 +9125,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
 
     if (mode == LinearScan::LSRA_DUMP_POST)
     {
-        if ((tree->gtFlags & GTF_SPILL) != 0)
+        if (tree->IsAnyRegSpill())
         {
             spillChar = 'S';
         }
@@ -9269,10 +9163,6 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     }
     if (hasDest)
     {
-        if (mode == LinearScan::LSRA_DUMP_POST && tree->gtFlags & GTF_SPILLED)
-        {
-            assert(tree->gtHasReg());
-        }
         lsraGetOperandString(tree, mode, operandString, operandStringLength);
         printf("%-15s =", operandString);
     }
@@ -9292,7 +9182,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
             {
                 lsraGetOperandString(tree, mode, operandString, operandStringLength);
                 printf("  V%02u(%s)", varNum, operandString);
-                if (mode == LinearScan::LSRA_DUMP_POST && tree->gtFlags & GTF_SPILLED)
+                if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
                 {
                     printf("R");
                 }
@@ -9302,11 +9192,6 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
         {
             printf("  V%02u MEM", varNum);
         }
-    }
-    else if (tree->OperIs(GT_ASG))
-    {
-        assert(!tree->gtHasReg());
-        printf("  asg%s  ", GenTree::OpName(tree->OperGet()));
     }
     else
     {
@@ -10815,13 +10700,13 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
     else
     {
         lcl = dst->AsLclVar();
-        if ((lcl->gtFlags & GTF_SPILLED) != 0)
+        if (lcl->IsRegSpilled(0))
         {
             srcRegNum = REG_STK;
         }
         else
         {
-            assert((lcl->gtFlags & GTF_SPILL) != 0);
+            assert(lcl->IsRegSpill(0));
             srcRegNum = dstRegNum;
             dstRegNum = REG_STK;
         }

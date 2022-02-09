@@ -57,7 +57,7 @@ private:
         GenTree*  spillTree; // the value that was spilled
         TempDsc*  spillTemp; // the temp holding the spilled value
 
-        static SpillDsc* alloc(Compiler* pComp, RegSet* regSet, var_types type);
+        static SpillDsc* alloc(RegSet* regSet);
         static void freeDsc(RegSet* regSet, SpillDsc* spillDsc);
     };
 
@@ -67,8 +67,8 @@ private:
     //
 
 private:
-    bool      rsNeededSpillReg;   // true if this method needed to spill any registers
-    regMaskTP rsModifiedRegsMask; // mask of the registers modified by the current function.
+    INDEBUG(bool rsNeededSpillReg;) // true if this method needed to spill any registers
+    regMaskTP rsModifiedRegsMask;   // mask of the registers modified by the current function.
 
 #ifdef DEBUG
     bool rsModifiedRegsMaskInitialized; // Has rsModifiedRegsMask been initialized? Guards against illegal use.
@@ -155,19 +155,15 @@ private:
     void rsSpillBeg();
     void rsSpillEnd();
 
-    void rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx = 0);
-
-#if defined(TARGET_X86)
-    void rsSpillFPStack(GenTreeCall* call);
-#endif // defined(TARGET_X86)
+    TempDsc* AllocSpillTemp(GenTree* node, regNumber reg, var_types type);
+    void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
+    X86_ONLY(void SpillST0(GenTree* node);)
+    void UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex);
+    X86_ONLY(void UnspillST0(GenTree* node);)
 
     SpillDsc* rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc = nullptr);
 
     TempDsc* rsGetSpillTempWord(regNumber oldReg, SpillDsc* dsc, SpillDsc* prevDsc);
-
-    TempDsc* rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regIdx = 0);
-
-    void rsMarkSpill(GenTree* tree, regNumber reg);
 
 public:
     void tmpInit();

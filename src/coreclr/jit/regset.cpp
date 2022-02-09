@@ -254,238 +254,102 @@ RegSet::SpillDsc* RegSet::rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc*
     return dsc;
 }
 
-//------------------------------------------------------------
-// rsSpillTree: Spill the tree held in 'reg'.
-//
-// Arguments:
-//   reg     -   Register of tree node that is to be spilled
-//   tree    -   GenTree node that is being spilled
-//   regIdx  -   Register index identifying the specific result
-//               register of a multi-reg call node. For single-reg
-//               producing tree nodes its value is zero.
-//
-// Return Value:
-//   None.
-//
-// Notes:
-//    For multi-reg nodes, only the spill flag associated with this reg is cleared.
-//    The spill flag on the node should be cleared by the caller of this method.
-//
-void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
+TempDsc* RegSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types type)
 {
-    assert(tree != nullptr);
+    TempDsc* temp = tmpGetTemp(type);
 
-    GenTreeCall*   call = nullptr;
-    GenTreeLclVar* lcl  = nullptr;
-    var_types      treeType;
-#if defined(TARGET_ARM)
-    GenTreePutArgSplit* splitArg = nullptr;
-    GenTreeMultiRegOp*  multiReg = nullptr;
-#endif
-
-    if (tree->IsMultiRegCall())
-    {
-        call     = tree->AsCall();
-        treeType = call->GetRegType(regIdx);
-    }
-    else if (tree->TypeIs(TYP_STRUCT) && tree->IsCall())
-    {
-        treeType = tree->AsCall()->GetRegType(0);
-    }
-#ifdef TARGET_ARM
-    else if (tree->OperIsPutArgSplit())
-    {
-        splitArg = tree->AsPutArgSplit();
-        treeType = splitArg->GetRegType(regIdx);
-    }
-    else if (tree->OperIsMultiRegOp())
-    {
-        multiReg = tree->AsMultiRegOp();
-        treeType = multiReg->GetRegType(regIdx);
-    }
-#endif // TARGET_ARM
-    else if (tree->IsMultiRegLclVar())
-    {
-        GenTreeLclVar* lcl    = tree->AsLclVar();
-        LclVarDsc*     varDsc = m_rsCompiler->lvaGetDesc(lcl->GetLclNum());
-        treeType              = varDsc->TypeGet();
-    }
-    else
-    {
-        treeType = tree->TypeGet();
-    }
-
-    var_types tempType = RegSet::tmpNormalizeType(treeType);
-    regMaskTP mask;
-    bool      floatSpill = false;
-
-    if (varTypeUsesFloatReg(treeType))
-    {
-        floatSpill = true;
-        mask       = genRegMaskFloat(reg, treeType);
-    }
-    else
-    {
-        mask = genRegMask(reg);
-    }
-
-    rsNeededSpillReg = true;
-
-    // We should only be spilling nodes marked for spill,
-    // vars should be handled elsewhere, and to prevent
-    // spilling twice clear GTF_SPILL flag on tree node.
-    //
-    // In case of multi-reg nodes, only the spill flag associated with this reg is cleared.
-    // The spill flag on the node should be cleared by the caller of this method.
-    assert((tree->gtFlags & GTF_SPILL) != 0);
-
-    GenTreeFlags regFlags = GTF_EMPTY;
-    if (call != nullptr)
-    {
-        regFlags = call->GetRegSpillFlagByIdx(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-#ifdef TARGET_ARM
-    else if (splitArg != nullptr)
-    {
-        regFlags = splitArg->GetRegSpillFlagByIdx(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-    else if (multiReg != nullptr)
-    {
-        regFlags = multiReg->GetRegSpillFlagByIdx(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-#endif // TARGET_ARM
-    else if (lcl != nullptr)
-    {
-        regFlags = lcl->GetRegSpillFlagByIdx(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-    else
-    {
-        assert(!varTypeIsMultiReg(tree));
-        tree->gtFlags &= ~GTF_SPILL;
-    }
-
-#if defined(TARGET_ARM)
-    assert(tree->GetRegNum() == reg || (call != nullptr && call->GetRegNumByIdx(regIdx) == reg) ||
-           (splitArg != nullptr && splitArg->GetRegNumByIdx(regIdx) == reg) ||
-           (multiReg != nullptr && multiReg->GetRegNumByIdx(regIdx) == reg));
-#else
-    assert(tree->GetRegNum() == reg || (call != nullptr && call->GetRegNumByIdx(regIdx) == reg));
-#endif // !TARGET_ARM
-
-    // Are any registers free for spillage?
-    SpillDsc* spill = SpillDsc::alloc(m_rsCompiler, this, tempType);
-
-    // Grab a temp to store the spilled value
-    TempDsc* temp    = tmpGetTemp(tempType);
+    SpillDsc* spill  = SpillDsc::alloc(this);
     spill->spillTemp = temp;
-    tempType         = temp->tdTempType();
+    spill->spillTree = node;
+    spill->spillNext = rsSpillDesc[reg];
+    rsSpillDesc[reg] = spill;
 
-    // Remember what it is we have spilled
-    spill->spillTree = tree;
-
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("The register %s spilled with    ", m_rsCompiler->compRegVarName(reg));
-        Compiler::printTreeID(spill->spillTree);
-    }
-#endif
-
-    // 'lastDsc' is 'spill' for simple cases, and will point to the last
-    // multi-use descriptor if 'reg' is being multi-used
-    SpillDsc* lastDsc = spill;
-
-    // Insert the spill descriptor(s) in the list
-    lastDsc->spillNext = rsSpillDesc[reg];
-    rsSpillDesc[reg]   = spill;
-
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("\n");
-    }
-#endif
-
-    // Generate the code to spill the register
-    var_types storeType = floatSpill ? treeType : tempType;
-
-    m_rsCompiler->codeGen->spillReg(storeType, temp, reg);
-
-    // Mark the tree node as having been spilled
-    rsMarkSpill(tree, reg);
-
-    // In case of multi-reg call node also mark the specific
-    // result reg as spilled.
-    if (call != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        call->SetRegSpillFlagByIdx(regFlags, regIdx);
-    }
-#ifdef TARGET_ARM
-    else if (splitArg != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        splitArg->SetRegSpillFlagByIdx(regFlags, regIdx);
-    }
-    else if (multiReg != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        multiReg->SetRegSpillFlagByIdx(regFlags, regIdx);
-    }
-#endif // TARGET_ARM
-    else if (lcl != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        lcl->SetRegSpillFlagByIdx(regFlags, regIdx);
-    }
+    return temp;
 }
 
-#if defined(TARGET_X86)
-/*****************************************************************************
-*
-*  Spill the top of the FP x87 stack.
-*/
-void RegSet::rsSpillFPStack(GenTreeCall* call)
+void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 {
-    SpillDsc* spill;
-    TempDsc*  temp;
-    var_types treeType = call->TypeGet();
+    assert(!node->IsMultiRegLclVar());
+    assert(!varTypeIsMultiReg(regType));
+    assert(node->IsRegSpill(regIndex));
 
-    spill = SpillDsc::alloc(m_rsCompiler, this, treeType);
+    regNumber reg  = node->GetRegNum(regIndex);
+    TempDsc*  temp = AllocSpillTemp(node, reg, regType);
 
-    /* Grab a temp to store the spilled value */
+    JITDUMP("Spilling register %s after [%06u]\n", m_rsCompiler->compRegVarName(reg), node->GetID());
 
-    spill->spillTemp = temp = tmpGetTemp(treeType);
+    regType          = temp->GetType();
+    instruction ins  = m_rsCompiler->codeGen->ins_Store(regType);
+    emitAttr    attr = emitActualTypeSize(regType);
 
-    /* Remember what it is we have spilled */
+    m_rsCompiler->codeGen->GetEmitter()->emitIns_S_R(ins, attr, reg, temp->tdTempNum(), 0);
 
-    spill->spillTree  = call;
-    SpillDsc* lastDsc = spill;
+    node->SetRegSpill(regIndex, false);
+    node->SetRegSpilled(regIndex, true);
 
-    regNumber reg      = call->GetRegNum();
-    lastDsc->spillNext = rsSpillDesc[reg];
-    rsSpillDesc[reg]   = spill;
+    m_rsGCInfo.gcMarkRegSetNpt(genRegMask(reg));
 
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-        printf("\n");
-#endif
-
-    m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fstp, emitActualTypeSize(treeType), temp->tdTempNum(), 0);
-
-    /* Mark the tree node as having been spilled */
-
-    rsMarkSpill(call, reg);
+    INDEBUG(rsNeededSpillReg = true;)
 }
-#endif // defined(TARGET_X86)
+
+#ifdef TARGET_X86
+void RegSet::SpillST0(GenTree* node)
+{
+    var_types type = node->GetType();
+    regNumber reg  = node->GetRegNum();
+    TempDsc*  temp = AllocSpillTemp(node, reg, type);
+
+    JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
+
+    m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->tdTempNum(), 0);
+
+    node->SetRegSpill(0, false);
+    node->SetRegSpilled(0, true);
+}
+#endif // TARGET_X86
+
+void RegSet::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
+{
+    assert(!node->IsCopyOrReload());
+    assert(!node->IsMultiRegLclVar());
+
+    regNumber oldReg = node->GetRegNum(regIndex);
+    SpillDsc* prevDsc;
+    SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
+    TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+
+    node->SetRegSpilled(regIndex, false);
+
+    JITDUMP("Unspilling register %s from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
+
+    var_types   regType = temp->GetType();
+    instruction ins     = m_rsCompiler->codeGen->ins_Load(regType);
+    emitAttr    attr    = emitActualTypeSize(regType);
+
+    m_rsCompiler->codeGen->GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetTempNum(), 0);
+
+    tmpRlsTemp(temp);
+
+    m_rsGCInfo.gcMarkRegPtrVal(reg, regType);
+}
+
+#ifdef TARGET_X86
+void RegSet::UnspillST0(GenTree* node)
+{
+    regNumber oldReg = node->GetRegNum();
+    SpillDsc* prevDsc;
+    SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
+    TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+
+    node->SetRegSpilled(0, false);
+
+    JITDUMP("Unspilling ST0 from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
+
+    var_types regType = temp->GetType();
+    m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetTempNum(), 0);
+    tmpRlsTemp(temp);
+}
+#endif // TARGET_X86
 
 /*****************************************************************************
  *
@@ -511,90 +375,6 @@ TempDsc* RegSet::rsGetSpillTempWord(regNumber reg, SpillDsc* dsc, SpillDsc* prev
 
     return temp;
 }
-
-//---------------------------------------------------------------------
-//  rsUnspillInPlace: The given tree operand has been spilled; just mark
-//  it as unspilled so that we can use it as "normal" local.
-//
-//  Arguments:
-//     tree    -  GenTree that needs to be marked as unspilled.
-//     oldReg  -  reg of tree that was spilled.
-//
-//  Return Value:
-//     None.
-//
-//  Assumptions:
-//  1. It is the responsibility of the caller to free the spill temp.
-//  2. RyuJIT backend specific: In case of multi-reg call node
-//     GTF_SPILLED flag associated with reg is cleared.  It is the
-//     responsibility of caller to clear GTF_SPILLED flag on call node
-//     itself after ensuring there are no outstanding regs in GTF_SPILLED
-//     state.
-//
-TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regIdx /* =0 */)
-{
-    // Get the tree's SpillDsc
-    SpillDsc* prevDsc;
-    SpillDsc* spillDsc = rsGetSpillInfo(tree, oldReg, &prevDsc);
-    PREFIX_ASSUME(spillDsc != nullptr);
-
-    // Get the temp
-    TempDsc* temp = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
-
-    // The value is now unspilled
-    if (tree->IsMultiRegCall())
-    {
-        GenTreeCall* call  = tree->AsCall();
-        GenTreeFlags flags = call->GetRegSpillFlagByIdx(regIdx);
-        flags &= ~GTF_SPILLED;
-        call->SetRegSpillFlagByIdx(flags, regIdx);
-    }
-#if defined(TARGET_ARM)
-    else if (tree->OperIsPutArgSplit())
-    {
-        GenTreePutArgSplit* splitArg = tree->AsPutArgSplit();
-        GenTreeFlags        flags    = splitArg->GetRegSpillFlagByIdx(regIdx);
-        flags &= ~GTF_SPILLED;
-        splitArg->SetRegSpillFlagByIdx(flags, regIdx);
-    }
-    else if (tree->OperIsMultiRegOp())
-    {
-        GenTreeMultiRegOp* multiReg = tree->AsMultiRegOp();
-        GenTreeFlags       flags    = multiReg->GetRegSpillFlagByIdx(regIdx);
-        flags &= ~GTF_SPILLED;
-        multiReg->SetRegSpillFlagByIdx(flags, regIdx);
-    }
-#endif // TARGET_ARM
-    else if (tree->IsMultiRegLclVar())
-    {
-        GenTreeLclVar* lcl   = tree->AsLclVar();
-        GenTreeFlags   flags = lcl->GetRegSpillFlagByIdx(regIdx);
-        flags &= ~GTF_SPILLED;
-        lcl->SetRegSpillFlagByIdx(flags, regIdx);
-    }
-    else
-    {
-        tree->gtFlags &= ~GTF_SPILLED;
-    }
-
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("Tree-Node marked unspilled from  ");
-        Compiler::printTreeID(tree);
-        printf("\n");
-    }
-#endif
-
-    return temp;
-}
-
-void RegSet::rsMarkSpill(GenTree* tree, regNumber reg)
-{
-    tree->gtFlags |= GTF_SPILLED;
-}
-
-/*****************************************************************************/
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -675,21 +455,15 @@ TempDsc* RegSet::tmpGetTemp(var_types type)
         }
     }
 
-#ifdef DEBUG
-    /* Do we need to allocate a new temp */
-    bool isNewTemp = false;
-#endif // DEBUG
-
     noway_assert(temp != nullptr);
 
 #ifdef DEBUG
     if (m_rsCompiler->verbose)
     {
-        printf("%s temp #%u, slot %u, size = %u\n", isNewTemp ? "created" : "reused", -temp->tdTempNum(), slot,
-               temp->tdTempSize());
+        printf("Using temp #%u, slot %u, size = %u\n", -temp->tdTempNum(), slot, temp->tdTempSize());
     }
     tmpGetCount++;
-#endif // DEBUG
+#endif
 
     temp->tdNext  = tmpUsed[slot];
     tmpUsed[slot] = temp;
@@ -1010,7 +784,7 @@ void RegSet::rsSpillInit()
 
     memset(rsSpillDesc, 0, sizeof(rsSpillDesc));
 
-    rsNeededSpillReg = false;
+    INDEBUG(rsNeededSpillReg = false;)
 
     /* We don't have any descriptors allocated */
 
@@ -1057,7 +831,7 @@ void RegSet::rsSpillEnd()
 //
 
 // inline
-RegSet::SpillDsc* RegSet::SpillDsc::alloc(Compiler* pComp, RegSet* regSet, var_types type)
+RegSet::SpillDsc* RegSet::SpillDsc::alloc(RegSet* regSet)
 {
     RegSet::SpillDsc*  spill;
     RegSet::SpillDsc** pSpill;
@@ -1072,7 +846,7 @@ RegSet::SpillDsc* RegSet::SpillDsc::alloc(Compiler* pComp, RegSet* regSet, var_t
     }
     else
     {
-        spill = pComp->getAllocator().allocate<SpillDsc>(1);
+        spill = regSet->m_rsCompiler->getAllocator().allocate<SpillDsc>(1);
     }
     return spill;
 }

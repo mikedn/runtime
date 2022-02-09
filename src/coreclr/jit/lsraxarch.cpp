@@ -2548,11 +2548,10 @@ int LinearScan::BuildMul(GenTree* tree)
         BuildDef(tree, RBM_RDX);
     }
 #if defined(TARGET_X86)
-    else if (tree->OperGet() == GT_MUL_LONG)
+    else if (tree->OperIs(GT_MUL_LONG))
     {
-        // have to use the encoding:RDX:RAX = RAX * rm
-        BuildDef(tree, RBM_RAX, 0);
-        BuildDef(tree, RBM_RDX, 1);
+        BuildDef(tree, TYP_INT, RBM_RAX, 0);
+        BuildDef(tree, TYP_INT, RBM_RDX, 1);
     }
 #endif
     else

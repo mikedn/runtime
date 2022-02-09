@@ -183,6 +183,8 @@ typedef unsigned __int64 regMaskSmall;
 typedef _regNumber_enum regNumber;
 typedef unsigned char   regNumberSmall;
 
+static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUNT)) == REG_COUNT);
+
 /*****************************************************************************/
 
 #define LEA_AVAILABLE 1
