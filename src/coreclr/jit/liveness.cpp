@@ -43,7 +43,7 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
         return;
     }
 
-    if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
+    if (lcl->IsPromoted())
     {
         // TODO-MIKE-Cleanup: This is kind of strange because it doesn't bother to
         // check which fields actually overlap a LCL_FLD access. Since a LCL_FLD
@@ -1513,20 +1513,16 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
                 return true;
             }
         }
-        else if (varTypeIsStruct(lcl->GetType()))
+        else
         {
             if (!lcl->IsIndependentPromoted())
             {
                 return true;
             }
         }
-        else
-        {
-            return true;
-        }
     }
 
-    if (lcl->IsAddressExposed() || !varTypeIsStruct(lcl->GetType()) || !lcl->IsPromoted())
+    if (lcl->IsAddressExposed() || !lcl->IsPromoted())
     {
         return false;
     }
