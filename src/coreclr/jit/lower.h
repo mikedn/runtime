@@ -352,7 +352,7 @@ private:
 
     void WidenSIMD12IfNecessary(GenTreeLclVarCommon* node);
 #if FEATURE_MULTIREG_RET
-    void MakeMultiRegStoreLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retTypeDesc);
+    void MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value);
 #endif
     GenTree* LowerArrElem(GenTree* node);
     void LowerRotate(GenTree* tree);

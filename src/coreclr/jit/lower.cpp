@@ -2223,19 +2223,10 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
     GenTree*   src = store->GetOp(0);
     LclVarDsc* lcl = comp->lvaGetDesc(store);
 
-    bool srcIsMultiReg = src->IsMultiRegNode();
-
 #if FEATURE_MULTIREG_RET
-    if (srcIsMultiReg)
+    if (src->IsMultiRegNode())
     {
-        const ReturnTypeDesc* retTypeDesc = nullptr;
-
-        if (src->OperIs(GT_CALL))
-        {
-            retTypeDesc = src->AsCall()->GetRetDesc();
-        }
-
-        MakeMultiRegStoreLclVar(store, retTypeDesc);
+        MakeMultiRegStoreLclVar(store, src);
     }
 #endif
 
@@ -5318,53 +5309,42 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
 
 #if FEATURE_MULTIREG_RET
 
-void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retDesc)
+void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 {
-    assert(lclVar->OperIs(GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(value->IsMultiRegNode());
+
+    LclVarDsc* lcl = comp->lvaGetDesc(store);
 
     bool canEnregister = false;
 
-    LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
-
     if (comp->lvaEnregMultiRegVars && lcl->IsIndependentPromoted())
     {
-        // We can enregister if we have a promoted struct and all the fields' types match the ABI requirements.
-        // Note that we don't promote structs with explicit layout, so we don't need to check field offsets, and
-        // if we have multiple types packed into a single register, we won't have matching reg and field counts,
-        // so we can tolerate mismatches of integer size.
-
-        // If we have no retTypeDesc, we only care that it is independently promoted.
-        if (retDesc == nullptr)
+        if (GenTreeCall* call = value->IsCall())
         {
-            canEnregister = true;
+            // TODO-MIKE-Cleanup: This should probably be only an assert, we should not
+            // reach here with a P-INDEP local if the fields and registers do not match.
+            canEnregister = lcl->GetPromotedFieldCount() == call->GetRegCount();
         }
-        else if (retDesc->GetRegCount() == lcl->GetPromotedFieldCount())
+#ifndef TARGET_64BIT
+        else
         {
-            canEnregister = true;
+            canEnregister = lcl->TypeIs(TYP_LONG) && value->IsMultiRegOpLong();
         }
+#endif
     }
-
-#ifdef TARGET_XARCH
-    // For local stores on XARCH we only handle mismatched src/dest register count for
-    // calls of SIMD type. If the source was another lclVar similarly promoted, we would
-    // have broken it into multiple stores.
-    if (!lclVar->GetOp(0)->OperIs(GT_CALL))
-    {
-        canEnregister = false;
-    }
-#endif // TARGET_XARCH
 
     if (canEnregister)
     {
-        lclVar->SetMultiReg();
+        store->SetMultiReg();
     }
     else
     {
-        assert(!lclVar->IsMultiReg());
+        assert(!store->IsMultiReg());
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            comp->lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
+            comp->lvaSetVarDoNotEnregister(store->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
         }
     }
 }
