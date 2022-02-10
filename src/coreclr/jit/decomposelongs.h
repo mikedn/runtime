@@ -70,7 +70,7 @@ private:
     GenTree* RepresentOpAsLocalVar(GenTree* op, GenTree* user, GenTree** edge);
     GenTree* EnsureIntSized(GenTree* node, bool signExtend);
 
-    GenTree* StoreNodeToVar(LIR::Use& use);
+    GenTree* StoreMultiRegNodeToLcl(LIR::Use& use);
     static genTreeOps GetHiOper(genTreeOps oper);
     static genTreeOps GetLoOper(genTreeOps oper);
 

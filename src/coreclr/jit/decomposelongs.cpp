@@ -736,7 +736,7 @@ GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)
     assert(use.Def()->OperGet() == GT_CALL);
 
     // We only need to force var = call() if the call's result is used.
-    return StoreNodeToVar(use);
+    return StoreMultiRegNodeToLcl(use);
 }
 
 //------------------------------------------------------------------------
@@ -1571,7 +1571,7 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
         tree->gtFlags &= ~GTF_UNSIGNED;
     }
 
-    return StoreNodeToVar(use);
+    return StoreMultiRegNodeToLcl(use);
 }
 
 //------------------------------------------------------------------------
@@ -1894,7 +1894,7 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
 }
 
 //------------------------------------------------------------------------
-// StoreNodeToVar: Check if the user is a STORE_LCL_VAR, and if it isn't,
+// StoreMultiRegNodeToLcl: Check if the user is a STORE_LCL_VAR, and if it isn't,
 // store the node to a var. Then decompose the new LclVar.
 //
 // Arguments:
@@ -1903,34 +1903,58 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
 // Return Value:
 //    The next node to process.
 //
-GenTree* DecomposeLongs::StoreNodeToVar(LIR::Use& use)
+GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
 {
     if (use.IsDummyUse())
     {
         return use.Def()->gtNext;
     }
 
-    GenTree* tree = use.Def();
-    GenTree* user = use.User();
-
-    if (user->OperIs(GT_STORE_LCL_VAR))
+    if (use.User()->OperIs(GT_STORE_LCL_VAR))
     {
-        // If parent is already a STORE_LCL_VAR, we can skip it if
-        // it is already marked as lvIsMultiRegRet.
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(user->AsLclVar());
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(use.User()->AsLclVar());
 
-        if (!lcl->IsPromoted() || lcl->lvIsMultiRegRet)
+        if (lcl->IsIndependentPromoted())
         {
-            return tree->gtNext;
+            lcl->lvIsMultiRegRet = true;
         }
+
+        return use.Def()->gtNext;
     }
 
-    // Otherwise, we need to force var = call()
-    unsigned varNum                              = use.ReplaceWithLclVar(m_compiler);
-    m_compiler->lvaTable[varNum].lvIsMultiRegRet = true;
+    if (!m_compiler->compEnregLocals() || m_compiler->lvaHaveManyLocals())
+    {
+        use.ReplaceWithLclVar(m_compiler);
 
-    // Decompose the new LclVar use
-    return DecomposeLclVar(use);
+        return DecomposeLclVar(use);
+    }
+
+    unsigned   lclNum    = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
+    LclVarDsc* lcl       = m_compiler->lvaGetDesc(lclNum);
+    lcl->lvFieldCnt      = 2;
+    lcl->lvFieldLclStart = m_compiler->lvaCount;
+    lcl->lvPromoted      = true;
+    lcl->lvIsMultiRegRet = true;
+
+    unsigned   fieldLclNumLo    = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+    LclVarDsc* fieldLclLo       = m_compiler->lvaGetDesc(fieldLclNumLo);
+    fieldLclLo->lvIsStructField = true;
+    fieldLclLo->lvFldOffset     = 0;
+    fieldLclLo->lvParentLcl     = lclNum;
+
+    unsigned   fieldLclNumHi    = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+    LclVarDsc* fieldLclHi       = m_compiler->lvaGetDesc(fieldLclNumHi);
+    fieldLclHi->lvIsStructField = true;
+    fieldLclHi->lvFldOffset     = 4;
+    fieldLclHi->lvParentLcl     = lclNum;
+
+    GenTreeLclVar* store  = m_compiler->gtNewStoreLclVar(lclNum, TYP_LONG, use.Def());
+    GenTreeLclVar* loadLo = m_compiler->gtNewLclvNode(fieldLclNumLo, TYP_INT);
+    GenTreeLclVar* loadHi = m_compiler->gtNewLclvNode(fieldLclNumHi, TYP_INT);
+
+    Range().InsertAfter(use.Def(), store, loadLo, loadHi);
+
+    return FinalizeDecomposition(use, loadLo, loadHi, loadHi);
 }
 
 //------------------------------------------------------------------------
