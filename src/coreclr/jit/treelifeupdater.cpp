@@ -249,8 +249,6 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             if (isDying)
             {
-                assert(!isBorn);
-
                 VARSET_TP* deadTrackedFields = nullptr;
                 hasDeadTrackedFields         = compiler->LookupPromotedStructDeathVars(lclNode, &deadTrackedFields);
                 if (hasDeadTrackedFields)
