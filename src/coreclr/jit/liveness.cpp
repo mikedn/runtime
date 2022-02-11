@@ -1534,13 +1534,6 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
     {
         LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-#ifndef TARGET_64BIT
-        if (!varTypeIsLong(fieldLcl->GetType()) || !fieldLcl->IsPromoted())
-#endif
-        {
-            noway_assert(fieldLcl->IsPromotedField());
-        }
-
         if (!fieldLcl->lvTracked)
         {
             allFieldAreTracked = false;
@@ -1567,17 +1560,12 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
             VarSetOps::DiffD(this, liveOut, fieldSet);
         }
 
-        if (allFieldAreTracked && VarSetOps::IsEmpty(this, liveFields))
+        if (allFieldAreTracked && VarSetOps::IsEmpty(this, liveFields) && !opts.MinOpts())
         {
-            if (!opts.MinOpts())
-            {
-                VARSET_TP keepAliveFields(VarSetOps::Intersection(this, fieldSet, keepAlive));
-                noway_assert(VarSetOps::IsEmpty(this, keepAliveFields));
-                assert(!lcl->IsAddressExposed());
-
-                return !(lcl->lvCustomLayout && lcl->lvContainsHoles);
-            }
+            return !(lcl->lvCustomLayout && lcl->lvContainsHoles);
         }
+
+        return false;
     }
     else
     {
@@ -1602,9 +1590,9 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
         }
 
         VarSetOps::UnionD(this, liveOut, fieldSet);
-    }
 
-    return false;
+        return false;
+    }
 }
 
 void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt)
