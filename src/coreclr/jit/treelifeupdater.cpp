@@ -169,13 +169,6 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     if (isBorn || isDying)
     {
         VarSetOps::Assign(compiler, newLife, currentLife);
-        // Since all tracked vars are register candidates, but not all are in registers at all times,
-        // we maintain two separate sets of variables - the total set of variables that are either
-        // born or dying here, and the subset of those that are on the stack
-        VarSetOps::ClearD(compiler, varDeltaSet);
-        VarSetOps::ClearD(compiler, varStackGCPtrDeltaSet);
-
-        VarSetOps::AddElemD(compiler, varDeltaSet, lcl->GetLivenessBitIndex());
 
         if (isBorn && lcl->IsRegCandidate() && (lclNode->GetRegNum() != REG_NA))
         {
@@ -190,11 +183,6 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
         }
 
-        if (isInMemory && lcl->HasStackGCPtrLiveness())
-        {
-            VarSetOps::AddElemD(compiler, varStackGCPtrDeltaSet, lcl->GetLivenessBitIndex());
-        }
-
         if (isDying)
         {
             // TODO-MIKE-Review: Why does the assert below fail? Old comment
@@ -202,9 +190,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             // liveness had a similar issue but the same fix isn't sufficient
             // here.
             //
-            // assert(VarSetOps::IsSubset(compiler, regVarDeltaSet, newLife));
+            // assert(VarSetOps::IsMember(compiler, newLife, lcl->GetLivenessBitIndex()));
 
-            VarSetOps::DiffD(compiler, newLife, varDeltaSet);
+            VarSetOps::RemoveElemD(compiler, newLife, lcl->GetLivenessBitIndex());
         }
         else
         {
@@ -217,7 +205,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             // For a dead store, it can be the case that we set both isBorn and isDying to true.
             // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
             // eliminated.)  If it's both, we handled it above.
-            VarSetOps::UnionD(compiler, newLife, varDeltaSet);
+            VarSetOps::AddElemD(compiler, newLife, lcl->GetLivenessBitIndex());
         }
 
         if (!VarSetOps::Equal(compiler, currentLife, newLife))
@@ -226,17 +214,17 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             VarSetOps::Assign(compiler, currentLife, newLife);
 
-            if (!VarSetOps::IsEmpty(compiler, varStackGCPtrDeltaSet))
+            if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
                 DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
 
                 if (isBorn)
                 {
-                    VarSetOps::UnionD(compiler, codeGen->gcInfo.gcVarPtrSetCur, varStackGCPtrDeltaSet);
+                    VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
                 }
                 else
                 {
-                    VarSetOps::DiffD(compiler, codeGen->gcInfo.gcVarPtrSetCur, varStackGCPtrDeltaSet);
+                    VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
                 }
 
                 DBEXEC(compiler->verbose,
@@ -244,7 +232,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-            codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRanges(varDeltaSet, isBorn, isDying);
+            codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNode->GetLclNum(), isBorn,
+                                                                              isDying);
 #endif
 
 #ifdef USING_SCOPE_INFO
