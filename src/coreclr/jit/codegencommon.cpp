@@ -10816,40 +10816,6 @@ void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const
 }
 
 //------------------------------------------------------------------------
-// siStartOrCloseVariableLiveRanges: Iterates the given set of variables
-//  calling "siStartOrCloseVariableLiveRange" with each one.
-//
-// Arguments:
-//    varsIndexSet    - the set of variables to report start/end "VariableLiveRange"
-//    isBorn    - whether the set is being born from where the emitter is located.
-//    isDying   - whether the set is dying from where the emitter is located.
-//
-// Assumptions:
-//    The emitter should be located on the first instruction from where is true that
-//    the variable becoming valid (when isBorn is true) or invalid (when isDying is true).
-//
-// Notes:
-//    This method is being called when a set of variables
-//    is being born, becoming dead, or both.
-//
-void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRanges(VARSET_VALARG_TP varsIndexSet,
-                                                                            bool             isBorn,
-                                                                            bool             isDying)
-{
-    if (m_Compiler->opts.compDbgInfo)
-    {
-        VarSetOps::Iter iter(m_Compiler, varsIndexSet);
-        unsigned        varIndex = 0;
-        while (iter.NextElem(&varIndex))
-        {
-            unsigned int     varNum = m_Compiler->lvaTrackedIndexToLclNum(varIndex);
-            const LclVarDsc* varDsc = m_Compiler->lvaGetDesc(varNum);
-            siStartOrCloseVariableLiveRange(varDsc, varNum, isBorn, isDying);
-        }
-    }
-}
-
-//------------------------------------------------------------------------
 // siStartVariableLiveRange: Reports the given variable as being born.
 //
 // Arguments:

@@ -413,14 +413,6 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
                 DBEXEC(compiler->verbose,
                        compiler->dmpVarSetDiff("GC stack vars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
             }
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-            codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRanges(varDeltaSet, isBorn, isDying);
-#endif
-
-#ifdef USING_SCOPE_INFO
-            codeGen->siUpdate();
-#endif
         }
     }
 }

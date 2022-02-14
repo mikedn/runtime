@@ -677,7 +677,6 @@ public:
 
         // For tracking locations during code generation
         void siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum, bool isBorn, bool isDying);
-        void siStartOrCloseVariableLiveRanges(VARSET_VALARG_TP varsIndexSet, bool isBorn, bool isDying);
         void siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);
         void siEndVariableLiveRange(unsigned int varNum);
         void siUpdateVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);
