@@ -15,8 +15,11 @@ class CodeGenLivenessUpdater
     VARSET_TP newLife;
     VARSET_TP varDeltaSet;
     VARSET_TP varStackGCPtrDeltaSet;
-    INDEBUG(VARSET_TP scratchSet;)
-    INDEBUG(unsigned epoch;)
+#ifdef DEBUG
+    VARSET_TP scratchSet1;
+    VARSET_TP scratchSet2;
+    unsigned  epoch;
+#endif
 
     void UpdateLifeMultiReg(class CodeGen* codeGen, GenTreeLclVar* lclNode);
     void UpdateLifePromoted(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);

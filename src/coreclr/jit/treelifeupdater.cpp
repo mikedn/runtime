@@ -9,8 +9,11 @@ void CodeGenLivenessUpdater::Begin()
     varDeltaSet           = VarSetOps::MakeEmpty(compiler);
     varStackGCPtrDeltaSet = VarSetOps::MakeEmpty(compiler);
 
-    INDEBUG(scratchSet = VarSetOps::MakeEmpty(compiler);)
-    INDEBUG(epoch = compiler->GetCurLVEpoch();)
+#ifdef DEBUG
+    scratchSet1 = VarSetOps::MakeEmpty(compiler);
+    scratchSet2 = VarSetOps::MakeEmpty(compiler);
+    epoch       = compiler->GetCurLVEpoch();
+#endif
 
     // Also, initialize "HasStackGCPtrLiveness" for all tracked variables that do not fully
     // live in a register (i.e. they live on the stack for all or part of their lifetime).
@@ -39,7 +42,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
         return;
     }
 
-    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur));
+    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, codeGen->gcInfo.gcVarPtrSetCur));
 
     VarSetOps::Assign(compiler, varDeltaSet, currentLife);
     VarSetOps::DiffD(compiler, varDeltaSet, newLife);
@@ -129,7 +132,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
     codeGen->siUpdate();
 #endif
 
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("GC stack vars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
 }
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
@@ -185,7 +188,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
         }
 
-        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, currentLife);)
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
 
         bool changed;
 
@@ -216,11 +219,11 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (changed)
         {
-            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, currentLife);)
+            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet1, currentLife);)
 
             if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
-                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
 
                 if (isBorn)
                 {
@@ -232,7 +235,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
                 }
 
                 DBEXEC(compiler->verbose,
-                       compiler->dmpVarSetDiff("GC stack vars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+                       compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
             }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
@@ -263,23 +266,8 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
     assert(lclNode->IsMultiReg() && lclNode->OperIs(GT_STORE_LCL_VAR) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0));
     assert(compiler->lvaEnregMultiRegVars);
 
-    bool isBorn = ((lclNode->gtFlags & GTF_VAR_DEF) != 0);
-    // Note that for multireg locals we can have definitions for which some of those are last uses.
-    // We don't want to add those to the varDeltaSet because otherwise they will be added as newly
-    // live.
-    bool isDying = !isBorn && lclNode->HasLastUse();
-
-    if (!isBorn && !isDying)
-    {
-        return;
-    }
-
-    VarSetOps::Assign(compiler, newLife, currentLife);
-    // Since all tracked vars are register candidates, but not all are in registers at all times,
-    // we maintain two separate sets of variables - the total set of variables that are either
-    // born or dying here, and the subset of those that are on the stack
-    VarSetOps::ClearD(compiler, varDeltaSet);
-    VarSetOps::ClearD(compiler, varStackGCPtrDeltaSet);
+    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
+    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);)
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
@@ -292,78 +280,47 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
         bool isFieldDying   = lclNode->IsLastUse(i);
         bool isFieldSpilled = lclNode->IsRegSpill(i);
 
-        if ((isBorn && !isFieldDying) || (!isBorn && isFieldDying))
-        {
-            VarSetOps::AddElemD(compiler, varDeltaSet, fieldLcl->GetLivenessBitIndex());
-
-            if (isInMemory && fieldLcl->HasStackGCPtrLiveness())
-            {
-                VarSetOps::AddElemD(compiler, varStackGCPtrDeltaSet, fieldLcl->GetLivenessBitIndex());
-            }
-        }
-
         if (isInReg)
         {
-            if (isBorn)
-            {
-                fieldLcl->SetRegNum(lclNode->GetRegNum(i));
-            }
-
-            codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(lclNode));
+            fieldLcl->SetRegNum(lclNode->GetRegNum(i));
+            codeGen->genUpdateRegLife(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
 
             // If this was marked for spill, genProduceReg should already have spilled it.
             assert(!isFieldSpilled);
         }
-    }
 
-    if (isDying)
-    {
-        // TODO-MIKE-Review: Why does the assert below fail? Old comment
-        // mentions QMARKs but there's no such thing in LIR. CopyProp
-        // liveness had a similar issue but the same fix isn't sufficient
-        // here.
-        //
-        // assert(VarSetOps::IsSubset(compiler, regVarDeltaSet, newLife));
-
-        VarSetOps::DiffD(compiler, newLife, varDeltaSet);
-    }
-    else
-    {
-        // This shouldn't be in newLife, unless this is debug code, in which
-        // case we keep vars live everywhere, OR the variable is address-exposed,
-        // OR this block is part of a try block, in which case it may be live at the handler
-        // Could add a check that, if it's in newLife, that it's also in
-        // fgGetHandlerLiveVars(compCurBB), but seems excessive
-        //
-        // For a dead store, it can be the case that we set both isBorn and isDying to true.
-        // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
-        // eliminated.)  If it's both, we handled it above.
-        VarSetOps::UnionD(compiler, newLife, varDeltaSet);
-    }
-
-    if (!VarSetOps::Equal(compiler, currentLife, newLife))
-    {
-        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", currentLife, newLife);)
-
-        VarSetOps::Assign(compiler, currentLife, newLife);
-
-        if (!VarSetOps::IsEmpty(compiler, varStackGCPtrDeltaSet))
+        if (isFieldDying)
         {
-            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+            VarSetOps::RemoveElemD(compiler, currentLife, fieldLcl->GetLivenessBitIndex());
+        }
+        else
+        {
+            VarSetOps::AddElemD(compiler, currentLife, fieldLcl->GetLivenessBitIndex());
+        }
 
-            if (isBorn)
-            {
-                VarSetOps::UnionD(compiler, codeGen->gcInfo.gcVarPtrSetCur, varStackGCPtrDeltaSet);
-            }
-            else
-            {
-                VarSetOps::DiffD(compiler, codeGen->gcInfo.gcVarPtrSetCur, varStackGCPtrDeltaSet);
-            }
+        if (isInMemory && fieldLcl->HasStackGCPtrLiveness())
+        {
+            // TODO-MIKE-Review: Should we remove the local from the GC var set when the field is dying?
+            // The "scalar" version of this code doesn't do it, it checks "isBorn" instead of "isDying".
 
-            DBEXEC(compiler->verbose,
-                   compiler->dmpVarSetDiff("GC stack vars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+            VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, fieldLcl->GetLivenessBitIndex());
         }
     }
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        if (!VarSetOps::Equal(compiler, scratchSet1, currentLife))
+        {
+            compiler->dmpVarSetDiff("Live vars: ", scratchSet1, currentLife);
+        }
+
+        if (!VarSetOps::Equal(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur))
+        {
+            compiler->dmpVarSetDiff("GC stack vars: ", scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);
+        }
+    }
+#endif
 }
 
 void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
@@ -460,7 +417,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
 
         if (!VarSetOps::IsEmpty(compiler, varStackGCPtrDeltaSet))
         {
-            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
 
             if (isBorn)
             {
@@ -472,7 +429,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
             }
 
             DBEXEC(compiler->verbose,
-                   compiler->dmpVarSetDiff("GC stack vars: ", scratchSet, codeGen->gcInfo.gcVarPtrSetCur);)
+                   compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
         }
     }
 }
