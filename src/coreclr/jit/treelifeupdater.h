@@ -18,6 +18,7 @@ class CodeGenLivenessUpdater
     INDEBUG(VARSET_TP scratchSet;)
     INDEBUG(unsigned epoch;)
 
+    void UpdateLifeMultiReg(class CodeGen* codeGen, GenTreeLclVar* lclNode);
     void UpdateLifePromoted(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
 
 public:
