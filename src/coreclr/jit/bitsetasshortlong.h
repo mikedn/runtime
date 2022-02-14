@@ -43,6 +43,7 @@ private:
     static void AddElemDLong(Env env, BitSetShortLongRep& bs, unsigned i);
     static bool TryAddElemDLong(Env env, BitSetShortLongRep& bs, unsigned i);
     static void RemoveElemDLong(Env env, BitSetShortLongRep& bs, unsigned i);
+    static bool TryRemoveElemDLong(Env env, BitSetShortLongRep& bs, unsigned i);
     static void ClearDLong(Env env, BitSetShortLongRep& bs);
     static BitSetShortLongRep MakeUninitArrayBits(Env env);
     static BitSetShortLongRep MakeEmptyArrayBits(Env env);
@@ -254,6 +255,23 @@ public:
         BitSetShortLongRep res = MakeCopy(env, bs);
         RemoveElemD(env, res, i);
         return res;
+    }
+
+    static bool TryRemoveElemD(Env env, BitSetShortLongRep& bs, unsigned i)
+    {
+        assert(i < BitSetTraits::GetSize(env));
+        if (IsShort(env))
+        {
+            size_t mask    = ((size_t)1) << i;
+            size_t bits    = (size_t)bs;
+            bool   removed = (bits & mask) != 0;
+            bs             = (BitSetShortLongRep)(bits & ~mask);
+            return removed;
+        }
+        else
+        {
+            return TryRemoveElemDLong(env, bs, i);
+        }
     }
 
     static void AddElemD(Env env, BitSetShortLongRep& bs, unsigned i)
@@ -711,6 +729,21 @@ void BitSetOps</*BitSetType*/ BitSetShortLongRep,
     size_t   mask  = ((size_t)1) << (i % BitsInSizeT);
     mask           = ~mask;
     bs[index] &= mask;
+}
+
+template <typename Env, typename BitSetTraits>
+bool BitSetOps</*BitSetType*/ BitSetShortLongRep,
+               /*Brand*/ BSShortLong,
+               /*Env*/ Env,
+               /*BitSetTraits*/ BitSetTraits>::TryRemoveElemDLong(Env env, BitSetShortLongRep& bs, unsigned i)
+{
+    assert(!IsShort(env));
+    unsigned index   = i / BitsInSizeT;
+    size_t   mask    = ((size_t)1) << (i % BitsInSizeT);
+    size_t   bits    = bs[index];
+    bool     removed = (bits & mask) != 0;
+    bs[index]        = bits & ~mask;
+    return removed;
 }
 
 template <typename Env, typename BitSetTraits>

@@ -181,7 +181,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
         }
 
-        VarSetOps::Assign(compiler, newLife, currentLife);
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, currentLife);)
+
+        bool changed;
 
         if (isDying)
         {
@@ -192,7 +194,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             //
             // assert(VarSetOps::IsMember(compiler, newLife, lcl->GetLivenessBitIndex()));
 
-            VarSetOps::RemoveElemD(compiler, newLife, lcl->GetLivenessBitIndex());
+            changed = VarSetOps::TryRemoveElemD(compiler, currentLife, lcl->GetLivenessBitIndex());
         }
         else
         {
@@ -205,14 +207,12 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             // For a dead store, it can be the case that we set both isBorn and isDying to true.
             // (We don't eliminate dead stores under MinOpts, so we can't assume they're always
             // eliminated.)  If it's both, we handled it above.
-            VarSetOps::AddElemD(compiler, newLife, lcl->GetLivenessBitIndex());
+            changed = VarSetOps::TryAddElemD(compiler, currentLife, lcl->GetLivenessBitIndex());
         }
 
-        if (!VarSetOps::Equal(compiler, currentLife, newLife))
+        if (changed)
         {
-            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", currentLife, newLife);)
-
-            VarSetOps::Assign(compiler, currentLife, newLife);
+            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, currentLife);)
 
             if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
