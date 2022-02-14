@@ -168,11 +168,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     if (isBorn || isDying)
     {
-        VarSetOps::Assign(compiler, newLife, currentLife);
-
         if (isBorn && lcl->IsRegCandidate() && (lclNode->GetRegNum() != REG_NA))
         {
-            codeGen->genUpdateVarReg(lcl, lclNode);
+            lcl->SetRegNum(lclNode->GetRegNum());
         }
 
         bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNum() != REG_NA);
@@ -182,6 +180,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         {
             codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
         }
+
+        VarSetOps::Assign(compiler, newLife, currentLife);
 
         if (isDying)
         {
@@ -313,7 +313,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
                 {
                     if (isBorn)
                     {
-                        codeGen->genUpdateVarReg(fieldLcl, lclNode, i);
+                        fieldLcl->SetRegNum(lclNode->GetRegNum(i));
                     }
 
                     codeGen->genUpdateRegLife(fieldLcl, isBorn, isFieldDying DEBUGARG(lclNode));

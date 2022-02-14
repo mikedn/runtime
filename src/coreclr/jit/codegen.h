@@ -1066,8 +1066,6 @@ protected:
 
     void genUpdateLife(GenTreeLclVarCommon* tree);
     void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
-    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex);
-    void genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree);
     regMaskTP genGetRegMask(const LclVarDsc* varDsc);
     regMaskTP genGetRegMask(GenTree* tree);
 

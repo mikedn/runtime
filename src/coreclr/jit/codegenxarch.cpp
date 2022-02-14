@@ -4675,7 +4675,6 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     regNumber oldOp2Reg     = lcl2->GetRegNum();
     regMaskTP oldOp2RegMask = genRegMask(oldOp2Reg);
 
-    // We don't call genUpdateVarReg because we don't have a tree node with the new register.
     varDsc1->SetRegNum(oldOp2Reg);
     varDsc2->SetRegNum(oldOp1Reg);
 
