@@ -43,43 +43,52 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
         return;
     }
 
-    if (lcl->IsPromoted())
+    if (!lcl->IsPromoted())
     {
-        // TODO-MIKE-Cleanup: This is kind of strange because it doesn't bother to
-        // check which fields actually overlap a LCL_FLD access. Since a LCL_FLD
-        // which doesn't overlap all fields is supposed to be "USEASG", this should
-        // be correct - all fields are always used so we don't risk eliminating
-        // previous stores as dead. But this means we also can't eliminate stores
-        // that are truly dead due to such false uses.
-        //
-        // It wouldn't be too difficult to check which fields overlap but it's not
-        // clear if it's worth the trouble. A common source of such partial access
-        // are multi-reg call args/returns but those end up using the entire struct
-        // anyway (e.g. 2 partial LCL_FLDs to load the entire struct in 2 registers).
-        //
-        // And then the question is if there's any need to preserve P-DEP promotion.
-        // Such fields are not in SSA and are not enregistered so probably the only
-        // advantage they may have is dead store elimination, and we don't do that.
-        // If we undo P-DEP then the struct local will be in SSA (assuming that
-        // P-DEP wasn't due to the local being address-exposed) so value numbering
-        // works too and may allow certain optimizations to be performed.
+        return;
+    }
 
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+    unsigned lclOffset    = 0;
+    unsigned lclEndOffset = lcl->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
+
+    if (GenTreeLclFld* lclFld = node->IsLclFld())
+    {
+        lclOffset    = lclFld->GetLclOffs();
+        lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(this)->GetSize()
+                                                               : varTypeSize(lclFld->GetType()));
+    }
+
+    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+    {
+        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+        assert(!fieldLcl->TypeIs(TYP_STRUCT));
+
+        unsigned fieldOffset    = fieldLcl->GetPromotedFieldOffset();
+        unsigned fieldEndOffset = fieldOffset + varTypeSize(fieldLcl->GetType());
+        bool     partialOverlap = (fieldOffset < lclEndOffset) && (fieldEndOffset > lclOffset);
+
+        if (!partialOverlap)
         {
-            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+            continue;
+        }
 
-            if (fieldLcl->HasLiveness())
-            {
-                if (isUse && !VarSetOps::IsMember(this, fgCurDefSet, fieldLcl->lvVarIndex))
-                {
-                    VarSetOps::AddElemD(this, fgCurUseSet, fieldLcl->lvVarIndex);
-                }
+        if (!fieldLcl->HasLiveness())
+        {
+            continue;
+        }
 
-                if (isDef)
-                {
-                    VarSetOps::AddElemD(this, fgCurDefSet, fieldLcl->lvVarIndex);
-                }
-            }
+        bool totalOverlap = (lclOffset <= fieldOffset) && (fieldEndOffset <= lclEndOffset);
+        bool isFieldUse   = !isDef || !totalOverlap;
+
+        if (isFieldUse && !VarSetOps::IsMember(this, fgCurDefSet, fieldLcl->GetLivenessBitIndex()))
+        {
+            VarSetOps::AddElemD(this, fgCurUseSet, fieldLcl->GetLivenessBitIndex());
+        }
+
+        if (isDef)
+        {
+            VarSetOps::AddElemD(this, fgCurDefSet, fieldLcl->GetLivenessBitIndex());
         }
     }
 }
@@ -103,9 +112,6 @@ void Compiler::fgLocalVarLiveness()
     fgLocalVarLivenessInit();
 
     EndPhase(PHASE_LCLVARLIVENESS_INIT);
-
-    // Make sure we haven't noted any partial last uses of promoted structs.
-    ClearPromotedStructDeathVars();
 
     // Initialize the per-block var sets.
     fgInitBlockVarSets();
@@ -1527,72 +1533,56 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
         return false;
     }
 
-    VARSET_TP fieldSet(VarSetOps::MakeEmpty(this));
-    bool      allFieldAreTracked = true;
+    unsigned lclOffset    = 0;
+    unsigned lclEndOffset = lcl->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
+
+    if (GenTreeLclFld* lclFld = node->IsLclFld())
+    {
+        lclOffset    = lclFld->GetLclOffs();
+        lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(this)->GetSize()
+                                                               : varTypeSize(lclFld->GetType()));
+    }
+
+    bool isLastUse = true;
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
     {
         LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-        if (!fieldLcl->lvTracked)
+        assert(!fieldLcl->TypeIs(TYP_STRUCT));
+
+        unsigned fieldOffset    = fieldLcl->GetPromotedFieldOffset();
+        unsigned fieldEndOffset = fieldOffset + varTypeSize(fieldLcl->GetType());
+        bool     partialOverlap = (fieldOffset < lclEndOffset) && (fieldEndOffset > lclOffset);
+
+        if (!partialOverlap)
         {
-            allFieldAreTracked = false;
             continue;
         }
 
-        const unsigned index = fieldLcl->GetLivenessBitIndex();
-
-        VarSetOps::AddElemD(this, fieldSet, index);
-
-        if (isDef && node->IsMultiRegLclVar() && !VarSetOps::IsMember(this, liveOut, index))
+        if (!fieldLcl->HasLiveness())
         {
-            node->AsLclVar()->SetLastUse(i);
+            isLastUse = false;
+            continue;
+        }
+
+        bool totalOverlap = (lclOffset <= fieldOffset) && (fieldEndOffset <= lclEndOffset);
+        bool isLiveOut    = VarSetOps::IsMember(this, liveOut, fieldLcl->GetLivenessBitIndex());
+
+        node->SetLastUse(i, !isLiveOut);
+        isLastUse &= !isLiveOut;
+
+        if (!isDef || !totalOverlap)
+        {
+            VarSetOps::AddElemD(this, liveOut, fieldLcl->GetLivenessBitIndex());
+        }
+        else if (!VarSetOps::IsMember(this, keepAlive, fieldLcl->GetLivenessBitIndex()))
+        {
+            VarSetOps::RemoveElemD(this, liveOut, fieldLcl->GetLivenessBitIndex());
         }
     }
 
-    if (isDef)
-    {
-        VARSET_TP liveFields(VarSetOps::Intersection(this, liveOut, fieldSet));
-
-        if ((node->gtFlags & GTF_VAR_USEASG) == 0)
-        {
-            VarSetOps::DiffD(this, fieldSet, keepAlive);
-            VarSetOps::DiffD(this, liveOut, fieldSet);
-        }
-
-        if (allFieldAreTracked && VarSetOps::IsEmpty(this, liveFields) && !opts.MinOpts())
-        {
-            return !(lcl->lvCustomLayout && lcl->lvContainsHoles);
-        }
-
-        return false;
-    }
-    else
-    {
-        if (VarSetOps::IsSubset(this, fieldSet, liveOut))
-        {
-            node->gtFlags &= ~GTF_VAR_DEATH;
-            return false;
-        }
-
-        // Some fields are being used, and they are not currently live.
-        node->gtFlags |= GTF_VAR_DEATH;
-
-        if (!VarSetOps::IsEmptyIntersection(this, fieldSet, liveOut))
-        {
-            // Only a subset of the variables are becoming alive; we must record that subset.
-            // (Lack of an entry for "node" will be considered to imply all become dead in the
-            // forward traversal.)
-
-            VARSET_TP* deadVarSet = new (this, CMK_bitset) VARSET_TP;
-            VarSetOps::AssignNoCopy(this, *deadVarSet, VarSetOps::Diff(this, fieldSet, liveOut));
-            GetPromotedStructDeathVars()->Set(node, deadVarSet, NodeToVarsetPtrMap::Overwrite);
-        }
-
-        VarSetOps::UnionD(this, liveOut, fieldSet);
-
-        return false;
-    }
+    return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
 void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt)

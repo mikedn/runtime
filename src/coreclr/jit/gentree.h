@@ -1740,8 +1740,7 @@ public:
     // Last-use information for either GenTreeLclVar or GenTreeCopyOrReload nodes.
     bool IsLastUse(unsigned regIndex);
     bool HasLastUse();
-    void SetLastUse(unsigned regIndex);
-    void ClearLastUse(unsigned regIndex);
+    void SetLastUse(unsigned regIndex, bool lastUse);
 
     // Returns true if it is a GT_COPY or GT_RELOAD of a multi-reg call node
     inline bool IsCopyOrReloadOfMultiRegCall() const;
@@ -7786,30 +7785,30 @@ constexpr GenTreeFlags GetLastUseFlag(unsigned regIndex)
 
 inline bool GenTree::IsLastUse(unsigned regIndex)
 {
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_FLD, GT_COPY, GT_RELOAD));
 
     return (gtFlags & GetLastUseFlag(regIndex)) != 0;
 }
 
 inline bool GenTree::HasLastUse()
 {
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_FLD, GT_COPY, GT_RELOAD));
 
     return (gtFlags & (GTF_VAR_DEATH_MASK)) != 0;
 }
 
-inline void GenTree::SetLastUse(unsigned regIndex)
+inline void GenTree::SetLastUse(unsigned regIndex, bool lastUse)
 {
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_FLD, GT_COPY, GT_RELOAD));
 
-    gtFlags |= GetLastUseFlag(regIndex);
-}
-
-inline void GenTree::ClearLastUse(unsigned regIndex)
-{
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_COPY, GT_RELOAD));
-
-    gtFlags &= ~GetLastUseFlag(regIndex);
+    if (lastUse)
+    {
+        gtFlags |= GetLastUseFlag(regIndex);
+    }
+    else
+    {
+        gtFlags &= ~GetLastUseFlag(regIndex);
+    }
 }
 
 //-----------------------------------------------------------------------------------

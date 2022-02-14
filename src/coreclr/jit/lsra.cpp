@@ -2136,7 +2136,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
                     // Checked or Debug builds, for which this method will be executed.
                     if (tree != nullptr)
                     {
-                        tree->AsLclVar()->SetLastUse(currentRefPosition->multiRegIdx);
+                        tree->SetLastUse(currentRefPosition->multiRegIdx, true);
                     }
                 }
                 else if (!currentRefPosition->lastUse)
@@ -2155,7 +2155,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
             else if (extendLifetimes() && tree != nullptr)
             {
                 // NOTE: see the comment above re: the extendLifetimes hack.
-                tree->AsLclVar()->ClearLastUse(currentRefPosition->multiRegIdx);
+                tree->SetLastUse(currentRefPosition->multiRegIdx, false);
             }
 
             if (currentRefPosition->refType == RefTypeDef || currentRefPosition->refType == RefTypeDummyDef)
@@ -5729,14 +5729,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
     // lifetimes. See also the comments in checkLastUses.
     if ((treeNode != nullptr) && !extendLifetimes())
     {
-        if (currentRefPosition->lastUse)
-        {
-            treeNode->SetLastUse(currentRefPosition->getMultiRegIdx());
-        }
-        else
-        {
-            treeNode->ClearLastUse(currentRefPosition->getMultiRegIdx());
-        }
+        treeNode->SetLastUse(currentRefPosition->getMultiRegIdx(), currentRefPosition->lastUse);
 
         if ((currentRefPosition->registerAssignment != RBM_NONE) && (interval->physReg == REG_NA) &&
             currentRefPosition->RegOptional() && currentRefPosition->lastUse &&
@@ -6122,7 +6115,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         {
             // This is a TEMPORARY copy
             assert(isCandidateLclVar(tree) || tree->IsMultiRegLclVar());
-            newNode->SetLastUse(multiRegIdx);
+            newNode->SetLastUse(multiRegIdx, true);
         }
 
         // Insert the copy/reload after the spilled node and replace the use of the original node with a use

@@ -157,11 +157,6 @@ void Compiler::fgInit()
     }
 #endif // DEBUG
 
-    if (!compIsForInlining())
-    {
-        m_promotedStructDeathVars = nullptr;
-    }
-
     fgHasSwitch                  = false;
     fgPgoDisabled                = false;
     fgPgoSchema                  = nullptr;
