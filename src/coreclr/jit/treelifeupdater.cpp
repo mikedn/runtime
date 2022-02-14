@@ -286,8 +286,6 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
         isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
     }
 
-    bool spill = lclNode->IsAnyRegSpill();
-
     if (isBorn || isDying)
     {
         VarSetOps::Assign(compiler, newLife, currentLife);
@@ -309,8 +307,8 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
 
                 bool isInReg        = fieldLcl->lvIsInReg() && (lclNode->GetRegNum(i) != REG_NA);
                 bool isInMemory     = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
-                bool isFieldDying   = lclNode->AsLclVar()->IsLastUse(i);
-                bool isFieldSpilled = spill && lclNode->IsRegSpill(i);
+                bool isFieldDying   = lclNode->IsLastUse(i);
+                bool isFieldSpilled = lclNode->IsRegSpill(i);
 
                 if ((isBorn && !isFieldDying) || (!isBorn && isFieldDying))
                 {
@@ -335,11 +333,11 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
                     assert(!isFieldSpilled);
                 }
             }
-
-            spill = false;
         }
         else
         {
+            assert(!lclNode->IsAnyRegSpill());
+
             bool hasDeadTrackedFields = false;
 
             if (isDying)
@@ -436,6 +434,4 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
 #endif
         }
     }
-
-    assert(!spill);
 }
