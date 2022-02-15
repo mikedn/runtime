@@ -5,7 +5,6 @@
 void CodeGenLivenessUpdater::Begin()
 {
     currentLife           = VarSetOps::MakeEmpty(compiler);
-    newLife               = VarSetOps::MakeEmpty(compiler);
     varDeltaSet           = VarSetOps::MakeEmpty(compiler);
     varStackGCPtrDeltaSet = VarSetOps::MakeEmpty(compiler);
 

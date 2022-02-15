@@ -12,7 +12,6 @@ class CodeGenLivenessUpdater
     Compiler* compiler;
     GenTree*  currentNode;
     VARSET_TP currentLife;
-    VARSET_TP newLife;
     VARSET_TP varDeltaSet;
     VARSET_TP varStackGCPtrDeltaSet;
 #ifdef DEBUG
