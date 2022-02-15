@@ -292,23 +292,6 @@ inline bool varTypeIsComposite(T vt)
     return (!varTypeIsArithmetic(TypeGet(vt)) && TypeGet(vt) != TYP_VOID);
 }
 
-// Is this type promotable?
-// In general only structs are promotable.
-// However, a SIMD type, e.g. TYP_SIMD may be handled as either a struct, OR a
-// fully-promoted register type.
-// On 32-bit systems longs are split into an upper and lower half, and they are
-// handled as if they are structs with two integer fields.
-
-template <class T>
-inline bool varTypeIsPromotable(T vt)
-{
-    return varTypeIsStruct(vt)
-#ifndef TARGET_64BIT
-           || varTypeIsLong(vt)
-#endif
-        ;
-}
-
 template <class T>
 inline bool varTypeIsStruct(T vt)
 {

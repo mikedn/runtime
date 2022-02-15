@@ -16,7 +16,8 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
     assert(!lcl->IsAddressExposed());
 
     // We should never encounter a reference to a local that has a zero ref count.
-    if ((lcl->lvRefCnt() == 0) && (!varTypeIsPromotable(lcl->GetType()) || !lcl->IsPromoted()))
+    // TODO-MIKE-Review: It's not clear why promotion makes a difference.
+    if ((lcl->lvRefCnt() == 0) && !lcl->IsPromoted())
     {
         JITDUMP("Found reference to V%02u with zero refCnt.\n", node->GetLclNum());
         assert(!"We should never encounter a reference to a lclVar that has a zero refCnt.");
