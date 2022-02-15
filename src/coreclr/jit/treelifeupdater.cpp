@@ -174,6 +174,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     if (isBorn || isDying)
     {
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);)
+
         if (isBorn && lcl->IsRegCandidate() && (lclNode->GetRegNum() != REG_NA))
         {
             lcl->SetRegNum(lclNode->GetRegNum());
@@ -218,12 +221,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (changed)
         {
-            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet1, currentLife);)
-
             if (isInMemory && lcl->HasStackGCPtrLiveness())
             {
-                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
-
                 if (isBorn)
                 {
                     VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
@@ -232,10 +231,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
                 {
                     VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
                 }
-
-                DBEXEC(compiler->verbose,
-                       compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
             }
+
+            DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 
 #ifdef USING_VARIABLE_LIVE_RANGE
             codeGen->getVariableLiveKeeper()->siStartOrCloseVariableLiveRange(lcl, lclNode->GetLclNum(), isBorn,
@@ -306,20 +304,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
         }
     }
 
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        if (!VarSetOps::Equal(compiler, scratchSet1, currentLife))
-        {
-            compiler->dmpVarSetDiff("Live vars: ", scratchSet1, currentLife);
-        }
-
-        if (!VarSetOps::Equal(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur))
-        {
-            compiler->dmpVarSetDiff("GC stack vars: ", scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);
-        }
-    }
-#endif
+    DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 }
 
 void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
@@ -396,18 +381,20 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
         }
     }
 
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        if (!VarSetOps::Equal(compiler, scratchSet1, currentLife))
-        {
-            compiler->dmpVarSetDiff("Live vars: ", scratchSet1, currentLife);
-        }
-
-        if (!VarSetOps::Equal(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur))
-        {
-            compiler->dmpVarSetDiff("GC stack vars: ", scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);
-        }
-    }
-#endif
+    DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 }
+
+#ifdef DEBUG
+void CodeGenLivenessUpdater::DumpDiff(CodeGen* codeGen)
+{
+    if (!VarSetOps::Equal(compiler, scratchSet1, currentLife))
+    {
+        compiler->dmpVarSetDiff("Live vars: ", scratchSet1, currentLife);
+    }
+
+    if (!VarSetOps::Equal(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur))
+    {
+        compiler->dmpVarSetDiff("GC stack vars: ", scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);
+    }
+}
+#endif

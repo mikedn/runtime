@@ -22,6 +22,7 @@ class CodeGenLivenessUpdater
 
     void UpdateLifeMultiReg(class CodeGen* codeGen, GenTreeLclVar* lclNode);
     void UpdateLifePromoted(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
+    INDEBUG(void DumpDiff(class CodeGen* codeGen);)
 
 public:
     CodeGenLivenessUpdater(Compiler* compiler) : compiler(compiler)
