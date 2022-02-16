@@ -2273,27 +2273,6 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
     }
 }
 
-#ifndef TARGET_64BIT
-
-void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
-{
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
-    assert(lcl->TypeIs(TYP_LONG));
-    assert(!lcl->IsPromoted());
-
-    GenTreeOp* src = store->GetOp(0)->AsOp();
-    assert(src->OperIs(GT_LONG));
-    assert(src->isContained());
-
-    regNumber loSrcReg = genConsumeReg(src->GetOp(0));
-    regNumber hiSrcReg = genConsumeReg(src->GetOp(1));
-
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, loSrcReg, store->GetLclNum(), 0);
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, hiSrcReg, store->GetLclNum(), 4);
-}
-
-#endif
-
 //------------------------------------------------------------------------
 // genCodeForJumpTrue: Generate code for a GT_JTRUE node.
 //

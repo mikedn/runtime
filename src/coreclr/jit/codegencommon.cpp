@@ -10182,6 +10182,45 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
 #endif // !WINDOWS_AMD64_ABI
 
+#ifndef TARGET_64BIT
+
+void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_LONG));
+
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    assert(lcl->TypeIs(TYP_LONG));
+
+    if (lcl->IsIndependentPromoted())
+    {
+        GenStoreLclVarMultiReg(store);
+        return;
+    }
+
+    GenTree*  src = store->GetOp(0);
+    regNumber srcRegs[2];
+
+    if (src->OperIs(GT_LONG))
+    {
+        assert(src->isContained());
+
+        srcRegs[0] = UseReg(src->AsOp()->GetOp(0));
+        srcRegs[1] = UseReg(src->AsOp()->GetOp(1));
+    }
+    else
+    {
+        srcRegs[0] = UseReg(src, 0);
+        srcRegs[1] = UseReg(src, 1);
+    }
+
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], store->GetLclNum(), 0);
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], store->GetLclNum(), 4);
+
+    genUpdateLife(store);
+}
+
+#endif
+
 void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));

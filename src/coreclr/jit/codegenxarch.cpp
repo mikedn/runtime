@@ -4149,6 +4149,14 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
+#ifndef TARGET_64BIT
+    if (store->TypeIs(TYP_LONG))
+    {
+        GenStoreLclVarLong(store);
+        return;
+    }
+#endif
+
     GenTree* src = store->GetOp(0);
 
     if (src->IsMultiRegNode())
@@ -4183,15 +4191,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
         assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));
         assert(!varTypeUsesFloatReg(lclRegType) || (emitTypeSize(lclRegType) == emitTypeSize(srcRegType)));
-    }
-#endif
-
-#ifndef TARGET_64BIT
-    if (lclRegType == TYP_LONG)
-    {
-        GenStoreLclVarLong(store);
-        // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
-        return;
     }
 #endif
 
