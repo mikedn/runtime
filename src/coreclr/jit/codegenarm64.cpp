@@ -2094,49 +2094,34 @@ void CodeGen::GenStoreLclVarMultiRegMem(GenTreeLclVar* store)
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
 
-    GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount  = src->GetMultiRegCount(compiler);
+    GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     regCount = src->GetMultiRegCount(compiler);
+    unsigned     lclNum   = store->GetLclNum();
+    LclVarDsc*   lcl      = compiler->lvaGetDesc(lclNum);
 
-    unsigned   lclNum = store->GetLclNum();
-    LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+    assert((regCount >= 2) && (regCount <= 4));
+    assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
 
-    if (src->OperIs(GT_CALL))
-    {
-        assert(regCount <= MAX_RET_REG_COUNT);
-        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsIndependentPromoted());
-    }
-
-    unsigned offset = 0;
+    regNumber regs[4];
 
     for (unsigned i = 0; i < regCount; ++i)
     {
-        regNumber reg  = UseReg(src, i);
-        var_types type = actualSrc->GetMultiRegType(compiler, i);
+        // Vector2/3/4 are returned only in FLOAT regs.
+        assert(call->GetMultiRegType(compiler, i) == TYP_FLOAT);
 
-        // genConsumeReg will return the valid register, either from the COPY
-        // or from the original source.
+        regs[i] = UseReg(src, i);
+    }
 
-        assert(reg != REG_NA);
-        // Several fields could be passed in one register, copy using the register type.
-        // It could rewrite memory outside of the fields but local on the stack are rounded to POINTER_SIZE so
-        // it is safe to store a long register into a byte field as it is known that we have enough padding after.
-        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, lclNum, static_cast<int>(offset));
-        offset += genTypeSize(type);
-#ifdef DEBUG
-#ifdef TARGET_64BIT
-        assert(offset <= lcl->lvSize());
-#else  // !TARGET_64BIT
-        if (varTypeIsStruct(lcl->GetType()))
-        {
-            assert(offset <= lcl->lvSize());
-        }
-        else
-        {
-            assert(lcl->GetType() == TYP_LONG);
-            assert(offset <= varTypeSize(TYP_LONG));
-        }
-#endif // !TARGET_64BIT
-#endif // DEBUG
+    GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[0], regs[1], lclNum, 0);
+
+    if (regCount == 4)
+    {
+        GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[2], regs[3], lclNum, 8);
+    }
+    else if (regCount == 3)
+    {
+        // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
+        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, regs[2], lclNum, 8);
     }
 
     genUpdateLife(store);
