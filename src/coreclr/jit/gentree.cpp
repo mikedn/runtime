@@ -8113,7 +8113,8 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
         }
     }
 
-    if (fgLocalVarLivenessDone && node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && node->HasLastUse())
+    if (fgLocalVarLivenessDone && node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) &&
+        node->HasLastUse())
     {
         printf("%slast-use", prefix);
     }
