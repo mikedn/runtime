@@ -906,22 +906,21 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    GenTree* src = store->GetOp(0);
-
-    if (src->IsMultiRegNode())
-    {
-        GenStoreLclVarMultiReg(store);
-        return;
-    }
-
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    GenTree*   src = store->GetOp(0);
 
-    if (store->TypeIs(TYP_STRUCT))
+    if (store->TypeIs(TYP_STRUCT) && !lcl->IsIndependentPromoted())
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
         GenStructStore(store, kind, layout);
         genUpdateLife(store);
+        return;
+    }
+
+    if (src->IsMultiRegNode())
+    {
+        GenStoreLclVarMultiReg(store);
         return;
     }
 
