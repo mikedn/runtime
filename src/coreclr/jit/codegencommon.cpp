@@ -10330,62 +10330,6 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     }
 }
 
-void CodeGen::GenStoreLclVarMultiRegMem(GenTreeLclVar* store)
-{
-    assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
-
-    GenTree* src = store->GetOp(0);
-    assert(src->IsMultiRegNode());
-
-    GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount  = src->GetMultiRegCount(compiler);
-
-    unsigned   lclNum = store->GetLclNum();
-    LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-
-    if (src->OperIs(GT_CALL))
-    {
-        assert(regCount <= MAX_RET_REG_COUNT);
-        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsIndependentPromoted());
-    }
-
-    unsigned offset = 0;
-
-    for (unsigned i = 0; i < regCount; ++i)
-    {
-        regNumber reg  = UseReg(src, i);
-        var_types type = actualSrc->GetMultiRegType(compiler, i);
-
-        // genConsumeReg will return the valid register, either from the COPY
-        // or from the original source.
-
-        assert(reg != REG_NA);
-        // Several fields could be passed in one register, copy using the register type.
-        // It could rewrite memory outside of the fields but local on the stack are rounded to POINTER_SIZE so
-        // it is safe to store a long register into a byte field as it is known that we have enough padding after.
-        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, lclNum, static_cast<int>(offset));
-        offset += genTypeSize(type);
-#ifdef DEBUG
-#ifdef TARGET_64BIT
-        assert(offset <= lcl->lvSize());
-#else  // !TARGET_64BIT
-        if (varTypeIsStruct(lcl->GetType()))
-        {
-            assert(offset <= lcl->lvSize());
-        }
-        else
-        {
-            assert(lcl->GetType() == TYP_LONG);
-            assert(offset <= varTypeSize(TYP_LONG));
-        }
-#endif // !TARGET_64BIT
-#endif // DEBUG
-    }
-
-    genUpdateLife(store);
-    lcl->SetRegNum(REG_STK);
-}
-
 #if defined(DEBUG) && defined(TARGET_XARCH)
 
 //------------------------------------------------------------------------
