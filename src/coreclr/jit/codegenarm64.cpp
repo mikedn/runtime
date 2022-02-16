@@ -2062,6 +2062,31 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     DefLclVarRegs(store);
 }
 
+void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
+{
+    GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
+
+    UseRegs(src);
+
+    GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     regCount = call->GetRegCount();
+    regNumber    dstReg   = store->GetRegNum();
+
+    for (unsigned i = 0; i < regCount; i++)
+    {
+        // Vector2/3/4 are returned only in FLOAT regs.
+        assert(call->GetRegType(i) == TYP_FLOAT);
+
+        // Insert elements in reverse order, so that the first element in the destination
+        // register is last, in case the destination register is also a source register.
+        int regIndex = regCount - 1 - i;
+        GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_4BYTE, dstReg, call->GetRegNum(regIndex), regIndex, 0);
+    }
+
+    DefLclVarRegs(store);
+}
+
 /***********************************************************************************************
  *  Generate code for localloc
  */

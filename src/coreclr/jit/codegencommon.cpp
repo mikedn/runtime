@@ -10332,8 +10332,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 
 void CodeGen::GenStoreLclVarMultiRegMem(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && !store->IsMultiReg());
-    assert(varTypeIsStruct(store->GetType()) || varTypeIsMultiReg(store->GetType()));
+    assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
