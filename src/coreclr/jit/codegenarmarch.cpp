@@ -2212,7 +2212,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     unsigned regSize  = varTypeSize(regTypes[0]);
     unsigned regIndex = 0;
 
-    assert((regSize <= REGSIZE_BYTES) || varTypeIsSIMD(regTypes[0]));
+    assert((regSize <= REGSIZE_BYTES) || varTypeUsesFloatReg(regTypes[0]));
 
 #ifdef TARGET_ARM64
     // TODO-MIKE-CQ: Using stp with SIMD16 is problematic - the offset needs to be a multiple
