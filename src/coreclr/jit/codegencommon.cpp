@@ -10223,7 +10223,7 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 
 void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
     assert(varTypeIsStruct(store->GetType()) || varTypeIsMultiReg(store->GetType()));
 
     GenTree* src = store->GetOp(0);
@@ -10235,25 +10235,12 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     unsigned   lclNum = store->GetLclNum();
     LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
+    assert(lcl->IsIndependentPromoted() && !lcl->IsRegCandidate());
+
     if (src->OperIs(GT_CALL))
     {
         assert(regCount <= MAX_RET_REG_COUNT);
         noway_assert(lcl->lvIsMultiRegRet || !lcl->IsIndependentPromoted());
-    }
-
-#ifdef FEATURE_SIMD
-    if (lcl->lvIsRegCandidate() && (store->GetRegNum() != REG_NA))
-    {
-        assert(varTypeIsSIMD(store));
-        GenStoreLclVarMultiRegSIMD(store);
-        return;
-    }
-#endif
-
-    if (!store->IsMultiReg())
-    {
-        GenStoreLclVarMultiRegMem(store);
-        return;
     }
 
     // We have either a multi-reg local or a local with multiple fields in memory.

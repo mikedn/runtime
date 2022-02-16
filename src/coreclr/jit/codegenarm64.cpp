@@ -1967,9 +1967,16 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
-    GenTree*   src = store->GetOp(0);
 
-    if (store->TypeIs(TYP_STRUCT) && !lcl->IsIndependentPromoted())
+    if (lcl->IsIndependentPromoted())
+    {
+        GenStoreLclVarMultiReg(store);
+        return;
+    }
+
+    GenTree* src = store->GetOp(0);
+
+    if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -1980,7 +1987,17 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (src->IsMultiRegNode())
     {
-        GenStoreLclVarMultiReg(store);
+        assert(varTypeIsSIMD(store->GetType()));
+
+        if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
+        {
+            GenStoreLclVarMultiRegSIMD(store);
+        }
+        else
+        {
+            GenStoreLclVarMultiRegMem(store);
+        }
+
         return;
     }
 

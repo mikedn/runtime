@@ -1769,6 +1769,8 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
 void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 {
+    assert(varTypeIsSIMD(store->GetType()));
+
 #if !defined(UNIX_AMD64_ABI) && !defined(TARGET_X86)
     assert(!"Multireg store to SIMD reg not supported on X64 Windows");
 #else
@@ -4158,9 +4160,16 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 #endif
 
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
-    GenTree*   src = store->GetOp(0);
 
-    if (store->TypeIs(TYP_STRUCT) && !lcl->IsIndependentPromoted())
+    if (lcl->IsIndependentPromoted())
+    {
+        GenStoreLclVarMultiReg(store);
+        return;
+    }
+
+    GenTree* src = store->GetOp(0);
+
+    if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = lcl->GetLayout();
         StructStoreKind kind   = GetStructStoreKind(true, layout, src);
@@ -4171,7 +4180,17 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (src->IsMultiRegNode())
     {
-        GenStoreLclVarMultiReg(store);
+        assert(varTypeIsSIMD(store->GetType()));
+
+        if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
+        {
+            GenStoreLclVarMultiRegSIMD(store);
+        }
+        else
+        {
+            GenStoreLclVarMultiRegMem(store);
+        }
+
         return;
     }
 
