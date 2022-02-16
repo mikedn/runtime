@@ -919,38 +919,6 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 }
 
 //------------------------------------------------------------------------
-// genUpdateVarReg: Update the current register location for a multi-reg lclVar
-//
-// Arguments:
-//    varDsc   - the LclVarDsc for the lclVar
-//    tree     - the lclVar node
-//    regIndex - the index of the register in the node
-//
-// inline
-void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree, int regIndex)
-{
-    // This should only be called for multireg lclVars.
-    assert(compiler->lvaEnregMultiRegVars);
-    assert(tree->IsMultiRegLclVar() || (tree->gtOper == GT_COPY));
-    varDsc->SetRegNum(tree->GetRegNum(regIndex));
-}
-
-//------------------------------------------------------------------------
-// genUpdateVarReg: Update the current register location for a lclVar
-//
-// Arguments:
-//    varDsc - the LclVarDsc for the lclVar
-//    tree   - the lclVar node
-//
-// inline
-void CodeGen::genUpdateVarReg(LclVarDsc* varDsc, GenTree* tree)
-{
-    // This should not be called for multireg lclVars.
-    assert((tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && !tree->IsMultiRegLclVar()) || tree->OperIs(GT_COPY));
-    varDsc->SetRegNum(tree->GetRegNum());
-}
-
-//------------------------------------------------------------------------
 // genCopyRegIfNeeded: Copy the given node into the specified register
 //
 // Arguments:
@@ -1140,7 +1108,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
             {
                 genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
                 gcInfo.gcMarkRegSetNpt(genRegMask(src->GetRegNum()));
-                genUpdateVarReg(lcl, copy);
+                lcl->SetRegNum(copy->GetRegNum());
 #ifdef USING_VARIABLE_LIVE_RANGE
                 varLiveKeeper->siUpdateVariableLiveRange(lcl, src->AsLclVar()->GetLclNum());
 #endif
@@ -2304,27 +2272,6 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
         }
     }
 }
-
-#ifndef TARGET_64BIT
-
-void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
-{
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
-    assert(lcl->TypeIs(TYP_LONG));
-    assert(!lcl->IsPromoted());
-
-    GenTreeOp* src = store->GetOp(0)->AsOp();
-    assert(src->OperIs(GT_LONG));
-    assert(src->isContained());
-
-    regNumber loSrcReg = genConsumeReg(src->GetOp(0));
-    regNumber hiSrcReg = genConsumeReg(src->GetOp(1));
-
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, loSrcReg, store->GetLclNum(), 0);
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, hiSrcReg, store->GetLclNum(), 4);
-}
-
-#endif
 
 //------------------------------------------------------------------------
 // genCodeForJumpTrue: Generate code for a GT_JTRUE node.

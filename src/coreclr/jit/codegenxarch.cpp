@@ -4149,6 +4149,14 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
+#ifndef TARGET_64BIT
+    if (store->TypeIs(TYP_LONG))
+    {
+        GenStoreLclVarLong(store);
+        return;
+    }
+#endif
+
     GenTree* src = store->GetOp(0);
 
     if (src->IsMultiRegNode())
@@ -4183,15 +4191,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
         assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));
         assert(!varTypeUsesFloatReg(lclRegType) || (emitTypeSize(lclRegType) == emitTypeSize(srcRegType)));
-    }
-#endif
-
-#ifndef TARGET_64BIT
-    if (lclRegType == TYP_LONG)
-    {
-        GenStoreLclVarLong(store);
-        // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
-        return;
     }
 #endif
 
@@ -4675,7 +4674,6 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     regNumber oldOp2Reg     = lcl2->GetRegNum();
     regMaskTP oldOp2RegMask = genRegMask(oldOp2Reg);
 
-    // We don't call genUpdateVarReg because we don't have a tree node with the new register.
     varDsc1->SetRegNum(oldOp2Reg);
     varDsc2->SetRegNum(oldOp1Reg);
 

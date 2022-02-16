@@ -10182,6 +10182,45 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
 #endif // !WINDOWS_AMD64_ABI
 
+#ifndef TARGET_64BIT
+
+void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_LONG));
+
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    assert(lcl->TypeIs(TYP_LONG));
+
+    if (lcl->IsIndependentPromoted())
+    {
+        GenStoreLclVarMultiReg(store);
+        return;
+    }
+
+    GenTree*  src = store->GetOp(0);
+    regNumber srcRegs[2];
+
+    if (src->OperIs(GT_LONG))
+    {
+        assert(src->isContained());
+
+        srcRegs[0] = UseReg(src->AsOp()->GetOp(0));
+        srcRegs[1] = UseReg(src->AsOp()->GetOp(1));
+    }
+    else
+    {
+        srcRegs[0] = UseReg(src, 0);
+        srcRegs[1] = UseReg(src, 1);
+    }
+
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], store->GetLclNum(), 0);
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], store->GetLclNum(), 4);
+
+    genUpdateLife(store);
+}
+
+#endif
+
 void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
@@ -10811,40 +10850,6 @@ void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const
         {
             // this variable live range is no longer valid from this point
             siEndVariableLiveRange(varNum);
-        }
-    }
-}
-
-//------------------------------------------------------------------------
-// siStartOrCloseVariableLiveRanges: Iterates the given set of variables
-//  calling "siStartOrCloseVariableLiveRange" with each one.
-//
-// Arguments:
-//    varsIndexSet    - the set of variables to report start/end "VariableLiveRange"
-//    isBorn    - whether the set is being born from where the emitter is located.
-//    isDying   - whether the set is dying from where the emitter is located.
-//
-// Assumptions:
-//    The emitter should be located on the first instruction from where is true that
-//    the variable becoming valid (when isBorn is true) or invalid (when isDying is true).
-//
-// Notes:
-//    This method is being called when a set of variables
-//    is being born, becoming dead, or both.
-//
-void CodeGenInterface::VariableLiveKeeper::siStartOrCloseVariableLiveRanges(VARSET_VALARG_TP varsIndexSet,
-                                                                            bool             isBorn,
-                                                                            bool             isDying)
-{
-    if (m_Compiler->opts.compDbgInfo)
-    {
-        VarSetOps::Iter iter(m_Compiler, varsIndexSet);
-        unsigned        varIndex = 0;
-        while (iter.NextElem(&varIndex))
-        {
-            unsigned int     varNum = m_Compiler->lvaTrackedIndexToLclNum(varIndex);
-            const LclVarDsc* varDsc = m_Compiler->lvaGetDesc(varNum);
-            siStartOrCloseVariableLiveRange(varDsc, varNum, isBorn, isDying);
         }
     }
 }

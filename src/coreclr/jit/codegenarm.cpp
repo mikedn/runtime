@@ -900,6 +900,12 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
+    if (store->TypeIs(TYP_LONG))
+    {
+        GenStoreLclVarLong(store);
+        return;
+    }
+
     GenTree* src = store->GetOp(0);
 
     if (src->IsMultiRegNode())
@@ -920,13 +926,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
 
     var_types lclRegType = lcl->GetRegisterType(store);
-
-    if (lclRegType == TYP_LONG)
-    {
-        GenStoreLclVarLong(store);
-        // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
-        return;
-    }
 
     regNumber srcReg = genConsumeReg(src);
     regNumber dstReg = store->GetRegNum();
