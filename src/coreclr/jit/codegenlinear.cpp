@@ -1911,8 +1911,7 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
 #ifndef TARGET_64BIT
 void CodeGen::DefLongRegs(GenTreeMultiRegOp* node)
 {
-    assert(node->TypeIs(TYP_LONG) && (node->GetRegCount() == 2));
-    assert((node->GetRegType(0) == TYP_INT) && (node->GetRegType(1) == TYP_INT));
+    assert(node->TypeIs(TYP_LONG));
     assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(node->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 

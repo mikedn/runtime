@@ -1341,29 +1341,12 @@ public:
         return OperIsPutArgStk() || OperIsPutArgReg() || OperIsPutArgSplit();
     }
 
-#ifdef TARGET_64BIT
-    GenTree* IsMultiRegOpLong()
-#else
-    GenTreeMultiRegOp* IsMultiRegOpLong()
-#endif
+    bool IsMultiRegOpLong() const
     {
 #ifdef TARGET_64BIT
         return nullptr;
 #else
-        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG) ? AsMultiRegOp() : nullptr;
-#endif
-    }
-
-#ifdef TARGET_64BIT
-    const GenTree* IsMultiRegOpLong() const
-#else
-    const GenTreeMultiRegOp* IsMultiRegOpLong() const
-#endif
-    {
-#ifdef TARGET_64BIT
-        return nullptr;
-#else
-        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG) ? AsMultiRegOp() : nullptr;
+        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
 #endif
     }
 
@@ -5032,18 +5015,6 @@ struct GenTreeMultiRegOp : public GenTreeOp
         : GenTreeOp(oper, type, op1, op2)
     {
         SetRegNum(1, REG_NA);
-    }
-
-    unsigned GetRegCount() const
-    {
-        return TypeIs(TYP_LONG) ? 2 : 1;
-    }
-
-    var_types GetRegType(unsigned index)
-    {
-        assert(index < 2);
-
-        return TypeIs(TYP_LONG) ? TYP_INT : GetType();
     }
 
 #if DEBUGGABLE_GENTREE
