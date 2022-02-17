@@ -63,11 +63,7 @@ GTNODE(MEMORYBARRIER    , GenTree            ,0,(GTK_LEAF|GTK_NOVALUE))
 GTNODE(KEEPALIVE        , GenTree            ,0,(GTK_UNOP|GTK_NOVALUE)) // keep operand alive, generate no code, produce no result
 
 GTNODE(CAST             , GenTreeCast        ,0,(GTK_UNOP|GTK_EXOP))      // conversion to another type
-#if defined(TARGET_ARM)
-GTNODE(BITCAST          , GenTreeMultiRegOp  ,0,GTK_UNOP)               // reinterpretation of bits as another type
-#else
 GTNODE(BITCAST          , GenTreeOp          ,0,GTK_UNOP)               // reinterpretation of bits as another type
-#endif
 GTNODE(CKFINITE         , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // Check for NaN
 GTNODE(LCLHEAP          , GenTreeOp          ,0,(GTK_UNOP|GTK_NOCONTAIN)) // alloca()
 GTNODE(JMP              , GenTreeVal         ,0,(GTK_LEAF|GTK_NOVALUE))   // Jump to another function
@@ -180,7 +176,7 @@ GTNODE(SUB_HI           , GenTreeOp          ,0,GTK_BINOP)
 // the difference being that GT_MULHI drops the lo part of the result, whereas
 // GT_MUL_LONG keeps both parts of the result.
 #if !defined(TARGET_64BIT)
-GTNODE(MUL_LONG         , GenTreeMultiRegOp  ,1,GTK_BINOP)
+GTNODE(MUL_LONG         , GenTreeOp          ,1,GTK_BINOP)
 #endif
 
 // The following are nodes that specify shifts that take a GT_LONG op1. The GT_LONG
@@ -269,11 +265,7 @@ GTNODE(PHYSREG          , GenTreePhysReg     ,0,GTK_LEAF)                       
 GTNODE(EMITNOP          , GenTree            ,0,GTK_LEAF|GTK_NOVALUE)            // emitter-placed nop
 GTNODE(PINVOKE_PROLOG   , GenTree            ,0,GTK_LEAF|GTK_NOVALUE)            // pinvoke prolog seq
 GTNODE(PINVOKE_EPILOG   , GenTree            ,0,GTK_LEAF|GTK_NOVALUE)            // pinvoke epilog seq
-#if defined(TARGET_ARM)
-GTNODE(PUTARG_REG       , GenTreeMultiRegOp  ,0,GTK_UNOP)                        // operator that places outgoing arg in register
-#else
 GTNODE(PUTARG_REG       , GenTreeOp          ,0,GTK_UNOP)                        // operator that places outgoing arg in register
-#endif
 GTNODE(PUTARG_STK       , GenTreePutArgStk   ,0,GTK_UNOP|GTK_NOVALUE)            // operator that places outgoing arg in stack
 #if FEATURE_ARG_SPLIT
 GTNODE(PUTARG_SPLIT     , GenTreePutArgSplit ,0,GTK_UNOP)                        // operator that places outgoing arg in registers with stack (split struct in ARM32)

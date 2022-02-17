@@ -762,7 +762,12 @@ private:
     uint8_t m_costSz; // estimate of expression code size cost
 
     // The registers defined by the node.
-    regNumberSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<regNumberSmall>(REG_NA)};
+    regNumberSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<regNumberSmall>(REG_NA)
+#ifndef TARGET_64BIT
+                                                     ,
+                                                 static_cast<regNumberSmall>(REG_NA)
+#endif
+    };
 
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
@@ -5007,23 +5012,6 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
     }
 #endif
 };
-
-#if !defined(TARGET_64BIT)
-struct GenTreeMultiRegOp : public GenTreeOp
-{
-    GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 = nullptr)
-        : GenTreeOp(oper, type, op1, op2)
-    {
-        SetRegNum(1, REG_NA);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeMultiRegOp() : GenTreeOp()
-    {
-    }
-#endif
-};
-#endif // !defined(TARGET_64BIT)
 
 struct GenTreeFptrVal : public GenTree
 {

@@ -1040,7 +1040,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
                     GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, node);
                     bitcast->SetRegNum(info->GetRegNum(regIndex));
                     regIndex++;
-                    bitcast->AsMultiRegOp()->SetRegNum(1, info->GetRegNum(regIndex));
+                    bitcast->SetRegNum(1, info->GetRegNum(regIndex));
                     BlockRange().InsertAfter(node, bitcast);
                     use.SetNode(bitcast);
                 }
@@ -1136,14 +1136,14 @@ GenTree* Lowering::InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned 
     {
         GenTree* intArg = comp->gtNewBitCastNode(TYP_LONG, arg);
         intArg->SetRegNum(argReg);
-        intArg->AsMultiRegOp()->SetRegNum(1, argInfo->GetRegNum(regIndex + 1));
+        intArg->SetRegNum(1, argInfo->GetRegNum(regIndex + 1));
         BlockRange().InsertAfter(arg, intArg);
 
         arg  = intArg;
         type = TYP_LONG;
     }
 
-    GenTreeMultiRegOp* putArg = new (comp, GT_PUTARG_REG) GenTreeMultiRegOp(GT_PUTARG_REG, type, arg);
+    GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, type, arg);
 
     if (type == TYP_LONG)
     {

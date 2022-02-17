@@ -625,7 +625,7 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 #ifdef TARGET_X86
     if (treeNode->OperIs(GT_MUL_LONG))
     {
-        DefLongRegs(treeNode->AsMultiRegOp());
+        DefLongRegs(treeNode);
         return;
     }
 #endif

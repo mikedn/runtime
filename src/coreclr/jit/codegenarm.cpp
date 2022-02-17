@@ -1376,7 +1376,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 // Return Value:
 //    None.
 //
-void CodeGen::genCodeForMulLong(GenTreeMultiRegOp* node)
+void CodeGen::genCodeForMulLong(GenTreeOp* node)
 {
     assert(node->OperGet() == GT_MUL_LONG);
 

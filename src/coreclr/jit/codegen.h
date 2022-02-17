@@ -838,7 +838,7 @@ protected:
 #endif // TARGET_ARMARCH
 
 #if defined(TARGET_ARM)
-    void genCodeForMulLong(GenTreeMultiRegOp* treeNode);
+    void genCodeForMulLong(GenTreeOp* treeNode);
 #endif // TARGET_ARM
 
 #if !defined(TARGET_64BIT)
@@ -1080,7 +1080,7 @@ protected:
 #endif
     void DefCallRegs(GenTreeCall* call);
 #ifndef TARGET_64BIT
-    void DefLongRegs(GenTreeMultiRegOp* node);
+    void DefLongRegs(GenTree* node);
 #endif
     void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
     void UnspillRegIfNeeded(GenTree* node);

@@ -4994,12 +4994,7 @@ GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
     assert(arg != nullptr);
     assert(type != TYP_STRUCT);
 
-#if defined(TARGET_ARM)
-    // A BITCAST could be a MultiRegOp on arm since we could move a double register to two int registers.
-    return new (this, GT_BITCAST) GenTreeMultiRegOp(GT_BITCAST, type, arg);
-#else
     return gtNewOperNode(GT_BITCAST, type, arg)->AsUnOp();
-#endif
 }
 
 //------------------------------------------------------------------------

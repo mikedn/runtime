@@ -298,7 +298,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
 #ifdef TARGET_ARM
         case GT_MUL_LONG:
-            genCodeForMulLong(treeNode->AsMultiRegOp());
+            genCodeForMulLong(treeNode->AsOp());
             break;
 #endif // TARGET_ARM
 
@@ -909,7 +909,7 @@ void CodeGen::genPutArgReg(GenTreeUnOp* arg)
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, arg->GetRegNum(0), src->GetRegNum(0), /* canSkip */ true);
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, arg->GetRegNum(1), src->GetRegNum(1), /* canSkip */ true);
 
-        DefLongRegs(arg->AsMultiRegOp());
+        DefLongRegs(arg);
 
         return;
     }
@@ -962,7 +962,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
         regNumber dstReg1 = bitcast->GetRegNum(0);
         regNumber dstReg2 = bitcast->GetRegNum(1);
         inst_RV_RV_RV(INS_vmov_d2i, dstReg1, dstReg2, srcReg, EA_8BYTE);
-        DefLongRegs(bitcast->AsMultiRegOp());
+        DefLongRegs(bitcast);
     }
     else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
     {
