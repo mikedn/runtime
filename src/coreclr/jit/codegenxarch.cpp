@@ -4011,9 +4011,11 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 
 void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
-    assert(load->OperIs(GT_LCL_VAR) && !load->IsMultiReg());
+    assert(load->OperIs(GT_LCL_VAR));
 
     LclVarDsc* lcl = compiler->lvaGetDesc(load);
+
+    assert(!lcl->IsIndependentPromoted());
 
     // TODO-MIKE-Review: The spilled check is dubious, it cannot be spilled unless it's a reg candidate...
     if (lcl->IsRegCandidate() || load->IsRegSpilled(0))

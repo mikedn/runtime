@@ -1874,9 +1874,11 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 
 void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
-    assert(load->OperIs(GT_LCL_VAR) && !load->IsMultiReg());
+    assert(load->OperIs(GT_LCL_VAR));
 
     LclVarDsc* lcl = compiler->lvaGetDesc(load);
+
+    assert(!lcl->IsIndependentPromoted());
 
     if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {

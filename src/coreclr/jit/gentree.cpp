@@ -7091,7 +7091,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 }
                 goto DASH;
 
-            case GT_LCL_VAR:
             case GT_STORE_LCL_VAR:
                 if (tree->AsLclVar()->IsMultiReg())
                 {
@@ -7100,6 +7099,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     break;
                 }
                 FALLTHROUGH;
+            case GT_LCL_VAR:
             case GT_LCL_FLD:
             case GT_STORE_LCL_FLD:
                 if (tree->gtFlags & GTF_VAR_USEASG)

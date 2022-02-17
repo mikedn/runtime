@@ -1774,7 +1774,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 
 void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_STORE_LCL_VAR) && lclVar->IsMultiReg());
+    assert(lclVar->OperIs(GT_STORE_LCL_VAR));
     assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(lclVar->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
