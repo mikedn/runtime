@@ -1266,7 +1266,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
 //                                  candidate or contained.
 //
 // Arguments:
-//    lclNode - the GT_LCL_VAR or GT_STORE_LCL_VAR of interest
+//    lclNode - the GT_STORE_LCL_VAR of interest
 //
 // Return Value:
 //    true if the node remains a candidate or is contained
@@ -1290,38 +1290,20 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
 //
 bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
 {
-    bool isCandidate;
-    bool makeContained = false;
+    assert(lclNode->OperIs(GT_LCL_VAR) && !lclNode->IsMultiReg());
     // We shouldn't be calling this if this node was already contained.
     assert(!lclNode->isContained());
-    // If we have a multireg local, verify that its fields are still register candidates.
-    if (lclNode->IsMultiReg())
-    {
-        // Multi-reg uses must support containment, but if we have an actual multi-reg local
-        // we don't want it to be RegOptional in fixed-use cases, so that we can ensure proper
-        // liveness modeling (e.g. if one field is in a register required by another field, in
-        // a RegOptional case we won't handle the conflict properly if we decide not to allocate).
-        isCandidate = IsCandidateLclVarMultiReg(lclNode);
-        if (isCandidate)
-        {
-            assert(!lclNode->IsRegOptional());
-        }
-        else
-        {
-            makeContained = true;
-        }
-    }
-    else
-    {
-        isCandidate   = compiler->lvaGetDesc(lclNode)->lvLRACandidate;
-        makeContained = !isCandidate && lclNode->IsRegOptional();
-    }
-    if (makeContained)
+
+    bool isCandidate = compiler->lvaGetDesc(lclNode)->IsRegCandidate();
+
+    if (!isCandidate && lclNode->IsRegOptional())
     {
         lclNode->ClearRegOptional();
         lclNode->SetContained();
+
         return true;
     }
+
     return isCandidate;
 }
 
