@@ -1904,7 +1904,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 
         emitter* emit = GetEmitter();
         emit->emitIns_R_S(ins, attr, tree->GetRegNum(), varNum, 0);
-        DefLclVarRegs(tree);
+        DefLclVarReg(tree);
     }
 }
 
@@ -2007,7 +2007,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (lclRegType == TYP_SIMD12)
     {
         genStoreSIMD12(store, store->GetOp(0));
-        // TODO-MIKE-Review: Doesn't this need a DefLclVarRegs call?
+        // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
         return;
     }
 #endif
@@ -2059,7 +2059,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
                                   /* canSkip */ true);
     }
 
-    DefLclVarRegs(store);
+    DefLclVarReg(store);
 }
 
 void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
@@ -2084,7 +2084,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
         GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_4BYTE, dstReg, call->GetRegNum(regIndex), regIndex, 0);
     }
 
-    DefLclVarRegs(store);
+    DefLclVarReg(store);
 }
 
 void CodeGen::GenStoreLclVarMultiRegMem(GenTreeLclVar* store)

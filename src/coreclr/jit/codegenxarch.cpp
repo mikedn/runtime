@@ -4034,7 +4034,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
         if (tree->TypeIs(TYP_SIMD12))
         {
             LoadSIMD12(tree);
-            DefLclVarRegs(tree);
+            DefLclVarReg(tree);
             return;
         }
 #endif
@@ -4042,7 +4042,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
         var_types type = varDsc->GetRegisterType(tree);
         GetEmitter()->emitIns_R_S(ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(tree->GetLclNum())),
                                   emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
-        DefLclVarRegs(tree);
+        DefLclVarReg(tree);
     }
 }
 
@@ -4175,7 +4175,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         {
             inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
 
-            DefLclVarRegs(store);
+            DefLclVarReg(store);
         }
 
         return;
@@ -4248,7 +4248,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         inst_Mov_Extend(lclRegType, true, dstReg, src->GetRegNum(), /* canSkip */ true, emitTypeSize(lclRegType));
     }
 
-    DefLclVarRegs(store);
+    DefLclVarReg(store);
 }
 
 #ifdef FEATURE_SIMD
@@ -4312,7 +4312,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     }
 #endif
 
-    DefLclVarRegs(store);
+    DefLclVarReg(store);
 #endif // UNIX_AMD64_ABI
 }
 

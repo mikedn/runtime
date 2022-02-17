@@ -1073,6 +1073,7 @@ protected:
     // code has been emitted for it.
     void genProduceReg(GenTree* node);
     void DefReg(GenTree* node);
+    void DefLclVarReg(GenTreeLclVar* lclVar);
     void DefLclVarRegs(GenTreeLclVar* lclVar);
 #if FEATURE_ARG_SPLIT
     void DefPutArgSplitRegs(GenTreePutArgSplit* arg);
