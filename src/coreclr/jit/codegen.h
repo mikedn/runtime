@@ -1136,7 +1136,7 @@ protected:
     void genCodeForIndir(GenTreeIndir* tree);
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
-    void genCodeForLclVar(GenTreeLclVar* tree);
+    void GenLoadLclVar(GenTreeLclVar* load);
     void genCodeForLclFld(GenTreeLclFld* tree);
     void GenStoreLclFld(GenTreeLclFld* store);
     void GenStoreLclVar(GenTreeLclVar* store);

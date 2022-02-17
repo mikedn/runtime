@@ -1478,7 +1478,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_LCL_VAR:
-            genCodeForLclVar(treeNode->AsLclVar());
+            GenLoadLclVar(treeNode->AsLclVar());
             break;
 
         case GT_STORE_LCL_FLD:
@@ -4009,41 +4009,35 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLclVar: Produce code for a GT_LCL_VAR node.
-//
-// Arguments:
-//    tree - the GT_LCL_VAR node
-//
-void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
+void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
-    assert(tree->OperIs(GT_LCL_VAR));
+    assert(load->OperIs(GT_LCL_VAR) && !load->IsMultiReg());
 
-    // lcl_vars are not defs
-    assert((tree->gtFlags & GTF_VAR_DEF) == 0);
+    LclVarDsc* lcl = compiler->lvaGetDesc(load);
 
-    LclVarDsc* varDsc         = compiler->lvaGetDesc(tree);
-    bool       isRegCandidate = varDsc->lvIsRegCandidate();
-
-    // If this is a register candidate that has been spilled, genConsumeReg() will
-    // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
-
-    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
+    // TODO-MIKE-Review: The spilled check is dubious, it cannot be spilled unless it's a reg candidate...
+    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
+        return;
+    }
+
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
-        if (tree->TypeIs(TYP_SIMD12))
-        {
-            LoadSIMD12(tree);
-            DefLclVarReg(tree);
-            return;
-        }
+    if (load->TypeIs(TYP_SIMD12))
+    {
+        LoadSIMD12(load);
+        DefLclVarReg(load);
+
+        return;
+    }
 #endif
 
-        var_types type = varDsc->GetRegisterType(tree);
-        GetEmitter()->emitIns_R_S(ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(tree->GetLclNum())),
-                                  emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
-        DefLclVarReg(tree);
-    }
+    var_types   type = lcl->GetRegisterType(load);
+    instruction ins  = ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(load->GetLclNum()));
+    emitAttr    attr = emitTypeSize(type);
+
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+
+    DefLclVarReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)

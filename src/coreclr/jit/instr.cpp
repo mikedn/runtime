@@ -889,6 +889,8 @@ instruction CodeGen::ins_Move_Extend(var_types srcType, bool srcInReg)
 // Get the machine dependent instruction for performing a load for srcType
 instruction CodeGenInterface::ins_Load(var_types srcType, bool aligned)
 {
+    assert(srcType != TYP_STRUCT);
+
 #if defined(TARGET_XARCH)
     if (varTypeIsSIMD(srcType))
     {

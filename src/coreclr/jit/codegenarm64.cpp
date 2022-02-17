@@ -1872,40 +1872,26 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLclVar: Produce code for a GT_LCL_VAR node.
-//
-// Arguments:
-//    tree - the GT_LCL_VAR node
-//
-void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
+void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
+    assert(load->OperIs(GT_LCL_VAR) && !load->IsMultiReg());
 
-    unsigned varNum = tree->GetLclNum();
-    assert(varNum < compiler->lvaCount);
-    LclVarDsc* varDsc     = compiler->lvaGetDesc(varNum);
-    var_types  targetType = varDsc->GetRegisterType(tree);
+    LclVarDsc* lcl = compiler->lvaGetDesc(load);
 
-    bool isRegCandidate = varDsc->lvIsRegCandidate();
-
-    // lcl_vars are not defs
-    assert((tree->gtFlags & GTF_VAR_DEF) == 0);
-
-    // If this is a register candidate that has been spilled, genConsumeReg() will
-    // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
-
-    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
+    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
-        // targetType must be a normal scalar type and not a TYP_STRUCT
-        assert(targetType != TYP_STRUCT);
-
-        instruction ins  = ins_Load(targetType);
-        emitAttr    attr = emitActualTypeSize(targetType);
-
-        emitter* emit = GetEmitter();
-        emit->emitIns_R_S(ins, attr, tree->GetRegNum(), varNum, 0);
-        DefLclVarReg(tree);
+        return;
     }
+
+    // TODO-MIKE-Review: Does this need special TYP_SIMD12 handling of params on OSX?
+
+    var_types   type = lcl->GetRegisterType(load);
+    instruction ins  = ins_Load(type);
+    emitAttr    attr = emitActualTypeSize(type);
+
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+
+    DefLclVarReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)

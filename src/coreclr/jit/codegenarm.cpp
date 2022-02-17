@@ -814,30 +814,24 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     DefReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLclVar: Produce code for a GT_LCL_VAR node.
-//
-// Arguments:
-//    tree - the GT_LCL_VAR node
-//
-void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
+void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
-    // lcl_vars are not defs
-    assert((tree->gtFlags & GTF_VAR_DEF) == 0);
+    assert(load->OperIs(GT_LCL_VAR) && !load->IsMultiReg());
 
-    bool isRegCandidate = compiler->lvaTable[tree->GetLclNum()].lvIsRegCandidate();
+    LclVarDsc* lcl = compiler->lvaGetDesc(load);
 
-    // If this is a register candidate that has been spilled, genConsumeReg() will
-    // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
-
-    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
+    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
-        const LclVarDsc* varDsc = compiler->lvaGetDesc(tree);
-        var_types        type   = varDsc->GetRegisterType(tree);
-
-        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
-        DefLclVarReg(tree);
+        return;
     }
+
+    var_types   type = lcl->GetRegisterType(load);
+    instruction ins  = ins_Load(type);
+    emitAttr    attr = emitTypeSize(type);
+
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+
+    DefLclVarReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
