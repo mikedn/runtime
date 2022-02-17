@@ -3109,13 +3109,14 @@ int LinearScan::BuildBinaryUses(GenTreeOp* node, regMaskTP candidates)
     return srcCount;
 }
 
-void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, int index)
+void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(lcl->lvTracked);
 
     Interval* varDefInterval = getIntervalForLocalVar(lcl->lvVarIndex);
 
+    // TODO-MIKE-Review: Use of GTF_VAR_DEATH on multireg nodes is dubious...
     if ((store->gtFlags & GTF_VAR_DEATH) == 0)
     {
         VarSetOps::AddElemD(compiler, currentLiveVars, lcl->lvVarIndex);
@@ -3173,23 +3174,20 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
     assert(compiler->lvaEnregMultiRegVars);
 
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    assert(lcl->IsIndependentPromoted());
+    unsigned regCount = lcl->GetPromotedFieldCount();
+
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
-
-    unsigned dstCount = store->GetMultiRegCount(compiler);
-
-    assert(src->GetMultiRegCount(compiler) == dstCount);
-
-    unsigned srcCount = dstCount;
+    assert(regCount == src->GetMultiRegCount(compiler));
 
     // For multi-reg local stores of multi-reg sources, the code generator will read each source
     // register, and then move it, if needed, to the destination register. These nodes have
     // 2*N locations where N is the number of registers, so that the liveness can
     // be reflected accordingly.
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
-
-    for (unsigned int i = 0; i < dstCount; ++i)
+    for (unsigned i = 0; i < regCount; ++i)
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
         assert(fieldLcl->IsRegCandidate());
@@ -3202,16 +3200,15 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
         }
 #endif
         BuildUse(src, srcCandidates, i);
-
         BuildStoreLclVarDef(store, fieldLcl, nullptr, i);
 
-        if (i < (dstCount - 1))
+        if (i < (regCount - 1))
         {
             currentLoc += 2;
         }
     }
 
-    return static_cast<int>(srcCount);
+    return static_cast<int>(regCount);
 }
 
 int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
