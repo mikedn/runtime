@@ -3170,42 +3170,17 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPo
 
 int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-    assert(store->IsMultiReg());
+    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
     assert(compiler->lvaEnregMultiRegVars);
 
-    // The source must be:
-    // - a multi-reg source
-    // - an enregisterable SIMD type, or
-    // - in-memory local
+    GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
 
-    GenTree* src           = store->GetOp(0);
-    bool     isMultiRegSrc = src->IsMultiRegNode();
-    unsigned dstCount      = store->GetMultiRegCount(compiler);
-    unsigned srcCount;
+    unsigned dstCount = store->GetMultiRegCount(compiler);
 
-    if (isMultiRegSrc)
-    {
-        assert(src->GetMultiRegCount(compiler) == dstCount);
+    assert(src->GetMultiRegCount(compiler) == dstCount);
 
-        srcCount = dstCount;
-    }
-    else if (!src->TypeIs(TYP_STRUCT))
-    {
-        // Create a delay free use, as we'll have to use it to create each field
-        RefPosition* use = BuildUse(src, RBM_NONE);
-        setDelayFree(use);
-        srcCount = 1;
-    }
-    else
-    {
-        // Otherwise we must have an in-memory struct lclVar.
-        // We will just load directly into the register allocated for this lclVar,
-        // so we don't need to build any uses.
-        assert(src->OperIs(GT_LCL_VAR) && src->isContained() && src->TypeIs(TYP_STRUCT));
-
-        srcCount = 0;
-    }
+    unsigned srcCount = dstCount;
 
     // For multi-reg local stores of multi-reg sources, the code generator will read each source
     // register, and then move it, if needed, to the destination register. These nodes have
@@ -3219,21 +3194,18 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
         assert(fieldLcl->IsRegCandidate());
 
-        if (isMultiRegSrc)
-        {
-            regMaskTP srcCandidates = RBM_NONE;
+        regMaskTP srcCandidates = RBM_NONE;
 #ifdef TARGET_X86
-            if (varTypeIsByte(fieldLcl->GetType()))
-            {
-                srcCandidates = allByteRegs();
-            }
-#endif
-            BuildUse(src, srcCandidates, i);
+        if (varTypeIsByte(fieldLcl->GetType()))
+        {
+            srcCandidates = allByteRegs();
         }
+#endif
+        BuildUse(src, srcCandidates, i);
 
         BuildStoreLclVarDef(store, fieldLcl, nullptr, i);
 
-        if (isMultiRegSrc && (i < (dstCount - 1)))
+        if (i < (dstCount - 1))
         {
             currentLoc += 2;
         }
