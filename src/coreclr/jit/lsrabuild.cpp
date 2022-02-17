@@ -1254,7 +1254,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
 
-        assert(isCandidateVar(fieldLcl) == isMultiReg);
+        assert(fieldLcl->IsRegCandidate() == isMultiReg);
     }
 #endif
 
@@ -1667,7 +1667,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         if (tree->IsLocal() && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
         {
             LclVarDsc* const varDsc = &compiler->lvaTable[tree->AsLclVarCommon()->GetLclNum()];
-            if (isCandidateVar(varDsc))
+            if (varDsc->IsRegCandidate())
             {
                 assert(varDsc->lvTracked);
                 unsigned varIndex = varDsc->lvVarIndex;
@@ -1853,7 +1853,7 @@ void LinearScan::insertZeroInitRefPositions()
     while (iter.NextElem(&varIndex))
     {
         LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-        if (!varDsc->lvIsParam && isCandidateVar(varDsc))
+        if (!varDsc->lvIsParam && varDsc->IsRegCandidate())
         {
             JITDUMP("V%02u was live in to first block:", compiler->lvaTrackedIndexToLclNum(varIndex));
             Interval* interval = getIntervalForLocalVar(varIndex);
@@ -1890,7 +1890,7 @@ void LinearScan::insertZeroInitRefPositions()
         while (iter.NextElem(&varIndex))
         {
             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-            if (!varDsc->lvIsParam && isCandidateVar(varDsc))
+            if (!varDsc->lvIsParam && varDsc->IsRegCandidate())
             {
                 JITDUMP("V%02u is a finally var:", compiler->lvaTrackedIndexToLclNum(varIndex));
                 Interval* interval = getIntervalForLocalVar(varIndex);
@@ -2123,7 +2123,7 @@ void LinearScan::buildIntervals()
             updateRegStateForArg(argDsc);
         }
 
-        if (isCandidateVar(argDsc))
+        if (argDsc->IsRegCandidate())
         {
             Interval*       interval = getIntervalForLocalVar(varIndex);
             const var_types regType  = argDsc->GetRegisterType();
@@ -2275,7 +2275,7 @@ void LinearScan::buildIntervals()
                         {
                             // Add a dummyDef for any candidate vars that are in the "newLiveIn" set.
                             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-                            assert(isCandidateVar(varDsc));
+                            assert(varDsc->IsRegCandidate());
                             Interval*    interval = getIntervalForLocalVar(varIndex);
                             RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef, nullptr,
                                                               allRegs(interval->registerType));
@@ -2425,7 +2425,7 @@ void LinearScan::buildIntervals()
                 {
                     unsigned   varNum = compiler->lvaTrackedToVarNum[varIndex];
                     LclVarDsc* varDsc = compiler->lvaTable + varNum;
-                    assert(isCandidateVar(varDsc));
+                    assert(varDsc->IsRegCandidate());
                     Interval*    interval = getIntervalForLocalVar(varIndex);
                     RefPosition* pos =
                         newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
@@ -2443,7 +2443,7 @@ void LinearScan::buildIntervals()
             {
                 unsigned         varNum = compiler->lvaTrackedToVarNum[varIndex];
                 LclVarDsc* const varDsc = &compiler->lvaTable[varNum];
-                assert(isCandidateVar(varDsc));
+                assert(varDsc->IsRegCandidate());
                 RefPosition* const lastRP = getIntervalForLocalVar(varIndex)->lastRefPosition;
                 // We should be able to assert that lastRP is non-null if it is live-out, but sometimes liveness
                 // lies.
@@ -2478,7 +2478,7 @@ void LinearScan::buildIntervals()
             unsigned keepAliveVarNum = compiler->info.compThisArg;
             assert(compiler->info.compIsStatic == false);
             LclVarDsc* varDsc = compiler->lvaTable + keepAliveVarNum;
-            if (isCandidateVar(varDsc))
+            if (varDsc->IsRegCandidate())
             {
                 JITDUMP("Adding exposed use of this, for lvaKeepAliveAndReportThis\n");
                 Interval*    interval = getIntervalForLocalVar(varDsc->lvVarIndex);
@@ -3217,7 +3217,7 @@ int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
     for (unsigned int i = 0; i < dstCount; ++i)
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-        assert(isCandidateVar(fieldLcl));
+        assert(fieldLcl->IsRegCandidate());
 
         if (isMultiRegSrc)
         {
@@ -3318,7 +3318,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         }
 
 #ifdef TARGET_X86
-        if (isCandidateVar(lcl) && src->IsCall() && src->TypeIs(TYP_SIMD8))
+        if (lcl->IsRegCandidate() && src->IsCall() && src->TypeIs(TYP_SIMD8))
         {
             BuildInternalFloatDef(store, allSIMDRegs());
             setInternalRegsDelayFree = true;
@@ -3410,7 +3410,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 
     BuildInternalUses();
 
-    if (isCandidateVar(lcl))
+    if (lcl->IsRegCandidate())
     {
         BuildStoreLclVarDef(store->AsLclVar(), lcl, singleUseRef, 0);
     }

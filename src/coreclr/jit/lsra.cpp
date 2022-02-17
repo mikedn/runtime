@@ -6878,7 +6878,7 @@ void LinearScan::resolveRegisters()
         LclVarDsc* varDsc;
         for (lclNum = 0, varDsc = compiler->lvaTable; lclNum < compiler->lvaCount; lclNum++, varDsc++)
         {
-            if (!isCandidateVar(varDsc))
+            if (!varDsc->IsRegCandidate())
             {
                 varDsc->SetRegNum(REG_STK);
             }
