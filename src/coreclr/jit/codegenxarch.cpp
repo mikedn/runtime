@@ -4084,14 +4084,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-#ifndef TARGET_64BIT
-    if (store->TypeIs(TYP_LONG))
-    {
-        GenStoreLclVarLong(store);
-        return;
-    }
-#endif
-
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
     if (lcl->IsIndependentPromoted())
@@ -4099,6 +4091,14 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         GenStoreLclVarMultiReg(store);
         return;
     }
+
+#ifndef TARGET_64BIT
+    if (store->TypeIs(TYP_LONG))
+    {
+        GenStoreLclVarLong(store);
+        return;
+    }
+#endif
 
     GenTree* src = store->GetOp(0);
 

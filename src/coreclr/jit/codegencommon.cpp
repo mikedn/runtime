@@ -10187,15 +10187,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_LONG));
-
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
-    assert(lcl->TypeIs(TYP_LONG));
-
-    if (lcl->IsIndependentPromoted())
-    {
-        GenStoreLclVarMultiReg(store);
-        return;
-    }
+    assert(compiler->lvaGetDesc(store)->TypeIs(TYP_LONG) && !compiler->lvaGetDesc(store)->IsIndependentPromoted());
 
     GenTree*  src = store->GetOp(0);
     regNumber srcRegs[2];

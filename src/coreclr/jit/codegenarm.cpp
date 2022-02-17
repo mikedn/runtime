@@ -900,17 +900,17 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    if (store->TypeIs(TYP_LONG))
-    {
-        GenStoreLclVarLong(store);
-        return;
-    }
-
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
     if (lcl->IsIndependentPromoted())
     {
         GenStoreLclVarMultiReg(store);
+        return;
+    }
+
+    if (store->TypeIs(TYP_LONG))
+    {
+        GenStoreLclVarLong(store);
         return;
     }
 
