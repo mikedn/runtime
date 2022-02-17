@@ -1233,20 +1233,25 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 //    LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
 //    each node.
 //
-bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
+bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
-    assert(lclVar->IsMultiReg());
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+
+    if (!store->IsMultiReg())
+    {
+        return false;
+    }
+
     assert(compiler->lvaEnregMultiRegVars);
 
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclVar);
+    LclVarDsc* varDsc = compiler->lvaGetDesc(store);
     assert(varDsc->IsPromoted());
 
     bool isMultiReg = varDsc->IsIndependentPromoted();
 
     if (!isMultiReg)
     {
-        lclVar->ClearMultiReg();
+        store->ClearMultiReg();
     }
 
 #ifdef DEBUG
@@ -3215,7 +3220,7 @@ int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    if (store->IsMultiReg() && IsCandidateLclVarMultiReg(store))
+    if (IsCandidateLclVarMultiReg(store))
     {
         *dstCount = static_cast<int>(compiler->lvaGetDesc(store->GetLclNum())->GetPromotedFieldCount());
         return BuildStoreLclVarMultiReg(store);
@@ -3593,7 +3598,7 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
         // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
         // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register
         // (which is actually what we hope will happen).
-        JITDUMP("Setting PUTARG_REG as a pass-through of a non-last use lclVar\n");
+        JITDUMP("Setting PUTARG_REG as a pass-through of a non-last use store\n");
 
         assert(use->getInterval()->isLocalVar);
 
