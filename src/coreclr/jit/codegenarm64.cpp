@@ -1979,11 +1979,11 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
         if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
         {
-            GenStoreLclVarMultiRegSIMD(store);
+            GenStoreLclVarMultiRegSIMDReg(store);
         }
         else
         {
-            GenStoreLclVarMultiRegMem(store);
+            GenStoreLclVarMultiRegSIMDMem(store);
         }
 
         return;
@@ -2050,7 +2050,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
 {
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
@@ -2075,15 +2075,13 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegMem(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
-    GenTree* src = store->GetOp(0);
-    assert(src->IsMultiRegNode());
-
+    GenTree*     src      = store->GetOp(0);
     GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
-    unsigned     regCount = src->GetMultiRegCount(compiler);
+    unsigned     regCount = call->GetRegCount();
     unsigned     lclNum   = store->GetLclNum();
     LclVarDsc*   lcl      = compiler->lvaGetDesc(lclNum);
 

@@ -4107,21 +4107,23 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
+#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_X86)
+    assert(!src->IsMultiRegNode());
+#else
     if (src->IsMultiRegNode())
     {
-        assert(varTypeIsSIMD(store->GetType()));
-
         if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
         {
-            GenStoreLclVarMultiRegSIMD(store);
+            GenStoreLclVarMultiRegSIMDReg(store);
         }
         else
         {
-            GenStoreLclVarMultiRegMem(store);
+            GenStoreLclVarMultiRegSIMDMem(store);
         }
 
         return;
     }
+#endif
 
     var_types lclRegType = lcl->GetRegisterType(store);
 
@@ -4247,17 +4249,13 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     DefLclVarReg(store);
 }
 
-#ifdef FEATURE_SIMD
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
 
-void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
 {
     assert(varTypeIsSIMD(store->GetType()));
 
-#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_X86)
-    assert(!"Multireg store to SIMD reg not supported on X64 Windows");
-#else
     GenTree* src = store->GetOp(0);
-    assert(src->IsMultiRegNode());
 
     UseRegs(src);
 
@@ -4282,7 +4280,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     regNumber dstReg  = store->GetRegNum();
 
 #ifdef TARGET_X86
-    regNumber tmpReg  = store->GetSingleTempReg();
+    regNumber tmpReg = store->GetSingleTempReg();
 
     GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, srcReg0, false);
     GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, srcReg1, false);
@@ -4309,66 +4307,50 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 #endif
 
     DefLclVarReg(store);
-#endif // UNIX_AMD64_ABI
 }
 
-void CodeGen::GenStoreLclVarMultiRegMem(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
-    GenTree* src = store->GetOp(0);
-    assert(src->IsMultiRegNode());
+    GenTree*     src    = store->GetOp(0);
+    GenTreeCall* call   = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     lclNum = store->GetLclNum();
+    LclVarDsc*   lcl    = compiler->lvaGetDesc(lclNum);
 
-    GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount  = src->GetMultiRegCount(compiler);
+    assert(call->GetRegCount() == 2);
+    assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
 
-    unsigned   lclNum = store->GetLclNum();
-    LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+    regNumber reg0 = UseReg(src, 0);
+    regNumber reg1 = UseReg(src, 1);
 
-    if (src->OperIs(GT_CALL))
-    {
-        assert(regCount <= MAX_RET_REG_COUNT);
-        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsIndependentPromoted());
-    }
+#ifdef TARGET_X86
+    assert(store->TypeIs(TYP_SIMD8));
+    assert((call->GetRegType(0) == TYP_INT) && (call->GetRegType(1) == TYP_INT));
 
-    unsigned offset = 0;
+    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg0, lclNum, 0);
+    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg1, lclNum, 4);
+#else
+    assert(store->TypeIs(TYP_SIMD12, TYP_SIMD16));
+    assert(call->GetRegType(0) == TYP_DOUBLE);
+    assert((call->GetRegType(1) == TYP_DOUBLE) || (call->GetRegType(1) == TYP_FLOAT));
 
-    for (unsigned i = 0; i < regCount; ++i)
-    {
-        regNumber reg  = UseReg(src, i);
-        var_types type = actualSrc->GetMultiRegType(compiler, i);
-
-        // genConsumeReg will return the valid register, either from the COPY
-        // or from the original source.
-
-        assert(reg != REG_NA);
-        // Several fields could be passed in one register, copy using the register type.
-        // It could rewrite memory outside of the fields but local on the stack are rounded to POINTER_SIZE so
-        // it is safe to store a long register into a byte field as it is known that we have enough padding after.
-        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, lclNum, static_cast<int>(offset));
-        offset += genTypeSize(type);
-#ifdef DEBUG
-#ifdef TARGET_64BIT
-        assert(offset <= lcl->lvSize());
-#else  // !TARGET_64BIT
-        if (varTypeIsStruct(lcl->GetType()))
-        {
-            assert(offset <= lcl->lvSize());
-        }
-        else
-        {
-            assert(lcl->GetType() == TYP_LONG);
-            assert(offset <= varTypeSize(TYP_LONG));
-        }
-#endif // !TARGET_64BIT
-#endif // DEBUG
-    }
+    GetEmitter()->emitIns_S_R(INS_movsdsse2, EA_8BYTE, reg0, lclNum, 0);
+    // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
+    // Also, it may be better to do a 8 byte store instead of 4 byte store whenever there is
+    // enough space (pretty much always since local sizes are normally rounded up to 8 bytes,
+    // P-DEP fields are probably the only exception).
+    // Actually, it may be even better to pack the 2 regs into one and do a single store, if there
+    // are subsequent SIMD loads then doing 2 stores here will block store forwarding.
+    GetEmitter()->emitIns_S_R(store->TypeIs(TYP_SIMD12) ? INS_movss : INS_movsdsse2,
+                              store->TypeIs(TYP_SIMD12) ? EA_4BYTE : EA_8BYTE, reg1, lclNum, 8);
+#endif
 
     genUpdateLife(store);
     lcl->SetRegNum(REG_STK);
 }
 
-#endif // FEATURE_SIMD
+#endif // defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
 
 void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src)
 {
