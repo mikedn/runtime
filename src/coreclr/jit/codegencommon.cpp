@@ -10215,105 +10215,57 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 
 void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
     assert(varTypeIsStruct(store->GetType()) || varTypeIsMultiReg(store->GetType()));
+    assert(compiler->lvaEnregMultiRegVars);
 
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
 
-    GenTree* actualSrc = src->gtSkipReloadOrCopy();
-    unsigned regCount  = src->GetMultiRegCount(compiler);
-
-    unsigned   lclNum = store->GetLclNum();
-    LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
     assert(lcl->IsIndependentPromoted() && !lcl->IsRegCandidate());
 
-    if (src->OperIs(GT_CALL))
-    {
-        assert(regCount <= MAX_RET_REG_COUNT);
-        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsIndependentPromoted());
-    }
+    unsigned regCount = lcl->GetPromotedFieldCount();
+    assert(regCount == src->GetMultiRegCount(compiler));
 
-    // We have either a multi-reg local or a local with multiple fields in memory.
-    //
-    // The liveness model is as follows:
-    //    use reg #0 from src, including any reload or copy
-    //    define reg #0
-    //    use reg #1 from src, including any reload or copy
-    //    define reg #1
-    //    etc.
-    // Imagine the following scenario:
-    //    There are 3 registers used. Prior to this node, they occupy registers r3, r2 and r1.
-    //    There are 3 registers defined by this node. They need to be placed in r1, r2 and r3,
-    //    in that order.
-    //
-    // If we defined the as using all the source registers at once, we'd have to adopt one
-    // of the following models:
-    //  - All (or all but one) of the incoming sources are marked "delayFree" so that they won't
-    //    get the same register as any of the registers being defined. This would result in copies for
-    //    the common case where the source and destination registers are the same (e.g. when a CALL
-    //    result is assigned to a lclVar, which is then returned).
-    //    - For our example (and for many/most cases) we would have to copy or spill all sources.
-    //  - We allow circular dependencies between source and destination registers. This would require
-    //    the code generator to determine the order in which the copies must be generated, and would
-    //    require a temp register in case a swap is required. This complexity would have to be handled
-    //    in both the normal code generation case, as well as for copies & reloads, as they are currently
-    //    modeled by the register allocator to happen just prior to the use.
-    //    - For our example, a temp would be required to swap r1 and r3, unless a swap instruction is
-    //      available on the target.
-    //
-    // By having a multi-reg local use and define each field in order, we avoid these issues, and the
-    // register allocator will ensure that any conflicts are resolved via spill or inserted COPYs.
-    // For our example, the register allocator would simple spill r1 because the first def requires it.
-    // The code generator would move r3  to r1, leave r2 alone, and then load the spilled value into r3.
-
-    bool hasRegs = false;
-
-    assert(compiler->lvaEnregMultiRegVars);
-    assert(regCount == lcl->GetPromotedFieldCount());
+    GenTree* value   = src->gtSkipReloadOrCopy();
+    bool     hasRegs = false;
 
     for (unsigned i = 0; i < regCount; ++i)
     {
-        regNumber reg  = UseReg(src, i);
-        var_types type = actualSrc->GetMultiRegType(compiler, i);
-
-        // genConsumeReg will return the valid register, either from the COPY
-        // or from the original source.
-
-        assert(reg != REG_NA);
-        regNumber  varReg      = store->GetRegNum(i);
+        regNumber  srcReg      = UseReg(src, i);
+        var_types  srcType     = value->GetMultiRegType(compiler, i);
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldLclNum);
-        var_types  destType    = fieldVarDsc->TypeGet();
-        if (varReg != REG_NA)
+        LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
+        var_types  fieldType   = fieldLcl->TypeGet();
+        regNumber  fieldReg    = store->GetRegNum(i);
+
+        if (fieldReg != REG_NA)
         {
             hasRegs = true;
-
-            inst_Mov(destType, varReg, reg, /* canSkip */ true);
-
-            fieldVarDsc->SetRegNum(varReg);
+            inst_Mov(fieldType, fieldReg, srcReg, /* canSkip */ true);
         }
         else
         {
-            varReg = REG_STK;
+            fieldReg = REG_STK;
         }
 
-        if ((varReg == REG_STK) || fieldVarDsc->IsAlwaysAliveInMemory())
+        if (!store->IsLastUse(i) && ((fieldReg == REG_STK) || fieldLcl->IsAlwaysAliveInMemory()))
         {
-            if (!store->AsLclVar()->IsLastUse(i))
-            {
-                // A byte field passed in a long register should be written on the stack as a byte.
-                instruction storeIns = ins_StoreFromSrc(reg, destType);
-                GetEmitter()->emitIns_S_R(storeIns, emitTypeSize(destType), reg, fieldLclNum, 0);
-            }
+            instruction ins = ins_StoreFromSrc(srcReg, fieldType);
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(fieldType), srcReg, fieldLclNum, 0);
         }
 
-        fieldVarDsc->SetRegNum(varReg);
+        fieldLcl->SetRegNum(fieldReg);
     }
 
     if (hasRegs)
     {
+        // TODO-MIKE-Review: Shouldn't DefLclVarReg be called after each srcReg-fieldReg copy instead
+        // of calling DefLclVarRegs at the end? As far as register allocation is concerned multi-reg
+        // stores are basically a sequence of reg use-def pairs and a reg def may need spilling.
+        // Is there's anything that prevents a register that's supposed to be spilled to be allocated
+        // to a subsequent reg use-def pair?
         DefLclVarRegs(store);
     }
     else
