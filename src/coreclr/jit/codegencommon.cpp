@@ -10216,7 +10216,6 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
-    assert(varTypeIsStruct(store->GetType()) || varTypeIsMultiReg(store->GetType()));
     assert(compiler->lvaEnregMultiRegVars);
     // Store spilling is achieved by not assigning a register to the node.
     assert(!store->IsAnyRegSpill());
