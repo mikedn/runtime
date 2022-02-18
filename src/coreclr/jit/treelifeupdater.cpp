@@ -265,18 +265,14 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-        bool isInReg        = fieldLcl->lvIsInReg() && (lclNode->GetRegNum(i) != REG_NA);
-        bool isInMemory     = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
-        bool isFieldDying   = lclNode->IsLastUse(i);
-        bool isFieldSpilled = lclNode->IsRegSpill(i);
+        bool isInReg      = fieldLcl->lvIsInReg() && (lclNode->GetRegNum(i) != REG_NA);
+        bool isInMemory   = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
+        bool isFieldDying = lclNode->IsLastUse(i);
 
         if (isInReg)
         {
             fieldLcl->SetRegNum(lclNode->GetRegNum(i));
             codeGen->genUpdateRegLife(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
-
-            // If this was marked for spill, genProduceReg should already have spilled it.
-            assert(!isFieldSpilled);
         }
 
         if (isFieldDying)
