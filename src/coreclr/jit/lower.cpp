@@ -5530,25 +5530,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
     }
 #endif
 
-#if FEATURE_MULTIREG_RET
-    if (ret->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR))
-    {
-        assert(!src->AsLclVar()->IsMultiReg());
-
-        LclVarDsc* lcl = comp->lvaGetDesc(src->AsLclVar());
-
-        // This must be a multi-reg return or an HFA of a single element.
-        assert(!lcl->IsPromoted() || lcl->lvIsMultiRegRet || (lcl->lvIsHfa() && varTypeUsesFloatReg(lcl->GetType())));
-
-        // Mark var as contained if not enregisterable.
-        if (!lcl->IsEnregisterableLcl())
-        {
-            src->SetContained();
-        }
-
-        return;
-    }
-#endif
+    assert(!ret->TypeIs(TYP_STRUCT) || src->IsFieldList() || src->IsCall());
 }
 
 //------------------------------------------------------------------------
