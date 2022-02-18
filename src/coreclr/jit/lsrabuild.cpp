@@ -1242,8 +1242,6 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
         return false;
     }
 
-    assert(compiler->lvaEnregMultiRegVars);
-
     LclVarDsc* varDsc = compiler->lvaGetDesc(store);
     assert(varDsc->IsPromoted());
 
@@ -2851,7 +2849,6 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     }
     else if (operand->IsMultiRegLclVar())
     {
-        assert(compiler->lvaEnregMultiRegVars);
         LclVarDsc* varDsc      = compiler->lvaGetDesc(operand->AsLclVar()->GetLclNum());
         LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + multiRegIdx);
         interval               = getIntervalForLocalVar(fieldVarDsc->lvVarIndex);
@@ -3177,7 +3174,6 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPo
 int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
-    assert(compiler->lvaEnregMultiRegVars);
 
     LclVarDsc* lcl = compiler->lvaGetDesc(store);
     assert(lcl->IsIndependentPromoted());

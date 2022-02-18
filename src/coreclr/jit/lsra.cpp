@@ -5664,7 +5664,6 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumbe
     }
     else
     {
-        assert(compiler->lvaEnregMultiRegVars);
         LclVarDsc* parentVarDsc = compiler->lvaGetDesc(lclNode->GetLclNum());
         assert(parentVarDsc->lvPromoted);
         unsigned regIndex = varNum - parentVarDsc->lvFieldLclStart;

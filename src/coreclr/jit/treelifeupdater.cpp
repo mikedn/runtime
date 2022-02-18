@@ -252,7 +252,6 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode)
 {
     assert(lclNode->OperIs(GT_STORE_LCL_VAR) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0));
-    assert(compiler->lvaEnregMultiRegVars);
 
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);)

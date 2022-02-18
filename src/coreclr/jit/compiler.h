@@ -2447,7 +2447,6 @@ public:
     void lvSetMinOptsDoNotEnreg();
 
     bool lvaEnregEHVars;
-    bool lvaEnregMultiRegVars;
 
 #ifdef DEBUG
     // Reasons why we can't enregister.  Some of these correspond to debug properties of local vars.

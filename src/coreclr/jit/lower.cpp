@@ -5318,7 +5318,7 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 
     bool canEnregister = false;
 
-    if (comp->lvaEnregMultiRegVars && lcl->IsIndependentPromoted())
+    if (comp->compEnregLocals() && lcl->IsIndependentPromoted())
     {
         if (GenTreeCall* call = value->IsCall())
         {
