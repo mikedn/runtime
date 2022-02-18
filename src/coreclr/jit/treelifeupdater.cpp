@@ -271,7 +271,6 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
 
         if (isInReg)
         {
-            fieldLcl->SetRegNum(lclNode->GetRegNum(i));
             codeGen->genUpdateRegLife(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
         }
 
