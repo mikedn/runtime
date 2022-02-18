@@ -1796,7 +1796,7 @@ void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
         }
     }
 
-    genUpdateLife(lclVar);
+    m_liveness.UpdateLifeMultiReg(this, lclVar);
 
     for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; i++)
     {

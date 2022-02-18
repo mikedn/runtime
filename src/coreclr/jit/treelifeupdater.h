@@ -20,7 +20,6 @@ class CodeGenLivenessUpdater
     unsigned  epoch;
 #endif
 
-    void UpdateLifeMultiReg(class CodeGen* codeGen, GenTreeLclVar* lclNode);
     void UpdateLifePromoted(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
     INDEBUG(void DumpDiff(class CodeGen* codeGen);)
 
@@ -38,6 +37,7 @@ public:
 
     void ChangeLife(class CodeGen* codeGen, VARSET_VALARG_TP newLife);
     void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
+    void UpdateLifeMultiReg(class CodeGen* codeGen, GenTreeLclVar* lclNode);
 
     VARSET_VALARG_TP GetLiveSet() const
     {

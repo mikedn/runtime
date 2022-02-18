@@ -136,7 +136,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !lclNode->IsMultiRegLclVar());
     assert(compiler->GetCurLVEpoch() == epoch);
 
     // TODO-Cleanup: We shouldn't really be calling this more than once
@@ -149,18 +149,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
-    if (lcl->IsAddressExposed())
-    {
-        return;
-    }
-
     if (!lcl->HasLiveness())
     {
-        if (lclNode->IsMultiRegLclVar())
-        {
-            UpdateLifeMultiReg(codeGen, lclNode->AsLclVar());
-        }
-        else if (lcl->IsPromoted())
+        if (!lcl->IsAddressExposed() && lcl->IsPromoted())
         {
             UpdateLifePromoted(codeGen, lclNode);
         }

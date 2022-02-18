@@ -10270,7 +10270,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     }
     else
     {
-        genUpdateLife(store);
+        m_liveness.UpdateLifeMultiReg(this, store);
     }
 }
 
