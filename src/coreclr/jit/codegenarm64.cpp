@@ -1994,7 +1994,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 #ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)
     {
-        genStoreSIMD12(store, store->GetOp(0));
+        genStoreSIMD12(store, src);
         // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
         return;
     }

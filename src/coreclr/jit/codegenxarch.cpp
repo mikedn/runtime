@@ -4148,6 +4148,13 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     {
         genStoreSIMD12(store, src);
         // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
+        // And how exactly does this work anyway? It does not check if a register was allocated
+        // to the local, it always stores to memory. Always storing to memory is probably correct
+        // but not always necessary. Problem is, what if the destination register is different
+        // from the source register? No reg-reg move is being generated?!?
+        // Unpilling SIMD12 is probably broken too since it doesn't use LoadSIMD12, it looks
+        // like it will emit a movups and load garbage in the 4th vector element instead of 0.
+        // See vec3-param-def-spill.cs.
         return;
     }
 #endif
