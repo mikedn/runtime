@@ -10246,6 +10246,11 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         {
             hasRegs = true;
             inst_Mov(fieldType, fieldReg, srcReg, /* canSkip */ true);
+
+            if (!store->IsLastUse(i))
+            {
+                gcInfo.gcMarkRegPtrVal(fieldReg, fieldType);
+            }
         }
         else
         {
@@ -10262,18 +10267,6 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     }
 
     m_liveness.UpdateLifeMultiReg(this, store);
-
-    if (hasRegs)
-    {
-        for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; i++)
-        {
-            if ((store->GetRegNum(i) != REG_NA) && !store->IsLastUse(i))
-            {
-                gcInfo.gcMarkRegPtrVal(store->GetRegNum(i),
-                                       compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetType());
-            }
-        }
-    }
 }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
