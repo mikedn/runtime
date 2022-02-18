@@ -5758,9 +5758,9 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
         // Set this as contained if it is not a multi-reg (we could potentially mark it s contained
         // if all uses are from spill, but that adds complexity.
-        if ((currentRefPosition->refType == RefTypeUse) && !treeNode->IsMultiReg())
+        if (currentRefPosition->refType == RefTypeUse)
         {
-            assert(treeNode != nullptr);
+            assert(!treeNode->IsMultiReg());
             treeNode->SetContained();
         }
 
