@@ -265,7 +265,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-        bool isInReg      = fieldLcl->lvIsInReg() && (lclNode->GetRegNum(i) != REG_NA);
+        bool isInReg      = fieldLcl->lvIsInReg();
         bool isInMemory   = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
         bool isFieldDying = lclNode->IsLastUse(i);
 
