@@ -1783,18 +1783,8 @@ void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
     assert(lcl->IsIndependentPromoted());
     assert(compiler->lvaEnregMultiRegVars);
 
-    if (lclVar->IsAnyRegSpill())
-    {
-        for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; ++i)
-        {
-            if (lclVar->IsRegSpill(i))
-            {
-                unsigned  fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-                var_types spillType   = compiler->lvaGetDesc(fieldLclNum)->GetRegisterType();
-                SpillLclVarReg(fieldLclNum, spillType, lclVar, lclVar->GetRegNum(i));
-            }
-        }
-    }
+    // Store spilling is achieved by not assigning a register to the node.
+    assert(!lclVar->IsAnyRegSpill());
 
     m_liveness.UpdateLifeMultiReg(this, lclVar);
 
