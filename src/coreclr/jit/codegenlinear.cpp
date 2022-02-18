@@ -1772,32 +1772,6 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     }
 }
 
-void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
-{
-    assert(lclVar->OperIs(GT_STORE_LCL_VAR));
-    assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
-    INDEBUG(lclVar->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
-
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
-
-    assert(lcl->IsIndependentPromoted());
-    assert(compiler->lvaEnregMultiRegVars);
-
-    // Store spilling is achieved by not assigning a register to the node.
-    assert(!lclVar->IsAnyRegSpill());
-
-    m_liveness.UpdateLifeMultiReg(this, lclVar);
-
-    for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; i++)
-    {
-        if ((lclVar->GetRegNum(i) != REG_NA) && !lclVar->IsLastUse(i))
-        {
-            gcInfo.gcMarkRegPtrVal(lclVar->GetRegNum(i),
-                                   compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetType());
-        }
-    }
-}
-
 void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lclVar, regNumber reg)
 {
     assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));

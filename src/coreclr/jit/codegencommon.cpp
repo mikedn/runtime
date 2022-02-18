@@ -10218,6 +10218,8 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
     assert(varTypeIsStruct(store->GetType()) || varTypeIsMultiReg(store->GetType()));
     assert(compiler->lvaEnregMultiRegVars);
+    // Store spilling is achieved by not assigning a register to the node.
+    assert(!store->IsAnyRegSpill());
 
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
@@ -10259,18 +10261,18 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         fieldLcl->SetRegNum(fieldReg);
     }
 
+    m_liveness.UpdateLifeMultiReg(this, store);
+
     if (hasRegs)
     {
-        // TODO-MIKE-Review: Shouldn't DefLclVarReg be called after each srcReg-fieldReg copy instead
-        // of calling DefLclVarRegs at the end? As far as register allocation is concerned multi-reg
-        // stores are basically a sequence of reg use-def pairs and a reg def may need spilling.
-        // Is there's anything that prevents a register that's supposed to be spilled to be allocated
-        // to a subsequent reg use-def pair?
-        DefLclVarRegs(store);
-    }
-    else
-    {
-        m_liveness.UpdateLifeMultiReg(this, store);
+        for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; i++)
+        {
+            if ((store->GetRegNum(i) != REG_NA) && !store->IsLastUse(i))
+            {
+                gcInfo.gcMarkRegPtrVal(store->GetRegNum(i),
+                                       compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetType());
+            }
+        }
     }
 }
 
