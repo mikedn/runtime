@@ -8021,23 +8021,21 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
         return;
     }
 
+    printf(" { ");
+
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
     {
         LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-        printf("\n%-52s", "");
-        printIndent(indentStack);
-        printf("     V%02u %-6s V%02u@%u", lcl->GetPromotedFieldLclNum(i), varTypeName(fieldLcl->GetType()), lclNum,
+        if (i != 0)
+        {
+            printf(", ");
+        }
+
+        printf("V%02u %s @%u", lcl->GetPromotedFieldLclNum(i), varTypeName(fieldLcl->GetType()),
                fieldLcl->GetPromotedFieldOffset());
 
         prefix = " (";
-
-        if (fieldLcl->GetPromotedFieldSeq() != nullptr)
-        {
-            printf(prefix);
-            dmpFieldSeqFields(fieldLcl->GetPromotedFieldSeq());
-            prefix = ", ";
-        }
 
         if (fieldLcl->lvTracked && fgLocalVarLivenessDone && node->IsMultiRegLclVar() && node->AsLclVar()->IsLastUse(i))
         {
@@ -8056,6 +8054,8 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
             printf(")");
         }
     }
+
+    printf(" }");
 }
 
 const char* StructStoreKindName(StructStoreKind kind)
