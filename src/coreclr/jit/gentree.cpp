@@ -6872,7 +6872,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
 {
     printf("[%06u] ", tree->GetID());
 
-    msgLength = dmpNodeFlags(tree, msgLength);
+    msgLength -= dmpNodeFlags(tree);
 
     if (tree->gtSeqNum != 0)
     {
@@ -6907,220 +6907,11 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
     return msgLength;
 }
 
-int Compiler::dmpNodeFlags(GenTree* tree, int msgLength)
+int Compiler::dmpNodeFlags(GenTree* tree)
 {
-    switch (tree->GetOper())
-    {
-        case GT_IND:
-        case GT_BLK:
-        case GT_OBJ:
-        case GT_STOREIND:
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
-            // We prefer printing V or U
-            if ((tree->gtFlags & (GTF_IND_VOLATILE | GTF_IND_UNALIGNED)) == 0)
-            {
-                if (tree->gtFlags & GTF_IND_TGT_HEAP)
-                {
-                    printf("h");
-                    --msgLength;
-                    break;
-                }
-                if (tree->gtFlags & GTF_IND_TGT_NOT_HEAP)
-                {
-                    printf("l");
-                    --msgLength;
-                    break;
-                }
-                if (tree->gtFlags & GTF_IND_INVARIANT)
-                {
-                    printf("#");
-                    --msgLength;
-                    break;
-                }
-                if (tree->gtFlags & GTF_IND_NONFAULTING)
-                {
-                    printf("n"); // print a n for non-faulting
-                    --msgLength;
-                    break;
-                }
-                if (tree->gtFlags & GTF_IND_ASG_LHS)
-                {
-                    printf("D"); // print a D for definition
-                    --msgLength;
-                    break;
-                }
-                if (tree->gtFlags & GTF_IND_NONNULL)
-                {
-                    printf("@");
-                    --msgLength;
-                    break;
-                }
-            }
-            if (tree->gtFlags & GTF_IND_VOLATILE)
-            {
-                printf("V");
-                --msgLength;
-                break;
-            }
-            if (tree->gtFlags & GTF_IND_UNALIGNED)
-            {
-                printf("U");
-                --msgLength;
-                break;
-            }
-            goto DASH;
-
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            if (tree->AsDynBlk()->IsVolatile())
-            {
-                printf("V");
-                --msgLength;
-                break;
-            }
-            if (tree->AsDynBlk()->IsUnaligned())
-            {
-                printf("U");
-                --msgLength;
-                break;
-            }
-            goto DASH;
-
-        case GT_CALL:
-            if (tree->AsCall()->IsInlineCandidate())
-            {
-                if (tree->AsCall()->IsGuardedDevirtualizationCandidate())
-                {
-                    printf("&");
-                }
-                else
-                {
-                    printf("I");
-                }
-                --msgLength;
-                break;
-            }
-            else if (tree->AsCall()->IsGuardedDevirtualizationCandidate())
-            {
-                printf("G");
-                --msgLength;
-                break;
-            }
-            if (tree->AsCall()->gtCallMoreFlags & GTF_CALL_M_RETBUFFARG)
-            {
-                printf("S");
-                --msgLength;
-                break;
-            }
-            if (tree->gtFlags & GTF_CALL_HOISTABLE)
-            {
-                printf("H");
-                --msgLength;
-                break;
-            }
-
-            goto DASH;
-
-        case GT_DIV:
-        case GT_MOD:
-        case GT_UDIV:
-        case GT_UMOD:
-            if (tree->gtFlags & GTF_DIV_BY_CNS_OPT)
-            {
-                printf("M"); // We will use a Multiply by reciprical
-                --msgLength;
-                break;
-            }
-            goto DASH;
-
-        case GT_STORE_LCL_VAR:
-            if (tree->AsLclVar()->IsMultiReg())
-            {
-                printf((tree->gtFlags & GTF_VAR_DEF) ? "M" : "m");
-                --msgLength;
-                break;
-            }
-            FALLTHROUGH;
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
-            if (tree->gtFlags & GTF_VAR_USEASG)
-            {
-                printf("U");
-                --msgLength;
-                break;
-            }
-            if (tree->gtFlags & GTF_VAR_DEF)
-            {
-                printf("D");
-                --msgLength;
-                break;
-            }
-            if (tree->gtFlags & GTF_VAR_CONTEXT)
-            {
-                printf("!");
-                --msgLength;
-                break;
-            }
-            goto DASH;
-
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
-            if (tree->gtFlags & GTF_RELOP_NAN_UN)
-            {
-                printf("N");
-                --msgLength;
-                break;
-            }
-            if (tree->gtFlags & GTF_RELOP_JMP_USED)
-            {
-                printf("J");
-                --msgLength;
-                break;
-            }
-            goto DASH;
-
-        case GT_JCMP:
-            printf((tree->gtFlags & GTF_JCMP_TST) ? "T" : "C");
-            printf((tree->gtFlags & GTF_JCMP_EQ) ? "EQ" : "NE");
-            goto DASH;
-
-        case GT_CNS_INT:
-            if (tree->IsIconHandle())
-            {
-                if ((tree->gtFlags & GTF_ICON_INITCLASS) != 0)
-                {
-                    printf("I"); // Static Field handle with INITCLASS requirement
-                    --msgLength;
-                    break;
-                }
-                else
-                {
-                    // Some other handle
-                    printf("H");
-                    --msgLength;
-                    break;
-                }
-            }
-            goto DASH;
-
-        default:
-        DASH:
-            printf("-");
-            --msgLength;
-            break;
-    }
-
     GenTreeFlags flags = tree->gtFlags;
 
-    if (tree->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA) && ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0))
+    if (tree->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA) && ((flags & GTF_ADDRMODE_NO_CSE) != 0))
     {
         // Force the GTF_ADDRMODE_NO_CSE flag to print out like GTF_DONT_CSE
         flags |= GTF_DONT_CSE;
@@ -7132,9 +6923,165 @@ int Compiler::dmpNodeFlags(GenTree* tree, int msgLength)
         flags &= ~GTF_REVERSE_OPS;
     }
 
-    msgLength -= gtDispFlags(flags, tree->gtDebugFlags);
+    char operFlag = '-';
 
-    return msgLength;
+    switch (tree->GetOper())
+    {
+        case GT_IND:
+        case GT_BLK:
+        case GT_OBJ:
+        case GT_STOREIND:
+        case GT_STORE_BLK:
+        case GT_STORE_OBJ:
+            if (flags & GTF_IND_VOLATILE)
+            {
+                operFlag = 'V';
+            }
+            else if (flags & GTF_IND_UNALIGNED)
+            {
+                operFlag = 'U';
+            }
+            else if (flags & GTF_IND_TGT_HEAP)
+            {
+                operFlag = 'h';
+            }
+            else if (flags & GTF_IND_TGT_NOT_HEAP)
+            {
+                operFlag = 'l';
+            }
+            else if (flags & GTF_IND_INVARIANT)
+            {
+                operFlag = '#';
+            }
+            else if (flags & GTF_IND_NONFAULTING)
+            {
+                operFlag = 'n';
+            }
+            else if (flags & GTF_IND_ASG_LHS)
+            {
+                operFlag = 'D';
+            }
+            else if (flags & GTF_IND_NONNULL)
+            {
+                operFlag = '@';
+            }
+            break;
+
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            if (tree->AsDynBlk()->IsVolatile())
+            {
+                operFlag = 'V';
+            }
+            else if (tree->AsDynBlk()->IsUnaligned())
+            {
+                operFlag = 'U';
+            }
+            break;
+
+        case GT_CALL:
+            if (tree->AsCall()->IsInlineCandidate())
+            {
+                if (tree->AsCall()->IsGuardedDevirtualizationCandidate())
+                {
+                    operFlag = '&';
+                }
+                else
+                {
+                    operFlag = 'I';
+                }
+            }
+            else if (tree->AsCall()->IsGuardedDevirtualizationCandidate())
+            {
+                operFlag = 'G';
+            }
+            else if (tree->AsCall()->gtCallMoreFlags & GTF_CALL_M_RETBUFFARG)
+            {
+                operFlag = 'S';
+            }
+            else if (flags & GTF_CALL_HOISTABLE)
+            {
+                operFlag = 'H';
+            }
+            break;
+
+        case GT_DIV:
+        case GT_MOD:
+        case GT_UDIV:
+        case GT_UMOD:
+            if (flags & GTF_DIV_BY_CNS_OPT)
+            {
+                operFlag = 'M';
+            }
+            break;
+
+        case GT_STORE_LCL_VAR:
+            if (tree->AsLclVar()->IsMultiReg())
+            {
+                operFlag = 'M';
+                break;
+            }
+            FALLTHROUGH;
+        case GT_LCL_VAR:
+        case GT_LCL_FLD:
+        case GT_STORE_LCL_FLD:
+            if (flags & GTF_VAR_USEASG)
+            {
+                operFlag = 'U';
+            }
+            else if (flags & GTF_VAR_DEF)
+            {
+                operFlag = 'D';
+            }
+            else if (flags & GTF_VAR_CONTEXT)
+            {
+                operFlag = '!';
+            }
+            break;
+
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GE:
+        case GT_GT:
+        case GT_TEST_EQ:
+        case GT_TEST_NE:
+            if (flags & GTF_RELOP_NAN_UN)
+            {
+                operFlag = 'N';
+            }
+            else if (flags & GTF_RELOP_JMP_USED)
+            {
+                operFlag = 'J';
+            }
+            break;
+
+        case GT_JCMP:
+            if (flags & GTF_JCMP_TST)
+            {
+                operFlag = (flags & GTF_JCMP_EQ) ? 'C' : 'T';
+            }
+            else
+            {
+                operFlag = (flags & GTF_JCMP_EQ) ? 'E' : 'N';
+            }
+            break;
+
+        case GT_CNS_INT:
+            if (tree->IsIconHandle())
+            {
+                operFlag = (flags & GTF_ICON_INITCLASS) ? 'I' : 'H';
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    int length = printf("%c", operFlag);
+    length += gtDispFlags(flags, tree->gtDebugFlags);
+    return length;
 }
 
 //------------------------------------------------------------------------
