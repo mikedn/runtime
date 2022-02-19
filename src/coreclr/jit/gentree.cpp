@@ -6872,9 +6872,9 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
 
     GenTree* prev;
 
-    if (tree->gtSeqNum)
+    if (tree->gtSeqNum != 0)
     {
-        printf("N%03u ", tree->gtSeqNum);
+        printf("N%04u ", tree->gtSeqNum);
         if (tree->HasCosts())
         {
             printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
@@ -6911,11 +6911,11 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         bool displayDotNum = hasSeqNum && (indentStack == nullptr);
         if (displayDotNum)
         {
-            printf("N%03u.%02u ", prev->gtSeqNum, dotNum);
+            printf("N%04u.%02u ", prev->gtSeqNum, dotNum);
         }
         else
         {
-            printf("     ");
+            printf("      ");
         }
 
         if (tree->HasCosts())
@@ -6927,11 +6927,11 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             if (displayDotNum)
             {
                 // Do better alignment in this case
-                printf("       ");
+                printf("        ");
             }
             else
             {
-                printf("          ");
+                printf("           ");
             }
         }
     }
@@ -8134,7 +8134,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
     {
         LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-        printf("\n                                                  ");
+        printf("\n%-52s", "");
         printIndent(indentStack);
         printf("     V%02u %-6s V%02u@%u", lcl->GetPromotedFieldLclNum(i), varTypeName(fieldLcl->GetType()), lclNum,
                fieldLcl->GetPromotedFieldOffset());
@@ -8991,8 +8991,8 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
             printf("%*s", (int)prefixIndent, "");
         }
 
-        // 50 spaces for alignment
-        printf("%-50s", "");
+        // 51 spaces for alignment
+        printf("%-51s", "");
 
         indentStack.Push(operandArc);
         indentStack.print();

@@ -9027,7 +9027,7 @@ void LinearScan::dumpDefList()
          listNode = listNode->Next())
     {
         GenTree* node = listNode->treeNode;
-        JITDUMP("%sN%03u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->gtTreeID, GenTree::OpName(node->OperGet()));
+        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->gtTreeID, GenTree::OpName(node->OperGet()));
         first = false;
     }
     JITDUMP(" }\n");
@@ -9132,7 +9132,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
             hasDest = true;
         }
     }
-    printf("%c N%03u. ", spillChar, tree->gtSeqNum);
+    printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
     LclVarDsc* varDsc = nullptr;
     unsigned   varNum = UINT_MAX;

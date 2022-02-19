@@ -7584,7 +7584,7 @@ public:
         }
         else
         {
-            printf("[%06d]", dspTreeID(tree));
+            printf("[%06u]", dspTreeID(tree));
         }
     }
 
