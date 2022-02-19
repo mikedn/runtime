@@ -239,6 +239,11 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     if (spill)
     {
+        // TODO-MIKE-Review: There's somehting dubious going on here, or perhaps in LSRA. On ARM64 a last-use
+        // gets spilled and that results in an assert in "variable range". The range was already closed above
+        // and SpillRegCandidateLclVar tries to update it for spill. It may be that SpillRegCandidateLclVar
+        // needs to use siStartOrCloseVariableLiveRange instead of siUpdateVariableLiveRange in this case but
+        // then it's not clear why would a last-use need spilling to begin with.
         codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar());
 
         if (lcl->HasStackGCPtrLiveness() &&
