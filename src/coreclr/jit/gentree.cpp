@@ -6868,11 +6868,11 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
 }
 
 // Display the sequence, costs and flags portion of the node dump.
-int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength)
+int Compiler::gtDispNodeHeader(GenTree* tree)
 {
     printf("[%06u] ", tree->GetID());
 
-    msgLength -= dmpNodeFlags(tree);
+    int flagsLength = dmpNodeFlags(tree);
 
     if (tree->gtSeqNum != 0)
     {
@@ -6904,7 +6904,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         }
     }
 
-    return msgLength;
+    return flagsLength;
 }
 
 int Compiler::dmpNodeFlags(GenTree* tree)
@@ -7104,7 +7104,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     bool printPointer = true; // always true..
     bool printCost    = true; // always true..
 
-    int msgLength = gtDispNodeHeader(tree, indentStack, 25);
+    int msgLength = 25 - gtDispNodeHeader(tree);
 
     // If we're printing a node for LIR, we use the space normally associated with the message
     // to display the node's temp name (if any)
@@ -8805,8 +8805,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
             printf(prefixMsg);
         }
 
-        IndentStack indentStack(this);
-        int         msgLength = gtDispNodeHeader(instr, &indentStack, 25);
+        int msgLength = 25 - gtDispNodeHeader(instr);
 
         if (msgLength < 0)
         {

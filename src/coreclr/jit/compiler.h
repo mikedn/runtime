@@ -2287,7 +2287,7 @@ public:
 
 #ifdef DEBUG
     void gtDispNode(GenTree* tree, IndentStack* indentStack, __in_z const char* msg, bool isLIR);
-    int gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength);
+    int gtDispNodeHeader(GenTree* tree);
     int dmpNodeFlags(GenTree* node);
     int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
     void gtDispConst(GenTree* tree);
