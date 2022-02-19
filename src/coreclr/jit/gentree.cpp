@@ -7101,9 +7101,6 @@ int Compiler::dmpNodeFlags(GenTree* tree)
 //
 void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z __in_opt const char* msg, bool isLIR)
 {
-    bool printPointer = true; // always true..
-    bool printCost    = true; // always true..
-
     int msgLength = 25 - gtDispNodeHeader(tree);
 
     // If we're printing a node for LIR, we use the space normally associated with the message
