@@ -8378,15 +8378,20 @@ void Compiler::gtDispTree(GenTree*     tree,
         break;
 
         case GT_FIELD_LIST:
+            printf(" { ");
+            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
+            {
+                printf("%s%s @%u", use.GetOffset() != 0 ? ", " : "", varTypeName(use.GetType()), use.GetOffset());
+            }
+            printf(" }");
+
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
             {
                 for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
                 {
-                    char offset[32];
-                    sprintf_s(offset, sizeof(offset), "ofs %u", use.GetOffset());
-                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc, offset);
+                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc);
                 }
             }
             break;
