@@ -6878,7 +6878,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         printf("      ");
     }
 
-    if (tree->HasCosts())
+    if (tree->HasCosts() && !compRationalIRForm)
     {
         printf(" (%3u,%3u)", tree->GetCostEx(), tree->GetCostSz());
     }
