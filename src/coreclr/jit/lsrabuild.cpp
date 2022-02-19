@@ -1233,20 +1233,23 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 //    LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
 //    each node.
 //
-bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
+bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
-    assert(lclVar->IsMultiReg());
-    assert(compiler->lvaEnregMultiRegVars);
+    assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclVar);
+    if (!store->IsMultiReg())
+    {
+        return false;
+    }
+
+    LclVarDsc* varDsc = compiler->lvaGetDesc(store);
     assert(varDsc->IsPromoted());
 
     bool isMultiReg = varDsc->IsIndependentPromoted();
 
     if (!isMultiReg)
     {
-        lclVar->ClearMultiReg();
+        store->ClearMultiReg();
     }
 
 #ifdef DEBUG
@@ -1254,7 +1257,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
 
-        assert(isCandidateVar(fieldLcl) == isMultiReg);
+        assert(fieldLcl->IsRegCandidate() == isMultiReg);
     }
 #endif
 
@@ -1266,7 +1269,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
 //                                  candidate or contained.
 //
 // Arguments:
-//    lclNode - the GT_LCL_VAR or GT_STORE_LCL_VAR of interest
+//    lclNode - the GT_STORE_LCL_VAR of interest
 //
 // Return Value:
 //    true if the node remains a candidate or is contained
@@ -1290,38 +1293,20 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
 //
 bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
 {
-    bool isCandidate;
-    bool makeContained = false;
+    assert(lclNode->OperIs(GT_LCL_VAR) && !lclNode->IsMultiReg());
     // We shouldn't be calling this if this node was already contained.
     assert(!lclNode->isContained());
-    // If we have a multireg local, verify that its fields are still register candidates.
-    if (lclNode->IsMultiReg())
-    {
-        // Multi-reg uses must support containment, but if we have an actual multi-reg local
-        // we don't want it to be RegOptional in fixed-use cases, so that we can ensure proper
-        // liveness modeling (e.g. if one field is in a register required by another field, in
-        // a RegOptional case we won't handle the conflict properly if we decide not to allocate).
-        isCandidate = IsCandidateLclVarMultiReg(lclNode);
-        if (isCandidate)
-        {
-            assert(!lclNode->IsRegOptional());
-        }
-        else
-        {
-            makeContained = true;
-        }
-    }
-    else
-    {
-        isCandidate   = compiler->lvaGetDesc(lclNode)->lvLRACandidate;
-        makeContained = !isCandidate && lclNode->IsRegOptional();
-    }
-    if (makeContained)
+
+    bool isCandidate = compiler->lvaGetDesc(lclNode)->IsRegCandidate();
+
+    if (!isCandidate && lclNode->IsRegOptional())
     {
         lclNode->ClearRegOptional();
         lclNode->SetContained();
+
         return true;
     }
+
     return isCandidate;
 }
 
@@ -1685,7 +1670,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         if (tree->IsLocal() && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
         {
             LclVarDsc* const varDsc = &compiler->lvaTable[tree->AsLclVarCommon()->GetLclNum()];
-            if (isCandidateVar(varDsc))
+            if (varDsc->IsRegCandidate())
             {
                 assert(varDsc->lvTracked);
                 unsigned varIndex = varDsc->lvVarIndex;
@@ -1871,7 +1856,7 @@ void LinearScan::insertZeroInitRefPositions()
     while (iter.NextElem(&varIndex))
     {
         LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-        if (!varDsc->lvIsParam && isCandidateVar(varDsc))
+        if (!varDsc->lvIsParam && varDsc->IsRegCandidate())
         {
             JITDUMP("V%02u was live in to first block:", compiler->lvaTrackedIndexToLclNum(varIndex));
             Interval* interval = getIntervalForLocalVar(varIndex);
@@ -1908,7 +1893,7 @@ void LinearScan::insertZeroInitRefPositions()
         while (iter.NextElem(&varIndex))
         {
             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-            if (!varDsc->lvIsParam && isCandidateVar(varDsc))
+            if (!varDsc->lvIsParam && varDsc->IsRegCandidate())
             {
                 JITDUMP("V%02u is a finally var:", compiler->lvaTrackedIndexToLclNum(varIndex));
                 Interval* interval = getIntervalForLocalVar(varIndex);
@@ -2141,7 +2126,7 @@ void LinearScan::buildIntervals()
             updateRegStateForArg(argDsc);
         }
 
-        if (isCandidateVar(argDsc))
+        if (argDsc->IsRegCandidate())
         {
             Interval*       interval = getIntervalForLocalVar(varIndex);
             const var_types regType  = argDsc->GetRegisterType();
@@ -2293,7 +2278,7 @@ void LinearScan::buildIntervals()
                         {
                             // Add a dummyDef for any candidate vars that are in the "newLiveIn" set.
                             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-                            assert(isCandidateVar(varDsc));
+                            assert(varDsc->IsRegCandidate());
                             Interval*    interval = getIntervalForLocalVar(varIndex);
                             RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef, nullptr,
                                                               allRegs(interval->registerType));
@@ -2443,7 +2428,7 @@ void LinearScan::buildIntervals()
                 {
                     unsigned   varNum = compiler->lvaTrackedToVarNum[varIndex];
                     LclVarDsc* varDsc = compiler->lvaTable + varNum;
-                    assert(isCandidateVar(varDsc));
+                    assert(varDsc->IsRegCandidate());
                     Interval*    interval = getIntervalForLocalVar(varIndex);
                     RefPosition* pos =
                         newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
@@ -2461,7 +2446,7 @@ void LinearScan::buildIntervals()
             {
                 unsigned         varNum = compiler->lvaTrackedToVarNum[varIndex];
                 LclVarDsc* const varDsc = &compiler->lvaTable[varNum];
-                assert(isCandidateVar(varDsc));
+                assert(varDsc->IsRegCandidate());
                 RefPosition* const lastRP = getIntervalForLocalVar(varIndex)->lastRefPosition;
                 // We should be able to assert that lastRP is non-null if it is live-out, but sometimes liveness
                 // lies.
@@ -2496,7 +2481,7 @@ void LinearScan::buildIntervals()
             unsigned keepAliveVarNum = compiler->info.compThisArg;
             assert(compiler->info.compIsStatic == false);
             LclVarDsc* varDsc = compiler->lvaTable + keepAliveVarNum;
-            if (isCandidateVar(varDsc))
+            if (varDsc->IsRegCandidate())
             {
                 JITDUMP("Adding exposed use of this, for lvaKeepAliveAndReportThis\n");
                 Interval*    interval = getIntervalForLocalVar(varDsc->lvVarIndex);
@@ -2864,7 +2849,6 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     }
     else if (operand->IsMultiRegLclVar())
     {
-        assert(compiler->lvaEnregMultiRegVars);
         LclVarDsc* varDsc      = compiler->lvaGetDesc(operand->AsLclVar()->GetLclNum());
         LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + multiRegIdx);
         interval               = getIntervalForLocalVar(fieldVarDsc->lvVarIndex);
@@ -3127,13 +3111,14 @@ int LinearScan::BuildBinaryUses(GenTreeOp* node, regMaskTP candidates)
     return srcCount;
 }
 
-void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, int index)
+void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(lcl->lvTracked);
 
     Interval* varDefInterval = getIntervalForLocalVar(lcl->lvVarIndex);
 
+    // TODO-MIKE-Review: Use of GTF_VAR_DEATH on multireg nodes is dubious...
     if ((store->gtFlags & GTF_VAR_DEATH) == 0)
     {
         VarSetOps::AddElemD(compiler, currentLiveVars, lcl->lvVarIndex);
@@ -3188,83 +3173,50 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPo
 
 int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-    assert(store->IsMultiReg());
-    assert(compiler->lvaEnregMultiRegVars);
+    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
 
-    // The source must be:
-    // - a multi-reg source
-    // - an enregisterable SIMD type, or
-    // - in-memory local
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    assert(lcl->IsIndependentPromoted());
+    unsigned regCount = lcl->GetPromotedFieldCount();
 
-    GenTree* src           = store->GetOp(0);
-    bool     isMultiRegSrc = src->IsMultiRegNode();
-    unsigned dstCount      = store->GetMultiRegCount(compiler);
-    unsigned srcCount;
-
-    if (isMultiRegSrc)
-    {
-        assert(src->GetMultiRegCount(compiler) == dstCount);
-
-        srcCount = dstCount;
-    }
-    else if (!src->TypeIs(TYP_STRUCT))
-    {
-        // Create a delay free use, as we'll have to use it to create each field
-        RefPosition* use = BuildUse(src, RBM_NONE);
-        setDelayFree(use);
-        srcCount = 1;
-    }
-    else
-    {
-        // Otherwise we must have an in-memory struct lclVar.
-        // We will just load directly into the register allocated for this lclVar,
-        // so we don't need to build any uses.
-        assert(src->OperIs(GT_LCL_VAR) && src->isContained() && src->TypeIs(TYP_STRUCT));
-
-        srcCount = 0;
-    }
+    GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
+    assert(regCount == src->GetMultiRegCount(compiler));
 
     // For multi-reg local stores of multi-reg sources, the code generator will read each source
     // register, and then move it, if needed, to the destination register. These nodes have
     // 2*N locations where N is the number of registers, so that the liveness can
     // be reflected accordingly.
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
-
-    for (unsigned int i = 0; i < dstCount; ++i)
+    for (unsigned i = 0; i < regCount; ++i)
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-        assert(isCandidateVar(fieldLcl));
+        assert(fieldLcl->IsRegCandidate());
 
-        if (isMultiRegSrc)
-        {
-            regMaskTP srcCandidates = RBM_NONE;
+        regMaskTP srcCandidates = RBM_NONE;
 #ifdef TARGET_X86
-            if (varTypeIsByte(fieldLcl->GetType()))
-            {
-                srcCandidates = allByteRegs();
-            }
-#endif
-            BuildUse(src, srcCandidates, i);
+        if (varTypeIsByte(fieldLcl->GetType()))
+        {
+            srcCandidates = allByteRegs();
         }
-
+#endif
+        BuildUse(src, srcCandidates, i);
         BuildStoreLclVarDef(store, fieldLcl, nullptr, i);
 
-        if (isMultiRegSrc && (i < (dstCount - 1)))
+        if (i < (regCount - 1))
         {
             currentLoc += 2;
         }
     }
 
-    return static_cast<int>(srcCount);
+    return static_cast<int>(regCount);
 }
 
 int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    if (store->IsMultiReg() && IsCandidateLclVarMultiReg(store))
+    if (IsCandidateLclVarMultiReg(store))
     {
         *dstCount = static_cast<int>(compiler->lvaGetDesc(store->GetLclNum())->GetPromotedFieldCount());
         return BuildStoreLclVarMultiReg(store);
@@ -3336,7 +3288,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         }
 
 #ifdef TARGET_X86
-        if (isCandidateVar(lcl) && src->IsCall() && src->TypeIs(TYP_SIMD8))
+        if (lcl->IsRegCandidate() && src->IsCall() && src->TypeIs(TYP_SIMD8))
         {
             BuildInternalFloatDef(store, allSIMDRegs());
             setInternalRegsDelayFree = true;
@@ -3428,7 +3380,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 
     BuildInternalUses();
 
-    if (isCandidateVar(lcl))
+    if (lcl->IsRegCandidate())
     {
         BuildStoreLclVarDef(store->AsLclVar(), lcl, singleUseRef, 0);
     }
@@ -3642,7 +3594,7 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
         // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
         // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register
         // (which is actually what we hope will happen).
-        JITDUMP("Setting PUTARG_REG as a pass-through of a non-last use lclVar\n");
+        JITDUMP("Setting PUTARG_REG as a pass-through of a non-last use store\n");
 
         assert(use->getInterval()->isLocalVar);
 

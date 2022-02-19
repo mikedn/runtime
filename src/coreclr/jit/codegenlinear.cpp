@@ -1735,31 +1735,19 @@ void CodeGen::DefReg(GenTree* node)
     }
 }
 
-void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
+void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && !lclVar->IsMultiReg());
     assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(lclVar->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
+    assert(!lcl->IsIndependentPromoted());
+
     if (lclVar->IsAnyRegSpill())
     {
-        if (lclVar->IsMultiRegLclVar())
-        {
-            assert(compiler->lvaEnregMultiRegVars);
-
-            for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; ++i)
-            {
-                if (lclVar->IsRegSpill(i))
-                {
-                    unsigned  fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-                    var_types spillType   = compiler->lvaGetDesc(fieldLclNum)->GetRegisterType();
-                    SpillLclVarReg(fieldLclNum, spillType, lclVar, lclVar->GetRegNum(i));
-                }
-            }
-        }
-        else if (lcl->lvIsRegCandidate())
+        if (lcl->IsRegCandidate())
         {
             unsigned  lclNum    = lclVar->GetLclNum();
             var_types spillType = lcl->GetRegisterType(lclVar);
@@ -1778,20 +1766,7 @@ void CodeGen::DefLclVarRegs(GenTreeLclVar* lclVar)
         genUpdateLife(lclVar);
     }
 
-    if (lclVar->IsMultiRegLclVar())
-    {
-        assert(compiler->lvaEnregMultiRegVars);
-
-        for (unsigned i = 0, count = lcl->GetPromotedFieldCount(); i < count; i++)
-        {
-            if ((lclVar->GetRegNum(i) != REG_NA) && !lclVar->IsLastUse(i))
-            {
-                gcInfo.gcMarkRegPtrVal(lclVar->GetRegNum(i),
-                                       compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetType());
-            }
-        }
-    }
-    else if ((lclVar->GetRegNum() != REG_NA) && (!lcl->lvIsRegCandidate() || !lclVar->IsLastUse(0)))
+    if ((lclVar->GetRegNum() != REG_NA) && (!lcl->IsRegCandidate() || !lclVar->IsLastUse(0)))
     {
         gcInfo.gcMarkRegPtrVal(lclVar->GetRegNum(), lclVar->GetType());
     }
@@ -1898,10 +1873,9 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
 }
 
 #ifndef TARGET_64BIT
-void CodeGen::DefLongRegs(GenTreeMultiRegOp* node)
+void CodeGen::DefLongRegs(GenTree* node)
 {
-    assert(node->TypeIs(TYP_LONG) && (node->GetRegCount() == 2));
-    assert((node->GetRegType(0) == TYP_INT) && (node->GetRegType(1) == TYP_INT));
+    assert(node->IsMultiRegOpLong());
     assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(node->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 

@@ -573,11 +573,6 @@ inline bool leafAddInRange(GenTree* leaf, int lower, int upper, int multiple = 1
     return leafInRange(leaf->gtGetOp2(), lower, upper, multiple);
 }
 
-inline bool isCandidateVar(LclVarDsc* varDsc)
-{
-    return varDsc->lvLRACandidate;
-}
-
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XX                                                                           XX
@@ -1009,7 +1004,7 @@ private:
 
     inline bool isCandidateLclVar(GenTree* tree)
     {
-        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && isCandidateVar(compiler->lvaGetDesc(tree->AsLclVar()));
+        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(tree->AsLclVar())->IsRegCandidate();
     }
 
     // Helpers for getKillSetForNode().
@@ -1848,7 +1843,7 @@ private:
     int BuildStoreDynBlk(GenTreeDynBlk* store);
     int BuildModDiv(GenTree* tree);
     int BuildIntrinsic(GenTree* tree);
-    void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, int index);
+    void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
     int BuildStoreLclVarMultiReg(GenTreeLclVar* store);
     int BuildStoreLclVar(GenTreeLclVar* store, int* dstCount);
     int BuildStoreLclFld(GenTreeLclFld* store);

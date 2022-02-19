@@ -814,30 +814,26 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     DefReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLclVar: Produce code for a GT_LCL_VAR node.
-//
-// Arguments:
-//    tree - the GT_LCL_VAR node
-//
-void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
+void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
-    // lcl_vars are not defs
-    assert((tree->gtFlags & GTF_VAR_DEF) == 0);
+    assert(load->OperIs(GT_LCL_VAR));
 
-    bool isRegCandidate = compiler->lvaTable[tree->GetLclNum()].lvIsRegCandidate();
+    LclVarDsc* lcl = compiler->lvaGetDesc(load);
 
-    // If this is a register candidate that has been spilled, genConsumeReg() will
-    // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
+    assert(!lcl->IsIndependentPromoted());
 
-    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
+    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
-        const LclVarDsc* varDsc = compiler->lvaGetDesc(tree);
-        var_types        type   = varDsc->GetRegisterType(tree);
-
-        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
-        DefLclVarRegs(tree);
+        return;
     }
+
+    var_types   type = lcl->GetRegisterType(load);
+    instruction ins  = ins_Load(type);
+    emitAttr    attr = emitTypeSize(type);
+
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+
+    DefLclVarReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
@@ -900,6 +896,14 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+
+    if (lcl->IsIndependentPromoted())
+    {
+        GenStoreLclVarMultiReg(store);
+        return;
+    }
+
     if (store->TypeIs(TYP_LONG))
     {
         GenStoreLclVarLong(store);
@@ -907,14 +911,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     }
 
     GenTree* src = store->GetOp(0);
-
-    if (src->IsMultiRegNode())
-    {
-        GenStoreLclVarMultiReg(store);
-        return;
-    }
-
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
     if (store->TypeIs(TYP_STRUCT))
     {
@@ -945,7 +941,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
 
-    DefLclVarRegs(store);
+    DefLclVarReg(store);
 }
 
 //------------------------------------------------------------------------
@@ -1380,7 +1376,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 // Return Value:
 //    None.
 //
-void CodeGen::genCodeForMulLong(GenTreeMultiRegOp* node)
+void CodeGen::genCodeForMulLong(GenTreeOp* node)
 {
     assert(node->OperGet() == GT_MUL_LONG);
 

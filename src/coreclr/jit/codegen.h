@@ -838,7 +838,7 @@ protected:
 #endif // TARGET_ARMARCH
 
 #if defined(TARGET_ARM)
-    void genCodeForMulLong(GenTreeMultiRegOp* treeNode);
+    void genCodeForMulLong(GenTreeOp* treeNode);
 #endif // TARGET_ARM
 
 #if !defined(TARGET_64BIT)
@@ -1073,13 +1073,13 @@ protected:
     // code has been emitted for it.
     void genProduceReg(GenTree* node);
     void DefReg(GenTree* node);
-    void DefLclVarRegs(GenTreeLclVar* lclVar);
+    void DefLclVarReg(GenTreeLclVar* lclVar);
 #if FEATURE_ARG_SPLIT
     void DefPutArgSplitRegs(GenTreePutArgSplit* arg);
 #endif
     void DefCallRegs(GenTreeCall* call);
 #ifndef TARGET_64BIT
-    void DefLongRegs(GenTreeMultiRegOp* node);
+    void DefLongRegs(GenTree* node);
 #endif
     void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
     void UnspillRegIfNeeded(GenTree* node);
@@ -1135,7 +1135,7 @@ protected:
     void genCodeForIndir(GenTreeIndir* tree);
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
-    void genCodeForLclVar(GenTreeLclVar* tree);
+    void GenLoadLclVar(GenTreeLclVar* load);
     void genCodeForLclFld(GenTreeLclFld* tree);
     void GenStoreLclFld(GenTreeLclFld* store);
     void GenStoreLclVar(GenTreeLclVar* store);
@@ -1144,8 +1144,8 @@ protected:
     void GenStoreLclVarLong(GenTreeLclVar* store);
 #endif
     void GenStoreLclVarMultiReg(GenTreeLclVar* store);
-    void GenStoreLclVarMultiRegMem(GenTreeLclVar* store);
-    void GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store);
+    void GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store);
+    void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void genCodeForJcc(GenTreeCC* tree);
     void genCodeForSetcc(GenTreeCC* setcc);

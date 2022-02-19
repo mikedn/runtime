@@ -625,7 +625,7 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 #ifdef TARGET_X86
     if (treeNode->OperIs(GT_MUL_LONG))
     {
-        DefLongRegs(treeNode->AsMultiRegOp());
+        DefLongRegs(treeNode);
         return;
     }
 #endif
@@ -1327,8 +1327,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
     lastConsumedNode = nullptr;
     if (compiler->verbose)
     {
-        unsigned seqNum = treeNode->gtSeqNum; // Useful for setting a conditional break in Visual Studio
-        compiler->gtDispLIRNode(treeNode, "Generating: ");
+        compiler->gtDispLIRNode(treeNode);
     }
 #endif // DEBUG
 
@@ -1478,7 +1477,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_LCL_VAR:
-            genCodeForLclVar(treeNode->AsLclVar());
+            GenLoadLclVar(treeNode->AsLclVar());
             break;
 
         case GT_STORE_LCL_FLD:
@@ -1764,71 +1763,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         break;
     }
 }
-
-#ifdef FEATURE_SIMD
-
-void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
-{
-#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_X86)
-    assert(!"Multireg store to SIMD reg not supported on X64 Windows");
-#else
-    GenTree* src = store->GetOp(0);
-    assert(src->IsMultiRegNode());
-
-    UseRegs(src);
-
-    // This is used to store a Vector3/4 call return value, on UNIX_AMD64_ABI
-    // such a value is returned into 2 XMM registers and we need to pack it
-    // into the XMM destination register.
-    // This also handles the case of Vector2 being returned in 2 GPRs on x86.
-
-    GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
-
-    assert(call->GetRegCount() == 2);
-#ifdef TARGET_X86
-    assert(!varTypeUsesFloatReg(call->GetRegType(0)));
-    assert(!varTypeUsesFloatReg(call->GetRegType(1)));
-#else
-    assert(varTypeUsesFloatReg(call->GetRegType(0)));
-    assert(varTypeUsesFloatReg(call->GetRegType(1)));
-#endif
-
-    regNumber srcReg0 = call->GetRegNum(0);
-    regNumber srcReg1 = call->GetRegNum(1);
-    regNumber dstReg  = store->GetRegNum();
-
-#ifdef TARGET_X86
-    regNumber tmpReg  = store->GetSingleTempReg();
-
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, srcReg0, false);
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, srcReg1, false);
-    GetEmitter()->emitIns_R_R(INS_unpcklps, EA_16BYTE, dstReg, tmpReg);
-#else
-    if (dstReg == srcReg0)
-    {
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
-    }
-    else if (compiler->canUseVexEncoding())
-    {
-        GetEmitter()->emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, srcReg0, srcReg1);
-    }
-    else if (dstReg == srcReg1)
-    {
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
-        GetEmitter()->emitIns_Mov(INS_movsdsse2, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
-    }
-    else
-    {
-        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
-    }
-#endif
-
-    DefLclVarRegs(store);
-#endif // UNIX_AMD64_ABI
-}
-
-#endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
 // genAllocLclFrame: Probe the stack and allocate the local stack frame - subtract from SP.
@@ -4074,41 +4008,37 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLclVar: Produce code for a GT_LCL_VAR node.
-//
-// Arguments:
-//    tree - the GT_LCL_VAR node
-//
-void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
+void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
-    assert(tree->OperIs(GT_LCL_VAR));
+    assert(load->OperIs(GT_LCL_VAR));
 
-    // lcl_vars are not defs
-    assert((tree->gtFlags & GTF_VAR_DEF) == 0);
+    LclVarDsc* lcl = compiler->lvaGetDesc(load);
 
-    LclVarDsc* varDsc         = compiler->lvaGetDesc(tree);
-    bool       isRegCandidate = varDsc->lvIsRegCandidate();
+    assert(!lcl->IsIndependentPromoted());
 
-    // If this is a register candidate that has been spilled, genConsumeReg() will
-    // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
-
-    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
+    // TODO-MIKE-Review: The spilled check is dubious, it cannot be spilled unless it's a reg candidate...
+    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
+        return;
+    }
+
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
-        if (tree->TypeIs(TYP_SIMD12))
-        {
-            LoadSIMD12(tree);
-            DefLclVarRegs(tree);
-            return;
-        }
+    if (load->TypeIs(TYP_SIMD12))
+    {
+        LoadSIMD12(load);
+        DefLclVarReg(load);
+
+        return;
+    }
 #endif
 
-        var_types type = varDsc->GetRegisterType(tree);
-        GetEmitter()->emitIns_R_S(ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(tree->GetLclNum())),
-                                  emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
-        DefLclVarRegs(tree);
-    }
+    var_types   type = lcl->GetRegisterType(load);
+    instruction ins  = ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(load->GetLclNum()));
+    emitAttr    attr = emitTypeSize(type);
+
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+
+    DefLclVarReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
@@ -4149,6 +4079,14 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+
+    if (lcl->IsIndependentPromoted())
+    {
+        GenStoreLclVarMultiReg(store);
+        return;
+    }
+
 #ifndef TARGET_64BIT
     if (store->TypeIs(TYP_LONG))
     {
@@ -4159,14 +4097,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     GenTree* src = store->GetOp(0);
 
-    if (src->IsMultiRegNode())
-    {
-        GenStoreLclVarMultiReg(store);
-        return;
-    }
-
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
-
     if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = lcl->GetLayout();
@@ -4175,6 +4105,24 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         genUpdateLife(store);
         return;
     }
+
+#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_X86)
+    assert(!src->IsMultiRegNode());
+#else
+    if (src->IsMultiRegNode())
+    {
+        if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
+        {
+            GenStoreLclVarMultiRegSIMDReg(store);
+        }
+        else
+        {
+            GenStoreLclVarMultiRegSIMDMem(store);
+        }
+
+        return;
+    }
+#endif
 
     var_types lclRegType = lcl->GetRegisterType(store);
 
@@ -4199,6 +4147,13 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     {
         genStoreSIMD12(store, src);
         // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
+        // And how exactly does this work anyway? It does not check if a register was allocated
+        // to the local, it always stores to memory. Always storing to memory is probably correct
+        // but not always necessary. Problem is, what if the destination register is different
+        // from the source register? No reg-reg move is being generated?!?
+        // Unpilling SIMD12 is probably broken too since it doesn't use LoadSIMD12, it looks
+        // like it will emit a movups and load garbage in the 4th vector element instead of 0.
+        // See vec3-param-def-spill.cs.
         return;
     }
 #endif
@@ -4224,7 +4179,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         {
             inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
 
-            DefLclVarRegs(store);
+            DefLclVarReg(store);
         }
 
         return;
@@ -4297,8 +4252,111 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         inst_Mov_Extend(lclRegType, true, dstReg, src->GetRegNum(), /* canSkip */ true, emitTypeSize(lclRegType));
     }
 
-    DefLclVarRegs(store);
+    DefLclVarReg(store);
 }
+
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
+
+void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
+{
+    assert(varTypeIsSIMD(store->GetType()));
+
+    GenTree* src = store->GetOp(0);
+
+    UseRegs(src);
+
+    // This is used to store a Vector3/4 call return value, on UNIX_AMD64_ABI
+    // such a value is returned into 2 XMM registers and we need to pack it
+    // into the XMM destination register.
+    // This also handles the case of Vector2 being returned in 2 GPRs on x86.
+
+    GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
+
+    assert(call->GetRegCount() == 2);
+#ifdef TARGET_X86
+    assert(!varTypeUsesFloatReg(call->GetRegType(0)));
+    assert(!varTypeUsesFloatReg(call->GetRegType(1)));
+#else
+    assert(varTypeUsesFloatReg(call->GetRegType(0)));
+    assert(varTypeUsesFloatReg(call->GetRegType(1)));
+#endif
+
+    regNumber srcReg0 = call->GetRegNum(0);
+    regNumber srcReg1 = call->GetRegNum(1);
+    regNumber dstReg  = store->GetRegNum();
+
+#ifdef TARGET_X86
+    regNumber tmpReg = store->GetSingleTempReg();
+
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, srcReg0, false);
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, srcReg1, false);
+    GetEmitter()->emitIns_R_R(INS_unpcklps, EA_16BYTE, dstReg, tmpReg);
+#else
+    if (dstReg == srcReg0)
+    {
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
+    }
+    else if (compiler->canUseVexEncoding())
+    {
+        GetEmitter()->emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, srcReg0, srcReg1);
+    }
+    else if (dstReg == srcReg1)
+    {
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
+        GetEmitter()->emitIns_Mov(INS_movsdsse2, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
+    }
+    else
+    {
+        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
+    }
+#endif
+
+    DefLclVarReg(store);
+}
+
+void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
+
+    GenTree*     src    = store->GetOp(0);
+    GenTreeCall* call   = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     lclNum = store->GetLclNum();
+    LclVarDsc*   lcl    = compiler->lvaGetDesc(lclNum);
+
+    assert(call->GetRegCount() == 2);
+    assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
+
+    regNumber reg0 = UseReg(src, 0);
+    regNumber reg1 = UseReg(src, 1);
+
+#ifdef TARGET_X86
+    assert(store->TypeIs(TYP_SIMD8));
+    assert((call->GetRegType(0) == TYP_INT) && (call->GetRegType(1) == TYP_INT));
+
+    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg0, lclNum, 0);
+    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg1, lclNum, 4);
+#else
+    assert(store->TypeIs(TYP_SIMD12, TYP_SIMD16));
+    assert(call->GetRegType(0) == TYP_DOUBLE);
+    assert((call->GetRegType(1) == TYP_DOUBLE) || (call->GetRegType(1) == TYP_FLOAT));
+
+    GetEmitter()->emitIns_S_R(INS_movsdsse2, EA_8BYTE, reg0, lclNum, 0);
+    // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
+    // Also, it may be better to do a 8 byte store instead of 4 byte store whenever there is
+    // enough space (pretty much always since local sizes are normally rounded up to 8 bytes,
+    // P-DEP fields are probably the only exception).
+    // Actually, it may be even better to pack the 2 regs into one and do a single store, if there
+    // are subsequent SIMD loads then doing 2 stores here will block store forwarding.
+    GetEmitter()->emitIns_S_R(store->TypeIs(TYP_SIMD12) ? INS_movss : INS_movsdsse2,
+                              store->TypeIs(TYP_SIMD12) ? EA_4BYTE : EA_8BYTE, reg1, lclNum, 8);
+#endif
+
+    genUpdateLife(store);
+    lcl->SetRegNum(REG_STK);
+}
+
+#endif // defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
 
 void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src)
 {

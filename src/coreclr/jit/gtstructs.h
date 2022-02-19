@@ -107,11 +107,6 @@ GTSTRUCT_1(HWIntrinsic , GT_HWINTRINSIC)
 GTSTRUCT_1(AllocObj    , GT_ALLOCOBJ)
 GTSTRUCT_1(RuntimeLookup, GT_RUNTIMELOOKUP)
 GTSTRUCT_2(CC          , GT_JCC, GT_SETCC)
-#if defined(TARGET_X86)
-GTSTRUCT_1(MultiRegOp  , GT_MUL_LONG)
-#elif defined (TARGET_ARM)
-GTSTRUCT_3(MultiRegOp  , GT_MUL_LONG, GT_PUTARG_REG, GT_BITCAST)
-#endif
 GTSTRUCT_1(Instr       , GT_INSTR)
 GTSTRUCT_N(TernaryOp   , GT_ARR_OFFSET, GT_CMPXCHG, GT_COPY_BLK, GT_INIT_BLK, GT_QMARK)
 /*****************************************************************************/

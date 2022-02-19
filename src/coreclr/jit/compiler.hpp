@@ -1158,14 +1158,6 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
         AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
     }
 
-#if defined(TARGET_ARM)
-    if (oper == GT_MUL_LONG)
-    {
-        // We sometimes bash GT_MUL to GT_MUL_LONG, which converts it from GenTreeOp to GenTreeMultiRegOp.
-        AsMultiRegOp()->SetRegNum(1, REG_NA);
-    }
-#endif
-
     if (vnUpdate == CLEAR_VN)
     {
         // Clear the ValueNum field as well.
@@ -1317,11 +1309,6 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
             break;
 
-#ifdef TARGET_ARM
-        case GT_BITCAST:
-            AsMultiRegOp()->SetRegNum(1, REG_NA);
-            break;
-#endif
         default:
             break;
     }

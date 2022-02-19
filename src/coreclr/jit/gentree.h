@@ -762,7 +762,12 @@ private:
     uint8_t m_costSz; // estimate of expression code size cost
 
     // The registers defined by the node.
-    regNumberSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<regNumberSmall>(REG_NA)};
+    regNumberSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<regNumberSmall>(REG_NA)
+#ifndef TARGET_64BIT
+                                                     ,
+                                                 static_cast<regNumberSmall>(REG_NA)
+#endif
+    };
 
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
@@ -1341,29 +1346,12 @@ public:
         return OperIsPutArgStk() || OperIsPutArgReg() || OperIsPutArgSplit();
     }
 
-#ifdef TARGET_64BIT
-    GenTree* IsMultiRegOpLong()
-#else
-    GenTreeMultiRegOp* IsMultiRegOpLong()
-#endif
+    bool IsMultiRegOpLong() const
     {
 #ifdef TARGET_64BIT
         return nullptr;
 #else
-        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG) ? AsMultiRegOp() : nullptr;
-#endif
-    }
-
-#ifdef TARGET_64BIT
-    const GenTree* IsMultiRegOpLong() const
-#else
-    const GenTreeMultiRegOp* IsMultiRegOpLong() const
-#endif
-    {
-#ifdef TARGET_64BIT
-        return nullptr;
-#else
-        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG) ? AsMultiRegOp() : nullptr;
+        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
 #endif
     }
 
@@ -5024,35 +5012,6 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
     }
 #endif
 };
-
-#if !defined(TARGET_64BIT)
-struct GenTreeMultiRegOp : public GenTreeOp
-{
-    GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 = nullptr)
-        : GenTreeOp(oper, type, op1, op2)
-    {
-        SetRegNum(1, REG_NA);
-    }
-
-    unsigned GetRegCount() const
-    {
-        return TypeIs(TYP_LONG) ? 2 : 1;
-    }
-
-    var_types GetRegType(unsigned index)
-    {
-        assert(index < 2);
-
-        return TypeIs(TYP_LONG) ? TYP_INT : GetType();
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeMultiRegOp() : GenTreeOp()
-    {
-    }
-#endif
-};
-#endif // !defined(TARGET_64BIT)
 
 struct GenTreeFptrVal : public GenTree
 {

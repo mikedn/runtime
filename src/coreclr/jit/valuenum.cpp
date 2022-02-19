@@ -7265,7 +7265,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("N%03u [%06u] ", asg->gtSeqNum, asg->GetID());
+        printf("[%06u] ", asg->GetID());
         gtDispNodeName(asg);
         printf(" V%02u/%d => ", dstLclNum, dstSsaNum);
         vnpPrint(dstSsaDef->GetVNP(), 1);
@@ -7590,7 +7590,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 #ifdef DEBUG
                         if (verbose)
                         {
-                            printf("N%03u [%06d] ", lhs->gtSeqNum, lhs->GetID());
+                            printf("[%06d] ", lhs->GetID());
                             gtDispNodeName(lhs);
                             gtDispLeaf(lhs, nullptr);
                             printf(" => ");
@@ -8295,9 +8295,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
     {
         if (tree->gtVNPair.GetLiberal() != ValueNumStore::NoVN)
         {
-            printf("N%03u ", tree->gtSeqNum);
-            printTreeID(tree);
-            printf(" ");
+            printf("[%06u] ", tree->GetID());
             gtDispNodeName(tree);
             if (tree->OperIsLeaf() || tree->OperIsLocalStore()) // local stores used to be leaves
             {

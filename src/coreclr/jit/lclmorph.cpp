@@ -2542,7 +2542,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
         return false;
     }
 
-    if (!compiler->lvaEnregMultiRegVars)
+    if (!compiler->compEnregLocals())
     {
         if (lcl->lvIsMultiRegArg)
         {

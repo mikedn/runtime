@@ -136,7 +136,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !lclNode->IsMultiRegLclVar());
     assert(compiler->GetCurLVEpoch() == epoch);
 
     // TODO-Cleanup: We shouldn't really be calling this more than once
@@ -149,18 +149,9 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
-    if (lcl->IsAddressExposed())
-    {
-        return;
-    }
-
     if (!lcl->HasLiveness())
     {
-        if (lclNode->IsMultiRegLclVar())
-        {
-            UpdateLifeMultiReg(codeGen, lclNode->AsLclVar());
-        }
-        else if (lcl->IsPromoted())
+        if (!lcl->IsAddressExposed() && lcl->IsPromoted())
         {
             UpdateLifePromoted(codeGen, lclNode);
         }
@@ -248,6 +239,11 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     if (spill)
     {
+        // TODO-MIKE-Review: There's somehting dubious going on here, or perhaps in LSRA. On ARM64 a last-use
+        // gets spilled and that results in an assert in "variable range". The range was already closed above
+        // and SpillRegCandidateLclVar tries to update it for spill. It may be that SpillRegCandidateLclVar
+        // needs to use siStartOrCloseVariableLiveRange instead of siUpdateVariableLiveRange in this case but
+        // then it's not clear why would a last-use need spilling to begin with.
         codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar());
 
         if (lcl->HasStackGCPtrLiveness() &&
@@ -260,30 +256,26 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
 void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode)
 {
-    assert(lclNode->IsMultiReg() && lclNode->OperIs(GT_STORE_LCL_VAR) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0));
-    assert(compiler->lvaEnregMultiRegVars);
+    assert(lclNode->OperIs(GT_STORE_LCL_VAR) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0));
 
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);)
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
+    assert(lcl->IsIndependentPromoted());
+
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-        bool isInReg        = fieldLcl->lvIsInReg() && (lclNode->GetRegNum(i) != REG_NA);
-        bool isInMemory     = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
-        bool isFieldDying   = lclNode->IsLastUse(i);
-        bool isFieldSpilled = lclNode->IsRegSpill(i);
+        bool isInReg      = fieldLcl->lvIsInReg();
+        bool isInMemory   = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
+        bool isFieldDying = lclNode->IsLastUse(i);
 
         if (isInReg)
         {
-            fieldLcl->SetRegNum(lclNode->GetRegNum(i));
             codeGen->genUpdateRegLife(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
-
-            // If this was marked for spill, genProduceReg should already have spilled it.
-            assert(!isFieldSpilled);
         }
 
         if (isFieldDying)

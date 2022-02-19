@@ -5664,7 +5664,6 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumbe
     }
     else
     {
-        assert(compiler->lvaEnregMultiRegVars);
         LclVarDsc* parentVarDsc = compiler->lvaGetDesc(lclNode->GetLclNum());
         assert(parentVarDsc->lvPromoted);
         unsigned regIndex = varNum - parentVarDsc->lvFieldLclStart;
@@ -5759,9 +5758,9 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
         // Set this as contained if it is not a multi-reg (we could potentially mark it s contained
         // if all uses are from spill, but that adds complexity.
-        if ((currentRefPosition->refType == RefTypeUse) && !treeNode->IsMultiReg())
+        if (currentRefPosition->refType == RefTypeUse)
         {
-            assert(treeNode != nullptr);
+            assert(!treeNode->IsMultiReg());
             treeNode->SetContained();
         }
 
@@ -5853,18 +5852,10 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             assert(currentRefPosition->refType == RefTypeExpUse);
         }
     }
-    else if (spillAfter && !RefTypeIsUse(currentRefPosition->refType) && (treeNode != nullptr) &&
-             (!treeNode->IsMultiReg() || treeNode->gtGetOp1()->IsMultiRegNode()
-#ifdef FEATURE_MULTIREG_RET
-              || treeNode->GetOp(0)->IsCopyOrReload()
-#endif
-                  ))
+    else if (spillAfter && !RefTypeIsUse(currentRefPosition->refType) && (treeNode != nullptr))
     {
         // In the case of a pure def, don't bother spilling - just assign it to the
         // stack.  However, we need to remember that it was spilled.
-        // We can't do this in the case of a multi-reg node with a non-multireg source as
-        // we need the register to extract into.
-
         assert(interval->isSpilled);
         varDsc->SetRegNum(REG_STK);
         interval->physReg = REG_NA;
@@ -6878,7 +6869,7 @@ void LinearScan::resolveRegisters()
         LclVarDsc* varDsc;
         for (lclNum = 0, varDsc = compiler->lvaTable; lclNum < compiler->lvaCount; lclNum++, varDsc++)
         {
-            if (!isCandidateVar(varDsc))
+            if (!varDsc->IsRegCandidate())
             {
                 varDsc->SetRegNum(REG_STK);
             }
@@ -9036,7 +9027,7 @@ void LinearScan::dumpDefList()
          listNode = listNode->Next())
     {
         GenTree* node = listNode->treeNode;
-        JITDUMP("%sN%03u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->gtTreeID, GenTree::OpName(node->OperGet()));
+        JITDUMP("%sN%04u.t%d. %s", first ? "" : "; ", node->gtSeqNum, node->gtTreeID, GenTree::OpName(node->OperGet()));
         first = false;
     }
     JITDUMP(" }\n");
@@ -9141,7 +9132,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
             hasDest = true;
         }
     }
-    printf("%c N%03u. ", spillChar, tree->gtSeqNum);
+    printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
     LclVarDsc* varDsc = nullptr;
     unsigned   varNum = UINT_MAX;

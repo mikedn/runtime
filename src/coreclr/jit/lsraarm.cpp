@@ -681,7 +681,7 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_PUTARG_REG:
             srcCount = BuildPutArgReg(tree->AsUnOp());
-            dstCount = tree->AsMultiRegOp()->GetRegCount();
+            dstCount = tree->TypeIs(TYP_LONG) ? 2 : 1;
             break;
 
         case GT_BITCAST:

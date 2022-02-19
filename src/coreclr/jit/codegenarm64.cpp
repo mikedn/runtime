@@ -1872,40 +1872,28 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-//------------------------------------------------------------------------
-// genCodeForLclVar: Produce code for a GT_LCL_VAR node.
-//
-// Arguments:
-//    tree - the GT_LCL_VAR node
-//
-void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
+void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
+    assert(load->OperIs(GT_LCL_VAR));
 
-    unsigned varNum = tree->GetLclNum();
-    assert(varNum < compiler->lvaCount);
-    LclVarDsc* varDsc     = compiler->lvaGetDesc(varNum);
-    var_types  targetType = varDsc->GetRegisterType(tree);
+    LclVarDsc* lcl = compiler->lvaGetDesc(load);
 
-    bool isRegCandidate = varDsc->lvIsRegCandidate();
+    assert(!lcl->IsIndependentPromoted());
 
-    // lcl_vars are not defs
-    assert((tree->gtFlags & GTF_VAR_DEF) == 0);
-
-    // If this is a register candidate that has been spilled, genConsumeReg() will
-    // reload it at the point of use.  Otherwise, if it's not in a register, we load it here.
-
-    if (!isRegCandidate && !tree->IsMultiReg() && !tree->IsRegSpilled(0))
+    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
-        // targetType must be a normal scalar type and not a TYP_STRUCT
-        assert(targetType != TYP_STRUCT);
-
-        instruction ins  = ins_Load(targetType);
-        emitAttr    attr = emitActualTypeSize(targetType);
-
-        emitter* emit = GetEmitter();
-        emit->emitIns_R_S(ins, attr, tree->GetRegNum(), varNum, 0);
-        DefLclVarRegs(tree);
+        return;
     }
+
+    // TODO-MIKE-Review: Does this need special TYP_SIMD12 handling of params on OSX?
+
+    var_types   type = lcl->GetRegisterType(load);
+    instruction ins  = ins_Load(type);
+    emitAttr    attr = emitActualTypeSize(type);
+
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+
+    DefLclVarReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
@@ -1966,15 +1954,15 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    GenTree* src = store->GetOp(0);
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
-    if (src->IsMultiRegNode())
+    if (lcl->IsIndependentPromoted())
     {
         GenStoreLclVarMultiReg(store);
         return;
     }
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    GenTree* src = store->GetOp(0);
 
     if (store->TypeIs(TYP_STRUCT))
     {
@@ -1985,13 +1973,29 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
+    if (src->IsMultiRegNode())
+    {
+        assert(varTypeIsSIMD(store->GetType()));
+
+        if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
+        {
+            GenStoreLclVarMultiRegSIMDReg(store);
+        }
+        else
+        {
+            GenStoreLclVarMultiRegSIMDMem(store);
+        }
+
+        return;
+    }
+
     var_types lclRegType = lcl->GetRegisterType(store);
 
 #ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)
     {
-        genStoreSIMD12(store, store->GetOp(0));
-        // TODO-MIKE-Review: Doesn't this need a DefLclVarRegs call?
+        genStoreSIMD12(store, src);
+        // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
         return;
     }
 #endif
@@ -2043,7 +2047,71 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
                                   /* canSkip */ true);
     }
 
-    DefLclVarRegs(store);
+    DefLclVarReg(store);
+}
+
+void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
+{
+    GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
+
+    UseRegs(src);
+
+    GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     regCount = call->GetRegCount();
+    regNumber    dstReg   = store->GetRegNum();
+
+    for (unsigned i = 0; i < regCount; i++)
+    {
+        // Vector2/3/4 are returned only in FLOAT regs.
+        assert(call->GetRegType(i) == TYP_FLOAT);
+
+        // Insert elements in reverse order, so that the first element in the destination
+        // register is last, in case the destination register is also a source register.
+        int regIndex = regCount - 1 - i;
+        GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_4BYTE, dstReg, call->GetRegNum(regIndex), regIndex, 0);
+    }
+
+    DefLclVarReg(store);
+}
+
+void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
+
+    GenTree*     src      = store->GetOp(0);
+    GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
+    unsigned     regCount = call->GetRegCount();
+    unsigned     lclNum   = store->GetLclNum();
+    LclVarDsc*   lcl      = compiler->lvaGetDesc(lclNum);
+
+    assert((regCount >= 2) && (regCount <= 4));
+    assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
+
+    regNumber regs[4];
+
+    for (unsigned i = 0; i < regCount; ++i)
+    {
+        // Vector2/3/4 are returned only in FLOAT regs.
+        assert(call->GetMultiRegType(compiler, i) == TYP_FLOAT);
+
+        regs[i] = UseReg(src, i);
+    }
+
+    GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[0], regs[1], lclNum, 0);
+
+    if (regCount == 4)
+    {
+        GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[2], regs[3], lclNum, 8);
+    }
+    else if (regCount == 3)
+    {
+        // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
+        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, regs[2], lclNum, 8);
+    }
+
+    genUpdateLife(store);
+    lcl->SetRegNum(REG_STK);
 }
 
 /***********************************************************************************************

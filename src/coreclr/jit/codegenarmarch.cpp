@@ -133,8 +133,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
     lastConsumedNode = nullptr;
     if (compiler->verbose)
     {
-        unsigned seqNum = treeNode->gtSeqNum; // Useful for setting a conditional break in Visual Studio
-        compiler->gtDispLIRNode(treeNode, "Generating: ");
+        compiler->gtDispLIRNode(treeNode);
     }
 #endif // DEBUG
 
@@ -265,7 +264,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_LCL_VAR:
-            genCodeForLclVar(treeNode->AsLclVar());
+            GenLoadLclVar(treeNode->AsLclVar());
             break;
 
         case GT_STORE_LCL_FLD:
@@ -298,7 +297,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
 #ifdef TARGET_ARM
         case GT_MUL_LONG:
-            genCodeForMulLong(treeNode->AsMultiRegOp());
+            genCodeForMulLong(treeNode->AsOp());
             break;
 #endif // TARGET_ARM
 
@@ -909,7 +908,7 @@ void CodeGen::genPutArgReg(GenTreeUnOp* arg)
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, arg->GetRegNum(0), src->GetRegNum(0), /* canSkip */ true);
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, arg->GetRegNum(1), src->GetRegNum(1), /* canSkip */ true);
 
-        DefLongRegs(arg->AsMultiRegOp());
+        DefLongRegs(arg);
 
         return;
     }
@@ -962,7 +961,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
         regNumber dstReg1 = bitcast->GetRegNum(0);
         regNumber dstReg2 = bitcast->GetRegNum(1);
         inst_RV_RV_RV(INS_vmov_d2i, dstReg1, dstReg2, srcReg, EA_8BYTE);
-        DefLongRegs(bitcast->AsMultiRegOp());
+        DefLongRegs(bitcast);
     }
     else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
     {
@@ -1203,35 +1202,6 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
     DefPutArgSplitRegs(putArg);
 }
 #endif // FEATURE_ARG_SPLIT
-
-#ifdef FEATURE_SIMD
-
-void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
-{
-    GenTree* src = store->GetOp(0);
-    assert(src->IsMultiRegNode());
-
-    UseRegs(src);
-
-    GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
-    unsigned     regCount = call->GetRegCount();
-    regNumber    dstReg   = store->GetRegNum();
-
-    for (unsigned i = 0; i < regCount; i++)
-    {
-        // Vector2/3/4 are returned only in FLOAT regs.
-        assert(call->GetRegType(i) == TYP_FLOAT);
-
-        // Insert elements in reverse order, so that the first element in the destination
-        // register is last, in case the destination register is also a source register.
-        int regIndex = regCount - 1 - i;
-        GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_4BYTE, dstReg, call->GetRegNum(regIndex), regIndex, 0);
-    }
-
-    DefLclVarRegs(store);
-}
-
-#endif // FEATURE_SIMD
 
 void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 {
@@ -2212,7 +2182,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     unsigned regSize  = varTypeSize(regTypes[0]);
     unsigned regIndex = 0;
 
-    assert((regSize <= REGSIZE_BYTES) || varTypeIsSIMD(regTypes[0]));
+    assert((regSize <= REGSIZE_BYTES) || varTypeUsesFloatReg(regTypes[0]));
 
 #ifdef TARGET_ARM64
     // TODO-MIKE-CQ: Using stp with SIMD16 is problematic - the offset needs to be a multiple
