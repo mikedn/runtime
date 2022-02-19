@@ -1327,8 +1327,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
     lastConsumedNode = nullptr;
     if (compiler->verbose)
     {
-        unsigned seqNum = treeNode->gtSeqNum; // Useful for setting a conditional break in Visual Studio
-        compiler->gtDispLIRNode(treeNode, "Generating: ");
+        compiler->gtDispLIRNode(treeNode);
     }
 #endif // DEBUG
 

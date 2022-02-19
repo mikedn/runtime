@@ -2296,6 +2296,7 @@ public:
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
     void gtDispNodeRegs(GenTree* tree);
+    void dmpNodeOperands(GenTree* node);
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispVN(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
@@ -2337,7 +2338,7 @@ public:
 
     void gtDispTreeRange(LIR::Range& containingRange, GenTree* tree);
 
-    void gtDispLIRNode(GenTree* node, const char* prefixMsg = nullptr);
+    void gtDispLIRNode(GenTree* node);
 #endif
 
     // For tree walks

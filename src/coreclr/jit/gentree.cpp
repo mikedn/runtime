@@ -6717,11 +6717,11 @@ void Compiler::gtDispNodeName(GenTree* tree)
             gtfType = gtfTypeBuf;
         }
 
-        sprintf_s(bufp, sizeof(buf), " %s%s%s%c", callType, ctType, gtfType, 0);
+        sprintf_s(bufp, sizeof(buf), "%s%s%s%c", callType, ctType, gtfType, 0);
     }
     else if (tree->gtOper == GT_ARR_ELEM)
     {
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " %s[", name);
+        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s[", name);
         for (unsigned rank = tree->AsArrElem()->gtArrRank - 1; rank; rank--)
         {
             bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), ",");
@@ -6730,7 +6730,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     }
     else if (tree->gtOper == GT_ARR_OFFSET || tree->gtOper == GT_ARR_INDEX)
     {
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " %s[", name);
+        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s[", name);
         unsigned char currDim;
         unsigned char rank;
         if (tree->gtOper == GT_ARR_OFFSET)
@@ -6769,7 +6769,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     else if (tree->gtOper == GT_LEA)
     {
         GenTreeAddrMode* lea = tree->AsAddrMode();
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " %s(", name);
+        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s(", name);
         if (lea->Base() != nullptr)
         {
             bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "b+");
@@ -6786,7 +6786,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
         {
             case SCK_RNGCHK_FAIL:
             {
-                bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " %s_Rng", name);
+                bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s_Rng", name);
                 if (tree->AsBoundsChk()->GetThrowBlock() != nullptr)
                 {
                     bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " -> " FMT_BB,
@@ -6795,10 +6795,10 @@ void Compiler::gtDispNodeName(GenTree* tree)
                 break;
             }
             case SCK_ARG_EXCPN:
-                sprintf_s(bufp, sizeof(buf), " %s_Arg", name);
+                sprintf_s(bufp, sizeof(buf), "%s_Arg", name);
                 break;
             case SCK_ARG_RNG_EXCPN:
-                sprintf_s(bufp, sizeof(buf), " %s_ArgRng", name);
+                sprintf_s(bufp, sizeof(buf), "%s_ArgRng", name);
                 break;
             default:
                 unreached();
@@ -6806,11 +6806,11 @@ void Compiler::gtDispNodeName(GenTree* tree)
     }
     else if (tree->gtOverflowEx())
     {
-        sprintf_s(bufp, sizeof(buf), " %s_ovfl%c", name, 0);
+        sprintf_s(bufp, sizeof(buf), "%s_ovfl%c", name, 0);
     }
     else
     {
-        sprintf_s(bufp, sizeof(buf), " %s%c", name, 0);
+        sprintf_s(bufp, sizeof(buf), "%s%c", name, 0);
     }
 
     if (strlen(buf) < 10)
@@ -6862,8 +6862,12 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
     {
         gtDispVN(tree);
     }
+    else
+    {
+        gtDispNodeRegs(tree);
+        dmpNodeOperands(tree);
+    }
 
-    gtDispNodeRegs(tree);
     printf("\n");
 }
 
@@ -7105,23 +7109,17 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
     // If we're printing a node for LIR, we use the space normally associated with the message
     // to display the node's temp name (if any)
-    const bool hasOperands = tree->OperandsBegin() != tree->OperandsEnd();
     if (isLIR)
     {
         assert(msg == nullptr);
 
-        // If the tree does not have any operands, we do not display the indent stack. This gives us
-        // two additional characters for alignment.
-        if (!hasOperands)
-        {
-            msgLength += 1;
-        }
+        msgLength += 1;
 
         if (tree->IsValue())
         {
             const size_t bufLength = msgLength - 1;
             msg                    = static_cast<char*>(alloca(bufLength * sizeof(char)));
-            sprintf_s(const_cast<char*>(msg), bufLength, "t%d = %s", tree->gtTreeID, hasOperands ? "" : " ");
+            sprintf_s(const_cast<char*>(msg), bufLength, "t%u =", tree->GetID());
         }
     }
 
@@ -7138,8 +7136,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
     printf(isLIR ? " %+*s" : " %-*s", msgLength, msg);
 
-    /* Indent the node accordingly */
-    if (!isLIR || hasOperands)
+    if (!isLIR)
     {
         printIndent(indentStack);
     }
@@ -7166,6 +7163,10 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             if (layout != nullptr)
             {
                 printf(" %s<%s>", varTypeName(tree->GetType()), layout->GetClassName());
+            }
+            else if (tree->IsILOffset())
+            {
+                printf(" ");
             }
             else
             {
@@ -7901,7 +7902,6 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
             break;
 
         case GT_IL_OFFSET:
-            printf(" IL offset: ");
             if (tree->AsILOffset()->gtStmtILoffsx == BAD_IL_OFFSET)
             {
                 printf("???");
@@ -8791,23 +8791,11 @@ void Compiler::gtDispTreeRange(LIR::Range& containingRange, GenTree* tree)
     gtDispRange(containingRange.GetTreeRange(tree, &unused));
 }
 
-//------------------------------------------------------------------------
-// Compiler::gtDispLIRNode: dumps a single LIR node.
-//
-// Arguments:
-//    node - the LIR node to dump.
-//    prefixMsg - an optional prefix for each line of output.
-//
-void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr */)
+void Compiler::gtDispLIRNode(GenTree* node)
 {
     if (GenTreeInstr* instr = node->IsInstr())
     {
-        if (prefixMsg != nullptr)
-        {
-            printf(prefixMsg);
-        }
-
-        int msgLength = 25 - gtDispNodeHeader(instr);
+        int msgLength = 27 - gtDispNodeHeader(instr);
 
         if (msgLength < 0)
         {
@@ -8829,7 +8817,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
         }
 
         printf(" %+*s", msgLength, dest);
-        printf("   %s ", insName(instr->GetIns()));
+        printf("%s ", insName(instr->GetIns()));
 
         for (unsigned i = 0; i < instr->GetNumOps(); i++)
         {
@@ -8876,40 +8864,29 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
         return;
     }
 
-    auto displayOperand = [](GenTree* operand, const char* message, IndentInfo operandArc, IndentStack& indentStack,
-                             size_t prefixIndent) {
-        assert(operand != nullptr);
-        assert(message != nullptr);
-
-        if (prefixIndent != 0)
-        {
-            printf("%*s", (int)prefixIndent, "");
-        }
-
-        // 51 spaces for alignment
-        printf("%-51s", "");
-
-        indentStack.Push(operandArc);
-        indentStack.print();
-        indentStack.Pop();
-        operandArc = IIArc;
-
-        printf("  t%-5d %-6s %s\n", operand->gtTreeID, varTypeName(operand->TypeGet()), message);
-    };
-
     IndentStack indentStack(this);
 
-    size_t prefixIndent = 0;
-    if (prefixMsg != nullptr)
-    {
-        prefixIndent = strlen(prefixMsg);
-    }
+    const bool topOnly = true;
+    const bool isLIR   = true;
+    gtDispTree(node, &indentStack, nullptr, topOnly, isLIR);
+}
 
-    const int bufLength = 256;
-    char      buf[bufLength];
+void Compiler::dmpNodeOperands(GenTree* node)
+{
+    auto displayOperand = [](GenTree* operand, const char* prefix, const char* message = nullptr) {
+        printf("%s", prefix);
 
-    // Visit operands
-    IndentInfo operandArc = IIArcTop;
+        if (message != nullptr)
+        {
+            printf("%s:", message);
+        }
+
+        printf("t%u %s", operand->GetID(), varTypeName(operand->GetType()));
+    };
+
+    char        message[256];
+    const char* prefix = " USES(";
+
     for (GenTree* operand : node->Operands())
     {
         if (operand->OperIs(GT_ARGPLACE) || !operand->IsValue())
@@ -8922,41 +8899,35 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
         {
             if (operand == call->gtCallAddr)
             {
-                displayOperand(operand, "calli tgt", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, prefix, "calli tgt");
             }
             else if (operand == call->gtControlExpr)
             {
-                displayOperand(operand, "control expr", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, prefix, "control expr");
             }
             else if (operand == call->gtCallCookie)
             {
-                displayOperand(operand, "cookie", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, prefix, "cookie");
             }
             else
             {
                 CallArgInfo* argInfo = call->GetArgInfoByArgNode(operand);
-                gtGetCallArgMsg(call, argInfo, operand, buf, sizeof(buf));
-                displayOperand(operand, buf, operandArc, indentStack, prefixIndent);
+                gtGetCallArgMsg(call, argInfo, operand, message, sizeof(message));
+                displayOperand(operand, prefix, message);
             }
         }
         else
         {
-            displayOperand(operand, "", operandArc, indentStack, prefixIndent);
+            displayOperand(operand, prefix);
         }
 
-        operandArc = IIArc;
+        prefix = ", ";
     }
 
-    // Visit the operator
-
-    if (prefixMsg != nullptr)
+    if (prefix[0] == ',')
     {
-        printf("%s", prefixMsg);
+        printf(")");
     }
-
-    const bool topOnly = true;
-    const bool isLIR   = true;
-    gtDispTree(node, &indentStack, nullptr, topOnly, isLIR);
 }
 
 /*****************************************************************************/
