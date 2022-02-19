@@ -6621,23 +6621,20 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
 
 int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
 {
-    int charsDisplayed = 11; // 11 is the "baseline" number of flag characters displayed
-
-    printf("%c", (flags & GTF_ASG) ? 'A' : ((flags & GTF_CONTAINED) ? 'c' : '-'));
-    printf("%c", (flags & GTF_CALL) ? 'C' : '-');
-    printf("%c", (flags & GTF_EXCEPT) ? 'X' : '-');
-    printf("%c", (flags & GTF_GLOB_REF) ? 'G' : '-');
-    printf("%c", (debugFlags & GTF_DEBUG_NODE_MORPHED) ? '+' : // First print '+' if GTF_DEBUG_NODE_MORPHED is set
-                     (flags & GTF_ORDER_SIDEEFF) ? 'O' : '-'); // otherwise print 'O' or '-'
-    printf("%c", (flags & GTF_SET_FLAGS) ? 'S' : ((flags & GTF_USE_FLAGS) ? 'U' : '-'));
-    printf("%c", (flags & GTF_DONT_CSE) ? 'N' :           // N is for No cse
-                     (flags & GTF_MAKE_CSE) ? 'H' : '-'); // H is for Hoist this expr
-    printf("%c", (flags & GTF_REVERSE_OPS) ? 'R' : '-');
-    printf("%c", (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-');
-    printf("%c", '-');
-    printf("%c", '-');
-
-    return charsDisplayed;
+    // clang-format off
+    return printf("%c%c%c%c%c%c%c%c%c%c%c",
+        (flags & GTF_ASG) ? 'A' : '-',
+        (flags & GTF_CALL) ? 'C' : '-',
+        (flags & GTF_EXCEPT) ? 'X' : '-',
+        (flags & GTF_GLOB_REF) ? 'G' : '-',
+        (flags & GTF_ORDER_SIDEEFF) ? 'O' : '-',
+        (flags & GTF_SET_FLAGS) ? 'S' : (flags & GTF_USE_FLAGS) ? 'U' : '-',
+        (flags & GTF_DONT_CSE) ? 'N' : (flags & GTF_MAKE_CSE) ? 'H' : '-',
+        (flags & GTF_REVERSE_OPS) ? 'R' : '-',
+        (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-',
+        (flags & GTF_CONTAINED) ? 'c' : '-',
+        (debugFlags & GTF_DEBUG_NODE_MORPHED) ? '+' : '-');
+    // clang-format on
 }
 
 /*****************************************************************************/
