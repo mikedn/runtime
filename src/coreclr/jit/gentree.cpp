@@ -6895,14 +6895,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         }
     }
 
-    printTreeID(tree);
-    printf(" ");
-
-    if (tree->gtOper >= GT_COUNT)
-    {
-        printf(" **** ILLEGAL NODE ****");
-        return msgLength;
-    }
+    printf("[%06u] ", tree->GetID());
 
     switch (tree->GetOper())
     {
