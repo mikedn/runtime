@@ -2287,7 +2287,7 @@ public:
 
 #ifdef DEBUG
     void gtDispNode(GenTree* tree, IndentStack* indentStack, __in_z const char* msg, bool isLIR);
-    int gtDispNodeHeader(GenTree* tree);
+    void gtDispNodeHeader(GenTree* tree);
     int dmpNodeFlags(GenTree* node);
     int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
     void gtDispConst(GenTree* tree);
@@ -2295,7 +2295,7 @@ public:
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
-    void gtDispNodeRegs(GenTree* tree);
+    void dmpNodeRegs(GenTree* node);
     void dmpNodeOperands(GenTree* node);
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispVN(GenTree* tree);

@@ -6864,7 +6864,6 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
     }
     else
     {
-        gtDispNodeRegs(tree);
         dmpNodeOperands(tree);
     }
 
@@ -6872,11 +6871,11 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
 }
 
 // Display the sequence, costs and flags portion of the node dump.
-int Compiler::gtDispNodeHeader(GenTree* tree)
+void Compiler::gtDispNodeHeader(GenTree* tree)
 {
     printf("[%06u] ", tree->GetID());
 
-    int flagsLength = dmpNodeFlags(tree);
+    dmpNodeFlags(tree);
 
     if (tree->gtSeqNum != 0)
     {
@@ -6887,13 +6886,16 @@ int Compiler::gtDispNodeHeader(GenTree* tree)
         printf("      ");
     }
 
-    if (tree->HasCosts() && !compRationalIRForm)
+    if (!compRationalIRForm)
     {
-        printf(" (%3u,%3u)", tree->GetCostEx(), tree->GetCostSz());
-    }
-    else
-    {
-        printf("          ");
+        if (tree->HasCosts())
+        {
+            printf(" (%3u,%3u)", tree->GetCostEx(), tree->GetCostSz());
+        }
+        else
+        {
+            printf("          ");
+        }
     }
 
     if (optValnumCSE_phase)
@@ -6907,8 +6909,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree)
             printf("              ");
         }
     }
-
-    return flagsLength;
 }
 
 int Compiler::dmpNodeFlags(GenTree* tree)
@@ -7105,39 +7105,16 @@ int Compiler::dmpNodeFlags(GenTree* tree)
 //
 void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z __in_opt const char* msg, bool isLIR)
 {
-    int msgLength = 25 - gtDispNodeHeader(tree);
+    gtDispNodeHeader(tree);
 
-    // If we're printing a node for LIR, we use the space normally associated with the message
-    // to display the node's temp name (if any)
     if (isLIR)
     {
         assert(msg == nullptr);
-
-        msgLength += 1;
-
-        if (tree->IsValue())
-        {
-            const size_t bufLength = msgLength - 1;
-            msg                    = static_cast<char*>(alloca(bufLength * sizeof(char)));
-            sprintf_s(const_cast<char*>(msg), bufLength, "t%u =", tree->GetID());
-        }
+        dmpNodeRegs(tree);
     }
-
-    /* print the msg associated with the node */
-
-    if (msg == nullptr)
+    else
     {
-        msg = "";
-    }
-    if (msgLength < 0)
-    {
-        msgLength = 0;
-    }
-
-    printf(isLIR ? " %+*s" : " %-*s", msgLength, msg);
-
-    if (!isLIR)
-    {
+        printf(" %-*s", 13, msg == nullptr ? "" : msg);
         printIndent(indentStack);
     }
 
@@ -7247,31 +7224,45 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     }
 }
 
-void Compiler::gtDispNodeRegs(GenTree* tree)
+void Compiler::dmpNodeRegs(GenTree* node)
 {
-    if (tree->TypeIs(TYP_VOID) || !tree->HasRegs())
+    char   message[256];
+    char*  buffer     = message;
+    size_t bufferSize = sizeof(message);
+
+    const char* prefix = "";
+
+    if (node->IsValue())
     {
-        return;
+        int size = sprintf_s(buffer, bufferSize, "%st%u", prefix, node->GetID());
+        buffer += size;
+        bufferSize -= size;
+        prefix = ":";
     }
 
-    printf(" REGS(");
-
-    unsigned count = 1;
+    if (!node->isContained() && !node->TypeIs(TYP_VOID) && node->gtHasReg())
+    {
+        unsigned count = 1;
 
 #if FEATURE_MULTIREG_RET
-    if (tree->IsMultiRegNode())
-    {
-        count = tree->GetMultiRegCount(this);
-    }
+        if (node->IsMultiRegNode())
+        {
+            count = node->GetMultiRegCount(this);
+        }
 #endif
 
-    for (unsigned i = 0; i < count; i++)
-    {
-        printf("%s%s%s%s", i != 0 ? ", " : "", getRegName(tree->GetRegNum(i)), tree->IsRegSpill(i) ? "$" : "",
-               tree->IsRegSpilled(i) ? "#" : "");
+        for (unsigned i = 0; i < count; i++)
+        {
+            int size = sprintf_s(buffer, bufferSize, "%s%s%s%s", prefix, getRegName(node->GetRegNum(i)),
+                                 node->IsRegSpill(i) ? "$" : "", node->IsRegSpilled(i) ? "#" : "");
+            buffer += size;
+            bufferSize -= size;
+            prefix = " ";
+        }
     }
 
-    printf(")");
+    strcpy_s(buffer, bufferSize, " =");
+    printf(" %+*s", 6 + MAX_MULTIREG_COUNT * 6, message);
 }
 
 // We usually/commonly don't expect to print anything longer than this string,
@@ -8795,29 +8786,10 @@ void Compiler::gtDispLIRNode(GenTree* node)
 {
     if (GenTreeInstr* instr = node->IsInstr())
     {
-        int msgLength = 27 - gtDispNodeHeader(instr);
+        gtDispNodeHeader(instr);
+        dmpNodeRegs(instr);
 
-        if (msgLength < 0)
-        {
-            msgLength = 0;
-        }
-
-        char dest[64] = "";
-
-        if (!instr->TypeIs(TYP_VOID))
-        {
-            int len = sprintf_s(dest, sizeof(dest), "t%u.%s", instr->gtTreeID, varTypeName(instr->GetType()));
-
-            if (instr->GetRegNum() != REG_NA)
-            {
-                len += sprintf_s(dest + len, sizeof(dest) - len, " @%s", compRegVarName(instr->GetRegNum()));
-            }
-
-            sprintf_s(dest + len, sizeof(dest) - len, " = ");
-        }
-
-        printf(" %+*s", msgLength, dest);
-        printf("%s ", insName(instr->GetIns()));
+        printf(" %s %s ", insName(instr->GetIns()), varTypeName(node->GetType()));
 
         for (unsigned i = 0; i < instr->GetNumOps(); i++)
         {
