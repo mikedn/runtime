@@ -6867,9 +6867,11 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
 {
     printf("[%06u] ", tree->GetID());
 
+    msgLength = dmpNodeFlags(tree, msgLength);
+
     if (tree->gtSeqNum != 0)
     {
-        printf("N%04u ", tree->gtSeqNum);
+        printf(" N%04u", tree->gtSeqNum);
     }
     else
     {
@@ -6878,7 +6880,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
 
     if (tree->HasCosts())
     {
-        printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
+        printf(" (%3u,%3u)", tree->GetCostEx(), tree->GetCostSz());
     }
     else
     {
@@ -6889,14 +6891,19 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
     {
         if (IS_CSE_INDEX(tree->gtCSEnum))
         {
-            printf(FMT_CSE " (%s)", GET_CSE_INDEX(tree->gtCSEnum), (IS_CSE_USE(tree->gtCSEnum) ? "use" : "def"));
+            printf(" " FMT_CSE " (%s)", GET_CSE_INDEX(tree->gtCSEnum), (IS_CSE_USE(tree->gtCSEnum) ? "use" : "def"));
         }
         else
         {
-            printf("             ");
+            printf("              ");
         }
     }
 
+    return msgLength;
+}
+
+int Compiler::dmpNodeFlags(GenTree* tree, int msgLength)
+{
     switch (tree->GetOper())
     {
         case GT_IND:
