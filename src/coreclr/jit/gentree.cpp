@@ -7120,107 +7120,102 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
     gtDispNodeName(tree);
 
-    assert(tree == nullptr || tree->gtOper < GT_COUNT);
-
-    if (tree)
+    if (!varTypeIsStruct(tree->GetType()))
     {
-        if (!varTypeIsStruct(tree->GetType()))
+        ClassLayout* layout = nullptr;
+
+        if (GenTreeFieldAddr* field = tree->IsFieldAddr())
         {
-            ClassLayout* layout = nullptr;
+            layout = field->GetLayout(this);
+        }
+        else if (GenTreeIndexAddr* index = tree->IsIndexAddr())
+        {
+            layout = index->GetLayout(this);
+        }
 
-            if (GenTreeFieldAddr* field = tree->IsFieldAddr())
-            {
-                layout = field->GetLayout(this);
-            }
-            else if (GenTreeIndexAddr* index = tree->IsIndexAddr())
-            {
-                layout = index->GetLayout(this);
-            }
-
-            if (layout != nullptr)
-            {
-                printf(" %s<%s>", varTypeName(tree->GetType()), layout->GetClassName());
-            }
-            else if (tree->IsILOffset())
-            {
-                printf(" ");
-            }
-            else
-            {
-                printf(" %-6s", varTypeName(tree->GetType()));
-            }
+        if (layout != nullptr)
+        {
+            printf(" %s<%s>", varTypeName(tree->GetType()), layout->GetClassName());
+        }
+        else if (tree->IsILOffset())
+        {
+            printf(" ");
         }
         else
         {
-            ClassLayout* layout = nullptr;
+            printf(" %-6s", varTypeName(tree->GetType()));
+        }
+    }
+    else
+    {
+        ClassLayout* layout = nullptr;
 
-            if (tree->OperIs(GT_BLK, GT_OBJ, GT_STORE_BLK, GT_STORE_OBJ))
-            {
-                layout = tree->AsBlk()->GetLayout();
-            }
-            else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-            {
-                LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
+        if (tree->OperIs(GT_BLK, GT_OBJ, GT_STORE_BLK, GT_STORE_OBJ))
+        {
+            layout = tree->AsBlk()->GetLayout();
+        }
+        else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+        {
+            LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
 
-                if (varTypeIsStruct(varDsc->GetType()))
-                {
-                    layout = varDsc->GetLayout();
-                }
-            }
-            else if (GenTreeLclFld* lclFld = tree->IsLclFld())
+            if (varTypeIsStruct(varDsc->GetType()))
             {
-                layout = tree->AsLclFld()->GetLayout(this);
-            }
-            else if (GenTreeCall* call = tree->IsCall())
-            {
-                layout = call->GetRetLayout();
-            }
-            else if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
-            {
-                layout = retExpr->GetCall()->GetRetLayout();
-            }
-
-            printf(" %s", varTypeName(tree->GetType()));
-
-            if (layout != nullptr)
-            {
-                gtDispClassLayout(layout, tree->GetType());
+                layout = varDsc->GetLayout();
             }
         }
-
-        if (tree->gtOper == GT_RUNTIMELOOKUP)
+        else if (GenTreeLclFld* lclFld = tree->IsLclFld())
         {
+            layout = tree->AsLclFld()->GetLayout(this);
+        }
+        else if (GenTreeCall* call = tree->IsCall())
+        {
+            layout = call->GetRetLayout();
+        }
+        else if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
+        {
+            layout = retExpr->GetCall()->GetRetLayout();
+        }
+
+        printf(" %s", varTypeName(tree->GetType()));
+
+        if (layout != nullptr)
+        {
+            gtDispClassLayout(layout, tree->GetType());
+        }
+    }
+
+    if (tree->gtOper == GT_RUNTIMELOOKUP)
+    {
 #ifdef TARGET_64BIT
-            printf(" 0x%llx", dspPtr(tree->AsRuntimeLookup()->gtHnd));
+        printf(" 0x%llx", dspPtr(tree->AsRuntimeLookup()->gtHnd));
 #else
-            printf(" 0x%x", dspPtr(tree->AsRuntimeLookup()->gtHnd));
+        printf(" 0x%x", dspPtr(tree->AsRuntimeLookup()->gtHnd));
 #endif
 
-            switch (tree->AsRuntimeLookup()->gtHndType)
-            {
-                case CORINFO_HANDLETYPE_CLASS:
-                    printf(" class");
-                    break;
-                case CORINFO_HANDLETYPE_METHOD:
-                    printf(" method");
-                    break;
-                case CORINFO_HANDLETYPE_FIELD:
-                    printf(" field");
-                    break;
-                default:
-                    printf(" unknown");
-                    break;
-            }
-        }
-
-        // for tracking down problems in reguse prediction or liveness tracking
-
-        if (verbose && 0)
+        switch (tree->AsRuntimeLookup()->gtHndType)
         {
-            printf(" RR=");
-            dspRegMask(tree->gtRsvdRegs);
-            printf("\n");
+            case CORINFO_HANDLETYPE_CLASS:
+                printf(" class");
+                break;
+            case CORINFO_HANDLETYPE_METHOD:
+                printf(" method");
+                break;
+            case CORINFO_HANDLETYPE_FIELD:
+                printf(" field");
+                break;
+            default:
+                printf(" unknown");
+                break;
         }
+    }
+
+    // for tracking down problems in reguse prediction or liveness tracking
+
+    if (verbose && 0)
+    {
+        printf(" RR=");
+        dspRegMask(tree->gtRsvdRegs);
+        printf("\n");
     }
 }
 
