@@ -6865,6 +6865,8 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
 // Display the sequence, costs and flags portion of the node dump.
 int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength)
 {
+    printf("[%06u] ", tree->GetID());
+
     if (tree->gtSeqNum != 0)
     {
         printf("N%04u ", tree->gtSeqNum);
@@ -6894,8 +6896,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
             printf("             ");
         }
     }
-
-    printf("[%06u] ", tree->GetID());
 
     switch (tree->GetOper())
     {
