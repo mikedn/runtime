@@ -6868,70 +6868,22 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
 // Display the sequence, costs and flags portion of the node dump.
 int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength)
 {
-    GenTree* prev;
-
     if (tree->gtSeqNum != 0)
     {
         printf("N%04u ", tree->gtSeqNum);
-        if (tree->HasCosts())
-        {
-            printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
-        }
-        else
-        {
-            printf("(???"
-                   ",???"
-                   ") "); // This probably indicates a bug: the node has a sequence number, but not costs.
-        }
     }
     else
     {
-        prev = tree;
+        printf("      ");
+    }
 
-        bool     hasSeqNum = true;
-        unsigned dotNum    = 0;
-        do
-        {
-            dotNum++;
-            prev = prev->gtPrev;
-
-            if ((prev == nullptr) || (prev == tree))
-            {
-                hasSeqNum = false;
-                break;
-            }
-
-            assert(prev);
-        } while (prev->gtSeqNum == 0);
-
-        // If we have an indent stack, don't add additional characters,
-        // as it will mess up the alignment.
-        bool displayDotNum = hasSeqNum && (indentStack == nullptr);
-        if (displayDotNum)
-        {
-            printf("N%04u.%02u ", prev->gtSeqNum, dotNum);
-        }
-        else
-        {
-            printf("      ");
-        }
-
-        if (tree->HasCosts())
-        {
-            printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
-        }
-        else
-        {
-            if (displayDotNum)
-            {
-                // Do better alignment in this case
-                printf("        ");
-            }
-            else
-            {
-                printf("           ");
-            }
-        }
+    if (tree->HasCosts())
+    {
+        printf("(%3u,%3u) ", tree->GetCostEx(), tree->GetCostSz());
+    }
+    else
+    {
+        printf("          ");
     }
 
     if (optValnumCSE_phase)
@@ -6946,7 +6898,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         }
     }
 
-    /* Print the node ID */
     printTreeID(tree);
     printf(" ");
 
@@ -6956,8 +6907,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         return msgLength;
     }
 
-    /* First print the flags associated with the node */
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
         case GT_IND:
         case GT_BLK:
