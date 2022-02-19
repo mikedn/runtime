@@ -6857,7 +6857,12 @@ void Compiler::gtDispVN(GenTree* tree)
 void Compiler::gtDispCommonEndLine(GenTree* tree)
 {
     gtDispZeroFieldSeq(tree);
-    gtDispVN(tree);
+
+    if (!compRationalIRForm)
+    {
+        gtDispVN(tree);
+    }
+
     gtDispNodeRegs(tree);
     printf("\n");
 }
