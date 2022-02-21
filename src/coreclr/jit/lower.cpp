@@ -3537,128 +3537,85 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
 {
     noway_assert(call->gtCallType == CT_USER_FUNC);
 
-    regNumber thisPtrArgReg = comp->codeGen->genGetThisArgReg(call);
+    // Get hold of the vtable offset (note: this might be expensive)
+    unsigned vtabOffsOfIndirection;
+    unsigned vtabOffsAfterIndirection;
+    bool     isRelative;
+    comp->info.compCompHnd->getMethodVTableOffset(call->GetMethodHandle(), &vtabOffsOfIndirection,
+                                                  &vtabOffsAfterIndirection, &isRelative);
 
-    // get a reference to the thisPtr being passed
-    fgArgTabEntry* argEntry = call->GetArgInfoByArgNum(0);
-    assert(argEntry->GetRegNum() == thisPtrArgReg);
-    assert(argEntry->GetNode()->OperIs(GT_PUTARG_REG));
-    GenTree* thisPtr = argEntry->GetNode()->AsUnOp()->gtGetOp1();
+    CallArgInfo* thisArgInfo = call->GetArgInfoByArgNum(0);
+    assert(thisArgInfo->GetRegNum() == comp->codeGen->genGetThisArgReg(call));
+    assert(thisArgInfo->GetNode()->OperIs(GT_PUTARG_REG));
+    GenTree* thisPtr = thisArgInfo->GetNode()->AsUnOp()->GetOp(0);
 
-    // If what we are passing as the thisptr is not already a local, make a new local to place it in
-    // because we will be creating expressions based on it.
-    unsigned lclNum;
-    if (thisPtr->IsLocal())
+    GenTree* thisUse;
+
+    if (thisPtr->OperIs(GT_LCL_VAR))
     {
-        lclNum = thisPtr->AsLclVarCommon()->GetLclNum();
+        thisUse = comp->gtNewLclvNode(thisPtr->AsLclVar()->GetLclNum(), thisPtr->GetType());
+    }
+    else if (thisPtr->OperIs(GT_LCL_FLD))
+    {
+        thisUse = comp->gtNewLclFldNode(thisPtr->AsLclFld()->GetLclNum(), thisPtr->GetType(),
+                                        thisPtr->AsLclFld()->GetLclOffs());
     }
     else
     {
-        // Split off the thisPtr and store to a temporary variable.
         if (vtableCallTemp == BAD_VAR_NUM)
         {
             vtableCallTemp = comp->lvaGrabTemp(true DEBUGARG("virtual vtable call"));
         }
 
-        LIR::Use thisPtrUse(BlockRange(), &(argEntry->GetNode()->AsUnOp()->gtOp1), argEntry->GetNode());
+        LIR::Use thisPtrUse(BlockRange(), &(thisArgInfo->GetNode()->AsUnOp()->gtOp1), thisArgInfo->GetNode());
         ReplaceWithLclVar(thisPtrUse, vtableCallTemp);
-
-        lclNum = vtableCallTemp;
+        thisUse = comp->gtNewLclvNode(vtableCallTemp, thisPtr->GetType());
     }
 
-    // Get hold of the vtable offset (note: this might be expensive)
-    unsigned vtabOffsOfIndirection;
-    unsigned vtabOffsAfterIndirection;
-    bool     isRelative;
-    comp->info.compCompHnd->getMethodVTableOffset(call->gtCallMethHnd, &vtabOffsOfIndirection,
-                                                  &vtabOffsAfterIndirection, &isRelative);
+    GenTree* mtAddr = new (comp, GT_LEA) GenTreeAddrMode(thisUse, VPTR_OFFS);
+    GenTree* mt     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, mtAddr);
 
-    // If the thisPtr is a local field, then construct a local field type node
-    GenTree* local;
-    if (thisPtr->isLclField())
-    {
-        local = new (comp, GT_LCL_FLD)
-            GenTreeLclFld(GT_LCL_FLD, thisPtr->TypeGet(), lclNum, thisPtr->AsLclFld()->GetLclOffs());
-    }
-    else
-    {
-        local = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, thisPtr->TypeGet(), lclNum);
-    }
-
-    // pointer to virtual table = [REG_CALL_THIS + offs]
-    GenTree* result = Ind(Offset(local, VPTR_OFFS));
-
-    // Get the appropriate vtable chunk
-    if (vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK)
-    {
-        if (isRelative)
-        {
-            // MethodTable offset is a relative pointer.
-            //
-            // Additional temporary variable is used to store virtual table pointer.
-            // Address of method is obtained by the next computations:
-            //
-            // Save relative offset to tmp (vtab is virtual table pointer, vtabOffsOfIndirection is offset of
-            // vtable-1st-level-indirection):
-            // tmp = vtab
-            //
-            // Save address of method to result (vtabOffsAfterIndirection is offset of vtable-2nd-level-indirection):
-            // result = [tmp + vtabOffsOfIndirection + vtabOffsAfterIndirection + [tmp + vtabOffsOfIndirection]]
-            //
-            //
-            // If relative pointers are also in second level indirection, additional temporary is used:
-            // tmp1 = vtab
-            // tmp2 = tmp1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [tmp1 + vtabOffsOfIndirection]
-            // result = tmp2 + [tmp2]
-            //
-            unsigned lclNumTmp  = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("lclNumTmp"));
-            unsigned lclNumTmp2 = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("lclNumTmp2"));
-
-            GenTree* lclvNodeStore = comp->gtNewStoreLclVar(lclNumTmp, TYP_I_IMPL, result);
-
-            GenTree* tmpTree = comp->gtNewLclvNode(lclNumTmp, TYP_I_IMPL);
-            tmpTree          = Offset(tmpTree, vtabOffsOfIndirection);
-
-            tmpTree       = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, tmpTree, false);
-            GenTree* offs = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
-            result        = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, comp->gtNewLclvNode(lclNumTmp, TYP_I_IMPL), offs);
-
-            GenTree* base           = OffsetByIndexWithScale(result, tmpTree, 1);
-            GenTree* lclvNodeStore2 = comp->gtNewStoreLclVar(lclNumTmp2, TYP_I_IMPL, base);
-
-            LIR::Range range = LIR::SeqTree(comp, lclvNodeStore);
-            JITDUMP("result of obtaining pointer to virtual table:\n");
-            DISPRANGE(range);
-            BlockRange().InsertBefore(call, std::move(range));
-
-            LIR::Range range2 = LIR::SeqTree(comp, lclvNodeStore2);
-            ContainCheckIndir(tmpTree->AsIndir());
-            JITDUMP("result of obtaining pointer to virtual table 2nd level indirection:\n");
-            DISPRANGE(range2);
-            BlockRange().InsertAfter(lclvNodeStore, std::move(range2));
-
-            result = Ind(comp->gtNewLclvNode(lclNumTmp2, TYP_I_IMPL));
-            result = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, result, comp->gtNewLclvNode(lclNumTmp2, TYP_I_IMPL));
-        }
-        else
-        {
-            // result = [REG_CALL_IND_SCRATCH + vtabOffsOfIndirection]
-            result = Ind(Offset(result, vtabOffsOfIndirection));
-        }
-    }
-    else
+    // TODO-MIKE-Cleanup: This is dead code.
+    if (vtabOffsOfIndirection == CORINFO_VIRTUALCALL_NO_CHUNK)
     {
         assert(!isRelative);
+        GenTree* slotAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsAfterIndirection);
+        return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
     }
 
-    // Load the function address
-    // result = [reg+vtabOffs]
-    if (!isRelative)
+    // TODO-MIKE-Cleanup: This is dead code.
+    if (isRelative)
     {
-        result = Ind(Offset(result, vtabOffsAfterIndirection));
+        unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
+        GenTree* mtTempStore  = comp->gtNewStoreLclVar(mtTempLclNum, TYP_I_IMPL, mt);
+        BlockRange().InsertBefore(call, thisUse, mtAddr, mt, mtTempStore);
+
+        GenTree* mtTempUse1    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
+        GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
+        GenTree* chunkOffs     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkOffsAddr, false);
+        BlockRange().InsertBefore(call, mtTempUse1, chunkOffsAddr, chunkOffs);
+        ContainCheckIndir(chunkOffs->AsIndir());
+
+        GenTree* mtTempUse2    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
+        GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
+        GenTree* chunkBaseAddr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, mtTempUse2, offs);
+        GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
+        BlockRange().InsertBefore(call, mtTempUse2, offs, chunkBaseAddr, slotAddr);
+
+        unsigned slotAddrTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
+        GenTree* slotAddrTempStore  = comp->gtNewStoreLclVar(slotAddrTempLclNum, TYP_I_IMPL, slotAddr);
+        BlockRange().InsertBefore(call, slotAddrTempStore);
+
+        GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+        GenTree* codeOffs         = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddrTempUse1);
+        GenTree* slotAddrTempUse2 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+        return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
     }
 
-    return result;
+    GenTree* chunkAddrAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsOfIndirection);
+    GenTree* chunkAddr     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkAddrAddr);
+    GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
+    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
 }
 
 // Lower stub dispatched virtual calls.

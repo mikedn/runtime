@@ -6000,6 +6000,12 @@ private:
     ssize_t gtOffset; // The offset to add
 
 public:
+    GenTreeAddrMode(GenTree* base, ssize_t offset)
+        : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base, nullptr), gtScale(0), gtOffset(offset)
+    {
+        assert(base != nullptr);
+    }
+
     GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, ssize_t offset)
         : GenTreeOp(GT_LEA, type, base, index)
     {
@@ -6007,10 +6013,8 @@ public:
         gtScale  = scale;
         gtOffset = offset;
     }
+
 #if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
-    // Used only for GenTree::GetVtableForOper()
     GenTreeAddrMode() : GenTreeOp()
     {
     }
