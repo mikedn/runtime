@@ -177,14 +177,14 @@ private:
     void InsertPInvokeCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
     void InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* lastExpr));
-    GenTreeStoreInd* SetGCState(int cns);
-    GenTree* CreateReturnTrapSeq();
+    void InsertSetGCState(GenTree* before, int cns);
+    void InsertReturnTrap(GenTree* before);
     enum FrameLinkAction
     {
         PushFrame,
         PopFrame
     };
-    GenTreeStoreInd* CreateFrameLinkUpdate(FrameLinkAction);
+    void InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action);
     GenTree* AddrGen(ssize_t addr);
     GenTree* AddrGen(void* addr);
 
@@ -201,18 +201,6 @@ private:
     GenTreePhysReg* ThisReg(GenTreeCall* call)
     {
         return comp->gtNewPhysRegNode(comp->codeGen->genGetThisArgReg(call), TYP_REF);
-    }
-
-    GenTree* Offset(GenTree* base, unsigned offset)
-    {
-        var_types resultType = (base->TypeGet() == TYP_REF) ? TYP_BYREF : base->TypeGet();
-        return new (comp, GT_LEA) GenTreeAddrMode(resultType, base, nullptr, 0, offset);
-    }
-
-    GenTree* OffsetByIndexWithScale(GenTree* base, GenTree* index, unsigned scale)
-    {
-        var_types resultType = (base->TypeGet() == TYP_REF) ? TYP_BYREF : base->TypeGet();
-        return new (comp, GT_LEA) GenTreeAddrMode(resultType, base, index, scale, 0);
     }
 
     // Replace the definition of the given use with a lclVar, allocating a new temp

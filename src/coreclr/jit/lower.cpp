@@ -550,20 +550,19 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     // the default case.  As stated above, this conditional is being shared between
     // both GT_SWITCH lowering code paths.
     // This condition is of the form: if (temp > jumpTableLength - 2){ goto jumpTable[jumpTableLength - 1]; }
-    GenTree* gtDefaultCaseCond = comp->gtNewOperNode(GT_GT, TYP_INT, comp->gtNewLclvNode(tempLclNum, tempLclType),
-                                                     comp->gtNewIconNode(jumpCnt - 2, genActualType(tempLclType)));
 
+    GenTree* switchValue = comp->gtNewLclvNode(tempLclNum, tempLclType);
+    GenTree* switchLimit = comp->gtNewIconNode(jumpCnt - 2, varActualType(tempLclType));
+    GenTree* limitTest   = comp->gtNewOperNode(GT_GT, TYP_INT, switchValue, switchLimit);
     // Make sure we perform an unsigned comparison, just in case the switch index in 'temp'
     // is now less than zero 0 (that would also hit the default case).
-    gtDefaultCaseCond->gtFlags |= GTF_UNSIGNED;
+    limitTest->gtFlags |= GTF_UNSIGNED;
 
-    GenTree* gtDefaultCaseJump = comp->gtNewOperNode(GT_JTRUE, TYP_VOID, gtDefaultCaseCond);
-    gtDefaultCaseJump->gtFlags = node->gtFlags;
+    GenTree* limitBranch = comp->gtNewOperNode(GT_JTRUE, TYP_VOID, limitTest);
 
-    LIR::Range condRange = LIR::SeqTree(comp, gtDefaultCaseJump);
-    switchBBRange.InsertAtEnd(std::move(condRange));
+    switchBBRange.InsertAfter(switchBBRange.LastNode(), switchValue, switchLimit, limitTest, limitBranch);
 
-    BasicBlock* afterDefaultCondBlock = comp->fgSplitBlockAfterNode(originalSwitchBB, condRange.LastNode());
+    BasicBlock* afterDefaultCondBlock = comp->fgSplitBlockAfterNode(originalSwitchBB, limitBranch);
 
     // afterDefaultCondBlock is now the switch, and all the switch targets have it as a predecessor.
     // originalSwitchBB is now a BBJ_NONE, and there is a predecessor edge in afterDefaultCondBlock
@@ -720,18 +719,11 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
                 // condition statement.
                 currentBlock->bbJumpKind = BBJ_COND;
 
-                // Now, build the conditional statement for the current case that is
-                // being evaluated:
-                // GT_JTRUE
-                //   |__ GT_COND
-                //          |____GT_EQ
-                //                 |____ (switchIndex) (The temp variable)
-                //                 |____ (ICon)        (The actual case constant)
-                GenTree* gtCaseCond = comp->gtNewOperNode(GT_EQ, TYP_INT, comp->gtNewLclvNode(tempLclNum, tempLclType),
-                                                          comp->gtNewIconNode(i, tempLclType));
-                GenTree*   gtCaseBranch = comp->gtNewOperNode(GT_JTRUE, TYP_VOID, gtCaseCond);
-                LIR::Range caseRange    = LIR::SeqTree(comp, gtCaseBranch);
-                currentBBRange->InsertAtEnd(std::move(caseRange));
+                GenTree* switchValue = comp->gtNewLclvNode(tempLclNum, tempLclType);
+                GenTree* caseValue   = comp->gtNewIconNode(i, tempLclType);
+                GenTree* caseTest    = comp->gtNewOperNode(GT_EQ, TYP_INT, switchValue, caseValue);
+                GenTree* caseBranch  = comp->gtNewOperNode(GT_JTRUE, TYP_VOID, caseTest);
+                currentBBRange->InsertAfter(currentBBRange->LastNode(), switchValue, caseValue, caseTest, caseBranch);
             }
         }
 
@@ -2852,7 +2844,7 @@ GenTree* Lowering::LowerIndirectNonvirtCall(GenTreeCall* call)
 // Return Value:
 //    Code tree to perform the action.
 //
-GenTree* Lowering::CreateReturnTrapSeq()
+void Lowering::InsertReturnTrap(GenTree* before)
 {
     // The GT_RETURNTRAP node expands to this:
     //    if (g_TrapReturningThreads)
@@ -2866,16 +2858,25 @@ GenTree* Lowering::CreateReturnTrapSeq()
     int32_t* addrOfCaptureThreadGlobal =
         comp->info.compCompHnd->getAddrOfCaptureThreadGlobal(&pAddrOfCaptureThreadGlobal);
 
-    GenTree* testTree;
+    GenTree* trapAddr;
+
     if (addrOfCaptureThreadGlobal != nullptr)
     {
-        testTree = AddrGen(addrOfCaptureThreadGlobal);
+        trapAddr = comp->gtNewIconHandleNode(addrOfCaptureThreadGlobal, GTF_ICON_FTN_ADDR);
     }
     else
     {
-        testTree = Ind(AddrGen(pAddrOfCaptureThreadGlobal));
+        GenTree* trapAddrAddr = comp->gtNewIconHandleNode(pAddrOfCaptureThreadGlobal, GTF_ICON_FTN_ADDR);
+        BlockRange().InsertBefore(before, trapAddrAddr);
+        trapAddr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, trapAddrAddr);
     }
-    return comp->gtNewOperNode(GT_RETURNTRAP, TYP_INT, Ind(testTree, TYP_INT));
+
+    GenTree* trapValue = comp->gtNewOperNode(GT_IND, TYP_INT, trapAddr);
+    GenTree* trap      = comp->gtNewOperNode(GT_RETURNTRAP, TYP_INT, trapValue);
+
+    BlockRange().InsertBefore(before, trapAddr, trapValue, trap);
+
+    ContainCheckReturnTrap(trap->AsOp());
 }
 
 //------------------------------------------------------------------------
@@ -2890,7 +2891,7 @@ GenTree* Lowering::CreateReturnTrapSeq()
 // Return Value:
 //    Code tree to perform the action.
 //
-GenTreeStoreInd* Lowering::SetGCState(int state)
+void Lowering::InsertSetGCState(GenTree* before, int state)
 {
     // Thread.offsetOfGcState = 0/1
 
@@ -2903,7 +2904,11 @@ GenTreeStoreInd* Lowering::SetGCState(int state)
     GenTree* stateNode = new (comp, GT_CNS_INT) GenTreeIntCon(TYP_BYTE, state);
     GenTree* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, pInfo->offsetOfGCState);
 
-    return new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
+    GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
+
+    BlockRange().InsertBefore(before, base, addr, stateNode, store);
+
+    ContainCheckStoreIndir(store);
 }
 
 //------------------------------------------------------------------------
@@ -2918,7 +2923,7 @@ GenTreeStoreInd* Lowering::SetGCState(int state)
 // Return Value:
 //    Code tree to perform the action.
 //
-GenTreeStoreInd* Lowering::CreateFrameLinkUpdate(FrameLinkAction action)
+void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action)
 {
     const CORINFO_EE_INFO*                       pInfo         = comp->eeGetEEInfo();
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = pInfo->inlinedCallFrameInfo;
@@ -2944,7 +2949,10 @@ GenTreeStoreInd* Lowering::CreateFrameLinkUpdate(FrameLinkAction action)
                                                     pInfo->inlinedCallFrameInfo.offsetOfFrameLink);
     }
 
-    return new (comp, GT_STOREIND) GenTreeStoreInd(TYP_I_IMPL, addr, data);
+    GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_I_IMPL, addr, data);
+
+    block.InsertBefore(before, TCB, addr, data, store);
+    ContainCheckStoreIndir(store);
 }
 
 //------------------------------------------------------------------------
@@ -3078,10 +3086,7 @@ void Lowering::InsertPInvokeMethodProlog()
     {
         // Push a frame - if we are NOT in an IL stub, this is done right before the call
         // The init routine sets InlinedCallFrame's m_pNext, so we just set the thead's top-of-stack
-        GenTreeStoreInd* frameUpd = CreateFrameLinkUpdate(PushFrame);
-        firstBlockRange.InsertBefore(insertionPoint, LIR::SeqTree(comp, frameUpd));
-        ContainCheckStoreIndir(frameUpd);
-        DISPTREERANGE(firstBlockRange, frameUpd);
+        InsertFrameLinkUpdate(firstBlockRange, insertionPoint, PushFrame);
     }
 #endif // TARGET_64BIT
 }
@@ -3141,9 +3146,7 @@ void Lowering::InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* 
     if (comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
 #endif // TARGET_64BIT
     {
-        GenTreeStoreInd* frameUpd = CreateFrameLinkUpdate(PopFrame);
-        returnBlockRange.InsertBefore(insertionPoint, LIR::SeqTree(comp, frameUpd));
-        ContainCheckStoreIndir(frameUpd);
+        InsertFrameLinkUpdate(returnBlockRange, insertionPoint, PopFrame);
     }
 }
 
@@ -3242,13 +3245,13 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
         if (embedMethodHandle != nullptr)
         {
-            // InlinedCallFrame.callSiteTarget = methodHandle
-            src = AddrGen(embedMethodHandle);
+            src = comp->gtNewIconHandleNode(embedMethodHandle, GTF_ICON_FTN_ADDR);
         }
         else
         {
-            // InlinedCallFrame.callSiteTarget = *pEmbedMethodHandle
-            src = Ind(AddrGen(pEmbedMethodHandle));
+            GenTree* srcAddr = comp->gtNewIconHandleNode(pEmbedMethodHandle, GTF_ICON_FTN_ADDR);
+            BlockRange().InsertBefore(src, srcAddr);
+            src = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, srcAddr);
         }
     }
 
@@ -3257,7 +3260,8 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         // Store into InlinedCallFrame.m_Datum, the offset of which is given by offsetOfCallTarget.
         GenTreeLclFld* store =
             comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfCallTarget, src);
-        InsertTreeBeforeAndContainCheck(insertBefore, store);
+        BlockRange().InsertBefore(insertBefore, src, store);
+        ContainCheckStoreLcl(store);
     }
 
 #ifdef TARGET_X86
@@ -3290,9 +3294,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         // has prepended it to the linked list to maintain the stack of Frames.
         //
         // Stubs do this once per stub, not once per call.
-        GenTreeStoreInd* frameUpd = CreateFrameLinkUpdate(PushFrame);
-        BlockRange().InsertBefore(insertBefore, LIR::SeqTree(comp, frameUpd));
-        ContainCheckStoreIndir(frameUpd);
+        InsertFrameLinkUpdate(BlockRange(), insertBefore, PushFrame);
     }
 #endif // TARGET_64BIT
 
@@ -3300,9 +3302,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     // It changes the thread's state to Preemptive mode
     // ----------------------------------------------------------------------------------
     //  [tcb + offsetOfGcState] = 0
-    GenTreeStoreInd* storeGCState = SetGCState(0);
-    BlockRange().InsertBefore(insertBefore, LIR::SeqTree(comp, storeGCState));
-    ContainCheckStoreIndir(storeGCState);
+    InsertSetGCState(insertBefore, 0);
 
     // Indicate that codegen has switched this thread to preemptive GC.
     // This tree node doesn't generate any code, but impacts LSRA and gc reporting.
@@ -3343,18 +3343,8 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 
     // gcstate = 1
     GenTree* insertionPoint = call->gtNext;
-
-    {
-        GenTreeStoreInd* tree = SetGCState(1);
-        BlockRange().InsertBefore(insertionPoint, LIR::SeqTree(comp, tree));
-        ContainCheckStoreIndir(tree);
-    }
-
-    {
-        GenTree* tree = CreateReturnTrapSeq();
-        BlockRange().InsertBefore(insertionPoint, LIR::SeqTree(comp, tree));
-        ContainCheckReturnTrap(tree->AsOp());
-    }
+    InsertSetGCState(insertionPoint, 1);
+    InsertReturnTrap(insertionPoint);
 
     // Pop the frame if necessary. On 32-bit targets this only happens in the method epilog; on 64-bit targets thi
     // happens after every PInvoke call in non-stubs. 32-bit targets instead mark the frame as inactive.
@@ -3363,9 +3353,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 #ifdef TARGET_64BIT
     if (!comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
     {
-        GenTreeStoreInd* tree = CreateFrameLinkUpdate(PopFrame);
-        BlockRange().InsertBefore(insertionPoint, LIR::SeqTree(comp, tree));
-        ContainCheckStoreIndir(tree);
+        InsertFrameLinkUpdate(BlockRange(), insertionPoint, PopFrame);
     }
 #else
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = comp->eeGetEEInfo()->inlinedCallFrameInfo;

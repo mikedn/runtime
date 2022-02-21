@@ -6184,7 +6184,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
         upperVectorInterval->physReg = spillReg;
     }
 
-    blockRange.InsertBefore(tree, LIR::SeqTree(compiler, simdNode));
+    blockRange.InsertBefore(tree, saveLcl, simdNode);
     DISPTREE(simdNode);
     JITDUMP("\n");
 }
@@ -6254,7 +6254,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
         bool     foundUse = blockRange.TryGetUse(tree, &treeUse);
         assert(foundUse);
         // We need to insert the restore prior to the use, not (necessarily) immediately after the lclVar.
-        blockRange.InsertBefore(treeUse.User(), LIR::SeqTree(compiler, simdNode));
+        blockRange.InsertBefore(treeUse.User(), restoreLcl, simdNode);
     }
     else
     {
@@ -6267,12 +6267,12 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
             assert(branch->OperIsConditionalJump() || branch->OperGet() == GT_SWITCH_TABLE ||
                    branch->OperGet() == GT_SWITCH);
 
-            blockRange.InsertBefore(branch, LIR::SeqTree(compiler, simdNode));
+            blockRange.InsertBefore(branch, restoreLcl, simdNode);
         }
         else
         {
             assert(block->bbJumpKind == BBJ_NONE || block->bbJumpKind == BBJ_ALWAYS);
-            blockRange.InsertAtEnd(LIR::SeqTree(compiler, simdNode));
+            blockRange.InsertAfter(blockRange.LastNode(), restoreLcl, simdNode);
         }
     }
     DISPTREE(simdNode);
@@ -7091,12 +7091,11 @@ void LinearScan::insertMove(
     }
     dst->SetUnusedValue();
 
-    LIR::Range  treeRange  = LIR::SeqTree(compiler, dst);
     LIR::Range& blockRange = LIR::AsRange(block);
 
     if (insertionPoint != nullptr)
     {
-        blockRange.InsertBefore(insertionPoint, std::move(treeRange));
+        blockRange.InsertBefore(insertionPoint, src);
     }
     else
     {
@@ -7110,15 +7109,20 @@ void LinearScan::insertMove(
             assert(branch->OperIsConditionalJump() || branch->OperGet() == GT_SWITCH_TABLE ||
                    branch->OperGet() == GT_SWITCH);
 
-            blockRange.InsertBefore(branch, std::move(treeRange));
+            blockRange.InsertBefore(branch, src);
         }
         else
         {
             // These block kinds don't have a branch at the end.
             assert((lastNode == nullptr) || (!lastNode->OperIsConditionalJump() &&
                                              !lastNode->OperIs(GT_SWITCH_TABLE, GT_SWITCH, GT_RETURN, GT_RETFILT)));
-            blockRange.InsertAtEnd(std::move(treeRange));
+            blockRange.InsertAfter(lastNode, src);
         }
+    }
+
+    if (dst != src)
+    {
+        blockRange.InsertAfter(src, dst);
     }
 }
 
@@ -7157,17 +7161,11 @@ void LinearScan::insertSwap(
     swap->ClearRegSpillSet();
     SetLsraAdded(swap);
 
-    lcl1->gtNext = lcl2;
-    lcl2->gtPrev = lcl1;
-    lcl2->gtNext = swap;
-    swap->gtPrev = lcl2;
-
-    LIR::Range  swapRange  = LIR::SeqTree(compiler, swap);
     LIR::Range& blockRange = LIR::AsRange(block);
 
     if (insertionPoint != nullptr)
     {
-        blockRange.InsertBefore(insertionPoint, std::move(swapRange));
+        blockRange.InsertBefore(insertionPoint, lcl1, lcl2, swap);
     }
     else
     {
@@ -7181,12 +7179,12 @@ void LinearScan::insertSwap(
             assert(branch->OperIsConditionalJump() || branch->OperGet() == GT_SWITCH_TABLE ||
                    branch->OperGet() == GT_SWITCH);
 
-            blockRange.InsertBefore(branch, std::move(swapRange));
+            blockRange.InsertBefore(branch, lcl1, lcl2, swap);
         }
         else
         {
             assert(block->bbJumpKind == BBJ_NONE || block->bbJumpKind == BBJ_ALWAYS);
-            blockRange.InsertAtEnd(std::move(swapRange));
+            blockRange.InsertAfter(blockRange.LastNode(), lcl1, lcl2, swap);
         }
     }
 }
