@@ -1223,9 +1223,6 @@ public:
     inline bool IsRegOptional() const;
     inline void SetRegOptional();
     inline void ClearRegOptional();
-#ifdef DEBUG
-    void dumpLIRFlags();
-#endif
 
     bool TypeIs(var_types type) const
     {

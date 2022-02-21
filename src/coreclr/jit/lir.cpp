@@ -1656,13 +1656,6 @@ void LIR::InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range)
     blockRange.InsertBefore(insertionPoint, std::move(range));
 }
 
-#ifdef DEBUG
-void GenTree::dumpLIRFlags()
-{
-    JITDUMP("[%c%c]", IsUnusedValue() ? 'U' : '-', IsRegOptional() ? 'O' : '-');
-}
-#endif
-
 void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree* before, GenTreeCall* call)
 {
     assert(call->IsHelperCall());
