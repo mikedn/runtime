@@ -3031,21 +3031,12 @@ void Lowering::InsertPInvokeMethodProlog()
     GenTreeCall::Use*     argList = comp->gtNewCallArgs(frameAddr, PhysReg(REG_SECRET_STUB_PARAM));
 #endif
 
-    GenTree* call = comp->gtNewHelperCallNode(CORINFO_HELP_INIT_PINVOKE_FRAME, TYP_I_IMPL, argList);
+    GenTree* insertionPoint = firstBlockRange.FirstNonCatchArgNode();
 
-    // some sanity checks on the frame list root vardsc
-    const unsigned   lclNum = comp->info.compLvFrameListRoot;
-    const LclVarDsc* varDsc = comp->lvaGetDesc(lclNum);
-    noway_assert(!varDsc->lvIsParam);
-    noway_assert(varDsc->lvType == TYP_I_IMPL);
-
-    GenTree* store = comp->gtNewStoreLclVar(comp->info.compLvFrameListRoot, TYP_I_IMPL, call);
-
-    GenTree* const insertionPoint = firstBlockRange.FirstNonCatchArgNode();
-
-    comp->fgMorphTree(store);
-    firstBlockRange.InsertBefore(insertionPoint, LIR::SeqTree(comp, store));
-    DISPTREERANGE(firstBlockRange, store);
+    GenTreeCall* pInvokeInitFrame = comp->gtNewHelperCallNode(CORINFO_HELP_INIT_PINVOKE_FRAME, TYP_I_IMPL, argList);
+    LIR::InsertHelperCallBefore(comp, firstBlockRange, insertionPoint, pInvokeInitFrame);
+    GenTree* store = comp->gtNewStoreLclVar(comp->info.compLvFrameListRoot, TYP_I_IMPL, pInvokeInitFrame);
+    firstBlockRange.InsertBefore(insertionPoint, store);
 
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
     // For x86, this step is done at the call site (due to stack pointer not being static in the function).
@@ -3193,12 +3184,9 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 #else
         GenTreeCall::Use* args    = comp->gtNewCallArgs(frameAddr);
 #endif
-        // Insert call to CORINFO_HELP_JIT_PINVOKE_BEGIN
-        GenTree* helperCall = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_BEGIN, TYP_VOID, args);
-
-        comp->fgMorphTree(helperCall);
-        BlockRange().InsertBefore(insertBefore, LIR::SeqTree(comp, helperCall));
-        LowerNode(helperCall); // helper call is inserted before current node and should be lowered here.
+        GenTreeCall* pInvokeBegin = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_BEGIN, TYP_VOID, args);
+        LIR::InsertHelperCallBefore(comp, BlockRange(), insertBefore, pInvokeBegin);
+        LowerNode(pInvokeBegin);
         return;
     }
 
@@ -3328,16 +3316,10 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
     {
         noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
 
-        // First argument is the address of the frame variable.
-        GenTree* frameAddr = comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar);
+        GenTreeCall::Use* args       = comp->gtNewCallArgs(comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar));
+        GenTreeCall*      pInvokeEnd = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_END, TYP_VOID, args);
+        LIR::InsertHelperCallBefore(comp, BlockRange(), call->gtNext, pInvokeEnd);
 
-        // Insert call to CORINFO_HELP_JIT_PINVOKE_END
-        GenTreeCall* helperCall =
-            comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_END, TYP_VOID, comp->gtNewCallArgs(frameAddr));
-
-        comp->fgMorphTree(helperCall);
-        BlockRange().InsertAfter(call, LIR::SeqTree(comp, helperCall));
-        ContainCheckCallOperands(helperCall);
         return;
     }
 

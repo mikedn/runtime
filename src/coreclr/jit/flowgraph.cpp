@@ -3395,8 +3395,7 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
 
     /* Now figure out what code to insert */
 
-    GenTreeCall* tree;
-    int          helper = CORINFO_HELP_UNDEF;
+    int helper = CORINFO_HELP_UNDEF;
 
     switch (kind)
     {
@@ -3432,22 +3431,22 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
     noway_assert(helper != CORINFO_HELP_UNDEF);
 
     // Add the appropriate helper call.
-    tree = gtNewHelperCallNode(helper, TYP_VOID);
-
-    // There are no args here but fgMorphArgs has side effects
-    // such as setting the outgoing arg area (which is necessary
-    // on AMD if there are any calls).
-    tree = fgMorphArgs(tree);
+    GenTreeCall* tree = gtNewHelperCallNode(helper, TYP_VOID);
 
     // Store the tree in the new basic block.
     assert(!srcBlk->isEmpty());
     if (!srcBlk->IsLIR())
     {
+        // There are no args here but fgMorphArgs has side effects
+        // such as setting the outgoing arg area (which is necessary
+        // on AMD if there are any calls).
+        tree = fgMorphArgs(tree);
+
         fgInsertStmtAtEnd(newBlk, fgNewStmtFromTree(tree));
     }
     else
     {
-        LIR::AsRange(newBlk).InsertAtEnd(LIR::SeqTree(this, tree));
+        LIR::InsertHelperCallBefore(this, LIR::AsRange(newBlk), nullptr, tree);
     }
 
     return add->acdDstBlk;
