@@ -3677,50 +3677,43 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
                                          FieldSeqNode* fieldSeq,
                                          unsigned*     finalStructSize)
 {
-    if (fieldSeq == nullptr)
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
-        return map;
-    }
+        if (fieldSeq->IsBoxedValueField())
+        {
+            // Skip boxed pseudo fields used for static struct fields. We have
+            // s_field.boxed_data.x and we need only s_field.x.
+            continue;
+        }
 
-    if (fieldSeq->IsBoxedValueField())
-    {
-        // Skip boxed pseudo fields used for static struct fields. We have
-        // s_field.boxed_data.x and we need only s_field.x.
-        return VNApplySelectors(vnk, map, fieldSeq->GetNext(), finalStructSize);
-    }
+        noway_assert(fieldSeq->IsField());
 
-    noway_assert(fieldSeq->IsField());
+        CORINFO_FIELD_HANDLE fieldHandle     = fieldSeq->GetFieldHandle();
+        CORINFO_CLASS_HANDLE fieldTypeHandle = NO_CLASS_HANDLE;
+        var_types            fieldType       = GetFieldType(fieldHandle, &fieldTypeHandle);
 
-    CORINFO_FIELD_HANDLE fieldHandle     = fieldSeq->GetFieldHandle();
-    CORINFO_CLASS_HANDLE fieldTypeHandle = NO_CLASS_HANDLE;
-    var_types            fieldType       = GetFieldType(fieldHandle, &fieldTypeHandle);
+        unsigned structSize = 0;
 
-    unsigned structSize = 0;
+        if (fieldType == TYP_STRUCT)
+        {
+            ClassLayout* layout = m_pComp->typGetObjLayout(fieldTypeHandle);
 
-    if (fieldType == TYP_STRUCT)
-    {
-        ClassLayout* layout = m_pComp->typGetObjLayout(fieldTypeHandle);
+            fieldType  = m_pComp->typGetStructType(layout);
+            structSize = layout->GetSize();
+        }
 
-        fieldType  = m_pComp->typGetStructType(layout);
-        structSize = layout->GetSize();
-    }
+        if (finalStructSize != nullptr)
+        {
+            *finalStructSize = structSize;
+        }
 
-    if (finalStructSize != nullptr)
-    {
-        *finalStructSize = structSize;
-    }
+        ValueNum fieldVN = VNForFieldHandle(fieldHandle);
 
-    ValueNum fieldVN = VNForFieldHandle(fieldHandle);
+        JITDUMP("  VNApplySelectors:\n    VNForHandle(%s) is " FMT_VN ", fieldType is %s, size = %u\n",
+                m_pComp->eeGetFieldName(fieldHandle), fieldVN, varTypeName(fieldType),
+                fieldType == TYP_STRUCT ? structSize : varTypeSize(fieldType));
 
-    JITDUMP("  VNApplySelectors:\n    VNForHandle(%s) is " FMT_VN ", fieldType is %s, size = %u\n",
-            m_pComp->eeGetFieldName(fieldHandle), fieldVN, varTypeName(fieldType),
-            fieldType == TYP_STRUCT ? structSize : varTypeSize(fieldType));
-
-    map = VNForMapSelect(vnk, fieldType, map, fieldVN);
-
-    if (fieldSeq->GetNext() != nullptr)
-    {
-        return VNApplySelectors(vnk, map, fieldSeq->GetNext(), finalStructSize);
+        map = VNForMapSelect(vnk, fieldType, map, fieldVN);
     }
 
     return map;
