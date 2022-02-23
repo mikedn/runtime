@@ -624,7 +624,7 @@ public:
     ValueNum VNApplySelectorsAssign(
         ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType, BasicBlock* block);
 
-    ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType, BasicBlock* block);
+    ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
 
     ValueNumPair VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
 

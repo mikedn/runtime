@@ -3749,63 +3749,36 @@ ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, unsigned structSi
     return VNForCast(vn, loadType, type);
 }
 
-//------------------------------------------------------------------------
-// VNApplySelectorsAssignTypeCoerce: Compute the value number corresponding to `srcVN`
-//    being written using an indirection of 'dstIndType'.
-//
-// Arguments:
-//    srcVN - value number for the value being stored;
-//    dstIndType - type of the indirection storing the value to the memory;
-//    block - block where the assignment occurs
-//
-// Return Value:
-//    The value number corresponding to memory after the assignment.
-//
-// Notes: It may insert a cast to dstIndType or return a unique value number for an incompatible indType.
-//
-ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_types dstIndType, BasicBlock* block)
+ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_types storeType)
 {
     var_types srcType = TypeOfVN(srcVN);
 
-    ValueNum dstVN;
-
-    // Check if the elemTyp is matching/compatible.
-    if (dstIndType != srcType)
+    if (storeType == srcType)
     {
-        bool isConstant = IsVNConstant(srcVN);
-        if (isConstant && (srcType == genActualType(dstIndType)))
-        {
-            // (i.e. We recorded a constant of TYP_INT for a TYP_BYTE field)
-            dstVN = srcVN;
-        }
-        else
-        {
-            // We are trying to write an 'elem' of type 'elemType' using 'indType' store
-
-            if (varTypeIsStruct(dstIndType))
-            {
-                // return a new unique value number
-                dstVN = VNMakeNormalUnique(srcVN);
-
-                JITDUMP("    *** Mismatched types in VNApplySelectorsAssignTypeCoerce (indType is TYP_STRUCT)\n");
-            }
-            else
-            {
-                // We are trying to write an 'elem' of type 'elemType' using 'indType' store
-
-                // insert a cast of elem to 'indType'
-                dstVN = VNForCast(srcVN, dstIndType, srcType);
-
-                JITDUMP("    Cast to %s inserted in VNApplySelectorsAssignTypeCoerce (elemTyp is %s)\n",
-                        varTypeName(dstIndType), varTypeName(srcType));
-            }
-        }
+        return srcVN;
     }
-    else
+
+    if (IsVNConstant(srcVN) && (srcType == varActualType(storeType)))
     {
-        dstVN = srcVN;
+        // We record INT constants for small int fields.
+        return srcVN;
     }
-    return dstVN;
+
+    if (varTypeIsStruct(storeType))
+    {
+        JITDUMP("    *** Value of type %s stored as %s\n", varTypeName(srcType), varTypeName(storeType));
+        return VNMakeNormalUnique(srcVN);
+    }
+
+    // TODO-MIKE-Review: This is probably just as bogus as in VNApplySelectorsTypeCheck...
+    // This also generates bizarre struct to scalar casts, though that's probably caused
+    // by an issue in the calling code. In fact, the whole thing is probably bogus because
+    // it involves the stored value's type and the store type, which are expected to be
+    // the same anyway - attempting to store a FLOAT value using an IND indirection is
+    // invalid IR that should not exist, not something that needs automation coercion.
+    // Well, small int stores might need this but even then, the problem is that this
+    // thing appears to ignore the type of the field being stored to...
+    return VNForCast(srcVN, storeType, srcType);
 }
 
 //------------------------------------------------------------------------
@@ -3831,7 +3804,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
 {
     if (fieldSeq == nullptr)
     {
-        return VNApplySelectorsAssignTypeCoerce(elem, indType, block);
+        return VNApplySelectorsAssignTypeCoerce(elem, indType);
     }
 
     if (fieldSeq->IsBoxedValueField())
@@ -3877,7 +3850,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
             printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s\n", fldName, fldHndVN, varTypeName(fieldType));
         }
 #endif
-        elemAfter = VNApplySelectorsAssignTypeCoerce(elem, indType, block);
+        elemAfter = VNApplySelectorsAssignTypeCoerce(elem, indType);
     }
 
     return VNForMapStore(fieldType, map, fldHndVN, elemAfter);
