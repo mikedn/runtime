@@ -1656,9 +1656,107 @@ void LIR::InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range)
     blockRange.InsertBefore(insertionPoint, std::move(range));
 }
 
-#ifdef DEBUG
-void GenTree::dumpLIRFlags()
+void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree* before, GenTreeCall* call)
 {
-    JITDUMP("[%c%c]", IsUnusedValue() ? 'U' : '-', IsRegOptional() ? 'O' : '-');
-}
+    assert(call->IsHelperCall());
+
+    const regNumber* argRegs;
+    unsigned         argRegsCount;
+
+    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+    {
+        case CORINFO_HELP_RNGCHKFAIL:
+        case CORINFO_HELP_THROWDIVZERO:
+        case CORINFO_HELP_OVERFLOW:
+        case CORINFO_HELP_THROW_ARGUMENTEXCEPTION:
+        case CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION:
+            argRegs      = nullptr;
+            argRegsCount = 0;
+            break;
+        case CORINFO_HELP_LLSH:
+        case CORINFO_HELP_LRSH:
+        case CORINFO_HELP_LRSZ:
+#ifdef TARGET_X86
+            argRegs = longShiftHelperArgRegs;
+#else
+            argRegs      = intArgRegs;
 #endif
+            argRegsCount = 3;
+            break;
+        case CORINFO_HELP_INIT_PINVOKE_FRAME:
+#if defined(TARGET_X86) || defined(TARGET_ARM)
+            argRegs      = initPInvokeFrameArgRegs;
+            argRegsCount = 1;
+#else
+            argRegs      = intArgRegs;
+            argRegsCount = 2;
+#endif
+            break;
+        case CORINFO_HELP_JIT_PINVOKE_BEGIN:
+            argRegs = intArgRegs;
+#if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
+            argRegsCount = 2;
+#else
+            argRegsCount = 1;
+#endif
+            break;
+        case CORINFO_HELP_JIT_PINVOKE_END:
+            argRegs      = intArgRegs;
+            argRegsCount = 1;
+            break;
+        default:
+            unreached();
+    }
+
+    unsigned argCount = 0;
+
+    for (const auto& arg : call->Args())
+    {
+        argCount++;
+    }
+
+    assert(argCount == argRegsCount);
+
+    CallInfo* info = new (compiler, CMK_CallInfo) CallInfo(compiler, call, argCount);
+    call->SetInfo(info);
+
+    unsigned argNum = 0;
+
+    GenTreeCall::Use* firstLateArg = nullptr;
+    GenTreeCall::Use* lastLateArg  = nullptr;
+
+    for (auto& arg : call->Args())
+    {
+        GenTree* argNode = arg.GetNode();
+
+        assert(varTypeIsIntegralOrI(argNode->GetType()));
+
+        arg.SetNode(new (compiler, GT_ARGPLACE) GenTree(GT_ARGPLACE, argNode->GetType()));
+
+        range.InsertBefore(before, argNode);
+        GenTreeCall::Use* lateArg = compiler->gtNewCallArgs(argNode);
+
+        if (firstLateArg == nullptr)
+        {
+            firstLateArg = lateArg;
+            lastLateArg  = lateArg;
+        }
+        else
+        {
+            lastLateArg->SetNext(lateArg);
+            lastLateArg = lateArg;
+        }
+
+        CallArgInfo* argInfo = new (compiler, CMK_CallInfo) CallArgInfo(argNum, &arg, 1);
+        argInfo->SetArgType(argNode->GetType());
+        argInfo->SetRegNum(0, argRegs[argNum]);
+        argInfo->SetLateUse(lateArg);
+        info->AddArg(argInfo);
+
+        argNum++;
+    }
+
+    call->gtCallLateArgs = firstLateArg;
+
+    range.InsertBefore(before, call);
+}

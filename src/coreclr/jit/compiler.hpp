@@ -728,6 +728,11 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
  *  that may need to be fixed up).
  */
 
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fieldSeq)
+{
+    return gtNewIconHandleNode(reinterpret_cast<size_t>(value), flags, fieldSeq);
+}
+
 inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fieldSeq)
 {
     assert((flags & GTF_ICON_HDL_MASK) != 0);

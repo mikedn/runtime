@@ -266,6 +266,7 @@
 
   extern const regNumber intArgRegs [MAX_REG_ARG];
   extern const regMaskTP intArgMasks[MAX_REG_ARG];
+  extern const regNumber initPInvokeFrameArgRegs[1];
 
   #define RBM_ARG_0                RBM_R0
   #define RBM_ARG_1                RBM_R1

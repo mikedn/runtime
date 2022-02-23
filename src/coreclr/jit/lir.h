@@ -301,6 +301,10 @@ public:
     static Range SeqTree(Compiler* compiler, GenTree* tree);
 
     static void InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range);
+
+    static void InsertHelperCallBefore(Compiler* compiler, Range& range, GenTree* before, GenTreeCall* call
+
+                                       );
 };
 
 inline void GenTree::SetUnusedValue()
