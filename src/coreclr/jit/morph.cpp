@@ -2719,14 +2719,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         argsSideEffects |= call->gtCallAddr->gtFlags;
     }
 
-#if defined(UNIX_AMD64_ABI)
-    if (!call->IsFastTailCall())
-    {
-        // This is currently required for the UNIX ABI to work correctly.
-        opts.compNeedToAlignFrame = true;
-    }
-#endif // UNIX_AMD64_ABI
-
     // Clear the ASG and EXCEPT (if possible) flags on the call node
     call->gtFlags &= ~GTF_ASG;
     if (!call->OperMayThrow(this))

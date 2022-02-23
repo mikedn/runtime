@@ -1240,6 +1240,13 @@ void Lowering::LowerCall(GenTreeCall* call)
     DISPTREERANGE(BlockRange(), call);
     JITDUMP("\n");
 
+#ifdef UNIX_AMD64_ABI
+    if (!call->IsFastTailCall())
+    {
+        comp->opts.compNeedToAlignFrame = true;
+    }
+#endif
+
     call->ClearOtherRegs();
     LowerCallArgs(call);
 
