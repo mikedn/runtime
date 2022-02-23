@@ -615,7 +615,7 @@ public:
     // It determines whether the 'selectedVN' is of an appropriate type to be read using and indirection of 'indType'
     // If it is appropriate type then 'selectedVN' is returned, otherwise it may insert a cast to indType
     // or return a unique value number for an incompatible indType.
-    ValueNum VNApplySelectorsTypeCheck(ValueNum selectedVN, var_types indType, unsigned structSize);
+    ValueNum VNApplySelectorsTypeCheck(ValueNum vn, unsigned structSize, var_types loadType);
 
     // Assumes that "map" represents a map that is addressable by the fields in "fieldSeq", to get
     // to a value of the type of "rhs".  Returns an expression for the RHS of an assignment, in the given "block",

@@ -3719,45 +3719,34 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
     return map;
 }
 
-ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum elem, var_types indType, unsigned elemStructSize)
+ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, unsigned structSize, var_types loadType)
 {
-    var_types elemTyp = TypeOfVN(elem);
+    var_types type = TypeOfVN(vn);
 
-    // Check if the elemTyp is matching/compatible
-
-    if (indType != elemTyp)
+    if (loadType == type)
     {
-        // We are trying to read from an 'elem' of type 'elemType' using 'indType' read
-
-        unsigned elemTypSize = (elemTyp == TYP_STRUCT) ? elemStructSize : varTypeSize(elemTyp);
-        unsigned indTypeSize = varTypeSize(indType);
-
-        if (indTypeSize > elemTypSize)
-        {
-            // Reading beyong the end of 'elem'
-
-            // return a new unique value number
-            elem = VNMakeNormalUnique(elem);
-
-            JITDUMP("    *** Mismatched types in VNApplySelectorsTypeCheck (reading beyond the end)\n");
-        }
-        else if (varTypeIsStruct(indType))
-        {
-            // return a new unique value number
-            elem = VNMakeNormalUnique(elem);
-
-            JITDUMP("    *** Mismatched types in VNApplySelectorsTypeCheck (indType is TYP_STRUCT)\n");
-        }
-        else
-        {
-            // We are trying to read an 'elem' of type 'elemType' using 'indType' read
-
-            // insert a cast of elem to 'indType'
-            elem = VNForCast(elem, indType, elemTyp);
-        }
+        return vn;
     }
 
-    return elem;
+    unsigned size     = (type == TYP_STRUCT) ? structSize : varTypeSize(type);
+    unsigned loadSize = varTypeSize(loadType);
+
+    if (loadSize > size)
+    {
+        JITDUMP("    *** Value of size %u loaded as wider type %s\n", size, varTypeName(loadType));
+        return VNMakeNormalUnique(vn);
+    }
+
+    if (varTypeIsStruct(loadType))
+    {
+        JITDUMP("    *** Value of type %s loaded as %s\n", varTypeName(type), varTypeName(loadType));
+        return VNMakeNormalUnique(vn);
+    }
+
+    // TODO-MIKE-Fix: This is nonsense in reinterpretation case (e.g. load INT field as FLOAT).
+    // It produces a VNF_Cast as if it is a INT to FLOAT cast but this is actually a bitcast.
+    // See vn-ind-reinterpret.il.
+    return VNForCast(vn, loadType, type);
 }
 
 //------------------------------------------------------------------------
@@ -3898,11 +3887,11 @@ ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode*
 {
     unsigned structSize = 0;
     ValueNum liberalVN  = VNApplySelectors(VNK_Liberal, map.GetLiberal(), fieldSeq, &structSize);
-    liberalVN           = VNApplySelectorsTypeCheck(liberalVN, indType, structSize);
+    liberalVN           = VNApplySelectorsTypeCheck(liberalVN, structSize, indType);
 
     structSize         = 0;
     ValueNum conservVN = VNApplySelectors(VNK_Conservative, map.GetConservative(), fieldSeq, &structSize);
-    conservVN          = VNApplySelectorsTypeCheck(conservVN, indType, structSize);
+    conservVN          = VNApplySelectorsTypeCheck(conservVN, structSize, indType);
 
     return ValueNumPair(liberalVN, conservVN);
 }
@@ -4479,7 +4468,7 @@ ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum 
             selectedElem = vnStore->VNApplySelectors(VNK_Liberal, wholeElem, fldSeq, &elemStructSize);
             elemTyp      = vnStore->TypeOfVN(selectedElem);
         }
-        selectedElem = vnStore->VNApplySelectorsTypeCheck(selectedElem, indType, elemStructSize);
+        selectedElem = vnStore->VNApplySelectorsTypeCheck(selectedElem, elemStructSize, indType);
         selectedElem = vnStore->VNWithExc(selectedElem, excVN);
 
 #ifdef DEBUG
@@ -7854,7 +7843,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum selectedStaticVar =
                             vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap], fldSeq, &structSize);
                         selectedStaticVar =
-                            vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, tree->TypeGet(), structSize);
+                            vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, structSize, tree->TypeGet());
 
                         clsVarVNPair.SetLiberal(selectedStaticVar);
                         // The conservative interpretation always gets a new, unique VN.
@@ -7888,7 +7877,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         unsigned structSize = 0;
                         selectedStaticVar   = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
                                                                       fldSeqForStaticVar, &structSize);
-                        selectedStaticVar = vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, indType, structSize);
+                        selectedStaticVar = vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, structSize, indType);
 
                         tree->gtVNPair.SetLiberal(selectedStaticVar);
                         tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, indType));
@@ -7927,7 +7916,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         vn = vnStore->VNApplySelectors(VNK_Liberal, vn, fieldSeq->GetNext(), &structSize);
                     }
 
-                    vn = vnStore->VNApplySelectorsTypeCheck(vn, tree->GetType(), structSize);
+                    vn = vnStore->VNApplySelectorsTypeCheck(vn, structSize, tree->GetType());
 
                     tree->SetVNP(vnStore->VNPWithExc({vn, vnStore->VNForExpr(compCurBB, tree->GetType())}, addrXvnp));
                 }
