@@ -7642,10 +7642,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                     lhs->gtVNPair = rhsVNPair;
 
-                    ValueNum      argVN        = arg->gtVNPair.GetLiberal();
-                    GenTree*      obj          = nullptr;
-                    GenTree*      staticOffset = nullptr;
-                    FieldSeqNode* fldSeq       = nullptr;
+                    ValueNum      argVN     = arg->gtVNPair.GetLiberal();
+                    GenTree*      obj       = nullptr;
+                    GenTree*      staticObj = nullptr;
+                    FieldSeqNode* fldSeq    = nullptr;
 
                     VNFuncApp funcApp;
                     if (vnStore->GetVNFunc(vnStore->VNNormalValue(argVN), &funcApp) &&
@@ -7663,7 +7663,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum heapVN = fgValueNumberArrIndexAssign(funcApp, rhsVNPair.GetLiberal(), lhs->GetType());
                         recordGcHeapStore(tree, heapVN DEBUGARG("array element store"));
                     }
-                    else if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
+                    else if (optIsFieldAddr(arg, &obj, &staticObj, &fldSeq))
                     {
                         // Get a field sequence for just the first field in the sequence
                         FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq->GetFieldHandle());
@@ -7682,29 +7682,27 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum newFldMapVN = ValueNumStore::NoVN;
 
                         // when (obj != nullptr) we have an instance field, otherwise a static field
-                        // when (staticOffset != nullptr) it represents a offset into a static or the call to
+                        // when (staticObj != nullptr) it represents a offset into a static or the call to
                         // Shared Static Base
-                        if ((obj != nullptr) || (staticOffset != nullptr))
+                        if ((obj != nullptr) || (staticObj != nullptr))
                         {
                             ValueNum valAtAddr = fldMapVN;
                             ValueNum normVal   = ValueNumStore::NoVN;
 
                             if (obj != nullptr)
                             {
-                                // Unpack, Norm,Exc for 'obj'
                                 ValueNum vnObjExcSet;
                                 vnStore->VNUnpackExc(obj->gtVNPair.GetLiberal(), &normVal, &vnObjExcSet);
                                 vnExcSet = vnStore->VNExcSetUnion(vnExcSet, vnObjExcSet);
-
-                                // construct the ValueNumber for 'fldMap at obj'
-                                valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, normVal);
                             }
-                            else // (staticOffset != nullptr)
+                            else
                             {
-                                // construct the ValueNumber for 'fldMap at staticOffset'
-                                normVal   = vnStore->VNLiberalNormalValue(staticOffset->gtVNPair);
-                                valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, normVal);
+                                assert(staticObj != nullptr);
+
+                                normVal = vnStore->VNLiberalNormalValue(staticObj->gtVNPair);
                             }
+
+                            valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, normVal);
 
                             // Now get rid of any remaining struct field dereferences. (if they exist)
                             if (fldSeq->GetNext() != nullptr)
@@ -7768,11 +7766,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // a pointer to an object field or array element.  Other cases become uses of
             // the current ByrefExposed value and the pointer value, so that at least we
             // can recognize redundant loads with no stores between them.
-            GenTree*      addr         = tree->AsIndir()->GetAddr();
-            FieldSeqNode* fldSeq2      = nullptr;
-            GenTree*      obj          = nullptr;
-            GenTree*      staticOffset = nullptr;
-            bool          isVolatile   = tree->AsIndir()->IsVolatile();
+            GenTree*      addr       = tree->AsIndir()->GetAddr();
+            FieldSeqNode* fldSeq2    = nullptr;
+            GenTree*      obj        = nullptr;
+            GenTree*      staticObj  = nullptr;
+            bool          isVolatile = tree->AsIndir()->IsVolatile();
 
             // See if the addr has any exceptional part.
             ValueNumPair addrNvnp;
@@ -7932,8 +7930,13 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     // values, so we don't have their exceptions. Maybe we should.
                     tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->GetType()));
                 }
-                else if (optIsFieldAddr(addr, &obj, &staticOffset, &fldSeq2))
+                else if (optIsFieldAddr(addr, &obj, &staticObj, &fldSeq2))
                 {
+                    assert((obj != nullptr) || (staticObj != nullptr));
+
+                    ValueNum objVN = obj != nullptr ? objVN = obj->GetVN(VNK_Liberal) : staticObj->GetVN(VNK_Liberal);
+                    objVN                                   = vnStore->VNNormalValue(objVN);
+
                     // Get a field sequence for just the first field in the sequence
                     FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq2->GetFieldHandle());
                     unsigned      structSize     = 0;
@@ -7947,19 +7950,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     // otherwise it is the type returned from VNApplySelectors above.
                     var_types firstFieldType = vnStore->TypeOfVN(fldMapVN);
 
-                    ValueNum valAtAddr = fldMapVN;
-                    if (obj != nullptr)
-                    {
-                        // construct the ValueNumber for 'fldMap at obj'
-                        ValueNum objNormVal = vnStore->VNLiberalNormalValue(obj->gtVNPair);
-                        valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, objNormVal);
-                    }
-                    else if (staticOffset != nullptr)
-                    {
-                        // construct the ValueNumber for 'fldMap at staticOffset'
-                        ValueNum offsetNormVal = vnStore->VNLiberalNormalValue(staticOffset->gtVNPair);
-                        valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, offsetNormVal);
-                    }
+                    ValueNum valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, objVN);
 
                     // Now get rid of any remaining struct field dereferences.
                     if (fldSeq2->GetNext() != nullptr)
