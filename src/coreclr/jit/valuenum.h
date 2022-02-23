@@ -364,7 +364,7 @@ public:
 
     // Packs information about the cast into an integer constant represented by the returned value number,
     // to be used as the second operand of VNF_Cast & VNF_CastOvf.
-    ValueNum VNForCastOper(var_types castToType, bool srcIsUnsigned = false DEBUGARG(bool printResult = true));
+    ValueNum VNForCastOper(var_types castToType, bool castFromUnsigned = false);
 
     // Unpacks the information stored by VNForCastOper in the constant represented by the value number.
     void GetCastOperFromVN(ValueNum vn, var_types* pCastToType, bool* pSrcIsUnsigned);
@@ -962,6 +962,8 @@ public:
     void vnDumpValWithExc(Compiler* comp, VNFuncApp* valWithExc);
 
     void vnDumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
+    void DumpBitCast(const VNFuncApp& cast);
+    void DumpCast(const VNFuncApp& cast);
 
     // Requires "excSeq" to be a ExcSetCons sequence.
     // Prints a representation of the set of exceptions on standard out.

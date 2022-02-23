@@ -1700,44 +1700,26 @@ ValueNum ValueNumStore::VNForByrefCon(target_size_t cnsVal)
 ValueNum ValueNumStore::VNForBitCastOper(var_types castToType)
 {
     assert(castToType != TYP_STRUCT);
-    INT32 cnsVal = INT32(castToType) << INT32(VCA_BitCount);
-    assert((cnsVal & INT32(VCA_ReservedBits)) == 0);
 
-    ValueNum result = VNForIntCon(cnsVal);
+    uint32_t packedCastType = INT32(castToType) << INT32(VCA_BitCount);
+    assert((packedCastType & INT32(VCA_ReservedBits)) == 0);
 
-#ifdef DEBUG
-    if (m_pComp->verbose)
-    {
-        printf("    VNForBitCastOper(%s) is " FMT_VN "\n", varTypeName(castToType), result);
-    }
-#endif
-
-    return result;
+    return VNForIntCon(static_cast<int32_t>(packedCastType));
 }
 
-ValueNum ValueNumStore::VNForCastOper(var_types castToType,
-                                      bool srcIsUnsigned /*=false*/ DEBUGARG(bool printResult /*=true*/))
+ValueNum ValueNumStore::VNForCastOper(var_types castToType, bool castFromUnsigned)
 {
     assert(castToType != TYP_STRUCT);
-    INT32 cnsVal = INT32(castToType) << INT32(VCA_BitCount);
-    assert((cnsVal & INT32(VCA_ReservedBits)) == 0);
 
-    if (srcIsUnsigned)
+    uint32_t packedCastType = static_cast<uint32_t>(castToType) << VCA_BitCount;
+    assert((packedCastType & VCA_ReservedBits) == 0);
+
+    if (castFromUnsigned)
     {
-        // We record the srcIsUnsigned by or-ing a 0x01
-        cnsVal |= INT32(VCA_UnsignedSrc);
+        packedCastType |= VCA_UnsignedSrc;
     }
-    ValueNum result = VNForIntCon(cnsVal);
 
-#ifdef DEBUG
-    if (printResult && m_pComp->verbose)
-    {
-        printf("    VNForCastOper(%s%s) is " FMT_VN "\n", varTypeName(castToType), srcIsUnsigned ? ", unsignedSrc" : "",
-               result);
-    }
-#endif
-
-    return result;
+    return VNForIntCon(static_cast<int32_t>(packedCastType));
 }
 
 void ValueNumStore::GetCastOperFromVN(ValueNum vn, var_types* pCastToType, bool* pSrcIsUnsigned)
@@ -1752,7 +1734,7 @@ void ValueNumStore::GetCastOperFromVN(ValueNum vn, var_types* pCastToType, bool*
     *pSrcIsUnsigned = (value & INT32(VCA_UnsignedSrc)) != 0;
     *pCastToType    = var_types(value >> INT32(VCA_BitCount));
 
-    assert(VNForCastOper(*pCastToType, *pSrcIsUnsigned DEBUGARG(/*printResult*/ false)) == vn);
+    assert(VNForCastOper(*pCastToType, *pSrcIsUnsigned) == vn);
 }
 
 ValueNum ValueNumStore::VNForHandle(ssize_t cnsVal, GenTreeFlags handleFlags)
@@ -5751,6 +5733,12 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
             case VNF_LclAddr:
                 vnDumpLclAddr(comp, &funcApp);
                 break;
+            case VNF_BitCast:
+                DumpBitCast(funcApp);
+                break;
+            case VNF_Cast:
+                DumpCast(funcApp);
+                break;
             default:
                 printf("%s", VNFuncName(funcApp.m_func));
 #ifdef FEATURE_HW_INTRINSICS
@@ -5954,6 +5942,35 @@ void ValueNumStore::vnDumpLclAddr(Compiler* comp, VNFuncApp* func)
     printf("LclAddr(V%02u, @%u,", lclNum, static_cast<unsigned>(offset));
     vnDump(comp, fieldSeqVN, false);
     printf(")");
+}
+
+void ValueNumStore::DumpBitCast(const VNFuncApp& cast)
+{
+    assert(cast.m_func == VNF_BitCast);
+
+    uint32_t  packedCastType = static_cast<uint32_t>(GetConstantInt32(cast.m_args[1]));
+    var_types toType         = static_cast<var_types>(packedCastType >> VCA_BitCount);
+    var_types fromType       = varActualType(TypeOfVN(cast.m_args[0]));
+
+    printf("BitCast<%s, %s>(" FMT_VN ", " FMT_VN ")", varTypeName(fromType), varTypeName(toType), cast.m_args[0],
+           cast.m_args[1]);
+}
+
+void ValueNumStore::DumpCast(const VNFuncApp& cast)
+{
+    assert(cast.m_func == VNF_Cast);
+
+    uint32_t  packedCastType = static_cast<uint32_t>(GetConstantInt32(cast.m_args[1]));
+    var_types toType         = static_cast<var_types>(packedCastType >> VCA_BitCount);
+    var_types fromType       = varActualType(TypeOfVN(cast.m_args[0]));
+
+    if ((packedCastType & VCA_UnsignedSrc) != 0)
+    {
+        fromType = varTypeToUnsigned(fromType);
+    }
+
+    printf("Cast<%s, %s>(" FMT_VN ", " FMT_VN ")", varTypeName(fromType), varTypeName(toType), cast.m_args[0],
+           cast.m_args[1]);
 }
 
 #endif // DEBUG
