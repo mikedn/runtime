@@ -4436,11 +4436,12 @@ ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum 
 
         selectedElem            = wholeElem;
         unsigned elemStructSize = 0;
-        if (fldSeq)
+
+        if (fldSeq != nullptr)
         {
             selectedElem = vnStore->VNApplySelectors(VNK_Liberal, wholeElem, fldSeq, &elemStructSize);
-            elemTyp      = vnStore->TypeOfVN(selectedElem);
         }
+
         selectedElem = vnStore->VNApplySelectorsTypeCheck(selectedElem, elemStructSize, indType);
         selectedElem = vnStore->VNWithExc(selectedElem, excVN);
 
