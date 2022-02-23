@@ -7665,6 +7665,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
                     else if (optIsFieldAddr(arg, &obj, &staticObj, &fldSeq))
                     {
+                        assert((obj != nullptr) || (staticObj != nullptr));
+
                         // Get a field sequence for just the first field in the sequence
                         FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq->GetFieldHandle());
 
@@ -7681,54 +7683,31 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum storeVal    = rhsVNPair.GetLiberal();
                         ValueNum newFldMapVN = ValueNumStore::NoVN;
 
-                        // when (obj != nullptr) we have an instance field, otherwise a static field
-                        // when (staticObj != nullptr) it represents a offset into a static or the call to
-                        // Shared Static Base
-                        if ((obj != nullptr) || (staticObj != nullptr))
+                        ValueNum valAtAddr = fldMapVN;
+                        ValueNum normVal   = ValueNumStore::NoVN;
+
+                        if (obj != nullptr)
                         {
-                            ValueNum valAtAddr = fldMapVN;
-                            ValueNum normVal   = ValueNumStore::NoVN;
-
-                            if (obj != nullptr)
-                            {
-                                ValueNum vnObjExcSet;
-                                vnStore->VNUnpackExc(obj->gtVNPair.GetLiberal(), &normVal, &vnObjExcSet);
-                                vnExcSet = vnStore->VNExcSetUnion(vnExcSet, vnObjExcSet);
-                            }
-                            else
-                            {
-                                assert(staticObj != nullptr);
-
-                                normVal = vnStore->VNLiberalNormalValue(staticObj->gtVNPair);
-                            }
-
-                            valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, normVal);
-
-                            // Now get rid of any remaining struct field dereferences. (if they exist)
-                            if (fldSeq->GetNext() != nullptr)
-                            {
-                                storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, valAtAddr, fldSeq->GetNext(),
-                                                                           storeVal, indType, compCurBB);
-                            }
-
-                            // From which we can construct the new ValueNumber for 'fldMap at normVal'
-                            newFldMapVN =
-                                vnStore->VNForMapStore(vnStore->TypeOfVN(fldMapVN), fldMapVN, normVal, storeVal);
+                            ValueNum vnObjExcSet;
+                            vnStore->VNUnpackExc(obj->gtVNPair.GetLiberal(), &normVal, &vnObjExcSet);
+                            vnExcSet = vnStore->VNExcSetUnion(vnExcSet, vnObjExcSet);
                         }
                         else
                         {
-                            // plain static field
-
-                            // Now get rid of any remaining struct field dereferences. (if they exist)
-                            if (fldSeq->GetNext() != nullptr)
-                            {
-                                storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, fldMapVN, fldSeq->GetNext(),
-                                                                           storeVal, indType, compCurBB);
-                            }
-
-                            newFldMapVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, fgCurMemoryVN[GcHeap], fldSeq,
-                                                                          storeVal, indType, compCurBB);
+                            normVal = vnStore->VNLiberalNormalValue(staticObj->gtVNPair);
                         }
+
+                        valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, normVal);
+
+                        // Now get rid of any remaining struct field dereferences. (if they exist)
+                        if (fldSeq->GetNext() != nullptr)
+                        {
+                            storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, valAtAddr, fldSeq->GetNext(),
+                                                                       storeVal, indType, compCurBB);
+                        }
+
+                        // From which we can construct the new ValueNumber for 'fldMap at normVal'
+                        newFldMapVN = vnStore->VNForMapStore(vnStore->TypeOfVN(fldMapVN), fldMapVN, normVal, storeVal);
 
                         // It is not strictly necessary to set the lhs value number,
                         // but the dumps read better with it set to the 'storeVal' that we just computed
