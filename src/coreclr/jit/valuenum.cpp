@@ -7746,7 +7746,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // the current ByrefExposed value and the pointer value, so that at least we
             // can recognize redundant loads with no stores between them.
             GenTree*      addr       = tree->AsIndir()->GetAddr();
-            FieldSeqNode* fldSeq2    = nullptr;
+            FieldSeqNode* fieldSeq   = nullptr;
             GenTree*      obj        = nullptr;
             GenTree*      staticObj  = nullptr;
             bool          isVolatile = tree->AsIndir()->IsVolatile();
@@ -7909,40 +7909,27 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     // values, so we don't have their exceptions. Maybe we should.
                     tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->GetType()));
                 }
-                else if (optIsFieldAddr(addr, &obj, &staticObj, &fldSeq2))
+                else if (optIsFieldAddr(addr, &obj, &staticObj, &fieldSeq))
                 {
                     assert((obj != nullptr) || (staticObj != nullptr));
 
                     ValueNum objVN = obj != nullptr ? objVN = obj->GetVN(VNK_Liberal) : staticObj->GetVN(VNK_Liberal);
                     objVN                                   = vnStore->VNNormalValue(objVN);
 
-                    // Get a field sequence for just the first field in the sequence
-                    FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq2->GetFieldHandle());
-                    unsigned      structSize     = 0;
-                    ValueNum      fldMapVN =
-                        vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap], firstFieldOnly, &structSize);
+                    ValueNum      memVN      = fgCurMemoryVN[GcHeap];
+                    FieldSeqNode* firstField = GetFieldSeqStore()->CreateSingleton(fieldSeq->GetFieldHandle());
+                    unsigned      structSize = 0;
+                    ValueNum      vn         = vnStore->VNApplySelectors(VNK_Liberal, memVN, firstField, &structSize);
+                    vn                       = vnStore->VNForMapSelect(VNK_Liberal, vnStore->TypeOfVN(vn), vn, objVN);
 
-                    // The final field in the sequence will need to match the 'indType'
-                    var_types indType = tree->TypeGet();
-
-                    // The type of the field is "struct" if there are more fields in the sequence,
-                    // otherwise it is the type returned from VNApplySelectors above.
-                    var_types firstFieldType = vnStore->TypeOfVN(fldMapVN);
-
-                    ValueNum valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, objVN);
-
-                    // Now get rid of any remaining struct field dereferences.
-                    if (fldSeq2->GetNext() != nullptr)
+                    if (fieldSeq->GetNext() != nullptr)
                     {
-                        valAtAddr = vnStore->VNApplySelectors(VNK_Liberal, valAtAddr, fldSeq2->GetNext(), &structSize);
+                        vn = vnStore->VNApplySelectors(VNK_Liberal, vn, fieldSeq->GetNext(), &structSize);
                     }
-                    valAtAddr = vnStore->VNApplySelectorsTypeCheck(valAtAddr, indType, structSize);
 
-                    tree->gtVNPair.SetLiberal(valAtAddr);
+                    vn = vnStore->VNApplySelectorsTypeCheck(vn, tree->GetType(), structSize);
 
-                    // The conservative value is a new, unique VN.
-                    tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-                    tree->gtVNPair = vnStore->VNPWithExc(tree->gtVNPair, addrXvnp);
+                    tree->SetVNP(vnStore->VNPWithExc({vn, vnStore->VNForExpr(compCurBB, tree->GetType())}, addrXvnp));
                 }
                 else if (tree->TypeIs(TYP_I_IMPL) && addr->TypeIs(TYP_REF))
                 {
