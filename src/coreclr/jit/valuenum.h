@@ -373,6 +373,11 @@ public:
     // that happens to be the same...
     ValueNum VNForHandle(ssize_t cnsVal, GenTreeFlags iconFlags);
 
+    ValueNum VNForFieldHandle(CORINFO_FIELD_HANDLE fieldHandle)
+    {
+        return VNForHandle(reinterpret_cast<ssize_t>(fieldHandle), GTF_ICON_FIELD_HDL);
+    }
+
     ValueNum VNForTypeNum(unsigned typeNum);
 
     // And the single constant for an object reference type.
@@ -602,13 +607,15 @@ public:
     ValueNum VNApplySelectors(ValueNumKind  vnk,
                               ValueNum      map,
                               FieldSeqNode* fieldSeq,
-                              size_t*       wbFinalStructSize = nullptr);
+                              unsigned*     finalStructSize = nullptr);
+
+    var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, CORINFO_CLASS_HANDLE* fieldTypeHandle);
 
     // Used after VNApplySelectors has determined that "selectedVN" is contained in a Map using VNForMapSelect
     // It determines whether the 'selectedVN' is of an appropriate type to be read using and indirection of 'indType'
     // If it is appropriate type then 'selectedVN' is returned, otherwise it may insert a cast to indType
     // or return a unique value number for an incompatible indType.
-    ValueNum VNApplySelectorsTypeCheck(ValueNum selectedVN, var_types indType, size_t structSize);
+    ValueNum VNApplySelectorsTypeCheck(ValueNum selectedVN, var_types indType, unsigned structSize);
 
     // Assumes that "map" represents a map that is addressable by the fields in "fieldSeq", to get
     // to a value of the type of "rhs".  Returns an expression for the RHS of an assignment, in the given "block",

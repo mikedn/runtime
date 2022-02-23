@@ -3667,10 +3667,15 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types typ)
     return resultVN;
 }
 
+var_types ValueNumStore::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, CORINFO_CLASS_HANDLE* fieldTypeHandle)
+{
+    return CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle, fieldTypeHandle));
+}
+
 ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
                                          ValueNum      map,
                                          FieldSeqNode* fieldSeq,
-                                         size_t*       wbFinalStructSize)
+                                         unsigned*     finalStructSize)
 {
     if (fieldSeq == nullptr)
     {
@@ -3679,60 +3684,49 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
 
     if (fieldSeq->IsBoxedValueField())
     {
-        // Skip any boxed pseudo fields, these are used for static struct fields and are
-        // a side effect of using boxed values. We have s_field.boxed_data.x and we need
-        // only s_field.x.
-        return VNApplySelectors(vnk, map, fieldSeq->GetNext(), wbFinalStructSize);
+        // Skip boxed pseudo fields used for static struct fields. We have
+        // s_field.boxed_data.x and we need only s_field.x.
+        return VNApplySelectors(vnk, map, fieldSeq->GetNext(), finalStructSize);
     }
 
-    // Otherwise, is a real field handle.
-    CORINFO_FIELD_HANDLE fldHnd    = fieldSeq->GetFieldHandle();
-    CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
-    ValueNum             fldHndVN  = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
-    noway_assert(fldHnd != nullptr);
-    CorInfoType fieldCit  = m_pComp->info.compCompHnd->getFieldType(fldHnd, &structHnd);
-    var_types   fieldType = JITtype2varType(fieldCit);
+    noway_assert(fieldSeq->IsField());
 
-    size_t structSize = 0;
-    if (varTypeIsStruct(fieldType))
+    CORINFO_FIELD_HANDLE fieldHandle     = fieldSeq->GetFieldHandle();
+    CORINFO_CLASS_HANDLE fieldTypeHandle = NO_CLASS_HANDLE;
+    var_types            fieldType       = GetFieldType(fieldHandle, &fieldTypeHandle);
+
+    unsigned structSize = 0;
+
+    if (fieldType == TYP_STRUCT)
     {
-        ClassLayout* layout = m_pComp->typGetObjLayout(structHnd);
+        ClassLayout* layout = m_pComp->typGetObjLayout(fieldTypeHandle);
 
-        structSize = layout->GetSize();
         fieldType  = m_pComp->typGetStructType(layout);
-    }
-    if (wbFinalStructSize != nullptr)
-    {
-        *wbFinalStructSize = structSize;
+        structSize = layout->GetSize();
     }
 
-#ifdef DEBUG
-    if (m_pComp->verbose)
+    if (finalStructSize != nullptr)
     {
-        printf("  VNApplySelectors:\n");
-        const char* modName;
-        const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
-        printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s", fldName, fldHndVN, varTypeName(fieldType));
-        if (varTypeIsStruct(fieldType))
-        {
-            printf(", size = %d", structSize);
-        }
-        printf("\n");
+        *finalStructSize = structSize;
     }
-#endif
+
+    ValueNum fieldVN = VNForFieldHandle(fieldHandle);
+
+    JITDUMP("  VNApplySelectors:\n    VNForHandle(%s) is " FMT_VN ", fieldType is %s, size = %u\n",
+            m_pComp->eeGetFieldName(fieldHandle), fieldVN, varTypeName(fieldType),
+            fieldType == TYP_STRUCT ? structSize : varTypeSize(fieldType));
+
+    map = VNForMapSelect(vnk, fieldType, map, fieldVN);
 
     if (fieldSeq->GetNext() != nullptr)
     {
-        ValueNum newMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-        return VNApplySelectors(vnk, newMap, fieldSeq->GetNext(), wbFinalStructSize);
+        return VNApplySelectors(vnk, map, fieldSeq->GetNext(), finalStructSize);
     }
-    else // end of fieldSeq
-    {
-        return VNForMapSelect(vnk, fieldType, map, fldHndVN);
-    }
+
+    return map;
 }
 
-ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum elem, var_types indType, size_t elemStructSize)
+ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum elem, var_types indType, unsigned elemStructSize)
 {
     var_types elemTyp = TypeOfVN(elem);
 
@@ -3742,8 +3736,8 @@ ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum elem, var_types indTy
     {
         // We are trying to read from an 'elem' of type 'elemType' using 'indType' read
 
-        size_t elemTypSize = (elemTyp == TYP_STRUCT) ? elemStructSize : genTypeSize(elemTyp);
-        size_t indTypeSize = genTypeSize(indType);
+        unsigned elemTypSize = (elemTyp == TYP_STRUCT) ? elemStructSize : varTypeSize(elemTyp);
+        unsigned indTypeSize = varTypeSize(indType);
 
         if (indTypeSize > elemTypSize)
         {
@@ -3909,7 +3903,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
 
 ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
 {
-    size_t   structSize = 0;
+    unsigned structSize = 0;
     ValueNum liberalVN  = VNApplySelectors(VNK_Liberal, map.GetLiberal(), fieldSeq, &structSize);
     liberalVN           = VNApplySelectorsTypeCheck(liberalVN, indType, structSize);
 
@@ -4485,8 +4479,8 @@ ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum 
         }
 #endif // DEBUG
 
-        selectedElem          = wholeElem;
-        size_t elemStructSize = 0;
+        selectedElem            = wholeElem;
+        unsigned elemStructSize = 0;
         if (fldSeq)
         {
             selectedElem = vnStore->VNApplySelectors(VNK_Liberal, wholeElem, fldSeq, &elemStructSize);
@@ -7886,7 +7880,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // This is a reference to heap memory.
                         // We model statics as indices into GcHeap (which is a subset of ByrefExposed).
 
-                        size_t   structSize = 0;
+                        unsigned structSize = 0;
                         ValueNum selectedStaticVar =
                             vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap], fldSeq, &structSize);
                         selectedStaticVar =
@@ -7921,8 +7915,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     {
                         ValueNum selectedStaticVar;
                         // We model statics as indices into the GcHeap (which is a subset of ByrefExposed).
-                        size_t structSize = 0;
-                        selectedStaticVar = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
+                        unsigned structSize = 0;
+                        selectedStaticVar   = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
                                                                       fldSeqForStaticVar, &structSize);
                         selectedStaticVar = vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, indType, structSize);
 
@@ -7949,7 +7943,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 {
                     // Get a field sequence for just the first field in the sequence
                     FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq2->GetFieldHandle());
-                    size_t        structSize     = 0;
+                    unsigned      structSize     = 0;
                     ValueNum      fldMapVN =
                         vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap], firstFieldOnly, &structSize);
 
