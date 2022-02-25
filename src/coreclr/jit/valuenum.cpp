@@ -3800,7 +3800,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
 //    The value number corresponding to memory after the assignment.
 
 ValueNum ValueNumStore::VNApplySelectorsAssign(
-    ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum elem, var_types indType, BasicBlock* block)
+    ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum elem, var_types indType)
 {
     if (fieldSeq == nullptr)
     {
@@ -3812,7 +3812,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
         // Skip any boxed pseudo fields, these are used for static struct fields and are
         // a side effect of using boxed values. We have s_field.boxed_data.x and we need
         // only s_field.x.
-        return VNApplySelectorsAssign(vnk, map, fieldSeq->GetNext(), elem, indType, block);
+        return VNApplySelectorsAssign(vnk, map, fieldSeq->GetNext(), elem, indType);
     }
 
     // Otherwise, fldHnd is a real field handle.
@@ -3834,7 +3834,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
         }
 #endif
         ValueNum fseqMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-        elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, fieldSeq->GetNext(), elem, indType, block);
+        elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, fieldSeq->GetNext(), elem, indType);
     }
     else
     {
@@ -4303,8 +4303,7 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
     {
         // Note that this does the right thing if "fldSeq" is null -- returns last "rhs" argument.
         // This is the value that should be stored at "arr[inx]".
-        newValAtInx =
-            vnStore->VNApplySelectorsAssign(VNK_Liberal, hAtArrTypeAtArrAtInx, fldSeq, rhsVN, indType, compCurBB);
+        newValAtInx = vnStore->VNApplySelectorsAssign(VNK_Liberal, hAtArrTypeAtArrAtInx, fldSeq, rhsVN, indType);
 
         var_types arrElemFldType = arrElemType; // Uses arrElemType unless we has a non-null fldSeq
         if (vnStore->IsVNFunc(newValAtInx))
@@ -7223,7 +7222,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
             }
 
             vnp = vnStore->VNPNormalPair(src->gtVNPair);
-            vnp = vnStore->VNPairApplySelectorsAssign(map, dstFieldSeq, vnp, dstLcl->GetType(), compCurBB);
+            vnp = vnStore->VNPairApplySelectorsAssign(map, dstFieldSeq, vnp, dstLcl->GetType());
         }
 
         dstSsaDef->SetVNP(vnp);
@@ -7545,7 +7544,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             }
 
                             vnp = vnStore->VNPairApplySelectorsAssign(vnp, lclNode->AsLclFld()->GetFieldSeq(),
-                                                                      rhsVNPair, lclNode->GetType(), compCurBB);
+                                                                      rhsVNPair, lclNode->GetType());
                         }
 
                         // TODO-MIKE-Cleanup: LCL_VAR should never have GTF_VAR_USEASG.
@@ -7589,7 +7588,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                         ValueNum storeVal = rhsVNPair.GetLiberal(); // The value number from the rhs of the assignment
                         storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, fgCurMemoryVN[GcHeap], fieldSeq,
-                                                                   storeVal, lhs->TypeGet(), compCurBB);
+                                                                   storeVal, lhs->TypeGet());
 
                         // It is not strictly necessary to set the lhs value number,
                         // but the dumps read better with it set to the 'storeVal' that we just computed
@@ -7666,7 +7665,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         if (fldSeq->GetNext() != nullptr)
                         {
                             storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, valAtAddr, fldSeq->GetNext(),
-                                                                       storeVal, indType, compCurBB);
+                                                                       storeVal, indType);
                         }
 
                         // From which we can construct the new ValueNumber for 'fldMap at normVal'
@@ -7677,9 +7676,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         lhs->gtVNPair.SetBoth(storeVal);
 
                         // Update the field map for firstField in GcHeap to this new value.
-                        ValueNum heapVN =
-                            vnStore->VNApplySelectorsAssign(VNK_Liberal, fgCurMemoryVN[GcHeap], firstFieldOnly,
-                                                            newFldMapVN, indType, compCurBB);
+                        ValueNum heapVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, fgCurMemoryVN[GcHeap],
+                                                                          firstFieldOnly, newFldMapVN, indType);
 
                         recordGcHeapStore(tree, heapVN DEBUGARG("StoreField"));
                     }

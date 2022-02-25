@@ -622,19 +622,20 @@ public:
     // to a location containing value "map" that will change the field addressed by "fieldSeq" to "rhs", leaving
     // all other indices in "map" the same.
     ValueNum VNApplySelectorsAssign(
-        ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType, BasicBlock* block);
+        ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType);
 
     ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
 
     ValueNumPair VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
 
-    ValueNumPair VNPairApplySelectorsAssign(
-        ValueNumPair map, FieldSeqNode* fieldSeq, ValueNumPair rhs, var_types indType, BasicBlock* block)
+    ValueNumPair VNPairApplySelectorsAssign(ValueNumPair  map,
+                                            FieldSeqNode* fieldSeq,
+                                            ValueNumPair  rhs,
+                                            var_types     indType)
     {
-        return ValueNumPair(VNApplySelectorsAssign(VNK_Liberal, map.GetLiberal(), fieldSeq, rhs.GetLiberal(), indType,
-                                                   block),
+        return ValueNumPair(VNApplySelectorsAssign(VNK_Liberal, map.GetLiberal(), fieldSeq, rhs.GetLiberal(), indType),
                             VNApplySelectorsAssign(VNK_Conservative, map.GetConservative(), fieldSeq,
-                                                   rhs.GetConservative(), indType, block));
+                                                   rhs.GetConservative(), indType));
     }
 
     ValueNum VNForBitCast(ValueNum src, var_types toType, var_types fromType);
