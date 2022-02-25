@@ -608,6 +608,7 @@ public:
                               ValueNum      map,
                               FieldSeqNode* fieldSeq,
                               unsigned*     finalStructSize = nullptr);
+    ValueNum MapExtractField(ValueNum map, CORINFO_FIELD_HANDLE field, unsigned* structSize);
 
     var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, CORINFO_CLASS_HANDLE* fieldTypeHandle);
 
@@ -623,6 +624,7 @@ public:
     // all other indices in "map" the same.
     ValueNum VNApplySelectorsAssign(
         ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType);
+    ValueNum MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field, ValueNum value, var_types type);
 
     ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
 
