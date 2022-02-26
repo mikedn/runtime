@@ -601,22 +601,20 @@ public:
 
     // Return the value number corresponding to constructing "MapSelect(map, f0)", where "f0" is the
     // (value number of) the first field in "fieldSeq".  (The type of this application will be the type of "f0".)
-    // If there are no remaining fields in "fieldSeq", return that value number; otherwise, return VNApplySelectors
+    // If there are no remaining fields in "fieldSeq", return that value number; otherwise, return MapExtractStructField
     // applied to that value number and the remainder of "fieldSeq". When the 'fieldSeq' specifies a TYP_STRUCT
     // then the size of the struct is returned by 'wbFinalStructSize' (when it is non-null)
-    ValueNum VNApplySelectors(ValueNumKind  vnk,
-                              ValueNum      map,
-                              FieldSeqNode* fieldSeq,
-                              unsigned*     finalStructSize = nullptr);
+    ValueNum MapExtractStructField(
+        ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout);
     ValueNum MapExtractField(ValueNum map, CORINFO_FIELD_HANDLE field, var_types* fieldType, ClassLayout** fieldLayout);
 
     var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, CORINFO_CLASS_HANDLE* fieldTypeHandle);
 
-    // Used after VNApplySelectors has determined that "selectedVN" is contained in a Map using VNForMapSelect
+    // Used after MapExtractStructField has determined that "selectedVN" is contained in a Map using VNForMapSelect
     // It determines whether the 'selectedVN' is of an appropriate type to be read using and indirection of 'indType'
     // If it is appropriate type then 'selectedVN' is returned, otherwise it may insert a cast to indType
     // or return a unique value number for an incompatible indType.
-    ValueNum VNApplySelectorsTypeCheck(ValueNum vn, unsigned structSize, var_types loadType);
+    ValueNum VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
 
     // Assumes that "map" represents a map that is addressable by the fields in "fieldSeq", to get
     // to a value of the type of "rhs".  Returns an expression for the RHS of an assignment, in the given "block",

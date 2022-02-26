@@ -3645,10 +3645,8 @@ var_types ValueNumStore::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, CORINFO_
     return CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle, fieldTypeHandle));
 }
 
-ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
-                                         ValueNum      map,
-                                         FieldSeqNode* fieldSeq,
-                                         unsigned*     finalStructSize)
+ValueNum ValueNumStore::MapExtractStructField(
+    ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout)
 {
     for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
@@ -3663,26 +3661,19 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
 
         CORINFO_FIELD_HANDLE fieldHandle     = fieldSeq->GetFieldHandle();
         CORINFO_CLASS_HANDLE fieldTypeHandle = NO_CLASS_HANDLE;
-        var_types            fieldType       = GetFieldType(fieldHandle, &fieldTypeHandle);
+        *fieldType                           = GetFieldType(fieldHandle, &fieldTypeHandle);
 
-        unsigned structSize = 0;
-
-        if (fieldType == TYP_STRUCT)
+        if (*fieldType == TYP_STRUCT)
         {
-            ClassLayout* layout = m_pComp->typGetObjLayout(fieldTypeHandle);
-
-            fieldType  = m_pComp->typGetStructType(layout);
-            structSize = layout->GetSize();
+            *fieldLayout = m_pComp->typGetObjLayout(fieldTypeHandle);
+            *fieldType   = m_pComp->typGetStructType(*fieldLayout);
+        }
+        else
+        {
+            *fieldLayout = nullptr;
         }
 
-        if (finalStructSize != nullptr)
-        {
-            *finalStructSize = structSize;
-        }
-
-        ValueNum fieldVN = VNForFieldHandle(fieldHandle);
-
-        map = VNForMapSelect(vnk, fieldType, map, fieldVN);
+        map = VNForMapSelect(vnk, *fieldType, map, VNForFieldHandle(fieldHandle));
     }
 
     return map;
@@ -3709,7 +3700,7 @@ ValueNum ValueNumStore::MapExtractField(ValueNum             map,
     return VNForMapSelect(VNK_Liberal, *fieldType, map, VNForFieldHandle(field));
 }
 
-ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, unsigned structSize, var_types loadType)
+ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)
 {
     var_types type = TypeOfVN(vn);
 
@@ -3718,8 +3709,9 @@ ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, unsigned structSi
         return vn;
     }
 
-    unsigned size     = (type == TYP_STRUCT) ? structSize : varTypeSize(type);
-    unsigned loadSize = varTypeSize(loadType);
+    unsigned structSize = layout == nullptr ? 0 : layout->GetSize();
+    unsigned size       = (type == TYP_STRUCT) ? structSize : varTypeSize(type);
+    unsigned loadSize   = varTypeSize(loadType);
 
     if (loadSize > size)
     {
@@ -3804,13 +3796,14 @@ ValueNum ValueNumStore::MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field,
 
 ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
 {
-    unsigned structSize = 0;
-    ValueNum liberalVN  = VNApplySelectors(VNK_Liberal, map.GetLiberal(), fieldSeq, &structSize);
-    liberalVN           = VNApplySelectorsTypeCheck(liberalVN, structSize, indType);
+    var_types    fieldType;
+    ClassLayout* fieldLayout;
+    ValueNum     liberalVN = MapExtractStructField(VNK_Liberal, map.GetLiberal(), fieldSeq, &fieldType, &fieldLayout);
+    liberalVN              = VNApplySelectorsTypeCheck(liberalVN, fieldLayout, indType);
 
-    structSize         = 0;
-    ValueNum conservVN = VNApplySelectors(VNK_Conservative, map.GetConservative(), fieldSeq, &structSize);
-    conservVN          = VNApplySelectorsTypeCheck(conservVN, structSize, indType);
+    ValueNum conservVN =
+        MapExtractStructField(VNK_Conservative, map.GetConservative(), fieldSeq, &fieldType, &fieldLayout);
+    conservVN = VNApplySelectorsTypeCheck(conservVN, fieldLayout, indType);
 
     return ValueNumPair(liberalVN, conservVN);
 }
@@ -4384,15 +4377,17 @@ ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum 
         }
 #endif // DEBUG
 
-        selectedElem            = wholeElem;
-        unsigned elemStructSize = 0;
+        selectedElem = wholeElem;
+
+        var_types    fieldType;
+        ClassLayout* fieldLayout = nullptr;
 
         if (fldSeq != nullptr)
         {
-            selectedElem = vnStore->VNApplySelectors(VNK_Liberal, wholeElem, fldSeq, &elemStructSize);
+            selectedElem = vnStore->MapExtractStructField(VNK_Liberal, wholeElem, fldSeq, &fieldType, &fieldLayout);
         }
 
-        selectedElem = vnStore->VNApplySelectorsTypeCheck(selectedElem, elemStructSize, indType);
+        selectedElem = vnStore->VNApplySelectorsTypeCheck(selectedElem, fieldLayout, indType);
         selectedElem = vnStore->VNWithExc(selectedElem, excVN);
 
 #ifdef DEBUG
@@ -7748,11 +7743,12 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // This is a reference to heap memory.
                         // We model statics as indices into GcHeap (which is a subset of ByrefExposed).
 
-                        unsigned structSize = 0;
-                        ValueNum selectedStaticVar =
-                            vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap], fldSeq, &structSize);
+                        var_types    fieldType;
+                        ClassLayout* fieldLayout;
+                        ValueNum selectedStaticVar = vnStore->MapExtractStructField(VNK_Liberal, fgCurMemoryVN[GcHeap],
+                                                                                    fldSeq, &fieldType, &fieldLayout);
                         selectedStaticVar =
-                            vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, structSize, tree->TypeGet());
+                            vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, fieldLayout, tree->TypeGet());
 
                         clsVarVNPair.SetLiberal(selectedStaticVar);
                         // The conservative interpretation always gets a new, unique VN.
@@ -7783,10 +7779,12 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     {
                         ValueNum selectedStaticVar;
                         // We model statics as indices into the GcHeap (which is a subset of ByrefExposed).
-                        unsigned structSize = 0;
-                        selectedStaticVar   = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
-                                                                      fldSeqForStaticVar, &structSize);
-                        selectedStaticVar = vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, structSize, indType);
+                        var_types    fieldType;
+                        ClassLayout* fieldLayout;
+                        selectedStaticVar =
+                            vnStore->MapExtractStructField(VNK_Liberal, fgCurMemoryVN[GcHeap], fldSeqForStaticVar,
+                                                           &fieldType, &fieldLayout);
+                        selectedStaticVar = vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, fieldLayout, indType);
 
                         tree->gtVNPair.SetLiberal(selectedStaticVar);
                         tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, indType));
@@ -7818,14 +7816,13 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     vn = vnStore->MapExtractField(vn, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
                     vn = vnStore->VNForMapSelect(VNK_Liberal, vnStore->TypeOfVN(vn), vn, objVN);
 
-                    unsigned structSize = fieldLayout == nullptr ? 0 : fieldLayout->GetSize();
-
                     if (fieldSeq->GetNext() != nullptr)
                     {
-                        vn = vnStore->VNApplySelectors(VNK_Liberal, vn, fieldSeq->GetNext(), &structSize);
+                        vn = vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq->GetNext(), &fieldType,
+                                                            &fieldLayout);
                     }
 
-                    vn = vnStore->VNApplySelectorsTypeCheck(vn, structSize, tree->GetType());
+                    vn = vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, tree->GetType());
 
                     tree->SetVNP(vnStore->VNPWithExc({vn, vnStore->VNForExpr(compCurBB, tree->GetType())}, addrXvnp));
                 }
