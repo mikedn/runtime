@@ -7595,19 +7595,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum  fieldMapVN = vnStore->MapExtractField(heapVN, fldSeq->GetFieldHandle(), &structSize);
                         var_types fieldMapType = vnStore->TypeOfVN(fieldMapVN);
 
-                        ValueNum objVN;
-
-                        if (obj != nullptr)
-                        {
-                            ValueNum objExcSetVN;
-                            vnStore->VNUnpackExc(obj->GetLiberalVN(), &objVN, &objExcSetVN);
-                            vnExcSet = vnStore->VNExcSetUnion(vnExcSet, objExcSetVN);
-                        }
-                        else
-                        {
-                            objVN = vnStore->VNNormalValue(staticObj->GetLiberalVN());
-                        }
-
+                        ValueNum objVN   = vnStore->VNNormalValue((obj != nullptr ? obj : staticObj)->GetLiberalVN());
                         ValueNum valueVN = rhsVNPair.GetLiberal();
 
                         if (FieldSeqNode* structFieldSeq = fldSeq->GetNext())
