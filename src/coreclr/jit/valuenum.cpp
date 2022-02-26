@@ -3685,7 +3685,7 @@ ValueNum ValueNumStore::MapExtractField(ValueNum             map,
         *fieldLayout = nullptr;
     }
 
-    return VNForMapSelect(VNK_Liberal, *fieldType, map, VNForFieldHandle(field));
+    return VNForMapSelect(VNK_Liberal, TYP_STRUCT, map, VNForFieldHandle(field));
 }
 
 ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)
@@ -7601,7 +7601,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ClassLayout* fieldLayout;
                         ValueNum     fieldMapVN =
                             vnStore->MapExtractField(heapVN, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
-                        var_types fieldMapType = vnStore->TypeOfVN(fieldMapVN);
 
                         ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
                         ValueNum valueVN = rhsVNPair.GetLiberal();
@@ -7613,8 +7612,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                 structFieldSeq = structFieldSeq->GetNext();
                             }
 
-                            ValueNum objFieldMapVN =
-                                vnStore->VNForMapSelect(VNK_Liberal, fieldMapType, fieldMapVN, objVN);
+                            ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
                             valueVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, objFieldMapVN, structFieldSeq,
                                                                       valueVN, lhs->GetType());
                         }
@@ -7841,7 +7839,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     var_types    fieldType;
                     ClassLayout* fieldLayout;
                     vn = vnStore->MapExtractField(vn, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
-                    vn = vnStore->VNForMapSelect(VNK_Liberal, vnStore->TypeOfVN(vn), vn, objVN);
+                    vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, vn, objVN);
 
                     if (fieldSeq->GetNext() != nullptr)
                     {
