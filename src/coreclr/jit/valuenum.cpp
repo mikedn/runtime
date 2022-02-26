@@ -2137,30 +2137,17 @@ ValueNum ValueNumStore::VNForFunc(
     return resultVN;
 }
 
-//------------------------------------------------------------------------------
-// VNForMapStore : Evaluate VNF_MapStore with the given arguments.
-//
-//
-// Arguments:
-//    typ  -    Value type
-//    arg0VN  - Map value number
-//    arg1VN  - Index value number
-//    arg2VN  - New value for map[index]
-//
-// Return Value:
-//    Value number for the result of the evaluation.
-
-ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum arg0VN, ValueNum arg1VN, ValueNum arg2VN)
+ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum mapVN, ValueNum indexVN, ValueNum valueVN)
 {
     BasicBlock* const            bb      = m_pComp->compCurBB;
     BasicBlock::loopNumber const loopNum = bb->bbNatLoopNum;
-    ValueNum const               result  = VNForFunc(typ, VNF_MapStore, arg0VN, arg1VN, arg2VN, loopNum);
+    ValueNum const               result  = VNForFunc(typ, VNF_MapStore, mapVN, indexVN, valueVN, loopNum);
 
 #ifdef DEBUG
     if (m_pComp->verbose)
     {
-        printf("    VNForMapStore(" FMT_VN ", " FMT_VN ", " FMT_VN "):%s in " FMT_BB " returns ", arg0VN, arg1VN,
-               arg2VN, varTypeName(typ), bb->bbNum);
+        printf("    VNForMapStore(" FMT_VN ", " FMT_VN ", " FMT_VN "):%s in " FMT_BB " returns ", mapVN, indexVN,
+               valueVN, varTypeName(typ), bb->bbNum);
         m_pComp->vnPrint(result, 1);
         printf("\n");
     }
@@ -2168,29 +2155,14 @@ ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum arg0VN, ValueNum a
     return result;
 }
 
-//------------------------------------------------------------------------------
-// VNForMapSelect : Evaluate VNF_MapSelect with the given arguments.
-//
-//
-// Arguments:
-//    vnk  -    Value number kind
-//    typ  -    Value type
-//    arg0VN  - Map value number
-//    arg1VN  - Index value number
-//
-// Return Value:
-//    Value number for the result of the evaluation.
-//
-// Notes:
-//    This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
-//    "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
-//    (liberal/conservative) to read from the SSA def referenced in the phi argument.
-
-ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum arg0VN, ValueNum arg1VN)
+// This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
+// "select(m1, ind)", ..., "select(mk, ind)" to see if they agree. It needs to know which kind of value number
+// (liberal/conservative) to read from the SSA def referenced in the phi argument.
+ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum mapVN, ValueNum indexVN)
 {
     int      budget          = m_mapSelectBudget;
     bool     usedRecursiveVN = false;
-    ValueNum result          = VNForMapSelectWork(vnk, typ, arg0VN, arg1VN, &budget, &usedRecursiveVN);
+    ValueNum result          = VNForMapSelectWork(vnk, typ, mapVN, indexVN, &budget, &usedRecursiveVN);
 
     // The remaining budget should always be between [0..m_mapSelectBudget]
     assert((budget >= 0) && (budget <= m_mapSelectBudget));
@@ -2198,7 +2170,7 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
 #ifdef DEBUG
     if (m_pComp->verbose)
     {
-        printf("    VNForMapSelect(" FMT_VN ", " FMT_VN "):%s returns ", arg0VN, arg1VN, varTypeName(typ));
+        printf("    VNForMapSelect(" FMT_VN ", " FMT_VN "):%s returns ", mapVN, indexVN, varTypeName(typ));
         m_pComp->vnPrint(result, 1);
         printf("\n");
     }
