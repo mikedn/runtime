@@ -7552,7 +7552,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     {
                         ValueNum heap  = fgCurMemoryVN[GcHeap];
                         ValueNum value = rhsVNPair.GetLiberal();
-                        heap = vnStore->MapInsertField(heap, clsVarAddr->GetFieldHandle(), value, lhs->GetType());
+                        heap           = vnStore->VNForMapStore(TYP_STRUCT, heap,
+                                                      vnStore->VNForFieldHandle(clsVarAddr->GetFieldHandle()), value);
 
                         // It is not strictly necessary to set the lhs value number,
                         // but the dumps read better with it set to the 'storeVal' that we just computed
