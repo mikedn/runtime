@@ -4084,6 +4084,7 @@ public:
     // If "level" is non-zero, we also print out a partial expansion of the value.
     void vnpPrint(ValueNumPair vnp, unsigned level);
     void vnPrint(ValueNum vn, unsigned level);
+    void vnPrintHeapVN(ValueNum vn);
 #endif
 
     bool fgDominate(BasicBlock* b1, BasicBlock* b2); // Return true if b1 dominates b2

@@ -6932,14 +6932,7 @@ void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(co
         fgCurMemoryVN[ByrefExposed] = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("    fgCurMemoryVN[GcHeap] = ", msg);
-        vnPrint(gcHeapVN, 1);
-        printf("\n");
-    }
-#endif
+    INDEBUG(vnPrintHeapVN(gcHeapVN));
 
     // If byrefStatesMatchGcHeapStates is true, then since GcHeap and ByrefExposed share
     // their SSA map entries, the below will effectively update both.
@@ -7596,6 +7589,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     else if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
                     {
                         ValueNum heapVN = fgCurMemoryVN[GcHeap];
+                        INDEBUG(vnPrintHeapVN(heapVN));
 
                         var_types    fieldType;
                         ClassLayout* fieldLayout;
@@ -7825,14 +7819,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 else if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
                 {
                     ValueNum vn = fgCurMemoryVN[GcHeap];
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("    fgCurMemoryVN[GcHeap] = ");
-                        vnPrint(vn, 1);
-                        printf("\n");
-                    }
-#endif
+                    INDEBUG(vnPrintHeapVN(vn));
 
                     ValueNum objVN = vnStore->VNNormalValue(obj->GetLiberalVN());
 
@@ -9635,6 +9622,16 @@ void Compiler::vnPrint(ValueNum vn, unsigned level)
         {
             vnStore->vnDump(this, vn);
         }
+    }
+}
+
+void Compiler::vnPrintHeapVN(ValueNum vn)
+{
+    if (verbose)
+    {
+        printf("    fgCurMemoryVN[GcHeap] = ");
+        vnPrint(vn, 1);
+        printf("\n");
     }
 }
 
