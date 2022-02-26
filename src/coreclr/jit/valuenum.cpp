@@ -2146,12 +2146,12 @@ ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum mapVN, ValueNum in
 #ifdef DEBUG
     if (m_pComp->verbose)
     {
-        printf("    VNForMapStore(" FMT_VN ", " FMT_VN ", " FMT_VN "):%s in " FMT_BB " returns ", mapVN, indexVN,
-               valueVN, varTypeName(typ), bb->bbNum);
+        printf("    %s ", varTypeName(typ));
         m_pComp->vnPrint(result, 1);
         printf("\n");
     }
 #endif
+
     return result;
 }
 
@@ -2170,11 +2170,12 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
 #ifdef DEBUG
     if (m_pComp->verbose)
     {
-        printf("    VNForMapSelect(" FMT_VN ", " FMT_VN "):%s returns ", mapVN, indexVN, varTypeName(typ));
+        printf("    %s ", varTypeName(typ));
         m_pComp->vnPrint(result, 1);
         printf("\n");
     }
 #endif
+
     return result;
 }
 
@@ -3680,10 +3681,6 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
         }
 
         ValueNum fieldVN = VNForFieldHandle(fieldHandle);
-
-        JITDUMP("  VNApplySelectors:\n    VNForHandle(%s) is " FMT_VN ", fieldType is %s, size = %u\n",
-                m_pComp->eeGetFieldName(fieldHandle), fieldVN, varTypeName(fieldType),
-                fieldType == TYP_STRUCT ? structSize : varTypeSize(fieldType));
 
         map = VNForMapSelect(vnk, fieldType, map, fieldVN);
     }
@@ -5782,36 +5779,50 @@ void ValueNumStore::vnDumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isH
 
 void ValueNumStore::vnDumpMapSelect(Compiler* comp, VNFuncApp* mapSelect)
 {
-    assert(mapSelect->m_func == VNF_MapSelect); // Precondition.
+    assert(mapSelect->m_func == VNF_MapSelect);
 
-    ValueNum mapVN   = mapSelect->m_args[0]; // First arg is the map id
-    ValueNum indexVN = mapSelect->m_args[1]; // Second arg is the index
+    ValueNum mapVN   = mapSelect->m_args[0];
+    ValueNum indexVN = mapSelect->m_args[1];
 
+    printf("MapSelect(");
     comp->vnPrint(mapVN, 0);
-    printf("[");
+    printf(", ");
     comp->vnPrint(indexVN, 0);
-    printf("]");
+    if (IsVNHandle(indexVN) && ((GetHandleFlags(indexVN) & GTF_ICON_FIELD_HDL) != 0))
+    {
+        CORINFO_FIELD_HANDLE fieldHandle =
+            reinterpret_cast<CORINFO_FIELD_HANDLE>(ConstantValue<target_size_t>(indexVN));
+        printf(" (%s)", comp->eeGetFieldName(fieldHandle));
+    }
+    printf(")");
 }
 
 void ValueNumStore::vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore)
 {
-    assert(mapStore->m_func == VNF_MapStore); // Precondition.
+    assert(mapStore->m_func == VNF_MapStore);
 
-    ValueNum mapVN    = mapStore->m_args[0]; // First arg is the map id
-    ValueNum indexVN  = mapStore->m_args[1]; // Second arg is the index
-    ValueNum newValVN = mapStore->m_args[2]; // Third arg is the new value
-    unsigned loopNum  = mapStore->m_args[3]; // Fourth arg is the loop num
+    ValueNum mapVN    = mapStore->m_args[0];
+    ValueNum indexVN  = mapStore->m_args[1];
+    ValueNum newValVN = mapStore->m_args[2];
+    unsigned loopNum  = mapStore->m_args[3];
 
+    printf("MapStore(");
     comp->vnPrint(mapVN, 0);
-    printf("[");
+    printf(", ");
     comp->vnPrint(indexVN, 0);
-    printf(" := ");
+    if (IsVNHandle(indexVN) && ((GetHandleFlags(indexVN) & GTF_ICON_FIELD_HDL) != 0))
+    {
+        CORINFO_FIELD_HANDLE fieldHandle =
+            reinterpret_cast<CORINFO_FIELD_HANDLE>(ConstantValue<target_size_t>(indexVN));
+        printf(" (%s)", comp->eeGetFieldName(fieldHandle));
+    }
+    printf(", ");
     comp->vnPrint(newValVN, 0);
-    printf("]");
     if (loopNum != BasicBlock::NOT_IN_LOOP)
     {
-        printf("@" FMT_LP, loopNum);
+        printf(", " FMT_LP, loopNum);
     }
+    printf(")");
 }
 
 void ValueNumStore::vnDumpMemOpaque(Compiler* comp, VNFuncApp* memOpaque)
@@ -6804,7 +6815,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
                  ++ki)
             {
                 CORINFO_FIELD_HANDLE fldHnd   = ki.Get();
-                ValueNum             fldHndVN = vnStore->VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
+                ValueNum             fldHndVN = vnStore->VNForFieldHandle(fldHnd);
 
 #ifdef DEBUG
                 if (verbose)
@@ -6914,11 +6925,11 @@ void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(co
 #ifdef DEBUG
     if (verbose)
     {
-        printf("  fgCurMemoryVN[GcHeap] assigned for %s at ", msg);
-        Compiler::printTreeID(curTree);
-        printf(" to VN: " FMT_VN ".\n", gcHeapVN);
+        printf("    fgCurMemoryVN[GcHeap] = ", msg);
+        vnPrint(gcHeapVN, 1);
+        printf("\n");
     }
-#endif // DEBUG
+#endif
 
     // If byrefStatesMatchGcHeapStates is true, then since GcHeap and ByrefExposed share
     // their SSA map entries, the below will effectively update both.
@@ -8361,7 +8372,7 @@ ValueNum ValueNumStore::VNForCast(ValueNum  srcVN,
 #ifdef DEBUG
     if (m_pComp->verbose)
     {
-        printf("    VNForCast(" FMT_VN ", " FMT_VN ") returns ", srcVN, castTypeVN);
+        printf("    %s ", varTypeName(resultType));
         m_pComp->vnPrint(resultVN, 1);
         printf("\n");
     }
