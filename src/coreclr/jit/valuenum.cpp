@@ -3758,22 +3758,47 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
 {
     assert(!fieldSeq->IsBoxedValueField());
 
-    CORINFO_FIELD_HANDLE field     = fieldSeq->GetFieldHandle();
-    ValueNum             fieldVN   = VNForFieldHandle(field);
-    var_types            fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(field));
-
-    if (FieldSeqNode* nextFieldSeq = fieldSeq->GetNext())
+    struct
     {
-        ValueNum fieldValue = VNForMapSelect(vnk, fieldType, map, fieldVN);
-        value               = VNApplySelectorsAssign(vnk, fieldValue, nextFieldSeq, value, storeType);
-    }
-    else
+        var_types fieldType;
+        ValueNum  fieldVN;
+        ValueNum  mapVN;
+    } fields[FieldSeqNode::MaxLength];
+
+    unsigned count = 0;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext(), count++)
     {
-        value = VNApplySelectorsAssignTypeCoerce(value, storeType);
+        assert(count < _countof(fields));
+
+        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
+
+        fields[count].fieldVN   = VNForFieldHandle(fieldHandle);
+        fields[count].fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle));
     }
 
-    // TODO-MIKE: TYP_STRUCT isn't quite right here, it could be a SIMD type.
-    return VNForMapStore(TYP_STRUCT, map, fieldVN, value);
+    fields[0].mapVN = map;
+
+    for (unsigned i = 0; i < count - 1; i++)
+    {
+        assert(varTypeIsStruct(fields[i].fieldType));
+        fields[i + 1].mapVN = VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
+    }
+
+    // TODO-MIKE: This is nonsense, it tries to coerce the stored value to the store type but the
+    // stored value should already have the correct type (e.g. ASG(IND.double, some_float_value)
+    // is invalid IR to begin with, there's no need to handle such a case). At the same time this
+    // completely ignores the field type so if one stores to a FLOAT field by using an INT indir
+    // chaos ensues. Do these poeple think before writing code?!?
+    value = VNApplySelectorsAssignTypeCoerce(value, storeType);
+
+    for (unsigned i = 1; i <= count; i++)
+    {
+        // TODO-MIKE: TYP_STRUCT isn't quite right here, it could be a SIMD type.
+        value = VNForMapStore(TYP_STRUCT, fields[count - i].mapVN, fields[count - i].fieldVN, value);
+    }
+
+    return value;
 }
 
 ValueNum ValueNumStore::MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field, ValueNum value, var_types type)
