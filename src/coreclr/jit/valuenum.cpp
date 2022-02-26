@@ -7564,10 +7564,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                     lhs->gtVNPair = rhsVNPair;
 
-                    ValueNum      argVN     = arg->gtVNPair.GetLiberal();
-                    GenTree*      obj       = nullptr;
-                    GenTree*      staticObj = nullptr;
-                    FieldSeqNode* fldSeq    = nullptr;
+                    ValueNum      argVN  = arg->gtVNPair.GetLiberal();
+                    GenTree*      obj    = nullptr;
+                    FieldSeqNode* fldSeq = nullptr;
 
                     VNFuncApp funcApp;
                     if (vnStore->GetVNFunc(vnStore->VNNormalValue(argVN), &funcApp) &&
@@ -7585,17 +7584,15 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum heapVN = fgValueNumberArrIndexAssign(funcApp, rhsVNPair.GetLiberal(), lhs->GetType());
                         recordGcHeapStore(tree, heapVN DEBUGARG("array element store"));
                     }
-                    else if (optIsFieldAddr(arg, &obj, &staticObj, &fldSeq))
+                    else if (optIsFieldAddr(arg, &obj, &fldSeq))
                     {
-                        assert((obj != nullptr) || (staticObj != nullptr));
-
                         ValueNum heapVN = fgCurMemoryVN[GcHeap];
 
                         unsigned  structSize;
                         ValueNum  fieldMapVN = vnStore->MapExtractField(heapVN, fldSeq->GetFieldHandle(), &structSize);
                         var_types fieldMapType = vnStore->TypeOfVN(fieldMapVN);
 
-                        ValueNum objVN   = vnStore->VNNormalValue((obj != nullptr ? obj : staticObj)->GetLiberalVN());
+                        ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
                         ValueNum valueVN = rhsVNPair.GetLiberal();
 
                         if (FieldSeqNode* structFieldSeq = fldSeq->GetNext())
@@ -7648,7 +7645,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             GenTree*      addr       = tree->AsIndir()->GetAddr();
             FieldSeqNode* fieldSeq   = nullptr;
             GenTree*      obj        = nullptr;
-            GenTree*      staticObj  = nullptr;
             bool          isVolatile = tree->AsIndir()->IsVolatile();
 
             // See if the addr has any exceptional part.
@@ -7809,12 +7805,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     // values, so we don't have their exceptions. Maybe we should.
                     tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->GetType()));
                 }
-                else if (optIsFieldAddr(addr, &obj, &staticObj, &fieldSeq))
+                else if (optIsFieldAddr(addr, &obj, &fieldSeq))
                 {
-                    assert((obj != nullptr) || (staticObj != nullptr));
-
-                    ValueNum objVN = obj != nullptr ? objVN = obj->GetVN(VNK_Liberal) : staticObj->GetVN(VNK_Liberal);
-                    objVN                                   = vnStore->VNNormalValue(objVN);
+                    ValueNum objVN = vnStore->VNNormalValue(obj->GetLiberalVN());
 
                     ValueNum memVN      = fgCurMemoryVN[GcHeap];
                     unsigned structSize = 0;

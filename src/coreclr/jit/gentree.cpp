@@ -12599,7 +12599,7 @@ ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
     return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
 }
 
-bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
+bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, FieldSeqNode** pFldSeq)
 {
     FieldSeqNode* fieldSeq     = nullptr;
     bool          mustBeStatic = false;
@@ -12649,8 +12649,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
 
     if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
-        *pObj    = nullptr;
-        *pStatic = addr;
+        *pObj    = addr;
         *pFldSeq = fieldSeq;
 
         return true;
@@ -12761,8 +12760,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
     if ((staticStructFldSeq != nullptr) &&
         gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->GetFieldHandle()))
     {
-        *pObj    = nullptr;
-        *pStatic = addr;
+        *pObj    = addr;
         *pFldSeq = GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
     }
     else
@@ -12779,7 +12777,6 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
         assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
 
         *pObj    = addr;
-        *pStatic = nullptr;
         *pFldSeq = fieldSeq;
     }
 

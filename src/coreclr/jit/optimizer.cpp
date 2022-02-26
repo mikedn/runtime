@@ -7236,11 +7236,10 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     {
                         // We are only interested in IsFieldAddr()'s fldSeq out parameter.
                         //
-                        GenTree*      obj          = nullptr; // unused
-                        GenTree*      staticOffset = nullptr; // unused
-                        FieldSeqNode* fldSeq       = nullptr;
+                        GenTree*      obj    = nullptr; // unused
+                        FieldSeqNode* fldSeq = nullptr;
 
-                        if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
+                        if (optIsFieldAddr(arg, &obj, &fldSeq))
                         {
                             AddModifiedFieldAllContainingLoops(mostNestedLoop, fldSeq->GetFieldHandle());
                             // Conservatively assume byrefs may alias this object.
