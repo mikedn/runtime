@@ -3794,18 +3794,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
 ValueNum ValueNumStore::VNApplySelectorsAssign(
     ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum elem, var_types indType)
 {
-    if (fieldSeq == nullptr)
-    {
-        return VNApplySelectorsAssignTypeCoerce(elem, indType);
-    }
-
-    if (fieldSeq->IsBoxedValueField())
-    {
-        // Skip any boxed pseudo fields, these are used for static struct fields and are
-        // a side effect of using boxed values. We have s_field.boxed_data.x and we need
-        // only s_field.x.
-        fieldSeq = fieldSeq->GetNext();
-    }
+    assert(!fieldSeq->IsBoxedValueField());
 
     // Otherwise, fldHnd is a real field handle.
     CORINFO_FIELD_HANDLE fldHnd   = fieldSeq->GetFieldHandle();
@@ -3815,7 +3804,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
     var_types   fieldType = JITtype2varType(fieldCit);
 
     ValueNum elemAfter;
-    if (fieldSeq->GetNext())
+    if (FieldSeqNode* nextFieldSeq = fieldSeq->GetNext())
     {
 #ifdef DEBUG
         if (m_pComp->verbose)
@@ -3826,7 +3815,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
         }
 #endif
         ValueNum fseqMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-        elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, fieldSeq->GetNext(), elem, indType);
+        elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, nextFieldSeq, elem, indType);
     }
     else
     {
@@ -4300,9 +4289,14 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
     }
     else
     {
-        // Note that this does the right thing if "fldSeq" is null -- returns last "rhs" argument.
-        // This is the value that should be stored at "arr[inx]".
-        newValAtInx = vnStore->VNApplySelectorsAssign(VNK_Liberal, hAtArrTypeAtArrAtInx, fldSeq, rhsVN, indType);
+        if (fldSeq == nullptr)
+        {
+            newValAtInx = vnStore->VNApplySelectorsAssignTypeCoerce(rhsVN, indType);
+        }
+        else
+        {
+            newValAtInx = vnStore->VNApplySelectorsAssign(VNK_Liberal, hAtArrTypeAtArrAtInx, fldSeq, rhsVN, indType);
+        }
 
         var_types arrElemFldType = arrElemType; // Uses arrElemType unless we has a non-null fldSeq
         if (vnStore->IsVNFunc(newValAtInx))
@@ -7646,9 +7640,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldMapType, fieldMapVN, objVN);
                         ValueNum valueVN       = rhsVNPair.GetLiberal();
 
-                        if (fldSeq->GetNext() != nullptr)
+                        if (FieldSeqNode* structFieldSeq = fldSeq->GetNext())
                         {
-                            valueVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, objFieldMapVN, fldSeq->GetNext(),
+                            if (structFieldSeq->IsBoxedValueField())
+                            {
+                                structFieldSeq = structFieldSeq->GetNext();
+                            }
+
+                            valueVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, objFieldMapVN, structFieldSeq,
                                                                       valueVN, lhs->GetType());
                         }
 
