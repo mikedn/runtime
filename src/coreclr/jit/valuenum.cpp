@@ -3773,75 +3773,35 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
     return VNForCast(srcVN, storeType, srcType);
 }
 
-//------------------------------------------------------------------------
-// VNApplySelectorsAssign: Compute the value number corresponding to "map" but with
-//    the element at "fieldSeq" updated to have type "elem"; this is the new memory
-//    value for an assignment of value "elem" into the memory at location "fieldSeq"
-//    that occurs in block "block" and has type "indType" (so long as the selectors
-//    into that memory occupy disjoint locations, which is true for GcHeap).
-//
-// Arguments:
-//    vnk - Identifies whether to recurse to Conservative or Liberal value numbers
-//          when recursing through phis
-//    map - Value number for the field map before the assignment
-//    elem - Value number for the value being stored (to the given field)
-//    indType - Type of the indirection storing the value to the field
-//    block - Block where the assignment occurs
-//
-// Return Value:
-//    The value number corresponding to memory after the assignment.
-
+// Compute the value number corresponding to "map" with the element "fieldSeq"
+// updated to "value" via a store of type "storeType".
 ValueNum ValueNumStore::VNApplySelectorsAssign(
-    ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum elem, var_types indType)
+    ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum value, var_types storeType)
 {
     assert(!fieldSeq->IsBoxedValueField());
 
-    // Otherwise, fldHnd is a real field handle.
-    CORINFO_FIELD_HANDLE fldHnd   = fieldSeq->GetFieldHandle();
-    ValueNum             fldHndVN = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
-    noway_assert(fldHnd != nullptr);
-    CorInfoType fieldCit  = m_pComp->info.compCompHnd->getFieldType(fldHnd);
-    var_types   fieldType = JITtype2varType(fieldCit);
+    CORINFO_FIELD_HANDLE field     = fieldSeq->GetFieldHandle();
+    ValueNum             fieldVN   = VNForFieldHandle(field);
+    var_types            fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(field));
 
-    ValueNum elemAfter;
     if (FieldSeqNode* nextFieldSeq = fieldSeq->GetNext())
     {
-#ifdef DEBUG
-        if (m_pComp->verbose)
-        {
-            const char* modName;
-            const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
-            printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s\n", fldName, fldHndVN, varTypeName(fieldType));
-        }
-#endif
-        ValueNum fseqMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-        elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, nextFieldSeq, elem, indType);
+        ValueNum fieldValue = VNForMapSelect(vnk, fieldType, map, fieldVN);
+        value               = VNApplySelectorsAssign(vnk, fieldValue, nextFieldSeq, value, storeType);
     }
     else
     {
-#ifdef DEBUG
-        if (m_pComp->verbose)
-        {
-            if (fieldSeq->GetNext() == nullptr)
-            {
-                printf("  VNApplySelectorsAssign:\n");
-            }
-            const char* modName;
-            const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
-            printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s\n", fldName, fldHndVN, varTypeName(fieldType));
-        }
-#endif
-        elemAfter = VNApplySelectorsAssignTypeCoerce(elem, indType);
+        value = VNApplySelectorsAssignTypeCoerce(value, storeType);
     }
 
-    return VNForMapStore(fieldType, map, fldHndVN, elemAfter);
+    return VNForMapStore(fieldType, map, fieldVN, value);
 }
 
 ValueNum ValueNumStore::MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field, ValueNum value, var_types type)
 {
     var_types fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(field));
     value               = VNApplySelectorsAssignTypeCoerce(value, type);
-    return VNForMapStore(fieldType, map, VNForHandle(reinterpret_cast<ssize_t>(field), GTF_ICON_FIELD_HDL), value);
+    return VNForMapStore(fieldType, map, VNForFieldHandle(field), value);
 }
 
 ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
