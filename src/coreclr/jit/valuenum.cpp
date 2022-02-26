@@ -3784,7 +3784,8 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
         value = VNApplySelectorsAssignTypeCoerce(value, storeType);
     }
 
-    return VNForMapStore(fieldType, map, fieldVN, value);
+    // TODO-MIKE: TYP_STRUCT isn't quite right here, it could be a SIMD type.
+    return VNForMapStore(TYP_STRUCT, map, fieldVN, value);
 }
 
 ValueNum ValueNumStore::MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field, ValueNum value, var_types type)
@@ -7609,9 +7610,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // previously that was incorrectly done when storing to the heap map. It's
                         // the store value that may need coercion, the field map value is always
                         // treated as if it's a struct.
-                        // Use of fieldMapType as type is also likely to be bogus, the result of a
-                        // map store is supposed to be a struct type, never a primitive type.
-                        fieldMapVN = vnStore->VNForMapStore(fieldMapType, fieldMapVN, objVN, valueVN);
+                        fieldMapVN = vnStore->VNForMapStore(TYP_STRUCT, fieldMapVN, objVN, valueVN);
 
                         heapVN =
                             vnStore->VNForMapStore(TYP_STRUCT, heapVN,
