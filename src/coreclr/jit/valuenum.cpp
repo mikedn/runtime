@@ -3804,7 +3804,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
         // Skip any boxed pseudo fields, these are used for static struct fields and are
         // a side effect of using boxed values. We have s_field.boxed_data.x and we need
         // only s_field.x.
-        return VNApplySelectorsAssign(vnk, map, fieldSeq->GetNext(), elem, indType);
+        fieldSeq = fieldSeq->GetNext();
     }
 
     // Otherwise, fldHnd is a real field handle.
