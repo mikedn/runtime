@@ -6246,23 +6246,30 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
 {
     assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
 
+    var_types    type   = CorTypeToVarType(fieldInfo.fieldType);
+    ClassLayout* layout = type != TYP_STRUCT ? nullptr : typGetObjLayout(fieldInfo.structType);
+
     if ((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
         (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
         (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER))
     {
         GenTree* addr = impImportStaticFieldAddressHelper(opcode, resolvedToken, fieldInfo);
 
+        if ((layout != nullptr) && addr->IsFieldAddr())
+        {
+            addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
+        }
+
         if (opcode == CEE_LDSFLDA)
         {
             return addr;
         }
 
-        var_types type = CorTypeToVarType(fieldInfo.fieldType);
-        GenTree*  indir;
+        GenTree* indir;
 
-        if (varTypeIsStruct(type))
+        if (type == TYP_STRUCT)
         {
-            indir = gtNewObjNode(fieldInfo.structType, addr);
+            indir = gtNewObjNode(layout, addr);
         }
         else
         {
@@ -6297,7 +6304,6 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
     void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
     // We should always be able to access this static's address directly
     assert(pFldAddr == nullptr);
-    var_types type = CorTypeToVarType(fieldInfo.fieldType);
 
     // Replace static read-only fields with constant if possible
     if ((opcode == CEE_LDSFLD) && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) != 0) &&
@@ -6367,6 +6373,11 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
 
             fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
             addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+
+            if (layout != nullptr)
+            {
+                addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
+            }
         }
 
         return addr;
@@ -6409,9 +6420,14 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
 
+        if (layout != nullptr)
+        {
+            addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
+        }
+
         if (type == TYP_STRUCT)
         {
-            indir = gtNewObjNode(fieldInfo.structType, addr);
+            indir = gtNewObjNode(layout, addr);
         }
         else
         {
