@@ -596,9 +596,6 @@ public:
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
 
-// This controls extra tracing of the "evaluation" of "VNF_MapSelect" functions.
-#define FEATURE_VN_TRACE_APPLY_SELECTORS 1
-
     // Return the value number corresponding to constructing "MapSelect(map, f0)", where "f0" is the
     // (value number of) the first field in "fieldSeq".  (The type of this application will be the type of "f0".)
     // If there are no remaining fields in "fieldSeq", return that value number; otherwise, return MapExtractStructField

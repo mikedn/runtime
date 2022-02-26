@@ -2265,12 +2265,6 @@ TailCall:
                 // select(store(m, i, v), i) == v
                 if (funcApp.m_args[1] == arg1VN)
                 {
-#if FEATURE_VN_TRACE_APPLY_SELECTORS
-                    JITDUMP("      AX1: select([" FMT_VN "]store(" FMT_VN ", " FMT_VN ", " FMT_VN "), " FMT_VN
-                            ") ==> " FMT_VN ".\n",
-                            funcApp.m_args[0], arg0VN, funcApp.m_args[1], funcApp.m_args[2], arg1VN, funcApp.m_args[2]);
-#endif
-
                     m_pComp->optRecordLoopMemoryDependence(m_pComp->compCurTree, m_pComp->compCurBB, funcApp.m_args[0]);
                     return funcApp.m_args[2];
                 }
@@ -2279,12 +2273,6 @@ TailCall:
                 else if (IsVNConstant(arg1VN) && IsVNConstant(funcApp.m_args[1]))
                 {
                     assert(funcApp.m_args[1] != arg1VN); // we already checked this above.
-#if FEATURE_VN_TRACE_APPLY_SELECTORS
-                    JITDUMP("      AX2: " FMT_VN " != " FMT_VN " ==> select([" FMT_VN "]store(" FMT_VN ", " FMT_VN
-                            ", " FMT_VN "), " FMT_VN ") ==> select(" FMT_VN ", " FMT_VN ") remaining budget is %d.\n",
-                            arg1VN, funcApp.m_args[1], arg0VN, funcApp.m_args[0], funcApp.m_args[1], funcApp.m_args[2],
-                            arg1VN, funcApp.m_args[0], arg1VN, *pBudget);
-#endif
                     // This is the equivalent of the recursive tail call:
                     // return VNForMapSelect(vnk, typ, funcApp.m_args[0], arg1VN);
                     // Make sure we capture any exceptions from the "i" and "v" of the store...
@@ -7813,9 +7801,17 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
                 else if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
                 {
-                    ValueNum objVN = vnStore->VNNormalValue(obj->GetLiberalVN());
-
                     ValueNum vn = fgCurMemoryVN[GcHeap];
+#ifdef DEBUG
+                    if (verbose)
+                    {
+                        printf("    fgCurMemoryVN[GcHeap] = ");
+                        vnPrint(vn, 1);
+                        printf("\n");
+                    }
+#endif
+
+                    ValueNum objVN = vnStore->VNNormalValue(obj->GetLiberalVN());
 
                     var_types    fieldType;
                     ClassLayout* fieldLayout;
