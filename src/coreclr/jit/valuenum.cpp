@@ -7652,55 +7652,42 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     {
                         assert((obj != nullptr) || (staticObj != nullptr));
 
-                        // The final field in the sequence will need to match the 'indType'
-                        var_types indType = lhs->TypeGet();
+                        ValueNum heapVN = fgCurMemoryVN[GcHeap];
 
-                        unsigned structSize;
-                        ValueNum fldMapVN =
-                            vnStore->MapExtractField(fgCurMemoryVN[GcHeap], fldSeq->GetFieldHandle(), &structSize);
+                        unsigned  structSize;
+                        ValueNum  fieldMapVN = vnStore->MapExtractField(heapVN, fldSeq->GetFieldHandle(), &structSize);
+                        var_types fieldMapType = vnStore->TypeOfVN(fieldMapVN);
 
-                        // The type of the field is "struct" if there are more fields in the sequence,
-                        // otherwise it is the type returned from VNApplySelectors above.
-                        var_types firstFieldType = vnStore->TypeOfVN(fldMapVN);
-
-                        // The value number from the rhs of the assignment
-                        ValueNum storeVal    = rhsVNPair.GetLiberal();
-                        ValueNum newFldMapVN = ValueNumStore::NoVN;
-
-                        ValueNum valAtAddr = fldMapVN;
-                        ValueNum normVal   = ValueNumStore::NoVN;
+                        ValueNum objVN;
 
                         if (obj != nullptr)
                         {
-                            ValueNum vnObjExcSet;
-                            vnStore->VNUnpackExc(obj->gtVNPair.GetLiberal(), &normVal, &vnObjExcSet);
-                            vnExcSet = vnStore->VNExcSetUnion(vnExcSet, vnObjExcSet);
+                            ValueNum objExcSetVN;
+                            vnStore->VNUnpackExc(obj->GetLiberalVN(), &objVN, &objExcSetVN);
+                            vnExcSet = vnStore->VNExcSetUnion(vnExcSet, objExcSetVN);
                         }
                         else
                         {
-                            normVal = vnStore->VNLiberalNormalValue(staticObj->gtVNPair);
+                            objVN = vnStore->VNNormalValue(staticObj->GetLiberalVN());
                         }
 
-                        valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, normVal);
+                        ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldMapType, fieldMapVN, objVN);
+                        ValueNum valueVN       = rhsVNPair.GetLiberal();
 
-                        // Now get rid of any remaining struct field dereferences. (if they exist)
                         if (fldSeq->GetNext() != nullptr)
                         {
-                            storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, valAtAddr, fldSeq->GetNext(),
-                                                                       storeVal, indType);
+                            valueVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, objFieldMapVN, fldSeq->GetNext(),
+                                                                      valueVN, lhs->GetType());
                         }
 
-                        // From which we can construct the new ValueNumber for 'fldMap at normVal'
-                        newFldMapVN = vnStore->VNForMapStore(vnStore->TypeOfVN(fldMapVN), fldMapVN, normVal, storeVal);
+                        fieldMapVN = vnStore->VNForMapStore(fieldMapType, fieldMapVN, objVN, valueVN);
 
-                        // It is not strictly necessary to set the lhs value number,
-                        // but the dumps read better with it set to the 'storeVal' that we just computed
-                        lhs->gtVNPair.SetBoth(storeVal);
+                        heapVN = vnStore->MapInsertField(heapVN, fldSeq->GetFieldHandle(), fieldMapVN, lhs->GetType());
+                        recordGcHeapStore(tree, heapVN DEBUGARG("StoreField"));
 
-                        ValueNum heap = fgCurMemoryVN[GcHeap];
-                        heap = vnStore->MapInsertField(heap, fldSeq->GetFieldHandle(), newFldMapVN, lhs->GetType());
-
-                        recordGcHeapStore(tree, heap DEBUGARG("StoreField"));
+                        // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
+                        // need a value number and in other places this is set to the heap VN or to void VN.
+                        lhs->gtVNPair.SetBoth(valueVN);
                     }
                     else if (GenTreeLclVarCommon* dstLclNode = arg->IsLocalAddrExpr())
                     {
