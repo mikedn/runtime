@@ -7608,8 +7608,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             objVN = vnStore->VNNormalValue(staticObj->GetLiberalVN());
                         }
 
-                        ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldMapType, fieldMapVN, objVN);
-                        ValueNum valueVN       = rhsVNPair.GetLiberal();
+                        ValueNum valueVN = rhsVNPair.GetLiberal();
 
                         if (FieldSeqNode* structFieldSeq = fldSeq->GetNext())
                         {
@@ -7618,6 +7617,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                 structFieldSeq = structFieldSeq->GetNext();
                             }
 
+                            ValueNum objFieldMapVN =
+                                vnStore->VNForMapSelect(VNK_Liberal, fieldMapType, fieldMapVN, objVN);
                             valueVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, objFieldMapVN, structFieldSeq,
                                                                       valueVN, lhs->GetType());
                         }
