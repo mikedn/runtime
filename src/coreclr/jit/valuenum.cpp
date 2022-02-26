@@ -3688,24 +3688,25 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
     return map;
 }
 
-ValueNum ValueNumStore::MapExtractField(ValueNum map, CORINFO_FIELD_HANDLE field, unsigned* structSize)
+ValueNum ValueNumStore::MapExtractField(ValueNum             map,
+                                        CORINFO_FIELD_HANDLE field,
+                                        var_types*           fieldType,
+                                        ClassLayout**        fieldLayout)
 {
     CORINFO_CLASS_HANDLE fieldTypeHandle = NO_CLASS_HANDLE;
-    var_types            fieldType       = GetFieldType(field, &fieldTypeHandle);
+    *fieldType                           = GetFieldType(field, &fieldTypeHandle);
 
-    if (fieldType == TYP_STRUCT)
+    if (*fieldType == TYP_STRUCT)
     {
-        ClassLayout* layout = m_pComp->typGetObjLayout(fieldTypeHandle);
-
-        fieldType   = m_pComp->typGetStructType(layout);
-        *structSize = layout->GetSize();
+        *fieldLayout = m_pComp->typGetObjLayout(fieldTypeHandle);
+        *fieldType   = m_pComp->typGetStructType(*fieldLayout);
     }
     else
     {
-        *structSize = 0;
+        *fieldLayout = nullptr;
     }
 
-    return VNForMapSelect(VNK_Liberal, fieldType, map, VNForFieldHandle(field));
+    return VNForMapSelect(VNK_Liberal, *fieldType, map, VNForFieldHandle(field));
 }
 
 ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, unsigned structSize, var_types loadType)
@@ -7587,8 +7588,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     {
                         ValueNum heapVN = fgCurMemoryVN[GcHeap];
 
-                        unsigned structSize;
-                        ValueNum fieldMapVN = vnStore->MapExtractField(heapVN, fieldSeq->GetFieldHandle(), &structSize);
+                        var_types    fieldType;
+                        ClassLayout* fieldLayout;
+                        ValueNum     fieldMapVN =
+                            vnStore->MapExtractField(heapVN, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
                         var_types fieldMapType = vnStore->TypeOfVN(fieldMapVN);
 
                         ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
@@ -7808,10 +7811,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 {
                     ValueNum objVN = vnStore->VNNormalValue(obj->GetLiberalVN());
 
-                    ValueNum memVN      = fgCurMemoryVN[GcHeap];
-                    unsigned structSize = 0;
-                    ValueNum vn         = vnStore->MapExtractField(memVN, fieldSeq->GetFieldHandle(), &structSize);
-                    vn                  = vnStore->VNForMapSelect(VNK_Liberal, vnStore->TypeOfVN(vn), vn, objVN);
+                    ValueNum vn = fgCurMemoryVN[GcHeap];
+
+                    var_types    fieldType;
+                    ClassLayout* fieldLayout;
+                    vn = vnStore->MapExtractField(vn, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
+                    vn = vnStore->VNForMapSelect(VNK_Liberal, vnStore->TypeOfVN(vn), vn, objVN);
+
+                    unsigned structSize = fieldLayout == nullptr ? 0 : fieldLayout->GetSize();
 
                     if (fieldSeq->GetNext() != nullptr)
                     {

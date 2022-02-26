@@ -608,7 +608,7 @@ public:
                               ValueNum      map,
                               FieldSeqNode* fieldSeq,
                               unsigned*     finalStructSize = nullptr);
-    ValueNum MapExtractField(ValueNum map, CORINFO_FIELD_HANDLE field, unsigned* structSize);
+    ValueNum MapExtractField(ValueNum map, CORINFO_FIELD_HANDLE field, var_types* fieldType, ClassLayout** fieldLayout);
 
     var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, CORINFO_CLASS_HANDLE* fieldTypeHandle);
 
