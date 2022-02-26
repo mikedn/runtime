@@ -7558,9 +7558,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // but the dumps read better with it set to the 'storeVal' that we just computed
                         lhs->gtVNPair.SetBoth(heap);
 
-                        // bbMemoryDef must include GcHeap for any block that mutates the GC heap
-                        assert((compCurBB->bbMemoryDef & memoryKindSet(GcHeap)) != 0);
-
                         recordGcHeapStore(tree, heap DEBUGARG("Static Field store"));
                         break;
                     }
