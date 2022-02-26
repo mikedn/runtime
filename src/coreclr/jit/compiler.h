@@ -2210,16 +2210,7 @@ public:
     // the given "fldHnd", is such an object pointer.
     bool gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd);
 
-    // If returns "true", "addr" may represent the address of a static or instance field
-    // (or a field of such a field, in the case of an object field of type struct).
-    // If returns "true", then either "*pObj" is set to the object reference,
-    // or "*pStatic" is set to the baseAddr or offset to be added to the "*pFldSeq"
-    // Only one of "*pObj" or "*pStatic" will be set, the other one will be null.
-    // The boolean return value only indicates that "this" *may* be a field address
-    // -- the field sequence must also be checked.
-    // If it is a field address, the field sequence will be a sequence of length >= 1,
-    // starting with an instance or static field, and optionally continuing with struct fields.
-    bool optIsFieldAddr(GenTree* addr, GenTree** obj, FieldSeqNode** fieldSeq);
+    FieldSeqNode* optIsFieldAddr(GenTree* addr, GenTree** obj);
 
     // Requires "indir" to be a GT_IND.
     // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the

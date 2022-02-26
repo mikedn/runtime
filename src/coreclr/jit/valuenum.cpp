@@ -7564,9 +7564,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                     lhs->gtVNPair = rhsVNPair;
 
-                    ValueNum      argVN  = arg->gtVNPair.GetLiberal();
-                    GenTree*      obj    = nullptr;
-                    FieldSeqNode* fldSeq = nullptr;
+                    ValueNum argVN = arg->gtVNPair.GetLiberal();
+                    GenTree* obj   = nullptr;
 
                     VNFuncApp funcApp;
                     if (vnStore->GetVNFunc(vnStore->VNNormalValue(argVN), &funcApp) &&
@@ -7584,18 +7583,18 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ValueNum heapVN = fgValueNumberArrIndexAssign(funcApp, rhsVNPair.GetLiberal(), lhs->GetType());
                         recordGcHeapStore(tree, heapVN DEBUGARG("array element store"));
                     }
-                    else if (optIsFieldAddr(arg, &obj, &fldSeq))
+                    else if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
                     {
                         ValueNum heapVN = fgCurMemoryVN[GcHeap];
 
-                        unsigned  structSize;
-                        ValueNum  fieldMapVN = vnStore->MapExtractField(heapVN, fldSeq->GetFieldHandle(), &structSize);
+                        unsigned structSize;
+                        ValueNum fieldMapVN = vnStore->MapExtractField(heapVN, fieldSeq->GetFieldHandle(), &structSize);
                         var_types fieldMapType = vnStore->TypeOfVN(fieldMapVN);
 
                         ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
                         ValueNum valueVN = rhsVNPair.GetLiberal();
 
-                        if (FieldSeqNode* structFieldSeq = fldSeq->GetNext())
+                        if (FieldSeqNode* structFieldSeq = fieldSeq->GetNext())
                         {
                             if (structFieldSeq->IsBoxedValueField())
                             {
@@ -7610,7 +7609,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                         fieldMapVN = vnStore->VNForMapStore(fieldMapType, fieldMapVN, objVN, valueVN);
 
-                        heapVN = vnStore->MapInsertField(heapVN, fldSeq->GetFieldHandle(), fieldMapVN, lhs->GetType());
+                        heapVN =
+                            vnStore->MapInsertField(heapVN, fieldSeq->GetFieldHandle(), fieldMapVN, lhs->GetType());
                         recordGcHeapStore(tree, heapVN DEBUGARG("StoreField"));
 
                         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
@@ -7642,10 +7642,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // a pointer to an object field or array element.  Other cases become uses of
             // the current ByrefExposed value and the pointer value, so that at least we
             // can recognize redundant loads with no stores between them.
-            GenTree*      addr       = tree->AsIndir()->GetAddr();
-            FieldSeqNode* fieldSeq   = nullptr;
-            GenTree*      obj        = nullptr;
-            bool          isVolatile = tree->AsIndir()->IsVolatile();
+            GenTree* addr       = tree->AsIndir()->GetAddr();
+            GenTree* obj        = nullptr;
+            bool     isVolatile = tree->AsIndir()->IsVolatile();
 
             // See if the addr has any exceptional part.
             ValueNumPair addrNvnp;
@@ -7805,7 +7804,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     // values, so we don't have their exceptions. Maybe we should.
                     tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->GetType()));
                 }
-                else if (optIsFieldAddr(addr, &obj, &fieldSeq))
+                else if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
                 {
                     ValueNum objVN = vnStore->VNNormalValue(obj->GetLiberalVN());
 

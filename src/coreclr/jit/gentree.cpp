@@ -12599,7 +12599,7 @@ ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
     return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
 }
 
-bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, FieldSeqNode** pFldSeq)
+FieldSeqNode* Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj)
 {
     FieldSeqNode* fieldSeq     = nullptr;
     bool          mustBeStatic = false;
@@ -12638,26 +12638,24 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, FieldSeqNode** pFld
     if ((fieldSeq == nullptr) || (fieldSeq == FieldSeqStore::NotAField()))
     {
         // If we can't find a field sequence then it's not a field address.
-        return false;
+        return nullptr;
     }
 
     if (fieldSeq->IsArrayElement())
     {
         // Array elements are handled separately.
-        return false;
+        return nullptr;
     }
 
     if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
-        *pObj    = addr;
-        *pFldSeq = fieldSeq;
-
-        return true;
+        *pObj = addr;
+        return fieldSeq;
     }
 
     if (mustBeStatic || !addr->TypeIs(TYP_REF))
     {
-        return false;
+        return nullptr;
     }
 
     addr = addr->gtEffectiveVal();
@@ -12760,27 +12758,23 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, FieldSeqNode** pFld
     if ((staticStructFldSeq != nullptr) &&
         gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->GetFieldHandle()))
     {
-        *pObj    = addr;
-        *pFldSeq = GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
+        *pObj = addr;
+        return GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
     }
-    else
+
+    if (fieldSeq->IsBoxedValueField())
     {
-        if (fieldSeq->IsBoxedValueField())
-        {
-            // Ignore boxed value fields, the same (pseudo) field is used for all boxed types
-            // so a store to such a field may alias multiple actual fields. These can only be
-            // disambiguated when used together with a static field.
+        // Ignore boxed value fields, the same (pseudo) field is used for all boxed types
+        // so a store to such a field may alias multiple actual fields. These can only be
+        // disambiguated when used together with a static field.
 
-            return false;
-        }
-
-        assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
-
-        *pObj    = addr;
-        *pFldSeq = fieldSeq;
+        return nullptr;
     }
 
-    return true;
+    assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+
+    *pObj = addr;
+    return fieldSeq;
 }
 
 bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd)
