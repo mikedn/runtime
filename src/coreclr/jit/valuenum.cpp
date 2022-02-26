@@ -7605,10 +7605,17 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                                                       valueVN, lhs->GetType());
                         }
 
+                        // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
+                        // previously that was incorrectly done when storing to the heap map. It's
+                        // the store value that may need coercion, the field map value is always
+                        // treated as if it's a struct.
+                        // Use of fieldMapType as type is also likely to be bogus, the result of a
+                        // map store is supposed to be a struct type, never a primitive type.
                         fieldMapVN = vnStore->VNForMapStore(fieldMapType, fieldMapVN, objVN, valueVN);
 
                         heapVN =
-                            vnStore->MapInsertField(heapVN, fieldSeq->GetFieldHandle(), fieldMapVN, lhs->GetType());
+                            vnStore->VNForMapStore(TYP_STRUCT, heapVN,
+                                                   vnStore->VNForFieldHandle(fieldSeq->GetFieldHandle()), fieldMapVN);
                         recordGcHeapStore(tree, heapVN DEBUGARG("StoreField"));
 
                         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
