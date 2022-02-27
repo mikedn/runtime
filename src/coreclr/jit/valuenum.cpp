@@ -3801,13 +3801,6 @@ ValueNum ValueNumStore::MapInsertStructField(
     return value;
 }
 
-ValueNum ValueNumStore::MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field, ValueNum value, var_types type)
-{
-    var_types fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(field));
-    value               = VNApplySelectorsAssignTypeCoerce(value, type);
-    return VNForMapStore(fieldType, map, VNForFieldHandle(field), value);
-}
-
 ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
 {
     var_types    fieldType;

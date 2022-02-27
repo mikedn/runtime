@@ -619,7 +619,6 @@ public:
     // all other indices in "map" the same.
     ValueNum MapInsertStructField(
         ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType);
-    ValueNum MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field, ValueNum value, var_types type);
 
     ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
 
