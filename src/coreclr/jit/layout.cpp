@@ -930,7 +930,7 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 
     if (elementCorType == CORINFO_TYPE_UNDEF)
     {
-        JITDUMP("Unexpected vector element type %s.%s\n", vm->getClassName(elementTypeHandle));
+        JITDUMP("Unexpected vector element type %s\n", vm->getClassName(elementTypeHandle));
         return {VectorKind::None, false, TYP_UNDEF, TYP_UNDEF};
     }
 
