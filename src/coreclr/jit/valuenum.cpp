@@ -4226,6 +4226,7 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
 void Compiler::vnIndirLoad(GenTreeIndir* tree)
 {
     assert(tree->OperIs(GT_IND, GT_OBJ, GT_BLK));
+    assert((tree->gtFlags & GTF_IND_ASG_LHS) == 0);
 
     genTreeOps oper = tree->GetOper();
     // So far, we handle cases in which the address is a ptr-to-local, or if it's
@@ -4309,9 +4310,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* tree)
         ValueNum newUniq = vnStore->VNForExpr(compCurBB, tree->TypeGet());
         tree->gtVNPair   = vnStore->VNPWithExc(ValueNumPair(newUniq, newUniq), addrXvnp);
     }
-    // In general we skip GT_IND nodes on that are the LHS of an assignment.  (We labeled these earlier.)
-    // We will "evaluate" this as part of the assignment.
-    else if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
+    else
     {
         VNFuncApp funcApp;
 
@@ -7759,7 +7758,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         }
         else if ((oper == GT_IND) || (oper == GT_OBJ) || (oper == GT_BLK))
         {
-            vnIndirLoad(tree->AsIndir());
+            if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
+            {
+                vnIndirLoad(tree->AsIndir());
+            }
         }
         else if ((oper == GT_COPY_BLK) || (oper == GT_INIT_BLK))
         {
