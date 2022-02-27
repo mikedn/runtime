@@ -2170,7 +2170,7 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
 #ifdef DEBUG
     if (m_pComp->verbose)
     {
-        printf("    %s ", varTypeName(typ));
+        printf("    %s ", varTypeName(TypeOfVN(result)));
         m_pComp->vnPrint(result, 1);
         printf("\n");
     }
