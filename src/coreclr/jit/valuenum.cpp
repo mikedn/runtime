@@ -3751,16 +3751,15 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
     return VNForCast(srcVN, storeType, srcType);
 }
 
-// Compute the value number corresponding to "map" with the element "fieldSeq"
-// updated to "value" via a store of type "storeType".
-ValueNum ValueNumStore::VNApplySelectorsAssign(
-    ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum value, var_types storeType)
+ValueNum ValueNumStore::MapInsertStructField(
+    ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum value, var_types storeType)
 {
     assert(!fieldSeq->IsBoxedValueField());
 
     struct
     {
         var_types fieldType;
+        var_types mapType;
         ValueNum  fieldVN;
         ValueNum  mapVN;
     } fields[FieldSeqNode::MaxLength];
@@ -3777,12 +3776,14 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
         fields[count].fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle));
     }
 
-    fields[0].mapVN = map;
+    fields[0].mapVN   = map;
+    fields[0].mapType = mapType;
 
     for (unsigned i = 0; i < count - 1; i++)
     {
         assert(varTypeIsStruct(fields[i].fieldType));
-        fields[i + 1].mapVN = VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
+        fields[i + 1].mapVN   = VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
+        fields[i + 1].mapType = fields[i].fieldType;
     }
 
     // TODO-MIKE: This is nonsense, it tries to coerce the stored value to the store type but the
@@ -3794,8 +3795,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
 
     for (unsigned i = 1; i <= count; i++)
     {
-        // TODO-MIKE: TYP_STRUCT isn't quite right here, it could be a SIMD type.
-        value = VNForMapStore(TYP_STRUCT, fields[count - i].mapVN, fields[count - i].fieldVN, value);
+        value = VNForMapStore(fields[count - 1].mapType, fields[count - i].mapVN, fields[count - i].fieldVN, value);
     }
 
     return value;
@@ -4260,7 +4260,8 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
         }
         else
         {
-            newValAtInx = vnStore->VNApplySelectorsAssign(VNK_Liberal, hAtArrTypeAtArrAtInx, fldSeq, rhsVN, indType);
+            newValAtInx =
+                vnStore->MapInsertStructField(VNK_Liberal, hAtArrTypeAtArrAtInx, arrElemType, fldSeq, rhsVN, indType);
         }
 
         var_types arrElemFldType = arrElemType; // Uses arrElemType unless we has a non-null fldSeq
@@ -7189,7 +7190,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
             }
 
             vnp = vnStore->VNPNormalPair(src->gtVNPair);
-            vnp = vnStore->VNPairApplySelectorsAssign(map, dstFieldSeq, vnp, dstLcl->GetType());
+            vnp = vnStore->MapInsertStructField(map, dstLcl->GetType(), dstFieldSeq, vnp, dstLclNode->GetType());
         }
 
         dstSsaDef->SetVNP(vnp);
@@ -7513,8 +7514,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                 vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
                             }
 
-                            vnp = vnStore->VNPairApplySelectorsAssign(vnp, lclNode->AsLclFld()->GetFieldSeq(),
-                                                                      rhsVNPair, lclNode->GetType());
+                            vnp = vnStore->MapInsertStructField(vnp, lcl->GetType(), lclNode->AsLclFld()->GetFieldSeq(),
+                                                                rhsVNPair, lclNode->GetType());
                         }
 
                         // TODO-MIKE-Cleanup: LCL_VAR should never have GTF_VAR_USEASG.
@@ -7608,8 +7609,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             }
 
                             ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
-                            valueVN = vnStore->VNApplySelectorsAssign(VNK_Liberal, objFieldMapVN, structFieldSeq,
-                                                                      valueVN, lhs->GetType());
+                            valueVN = vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType,
+                                                                    structFieldSeq, valueVN, lhs->GetType());
                         }
 
                         // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),

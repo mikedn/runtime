@@ -617,22 +617,21 @@ public:
     // to a value of the type of "rhs".  Returns an expression for the RHS of an assignment, in the given "block",
     // to a location containing value "map" that will change the field addressed by "fieldSeq" to "rhs", leaving
     // all other indices in "map" the same.
-    ValueNum VNApplySelectorsAssign(
-        ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType);
+    ValueNum MapInsertStructField(
+        ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType);
     ValueNum MapInsertField(ValueNum map, CORINFO_FIELD_HANDLE field, ValueNum value, var_types type);
 
     ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
 
     ValueNumPair VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
 
-    ValueNumPair VNPairApplySelectorsAssign(ValueNumPair  map,
-                                            FieldSeqNode* fieldSeq,
-                                            ValueNumPair  rhs,
-                                            var_types     indType)
+    ValueNumPair MapInsertStructField(
+        ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType)
     {
-        return ValueNumPair(VNApplySelectorsAssign(VNK_Liberal, map.GetLiberal(), fieldSeq, rhs.GetLiberal(), indType),
-                            VNApplySelectorsAssign(VNK_Conservative, map.GetConservative(), fieldSeq,
-                                                   rhs.GetConservative(), indType));
+        return ValueNumPair(MapInsertStructField(VNK_Liberal, map.GetLiberal(), mapType, fieldSeq, value.GetLiberal(),
+                                                 storeType),
+                            MapInsertStructField(VNK_Conservative, map.GetConservative(), mapType, fieldSeq,
+                                                 value.GetConservative(), storeType));
     }
 
     ValueNum VNForBitCast(ValueNum src, var_types toType, var_types fromType);
