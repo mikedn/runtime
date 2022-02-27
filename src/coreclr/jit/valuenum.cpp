@@ -3754,6 +3754,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
 ValueNum ValueNumStore::MapInsertStructField(
     ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum value, var_types storeType)
 {
+    assert(varTypeIsStruct(mapType));
     assert(!fieldSeq->IsBoxedValueField());
 
     struct
@@ -4885,6 +4886,15 @@ ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN,
     vnPrintHeapVN(heapVN);
     vnPrintArrayElemAddr(elemAddr);
 
+    // TODO-MIKE: We should get a field sequence only for arrays of structs.
+    // This isn't the best place to check this but for now it gets pmi diff
+    // working again.
+
+    if (!varTypeIsStruct(elemType) && (fieldSeq != nullptr))
+    {
+        fieldSeq = FieldSeqNode::NotAField();
+    }
+
     if (fieldSeq == FieldSeqStore::NotAField())
     {
         return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
@@ -4925,6 +4935,15 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     vnPrintHeapVN(heapVN);
     vnPrintArrayElemAddr(elemAddr);
+
+    // TODO-MIKE: We should get a field sequence only for arrays of structs.
+    // This isn't the best place to check this but for now it gets pmi diff
+    // working again.
+
+    if (!varTypeIsStruct(elemType) && (fieldSeq != nullptr))
+    {
+        fieldSeq = FieldSeqNode::NotAField();
+    }
 
     if (fieldSeq == FieldSeqStore::NotAField())
     {
