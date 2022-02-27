@@ -4884,8 +4884,8 @@ ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN,
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    vnPrintHeapVN(heapVN);
-    vnPrintArrayElemAddr(elemAddr);
+    INDEBUG(vnPrintHeapVN(heapVN));
+    INDEBUG(vnPrintArrayElemAddr(elemAddr));
 
     // TODO-MIKE: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
@@ -4934,8 +4934,8 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    vnPrintHeapVN(heapVN);
-    vnPrintArrayElemAddr(elemAddr);
+    INDEBUG(vnPrintHeapVN(heapVN));
+    INDEBUG(vnPrintArrayElemAddr(elemAddr));
 
     // TODO-MIKE: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
