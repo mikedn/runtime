@@ -3705,9 +3705,13 @@ ValueNumPair ValueNumStore::MapInsertStructField(
                                  storeType)};
 }
 
-ValueNum ValueNumStore::MapExtractStructField(
-    ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout)
+ValueNum ValueNumStore::MapExtractStructField(ValueNumKind  vnk,
+                                              ValueNum      map,
+                                              FieldSeqNode* fieldSeq,
+                                              var_types     loadType)
 {
+    ClassLayout* fieldLayout = nullptr;
+
     for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
         if (fieldSeq->IsBoxedValueField())
@@ -3719,12 +3723,11 @@ ValueNum ValueNumStore::MapExtractStructField(
 
         noway_assert(fieldSeq->IsField());
 
-        *fieldType = GetFieldType(fieldSeq->GetFieldHandle(), fieldLayout);
-
-        map = VNForMapSelect(vnk, *fieldType, map, VNForFieldHandle(fieldSeq->GetFieldHandle()));
+        var_types fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
+        map                 = VNForMapSelect(vnk, fieldType, map, VNForFieldHandle(fieldSeq->GetFieldHandle()));
     }
 
-    return map;
+    return VNApplySelectorsTypeCheck(map, fieldLayout, loadType);
 }
 
 ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType)
@@ -4329,10 +4332,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
             ValueNum heapVN = fgCurMemoryVN[GcHeap];
             INDEBUG(vnPrintHeapVN(heapVN));
 
-            var_types    fieldType;
-            ClassLayout* fieldLayout;
-            ValueNum valueVN = vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, &fieldType, &fieldLayout);
-            valueVN          = vnStore->VNApplySelectorsTypeCheck(valueVN, fieldLayout, load->GetType());
+            ValueNum valueVN = vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, load->GetType());
 
             valueVNP.SetLiberal(valueVN);
             valueVNP.SetConservative(conservativeVN);
@@ -4802,10 +4802,7 @@ ValueNum Compiler::vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType)
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnPrintHeapVN(heapVN));
 
-    var_types    fieldType;
-    ClassLayout* fieldLayout;
-    ValueNum     valueVN = vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, &fieldType, &fieldLayout);
-    return vnStore->VNApplySelectorsTypeCheck(valueVN, fieldLayout, loadType);
+    return vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, loadType);
 }
 
 ValueNum Compiler::vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType)
@@ -4863,10 +4860,12 @@ ValueNum Compiler::vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_ty
 
     if (fieldSeq->GetNext() != nullptr)
     {
-        vn = vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq->GetNext(), &fieldType, &fieldLayout);
+        return vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq->GetNext(), loadType);
     }
-
-    return vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, loadType);
+    else
+    {
+        return vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, loadType);
+    }
 }
 
 ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType)
@@ -4957,15 +4956,14 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     ValueNum arrayMapVN     = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, arrayTypeMapVN, arrayVN);
     ValueNum valueVN        = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
 
-    var_types    fieldType   = elemType;
-    ClassLayout* fieldLayout = elemLayout;
-
     if (fieldSeq != nullptr)
     {
-        valueVN = vnStore->MapExtractStructField(VNK_Liberal, valueVN, fieldSeq, &fieldType, &fieldLayout);
+        valueVN = vnStore->MapExtractStructField(VNK_Liberal, valueVN, fieldSeq, loadType);
     }
-
-    valueVN = vnStore->VNApplySelectorsTypeCheck(valueVN, fieldLayout, loadType);
+    else
+    {
+        valueVN = vnStore->VNApplySelectorsTypeCheck(valueVN, elemLayout, loadType);
+    }
 
     return vnStore->VNWithExc(valueVN, excVN);
 }

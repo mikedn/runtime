@@ -602,8 +602,7 @@ public:
         ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum rhs, var_types storeType);
     ValueNumPair MapInsertStructField(
         ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType);
-    ValueNum MapExtractStructField(
-        ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout);
+    ValueNum MapExtractStructField(ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types loadType);
     ValueNumPair MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType);
 
     ValueNum VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
