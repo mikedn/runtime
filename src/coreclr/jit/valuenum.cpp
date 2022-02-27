@@ -3732,17 +3732,22 @@ ValueNum ValueNumStore::MapExtractStructField(ValueNumKind  vnk,
 
 ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType)
 {
+    ClassLayout* fieldLayout = nullptr;
+    var_types    fieldType;
+
     for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
         noway_assert(fieldSeq->IsField());
 
-        ClassLayout* fieldLayout;
-        var_types    fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
+        fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
 
         ValueNum fieldVN = VNForFieldHandle(fieldSeq->GetFieldHandle());
         map.SetLiberal(VNForMapSelect(VNK_Liberal, fieldType, map.GetLiberal(), fieldVN));
         map.SetConservative(VNForMapSelect(VNK_Conservative, fieldType, map.GetConservative(), fieldVN));
     }
+
+    map.SetLiberal(VNApplySelectorsTypeCheck(map.GetLiberal(), fieldLayout, loadType));
+    map.SetConservative(VNApplySelectorsTypeCheck(map.GetConservative(), fieldLayout, loadType));
 
     return map;
 }
