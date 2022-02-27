@@ -4469,151 +4469,129 @@ void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valu
     fgMutateGcHeap(asg DEBUGARG("indirect store"));
 }
 
-void Compiler::vnAssignment(GenTreeOp* tree)
+void Compiler::vnAssignment(GenTreeOp* asg)
 {
-    assert(tree->OperIs(GT_ASG) && !tree->TypeIs(TYP_STRUCT));
+    assert(asg->OperIs(GT_ASG) && !asg->TypeIs(TYP_STRUCT));
 
-    GenTree* lhs = tree->AsOp()->GetOp(0);
-    GenTree* rhs = tree->AsOp()->GetOp(1);
+    GenTree* store = asg->GetOp(0);
+    GenTree* value = asg->GetOp(1);
 
-    assert(!lhs->OperIs(GT_BLK));
-    assert(!rhs->OperIs(GT_BLK));
-
-    ValueNumPair rhsVNPair = rhs->gtVNPair;
-
-    // Is the type being stored different from the type computed by the rhs?
-    if (rhs->GetType() != lhs->GetType())
+    for (; store->OperIs(GT_COMMA); store = store->AsOp()->GetOp(1))
     {
-        // This means that there is an implicit cast on the rhs value
-        //
-        // We will add a cast function to reflect the possible narrowing of the rhs value
-        //
-        var_types castToType   = lhs->TypeGet();
-        var_types castFromType = rhs->TypeGet();
-        bool      isUnsigned   = varTypeIsUnsigned(castFromType);
-
-        rhsVNPair = vnStore->VNPairForCast(rhsVNPair, castToType, castFromType, isUnsigned);
+        store->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
     }
 
-    if (tree->TypeGet() != TYP_VOID)
+    assert(!store->OperIs(GT_BLK));
+    assert(!value->OperIs(GT_BLK));
+
+    ValueNumPair valueVNP = value->GetVNP();
+
+    if (value->GetType() != store->GetType())
     {
-        // Assignment operators, as expressions, return the value of the RHS.
-        tree->gtVNPair = rhsVNPair;
+        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
+        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
+        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
+        // for small int type the value is really INT and the signedness does not matter.
+        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
+        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
+        // replacing the value VN with a new, unique one. So why bother casting to begin with?
+        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
+        valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
     }
 
-    // Now that we've labeled the assignment as a whole, we don't care about exceptions.
-    rhsVNPair = vnStore->VNPNormalPair(rhsVNPair);
+    // TODO-MIKE: This is dubious too. An assignment does not return a value so this should be the void VN, perhaps
+    // with the exception set from both operands.
+    asg->SetVNP(valueVNP);
 
-    // Record the exception set for this 'tree' in vnExcSet.
-    // First we'll record the exception set for the rhs and
-    // later we will union in the exception set for the lhs.
-    //
-    ValueNum vnExcSet;
+    valueVNP = vnStore->VNPNormalPair(valueVNP);
 
-    // Unpack, Norm,Exc for 'rhsVNPair'
-    ValueNum vnRhsLibNorm;
-    vnStore->VNUnpackExc(rhsVNPair.GetLiberal(), &vnRhsLibNorm, &vnExcSet);
+    // TODO-MIKE: This is also dubious. What exception set is this trying to obtain from a normal VN?!?
+    ValueNum valueExcVN;
+    ValueNum valueNormalVN;
+    vnStore->VNUnpackExc(valueVNP.GetLiberal(), &valueNormalVN, &valueExcVN);
+    valueVNP = ValueNumPair(valueNormalVN, vnStore->VNNormalValue(valueVNP.GetConservative()));
 
-    // Now that we've saved the rhs exeception set, we we will use the normal values.
-    rhsVNPair = ValueNumPair(vnRhsLibNorm, vnStore->VNNormalValue(rhsVNPair.GetConservative()));
-
-    // If the types of the rhs and lhs are different then we
-    //  may want to change the ValueNumber assigned to the lhs.
-    //
-    if (rhs->TypeGet() != lhs->TypeGet())
+    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
     {
-        if (rhs->TypeGet() == TYP_REF)
+        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
+    }
+
+    if (store->OperIs(GT_IND))
+    {
+        vnIndirStore(asg, store->AsIndir(), valueVNP);
+
+        return;
+    }
+
+    noway_assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    INDEBUG(unsigned memorySsaNum;)
+    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg, &memorySsaNum));
+
+    GenTreeLclVarCommon* lclNode = store->AsLclVarCommon();
+    LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+
+    if (lcl->IsAddressExposed())
+    {
+        fgMutateAddressExposedLocal(asg);
+
+        return;
+    }
+
+    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg, &memorySsaNum));
+
+    if (!lcl->IsInSsa())
+    {
+        return;
+    }
+
+    unsigned lclDefSsaNum = lclNode->GetSsaNum();
+
+    if (GenTreeLclFld* lclFld = store->IsLclFld())
+    {
+        assert(((lclNode->gtFlags & GTF_VAR_USEASG) != 0) == lclNode->IsPartialLclFld(this));
+
+        if (!lclFld->HasFieldSeq())
         {
-            // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-            // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-            //
-            rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lhs->TypeGet()));
+            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
         }
-    }
-
-    // We have to handle the case where the LHS is a comma.  In that case, we don't evaluate the comma,
-    // so we give it VNForVoid, and we're really interested in the effective value.
-    for (; lhs->OperIs(GT_COMMA); lhs = lhs->AsOp()->GetOp(1))
-    {
-        lhs->gtVNPair.SetBoth(vnStore->VNForVoid());
-    }
-
-    // Now, record the new VN for an assignment (performing the indicated "state update").
-    // It's safe to use gtEffectiveVal here, because the non-last elements of a comma list on the
-    // LHS will come before the assignment in evaluation order.
-    switch (lhs->GetOper())
-    {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        else
         {
-            INDEBUG(unsigned memorySsaNum;)
-            assert(!GetMemorySsaMap(GcHeap)->Lookup(tree, &memorySsaNum));
+            ValueNumPair currentVNP;
 
-            GenTreeLclVarCommon* lclNode = lhs->AsLclVarCommon();
-            LclVarDsc*           lcl     = lvaGetDesc(lclNode);
-
-            if (lcl->IsAddressExposed())
+            if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
             {
-                fgMutateAddressExposedLocal(tree);
+                // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
+                // just insert the new value into a zero map.
+                currentVNP.SetBoth(ValueNumStore::VNForZeroMap());
             }
-            else if (lcl->IsInSsa())
+            else
             {
-                assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree, &memorySsaNum));
+                currentVNP = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
+            }
 
-                ValueNumPair vnp;
+            valueVNP = vnStore->MapInsertStructField(currentVNP, lcl->GetType(), lclFld->GetFieldSeq(), valueVNP,
+                                                     lclFld->GetType());
+        }
 
-                if (lhs->OperIs(GT_LCL_VAR))
-                {
-                    vnp = rhsVNPair;
-                }
-                else if (!lclNode->AsLclFld()->HasFieldSeq())
-                {
-                    vnp.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
-                }
-                else
-                {
-                    if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
-                    {
-                        assert(!lclNode->IsPartialLclFld(this));
-                        vnp.SetBoth(ValueNumStore::VNForZeroMap());
-                    }
-                    else
-                    {
-                        vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
-                    }
+        lclDefSsaNum = GetSsaNumForLocalVarDef(lclNode);
+    }
 
-                    vnp = vnStore->MapInsertStructField(vnp, lcl->GetType(), lclNode->AsLclFld()->GetFieldSeq(),
-                                                        rhsVNPair, lclNode->GetType());
-                }
-
-                // TODO-MIKE-Cleanup: LCL_VAR should never have GTF_VAR_USEASG.
-                unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclNode);
-
-                lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(vnp);
-                lhs->SetVNP(vnp);
+    lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(valueVNP);
+    store->SetVNP(valueVNP);
 
 #ifdef DEBUG
-                if (verbose)
-                {
-                    printf("[%06d] ", lhs->GetID());
-                    gtDispNodeName(lhs);
-                    gtDispLeaf(lhs, nullptr);
-                    printf(" => ");
-                    vnpPrint(vnp, 1);
-                    printf("\n");
-                }
-#endif // DEBUG
-            }
-        }
-        break;
-
-        case GT_IND:
-            vnIndirStore(tree->AsOp(), lhs->AsIndir(), rhsVNPair);
-            break;
-
-        default:
-            unreached();
+    if (verbose)
+    {
+        printf("[%06d] ", store->GetID());
+        gtDispNodeName(store);
+        gtDispLeaf(store, nullptr);
+        printf(" => ");
+        vnpPrint(valueVNP, 1);
+        printf("\n");
     }
+#endif
 }
 
 void Compiler::vnStructAssignment(GenTreeOp* asg)
