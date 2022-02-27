@@ -596,41 +596,18 @@ public:
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
 
-    // Return the value number corresponding to constructing "MapSelect(map, f0)", where "f0" is the
-    // (value number of) the first field in "fieldSeq".  (The type of this application will be the type of "f0".)
-    // If there are no remaining fields in "fieldSeq", return that value number; otherwise, return MapExtractStructField
-    // applied to that value number and the remainder of "fieldSeq". When the 'fieldSeq' specifies a TYP_STRUCT
-    // then the size of the struct is returned by 'wbFinalStructSize' (when it is non-null)
-    ValueNum MapExtractStructField(
-        ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout);
-
     var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
 
-    // Used after MapExtractStructField has determined that "selectedVN" is contained in a Map using VNForMapSelect
-    // It determines whether the 'selectedVN' is of an appropriate type to be read using and indirection of 'indType'
-    // If it is appropriate type then 'selectedVN' is returned, otherwise it may insert a cast to indType
-    // or return a unique value number for an incompatible indType.
-    ValueNum VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
-
-    // Assumes that "map" represents a map that is addressable by the fields in "fieldSeq", to get
-    // to a value of the type of "rhs".  Returns an expression for the RHS of an assignment, in the given "block",
-    // to a location containing value "map" that will change the field addressed by "fieldSeq" to "rhs", leaving
-    // all other indices in "map" the same.
     ValueNum MapInsertStructField(
         ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType);
-
-    ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
-
+    ValueNumPair MapInsertStructField(
+        ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType);
+    ValueNum MapExtractStructField(
+        ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout);
     ValueNumPair MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
 
-    ValueNumPair MapInsertStructField(
-        ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType)
-    {
-        return ValueNumPair(MapInsertStructField(VNK_Liberal, map.GetLiberal(), mapType, fieldSeq, value.GetLiberal(),
-                                                 storeType),
-                            MapInsertStructField(VNK_Conservative, map.GetConservative(), mapType, fieldSeq,
-                                                 value.GetConservative(), storeType));
-    }
+    ValueNum VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
+    ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
 
     ValueNum VNForBitCast(ValueNum src, var_types toType, var_types fromType);
 

@@ -3646,6 +3646,65 @@ var_types ValueNumStore::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLay
     return type;
 }
 
+ValueNum ValueNumStore::MapInsertStructField(
+    ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum value, var_types storeType)
+{
+    assert(varTypeIsStruct(mapType));
+    assert(!fieldSeq->IsBoxedValueField());
+
+    struct
+    {
+        var_types fieldType;
+        var_types mapType;
+        ValueNum  fieldVN;
+        ValueNum  mapVN;
+    } fields[FieldSeqNode::MaxLength];
+
+    unsigned count = 0;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext(), count++)
+    {
+        assert(count < _countof(fields));
+
+        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
+
+        fields[count].fieldVN   = VNForFieldHandle(fieldHandle);
+        fields[count].fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle));
+    }
+
+    fields[0].mapVN   = map;
+    fields[0].mapType = mapType;
+
+    for (unsigned i = 0; i < count - 1; i++)
+    {
+        assert(varTypeIsStruct(fields[i].fieldType));
+        fields[i + 1].mapVN   = VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
+        fields[i + 1].mapType = fields[i].fieldType;
+    }
+
+    // TODO-MIKE: This is nonsense, it tries to coerce the stored value to the store type but the
+    // stored value should already have the correct type (e.g. ASG(IND.double, some_float_value)
+    // is invalid IR to begin with, there's no need to handle such a case). At the same time this
+    // completely ignores the field type so if one stores to a FLOAT field by using an INT indir
+    // chaos ensues. Do these poeple think before writing code?!?
+    value = VNApplySelectorsAssignTypeCoerce(value, storeType);
+
+    for (unsigned i = 1; i <= count; i++)
+    {
+        value = VNForMapStore(fields[count - 1].mapType, fields[count - i].mapVN, fields[count - i].fieldVN, value);
+    }
+
+    return value;
+}
+
+ValueNumPair ValueNumStore::MapInsertStructField(
+    ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType)
+{
+    return {MapInsertStructField(VNK_Liberal, map.GetLiberal(), mapType, fieldSeq, value.GetLiberal(), storeType),
+            MapInsertStructField(VNK_Conservative, map.GetConservative(), mapType, fieldSeq, value.GetConservative(),
+                                 storeType)};
+}
+
 ValueNum ValueNumStore::MapExtractStructField(
     ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout)
 {
@@ -3667,6 +3726,20 @@ ValueNum ValueNumStore::MapExtractStructField(
     }
 
     return map;
+}
+
+ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
+{
+    var_types    fieldType;
+    ClassLayout* fieldLayout;
+    ValueNum     liberalVN = MapExtractStructField(VNK_Liberal, map.GetLiberal(), fieldSeq, &fieldType, &fieldLayout);
+    liberalVN              = VNApplySelectorsTypeCheck(liberalVN, fieldLayout, indType);
+
+    ValueNum conservVN =
+        MapExtractStructField(VNK_Conservative, map.GetConservative(), fieldSeq, &fieldType, &fieldLayout);
+    conservVN = VNApplySelectorsTypeCheck(conservVN, fieldLayout, indType);
+
+    return ValueNumPair(liberalVN, conservVN);
 }
 
 ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)
@@ -3730,71 +3803,6 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
     // Well, small int stores might need this but even then, the problem is that this
     // thing appears to ignore the type of the field being stored to...
     return VNForCast(srcVN, storeType, srcType);
-}
-
-ValueNum ValueNumStore::MapInsertStructField(
-    ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum value, var_types storeType)
-{
-    assert(varTypeIsStruct(mapType));
-    assert(!fieldSeq->IsBoxedValueField());
-
-    struct
-    {
-        var_types fieldType;
-        var_types mapType;
-        ValueNum  fieldVN;
-        ValueNum  mapVN;
-    } fields[FieldSeqNode::MaxLength];
-
-    unsigned count = 0;
-
-    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext(), count++)
-    {
-        assert(count < _countof(fields));
-
-        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-
-        fields[count].fieldVN   = VNForFieldHandle(fieldHandle);
-        fields[count].fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle));
-    }
-
-    fields[0].mapVN   = map;
-    fields[0].mapType = mapType;
-
-    for (unsigned i = 0; i < count - 1; i++)
-    {
-        assert(varTypeIsStruct(fields[i].fieldType));
-        fields[i + 1].mapVN   = VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
-        fields[i + 1].mapType = fields[i].fieldType;
-    }
-
-    // TODO-MIKE: This is nonsense, it tries to coerce the stored value to the store type but the
-    // stored value should already have the correct type (e.g. ASG(IND.double, some_float_value)
-    // is invalid IR to begin with, there's no need to handle such a case). At the same time this
-    // completely ignores the field type so if one stores to a FLOAT field by using an INT indir
-    // chaos ensues. Do these poeple think before writing code?!?
-    value = VNApplySelectorsAssignTypeCoerce(value, storeType);
-
-    for (unsigned i = 1; i <= count; i++)
-    {
-        value = VNForMapStore(fields[count - 1].mapType, fields[count - i].mapVN, fields[count - i].fieldVN, value);
-    }
-
-    return value;
-}
-
-ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
-{
-    var_types    fieldType;
-    ClassLayout* fieldLayout;
-    ValueNum     liberalVN = MapExtractStructField(VNK_Liberal, map.GetLiberal(), fieldSeq, &fieldType, &fieldLayout);
-    liberalVN              = VNApplySelectorsTypeCheck(liberalVN, fieldLayout, indType);
-
-    ValueNum conservVN =
-        MapExtractStructField(VNK_Conservative, map.GetConservative(), fieldSeq, &fieldType, &fieldLayout);
-    conservVN = VNApplySelectorsTypeCheck(conservVN, fieldLayout, indType);
-
-    return ValueNumPair(liberalVN, conservVN);
 }
 
 bool ValueNumStore::IsVNNotAField(ValueNum vn)
