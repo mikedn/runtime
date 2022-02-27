@@ -4232,11 +4232,12 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
     ValueNum      inxVN       = elemAddr.m_args[2];
     FieldSeqNode* fldSeq      = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
-    bool      invalidateArray      = false;
-    ValueNum  elemTypeEqVN         = elemAddr.m_args[0];
-    var_types arrElemType          = typIsLayoutNum(elemTypeNum) ? TYP_STRUCT : static_cast<var_types>(elemTypeNum);
-    ValueNum  hAtArrType           = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN);
-    ValueNum  hAtArrTypeAtArr      = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, hAtArrType, arrVN);
+    bool         invalidateArray = false;
+    ValueNum     elemTypeEqVN    = elemAddr.m_args[0];
+    ClassLayout* elemLayout      = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types arrElemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
+    ValueNum  hAtArrType  = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, fgCurMemoryVN[GcHeap], elemTypeEqVN);
+    ValueNum  hAtArrTypeAtArr      = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, hAtArrType, arrVN);
     ValueNum  hAtArrTypeAtArrAtInx = vnStore->VNForMapSelect(VNK_Liberal, arrElemType, hAtArrTypeAtArr, inxVN);
 
     ValueNum newValAtInx     = ValueNumStore::NoVN;
@@ -4264,6 +4265,7 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
                 vnStore->MapInsertStructField(VNK_Liberal, hAtArrTypeAtArrAtInx, arrElemType, fldSeq, rhsVN, indType);
         }
 
+        // TODO-MIKE: This is dubious...
         var_types arrElemFldType = arrElemType; // Uses arrElemType unless we has a non-null fldSeq
         if (vnStore->IsVNFunc(newValAtInx))
         {
@@ -4290,8 +4292,8 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
 
     if (!invalidateArray)
     {
-        newValAtArr     = vnStore->VNForMapStore(indType, hAtArrTypeAtArr, inxVN, newValAtInx);
-        newValAtArrType = vnStore->VNForMapStore(TYP_REF, hAtArrType, arrVN, newValAtArr);
+        newValAtArr     = vnStore->VNForMapStore(TYP_STRUCT, hAtArrTypeAtArr, inxVN, newValAtInx);
+        newValAtArrType = vnStore->VNForMapStore(TYP_STRUCT, hAtArrType, arrVN, newValAtArr);
     }
 
 #ifdef DEBUG
@@ -4346,8 +4348,9 @@ ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum 
     assert(arrVN == vnStore->VNNormalValue(arrVN));
     assert(inxVN == vnStore->VNNormalValue(inxVN));
 
-    var_types elemTyp = typIsLayoutNum(elemTypeNum) ? TYP_STRUCT : static_cast<var_types>(elemTypeNum);
-    ValueNum  selectedElem;
+    ClassLayout* elemLayout = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types    elemTyp = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
+    ValueNum     selectedElem;
 
     if (fldSeq == FieldSeqStore::NotAField())
     {
@@ -4366,9 +4369,9 @@ ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum 
     }
     else
     {
-        ValueNum elemTypeEqVN    = vnStore->VNForTypeNum(elemTypeNum);
-        ValueNum hAtArrType      = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN);
-        ValueNum hAtArrTypeAtArr = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, hAtArrType, arrVN);
+        ValueNum elemTypeEqVN = vnStore->VNForTypeNum(elemTypeNum);
+        ValueNum hAtArrType   = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, fgCurMemoryVN[GcHeap], elemTypeEqVN);
+        ValueNum hAtArrTypeAtArr = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, hAtArrType, arrVN);
         ValueNum wholeElem       = vnStore->VNForMapSelect(VNK_Liberal, elemTyp, hAtArrTypeAtArr, inxVN);
 
 #ifdef DEBUG
@@ -4394,8 +4397,8 @@ ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum 
 
         selectedElem = wholeElem;
 
-        var_types    fieldType;
-        ClassLayout* fieldLayout = nullptr;
+        var_types    fieldType   = elemTyp;
+        ClassLayout* fieldLayout = elemTyp == TYP_STRUCT ? typGetLayoutByNum(elemTypeNum) : nullptr;
 
         if (fldSeq != nullptr)
         {
