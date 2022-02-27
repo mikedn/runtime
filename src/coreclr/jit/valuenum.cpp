@@ -4469,6 +4469,136 @@ void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valu
     fgMutateGcHeap(asg DEBUGARG("indirect store"));
 }
 
+void Compiler::vnStructAssignment(GenTreeOp* asg)
+{
+    assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+
+    asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+
+    GenTree* dst = asg->GetOp(0);
+    GenTree* src = asg->GetOp(1);
+
+    assert(dst->TypeIs(TYP_STRUCT));
+
+    GenTreeLclVarCommon* dstLclNode = nullptr;
+
+    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        dstLclNode = dst->AsLclVarCommon();
+    }
+    else if (GenTreeIndir* indir = dst->IsIndir())
+    {
+        dstLclNode = indir->GetAddr()->IsLocalAddrExpr();
+        assert((dstLclNode == nullptr) || lvaGetDesc(dstLclNode)->IsAddressExposed());
+    }
+
+    if (dstLclNode == nullptr)
+    {
+        // For now, arbitrary side effect on GcHeap/ByrefExposed.
+        // TODO-CQ: Why not be complete, and get this case right?
+        fgMutateGcHeap(asg DEBUGARG("non local struct store"));
+        return;
+    }
+
+    LclVarDsc* dstLcl = lvaGetDesc(dstLclNode);
+
+    if (dstLcl->IsAddressExposed())
+    {
+        fgMutateAddressExposedLocal(asg);
+        return;
+    }
+
+    if (!dstLcl->IsInSsa())
+    {
+        return;
+    }
+
+    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
+    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
+    assert(dstLclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    assert((dstLclNode->gtFlags & GTF_VAR_DEF) != 0);
+
+    unsigned      dstLclNum   = dstLclNode->GetLclNum();
+    unsigned      dstSsaNum   = GetSsaNumForLocalVarDef(dstLclNode);
+    FieldSeqNode* dstFieldSeq = nullptr;
+    LclSsaVarDsc* dstSsaDef   = dstLcl->GetPerSsaData(dstSsaNum);
+    LclSsaVarDsc* dstSsaUse   = dstLcl->GetPerSsaData(dstLclNode->GetSsaNum());
+
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    {
+        ValueNum vn;
+
+        if (!dstLclNode->IsPartialLclFld(this) && src->IsIntCon() && (src->AsIntCon()->GetUInt8Value() == 0))
+        {
+            vn = vnStore->VNZeroForType(dstLcl->GetType());
+        }
+        else
+        {
+            vn = vnStore->VNForExpr(compCurBB, dstLcl->GetType());
+        }
+
+        dstSsaDef->SetVNP(ValueNumPair(vn));
+    }
+    else
+    {
+        assert(varTypeIsStruct(src->GetType()));
+
+        if (GenTreeLclFld* lclFld = dstLclNode->IsLclFld())
+        {
+            dstFieldSeq = lclFld->GetFieldSeq();
+
+            if (dstFieldSeq == nullptr)
+            {
+                dstFieldSeq = FieldSeqNode::NotAField();
+            }
+        }
+
+        ValueNumPair vnp;
+
+        if (dstFieldSeq == nullptr)
+        {
+            vnp = vnStore->VNPNormalPair(src->gtVNPair);
+        }
+        else if (dstFieldSeq == FieldSeqStore::NotAField())
+        {
+            vnp.SetBoth(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
+        }
+        else if (dstFieldSeq != nullptr)
+        {
+            ValueNumPair map;
+
+            if (!dstLclNode->IsPartialLclFld(this))
+            {
+                // This can occur for structs with one field, itself of a struct type.
+                // We are assigning the one field and it is also the entire enclosing struct.
+                // Use an unique value number for the old map, as this is an an entire assignment
+                // and we won't have any other values in the map.
+                map = ValueNumPair(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
+            }
+            else
+            {
+                map = dstSsaUse->GetVNP();
+            }
+
+            vnp = vnStore->VNPNormalPair(src->gtVNPair);
+            vnp = vnStore->MapInsertStructField(map, dstLcl->GetType(), dstFieldSeq, vnp, dstLclNode->GetType());
+        }
+
+        dstSsaDef->SetVNP(vnp);
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("[%06u] ", asg->GetID());
+        gtDispNodeName(asg);
+        printf(" V%02u/%d => ", dstLclNum, dstSsaNum);
+        vnpPrint(dstSsaDef->GetVNP(), 1);
+        printf("\n");
+    }
+#endif
+}
+
 ValueNum Compiler::vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType)
 {
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
@@ -7280,136 +7410,6 @@ void Compiler::fgValueNumberTreeConst(GenTree* tree)
         default:
             unreached();
     }
-}
-
-void Compiler::vnStructAssignment(GenTreeOp* asg)
-{
-    assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-
-    asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
-
-    GenTree* dst = asg->GetOp(0);
-    GenTree* src = asg->GetOp(1);
-
-    assert(dst->TypeIs(TYP_STRUCT));
-
-    GenTreeLclVarCommon* dstLclNode = nullptr;
-
-    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        dstLclNode = dst->AsLclVarCommon();
-    }
-    else if (GenTreeIndir* indir = dst->IsIndir())
-    {
-        dstLclNode = indir->GetAddr()->IsLocalAddrExpr();
-        assert((dstLclNode == nullptr) || lvaGetDesc(dstLclNode)->IsAddressExposed());
-    }
-
-    if (dstLclNode == nullptr)
-    {
-        // For now, arbitrary side effect on GcHeap/ByrefExposed.
-        // TODO-CQ: Why not be complete, and get this case right?
-        fgMutateGcHeap(asg DEBUGARG("non local struct store"));
-        return;
-    }
-
-    LclVarDsc* dstLcl = lvaGetDesc(dstLclNode);
-
-    if (dstLcl->IsAddressExposed())
-    {
-        fgMutateAddressExposedLocal(asg);
-        return;
-    }
-
-    if (!dstLcl->IsInSsa())
-    {
-        return;
-    }
-
-    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
-    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
-    assert(dstLclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    assert((dstLclNode->gtFlags & GTF_VAR_DEF) != 0);
-
-    unsigned      dstLclNum   = dstLclNode->GetLclNum();
-    unsigned      dstSsaNum   = GetSsaNumForLocalVarDef(dstLclNode);
-    FieldSeqNode* dstFieldSeq = nullptr;
-    LclSsaVarDsc* dstSsaDef   = dstLcl->GetPerSsaData(dstSsaNum);
-    LclSsaVarDsc* dstSsaUse   = dstLcl->GetPerSsaData(dstLclNode->GetSsaNum());
-
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
-    {
-        ValueNum vn;
-
-        if (!dstLclNode->IsPartialLclFld(this) && src->IsIntCon() && (src->AsIntCon()->GetUInt8Value() == 0))
-        {
-            vn = vnStore->VNZeroForType(dstLcl->GetType());
-        }
-        else
-        {
-            vn = vnStore->VNForExpr(compCurBB, dstLcl->GetType());
-        }
-
-        dstSsaDef->SetVNP(ValueNumPair(vn));
-    }
-    else
-    {
-        assert(varTypeIsStruct(src->GetType()));
-
-        if (GenTreeLclFld* lclFld = dstLclNode->IsLclFld())
-        {
-            dstFieldSeq = lclFld->GetFieldSeq();
-
-            if (dstFieldSeq == nullptr)
-            {
-                dstFieldSeq = FieldSeqNode::NotAField();
-            }
-        }
-
-        ValueNumPair vnp;
-
-        if (dstFieldSeq == nullptr)
-        {
-            vnp = vnStore->VNPNormalPair(src->gtVNPair);
-        }
-        else if (dstFieldSeq == FieldSeqStore::NotAField())
-        {
-            vnp.SetBoth(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
-        }
-        else if (dstFieldSeq != nullptr)
-        {
-            ValueNumPair map;
-
-            if (!dstLclNode->IsPartialLclFld(this))
-            {
-                // This can occur for structs with one field, itself of a struct type.
-                // We are assigning the one field and it is also the entire enclosing struct.
-                // Use an unique value number for the old map, as this is an an entire assignment
-                // and we won't have any other values in the map.
-                map = ValueNumPair(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
-            }
-            else
-            {
-                map = dstSsaUse->GetVNP();
-            }
-
-            vnp = vnStore->VNPNormalPair(src->gtVNPair);
-            vnp = vnStore->MapInsertStructField(map, dstLcl->GetType(), dstFieldSeq, vnp, dstLclNode->GetType());
-        }
-
-        dstSsaDef->SetVNP(vnp);
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("[%06u] ", asg->GetID());
-        gtDispNodeName(asg);
-        printf(" V%02u/%d => ", dstLclNum, dstSsaNum);
-        vnpPrint(dstSsaDef->GetVNP(), 1);
-        printf("\n");
-    }
-#endif
 }
 
 void Compiler::fgValueNumberTree(GenTree* tree)
