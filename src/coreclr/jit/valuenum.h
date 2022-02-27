@@ -603,9 +603,8 @@ public:
     // then the size of the struct is returned by 'wbFinalStructSize' (when it is non-null)
     ValueNum MapExtractStructField(
         ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout);
-    ValueNum MapExtractField(ValueNum map, CORINFO_FIELD_HANDLE field, var_types* fieldType, ClassLayout** fieldLayout);
 
-    var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, CORINFO_CLASS_HANDLE* fieldTypeHandle);
+    var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
 
     // Used after MapExtractStructField has determined that "selectedVN" is contained in a Map using VNForMapSelect
     // It determines whether the 'selectedVN' is of an appropriate type to be read using and indirection of 'indType'
