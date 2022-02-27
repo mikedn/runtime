@@ -4223,200 +4223,87 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
     return res;
 }
 
-ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueNum rhsVN, var_types indType)
+ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType)
 {
     assert(elemAddr.m_func == VNF_PtrToArrElem);
 
-    unsigned      elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
-    ValueNum      arrVN       = elemAddr.m_args[1];
-    ValueNum      inxVN       = elemAddr.m_args[2];
-    FieldSeqNode* fldSeq      = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
+    ValueNum      elemTypeVN = elemAddr.m_args[0];
+    ValueNum      arrayVN    = elemAddr.m_args[1];
+    ValueNum      indexVN    = elemAddr.m_args[2];
+    FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
-    bool         invalidateArray = false;
-    ValueNum     elemTypeEqVN    = elemAddr.m_args[0];
-    ClassLayout* elemLayout      = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
-    var_types arrElemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
-    ValueNum  hAtArrType  = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, fgCurMemoryVN[GcHeap], elemTypeEqVN);
-    ValueNum  hAtArrTypeAtArr      = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, hAtArrType, arrVN);
-    ValueNum  hAtArrTypeAtArrAtInx = vnStore->VNForMapSelect(VNK_Liberal, arrElemType, hAtArrTypeAtArr, inxVN);
+    assert(arrayVN == vnStore->VNNormalValue(arrayVN));
+    assert(indexVN == vnStore->VNNormalValue(indexVN));
 
-    ValueNum newValAtInx     = ValueNumStore::NoVN;
-    ValueNum newValAtArr     = ValueNumStore::NoVN;
-    ValueNum newValAtArrType = ValueNumStore::NoVN;
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+    ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
-    if (fldSeq == FieldSeqStore::NotAField())
+    ValueNum heapVN = fgCurMemoryVN[GcHeap];
+    vnPrintHeapVN(heapVN);
+    vnPrintArrayElemAddr(elemAddr);
+
+    if (fieldSeq == FieldSeqStore::NotAField())
     {
-        // This doesn't represent a proper array access
-        JITDUMP("    *** NotAField sequence encountered in fgValueNumberArrIndexAssign\n");
-
-        // Store a new unique value for newValAtArrType
-        newValAtArrType = vnStore->VNForExpr(compCurBB, TYP_REF);
-        invalidateArray = true;
-    }
-    else
-    {
-        if (fldSeq == nullptr)
-        {
-            newValAtInx = vnStore->VNApplySelectorsAssignTypeCoerce(rhsVN, indType);
-        }
-        else
-        {
-            newValAtInx =
-                vnStore->MapInsertStructField(VNK_Liberal, hAtArrTypeAtArrAtInx, arrElemType, fldSeq, rhsVN, indType);
-        }
-
-        // TODO-MIKE: This is dubious...
-        var_types arrElemFldType = arrElemType; // Uses arrElemType unless we has a non-null fldSeq
-        if (vnStore->IsVNFunc(newValAtInx))
-        {
-            VNFuncApp funcApp;
-            vnStore->GetVNFunc(newValAtInx, &funcApp);
-            if (funcApp.m_func == VNF_MapStore)
-            {
-                arrElemFldType = vnStore->TypeOfVN(newValAtInx);
-            }
-        }
-
-        if (indType != arrElemFldType)
-        {
-            // Mismatched types: Store between different types (indType into array of arrElemFldType)
-            //
-
-            JITDUMP("    *** Mismatched types in fgValueNumberArrIndexAssign\n");
-
-            // Store a new unique value for newValAtArrType
-            newValAtArrType = vnStore->VNForExpr(compCurBB, TYP_REF);
-            invalidateArray = true;
-        }
+        return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
     }
 
-    if (!invalidateArray)
+    // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN)
+
+    ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, elemTypeVN);
+    ValueNum arrayMapVN     = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, arrayTypeMapVN, arrayVN);
+
+    if (fieldSeq != nullptr)
     {
-        newValAtArr     = vnStore->VNForMapStore(TYP_STRUCT, hAtArrTypeAtArr, inxVN, newValAtInx);
-        newValAtArrType = vnStore->VNForMapStore(TYP_STRUCT, hAtArrType, arrVN, newValAtArr);
+        ValueNum elemVN = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
+        valueVN         = vnStore->MapInsertStructField(VNK_Liberal, elemVN, elemType, fieldSeq, valueVN, storeType);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("  hAtArrType " FMT_VN " is MapSelect(curGcHeap(" FMT_VN "), ", hAtArrType, fgCurMemoryVN[GcHeap]);
-
-        if (arrElemType == TYP_STRUCT)
-        {
-            printf("%s[]).\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
-        }
-        else
-        {
-            printf("%s[]).\n", varTypeName(arrElemType));
-        }
-        printf("  hAtArrTypeAtArr " FMT_VN " is MapSelect(hAtArrType(" FMT_VN "), arr=" FMT_VN ")\n", hAtArrTypeAtArr,
-               hAtArrType, arrVN);
-        printf("  hAtArrTypeAtArrAtInx " FMT_VN " is MapSelect(hAtArrTypeAtArr(" FMT_VN "), inx=" FMT_VN "):%s\n",
-               hAtArrTypeAtArrAtInx, hAtArrTypeAtArr, inxVN, varTypeName(arrElemType));
-
-        if (!invalidateArray)
-        {
-            printf("  newValAtInd " FMT_VN " is ", newValAtInx);
-            vnStore->vnDump(this, newValAtInx);
-            printf("\n");
-
-            printf("  newValAtArr " FMT_VN " is ", newValAtArr);
-            vnStore->vnDump(this, newValAtArr);
-            printf("\n");
-        }
-
-        printf("  newValAtArrType " FMT_VN " is ", newValAtArrType);
-        vnStore->vnDump(this, newValAtArrType);
-        printf("\n");
-    }
-#endif // DEBUG
-
-    return vnStore->VNForMapStore(TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN, newValAtArrType);
+    arrayMapVN     = vnStore->VNForMapStore(TYP_STRUCT, arrayMapVN, indexVN, valueVN);
+    arrayTypeMapVN = vnStore->VNForMapStore(TYP_STRUCT, arrayTypeMapVN, arrayVN, arrayMapVN);
+    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, arrayTypeMapVN);
 }
 
-ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum excVN, var_types indType)
+ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, var_types loadType)
 {
     assert(elemAddr.m_func == VNF_PtrToArrElem);
-    assert(vnStore->IsVNHandle(elemAddr.m_args[0]));
 
-    unsigned      elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
-    ValueNum      arrVN       = elemAddr.m_args[1];
-    ValueNum      inxVN       = elemAddr.m_args[2];
-    FieldSeqNode* fldSeq      = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
+    ValueNum      elemTypeVN = elemAddr.m_args[0];
+    ValueNum      arrayVN    = elemAddr.m_args[1];
+    ValueNum      indexVN    = elemAddr.m_args[2];
+    FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
-    // The VN inputs are required to be non-exceptional values.
-    assert(arrVN == vnStore->VNNormalValue(arrVN));
-    assert(inxVN == vnStore->VNNormalValue(inxVN));
+    assert(arrayVN == vnStore->VNNormalValue(arrayVN));
+    assert(indexVN == vnStore->VNNormalValue(indexVN));
 
-    ClassLayout* elemLayout = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
-    var_types    elemTyp = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
-    ValueNum     selectedElem;
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+    ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
-    if (fldSeq == FieldSeqStore::NotAField())
+    ValueNum heapVN = fgCurMemoryVN[GcHeap];
+    vnPrintHeapVN(heapVN);
+    vnPrintArrayElemAddr(elemAddr);
+
+    if (fieldSeq == FieldSeqStore::NotAField())
     {
-        // This doesn't represent a proper array access
-        JITDUMP("    *** NotAField sequence encountered in fgValueNumberArrIndexVal\n");
-
-        // a new unique value number
-        selectedElem = vnStore->VNForExpr(compCurBB, elemTyp);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("  selectedElem is unique VN " FMT_VN ".\n", selectedElem);
-        }
-#endif // DEBUG
-    }
-    else
-    {
-        ValueNum elemTypeEqVN = vnStore->VNForTypeNum(elemTypeNum);
-        ValueNum hAtArrType   = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, fgCurMemoryVN[GcHeap], elemTypeEqVN);
-        ValueNum hAtArrTypeAtArr = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, hAtArrType, arrVN);
-        ValueNum wholeElem       = vnStore->VNForMapSelect(VNK_Liberal, elemTyp, hAtArrTypeAtArr, inxVN);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("  hAtArrType " FMT_VN " is MapSelect(curGcHeap(" FMT_VN "), ", hAtArrType, fgCurMemoryVN[GcHeap]);
-            if (elemTyp == TYP_STRUCT)
-            {
-                printf("%s[]).\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
-            }
-            else
-            {
-                printf("%s[]).\n", varTypeName(elemTyp));
-            }
-
-            printf("  hAtArrTypeAtArr " FMT_VN " is MapSelect(hAtArrType(" FMT_VN "), arr=" FMT_VN ").\n",
-                   hAtArrTypeAtArr, hAtArrType, arrVN);
-
-            printf("  wholeElem " FMT_VN " is MapSelect(hAtArrTypeAtArr(" FMT_VN "), ind=" FMT_VN ").\n", wholeElem,
-                   hAtArrTypeAtArr, inxVN);
-        }
-#endif // DEBUG
-
-        selectedElem = wholeElem;
-
-        var_types    fieldType   = elemTyp;
-        ClassLayout* fieldLayout = elemTyp == TYP_STRUCT ? typGetLayoutByNum(elemTypeNum) : nullptr;
-
-        if (fldSeq != nullptr)
-        {
-            selectedElem = vnStore->MapExtractStructField(VNK_Liberal, wholeElem, fldSeq, &fieldType, &fieldLayout);
-        }
-
-        selectedElem = vnStore->VNApplySelectorsTypeCheck(selectedElem, fieldLayout, indType);
-        selectedElem = vnStore->VNWithExc(selectedElem, excVN);
-
-#ifdef DEBUG
-        if (verbose && (selectedElem != wholeElem))
-        {
-            printf("  selectedElem is " FMT_VN " after applying selectors.\n", selectedElem);
-        }
-#endif // DEBUG
+        return vnStore->VNForExpr(compCurBB, elemType);
     }
 
-    return selectedElem;
+    ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, elemTypeVN);
+    ValueNum arrayMapVN     = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, arrayTypeMapVN, arrayVN);
+    ValueNum valueVN        = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
+
+    var_types    fieldType   = elemType;
+    ClassLayout* fieldLayout = elemLayout;
+
+    if (fieldSeq != nullptr)
+    {
+        valueVN = vnStore->MapExtractStructField(VNK_Liberal, valueVN, fieldSeq, &fieldType, &fieldLayout);
+    }
+
+    valueVN = vnStore->VNApplySelectorsTypeCheck(valueVN, fieldLayout, loadType);
+
+    return vnStore->VNWithExc(valueVN, excVN);
 }
 
 ValueNum Compiler::fgValueNumberByrefExposedLoad(var_types type, ValueNum addrVN)
@@ -7579,16 +7466,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     if (vnStore->GetVNFunc(vnStore->VNNormalValue(argVN), &funcApp) &&
                         (funcApp.m_func == VNF_PtrToArrElem))
                     {
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("Tree ");
-                            Compiler::printTreeID(tree);
-                            printf(" assigns to an array element:\n");
-                        }
-#endif // DEBUG
-
-                        ValueNum heapVN = fgValueNumberArrIndexAssign(funcApp, rhsVNPair.GetLiberal(), lhs->GetType());
+                        ValueNum heapVN = vnArrayElemStore(funcApp, rhsVNPair.GetLiberal(), lhs->GetType());
                         recordGcHeapStore(tree, heapVN DEBUGARG("array element store"));
                     }
                     else if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
@@ -7814,7 +7692,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
                 else if (vnStore->GetVNFunc(addrNvnp.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
                 {
-                    ValueNum vn = fgValueNumberArrIndexVal(funcApp, addrXvnp.GetLiberal(), tree->GetType());
+                    ValueNum vn = vnArrayElemLoad(funcApp, addrXvnp.GetLiberal(), tree->GetType());
 
                     tree->gtVNPair.SetLiberal(vn);
                     // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
@@ -9640,4 +9518,37 @@ void Compiler::vnPrintHeapVN(ValueNum vn)
     }
 }
 
+void Compiler::vnPrintArrayElemAddr(const VNFuncApp& elemAddr)
+{
+    if (verbose)
+    {
+        assert(elemAddr.m_func == VNF_PtrToArrElem);
+
+        ValueNum      elemTypeVN = elemAddr.m_args[0];
+        ValueNum      arrayVN    = elemAddr.m_args[1];
+        ValueNum      indexVN    = elemAddr.m_args[2];
+        FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
+
+        unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+        ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
+        var_types elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
+
+        printf("    VNF_PtrToArrElem(");
+        printf("%s", varTypeName(elemType));
+        if (elemLayout != nullptr)
+        {
+            printf("<%s>", elemLayout->GetClassName());
+        }
+        printf(", ");
+        vnPrint(arrayVN, 1);
+        printf(", ");
+        vnPrint(indexVN, 1);
+        if (fieldSeq != nullptr)
+        {
+            printf(", ");
+            dmpFieldSeqFields(fieldSeq);
+        }
+        printf(")\n");
+    }
+}
 #endif // DEBUG
