@@ -4833,9 +4833,16 @@ ValueNum Compiler::vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, Value
             structFieldSeq = structFieldSeq->GetNext();
         }
 
-        ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
-        valueVN =
-            vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, structFieldSeq, valueVN, storeType);
+        // When storing to a static vector field there's no field involved, the entire
+        // boxed value is modified. This could also happen for static STRUCT fields but
+        // currently those aren't handled by this code.
+
+        if (structFieldSeq != nullptr)
+        {
+            ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
+            valueVN = vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, structFieldSeq, valueVN,
+                                                    storeType);
+        }
     }
 
     // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
