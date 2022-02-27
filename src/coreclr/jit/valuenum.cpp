@@ -3719,27 +3719,29 @@ ValueNum ValueNumStore::MapExtractStructField(
 
         noway_assert(fieldSeq->IsField());
 
-        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-        *fieldType                       = GetFieldType(fieldHandle, fieldLayout);
+        *fieldType = GetFieldType(fieldSeq->GetFieldHandle(), fieldLayout);
 
-        map = VNForMapSelect(vnk, *fieldType, map, VNForFieldHandle(fieldHandle));
+        map = VNForMapSelect(vnk, *fieldType, map, VNForFieldHandle(fieldSeq->GetFieldHandle()));
     }
 
     return map;
 }
 
-ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
+ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType)
 {
-    var_types    fieldType;
-    ClassLayout* fieldLayout;
-    ValueNum     liberalVN = MapExtractStructField(VNK_Liberal, map.GetLiberal(), fieldSeq, &fieldType, &fieldLayout);
-    liberalVN              = VNApplySelectorsTypeCheck(liberalVN, fieldLayout, indType);
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+    {
+        noway_assert(fieldSeq->IsField());
 
-    ValueNum conservVN =
-        MapExtractStructField(VNK_Conservative, map.GetConservative(), fieldSeq, &fieldType, &fieldLayout);
-    conservVN = VNApplySelectorsTypeCheck(conservVN, fieldLayout, indType);
+        ClassLayout* fieldLayout;
+        var_types    fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
 
-    return ValueNumPair(liberalVN, conservVN);
+        ValueNum fieldVN = VNForFieldHandle(fieldSeq->GetFieldHandle());
+        map.SetLiberal(VNForMapSelect(VNK_Liberal, fieldType, map.GetLiberal(), fieldVN));
+        map.SetConservative(VNForMapSelect(VNK_Conservative, fieldType, map.GetConservative(), fieldVN));
+    }
+
+    return map;
 }
 
 ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)

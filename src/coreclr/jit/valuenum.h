@@ -599,12 +599,12 @@ public:
     var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
 
     ValueNum MapInsertStructField(
-        ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum rhs, var_types indType);
+        ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum rhs, var_types storeType);
     ValueNumPair MapInsertStructField(
         ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType);
     ValueNum MapExtractStructField(
         ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types* fieldType, ClassLayout** fieldLayout);
-    ValueNumPair MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
+    ValueNumPair MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType);
 
     ValueNum VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
     ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
