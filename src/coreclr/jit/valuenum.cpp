@@ -4409,69 +4409,75 @@ void Compiler::vnIndirLoad(GenTreeIndir* tree)
     }
 }
 
-void Compiler::vnIndirStore(GenTreeOp* tree, GenTreeIndir* lhs, ValueNumPair rhsVNPair)
+void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valueVNP)
 {
-    assert(tree->OperIs(GT_ASG));
-    assert(lhs->OperIs(GT_IND));
+    assert(asg->OperIs(GT_ASG));
+    assert(dst->OperIs(GT_IND));
 
-    bool isVolatile = (lhs->gtFlags & GTF_IND_VOLATILE) != 0;
-
-    if (isVolatile)
+    if (dst->IsVolatile())
     {
-        // For Volatile store indirection, first mutate GcHeap/ByrefExposed
-        fgMutateGcHeap(lhs DEBUGARG("GTF_IND_VOLATILE - store"));
-        tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lhs->TypeGet()));
+        // For volatile stores, first mutate the heap. This prevents previous
+        // stores from being visible after the store.
+        fgMutateGcHeap(dst DEBUGARG("volatile store"));
+
+        // TODO-MIKE-Review: Why the crap is the ASG VN set here and then later
+        // set again to VOID?!?
+        asg->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, dst->GetType()));
     }
 
-    GenTree* arg = lhs->AsIndir()->GetAddr();
+    GenTree* addr = dst->GetAddr();
 
-    if (GenTreeClsVar* clsVarAddr = arg->IsClsVar())
+    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
     {
-        ValueNum valueVN = rhsVNPair.GetLiberal();
-        ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, lhs->GetType());
+        ValueNum valueVN = valueVNP.GetLiberal();
+        ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, dst->GetType());
+        recordGcHeapStore(asg, heapVN DEBUGARG("static field store"));
 
-        // It is not strictly necessary to set the lhs value number,
-        // but the dumps read better with it set to the 'storeVal' that we just computed
-        lhs->gtVNPair.SetBoth(heapVN);
+        // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
+        // need a value number and in other places this is set to the value VN or to void VN.
+        dst->gtVNPair.SetBoth(heapVN);
 
-        recordGcHeapStore(tree, heapVN DEBUGARG("Static Field store"));
         return;
     }
 
-    lhs->gtVNPair = rhsVNPair;
+    dst->SetVNP(valueVNP);
+    asg->gtVNPair.SetBoth(vnStore->VNForVoid());
 
-    ValueNum argVN = arg->gtVNPair.GetLiberal();
-    GenTree* obj   = nullptr;
+    ValueNum addrVN = addr->gtVNPair.GetLiberal();
 
     VNFuncApp funcApp;
-    if (vnStore->GetVNFunc(vnStore->VNNormalValue(argVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
+    if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
     {
-        ValueNum heapVN = vnArrayElemStore(funcApp, rhsVNPair.GetLiberal(), lhs->GetType());
-        recordGcHeapStore(tree, heapVN DEBUGARG("array element store"));
+        ValueNum heapVN = vnArrayElemStore(funcApp, valueVNP.GetLiberal(), dst->GetType());
+        recordGcHeapStore(asg, heapVN DEBUGARG("array element store"));
+
+        return;
     }
-    else if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
+
+    GenTree* obj;
+    if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
     {
         ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
-        ValueNum valueVN = rhsVNPair.GetLiberal();
-        ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, lhs->GetType());
-        recordGcHeapStore(tree, heapVN DEBUGARG("StoreField"));
+        ValueNum valueVN = valueVNP.GetLiberal();
+        ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, dst->GetType());
+        recordGcHeapStore(asg, heapVN DEBUGARG("object field store"));
 
         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
         // need a value number and in other places this is set to the heap VN or to void VN.
-        lhs->gtVNPair.SetBoth(valueVN);
-    }
-    else if (GenTreeLclVarCommon* dstLclNode = arg->IsLocalAddrExpr())
-    {
-        assert(lvaGetDesc(dstLclNode)->IsAddressExposed());
-        fgMutateAddressExposedLocal(tree);
-    }
-    else
-    {
-        fgMutateGcHeap(tree DEBUGARG("assign-of-IND"));
+        dst->gtVNPair.SetBoth(valueVN);
+
+        return;
     }
 
-    // We don't actually evaluate an IND on the LHS, so give it the Void value.
-    tree->gtVNPair.SetBoth(vnStore->VNForVoid());
+    if (GenTreeLclVarCommon* dstLclNode = addr->IsLocalAddrExpr())
+    {
+        assert(lvaGetDesc(dstLclNode)->IsAddressExposed());
+        fgMutateAddressExposedLocal(asg);
+
+        return;
+    }
+
+    fgMutateGcHeap(asg DEBUGARG("indirect store"));
 }
 
 ValueNum Compiler::vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType)
