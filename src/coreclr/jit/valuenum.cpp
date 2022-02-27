@@ -4469,6 +4469,153 @@ void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valu
     fgMutateGcHeap(asg DEBUGARG("indirect store"));
 }
 
+void Compiler::vnAssignment(GenTreeOp* tree)
+{
+    assert(tree->OperIs(GT_ASG) && !tree->TypeIs(TYP_STRUCT));
+
+    GenTree* lhs = tree->AsOp()->GetOp(0);
+    GenTree* rhs = tree->AsOp()->GetOp(1);
+
+    assert(!lhs->OperIs(GT_BLK));
+    assert(!rhs->OperIs(GT_BLK));
+
+    ValueNumPair rhsVNPair = rhs->gtVNPair;
+
+    // Is the type being stored different from the type computed by the rhs?
+    if (rhs->GetType() != lhs->GetType())
+    {
+        // This means that there is an implicit cast on the rhs value
+        //
+        // We will add a cast function to reflect the possible narrowing of the rhs value
+        //
+        var_types castToType   = lhs->TypeGet();
+        var_types castFromType = rhs->TypeGet();
+        bool      isUnsigned   = varTypeIsUnsigned(castFromType);
+
+        rhsVNPair = vnStore->VNPairForCast(rhsVNPair, castToType, castFromType, isUnsigned);
+    }
+
+    if (tree->TypeGet() != TYP_VOID)
+    {
+        // Assignment operators, as expressions, return the value of the RHS.
+        tree->gtVNPair = rhsVNPair;
+    }
+
+    // Now that we've labeled the assignment as a whole, we don't care about exceptions.
+    rhsVNPair = vnStore->VNPNormalPair(rhsVNPair);
+
+    // Record the exception set for this 'tree' in vnExcSet.
+    // First we'll record the exception set for the rhs and
+    // later we will union in the exception set for the lhs.
+    //
+    ValueNum vnExcSet;
+
+    // Unpack, Norm,Exc for 'rhsVNPair'
+    ValueNum vnRhsLibNorm;
+    vnStore->VNUnpackExc(rhsVNPair.GetLiberal(), &vnRhsLibNorm, &vnExcSet);
+
+    // Now that we've saved the rhs exeception set, we we will use the normal values.
+    rhsVNPair = ValueNumPair(vnRhsLibNorm, vnStore->VNNormalValue(rhsVNPair.GetConservative()));
+
+    // If the types of the rhs and lhs are different then we
+    //  may want to change the ValueNumber assigned to the lhs.
+    //
+    if (rhs->TypeGet() != lhs->TypeGet())
+    {
+        if (rhs->TypeGet() == TYP_REF)
+        {
+            // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+            // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+            //
+            rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lhs->TypeGet()));
+        }
+    }
+
+    // We have to handle the case where the LHS is a comma.  In that case, we don't evaluate the comma,
+    // so we give it VNForVoid, and we're really interested in the effective value.
+    for (; lhs->OperIs(GT_COMMA); lhs = lhs->AsOp()->GetOp(1))
+    {
+        lhs->gtVNPair.SetBoth(vnStore->VNForVoid());
+    }
+
+    // Now, record the new VN for an assignment (performing the indicated "state update").
+    // It's safe to use gtEffectiveVal here, because the non-last elements of a comma list on the
+    // LHS will come before the assignment in evaluation order.
+    switch (lhs->GetOper())
+    {
+        case GT_LCL_VAR:
+        case GT_LCL_FLD:
+        {
+            INDEBUG(unsigned memorySsaNum;)
+            assert(!GetMemorySsaMap(GcHeap)->Lookup(tree, &memorySsaNum));
+
+            GenTreeLclVarCommon* lclNode = lhs->AsLclVarCommon();
+            LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+
+            if (lcl->IsAddressExposed())
+            {
+                fgMutateAddressExposedLocal(tree);
+            }
+            else if (lcl->IsInSsa())
+            {
+                assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree, &memorySsaNum));
+
+                ValueNumPair vnp;
+
+                if (lhs->OperIs(GT_LCL_VAR))
+                {
+                    vnp = rhsVNPair;
+                }
+                else if (!lclNode->AsLclFld()->HasFieldSeq())
+                {
+                    vnp.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+                }
+                else
+                {
+                    if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
+                    {
+                        assert(!lclNode->IsPartialLclFld(this));
+                        vnp.SetBoth(ValueNumStore::VNForZeroMap());
+                    }
+                    else
+                    {
+                        vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
+                    }
+
+                    vnp = vnStore->MapInsertStructField(vnp, lcl->GetType(), lclNode->AsLclFld()->GetFieldSeq(),
+                                                        rhsVNPair, lclNode->GetType());
+                }
+
+                // TODO-MIKE-Cleanup: LCL_VAR should never have GTF_VAR_USEASG.
+                unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclNode);
+
+                lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(vnp);
+                lhs->SetVNP(vnp);
+
+#ifdef DEBUG
+                if (verbose)
+                {
+                    printf("[%06d] ", lhs->GetID());
+                    gtDispNodeName(lhs);
+                    gtDispLeaf(lhs, nullptr);
+                    printf(" => ");
+                    vnpPrint(vnp, 1);
+                    printf("\n");
+                }
+#endif // DEBUG
+            }
+        }
+        break;
+
+        case GT_IND:
+            vnIndirStore(tree->AsOp(), lhs->AsIndir(), rhsVNPair);
+            break;
+
+        default:
+            unreached();
+    }
+}
+
 void Compiler::vnStructAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
@@ -7599,156 +7746,15 @@ void Compiler::fgValueNumberTree(GenTree* tree)
     }
     else if (GenTree::OperIsSimple(oper))
     {
-#ifdef DEBUG
-        // Sometimes we query the memory ssa map in an assertion, and need a dummy location for the ignored result.
-        unsigned memorySsaNum;
-#endif
-
-        if (tree->OperIs(GT_ASG) && tree->TypeIs(TYP_STRUCT))
+        if (tree->OperIs(GT_ASG))
         {
-            vnStructAssignment(tree->AsOp());
-        }
-        else if (tree->OperIs(GT_ASG))
-        {
-            GenTree* lhs = tree->AsOp()->GetOp(0);
-            GenTree* rhs = tree->AsOp()->GetOp(1);
-
-            assert(!lhs->OperIs(GT_BLK));
-            assert(!rhs->OperIs(GT_BLK));
-
-            ValueNumPair rhsVNPair = rhs->gtVNPair;
-
-            // Is the type being stored different from the type computed by the rhs?
-            if (rhs->GetType() != lhs->GetType())
+            if (tree->TypeIs(TYP_STRUCT))
             {
-                // This means that there is an implicit cast on the rhs value
-                //
-                // We will add a cast function to reflect the possible narrowing of the rhs value
-                //
-                var_types castToType   = lhs->TypeGet();
-                var_types castFromType = rhs->TypeGet();
-                bool      isUnsigned   = varTypeIsUnsigned(castFromType);
-
-                rhsVNPair = vnStore->VNPairForCast(rhsVNPair, castToType, castFromType, isUnsigned);
+                vnStructAssignment(tree->AsOp());
             }
-
-            if (tree->TypeGet() != TYP_VOID)
+            else
             {
-                // Assignment operators, as expressions, return the value of the RHS.
-                tree->gtVNPair = rhsVNPair;
-            }
-
-            // Now that we've labeled the assignment as a whole, we don't care about exceptions.
-            rhsVNPair = vnStore->VNPNormalPair(rhsVNPair);
-
-            // Record the exception set for this 'tree' in vnExcSet.
-            // First we'll record the exception set for the rhs and
-            // later we will union in the exception set for the lhs.
-            //
-            ValueNum vnExcSet;
-
-            // Unpack, Norm,Exc for 'rhsVNPair'
-            ValueNum vnRhsLibNorm;
-            vnStore->VNUnpackExc(rhsVNPair.GetLiberal(), &vnRhsLibNorm, &vnExcSet);
-
-            // Now that we've saved the rhs exeception set, we we will use the normal values.
-            rhsVNPair = ValueNumPair(vnRhsLibNorm, vnStore->VNNormalValue(rhsVNPair.GetConservative()));
-
-            // If the types of the rhs and lhs are different then we
-            //  may want to change the ValueNumber assigned to the lhs.
-            //
-            if (rhs->TypeGet() != lhs->TypeGet())
-            {
-                if (rhs->TypeGet() == TYP_REF)
-                {
-                    // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-                    // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-                    //
-                    rhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, lhs->TypeGet()));
-                }
-            }
-
-            // We have to handle the case where the LHS is a comma.  In that case, we don't evaluate the comma,
-            // so we give it VNForVoid, and we're really interested in the effective value.
-            for (; lhs->OperIs(GT_COMMA); lhs = lhs->AsOp()->GetOp(1))
-            {
-                lhs->gtVNPair.SetBoth(vnStore->VNForVoid());
-            }
-
-            // Now, record the new VN for an assignment (performing the indicated "state update").
-            // It's safe to use gtEffectiveVal here, because the non-last elements of a comma list on the
-            // LHS will come before the assignment in evaluation order.
-            switch (lhs->GetOper())
-            {
-                case GT_LCL_VAR:
-                case GT_LCL_FLD:
-                {
-                    assert(!GetMemorySsaMap(GcHeap)->Lookup(tree, &memorySsaNum));
-
-                    GenTreeLclVarCommon* lclNode = lhs->AsLclVarCommon();
-                    LclVarDsc*           lcl     = lvaGetDesc(lclNode);
-
-                    if (lcl->IsAddressExposed())
-                    {
-                        fgMutateAddressExposedLocal(tree);
-                    }
-                    else if (lcl->IsInSsa())
-                    {
-                        assert(!GetMemorySsaMap(ByrefExposed)->Lookup(tree, &memorySsaNum));
-
-                        ValueNumPair vnp;
-
-                        if (lhs->OperIs(GT_LCL_VAR))
-                        {
-                            vnp = rhsVNPair;
-                        }
-                        else if (!lclNode->AsLclFld()->HasFieldSeq())
-                        {
-                            vnp.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
-                        }
-                        else
-                        {
-                            if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
-                            {
-                                assert(!lclNode->IsPartialLclFld(this));
-                                vnp.SetBoth(ValueNumStore::VNForZeroMap());
-                            }
-                            else
-                            {
-                                vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
-                            }
-
-                            vnp = vnStore->MapInsertStructField(vnp, lcl->GetType(), lclNode->AsLclFld()->GetFieldSeq(),
-                                                                rhsVNPair, lclNode->GetType());
-                        }
-
-                        // TODO-MIKE-Cleanup: LCL_VAR should never have GTF_VAR_USEASG.
-                        unsigned lclDefSsaNum = GetSsaNumForLocalVarDef(lclNode);
-
-                        lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(vnp);
-                        lhs->SetVNP(vnp);
-
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("[%06d] ", lhs->GetID());
-                            gtDispNodeName(lhs);
-                            gtDispLeaf(lhs, nullptr);
-                            printf(" => ");
-                            vnpPrint(vnp, 1);
-                            printf("\n");
-                        }
-#endif // DEBUG
-                    }
-                }
-                break;
-
-                case GT_IND:
-                    vnIndirStore(tree->AsOp(), lhs->AsIndir(), rhsVNPair);
-                    break;
-
-                default:
-                    unreached();
+                vnAssignment(tree->AsOp());
             }
         }
         else if ((oper == GT_IND) || (oper == GT_OBJ) || (oper == GT_BLK))

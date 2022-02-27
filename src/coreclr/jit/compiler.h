@@ -3953,6 +3953,8 @@ public:
 
     void vnIndirLoad(GenTreeIndir* indir);
     void vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair srcVNP);
+    void vnAssignment(GenTreeOp* asg);
+    void vnStructAssignment(GenTreeOp* asg);
     ValueNum vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType);
     ValueNum vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);
@@ -4002,9 +4004,6 @@ public:
     // (With some exceptions: the VN of the lhs of an assignment is assigned as part of the
     // assignment.)
     void fgValueNumberTree(GenTree* tree);
-
-    // Does value-numbering for a block assignment.
-    void vnStructAssignment(GenTreeOp* asg);
 
     // Does value-numbering for a cast tree.
     void fgValueNumberCastTree(GenTree* tree);
