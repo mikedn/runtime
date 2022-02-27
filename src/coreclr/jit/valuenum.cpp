@@ -7405,13 +7405,16 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         }
         else if (tree->OperIs(GT_ASG))
         {
-            GenTree* lhs = tree->AsOp()->gtOp1;
-            GenTree* rhs = tree->AsOp()->gtOp2;
+            GenTree* lhs = tree->AsOp()->GetOp(0);
+            GenTree* rhs = tree->AsOp()->GetOp(1);
+
+            assert(!lhs->OperIs(GT_BLK));
+            assert(!rhs->OperIs(GT_BLK));
 
             ValueNumPair rhsVNPair = rhs->gtVNPair;
 
             // Is the type being stored different from the type computed by the rhs?
-            if ((rhs->TypeGet() != lhs->TypeGet()) && (lhs->OperGet() != GT_BLK))
+            if (rhs->GetType() != lhs->GetType())
             {
                 // This means that there is an implicit cast on the rhs value
                 //
