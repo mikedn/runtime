@@ -3951,6 +3951,8 @@ public:
     // tree node).
     void fgValueNumber();
 
+    void vnIndirLoad(GenTreeIndir* indir);
+    void vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair srcVNP);
     ValueNum vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType);
     ValueNum vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);
