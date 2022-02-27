@@ -6099,6 +6099,11 @@ struct GenTreeIndir : public GenTreeOp
         gtFlags |= GTF_IND_UNALIGNED;
     }
 
+    bool IsInvariant() const
+    {
+        return (gtFlags & GTF_IND_INVARIANT) != 0;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeIndir() : GenTreeOp()
     {
