@@ -4223,6 +4223,74 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
     return res;
 }
 
+ValueNum Compiler::vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType)
+{
+    ValueNum heapVN = fgCurMemoryVN[GcHeap];
+    INDEBUG(vnPrintHeapVN(heapVN));
+
+    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, vnStore->VNForFieldHandle(fieldHandle), valueVN);
+}
+
+ValueNum Compiler::vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType)
+{
+    ValueNum heapVN = fgCurMemoryVN[GcHeap];
+    INDEBUG(vnPrintHeapVN(heapVN));
+
+    var_types    fieldType;
+    ClassLayout* fieldLayout;
+    ValueNum     valueVN = vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, &fieldType, &fieldLayout);
+    return vnStore->VNApplySelectorsTypeCheck(valueVN, fieldLayout, loadType);
+}
+
+ValueNum Compiler::vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType)
+{
+    ValueNum heapVN = fgCurMemoryVN[GcHeap];
+    INDEBUG(vnPrintHeapVN(heapVN));
+
+    var_types    fieldType;
+    ClassLayout* fieldLayout;
+    ValueNum     fieldMapVN = vnStore->MapExtractField(heapVN, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
+
+    if (FieldSeqNode* structFieldSeq = fieldSeq->GetNext())
+    {
+        if (structFieldSeq->IsBoxedValueField())
+        {
+            structFieldSeq = structFieldSeq->GetNext();
+        }
+
+        ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
+        valueVN =
+            vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, structFieldSeq, valueVN, storeType);
+    }
+
+    // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
+    // previously that was incorrectly done when storing to the heap map. It's
+    // the store value that may need coercion, the field map value is always
+    // treated as if it's a struct.
+    fieldMapVN = vnStore->VNForMapStore(TYP_STRUCT, fieldMapVN, objVN, valueVN);
+
+    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, vnStore->VNForFieldHandle(fieldSeq->GetFieldHandle()),
+                                  fieldMapVN);
+}
+
+ValueNum Compiler::vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_types loadType)
+{
+    ValueNum vn = fgCurMemoryVN[GcHeap];
+    INDEBUG(vnPrintHeapVN(vn));
+
+    var_types    fieldType;
+    ClassLayout* fieldLayout;
+    vn = vnStore->MapExtractField(vn, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
+    vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, vn, objVN);
+
+    if (fieldSeq->GetNext() != nullptr)
+    {
+        vn = vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq->GetNext(), &fieldType, &fieldLayout);
+    }
+
+    return vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, loadType);
+}
+
 ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType)
 {
     assert(elemAddr.m_func == VNF_PtrToArrElem);
@@ -7444,16 +7512,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                     if (GenTreeClsVar* clsVarAddr = arg->IsClsVar())
                     {
-                        ValueNum heap  = fgCurMemoryVN[GcHeap];
-                        ValueNum value = rhsVNPair.GetLiberal();
-                        heap           = vnStore->VNForMapStore(TYP_STRUCT, heap,
-                                                      vnStore->VNForFieldHandle(clsVarAddr->GetFieldHandle()), value);
+                        ValueNum valueVN = rhsVNPair.GetLiberal();
+                        ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, lhs->GetType());
 
                         // It is not strictly necessary to set the lhs value number,
                         // but the dumps read better with it set to the 'storeVal' that we just computed
-                        lhs->gtVNPair.SetBoth(heap);
+                        lhs->gtVNPair.SetBoth(heapVN);
 
-                        recordGcHeapStore(tree, heap DEBUGARG("Static Field store"));
+                        recordGcHeapStore(tree, heapVN DEBUGARG("Static Field store"));
                         break;
                     }
 
@@ -7471,38 +7537,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
                     else if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
                     {
-                        ValueNum heapVN = fgCurMemoryVN[GcHeap];
-                        INDEBUG(vnPrintHeapVN(heapVN));
-
-                        var_types    fieldType;
-                        ClassLayout* fieldLayout;
-                        ValueNum     fieldMapVN =
-                            vnStore->MapExtractField(heapVN, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
-
                         ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
                         ValueNum valueVN = rhsVNPair.GetLiberal();
-
-                        if (FieldSeqNode* structFieldSeq = fieldSeq->GetNext())
-                        {
-                            if (structFieldSeq->IsBoxedValueField())
-                            {
-                                structFieldSeq = structFieldSeq->GetNext();
-                            }
-
-                            ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
-                            valueVN = vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType,
-                                                                    structFieldSeq, valueVN, lhs->GetType());
-                        }
-
-                        // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
-                        // previously that was incorrectly done when storing to the heap map. It's
-                        // the store value that may need coercion, the field map value is always
-                        // treated as if it's a struct.
-                        fieldMapVN = vnStore->VNForMapStore(TYP_STRUCT, fieldMapVN, objVN, valueVN);
-
-                        heapVN =
-                            vnStore->VNForMapStore(TYP_STRUCT, heapVN,
-                                                   vnStore->VNForFieldHandle(fieldSeq->GetFieldHandle()), fieldMapVN);
+                        ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, lhs->GetType());
                         recordGcHeapStore(tree, heapVN DEBUGARG("StoreField"));
 
                         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
@@ -7634,18 +7671,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
                     else
                     {
-                        // This is a reference to heap memory.
-                        // We model statics as indices into GcHeap (which is a subset of ByrefExposed).
-
-                        var_types    fieldType;
-                        ClassLayout* fieldLayout;
-                        ValueNum selectedStaticVar = vnStore->MapExtractStructField(VNK_Liberal, fgCurMemoryVN[GcHeap],
-                                                                                    fldSeq, &fieldType, &fieldLayout);
-                        selectedStaticVar =
-                            vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, fieldLayout, tree->TypeGet());
-
-                        clsVarVNPair.SetLiberal(selectedStaticVar);
-                        // The conservative interpretation always gets a new, unique VN.
+                        clsVarVNPair.SetLiberal(vnStaticFieldLoad(fldSeq, tree->GetType()));
                         clsVarVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
                     }
 
@@ -7701,24 +7727,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
                 else if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
                 {
-                    ValueNum vn = fgCurMemoryVN[GcHeap];
-                    INDEBUG(vnPrintHeapVN(vn));
-
                     ValueNum objVN = vnStore->VNNormalValue(obj->GetLiberalVN());
-
-                    var_types    fieldType;
-                    ClassLayout* fieldLayout;
-                    vn = vnStore->MapExtractField(vn, fieldSeq->GetFieldHandle(), &fieldType, &fieldLayout);
-                    vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, vn, objVN);
-
-                    if (fieldSeq->GetNext() != nullptr)
-                    {
-                        vn = vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq->GetNext(), &fieldType,
-                                                            &fieldLayout);
-                    }
-
-                    vn = vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, tree->GetType());
-
+                    ValueNum vn    = vnObjFieldLoad(objVN, fieldSeq, tree->GetType());
                     tree->SetVNP(vnStore->VNPWithExc({vn, vnStore->VNForExpr(compCurBB, tree->GetType())}, addrXvnp));
                 }
                 else if (tree->TypeIs(TYP_I_IMPL) && addr->TypeIs(TYP_REF))

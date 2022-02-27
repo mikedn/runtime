@@ -3951,6 +3951,10 @@ public:
     // tree node).
     void fgValueNumber();
 
+    ValueNum vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType);
+    ValueNum vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType);
+    ValueNum vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);
+    ValueNum vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType);
     ValueNum vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, var_types loadType);
 
