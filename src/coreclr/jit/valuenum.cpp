@@ -3801,7 +3801,7 @@ ValueNum ValueNumStore::MapInsertStructField(
     return value;
 }
 
-ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
+ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
 {
     var_types    fieldType;
     ClassLayout* fieldLayout;
@@ -7666,7 +7666,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         assert(varTypeIsStruct(lcl->GetType()));
 
                         vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
-                        vnp = vnStore->VNPairApplySelectors(vnp, lclNode->GetFieldSeq(), lclNode->GetType());
+                        vnp = vnStore->MapExtractStructField(vnp, lclNode->GetFieldSeq(), lclNode->GetType());
                     }
 
                     lclNode->SetVNP(vnp);

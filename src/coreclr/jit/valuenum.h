@@ -622,7 +622,7 @@ public:
 
     ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
 
-    ValueNumPair VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
+    ValueNumPair MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
 
     ValueNumPair MapInsertStructField(
         ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType)
