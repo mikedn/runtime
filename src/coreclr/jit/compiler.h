@@ -3955,6 +3955,8 @@ public:
     void vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair srcVNP);
     void vnAssignment(GenTreeOp* asg);
     void vnStructAssignment(GenTreeOp* asg);
+    void vnLocalLoad(GenTreeLclVar* load);
+    void vnLocalFieldLoad(GenTreeLclFld* load);
     ValueNum vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType);
     ValueNum vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);

@@ -4717,6 +4717,86 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 #endif
 }
 
+void Compiler::vnLocalLoad(GenTreeLclVar* load)
+{
+    assert(load->OperIs(GT_LCL_VAR) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+
+    LclVarDsc*   lcl = lvaGetDesc(load);
+    ValueNumPair vnp;
+
+    if (lcl->IsAddressExposed())
+    {
+        ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+                                             vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+
+        vnp.SetBoth(fgValueNumberByrefExposedLoad(load->GetType(), addrVN));
+    }
+    else if (!lcl->IsInSsa())
+    {
+        vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+    }
+    else
+    {
+        vnp = lcl->GetPerSsaData(load->GetSsaNum())->m_vnPair;
+
+        assert(vnp.GetLiberal() != ValueNumStore::NoVN);
+
+        unsigned valSize = varTypeSize(varActualType(load->GetType()));
+        unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
+
+        if (valSize != lclSize)
+        {
+            // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
+            if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
+            {
+                vnp = vnStore->VNPairForCast(vnp, TYP_INT, TYP_LONG);
+            }
+            else
+            {
+                vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+            }
+        }
+
+        // A BYREF local may have a zero offset field sequence that needs to be added.
+        if (load->TypeIs(TYP_BYREF))
+        {
+            if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(load))
+            {
+                ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq, 0);
+
+                if (extendVN != ValueNumStore::NoVN)
+                {
+                    vnp.SetBoth(extendVN);
+                }
+            }
+        }
+    }
+
+    load->SetVNP(vnp);
+}
+
+void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
+{
+    assert(load->OperIs(GT_LCL_FLD) && ((load->gtFlags & GTF_VAR_DEF) == 0));
+
+    LclVarDsc*   lcl = lvaGetDesc(load);
+    ValueNumPair vnp;
+
+    if (!lcl->IsInSsa() || !load->HasFieldSeq())
+    {
+        vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+    }
+    else
+    {
+        assert(varTypeIsStruct(lcl->GetType()));
+
+        vnp = lcl->GetPerSsaData(load->GetSsaNum())->GetVNP();
+        vnp = vnStore->MapExtractStructField(vnp, load->GetFieldSeq(), load->GetType());
+    }
+
+    load->SetVNP(vnp);
+}
+
 ValueNum Compiler::vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType)
 {
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
@@ -7593,83 +7673,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             case GT_LCL_VAR:
                 if ((tree->gtFlags & GTF_VAR_DEF) == 0)
                 {
-                    GenTreeLclVar* lclNode = tree->AsLclVar();
-                    LclVarDsc*     lcl     = lvaGetDesc(lclNode);
-                    ValueNumPair   vnp;
-
-                    if (lcl->IsAddressExposed())
-                    {
-                        ValueNum addrVN =
-                            vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(lclNode->GetLclNum()),
-                                               vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
-
-                        vnp.SetBoth(fgValueNumberByrefExposedLoad(lclNode->GetType(), addrVN));
-                    }
-                    else if (!lcl->IsInSsa())
-                    {
-                        vnp.SetBoth(vnStore->VNForExpr(compCurBB, lclNode->GetType()));
-                    }
-                    else
-                    {
-                        vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->m_vnPair;
-
-                        assert(vnp.GetLiberal() != ValueNumStore::NoVN);
-
-                        unsigned valSize = varTypeSize(varActualType(lclNode->GetType()));
-                        unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
-
-                        if (valSize != lclSize)
-                        {
-                            // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
-                            if (lclNode->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
-                            {
-                                vnp = vnStore->VNPairForCast(vnp, TYP_INT, TYP_LONG);
-                            }
-                            else
-                            {
-                                vnp.SetBoth(vnStore->VNForExpr(compCurBB, lclNode->GetType()));
-                            }
-                        }
-
-                        // A BYREF local may have a zero offset field sequence that needs to be added.
-                        if (lclNode->TypeIs(TYP_BYREF))
-                        {
-                            if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(tree))
-                            {
-                                ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq, 0);
-
-                                if (extendVN != ValueNumStore::NoVN)
-                                {
-                                    vnp.SetBoth(extendVN);
-                                }
-                            }
-                        }
-                    }
-
-                    lclNode->SetVNP(vnp);
+                    vnLocalLoad(tree->AsLclVar());
                 }
                 break;
 
             case GT_LCL_FLD:
                 if ((tree->gtFlags & GTF_VAR_DEF) == 0)
                 {
-                    GenTreeLclFld* lclNode = tree->AsLclFld();
-                    LclVarDsc*     lcl     = lvaGetDesc(lclNode);
-                    ValueNumPair   vnp;
-
-                    if (!lcl->IsInSsa() || !lclNode->HasFieldSeq())
-                    {
-                        vnp.SetBoth(vnStore->VNForExpr(compCurBB, lclNode->GetType()));
-                    }
-                    else
-                    {
-                        assert(varTypeIsStruct(lcl->GetType()));
-
-                        vnp = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
-                        vnp = vnStore->MapExtractStructField(vnp, lclNode->GetFieldSeq(), lclNode->GetType());
-                    }
-
-                    lclNode->SetVNP(vnp);
+                    vnLocalFieldLoad(tree->AsLclFld());
                 }
                 break;
 
