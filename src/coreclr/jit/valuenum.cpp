@@ -6457,21 +6457,7 @@ void ValueNumStore::DumpCast(const VNFuncApp& cast)
 
 #endif // DEBUG
 
-// Static fields, methods.
-static UINT8      vnfOpAttribs[VNF_COUNT];
-static genTreeOps genTreeOpsIllegalAsVNFunc[] = {GT_IND, // When we do heap memory.
-                                                 GT_NULLCHECK, GT_QMARK, GT_LOCKADD, GT_XADD, GT_XCHG, GT_CMPXCHG,
-                                                 GT_LCLHEAP, GT_BOX, GT_XORR, GT_XAND,
-
-                                                 // These need special semantics:
-                                                 GT_COMMA, // == second argument (but with exception(s) from first).
-                                                 GT_ARR_BOUNDS_CHECK,
-                                                 GT_OBJ,      // May reference heap memory.
-                                                 GT_BLK,      // May reference heap memory.
-                                                 GT_INIT_VAL, // Not strictly a pass-through.
-
-                                                 // These control-flow operations need no values.
-                                                 GT_JTRUE, GT_RETURN, GT_SWITCH, GT_RETFILT, GT_CKFINITE};
+static UINT8 vnfOpAttribs[VNF_COUNT];
 
 UINT8* ValueNumStore::s_vnfOpAttribs = nullptr;
 
@@ -6526,9 +6512,14 @@ void ValueNumStore::InitValueNumStoreStatics()
 
     assert(vnfNum == VNF_COUNT);
 
-    for (unsigned i = 0; i < _countof(genTreeOpsIllegalAsVNFunc); i++)
+    genTreeOps genTreeOpsIllegalAsVNFunc[]{
+        GT_IND,    GT_NULLCHECK, GT_QMARK,   GT_LOCKADD,          GT_XADD, GT_XCHG, GT_CMPXCHG,  GT_LCLHEAP, GT_BOX,
+        GT_XORR,   GT_XAND,      GT_COMMA,   GT_ARR_BOUNDS_CHECK, GT_OBJ,  GT_BLK,  GT_INIT_VAL, GT_JTRUE,   GT_RETURN,
+        GT_SWITCH, GT_RETFILT,   GT_CKFINITE};
+
+    for (auto oper : genTreeOpsIllegalAsVNFunc)
     {
-        vnfOpAttribs[genTreeOpsIllegalAsVNFunc[i]] |= VNFOA_IllegalGenTreeOp;
+        vnfOpAttribs[oper] |= VNFOA_IllegalGenTreeOp;
     }
 }
 
