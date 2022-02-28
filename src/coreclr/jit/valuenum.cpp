@@ -7537,95 +7537,61 @@ void Compiler::fgValueNumberRecordMemorySsa(MemoryKind memoryKind, GenTree* tree
     }
 }
 
-// The input 'tree' is a leaf node that is a constant
-// Assign the proper value number to the tree
 void Compiler::fgValueNumberTreeConst(GenTree* tree)
 {
-    genTreeOps oper = tree->OperGet();
-    var_types  typ  = tree->TypeGet();
-    assert(GenTree::OperIsConst(oper));
+    var_types type = varActualType(tree->GetType());
 
-    switch (typ)
+    switch (type)
     {
         case TYP_LONG:
-        case TYP_ULONG:
         case TYP_INT:
-        case TYP_UINT:
-        case TYP_USHORT:
-        case TYP_SHORT:
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_BOOL:
-            if (tree->IsCnsIntOrI() && tree->IsIconHandle())
+            if (tree->IsIntCon() && tree->IsIconHandle())
             {
-                tree->gtVNPair.SetBoth(
-                    vnStore->VNForHandle(ssize_t(tree->AsIntConCommon()->IconValue()), tree->GetIconHandleFlag()));
+                tree->gtVNPair.SetBoth(vnStore->VNForHandle(tree->AsIntCon()->GetValue(), tree->GetIconHandleFlag()));
             }
-            else if ((typ == TYP_LONG) || (typ == TYP_ULONG))
+            else if (type == TYP_LONG)
             {
-                tree->gtVNPair.SetBoth(vnStore->VNForLongCon(INT64(tree->AsIntConCommon()->LngValue())));
+                tree->gtVNPair.SetBoth(vnStore->VNForLongCon(tree->AsIntConCommon()->LngValue()));
             }
             else
             {
-                tree->gtVNPair.SetBoth(vnStore->VNForIntCon(int(tree->AsIntConCommon()->IconValue())));
+                tree->gtVNPair.SetBoth(vnStore->VNForIntCon(tree->AsIntCon()->GetInt32Value()));
             }
             break;
 
-#ifdef FEATURE_SIMD
-        case TYP_SIMD8:
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-        case TYP_SIMD32:
-
-#ifdef TARGET_64BIT
-            // Only the zero constant is currently allowed for SIMD types
-            //
-            assert(tree->AsIntConCommon()->LngValue() == 0);
-            tree->gtVNPair.SetBoth(vnStore->VNForLongCon(tree->AsIntConCommon()->LngValue()));
-#else // 32BIT
-            assert(tree->AsIntConCommon()->IconValue() == 0);
-            tree->gtVNPair.SetBoth(vnStore->VNForIntCon(int(tree->AsIntConCommon()->IconValue())));
-#endif
-            break;
-#endif // FEATURE_SIMD
-
         case TYP_FLOAT:
-            tree->gtVNPair.SetBoth(vnStore->VNForFloatCon((float)tree->AsDblCon()->gtDconVal));
+            tree->gtVNPair.SetBoth(vnStore->VNForFloatCon(tree->AsDblCon()->GetFloatValue()));
             break;
         case TYP_DOUBLE:
-            tree->gtVNPair.SetBoth(vnStore->VNForDoubleCon(tree->AsDblCon()->gtDconVal));
+            tree->gtVNPair.SetBoth(vnStore->VNForDoubleCon(tree->AsDblCon()->GetDoubleValue()));
             break;
+
         case TYP_REF:
-            if (tree->AsIntConCommon()->IconValue() == 0)
+            if (tree->AsIntCon()->GetValue() == 0)
             {
                 tree->gtVNPair.SetBoth(ValueNumStore::VNForNull());
             }
             else
             {
                 assert(tree->IsIconHandle(GTF_ICON_STR_HDL)); // Constant object can be only frozen string.
-                tree->gtVNPair.SetBoth(
-                    vnStore->VNForHandle(ssize_t(tree->AsIntConCommon()->IconValue()), tree->GetIconHandleFlag()));
+
+                tree->gtVNPair.SetBoth(vnStore->VNForHandle(tree->AsIntCon()->GetValue(), tree->GetIconHandleFlag()));
             }
             break;
 
         case TYP_BYREF:
-            if (tree->AsIntConCommon()->IconValue() == 0)
+            if (tree->AsIntCon()->GetValue() == 0)
             {
                 tree->gtVNPair.SetBoth(ValueNumStore::VNForNull());
             }
+            else if (tree->IsIconHandle())
+            {
+                tree->gtVNPair.SetBoth(vnStore->VNForHandle(tree->AsIntCon()->GetValue(), tree->GetIconHandleFlag()));
+            }
             else
             {
-                assert(tree->IsCnsIntOrI());
-
-                if (tree->IsIconHandle())
-                {
-                    tree->gtVNPair.SetBoth(
-                        vnStore->VNForHandle(ssize_t(tree->AsIntConCommon()->IconValue()), tree->GetIconHandleFlag()));
-                }
-                else
-                {
-                    tree->gtVNPair.SetBoth(vnStore->VNForByrefCon((target_size_t)tree->AsIntConCommon()->IconValue()));
-                }
+                tree->gtVNPair.SetBoth(
+                    vnStore->VNForByrefCon(static_cast<target_size_t>(tree->AsIntCon()->GetValue())));
             }
             break;
 
@@ -7661,15 +7627,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
     }
 #endif // FEATURE_HW_INTRINSICS
 
-    var_types typ = tree->TypeGet();
-    if (GenTree::OperIsConst(oper))
+    if (tree->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
     {
-        // If this is a struct assignment, with a constant rhs, (i,.e. an initBlk),
-        // it is not useful to value number the constant.
-        if (tree->TypeGet() != TYP_STRUCT)
-        {
-            fgValueNumberTreeConst(tree);
-        }
+        fgValueNumberTreeConst(tree);
     }
     else if (GenTree::OperIsLeaf(oper))
     {
