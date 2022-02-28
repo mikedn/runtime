@@ -7985,7 +7985,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
                 else
                 {
-                    VNFunc       vnf        = GetVNFuncForNode(tree);
                     ValueNumPair normalPair = vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1vnp, op2vnp);
                     tree->gtVNPair          = vnStore->VNPWithExc(normalPair, excSetPair);
                 }
