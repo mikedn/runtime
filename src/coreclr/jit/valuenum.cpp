@@ -6580,10 +6580,29 @@ void ValueNumStore::InitValueNumStoreStatics()
 
     assert(vnfNum == VNF_COUNT);
 
-    genTreeOps genTreeOpsIllegalAsVNFunc[]{
-        GT_IND,    GT_NULLCHECK, GT_QMARK,   GT_LOCKADD,          GT_XADD, GT_XCHG, GT_CMPXCHG,  GT_LCLHEAP, GT_BOX,
-        GT_XORR,   GT_XAND,      GT_COMMA,   GT_ARR_BOUNDS_CHECK, GT_OBJ,  GT_BLK,  GT_INIT_VAL, GT_JTRUE,   GT_RETURN,
-        GT_SWITCH, GT_RETFILT,   GT_CKFINITE};
+    genTreeOps genTreeOpsIllegalAsVNFunc[]{GT_IND,
+                                           GT_NULLCHECK,
+                                           GT_QMARK,
+                                           GT_LOCKADD,
+                                           GT_XADD,
+                                           GT_XCHG,
+                                           GT_CMPXCHG,
+                                           GT_LCLHEAP,
+                                           GT_BOX,
+                                           GT_XORR,
+                                           GT_XAND,
+                                           GT_COMMA,
+                                           GT_ARR_BOUNDS_CHECK,
+                                           GT_OBJ,
+                                           GT_BLK,
+                                           GT_INIT_VAL,
+                                           GT_JTRUE,
+                                           GT_RETURN,
+                                           GT_SWITCH,
+                                           GT_RETFILT,
+                                           GT_CKFINITE,
+                                           GT_ASG,
+                                           GT_NOP};
 
     for (auto oper : genTreeOpsIllegalAsVNFunc)
     {
@@ -7816,6 +7835,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             fgValueNumberAddExceptionSet(tree);
             break;
 
+        case GT_QMARK:
         case GT_LOCKADD:
             unreached();
 
@@ -7885,118 +7905,103 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 #endif
 
+        case GT_LCLHEAP:
+        case GT_INIT_VAL:
+        case GT_RETURN:
+        case GT_SWITCH:
+        case GT_RETFILT:
+        case GT_CKFINITE:
+            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+            fgValueNumberAddExceptionSet(tree);
+            break;
+
+        case GT_NOP:
+            if (tree->AsUnOp()->gtOp1 == nullptr)
+            {
+                tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
+            }
+            else
+            {
+                tree->SetVNP(tree->AsUnOp()->GetOp(0)->GetVNP());
+            }
+            break;
+
         default:
-            if (GenTree::OperIsSimple(oper))
+            if (GenTree::OperIsUnary(oper))
             {
                 VNFunc vnf = GetVNFuncForNode(tree);
+                assert(ValueNumStore::VNFuncIsLegal(vnf));
 
-                if (ValueNumStore::VNFuncIsLegal(vnf))
+                ValueNumPair op1VNP;
+                ValueNumPair op1VNPx;
+                vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1VNP, &op1VNPx);
+
+                // If we are fetching the array length for an array ref that came from global memory
+                // then for CSE safety we must use the conservative value number for both
+                //
+                if ((tree->OperGet() == GT_ARR_LENGTH) && ((tree->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) != 0))
                 {
-                    if (GenTree::OperIsUnary(oper))
-                    {
-                        if (tree->AsOp()->gtOp1 != nullptr)
-                        {
-                            if (tree->OperGet() == GT_NOP)
-                            {
-                                // Pass through arg vn.
-                                tree->gtVNPair = tree->AsOp()->gtOp1->gtVNPair;
-                            }
-                            else
-                            {
-                                ValueNumPair op1VNP;
-                                ValueNumPair op1VNPx;
-                                vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1VNP, &op1VNPx);
+                    // use the conservative value number for both when computing the VN for the
+                    // ARR_LENGTH
+                    op1VNP.SetBoth(op1VNP.GetConservative());
+                }
 
-                                // If we are fetching the array length for an array ref that came from global memory
-                                // then for CSE safety we must use the conservative value number for both
-                                //
-                                if ((tree->OperGet() == GT_ARR_LENGTH) &&
-                                    ((tree->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) != 0))
-                                {
-                                    // use the conservative value number for both when computing the VN for the
-                                    // ARR_LENGTH
-                                    op1VNP.SetBoth(op1VNP.GetConservative());
-                                }
+                tree->gtVNPair = vnStore->VNPWithExc(vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1VNP), op1VNPx);
 
-                                tree->gtVNPair =
-                                    vnStore->VNPWithExc(vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1VNP), op1VNPx);
-                            }
-                        }
-                        else // Is actually nullary.
-                        {
-                            // Mostly we'll leave these without a value number, assuming we'll detect these as VN
-                            // failures
-                            // if they actually need to have values.  With the exception of NOPs, which can
-                            // sometimes have
-                            // meaning.
-                            if (tree->OperGet() == GT_NOP)
-                            {
-                                tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-                            }
-                        }
-                    }
-                    else // we have a binary oper
-                    {
-                        assert(oper != GT_ASG); // We handled assignments earlier.
-                        assert(GenTree::OperIsBinary(oper));
-                        // Standard binary operator.
-                        ValueNumPair op2VNPair;
-                        if (tree->AsOp()->gtOp2 == nullptr)
-                        {
-                            // Handle any GT_LEA nodes as they can have a nullptr for op2.
-                            op2VNPair.SetBoth(ValueNumStore::VNForNull());
-                        }
-                        else
-                        {
-                            op2VNPair = tree->AsOp()->gtOp2->gtVNPair;
-                        }
+                fgValueNumberAddExceptionSet(tree);
+            }
+            else if (GenTree::OperIsBinary(oper))
+            {
+                VNFunc vnf = GetVNFuncForNode(tree);
+                assert(ValueNumStore::VNFuncIsLegal(vnf));
 
-                        // Handle a few special cases: if we add a field offset constant to a PtrToXXX, we will get
-                        // back a
-                        // new
-                        // PtrToXXX.
-
-                        ValueNumPair op1vnp;
-                        ValueNumPair op1Xvnp;
-                        vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1vnp, &op1Xvnp);
-
-                        ValueNumPair op2vnp;
-                        ValueNumPair op2Xvnp;
-                        vnStore->VNPUnpackExc(op2VNPair, &op2vnp, &op2Xvnp);
-                        ValueNumPair excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
-
-                        ValueNum newVN = ValueNumStore::NoVN;
-
-                        // Check for the addition of a field offset constant
-                        //
-                        if ((oper == GT_ADD) && !tree->gtOverflowEx())
-                        {
-                            newVN = vnStore->ExtendPtrVN(tree->AsOp());
-                        }
-
-                        if (newVN != ValueNumStore::NoVN)
-                        {
-                            // We don't care about differences between liberal and conservative for pointer values.
-                            newVN = vnStore->VNWithExc(newVN, excSetPair.GetLiberal());
-                            tree->gtVNPair.SetBoth(newVN);
-                        }
-                        else
-                        {
-                            VNFunc       vnf        = GetVNFuncForNode(tree);
-                            ValueNumPair normalPair = vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1vnp, op2vnp);
-                            tree->gtVNPair          = vnStore->VNPWithExc(normalPair, excSetPair);
-                            // For overflow checking operations the VNF_OverflowExc will be added below
-                            // by fgValueNumberAddExceptionSet
-                        }
-                    }
-
-                    fgValueNumberAddExceptionSet(tree);
+                // Standard binary operator.
+                ValueNumPair op2VNPair;
+                if (tree->AsOp()->gtOp2 == nullptr)
+                {
+                    // Handle any GT_LEA nodes as they can have a nullptr for op2.
+                    op2VNPair.SetBoth(ValueNumStore::VNForNull());
                 }
                 else
                 {
-                    tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-                    fgValueNumberAddExceptionSet(tree);
+                    op2VNPair = tree->AsOp()->gtOp2->gtVNPair;
                 }
+
+                // Handle a few special cases: if we add a field offset constant to a PtrToXXX, we will get
+                // back a new PtrToXXX.
+
+                ValueNumPair op1vnp;
+                ValueNumPair op1Xvnp;
+                vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1vnp, &op1Xvnp);
+
+                ValueNumPair op2vnp;
+                ValueNumPair op2Xvnp;
+                vnStore->VNPUnpackExc(op2VNPair, &op2vnp, &op2Xvnp);
+                ValueNumPair excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
+
+                ValueNum newVN = ValueNumStore::NoVN;
+
+                // Check for the addition of a field offset constant
+                //
+                if ((oper == GT_ADD) && !tree->gtOverflowEx())
+                {
+                    newVN = vnStore->ExtendPtrVN(tree->AsOp());
+                }
+
+                if (newVN != ValueNumStore::NoVN)
+                {
+                    // We don't care about differences between liberal and conservative for pointer values.
+                    newVN = vnStore->VNWithExc(newVN, excSetPair.GetLiberal());
+                    tree->gtVNPair.SetBoth(newVN);
+                }
+                else
+                {
+                    VNFunc       vnf        = GetVNFuncForNode(tree);
+                    ValueNumPair normalPair = vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1vnp, op2vnp);
+                    tree->gtVNPair          = vnStore->VNPWithExc(normalPair, excSetPair);
+                }
+
+                fgValueNumberAddExceptionSet(tree);
             }
             else
             {
