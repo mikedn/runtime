@@ -4314,13 +4314,6 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         {
             valueVNP.SetLiberal(vnStaticFieldLoad(clsVarAddr->GetFieldHandle(), load->GetType()));
             valueVNP.SetConservative(conservativeVN);
-
-            // TODO-MIKE: This should be done in vnStaticFieldLoad. It also passes the load
-            // type as the cast "from type" when that probably needs to be the field type.
-            if (varTypeIsSmall(load->GetType()))
-            {
-                valueVNP = vnStore->VNPairForCast(valueVNP, load->GetType(), load->GetType());
-            }
         }
 
         load->SetVNP(valueVNP);
