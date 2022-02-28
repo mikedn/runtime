@@ -7848,6 +7848,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_JTRUE:
+        case GT_RETURN:
+        case GT_SWITCH:
+        case GT_RETFILT:
             // These nodes never need to have a ValueNumber
             tree->gtVNPair.SetBoth(ValueNumStore::NoVN);
             break;
@@ -7907,9 +7910,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
         case GT_LCLHEAP:
         case GT_INIT_VAL:
-        case GT_RETURN:
-        case GT_SWITCH:
-        case GT_RETFILT:
         case GT_CKFINITE:
             tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
             fgValueNumberAddExceptionSet(tree);
