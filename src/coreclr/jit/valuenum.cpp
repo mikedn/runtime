@@ -4981,6 +4981,67 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     return vnStore->VNWithExc(valueVN, excVN);
 }
 
+void Compiler::vnCmpXchg(GenTreeCmpXchg* tree)
+{
+    // For CMPXCHG and other intrinsics add an arbitrary side effect on GcHeap/ByrefExposed.
+    fgMutateGcHeap(tree DEBUGARG("Interlocked intrinsic"));
+
+    GenTreeCmpXchg* const cmpXchg = tree->AsCmpXchg();
+
+    assert(tree->OperIsImplicitIndir()); // special node with an implicit indirections
+
+    GenTree* location  = cmpXchg->GetAddr();
+    GenTree* value     = cmpXchg->GetValue();
+    GenTree* comparand = cmpXchg->GetCompareValue();
+
+    ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
+
+    // Collect the exception sets from our operands
+    vnpExcSet = vnStore->VNPUnionExcSet(location->gtVNPair, vnpExcSet);
+    vnpExcSet = vnStore->VNPUnionExcSet(value->gtVNPair, vnpExcSet);
+    vnpExcSet = vnStore->VNPUnionExcSet(comparand->gtVNPair, vnpExcSet);
+
+    // The normal value is a new unique VN.
+    ValueNumPair normalPair;
+    normalPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+
+    // Attach the combined exception set
+    tree->gtVNPair = vnStore->VNPWithExc(normalPair, vnpExcSet);
+
+    // add the null check exception for 'location' to the tree's value number
+    fgValueNumberAddExceptionSetForIndirection(tree, location);
+    // add the null check exception for 'comparand' to the tree's value number
+    fgValueNumberAddExceptionSetForIndirection(tree, comparand);
+}
+
+void Compiler::vnInterlocked(GenTreeOp* tree)
+{
+    assert(tree->OperIs(GT_XORR, GT_XAND, GT_XADD, GT_XCHG));
+
+    // For XADD and XCHG other intrinsics add an arbitrary side effect on GcHeap/ByrefExposed.
+    fgMutateGcHeap(tree DEBUGARG("Interlocked intrinsic"));
+
+    assert(tree->OperIsImplicitIndir()); // special node with an implicit indirections
+
+    GenTree* addr = tree->AsOp()->gtOp1; // op1
+    GenTree* data = tree->AsOp()->gtOp2; // op2
+
+    ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
+
+    vnpExcSet = vnStore->VNPUnionExcSet(data->gtVNPair, vnpExcSet);
+    vnpExcSet = vnStore->VNPUnionExcSet(addr->gtVNPair, vnpExcSet);
+
+    // The normal value is a new unique VN.
+    ValueNumPair normalPair;
+    normalPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+
+    // Attach the combined exception set
+    tree->gtVNPair = vnStore->VNPWithExc(normalPair, vnpExcSet);
+
+    // add the null check exception for 'addr' to the tree's value number
+    fgValueNumberAddExceptionSetForIndirection(tree, addr);
+}
+
 ValueNum Compiler::fgValueNumberByrefExposedLoad(var_types type, ValueNum addrVN)
 {
     if (type == TYP_STRUCT)
@@ -7886,39 +7947,15 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
                     break;
 
-                    case GT_LOCKADD: // Binop
-                        noway_assert("LOCKADD should not appear before lowering");
+                    case GT_LOCKADD:
+                        unreached();
+
+                    case GT_XORR:
+                    case GT_XAND:
+                    case GT_XADD:
+                    case GT_XCHG:
+                        vnInterlocked(tree->AsOp());
                         break;
-
-                    case GT_XORR: // Binop
-                    case GT_XAND: // Binop
-                    case GT_XADD: // Binop
-                    case GT_XCHG: // Binop
-                    {
-                        // For XADD and XCHG other intrinsics add an arbitrary side effect on GcHeap/ByrefExposed.
-                        fgMutateGcHeap(tree DEBUGARG("Interlocked intrinsic"));
-
-                        assert(tree->OperIsImplicitIndir()); // special node with an implicit indirections
-
-                        GenTree* addr = tree->AsOp()->gtOp1; // op1
-                        GenTree* data = tree->AsOp()->gtOp2; // op2
-
-                        ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
-
-                        vnpExcSet = vnStore->VNPUnionExcSet(data->gtVNPair, vnpExcSet);
-                        vnpExcSet = vnStore->VNPUnionExcSet(addr->gtVNPair, vnpExcSet);
-
-                        // The normal value is a new unique VN.
-                        ValueNumPair normalPair;
-                        normalPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-
-                        // Attach the combined exception set
-                        tree->gtVNPair = vnStore->VNPWithExc(normalPair, vnpExcSet);
-
-                        // add the null check exception for 'addr' to the tree's value number
-                        fgValueNumberAddExceptionSetForIndirection(tree, addr);
-                        break;
-                    }
 
                     case GT_JTRUE:
                         // These nodes never need to have a ValueNumber
@@ -7984,39 +8021,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             }
             break;
 
-            case GT_CMPXCHG: // Specialop
-            {
-                // For CMPXCHG and other intrinsics add an arbitrary side effect on GcHeap/ByrefExposed.
-                fgMutateGcHeap(tree DEBUGARG("Interlocked intrinsic"));
-
-                GenTreeCmpXchg* const cmpXchg = tree->AsCmpXchg();
-
-                assert(tree->OperIsImplicitIndir()); // special node with an implicit indirections
-
-                GenTree* location  = cmpXchg->GetAddr();
-                GenTree* value     = cmpXchg->GetValue();
-                GenTree* comparand = cmpXchg->GetCompareValue();
-
-                ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
-
-                // Collect the exception sets from our operands
-                vnpExcSet = vnStore->VNPUnionExcSet(location->gtVNPair, vnpExcSet);
-                vnpExcSet = vnStore->VNPUnionExcSet(value->gtVNPair, vnpExcSet);
-                vnpExcSet = vnStore->VNPUnionExcSet(comparand->gtVNPair, vnpExcSet);
-
-                // The normal value is a new unique VN.
-                ValueNumPair normalPair;
-                normalPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-
-                // Attach the combined exception set
-                tree->gtVNPair = vnStore->VNPWithExc(normalPair, vnpExcSet);
-
-                // add the null check exception for 'location' to the tree's value number
-                fgValueNumberAddExceptionSetForIndirection(tree, location);
-                // add the null check exception for 'comparand' to the tree's value number
-                fgValueNumberAddExceptionSetForIndirection(tree, comparand);
+            case GT_CMPXCHG:
+                vnCmpXchg(tree->AsCmpXchg());
                 break;
-            }
 
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:

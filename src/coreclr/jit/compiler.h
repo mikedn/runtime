@@ -3963,6 +3963,8 @@ public:
     ValueNum vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType);
     ValueNum vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, var_types loadType);
+    void vnCmpXchg(GenTreeCmpXchg* cmpxchg);
+    void vnInterlocked(GenTreeOp* interlocked);
 
     // Compute the value number for a byref-exposed load of the given type via the given pointerVN.
     ValueNum fgValueNumberByrefExposedLoad(var_types type, ValueNum pointerVN);
