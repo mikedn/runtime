@@ -4294,17 +4294,25 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 
     if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
     {
-        FieldSeqNode* fieldSeq = clsVarAddr->GetFieldSeq();
-        ValueNumPair  valueVNP;
+        ValueNumPair valueVNP;
 
-        // TODO-MIKE: This is dubious, CLS_VAR_ADDR is only used for primitive type static fields...
-        if (gtIsStaticFieldPtrToBoxedStruct(load->GetType(), fieldSeq->GetFieldHandle()))
+        // TODO-MIKE: Static fields are a mess. The address is sometimes CLS_VAR_ADDR and
+        // sometimes CNS_INT. In the case of STRUCT static fields, CLS_VAR_ADDR is rare,
+        // the C# compiler seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and
+        // the importer always uses CNS_INT for LDSFLDA. Not good for testing. Moreover
+        // VN doesn't seem to recognize CNS_INT on its own, it only recognizes it together
+        // with a subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
+        // This is somewhat risky because not matter what the IR pattern is we should end
+        // up using the same field sequence in all cases, otherwise we may end up with
+        // loads not correctly seeing previously stored values.
+        if (gtIsStaticFieldPtrToBoxedStruct(load->GetType(), clsVarAddr->GetFieldHandle()))
         {
-            valueVNP.SetBoth(vnStore->VNForFunc(TYP_BYREF, VNF_PtrToStatic, vnStore->VNForFieldSeq(fieldSeq)));
+            ValueNum fieldSeqVN = vnStore->VNForFieldSeq(clsVarAddr->GetFieldSeq());
+            valueVNP.SetBoth(vnStore->VNForFunc(TYP_BYREF, VNF_PtrToStatic, fieldSeqVN));
         }
         else
         {
-            valueVNP.SetLiberal(vnStaticFieldLoad(fieldSeq, load->GetType()));
+            valueVNP.SetLiberal(vnStaticFieldLoad(clsVarAddr->GetFieldHandle(), load->GetType()));
             valueVNP.SetConservative(conservativeVN);
         }
 
@@ -4408,6 +4416,8 @@ void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valu
 
     if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
     {
+        assert(!gtIsStaticFieldPtrToBoxedStruct(dst->GetType(), clsVarAddr->GetFieldHandle()));
+
         ValueNum valueVN = valueVNP.GetLiberal();
         ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, dst->GetType());
         recordGcHeapStore(asg, heapVN DEBUGARG("static field store"));
@@ -4799,15 +4809,21 @@ ValueNum Compiler::vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnPrintHeapVN(heapVN));
 
+    // TODO-MIKE: This may need VNApplySelectorsAssignTypeCoerce(valueVN)...
+
     return vnStore->VNForMapStore(TYP_STRUCT, heapVN, vnStore->VNForFieldHandle(fieldHandle), valueVN);
 }
 
-ValueNum Compiler::vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType)
+ValueNum Compiler::vnStaticFieldLoad(CORINFO_FIELD_HANDLE fieldHandle, var_types loadType)
 {
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnPrintHeapVN(heapVN));
 
-    return vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, loadType);
+    ClassLayout* fieldLayout = nullptr;
+    var_types    fieldType   = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+
+    ValueNum valueVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, heapVN, vnStore->VNForFieldHandle(fieldHandle));
+    return vnStore->VNApplySelectorsTypeCheck(valueVN, fieldLayout, loadType);
 }
 
 ValueNum Compiler::vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType)
