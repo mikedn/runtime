@@ -7908,10 +7908,16 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 #endif
 
+        case GT_LEA:
+            // LEAs could probably value numbered as ADD/MUL expressions but
+            // they should appear in frontend so it's not worth the trouble.
+            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
+            break;
+
         case GT_LCLHEAP:
         case GT_INIT_VAL:
         case GT_CKFINITE:
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
             fgValueNumberAddExceptionSet(tree);
             break;
 
@@ -7955,34 +7961,17 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 VNFunc vnf = GetVNFuncForNode(tree);
                 assert(ValueNumStore::VNFuncIsLegal(vnf));
 
-                // Standard binary operator.
-                ValueNumPair op2VNPair;
-                if (tree->AsOp()->gtOp2 == nullptr)
-                {
-                    // Handle any GT_LEA nodes as they can have a nullptr for op2.
-                    op2VNPair.SetBoth(ValueNumStore::VNForNull());
-                }
-                else
-                {
-                    op2VNPair = tree->AsOp()->gtOp2->gtVNPair;
-                }
-
-                // Handle a few special cases: if we add a field offset constant to a PtrToXXX, we will get
-                // back a new PtrToXXX.
-
                 ValueNumPair op1vnp;
                 ValueNumPair op1Xvnp;
-                vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1vnp, &op1Xvnp);
+                vnStore->VNPUnpackExc(tree->AsOp()->GetOp(0)->GetVNP(), &op1vnp, &op1Xvnp);
 
                 ValueNumPair op2vnp;
                 ValueNumPair op2Xvnp;
-                vnStore->VNPUnpackExc(op2VNPair, &op2vnp, &op2Xvnp);
+                vnStore->VNPUnpackExc(tree->AsOp()->GetOp(1)->GetVNP(), &op2vnp, &op2Xvnp);
                 ValueNumPair excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
 
                 ValueNum newVN = ValueNumStore::NoVN;
 
-                // Check for the addition of a field offset constant
-                //
                 if ((oper == GT_ADD) && !tree->gtOverflowEx())
                 {
                     newVN = vnStore->ExtendPtrVN(tree->AsOp());
