@@ -4308,22 +4308,21 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         if (gtIsStaticFieldPtrToBoxedStruct(load->GetType(), clsVarAddr->GetFieldHandle()))
         {
             ValueNum fieldSeqVN = vnStore->VNForFieldSeq(clsVarAddr->GetFieldSeq());
-            valueVNP.SetBoth(vnStore->VNForFunc(TYP_BYREF, VNF_PtrToStatic, fieldSeqVN));
+            valueVNP.SetBoth(vnStore->VNForFunc(TYP_REF, VNF_PtrToStatic, fieldSeqVN));
         }
         else
         {
             valueVNP.SetLiberal(vnStaticFieldLoad(clsVarAddr->GetFieldHandle(), load->GetType()));
             valueVNP.SetConservative(conservativeVN);
+
+            // TODO-MIKE: This should be done in vnStaticFieldLoad. It also passes the load
+            // type as the cast "from type" when that probably needs to be the field type.
+            if (varTypeIsSmall(load->GetType()))
+            {
+                valueVNP = vnStore->VNPairForCast(valueVNP, load->GetType(), load->GetType());
+            }
         }
 
-        // TODO-MIKE: This should be done in vnStaticFieldLoad. It also passes the load
-        // type as the cast "from type" when that probably needs to be the field type.
-        if (varTypeIsSmall(load->GetType()))
-        {
-            valueVNP = vnStore->VNPairForCast(valueVNP, load->GetType(), load->GetType());
-        }
-
-        // TODO-MIKE: What about addrExcVNP?
         load->SetVNP(valueVNP);
 
         return;
