@@ -351,6 +351,15 @@ public:
     }
 #endif
 
+    ValueNum VNForHostPtr(void* p)
+    {
+#ifdef HOST_64BIT
+        return VNForLongCon(reinterpret_cast<int64_t>(p));
+#else
+        return VNForIntCon(reinterpret_cast<int32_t>(p));
+#endif
+    }
+
     ValueNum VNForUPtrSizeIntCon(target_size_t value)
     {
 #ifdef TARGET_64BIT
@@ -865,6 +874,16 @@ private:
     }
 
 public:
+    template <typename T>
+    T* ConstantHostPtr(ValueNum vn)
+    {
+#ifdef HOST_64BIT
+        return reinterpret_cast<T*>(ConstantValue<int64_t>(vn));
+#else
+        return reinterpret_cast<T*>(ConstantValue<int32_t>(vn));
+#endif
+    }
+
     // Requires that "vn" is a constant, and that its type is compatible with the explicitly passed
     // type "T". Also, note that "T" has to have an accurate storage size of the TypeOfVN(vn).
     template <typename T>

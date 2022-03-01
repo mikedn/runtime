@@ -3824,87 +3824,64 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
 {
     if (fieldSeq == nullptr)
     {
-        return VNForNull();
+        return VNZeroForType(TYP_I_IMPL);
     }
-    else if (fieldSeq == FieldSeqStore::NotAField())
+
+    if (fieldSeq == FieldSeqStore::NotAField())
     {
-        // We always allocate a new, unique VN in this call.
-        Chunk*   c                 = GetAllocChunk(TYP_REF, CEA_NotAField);
+        // We always allocate a new, unique VN so that "Not a field" addresses are distinct.
+        Chunk*   c                 = GetAllocChunk(TYP_I_IMPL, CEA_NotAField);
         unsigned offsetWithinChunk = c->AllocVN();
         ValueNum result            = c->m_baseVN + offsetWithinChunk;
         return result;
     }
-    else
-    {
-        ssize_t fieldHndVal = reinterpret_cast<ssize_t>(
-            fieldSeq->IsBoxedValueField() ? FieldSeqNode::BoxedValuePseudoFieldHandle : fieldSeq->GetFieldHandle());
-        ValueNum fieldHndVN = VNForHandle(fieldHndVal, GTF_ICON_FIELD_HDL);
-        ValueNum seqNextVN  = VNForFieldSeq(fieldSeq->GetNext());
-        ValueNum fieldSeqVN = VNForFunc(TYP_REF, VNF_FieldSeq, fieldHndVN, seqNextVN);
+
+    ValueNum fieldSeqVN = VNForFunc(TYP_I_IMPL, VNF_FieldSeq, VNForHostPtr(fieldSeq));
 
 #ifdef DEBUG
-        if (m_pComp->verbose)
-        {
-            printf("    FieldSeq");
-            vnDump(m_pComp, fieldSeqVN);
-            printf(" is " FMT_VN "\n", fieldSeqVN);
-        }
+    if (m_pComp->verbose)
+    {
+        printf("    %s ", varTypeName(TYP_I_IMPL));
+        m_pComp->vnPrint(fieldSeqVN, 1);
+        printf("\n");
+    }
 #endif
 
-        return fieldSeqVN;
-    }
+    return fieldSeqVN;
 }
 
 FieldSeqNode* ValueNumStore::FieldSeqVNToFieldSeq(ValueNum vn)
 {
-    if (vn == VNForNull())
+    if (vn == VNZeroForType(TYP_I_IMPL))
     {
         return nullptr;
     }
 
-    assert(IsVNFunc(vn));
-
     VNFuncApp funcApp;
-    GetVNFunc(vn, &funcApp);
+    bool      isFunc = GetVNFunc(vn, &funcApp);
+    assert(isFunc);
+
     if (funcApp.m_func == VNF_NotAField)
     {
         return FieldSeqStore::NotAField();
     }
 
     assert(funcApp.m_func == VNF_FieldSeq);
-    const ssize_t fieldHndVal = ConstantValue<ssize_t>(funcApp.m_args[0]);
-    FieldSeqNode* head =
-        m_pComp->GetFieldSeqStore()->CreateSingleton(reinterpret_cast<CORINFO_FIELD_HANDLE>(fieldHndVal));
-    FieldSeqNode* tail = FieldSeqVNToFieldSeq(funcApp.m_args[1]);
-    return m_pComp->GetFieldSeqStore()->Append(head, tail);
+    return ConstantHostPtr<FieldSeqNode>(funcApp.m_args[0]);
 }
 
 ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fsVN1, ValueNum fsVN2)
 {
-    if (fsVN1 == VNForNull())
-    {
-        return fsVN2;
-    }
+    FieldSeqNode* fieldSeq1 = FieldSeqVNToFieldSeq(fsVN1);
+    FieldSeqNode* fieldSeq2 = FieldSeqVNToFieldSeq(fsVN2);
 
-    assert(IsVNFunc(fsVN1));
-
-    VNFuncApp funcApp1;
-    GetVNFunc(fsVN1, &funcApp1);
-
-    if ((funcApp1.m_func == VNF_NotAField) || IsVNNotAField(fsVN2))
-    {
-        return VNForFieldSeq(FieldSeqStore::NotAField());
-    }
-
-    assert(funcApp1.m_func == VNF_FieldSeq);
-    ValueNum tailRes    = FieldSeqVNAppend(funcApp1.m_args[1], fsVN2);
-    ValueNum fieldSeqVN = VNForFunc(TYP_REF, VNF_FieldSeq, funcApp1.m_args[0], tailRes);
+    ValueNum fieldSeqVN = VNForFieldSeq(m_pComp->GetFieldSeqStore()->Append(fieldSeq1, fieldSeq2));
 
 #ifdef DEBUG
     if (m_pComp->verbose)
     {
-        printf("  fieldSeq " FMT_VN " is ", fieldSeqVN);
-        vnDump(m_pComp, fieldSeqVN);
+        printf("    %s ", varTypeName(TYP_I_IMPL));
+        m_pComp->vnPrint(fieldSeqVN, 1);
         printf("\n");
     }
 #endif
@@ -4171,8 +4148,6 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
 {
     assert(fldSeq != nullptr);
 
-    ValueNum res = NoVN;
-
     ValueNum opAvnWx = addrVNP.GetLiberal();
     assert(VNIsValid(opAvnWx));
     ValueNum opAvn;
@@ -4183,8 +4158,10 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
     VNFuncApp funcApp;
     if (!GetVNFunc(opAvn, &funcApp))
     {
-        return res;
+        return NoVN;
     }
+
+    ValueNum res = NoVN;
 
     if (funcApp.m_func == VNF_LclAddr)
     {
@@ -4196,24 +4173,20 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
 
         ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
         ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], VNForFieldSeq(fldSeq));
-        res                    = VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
+
+        res = VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
     }
     else if (funcApp.m_func == VNF_PtrToStatic)
     {
-        ValueNum fldSeqVN = VNForFieldSeq(fldSeq);
-        res               = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], fldSeqVN));
+        res = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], VNForFieldSeq(fldSeq)));
     }
     else if (funcApp.m_func == VNF_PtrToArrElem)
     {
-        ValueNum fldSeqVN = VNForFieldSeq(fldSeq);
         res = VNForFunc(TYP_BYREF, VNF_PtrToArrElem, funcApp.m_args[0], funcApp.m_args[1], funcApp.m_args[2],
-                        FieldSeqVNAppend(funcApp.m_args[3], fldSeqVN));
+                        FieldSeqVNAppend(funcApp.m_args[3], VNForFieldSeq(fldSeq)));
     }
-    if (res != NoVN)
-    {
-        res = VNWithExc(res, opAvnx);
-    }
-    return res;
+
+    return res == NoVN ? res : VNWithExc(res, opAvnx);
 }
 
 void Compiler::vnIndirLoad(GenTreeIndir* load)
@@ -6376,42 +6349,11 @@ void ValueNumStore::vnDumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead)
 
 void ValueNumStore::vnDumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isHead)
 {
-    assert(fieldSeq->m_func == VNF_FieldSeq); // Precondition.
-    // First arg is the field handle VN.
-    assert(IsVNConstant(fieldSeq->m_args[0]) && TypeOfVN(fieldSeq->m_args[0]) == TYP_I_IMPL);
-    ssize_t fieldHndVal = ConstantValue<ssize_t>(fieldSeq->m_args[0]);
-    bool    hasTail     = (fieldSeq->m_args[1] != VNForNull());
+    assert(fieldSeq->m_func == VNF_FieldSeq);
 
-    if (isHead && hasTail)
-    {
-        printf("(");
-    }
-
-    CORINFO_FIELD_HANDLE fldHnd = CORINFO_FIELD_HANDLE(fieldHndVal);
-    if (fldHnd == FieldSeqNode::BoxedValuePseudoFieldHandle)
-    {
-        printf("#BoxedValue");
-    }
-    else
-    {
-        const char* modName;
-        const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
-        printf("%s", fldName);
-    }
-
-    if (hasTail)
-    {
-        printf(", ");
-        assert(IsVNFunc(fieldSeq->m_args[1]));
-        VNFuncApp tail;
-        GetVNFunc(fieldSeq->m_args[1], &tail);
-        vnDumpFieldSeq(comp, &tail, false);
-    }
-
-    if (isHead && hasTail)
-    {
-        printf(")");
-    }
+    printf("FieldSeq(");
+    m_pComp->dmpFieldSeqFields(ConstantHostPtr<FieldSeqNode>(fieldSeq->m_args[0]));
+    printf(")");
 }
 
 void ValueNumStore::vnDumpMapSelect(Compiler* comp, VNFuncApp* mapSelect)
