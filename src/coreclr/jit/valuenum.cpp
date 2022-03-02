@@ -4542,71 +4542,20 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
     assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD));
     assert((store->gtFlags & GTF_VAR_DEF) != 0);
 
-    ValueNumPair valueVNP     = vnStore->VNPNormalPair(src->GetVNP());
-    unsigned     lclDefSsaNum = store->GetSsaNum();
+    ValueNumPair valueVNP;
 
     if (src->OperIs(GT_CNS_INT))
     {
-        assert(src->AsIntCon()->GetUInt8Value() == 0);
+        assert(src->AsIntCon()->GetValue() == 0);
 
-        ValueNum vn;
-
-        if ((store->gtFlags & GTF_VAR_USEASG) == 0)
-        {
-            vn = vnStore->VNZeroForType(lcl->GetType());
-        }
-        else
-        {
-            vn           = vnStore->VNForExpr(compCurBB, lcl->GetType());
-            lclDefSsaNum = GetSsaNumForLocalVarDef(store);
-        }
-
-        valueVNP.SetBoth(vn);
+        valueVNP.SetBoth(ValueNumStore::VNForZeroMap());
     }
-    else if (GenTreeLclFld* lclFld = store->IsLclFld())
+    else
     {
-        assert(((lclFld->gtFlags & GTF_VAR_USEASG) != 0) == lclFld->IsPartialLclFld(this));
-
-        if (!lclFld->HasFieldSeq())
-        {
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
-        }
-        else
-        {
-            ValueNumPair currentVNP;
-
-            if ((store->gtFlags & GTF_VAR_USEASG) == 0)
-            {
-                // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
-                // just insert the new value into a zero map.
-                currentVNP.SetBoth(ValueNumStore::VNForZeroMap());
-            }
-            else
-            {
-                currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
-            }
-
-            valueVNP = vnStore->MapInsertStructField(currentVNP, lcl->GetType(), lclFld->GetFieldSeq(), valueVNP,
-                                                     lclFld->GetType());
-        }
-
-        lclDefSsaNum = GetSsaNumForLocalVarDef(store);
+        valueVNP = vnStore->VNPNormalPair(src->GetVNP());
     }
 
-    lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(valueVNP);
-    store->SetVNP(valueVNP);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("[%06u] ", store->GetID());
-        gtDispNodeName(store);
-        gtDispLeaf(store, nullptr);
-        printf(" => ");
-        vnpPrint(valueVNP, 1);
-        printf("\n");
-    }
-#endif
+    vnSsaLocalStore(store, asg, valueVNP);
 }
 
 void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
