@@ -7715,7 +7715,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
                 vnIndirLoad(tree->AsIndir());
-                fgValueNumberAddExceptionSet(tree);
+
+                if (tree->OperMayThrow(this))
+                {
+                    fgValueNumberAddExceptionSetForIndirection(tree, tree->AsIndir()->GetAddr());
+                }
             }
             break;
 
@@ -7727,7 +7731,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
         case GT_CAST:
             fgValueNumberCastTree(tree);
-            fgValueNumberAddExceptionSet(tree);
             break;
 
         case GT_BITCAST:
@@ -7736,7 +7739,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
         case GT_INTRINSIC:
             fgValueNumberIntrinsic(tree);
-            fgValueNumberAddExceptionSet(tree);
+            // ToDo: model the exceptions for Intrinsics
             break;
 
         case GT_COMMA:
@@ -7749,7 +7752,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             //
             tree->gtVNPair =
                 vnStore->VNPWithExc(vnStore->VNPForVoid(), vnStore->VNPExceptionSet(tree->AsOp()->gtOp1->gtVNPair));
-            fgValueNumberAddExceptionSet(tree);
+
+            if (tree->OperMayThrow(this))
+            {
+                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsIndir()->GetAddr());
+            }
             break;
 
         case GT_QMARK:
@@ -7761,7 +7768,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         case GT_XADD:
         case GT_XCHG:
             vnInterlocked(tree->AsOp());
-            fgValueNumberAddExceptionSet(tree);
             break;
 
         case GT_JTRUE:
@@ -7801,7 +7807,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             tree->gtVNPair = vnStore->VNPWithExc(vnStore->VNPForVoid(), vnpExcSet);
 
             // next add the bounds check exception set for the current tree node
-            fgValueNumberAddExceptionSet(tree);
+            fgValueNumberAddExceptionSetForBoundsCheck(tree);
 
             // Record non-constant value numbers that are used as the length argument to bounds checks, so
             // that
@@ -7821,6 +7827,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             fgValueNumberHWIntrinsic(tree->AsHWIntrinsic());
+            // ToDo: model the exceptions for Intrinsics
             break;
 #endif
 
@@ -7831,9 +7838,13 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_LCLHEAP:
+            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
+            // It is not necessary to model the StackOverflow exception for LCLHEAP
+            break;
+
         case GT_CKFINITE:
             tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
-            fgValueNumberAddExceptionSet(tree);
+            fgValueNumberAddExceptionSetForCkFinite(tree);
             break;
 
         case GT_NOP:
@@ -7869,7 +7880,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                 tree->gtVNPair = vnStore->VNPWithExc(vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1VNP), op1VNPx);
 
-                fgValueNumberAddExceptionSet(tree);
+                vnAddNodeExceptionSet(tree);
             }
             else if (GenTree::OperIsBinary(oper))
             {
@@ -7904,7 +7915,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     tree->gtVNPair          = vnStore->VNPWithExc(normalPair, excSetPair);
                 }
 
-                fgValueNumberAddExceptionSet(tree);
+                vnAddNodeExceptionSet(tree);
             }
             else
             {
@@ -9247,102 +9258,34 @@ void Compiler::fgValueNumberAddExceptionSetForCkFinite(GenTree* tree)
     tree->gtVNPair = vnStore->VNPWithExc(vnpTreeNorm, newExcSet);
 }
 
-//--------------------------------------------------------------------------------
-// fgValueNumberAddExceptionSet
-//         - Adds any exception sets needed for the current tree node
-//
-// Arguments:
-//    tree       - The current GenTree node,
-//
-// Return Value:
-//               - The tree's gtVNPair is updated to include the exception sets.
-//
-// Notes:        - This method relies upon OperMayTHrow to determine if we need
-//                 to add an exception set.  If OPerMayThrow returns false no
-//                 exception set will be added.
-//
-void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
+void Compiler::vnAddNodeExceptionSet(GenTree* node)
 {
-    if (tree->OperMayThrow(this))
+    if (!node->OperMayThrow(this))
     {
-        switch (tree->OperGet())
-        {
-            case GT_CAST: // A cast with an overflow check
-                break;    // Already handled by VNPairForCast()
+        return;
+    }
 
-            case GT_ADD: // An Overflow checking ALU operation
-            case GT_SUB:
-            case GT_MUL:
-                assert(tree->gtOverflowEx());
-                fgValueNumberAddExceptionSetForOverflow(tree);
-                break;
-
-            case GT_DIV:
-            case GT_UDIV:
-            case GT_MOD:
-            case GT_UMOD:
-                fgValueNumberAddExceptionSetForDivision(tree);
-                break;
-
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif
-                fgValueNumberAddExceptionSetForBoundsCheck(tree);
-                break;
-
-            case GT_LCLHEAP:
-                // It is not necessary to model the StackOverflow exception for GT_LCLHEAP
-                break;
-
-            case GT_INTRINSIC:
-                // ToDo: model the exceptions for Intrinsics
-                break;
-
-            case GT_IND: // Implicit null check.
-                if ((tree->gtFlags & GTF_IND_ASG_LHS) != 0)
-                {
-                    // Don't add exception set on LHS of assignment
-                    break;
-                }
-                FALLTHROUGH;
-
-            case GT_BLK:
-            case GT_OBJ:
-            case GT_NULLCHECK:
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsIndir()->Addr());
-                break;
-
-            case GT_ARR_LENGTH:
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrLen()->GetArray());
-                break;
-
-            case GT_ARR_ELEM:
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrElem()->gtArrObj);
-                break;
-
-            case GT_ARR_INDEX:
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrIndex()->ArrObj());
-                break;
-
-            case GT_ARR_OFFSET:
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrOffs()->GetArray());
-                break;
-
-            case GT_CKFINITE:
-                fgValueNumberAddExceptionSetForCkFinite(tree);
-                break;
-
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                // ToDo: model the exceptions for Intrinsics
-                break;
-#endif // FEATURE_HW_INTRINSICS
-
-            default:
-                assert(!"Handle this oper in fgValueNumberAddExceptionSet");
-                break;
-        }
+    switch (node->GetOper())
+    {
+        case GT_ADD:
+        case GT_SUB:
+        case GT_MUL:
+            fgValueNumberAddExceptionSetForOverflow(node);
+            return;
+        case GT_DIV:
+        case GT_UDIV:
+        case GT_MOD:
+        case GT_UMOD:
+            fgValueNumberAddExceptionSetForDivision(node);
+            return;
+        case GT_ARR_LENGTH:
+            fgValueNumberAddExceptionSetForIndirection(node, node->AsArrLen()->GetArray());
+            return;
+        case GT_ARR_ELEM:
+            fgValueNumberAddExceptionSetForIndirection(node, node->AsArrElem()->GetArray());
+            return;
+        default:
+            unreached();
     }
 }
 

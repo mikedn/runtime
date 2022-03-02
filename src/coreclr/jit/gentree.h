@@ -5759,6 +5759,12 @@ struct GenTreeArrElem : public GenTree
         }
         gtFlags |= GTF_EXCEPT;
     }
+
+    GenTree* GetArray() const
+    {
+        return gtArrObj;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeArrElem() : GenTree()
     {
