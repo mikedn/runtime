@@ -7777,7 +7777,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // and initialization happens separately (and not numbering BOX correctly
             // prevents seeing allocation related assertions through it)
             tree->gtVNPair = tree->gtGetOp1()->gtVNPair;
-            fgValueNumberAddExceptionSet(tree);
             break;
 
         case GT_CALL:
