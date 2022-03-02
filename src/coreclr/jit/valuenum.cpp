@@ -7475,7 +7475,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
 void Compiler::fgMutateGcHeap(GenTree* tree DEBUGARG(const char* msg))
 {
     // Update the current memory VN, and if we're tracking the heap SSA # caused by this node, record it.
-    recordGcHeapStore(tree, vnStore->VNForExpr(compCurBB, TYP_REF) DEBUGARG(msg));
+    recordGcHeapStore(tree, vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG(msg));
 }
 
 void Compiler::fgMutateAddressExposedLocal(GenTree* tree)
@@ -7487,7 +7487,7 @@ void Compiler::fgMutateAddressExposedLocal(GenTree* tree)
 
     // Update the current ByrefExposed VN, and if we're tracking the heap SSA # caused by this node, record it.
     recordAddressExposedLocalStore(tree,
-                                   vnStore->VNForExpr(compCurBB, TYP_UNKNOWN) DEBUGARG("address-exposed local store"));
+                                   vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG("address-exposed local store"));
 }
 
 void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(const char* msg))
