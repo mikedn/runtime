@@ -3984,24 +3984,11 @@ public:
     // assumed for the memoryKind at the start "entryBlk".
     ValueNum fgMemoryVNForLoopSideEffects(MemoryKind memoryKind, BasicBlock* entryBlock, unsigned loopNum);
 
-    // Called when an operation (performed by "tree", described by "msg") may cause the GcHeap to be mutated.
-    // As GcHeap is a subset of ByrefExposed, this will also annotate the ByrefExposed mutation.
-    void fgMutateGcHeap(GenTree* tree DEBUGARG(const char* msg));
-
-    // Called when an operation (performed by "tree", described by "msg") may cause an address-exposed local to be
-    // mutated.
-    void fgMutateAddressExposedLocal(GenTree* tree);
-
-    // For a GC heap store at curTree, record the new curMemoryVN's and update curTree's MemorySsaMap.
-    // As GcHeap is a subset of ByrefExposed, this will also record the ByrefExposed store.
-    void recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(const char* msg));
-
-    // For a store to an address-exposed local at curTree, record the new curMemoryVN and update curTree's MemorySsaMap.
-    void recordAddressExposedLocalStore(GenTree* curTree, ValueNum memoryVN DEBUGARG(const char* msg));
-
-    // Tree caused an update in the current memory VN.  If "tree" has an associated heap SSA #, record that
-    // value in that SSA #.
-    void fgValueNumberRecordMemorySsa(MemoryKind memoryKind, GenTree* tree);
+    void vnClearGcHeap(GenTree* node DEBUGARG(const char* comment = nullptr));
+    void vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char* comment = nullptr));
+    void vnClearByRefExposed(GenTree* node);
+    void vnUpdateByRefExposed(GenTree* node, ValueNum memVN);
+    void vnUpdateMemorySsaDef(GenTree* node, MemoryKind memoryKind);
 
     // The input 'tree' is a leaf node that is a constant
     // Assign the proper value number to the tree
@@ -4076,7 +4063,8 @@ public:
     // If "level" is non-zero, we also print out a partial expansion of the value.
     void vnpPrint(ValueNumPair vnp, unsigned level);
     void vnPrint(ValueNum vn, unsigned level);
-    void vnPrintHeapVN(ValueNum vn);
+    void vnPrintHeapVN(ValueNum vn, const char* comment = nullptr);
+    void vnPrintMemVN(MemoryKind kind, ValueNum vn, const char* comment = nullptr);
     void vnPrintArrayElemAddr(const VNFuncApp& elemAddr);
 #endif
 

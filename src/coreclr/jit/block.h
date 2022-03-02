@@ -158,9 +158,10 @@ enum MemoryKind
     GcHeap,           // Includes actual GC heap, and also static fields
     MemoryKindCount,  // Number of MemoryKinds
 };
+
 #ifdef DEBUG
-const char* const memoryKindNames[] = {"ByrefExposed", "GcHeap"};
-#endif // DEBUG
+const char* const memoryKindNames[]{"ByrefExposed", "GcHeap"};
+#endif
 
 // Bitmask describing a set of memory kinds (usable in bitfields)
 typedef unsigned int MemoryKindSet;

@@ -4281,7 +4281,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
         // 3 are the same.
 
-        fgMutateGcHeap(load DEBUGARG("volatile load"));
+        vnClearGcHeap(load DEBUGARG("volatile load"));
 
         load->SetVNP(vnStore->VNPWithExc({conservativeVN, conservativeVN}, addrExcVNP));
 
@@ -4427,7 +4427,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     {
         // For volatile stores, first mutate the heap. This prevents previous
         // stores from being visible after the store.
-        fgMutateGcHeap(store DEBUGARG("volatile store"));
+        vnClearGcHeap(store DEBUGARG("volatile store"));
 
         // TODO-MIKE-Review: Why the crap is the ASG VN set here and then later
         // set again to VOID?!?
@@ -4442,7 +4442,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 
         ValueNum valueVN = valueVNP.GetLiberal();
         ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
-        recordGcHeapStore(asg, heapVN DEBUGARG("static field store"));
+        vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
 
         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
         // need a value number and in other places this is set to the value VN or to void VN.
@@ -4460,7 +4460,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
     {
         ValueNum heapVN = vnArrayElemStore(funcApp, valueVNP.GetLiberal(), store->GetType());
-        recordGcHeapStore(asg, heapVN DEBUGARG("array element store"));
+        vnUpdateGcHeap(asg, heapVN DEBUGARG("array element store"));
 
         return;
     }
@@ -4471,7 +4471,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
         ValueNum valueVN = valueVNP.GetLiberal();
         ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, store->GetType());
-        recordGcHeapStore(asg, heapVN DEBUGARG("object field store"));
+        vnUpdateGcHeap(asg, heapVN DEBUGARG("object field store"));
 
         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
         // need a value number and in other places this is set to the heap VN or to void VN.
@@ -4483,12 +4483,12 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     if (GenTreeLclVarCommon* dstLclNode = addr->IsLocalAddrExpr())
     {
         assert(lvaGetDesc(dstLclNode)->IsAddressExposed());
-        fgMutateAddressExposedLocal(asg);
+        vnClearByRefExposed(asg);
 
         return;
     }
 
-    fgMutateGcHeap(asg DEBUGARG("indirect store"));
+    vnClearGcHeap(asg DEBUGARG("indirect store"));
 }
 
 void Compiler::vnAssignment(GenTreeOp* asg)
@@ -4515,11 +4515,11 @@ void Compiler::vnAssignment(GenTreeOp* asg)
             if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
             {
                 assert(lvaGetDesc(lclAddr)->IsAddressExposed());
-                fgMutateAddressExposedLocal(asg);
+                vnClearByRefExposed(asg);
             }
             else
             {
-                fgMutateGcHeap(asg DEBUGARG("non local struct store"));
+                vnClearGcHeap(asg DEBUGARG("non local struct store"));
             }
         }
         else
@@ -4552,7 +4552,7 @@ void Compiler::vnStructLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, Ge
 
     if (lcl->IsAddressExposed())
     {
-        fgMutateAddressExposedLocal(asg);
+        vnClearByRefExposed(asg);
 
         return;
     }
@@ -4608,7 +4608,7 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
 
     if (lcl->IsAddressExposed())
     {
-        fgMutateAddressExposedLocal(asg);
+        vnClearByRefExposed(asg);
 
         return;
     }
@@ -4959,7 +4959,7 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
 void Compiler::vnCmpXchg(GenTreeCmpXchg* tree)
 {
     // For CMPXCHG and other intrinsics add an arbitrary side effect on GcHeap/ByrefExposed.
-    fgMutateGcHeap(tree DEBUGARG("Interlocked intrinsic"));
+    vnClearGcHeap(tree DEBUGARG("cmpxchg intrinsic"));
 
     GenTreeCmpXchg* const cmpXchg = tree->AsCmpXchg();
 
@@ -4994,7 +4994,7 @@ void Compiler::vnInterlocked(GenTreeOp* tree)
     assert(tree->OperIs(GT_XORR, GT_XAND, GT_XADD, GT_XCHG));
 
     // For XADD and XCHG other intrinsics add an arbitrary side effect on GcHeap/ByrefExposed.
-    fgMutateGcHeap(tree DEBUGARG("Interlocked intrinsic"));
+    vnClearGcHeap(tree DEBUGARG("interlocked intrinsic"));
 
     assert(tree->OperIsImplicitIndir()); // special node with an implicit indirections
 
@@ -7472,91 +7472,53 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
     return newMemoryVN;
 }
 
-void Compiler::fgMutateGcHeap(GenTree* tree DEBUGARG(const char* msg))
+void Compiler::vnClearGcHeap(GenTree* node DEBUGARG(const char* comment))
 {
-    // Update the current memory VN, and if we're tracking the heap SSA # caused by this node, record it.
-    recordGcHeapStore(tree, vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG(msg));
+    vnUpdateGcHeap(node, vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG(comment));
 }
 
-void Compiler::fgMutateAddressExposedLocal(GenTree* tree)
+void Compiler::vnClearByRefExposed(GenTree* node)
 {
-    // TODO-MIKE-CQ:
-    // For stores to address exposed locals we could probably be more precise
-    // and use a map store with the local number as the "index".
+    // TODO-MIKE-CQ: For stores to address exposed locals we could probably be
+    // mode precise and use a map store with the local number as the "index".
     // For now, just use a new opaque VN.
 
-    // Update the current ByrefExposed VN, and if we're tracking the heap SSA # caused by this node, record it.
-    recordAddressExposedLocalStore(tree,
-                                   vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG("address-exposed local store"));
+    vnUpdateByRefExposed(node, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
 }
 
-void Compiler::recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(const char* msg))
+void Compiler::vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char* comment))
 {
-    // bbMemoryDef must include GcHeap for any block that mutates the GC Heap
-    // and GC Heap mutations are also ByrefExposed mutations
     assert((compCurBB->bbMemoryDef & memoryKindSet(GcHeap, ByrefExposed)) == memoryKindSet(GcHeap, ByrefExposed));
-    fgCurMemoryVN[GcHeap] = gcHeapVN;
 
-    if (byrefStatesMatchGcHeapStates)
-    {
-        // Since GcHeap and ByrefExposed share SSA nodes, they need to share
-        // value numbers too.
-        fgCurMemoryVN[ByrefExposed] = gcHeapVN;
-    }
-    else
-    {
-        // GcHeap and ByrefExposed have different defnums and VNs.  We conservatively
-        // assume that this GcHeap store may alias any byref load/store, so don't
-        // bother trying to record the map/select stuff, and instead just an opaque VN
-        // for ByrefExposed
-        fgCurMemoryVN[ByrefExposed] = vnStore->VNForExpr(compCurBB, TYP_UNKNOWN);
-    }
+    fgCurMemoryVN[GcHeap]       = heapVN;
+    fgCurMemoryVN[ByrefExposed] = byrefStatesMatchGcHeapStates ? heapVN : vnStore->VNForExpr(compCurBB, TYP_STRUCT);
 
-    INDEBUG(vnPrintHeapVN(gcHeapVN));
+    INDEBUG(vnPrintMemVN(GcHeap, fgCurMemoryVN[GcHeap], comment));
+    INDEBUG(vnPrintMemVN(ByrefExposed, fgCurMemoryVN[ByrefExposed], comment));
 
-    // If byrefStatesMatchGcHeapStates is true, then since GcHeap and ByrefExposed share
-    // their SSA map entries, the below will effectively update both.
-    fgValueNumberRecordMemorySsa(GcHeap, curTree);
+    vnUpdateMemorySsaDef(node, GcHeap);
 }
 
-void Compiler::recordAddressExposedLocalStore(GenTree* curTree, ValueNum memoryVN DEBUGARG(const char* msg))
+void Compiler::vnUpdateByRefExposed(GenTree* node, ValueNum memVN)
 {
-    // This should only happen if GcHeap and ByrefExposed are being tracked separately;
-    // otherwise we'd go through recordGcHeapStore.
     assert(!byrefStatesMatchGcHeapStates);
-
-    // bbMemoryDef must include ByrefExposed for any block that mutates an address-exposed local
     assert((compCurBB->bbMemoryDef & memoryKindSet(ByrefExposed)) != 0);
-    fgCurMemoryVN[ByrefExposed] = memoryVN;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("  fgCurMemoryVN[ByrefExposed] assigned for %s at ", msg);
-        Compiler::printTreeID(curTree);
-        printf(" to VN: " FMT_VN ".\n", memoryVN);
-    }
-#endif // DEBUG
+    fgCurMemoryVN[ByrefExposed] = memVN;
 
-    fgValueNumberRecordMemorySsa(ByrefExposed, curTree);
+    INDEBUG(vnPrintMemVN(ByrefExposed, memVN, "address-exposed local store"));
+
+    vnUpdateMemorySsaDef(node, ByrefExposed);
 }
 
-void Compiler::fgValueNumberRecordMemorySsa(MemoryKind memoryKind, GenTree* tree)
+void Compiler::vnUpdateMemorySsaDef(GenTree* node, MemoryKind memoryKind)
 {
     unsigned ssaNum;
-    if (GetMemorySsaMap(memoryKind)->Lookup(tree, &ssaNum))
+
+    if (GetMemorySsaMap(memoryKind)->Lookup(node, &ssaNum))
     {
         GetMemoryPerSsaData(ssaNum)->m_vnPair.SetLiberal(fgCurMemoryVN[memoryKind]);
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Node ");
-            Compiler::printTreeID(tree);
-            printf(" sets %s SSA # %d to VN $%x: ", memoryKindNames[memoryKind], ssaNum, fgCurMemoryVN[memoryKind]);
-            vnStore->vnDump(this, fgCurMemoryVN[memoryKind]);
-            printf("\n");
-        }
-#endif // DEBUG
+        JITDUMP("    %s SSA def %u = " FMT_VN "\n", memoryKindNames[memoryKind], ssaNum, fgCurMemoryVN[memoryKind]);
     }
 }
 
@@ -7678,9 +7640,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
             break;
 
-        case GT_MEMORYBARRIER: // Leaf
-            // For MEMORYBARRIER add an arbitrary side effect on GcHeap/ByrefExposed.
-            fgMutateGcHeap(tree DEBUGARG("MEMORYBARRIER"));
+        case GT_MEMORYBARRIER:
+            vnClearGcHeap(tree DEBUGARG("memory barrier"));
             break;
 
         // These do not represent values.
@@ -7725,7 +7686,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            fgMutateGcHeap(tree DEBUGARG("dynamic sized block init/copy"));
+            vnClearGcHeap(tree DEBUGARG("dynamic sized init/copy block"));
             tree->gtVNPair.SetBoth(vnStore->VNForVoid());
             break;
 
@@ -7991,7 +7952,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     if (node->OperIsMemoryStore())
     {
-        fgMutateGcHeap(node DEBUGARG("HWIntrinsic - MemoryStore"));
+        vnClearGcHeap(node DEBUGARG("HWIntrinsic store"));
     }
 
     if (node->GetAuxiliaryType() != TYP_UNDEF)
@@ -8425,8 +8386,7 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
 
         if (modHeap)
         {
-            // For now, arbitrary side effect on GcHeap/ByrefExposed.
-            fgMutateGcHeap(call DEBUGARG("HELPER - modifies heap"));
+            vnClearGcHeap(call DEBUGARG("helper call"));
         }
     }
     else
@@ -8440,8 +8400,7 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
             call->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, call->TypeGet()));
         }
 
-        // For now, arbitrary side effect on GcHeap/ByrefExposed.
-        fgMutateGcHeap(call DEBUGARG("CALL"));
+        vnClearGcHeap(call DEBUGARG("user call"));
     }
 }
 
@@ -9324,12 +9283,23 @@ void Compiler::vnPrint(ValueNum vn, unsigned level)
     }
 }
 
-void Compiler::vnPrintHeapVN(ValueNum vn)
+void Compiler::vnPrintHeapVN(ValueNum vn, const char* comment)
+{
+    vnPrintMemVN(GcHeap, vn, comment);
+}
+
+void Compiler::vnPrintMemVN(MemoryKind kind, ValueNum vn, const char* comment)
 {
     if (verbose)
     {
-        printf("    fgCurMemoryVN[GcHeap] = ");
+        printf("    %s = ", memoryKindNames[kind]);
         vnPrint(vn, 1);
+
+        if (comment != nullptr)
+        {
+            printf(" ; %s", comment);
+        }
+
         printf("\n");
     }
 }

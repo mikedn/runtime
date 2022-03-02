@@ -246,7 +246,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         {
             GenTreeHWIntrinsic* hwIntrinsicNode = tree->AsHWIntrinsic();
 
-            // We can't call fgMutateGcHeap unless the block has recorded a MemoryDef
+            // We can't call vnClearGcHeap unless the block has recorded a MemoryDef
             //
             if (hwIntrinsicNode->OperIsMemoryStore())
             {
