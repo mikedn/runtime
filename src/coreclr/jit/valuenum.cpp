@@ -4361,10 +4361,44 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
 }
 
-void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, ValueNumPair valueVNP)
+void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 {
     assert(asg->OperIs(GT_ASG));
     assert(store->OperIs(GT_IND));
+
+    ValueNumPair valueVNP = value->GetVNP();
+
+    if (value->GetType() != store->GetType())
+    {
+        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
+        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
+        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
+        // for small int type the value is really INT and the signedness does not matter.
+        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
+        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
+        // replacing the value VN with a new, unique one. So why bother casting to begin with?
+        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
+        valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+    }
+
+    // TODO-MIKE: This is dubious too. An assignment does not return a value so this should be the void VN, perhaps
+    // with the exception set from both operands.
+    asg->SetVNP(valueVNP);
+
+    valueVNP = vnStore->VNPNormalPair(valueVNP);
+
+    // TODO-MIKE: This is also dubious. What exception set is this trying to obtain from a normal VN?!?
+    ValueNum valueExcVN;
+    ValueNum valueNormalVN;
+    vnStore->VNUnpackExc(valueVNP.GetLiberal(), &valueNormalVN, &valueExcVN);
+    valueVNP = ValueNumPair(valueNormalVN, vnStore->VNNormalValue(valueVNP.GetConservative()));
+
+    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
+    {
+        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
+    }
 
     if (store->IsVolatile())
     {
@@ -4449,49 +4483,14 @@ void Compiler::vnAssignment(GenTreeOp* asg)
     assert(!store->OperIs(GT_BLK));
     assert(!value->OperIs(GT_BLK));
 
-    ValueNumPair valueVNP = value->GetVNP();
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
-        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
-        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
-        // for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    // TODO-MIKE: This is dubious too. An assignment does not return a value so this should be the void VN, perhaps
-    // with the exception set from both operands.
-    asg->SetVNP(valueVNP);
-
-    valueVNP = vnStore->VNPNormalPair(valueVNP);
-
-    // TODO-MIKE: This is also dubious. What exception set is this trying to obtain from a normal VN?!?
-    ValueNum valueExcVN;
-    ValueNum valueNormalVN;
-    vnStore->VNUnpackExc(valueVNP.GetLiberal(), &valueNormalVN, &valueExcVN);
-    valueVNP = ValueNumPair(valueNormalVN, vnStore->VNNormalValue(valueVNP.GetConservative()));
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
-    }
-
     if (store->OperIs(GT_IND))
     {
-        vnIndirStore(store->AsIndir(), asg, valueVNP);
-
-        return;
+        vnIndirStore(store->AsIndir(), asg, value);
     }
-
-    noway_assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    vnLocalStore(store->AsLclVarCommon(), asg, valueVNP);
+    else
+    {
+        vnLocalStore(store->AsLclVarCommon(), asg, value);
+    }
 }
 
 void Compiler::vnStructAssignment(GenTreeOp* asg)
@@ -4624,11 +4623,30 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 #endif
 }
 
-void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, ValueNumPair valueVNP)
+void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     INDEBUG(unsigned memorySsaNum);
     assert(!GetMemorySsaMap(GcHeap)->Lookup(asg, &memorySsaNum));
+
+    ValueNumPair valueVNP = value->GetVNP();
+
+    if (value->GetType() != store->GetType())
+    {
+        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
+        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
+        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
+        // for small int type the value is really INT and the signedness does not matter.
+        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
+        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
+        // replacing the value VN with a new, unique one. So why bother casting to begin with?
+        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
+        valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+    }
+
+    // TODO-MIKE: This is dubious too. An assignment does not return a value so this should be the void VN, perhaps
+    // with the exception set from both operands.
+    asg->SetVNP(valueVNP);
 
     LclVarDsc* lcl = lvaGetDesc(store);
 
@@ -4644,6 +4662,21 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, ValueNum
     if (!lcl->IsInSsa())
     {
         return;
+    }
+
+    valueVNP = vnStore->VNPNormalPair(valueVNP);
+
+    // TODO-MIKE: This is also dubious. What exception set is this trying to obtain from a normal VN?!?
+    ValueNum valueExcVN;
+    ValueNum valueNormalVN;
+    vnStore->VNUnpackExc(valueVNP.GetLiberal(), &valueNormalVN, &valueExcVN);
+    valueVNP = ValueNumPair(valueNormalVN, vnStore->VNNormalValue(valueVNP.GetConservative()));
+
+    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
+    {
+        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
     }
 
     unsigned lclDefSsaNum = store->GetSsaNum();
