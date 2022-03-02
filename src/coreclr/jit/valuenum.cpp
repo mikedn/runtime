@@ -4548,20 +4548,22 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
     LclSsaVarDsc* dstSsaDef   = dstLcl->GetPerSsaData(dstSsaNum);
     LclSsaVarDsc* dstSsaUse   = dstLcl->GetPerSsaData(dstLclNode->GetSsaNum());
 
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    if (src->OperIs(GT_CNS_INT))
     {
+        assert(src->AsIntCon()->GetUInt8Value() == 0);
+
         ValueNum vn;
 
-        if (!dstLclNode->IsPartialLclFld(this) && src->IsIntCon() && (src->AsIntCon()->GetUInt8Value() == 0))
-        {
-            vn = vnStore->VNZeroForType(dstLcl->GetType());
-        }
-        else
+        if (dstLclNode->IsPartialLclFld(this))
         {
             vn = vnStore->VNForExpr(compCurBB, dstLcl->GetType());
         }
+        else
+        {
+            vn = vnStore->VNZeroForType(dstLcl->GetType());
+        }
 
-        dstSsaDef->SetVNP(ValueNumPair(vn));
+        dstSsaDef->SetVNP({vn, vn});
     }
     else
     {
