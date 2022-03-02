@@ -4524,23 +4524,24 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         return;
     }
 
+    assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
+
     LclVarDsc* lcl = lvaGetDesc(store);
 
     if (lcl->IsAddressExposed())
     {
         fgMutateAddressExposedLocal(asg);
+
         return;
     }
+
+    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
 
     if (!lcl->IsInSsa())
     {
         return;
     }
-
-    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
-    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
-    assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    assert((store->gtFlags & GTF_VAR_DEF) != 0);
 
     ValueNumPair valueVNP;
 
@@ -4561,8 +4562,7 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
-    INDEBUG(unsigned memorySsaNum);
-    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg, &memorySsaNum));
+    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
 
     ValueNumPair valueVNP = value->GetVNP();
 
@@ -4592,7 +4592,7 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
         return;
     }
 
-    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg, &memorySsaNum));
+    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
 
     if (!lcl->IsInSsa())
     {
