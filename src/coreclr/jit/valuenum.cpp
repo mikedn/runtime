@@ -4665,7 +4665,13 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
         valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
     }
 
-    unsigned lclDefSsaNum = store->GetSsaNum();
+    vnSsaLocalStore(store, asg, valueVNP);
+}
+
+void Compiler::vnSsaLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, ValueNumPair valueVNP)
+{
+    LclVarDsc* lcl          = lvaGetDesc(store);
+    unsigned   lclDefSsaNum = store->GetSsaNum();
 
     if (GenTreeLclFld* lclFld = store->IsLclFld())
     {
