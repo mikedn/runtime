@@ -4591,23 +4591,21 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         }
         else if (dstFieldSeq != nullptr)
         {
-            ValueNumPair map;
+            ValueNumPair currentVNP;
 
-            if (!dstLclNode->IsPartialLclFld(this))
+            if ((dstLclNode->gtFlags & GTF_VAR_USEASG) == 0)
             {
-                // This can occur for structs with one field, itself of a struct type.
-                // We are assigning the one field and it is also the entire enclosing struct.
-                // Use an unique value number for the old map, as this is an an entire assignment
-                // and we won't have any other values in the map.
-                map = ValueNumPair(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
+                // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
+                // just insert the new value into a zero map.
+                currentVNP.SetBoth(ValueNumStore::VNForZeroMap());
             }
             else
             {
-                map = dstSsaUse->GetVNP();
+                currentVNP = dstSsaUse->GetVNP();
             }
 
             vnp = vnStore->VNPNormalPair(src->gtVNPair);
-            vnp = vnStore->MapInsertStructField(map, dstLcl->GetType(), dstFieldSeq, vnp, dstLclNode->GetType());
+            vnp = vnStore->MapInsertStructField(currentVNP, dstLcl->GetType(), dstFieldSeq, vnp, dstLclNode->GetType());
         }
 
         dstSsaDef->SetVNP(vnp);
@@ -7478,11 +7476,11 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
                     // Otherwise, elemClsHnd is NOT a valid class handle, and is the encoded var_types value.
                     if (typIsLayoutNum(elemTypeNum))
                     {
-                        printf("     Array map %s[]\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
+                        printf("     Array currentVNP %s[]\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
                     }
                     else
                     {
-                        printf("     Array map %s[]\n", varTypeName(static_cast<var_types>(elemTypeNum)));
+                        printf("     Array currentVNP %s[]\n", varTypeName(static_cast<var_types>(elemTypeNum)));
                     }
                 }
 #endif // DEBUG
