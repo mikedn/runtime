@@ -4507,27 +4507,24 @@ void Compiler::vnAssignment(GenTreeOp* asg)
 
     if (asg->TypeIs(TYP_STRUCT))
     {
-        GenTreeLclVarCommon* lclStore = nullptr;
-
-        if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            lclStore = store->AsLclVarCommon();
-        }
-        else if (GenTreeIndir* indir = store->IsIndir())
-        {
-            lclStore = indir->GetAddr()->IsLocalAddrExpr();
-            assert((lclStore == nullptr) || lvaGetDesc(lclStore)->IsAddressExposed());
-        }
-
-        if (lclStore == nullptr)
+        if (store->OperIs(GT_OBJ, GT_BLK))
         {
             // For now, arbitrary side effect on GcHeap/ByrefExposed.
             // TODO-CQ: Why not be complete, and get this case right?
-            fgMutateGcHeap(asg DEBUGARG("non local struct store"));
+
+            if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
+            {
+                assert(lvaGetDesc(lclAddr)->IsAddressExposed());
+                fgMutateAddressExposedLocal(asg);
+            }
+            else
+            {
+                fgMutateGcHeap(asg DEBUGARG("non local struct store"));
+            }
         }
         else
         {
-            vnStructLocalStore(lclStore, asg, value);
+            vnStructLocalStore(store->AsLclVarCommon(), asg, value);
         }
     }
     else
