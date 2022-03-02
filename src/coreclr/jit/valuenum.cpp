@@ -4985,8 +4985,6 @@ void Compiler::vnCmpXchg(GenTreeCmpXchg* tree)
 
     // add the null check exception for 'location' to the tree's value number
     fgValueNumberAddExceptionSetForIndirection(tree, location);
-    // add the null check exception for 'comparand' to the tree's value number
-    fgValueNumberAddExceptionSetForIndirection(tree, comparand);
 }
 
 void Compiler::vnInterlocked(GenTreeOp* tree)
