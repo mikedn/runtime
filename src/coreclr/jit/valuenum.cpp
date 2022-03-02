@@ -7719,9 +7719,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
                 vnIndirLoad(tree->AsIndir());
+                fgValueNumberAddExceptionSet(tree);
             }
-
-            fgValueNumberAddExceptionSet(tree);
             break;
 
         case GT_COPY_BLK:
