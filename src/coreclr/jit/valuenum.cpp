@@ -4504,19 +4504,19 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
     assert(dst->TypeIs(TYP_STRUCT));
 
-    GenTreeLclVarCommon* dstLclNode = nullptr;
+    GenTreeLclVarCommon* store = nullptr;
 
     if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        dstLclNode = dst->AsLclVarCommon();
+        store = dst->AsLclVarCommon();
     }
     else if (GenTreeIndir* indir = dst->IsIndir())
     {
-        dstLclNode = indir->GetAddr()->IsLocalAddrExpr();
-        assert((dstLclNode == nullptr) || lvaGetDesc(dstLclNode)->IsAddressExposed());
+        store = indir->GetAddr()->IsLocalAddrExpr();
+        assert((store == nullptr) || lvaGetDesc(store)->IsAddressExposed());
     }
 
-    if (dstLclNode == nullptr)
+    if (store == nullptr)
     {
         // For now, arbitrary side effect on GcHeap/ByrefExposed.
         // TODO-CQ: Why not be complete, and get this case right?
@@ -4524,29 +4524,26 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         return;
     }
 
-    LclVarDsc* dstLcl = lvaGetDesc(dstLclNode);
+    LclVarDsc* lcl = lvaGetDesc(store);
 
-    if (dstLcl->IsAddressExposed())
+    if (lcl->IsAddressExposed())
     {
         fgMutateAddressExposedLocal(asg);
         return;
     }
 
-    if (!dstLcl->IsInSsa())
+    if (!lcl->IsInSsa())
     {
         return;
     }
 
     assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
     assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
-    assert(dstLclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    assert((dstLclNode->gtFlags & GTF_VAR_DEF) != 0);
+    assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    assert((store->gtFlags & GTF_VAR_DEF) != 0);
 
-    unsigned      dstLclNum   = dstLclNode->GetLclNum();
-    unsigned      dstSsaNum   = GetSsaNumForLocalVarDef(dstLclNode);
-    FieldSeqNode* dstFieldSeq = nullptr;
-    LclSsaVarDsc* dstSsaDef   = dstLcl->GetPerSsaData(dstSsaNum);
-    LclSsaVarDsc* dstSsaUse   = dstLcl->GetPerSsaData(dstLclNode->GetSsaNum());
+    ValueNumPair valueVNP     = vnStore->VNPNormalPair(src->GetVNP());
+    unsigned     lclDefSsaNum = store->GetSsaNum();
 
     if (src->OperIs(GT_CNS_INT))
     {
@@ -4554,46 +4551,31 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 
         ValueNum vn;
 
-        if (dstLclNode->IsPartialLclFld(this))
+        if ((store->gtFlags & GTF_VAR_USEASG) == 0)
         {
-            vn = vnStore->VNForExpr(compCurBB, dstLcl->GetType());
+            vn = vnStore->VNZeroForType(lcl->GetType());
         }
         else
         {
-            vn = vnStore->VNZeroForType(dstLcl->GetType());
+            vn           = vnStore->VNForExpr(compCurBB, lcl->GetType());
+            lclDefSsaNum = GetSsaNumForLocalVarDef(store);
         }
 
-        dstSsaDef->SetVNP({vn, vn});
+        valueVNP.SetBoth(vn);
     }
-    else
+    else if (GenTreeLclFld* lclFld = store->IsLclFld())
     {
-        assert(varTypeIsStruct(src->GetType()));
+        assert(((lclFld->gtFlags & GTF_VAR_USEASG) != 0) == lclFld->IsPartialLclFld(this));
 
-        if (GenTreeLclFld* lclFld = dstLclNode->IsLclFld())
+        if (!lclFld->HasFieldSeq())
         {
-            dstFieldSeq = lclFld->GetFieldSeq();
-
-            if (dstFieldSeq == nullptr)
-            {
-                dstFieldSeq = FieldSeqNode::NotAField();
-            }
+            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
         }
-
-        ValueNumPair vnp;
-
-        if (dstFieldSeq == nullptr)
-        {
-            vnp = vnStore->VNPNormalPair(src->gtVNPair);
-        }
-        else if (dstFieldSeq == FieldSeqStore::NotAField())
-        {
-            vnp.SetBoth(vnStore->VNForExpr(compCurBB, dstLcl->GetType()));
-        }
-        else if (dstFieldSeq != nullptr)
+        else
         {
             ValueNumPair currentVNP;
 
-            if ((dstLclNode->gtFlags & GTF_VAR_USEASG) == 0)
+            if ((store->gtFlags & GTF_VAR_USEASG) == 0)
             {
                 // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
                 // just insert the new value into a zero map.
@@ -4601,23 +4583,27 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
             }
             else
             {
-                currentVNP = dstSsaUse->GetVNP();
+                currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
             }
 
-            vnp = vnStore->VNPNormalPair(src->gtVNPair);
-            vnp = vnStore->MapInsertStructField(currentVNP, dstLcl->GetType(), dstFieldSeq, vnp, dstLclNode->GetType());
+            valueVNP = vnStore->MapInsertStructField(currentVNP, lcl->GetType(), lclFld->GetFieldSeq(), valueVNP,
+                                                     lclFld->GetType());
         }
 
-        dstSsaDef->SetVNP(vnp);
+        lclDefSsaNum = GetSsaNumForLocalVarDef(store);
     }
+
+    lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(valueVNP);
+    store->SetVNP(valueVNP);
 
 #ifdef DEBUG
     if (verbose)
     {
-        printf("[%06u] ", asg->GetID());
-        gtDispNodeName(asg);
-        printf(" V%02u/%d => ", dstLclNum, dstSsaNum);
-        vnpPrint(dstSsaDef->GetVNP(), 1);
+        printf("[%06u] ", store->GetID());
+        gtDispNodeName(store);
+        gtDispLeaf(store, nullptr);
+        printf(" => ");
+        vnpPrint(valueVNP, 1);
         printf("\n");
     }
 #endif
@@ -4683,7 +4669,7 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
 
     if (GenTreeLclFld* lclFld = store->IsLclFld())
     {
-        assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
+        assert(((lclFld->gtFlags & GTF_VAR_USEASG) != 0) == lclFld->IsPartialLclFld(this));
 
         if (!lclFld->HasFieldSeq())
         {
@@ -4717,7 +4703,7 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
 #ifdef DEBUG
     if (verbose)
     {
-        printf("[%06d] ", store->GetID());
+        printf("[%06u] ", store->GetID());
         gtDispNodeName(store);
         gtDispLeaf(store, nullptr);
         printf(" => ");
