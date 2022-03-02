@@ -3951,6 +3951,7 @@ public:
     // tree node).
     void fgValueNumber();
 
+    void vnComma(GenTreeOp* comma);
     void vnIndirLoad(GenTreeIndir* indir);
     void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
     void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);

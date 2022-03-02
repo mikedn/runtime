@@ -4189,6 +4189,29 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
     return res == NoVN ? res : VNWithExc(res, opAvnx);
 }
 
+void Compiler::vnComma(GenTreeOp* comma)
+{
+    ValueNumPair op1vnp;
+    ValueNumPair op1Xvnp;
+    vnStore->VNPUnpackExc(comma->GetOp(0)->GetVNP(), &op1vnp, &op1Xvnp);
+
+    ValueNumPair op2vnp;
+    ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
+    GenTree*     op2     = comma->GetOp(1);
+
+    if (op2->OperIsIndir() && ((op2->gtFlags & GTF_IND_ASG_LHS) != 0))
+    {
+        // If op2 represents the lhs of an assignment then we give a VNForVoid for the lhs
+        op2vnp = ValueNumPair(ValueNumStore::VNForVoid(), ValueNumStore::VNForVoid());
+    }
+    else
+    {
+        vnStore->VNPUnpackExc(op2->gtVNPair, &op2vnp, &op2Xvnp);
+    }
+
+    comma->SetVNP(vnStore->VNPWithExc(op2vnp, vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp)));
+}
+
 void Compiler::vnIndirLoad(GenTreeIndir* load)
 {
     assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
@@ -7722,26 +7745,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_COMMA:
-        {
-            ValueNumPair op1vnp;
-            ValueNumPair op1Xvnp;
-            vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1vnp, &op1Xvnp);
-            ValueNumPair op2vnp;
-            ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
-            GenTree*     op2     = tree->gtGetOp2();
-
-            if (op2->OperIsIndir() && ((op2->gtFlags & GTF_IND_ASG_LHS) != 0))
-            {
-                // If op2 represents the lhs of an assignment then we give a VNForVoid for the lhs
-                op2vnp = ValueNumPair(ValueNumStore::VNForVoid(), ValueNumStore::VNForVoid());
-            }
-            else
-            {
-                vnStore->VNPUnpackExc(op2->gtVNPair, &op2vnp, &op2Xvnp);
-            }
-            tree->gtVNPair = vnStore->VNPWithExc(op2vnp, vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp));
-        }
-        break;
+            vnComma(tree->AsOp());
+            break;
 
         case GT_NULLCHECK:
             // An Explicit null check, produces no value
