@@ -3952,7 +3952,8 @@ public:
     void fgValueNumber();
 
     void vnIndirLoad(GenTreeIndir* indir);
-    void vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair srcVNP);
+    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, ValueNumPair srcVNP);
+    void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, ValueNumPair valueVNP);
     void vnAssignment(GenTreeOp* asg);
     void vnStructAssignment(GenTreeOp* asg);
     void vnLocalLoad(GenTreeLclVar* load);

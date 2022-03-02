@@ -4361,40 +4361,40 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
 }
 
-void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valueVNP)
+void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, ValueNumPair valueVNP)
 {
     assert(asg->OperIs(GT_ASG));
-    assert(dst->OperIs(GT_IND));
+    assert(store->OperIs(GT_IND));
 
-    if (dst->IsVolatile())
+    if (store->IsVolatile())
     {
         // For volatile stores, first mutate the heap. This prevents previous
         // stores from being visible after the store.
-        fgMutateGcHeap(dst DEBUGARG("volatile store"));
+        fgMutateGcHeap(store DEBUGARG("volatile store"));
 
         // TODO-MIKE-Review: Why the crap is the ASG VN set here and then later
         // set again to VOID?!?
-        asg->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, dst->GetType()));
+        asg->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
     }
 
-    GenTree* addr = dst->GetAddr();
+    GenTree* addr = store->GetAddr();
 
     if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
     {
-        assert(!gtIsStaticFieldPtrToBoxedStruct(dst->GetType(), clsVarAddr->GetFieldHandle()));
+        assert(!gtIsStaticFieldPtrToBoxedStruct(store->GetType(), clsVarAddr->GetFieldHandle()));
 
         ValueNum valueVN = valueVNP.GetLiberal();
-        ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, dst->GetType());
+        ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
         recordGcHeapStore(asg, heapVN DEBUGARG("static field store"));
 
         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
         // need a value number and in other places this is set to the value VN or to void VN.
-        dst->gtVNPair.SetBoth(heapVN);
+        store->gtVNPair.SetBoth(heapVN);
 
         return;
     }
 
-    dst->SetVNP(valueVNP);
+    store->SetVNP(valueVNP);
     asg->gtVNPair.SetBoth(vnStore->VNForVoid());
 
     ValueNum addrVN = addr->gtVNPair.GetLiberal();
@@ -4402,7 +4402,7 @@ void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valu
     VNFuncApp funcApp;
     if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
     {
-        ValueNum heapVN = vnArrayElemStore(funcApp, valueVNP.GetLiberal(), dst->GetType());
+        ValueNum heapVN = vnArrayElemStore(funcApp, valueVNP.GetLiberal(), store->GetType());
         recordGcHeapStore(asg, heapVN DEBUGARG("array element store"));
 
         return;
@@ -4413,12 +4413,12 @@ void Compiler::vnIndirStore(GenTreeOp* asg, GenTreeIndir* dst, ValueNumPair valu
     {
         ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
         ValueNum valueVN = valueVNP.GetLiberal();
-        ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, dst->GetType());
+        ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, store->GetType());
         recordGcHeapStore(asg, heapVN DEBUGARG("object field store"));
 
         // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
         // need a value number and in other places this is set to the heap VN or to void VN.
-        dst->gtVNPair.SetBoth(valueVN);
+        store->gtVNPair.SetBoth(valueVN);
 
         return;
     }
@@ -4485,78 +4485,13 @@ void Compiler::vnAssignment(GenTreeOp* asg)
 
     if (store->OperIs(GT_IND))
     {
-        vnIndirStore(asg, store->AsIndir(), valueVNP);
+        vnIndirStore(store->AsIndir(), asg, valueVNP);
 
         return;
     }
 
     noway_assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-    INDEBUG(unsigned memorySsaNum;)
-    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg, &memorySsaNum));
-
-    GenTreeLclVarCommon* lclNode = store->AsLclVarCommon();
-    LclVarDsc*           lcl     = lvaGetDesc(lclNode);
-
-    if (lcl->IsAddressExposed())
-    {
-        fgMutateAddressExposedLocal(asg);
-
-        return;
-    }
-
-    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg, &memorySsaNum));
-
-    if (!lcl->IsInSsa())
-    {
-        return;
-    }
-
-    unsigned lclDefSsaNum = lclNode->GetSsaNum();
-
-    if (GenTreeLclFld* lclFld = store->IsLclFld())
-    {
-        assert(((lclNode->gtFlags & GTF_VAR_USEASG) != 0) == lclNode->IsPartialLclFld(this));
-
-        if (!lclFld->HasFieldSeq())
-        {
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
-        }
-        else
-        {
-            ValueNumPair currentVNP;
-
-            if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
-            {
-                // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
-                // just insert the new value into a zero map.
-                currentVNP.SetBoth(ValueNumStore::VNForZeroMap());
-            }
-            else
-            {
-                currentVNP = lcl->GetPerSsaData(lclNode->GetSsaNum())->GetVNP();
-            }
-
-            valueVNP = vnStore->MapInsertStructField(currentVNP, lcl->GetType(), lclFld->GetFieldSeq(), valueVNP,
-                                                     lclFld->GetType());
-        }
-
-        lclDefSsaNum = GetSsaNumForLocalVarDef(lclNode);
-    }
-
-    lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(valueVNP);
-    store->SetVNP(valueVNP);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("[%06d] ", store->GetID());
-        gtDispNodeName(store);
-        gtDispLeaf(store, nullptr);
-        printf(" => ");
-        vnpPrint(valueVNP, 1);
-        printf("\n");
-    }
-#endif
+    vnLocalStore(store->AsLclVarCommon(), asg, valueVNP);
 }
 
 void Compiler::vnStructAssignment(GenTreeOp* asg)
@@ -4689,57 +4624,129 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
 #endif
 }
 
+void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, ValueNumPair valueVNP)
+{
+    assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    INDEBUG(unsigned memorySsaNum);
+    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg, &memorySsaNum));
+
+    LclVarDsc* lcl = lvaGetDesc(store);
+
+    if (lcl->IsAddressExposed())
+    {
+        fgMutateAddressExposedLocal(asg);
+
+        return;
+    }
+
+    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg, &memorySsaNum));
+
+    if (!lcl->IsInSsa())
+    {
+        return;
+    }
+
+    unsigned lclDefSsaNum = store->GetSsaNum();
+
+    if (GenTreeLclFld* lclFld = store->IsLclFld())
+    {
+        assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
+
+        if (!lclFld->HasFieldSeq())
+        {
+            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+        }
+        else
+        {
+            ValueNumPair currentVNP;
+
+            if ((store->gtFlags & GTF_VAR_USEASG) == 0)
+            {
+                // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
+                // just insert the new value into a zero map.
+                currentVNP.SetBoth(ValueNumStore::VNForZeroMap());
+            }
+            else
+            {
+                currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
+            }
+
+            valueVNP = vnStore->MapInsertStructField(currentVNP, lcl->GetType(), lclFld->GetFieldSeq(), valueVNP,
+                                                     lclFld->GetType());
+        }
+
+        lclDefSsaNum = GetSsaNumForLocalVarDef(store);
+    }
+
+    lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(valueVNP);
+    store->SetVNP(valueVNP);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("[%06d] ", store->GetID());
+        gtDispNodeName(store);
+        gtDispLeaf(store, nullptr);
+        printf(" => ");
+        vnpPrint(valueVNP, 1);
+        printf("\n");
+    }
+#endif
+}
+
 void Compiler::vnLocalLoad(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR) && ((load->gtFlags & GTF_VAR_DEF) == 0));
 
-    LclVarDsc*   lcl = lvaGetDesc(load);
-    ValueNumPair vnp;
+    LclVarDsc* lcl = lvaGetDesc(load);
 
     if (lcl->IsAddressExposed())
     {
         ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
                                              vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
-        vnp.SetBoth(fgValueNumberByrefExposedLoad(load->GetType(), addrVN));
+        load->gtVNPair.SetBoth(fgValueNumberByrefExposedLoad(load->GetType(), addrVN));
+
+        return;
     }
-    else if (!lcl->IsInSsa())
+
+    if (!lcl->IsInSsa())
     {
-        vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+        load->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+
+        return;
     }
-    else
+
+    ValueNumPair vnp = lcl->GetPerSsaData(load->GetSsaNum())->m_vnPair;
+
+    assert(vnp.GetLiberal() != ValueNumStore::NoVN);
+
+    unsigned valSize = varTypeSize(varActualType(load->GetType()));
+    unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
+
+    if (valSize != lclSize)
     {
-        vnp = lcl->GetPerSsaData(load->GetSsaNum())->m_vnPair;
-
-        assert(vnp.GetLiberal() != ValueNumStore::NoVN);
-
-        unsigned valSize = varTypeSize(varActualType(load->GetType()));
-        unsigned lclSize = varTypeSize(varActualType(lcl->GetType()));
-
-        if (valSize != lclSize)
+        // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
+        if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
         {
-            // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
-            if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
-            {
-                vnp = vnStore->VNPairForCast(vnp, TYP_INT, TYP_LONG);
-            }
-            else
-            {
-                vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
-            }
+            vnp = vnStore->VNPairForCast(vnp, TYP_INT, TYP_LONG);
         }
-
-        // A BYREF local may have a zero offset field sequence that needs to be added.
-        if (load->TypeIs(TYP_BYREF))
+        else
         {
-            if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(load))
-            {
-                ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq, 0);
+            vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
+        }
+    }
 
-                if (extendVN != ValueNumStore::NoVN)
-                {
-                    vnp.SetBoth(extendVN);
-                }
+    // A BYREF local may have a zero offset field sequence that needs to be added.
+    if (load->TypeIs(TYP_BYREF))
+    {
+        if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(load))
+        {
+            ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq, 0);
+
+            if (extendVN != ValueNumStore::NoVN)
+            {
+                vnp.SetBoth(extendVN);
             }
         }
     }
