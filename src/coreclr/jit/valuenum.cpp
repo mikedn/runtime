@@ -6539,7 +6539,6 @@ void ValueNumStore::InitValueNumStoreStatics()
                                            GT_ARR_BOUNDS_CHECK,
                                            GT_OBJ,
                                            GT_BLK,
-                                           GT_INIT_VAL,
                                            GT_JTRUE,
                                            GT_RETURN,
                                            GT_SWITCH,
@@ -7833,7 +7832,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_LCLHEAP:
-        case GT_INIT_VAL:
         case GT_CKFINITE:
             tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
             fgValueNumberAddExceptionSet(tree);
