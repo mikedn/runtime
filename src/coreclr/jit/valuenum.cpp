@@ -4524,6 +4524,11 @@ void Compiler::vnStructAssignment(GenTreeOp* asg)
         return;
     }
 
+    vnStructLocalStore(store, asg, src);
+}
+
+void Compiler::vnStructLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* src)
+{
     assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
 
