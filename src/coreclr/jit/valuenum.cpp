@@ -4409,10 +4409,6 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
     }
 
-    // TODO-MIKE: This is dubious too. An assignment does not return a value so this should be the void VN, perhaps
-    // with the exception set from both operands.
-    asg->SetVNP(valueVNP);
-
     valueVNP = vnStore->VNPNormalPair(valueVNP);
 
     // TODO-MIKE: This is also dubious. What exception set is this trying to obtain from a normal VN?!?
@@ -4433,10 +4429,6 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         // For volatile stores, first mutate the heap. This prevents previous
         // stores from being visible after the store.
         vnClearGcHeap(store DEBUGARG("volatile store"));
-
-        // TODO-MIKE-Review: Why the crap is the ASG VN set here and then later
-        // set again to VOID?!?
-        asg->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
     }
 
     GenTree* addr = store->GetAddr();
@@ -4449,15 +4441,8 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
         vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
 
-        // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
-        // need a value number and in other places this is set to the value VN or to void VN.
-        store->gtVNPair.SetBoth(heapVN);
-
         return;
     }
-
-    store->SetVNP(valueVNP);
-    asg->gtVNPair.SetBoth(vnStore->VNForVoid());
 
     ValueNum addrVN = addr->gtVNPair.GetLiberal();
 
@@ -4478,10 +4463,6 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, store->GetType());
         vnUpdateGcHeap(asg, heapVN DEBUGARG("object field store"));
 
-        // TODO-MIKE-Review: This is inconsistent and rather pointless. ASG destination should not
-        // need a value number and in other places this is set to the heap VN or to void VN.
-        store->gtVNPair.SetBoth(valueVN);
-
         return;
     }
 
@@ -4500,6 +4481,7 @@ void Compiler::vnAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
 
+    // TODO-MIKE: This is missing operand exceptions...
     asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
 
     GenTree* store = asg->GetOp(0);
@@ -4604,10 +4586,6 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
         bool fromUnsigned = varTypeIsUnsigned(value->GetType());
         valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
     }
-
-    // TODO-MIKE: This is dubious too. An assignment does not return a value so this should be the void VN, perhaps
-    // with the exception set from both operands.
-    asg->SetVNP(valueVNP);
 
     LclVarDsc* lcl = lvaGetDesc(store);
 
