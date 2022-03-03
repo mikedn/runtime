@@ -4394,7 +4394,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     assert(asg->OperIs(GT_ASG));
     assert(store->OperIs(GT_IND));
 
-    ValueNumPair valueVNP = value->GetVNP();
+    ValueNumPair valueVNP = vnStore->VNPNormalPair(value->GetVNP());
 
     if (value->GetType() != store->GetType())
     {
@@ -4408,8 +4408,6 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         bool fromUnsigned = varTypeIsUnsigned(value->GetType());
         valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
     }
-
-    valueVNP = vnStore->VNPNormalPair(valueVNP);
 
     if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
     {
@@ -4582,7 +4580,7 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
         return;
     }
 
-    ValueNumPair valueVNP = value->GetVNP();
+    ValueNumPair valueVNP = vnStore->VNPNormalPair(value->GetVNP());
 
     if (value->GetType() != store->GetType())
     {
@@ -4596,8 +4594,6 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
         bool fromUnsigned = varTypeIsUnsigned(value->GetType());
         valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
     }
-
-    valueVNP = vnStore->VNPNormalPair(valueVNP);
 
     if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
     {
