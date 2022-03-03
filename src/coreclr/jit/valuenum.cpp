@@ -4394,7 +4394,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     assert(asg->OperIs(GT_ASG));
     assert(store->OperIs(GT_IND));
 
-    ValueNumPair valueVNP = vnStore->VNPNormalPair(value->GetVNP());
+    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
 
     if (value->GetType() != store->GetType())
     {
@@ -4406,14 +4406,14 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
         // replacing the value VN with a new, unique one. So why bother casting to begin with?
         bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
     }
 
     if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
     {
         // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
         // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
+        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
     }
 
     if (store->IsVolatile())
@@ -4429,8 +4429,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     {
         assert(!gtIsStaticFieldPtrToBoxedStruct(store->GetType(), clsVarAddr->GetFieldHandle()));
 
-        ValueNum valueVN = valueVNP.GetLiberal();
-        ValueNum heapVN  = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
+        ValueNum heapVN = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
         vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
 
         return;
@@ -4441,7 +4440,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     VNFuncApp funcApp;
     if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
     {
-        ValueNum heapVN = vnArrayElemStore(funcApp, valueVNP.GetLiberal(), store->GetType());
+        ValueNum heapVN = vnArrayElemStore(funcApp, valueVN, store->GetType());
         vnUpdateGcHeap(asg, heapVN DEBUGARG("array element store"));
 
         return;
@@ -4450,9 +4449,8 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     GenTree* obj;
     if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
     {
-        ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
-        ValueNum valueVN = valueVNP.GetLiberal();
-        ValueNum heapVN  = vnObjFieldStore(objVN, fieldSeq, valueVN, store->GetType());
+        ValueNum objVN  = vnStore->VNNormalValue(obj->GetLiberalVN());
+        ValueNum heapVN = vnObjFieldStore(objVN, fieldSeq, valueVN, store->GetType());
         vnUpdateGcHeap(asg, heapVN DEBUGARG("object field store"));
 
         return;
