@@ -1764,11 +1764,9 @@ ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
     return VNForHandle(static_cast<ssize_t>(typeNum), GTF_ICON_CLASS_HDL);
 }
 
-// Returns the value number for zero of the given "typ".
-// It has an unreached() for a "typ" that has no zero value, such as TYP_VOID.
-ValueNum ValueNumStore::VNZeroForType(var_types typ)
+ValueNum ValueNumStore::VNZeroForType(var_types type)
 {
-    switch (typ)
+    switch (type)
     {
         case TYP_BOOL:
         case TYP_BYTE:
@@ -1790,20 +1788,27 @@ ValueNum ValueNumStore::VNZeroForType(var_types typ)
         case TYP_BYREF:
             return VNForByrefCon(0);
         case TYP_STRUCT:
-            return VNForZeroMap(); // Recursion!
-
+            return VNForZeroMap();
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
             return VNForLongCon(0);
-#endif // FEATURE_SIMD
-
-        // These should be unreached.
+#endif
         default:
-            unreached(); // Should handle all types.
+            unreached();
     }
+}
+
+ValueNum ValueNumStore::VNForZeroMap()
+{
+    if (m_zeroMap == NoVN)
+    {
+        m_zeroMap = VNForFunc(TYP_STRUCT, VNF_ZeroMap);
+    }
+
+    return m_zeroMap;
 }
 
 // Returns the value number for one of the given "typ".
@@ -4570,7 +4575,7 @@ void Compiler::vnStructLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, Ge
     {
         assert(src->AsIntCon()->GetValue() == 0);
 
-        valueVNP.SetBoth(ValueNumStore::VNForZeroMap());
+        valueVNP.SetBoth(vnStore->VNForZeroMap());
     }
     else
     {
@@ -4659,7 +4664,7 @@ void Compiler::vnSsaLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, Value
             {
                 // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
                 // just insert the new value into a zero map.
-                currentVNP.SetBoth(ValueNumStore::VNForZeroMap());
+                currentVNP.SetBoth(vnStore->VNForZeroMap());
             }
             else
             {
@@ -6579,7 +6584,6 @@ static const char* s_reservedNameArr[] = {
     "$VN.Recursive",    // -2  RecursiveVN
     "$VN.No",           // -1  NoVN
     "$VN.Null",         //  0  VNForNull()
-    "$VN.ZeroMap",      //  1  VNForZeroMap()
     "$VN.ReadOnlyHeap", //  2  VNForROH()
     "$VN.Void",         //  3  VNForVoid()
     "$VN.EmptyExcSet"   //  4  VNForEmptyExcSet()

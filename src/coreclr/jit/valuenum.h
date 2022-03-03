@@ -397,11 +397,7 @@ public:
     }
 
     // The zero map is the map that returns a zero "for the appropriate type" when indexed at any index.
-    static ValueNum VNForZeroMap()
-    {
-        // We reserve Chunk 0 for "special" VNs.  Let SRC_ZeroMap (== 1) be the zero map.
-        return ValueNum(SRC_ZeroMap);
-    }
+    ValueNum VNForZeroMap();
 
     // The ROH map is the map for the "read-only heap".  We assume that this is never mutated, and always
     // has the same value number.
@@ -1177,6 +1173,8 @@ private:
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
     Chunk* GetAllocChunk(var_types typ, ChunkExtraAttribs attribs);
 
+    ValueNum m_zeroMap = NoVN;
+
     // First, we need mechanisms for mapping from constants to value numbers.
     // For small integers, we'll use an array.
     static const int      SmallIntConstMin = -1;
@@ -1364,7 +1362,6 @@ private:
     enum SpecialRefConsts
     {
         SRC_Null,
-        SRC_ZeroMap,
         SRC_ReadOnlyHeap,
         SRC_Void,
         SRC_EmptyExcSet,

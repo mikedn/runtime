@@ -7,6 +7,7 @@
 
 // clang-format off
 ValueNumFuncDef(MemOpaque, 1, false, false, false)  // Args: 0: loop num
+ValueNumFuncDef(MapZero, 0, false, false, false)
 ValueNumFuncDef(MapStore, 4, false, false, false)   // Args: 0: map, 1: index (e. g. field handle), 2: value being stored, 3: loop num.
 ValueNumFuncDef(MapSelect, 2, false, false, false)  // Args: 0: map, 1: key.
 
