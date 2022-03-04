@@ -4482,79 +4482,30 @@ void Compiler::vnAssignment(GenTreeOp* asg)
         store->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
     }
 
-    if (asg->TypeIs(TYP_STRUCT))
+    if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        if (store->OperIs(GT_OBJ, GT_BLK))
-        {
-            // For now, arbitrary side effect on GcHeap/ByrefExposed.
-            // TODO-CQ: Why not be complete, and get this case right?
-
-            if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
-            {
-                assert(lvaGetDesc(lclAddr)->IsAddressExposed());
-                vnClearByRefExposed(asg);
-            }
-            else
-            {
-                vnClearGcHeap(asg DEBUGARG("non local struct store"));
-            }
-        }
-        else
-        {
-            vnStructLocalStore(store->AsLclVarCommon(), asg, value);
-        }
+        vnLocalStore(store->AsLclVarCommon(), asg, value);
+        return;
     }
-    else
-    {
-        assert(!store->OperIs(GT_BLK));
-        assert(!value->OperIs(GT_BLK));
 
-        if (store->OperIs(GT_IND))
-        {
-            vnIndirStore(store->AsIndir(), asg, value);
-        }
-        else
-        {
-            vnLocalStore(store->AsLclVarCommon(), asg, value);
-        }
+    if (!asg->TypeIs(TYP_STRUCT))
+    {
+        vnIndirStore(store->AsIndir(), asg, value);
+        return;
     }
-}
 
-void Compiler::vnStructLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* src)
-{
-    assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
-    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
+    assert(store->OperIs(GT_OBJ, GT_BLK));
 
-    LclVarDsc* lcl = lvaGetDesc(store);
-
-    if (lcl->IsAddressExposed())
+    if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
     {
+        assert(lvaGetDesc(lclAddr)->IsAddressExposed());
         vnClearByRefExposed(asg);
-
         return;
     }
 
-    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
-
-    if (!lcl->IsInSsa())
-    {
-        return;
-    }
-
-    ValueNumPair valueVNP;
-
-    if (src->OperIs(GT_CNS_INT))
-    {
-        assert(src->AsIntCon()->GetValue() == 0);
-
-        valueVNP.SetBoth(vnStore->VNForZeroMap());
-    }
-    else
-    {
-        valueVNP = vnStore->VNPNormalPair(src->GetVNP());
-    }
-
-    vnSsaLocalStore(store, asg, valueVNP);
+    // For now, arbitrary side effect on GcHeap/ByrefExposed.
+    // TODO-CQ: Why not be complete, and get this case right?
+    vnClearGcHeap(asg DEBUGARG("indirect struct store"));
 }
 
 void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
@@ -4578,35 +4529,42 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
         return;
     }
 
-    ValueNumPair valueVNP = vnStore->VNPNormalPair(value->GetVNP());
+    ValueNumPair valueVNP;
 
-    if (value->GetType() != store->GetType())
+    if (store->TypeIs(TYP_STRUCT) && value->OperIs(GT_CNS_INT))
     {
-        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
-        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
-        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
-        // for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+        assert(value->AsIntCon()->GetValue() == 0);
+
+        valueVNP.SetBoth(vnStore->VNForZeroMap());
+    }
+    else
+    {
+        valueVNP = vnStore->VNPNormalPair(value->GetVNP());
+
+        if (value->GetType() != store->GetType())
+        {
+            // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
+            // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
+            // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
+            // since
+            // for small int type the value is really INT and the signedness does not matter.
+            // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
+            // VNF_Cast
+            // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
+            // replacing the value VN with a new, unique one. So why bother casting to begin with?
+            bool fromUnsigned = varTypeIsUnsigned(value->GetType());
+            valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+        }
+
+        if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
+        {
+            // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+            // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
+        }
     }
 
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
-    }
-
-    vnSsaLocalStore(store, asg, valueVNP);
-}
-
-void Compiler::vnSsaLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, ValueNumPair valueVNP)
-{
-    LclVarDsc* lcl          = lvaGetDesc(store);
-    unsigned   lclDefSsaNum = store->GetSsaNum();
+    unsigned lclDefSsaNum = store->GetSsaNum();
 
     if (GenTreeLclFld* lclFld = store->IsLclFld())
     {
