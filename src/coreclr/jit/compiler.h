@@ -3952,12 +3952,12 @@ public:
     void fgValueNumber();
 
     void vnComma(GenTreeOp* comma);
-    void vnIndirLoad(GenTreeIndir* indir);
-    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
-    void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);
     void vnAssignment(GenTreeOp* asg);
+    void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnLocalFieldLoad(GenTreeLclFld* load);
+    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
+    void vnIndirLoad(GenTreeIndir* indir);
     ValueNum vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType);
     ValueNum vnStaticFieldLoad(CORINFO_FIELD_HANDLE fieldHandle, var_types loadType);
     ValueNum vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);

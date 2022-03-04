@@ -4217,274 +4217,6 @@ void Compiler::vnComma(GenTreeOp* comma)
     comma->SetVNP(vnStore->VNPWithExc(op2vnp, vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp)));
 }
 
-void Compiler::vnIndirLoad(GenTreeIndir* load)
-{
-    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert((load->gtFlags & GTF_IND_ASG_LHS) == 0);
-
-    GenTree*     addr = load->GetAddr();
-    ValueNumPair addrVNP;
-    ValueNumPair addrExcVNP;
-    vnStore->VNPUnpackExc(addr->GetVNP(), &addrVNP, &addrExcVNP);
-
-    VNFuncApp funcApp;
-
-    if (load->IsInvariant())
-    {
-        assert(!load->IsVolatile());
-
-        if (load->OperIs(GT_IND) && addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL) &&
-            vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_JitNew) && addrVNP.BothEqual())
-        {
-            load->SetVNP(vnStore->VNPWithExc({funcApp.m_args[0], funcApp.m_args[0]}, addrExcVNP));
-            return;
-        }
-
-        if ((load->gtFlags & GTF_IND_NONNULL) != 0)
-        {
-            assert((load->gtFlags & GTF_IND_NONFAULTING) != 0);
-
-            load->SetVNP(vnStore->VNPairForFunc(load->GetType(), VNF_NonNullIndirect, addrVNP));
-
-            if (addr->IsIntCon())
-            {
-                assert(addrExcVNP.BothEqual() && (addrExcVNP.GetLiberal() == ValueNumStore::VNForEmptyExcSet()));
-            }
-            else
-            {
-                assert(false && "it's not expected to be hit at the moment, but can be allowed.");
-                // tree->gtVNPair = vnStore->VNPWithExc(tree->gtVNPair, addrXvnp);
-            }
-
-            return;
-        }
-
-        ValueNum     readOnlyHeap = ValueNumStore::VNForROH();
-        ValueNumPair vnp;
-        vnp.SetLiberal(vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, readOnlyHeap, addrVNP.GetLiberal()));
-        vnp.SetConservative(
-            vnStore->VNForMapSelect(VNK_Conservative, TYP_REF, readOnlyHeap, addrVNP.GetConservative()));
-
-        load->SetVNP(vnStore->VNPWithExc(vnp, addrExcVNP));
-
-        return;
-    }
-
-    // The conservative VN of a load is always a new, unique VN.
-    ValueNum conservativeVN = vnStore->VNForExpr(compCurBB, load->GetType());
-
-    if (load->IsVolatile())
-    {
-        // We just mutate GcHeap/ByrefExposed for volatile loads, and then do the load as normal.
-        //
-        // This allows:
-        //   1: read s;
-        //   2: volatile read s;
-        //   3: read s;
-        //
-        // We should never assume that the values loaded by 1 and 2 are the same (because the heap was
-        // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
-        // 3 are the same.
-
-        vnClearGcHeap(load DEBUGARG("volatile load"));
-
-        load->SetVNP(vnStore->VNPWithExc({conservativeVN, conservativeVN}, addrExcVNP));
-
-        return;
-    }
-
-    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
-    {
-        ValueNumPair valueVNP;
-
-        // TODO-MIKE: Static fields are a mess. The address is sometimes CLS_VAR_ADDR and
-        // sometimes CNS_INT. In the case of STRUCT static fields, CLS_VAR_ADDR is rare,
-        // the C# compiler seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and
-        // the importer always uses CNS_INT for LDSFLDA. Not good for testing. Moreover
-        // VN doesn't seem to recognize CNS_INT on its own, it only recognizes it together
-        // with a subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
-        // This is somewhat risky because not matter what the IR pattern is we should end
-        // up using the same field sequence in all cases, otherwise we may end up with
-        // loads not correctly seeing previously stored values.
-        if (gtIsStaticFieldPtrToBoxedStruct(load->GetType(), clsVarAddr->GetFieldHandle()))
-        {
-            ValueNum fieldSeqVN = vnStore->VNForFieldSeq(clsVarAddr->GetFieldSeq());
-            valueVNP.SetBoth(vnStore->VNForFunc(TYP_REF, VNF_PtrToStatic, fieldSeqVN));
-        }
-        else
-        {
-            valueVNP.SetLiberal(vnStaticFieldLoad(clsVarAddr->GetFieldHandle(), load->GetType()));
-            valueVNP.SetConservative(conservativeVN);
-        }
-
-        load->SetVNP(valueVNP);
-
-        return;
-    }
-
-    if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
-    {
-        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]);
-        ValueNumPair  valueVNP;
-
-        // TODO-MIKE: Can all this be moved to vnStaticFieldLoad?
-
-        if (fieldSeq == FieldSeqStore::NotAField())
-        {
-            valueVNP.SetBoth(conservativeVN);
-        }
-        else
-        {
-            ValueNum heapVN = fgCurMemoryVN[GcHeap];
-            INDEBUG(vnPrintHeapVN(heapVN));
-
-            ValueNum valueVN = vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, load->GetType());
-
-            valueVNP.SetLiberal(valueVN);
-            valueVNP.SetConservative(conservativeVN);
-        }
-
-        load->SetVNP(vnStore->VNPWithExc(valueVNP, addrExcVNP));
-
-        return;
-    }
-
-    if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
-    {
-        ValueNum valueVN = vnArrayElemLoad(funcApp, addrExcVNP.GetLiberal(), load->GetType());
-
-        load->SetVNP({valueVN, conservativeVN});
-
-        // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
-        // values, so we don't have their exceptions. Maybe we should.
-
-        return;
-    }
-
-    GenTree* obj = nullptr;
-    if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
-    {
-        ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
-        ValueNum valueVN = vnObjFieldLoad(objVN, fieldSeq, load->GetType());
-
-        load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
-
-        return;
-    }
-
-    if (load->TypeIs(TYP_I_IMPL) && addr->TypeIs(TYP_REF))
-    {
-        // TODO-MIKE-CQ: Handle method table pointer loads properly. This code gives these
-        // loads unique VNs, this prevents CSEing of such loads.
-        // These loads can be handled by fgValueNumberByrefExposedLoad below but then it
-        // turns out that CSEing is a problem for optAssertionIsSubtype - it specifically
-        // looks for indirs that load the method table pointer.
-
-        load->SetVNP(vnStore->VNPWithExc({conservativeVN, conservativeVN}, addrExcVNP));
-
-        return;
-    }
-
-    ValueNum valueVN = fgValueNumberByrefExposedLoad(load->GetType(), addr->GetLiberalVN());
-    load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
-}
-
-void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
-{
-    assert(asg->OperIs(GT_ASG));
-
-    if (store->IsVolatile())
-    {
-        // For volatile stores, first mutate the heap. This prevents previous
-        // stores from being visible after the store.
-        vnClearGcHeap(store DEBUGARG("volatile store"));
-    }
-
-    if (asg->TypeIs(TYP_STRUCT))
-    {
-        assert(store->OperIs(GT_OBJ, GT_BLK));
-
-        if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
-        {
-            assert(lvaGetDesc(lclAddr)->IsAddressExposed());
-            vnClearByRefExposed(asg);
-            return;
-        }
-
-        // For now, arbitrary side effect on GcHeap/ByrefExposed.
-        // TODO-CQ: Why not be complete, and get this case right?
-        vnClearGcHeap(asg DEBUGARG("indirect struct store"));
-        return;
-    }
-
-    assert(store->OperIs(GT_IND));
-
-    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
-        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
-        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
-        // for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
-
-    GenTree* addr = store->GetAddr();
-
-    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
-    {
-        assert(!gtIsStaticFieldPtrToBoxedStruct(store->GetType(), clsVarAddr->GetFieldHandle()));
-
-        ValueNum heapVN = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
-        vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
-
-        return;
-    }
-
-    ValueNum addrVN = addr->gtVNPair.GetLiberal();
-
-    VNFuncApp funcApp;
-    if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
-    {
-        ValueNum heapVN = vnArrayElemStore(funcApp, valueVN, store->GetType());
-        vnUpdateGcHeap(asg, heapVN DEBUGARG("array element store"));
-
-        return;
-    }
-
-    GenTree* obj;
-    if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
-    {
-        ValueNum objVN  = vnStore->VNNormalValue(obj->GetLiberalVN());
-        ValueNum heapVN = vnObjFieldStore(objVN, fieldSeq, valueVN, store->GetType());
-        vnUpdateGcHeap(asg, heapVN DEBUGARG("object field store"));
-
-        return;
-    }
-
-    if (GenTreeLclVarCommon* dstLclNode = addr->IsLocalAddrExpr())
-    {
-        assert(lvaGetDesc(dstLclNode)->IsAddressExposed());
-        vnClearByRefExposed(asg);
-
-        return;
-    }
-
-    vnClearGcHeap(asg DEBUGARG("indirect store"));
-}
-
 void Compiler::vnAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
@@ -4694,6 +4426,276 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
     }
 
     load->SetVNP(vnp);
+}
+
+void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
+{
+    assert(asg->OperIs(GT_ASG));
+
+    if (store->IsVolatile())
+    {
+        // For volatile stores, first mutate the heap. This prevents previous
+        // stores from being visible after the store.
+        vnClearGcHeap(store DEBUGARG("volatile store"));
+    }
+
+    if (asg->TypeIs(TYP_STRUCT))
+    {
+        assert(store->OperIs(GT_OBJ, GT_BLK));
+
+        if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
+        {
+            assert(lvaGetDesc(lclAddr)->IsAddressExposed());
+            vnClearByRefExposed(asg);
+        }
+        else
+        {
+            // For now, arbitrary side effect on GcHeap/ByrefExposed.
+            // TODO-CQ: Why not be complete, and get this case right?
+            vnClearGcHeap(asg DEBUGARG("indirect struct store"));
+        }
+
+        return;
+    }
+
+    assert(store->OperIs(GT_IND));
+
+    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
+
+    if (value->GetType() != store->GetType())
+    {
+        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
+        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
+        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
+        // for small int type the value is really INT and the signedness does not matter.
+        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
+        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
+        // replacing the value VN with a new, unique one. So why bother casting to begin with?
+        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
+        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
+    }
+
+    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
+    {
+        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
+    }
+
+    GenTree* addr = store->GetAddr();
+
+    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
+    {
+        assert(!gtIsStaticFieldPtrToBoxedStruct(store->GetType(), clsVarAddr->GetFieldHandle()));
+
+        ValueNum heapVN = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
+        vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
+
+        return;
+    }
+
+    ValueNum addrVN = addr->gtVNPair.GetLiberal();
+
+    VNFuncApp funcApp;
+    if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
+    {
+        ValueNum heapVN = vnArrayElemStore(funcApp, valueVN, store->GetType());
+        vnUpdateGcHeap(asg, heapVN DEBUGARG("array element store"));
+
+        return;
+    }
+
+    GenTree* obj;
+    if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
+    {
+        ValueNum objVN  = vnStore->VNNormalValue(obj->GetLiberalVN());
+        ValueNum heapVN = vnObjFieldStore(objVN, fieldSeq, valueVN, store->GetType());
+        vnUpdateGcHeap(asg, heapVN DEBUGARG("object field store"));
+
+        return;
+    }
+
+    if (GenTreeLclVarCommon* dstLclNode = addr->IsLocalAddrExpr())
+    {
+        assert(lvaGetDesc(dstLclNode)->IsAddressExposed());
+        vnClearByRefExposed(asg);
+
+        return;
+    }
+
+    vnClearGcHeap(asg DEBUGARG("indirect store"));
+}
+
+void Compiler::vnIndirLoad(GenTreeIndir* load)
+{
+    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
+    assert((load->gtFlags & GTF_IND_ASG_LHS) == 0);
+
+    GenTree*     addr = load->GetAddr();
+    ValueNumPair addrVNP;
+    ValueNumPair addrExcVNP;
+    vnStore->VNPUnpackExc(addr->GetVNP(), &addrVNP, &addrExcVNP);
+
+    VNFuncApp funcApp;
+
+    if (load->IsInvariant())
+    {
+        assert(!load->IsVolatile());
+
+        if (load->OperIs(GT_IND) && addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL) &&
+            vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_JitNew) && addrVNP.BothEqual())
+        {
+            load->SetVNP(vnStore->VNPWithExc({funcApp.m_args[0], funcApp.m_args[0]}, addrExcVNP));
+            return;
+        }
+
+        if ((load->gtFlags & GTF_IND_NONNULL) != 0)
+        {
+            assert((load->gtFlags & GTF_IND_NONFAULTING) != 0);
+
+            load->SetVNP(vnStore->VNPairForFunc(load->GetType(), VNF_NonNullIndirect, addrVNP));
+
+            if (addr->IsIntCon())
+            {
+                assert(addrExcVNP.BothEqual() && (addrExcVNP.GetLiberal() == ValueNumStore::VNForEmptyExcSet()));
+            }
+            else
+            {
+                assert(false && "it's not expected to be hit at the moment, but can be allowed.");
+                // tree->gtVNPair = vnStore->VNPWithExc(tree->gtVNPair, addrXvnp);
+            }
+
+            return;
+        }
+
+        ValueNum     readOnlyHeap = ValueNumStore::VNForROH();
+        ValueNumPair vnp;
+        vnp.SetLiberal(vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, readOnlyHeap, addrVNP.GetLiberal()));
+        vnp.SetConservative(
+            vnStore->VNForMapSelect(VNK_Conservative, TYP_REF, readOnlyHeap, addrVNP.GetConservative()));
+
+        load->SetVNP(vnStore->VNPWithExc(vnp, addrExcVNP));
+
+        return;
+    }
+
+    // The conservative VN of a load is always a new, unique VN.
+    ValueNum conservativeVN = vnStore->VNForExpr(compCurBB, load->GetType());
+
+    if (load->IsVolatile())
+    {
+        // We just mutate GcHeap/ByrefExposed for volatile loads, and then do the load as normal.
+        //
+        // This allows:
+        //   1: read s;
+        //   2: volatile read s;
+        //   3: read s;
+        //
+        // We should never assume that the values loaded by 1 and 2 are the same (because the heap was
+        // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
+        // 3 are the same.
+
+        vnClearGcHeap(load DEBUGARG("volatile load"));
+
+        load->SetVNP(vnStore->VNPWithExc({conservativeVN, conservativeVN}, addrExcVNP));
+
+        return;
+    }
+
+    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
+    {
+        ValueNumPair valueVNP;
+
+        // TODO-MIKE: Static fields are a mess. The address is sometimes CLS_VAR_ADDR and
+        // sometimes CNS_INT. In the case of STRUCT static fields, CLS_VAR_ADDR is rare,
+        // the C# compiler seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and
+        // the importer always uses CNS_INT for LDSFLDA. Not good for testing. Moreover
+        // VN doesn't seem to recognize CNS_INT on its own, it only recognizes it together
+        // with a subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
+        // This is somewhat risky because not matter what the IR pattern is we should end
+        // up using the same field sequence in all cases, otherwise we may end up with
+        // loads not correctly seeing previously stored values.
+        if (gtIsStaticFieldPtrToBoxedStruct(load->GetType(), clsVarAddr->GetFieldHandle()))
+        {
+            ValueNum fieldSeqVN = vnStore->VNForFieldSeq(clsVarAddr->GetFieldSeq());
+            valueVNP.SetBoth(vnStore->VNForFunc(TYP_REF, VNF_PtrToStatic, fieldSeqVN));
+        }
+        else
+        {
+            valueVNP.SetLiberal(vnStaticFieldLoad(clsVarAddr->GetFieldHandle(), load->GetType()));
+            valueVNP.SetConservative(conservativeVN);
+        }
+
+        load->SetVNP(valueVNP);
+
+        return;
+    }
+
+    if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
+    {
+        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]);
+        ValueNumPair  valueVNP;
+
+        // TODO-MIKE: Can all this be moved to vnStaticFieldLoad?
+
+        if (fieldSeq == FieldSeqStore::NotAField())
+        {
+            valueVNP.SetBoth(conservativeVN);
+        }
+        else
+        {
+            ValueNum heapVN = fgCurMemoryVN[GcHeap];
+            INDEBUG(vnPrintHeapVN(heapVN));
+
+            ValueNum valueVN = vnStore->MapExtractStructField(VNK_Liberal, heapVN, fieldSeq, load->GetType());
+
+            valueVNP.SetLiberal(valueVN);
+            valueVNP.SetConservative(conservativeVN);
+        }
+
+        load->SetVNP(vnStore->VNPWithExc(valueVNP, addrExcVNP));
+
+        return;
+    }
+
+    if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
+    {
+        ValueNum valueVN = vnArrayElemLoad(funcApp, addrExcVNP.GetLiberal(), load->GetType());
+
+        load->SetVNP({valueVN, conservativeVN});
+
+        // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
+        // values, so we don't have their exceptions. Maybe we should.
+
+        return;
+    }
+
+    GenTree* obj = nullptr;
+    if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
+    {
+        ValueNum objVN   = vnStore->VNNormalValue(obj->GetLiberalVN());
+        ValueNum valueVN = vnObjFieldLoad(objVN, fieldSeq, load->GetType());
+
+        load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
+
+        return;
+    }
+
+    if (load->TypeIs(TYP_I_IMPL) && addr->TypeIs(TYP_REF))
+    {
+        // TODO-MIKE-CQ: Handle method table pointer loads properly. This code gives these
+        // loads unique VNs, this prevents CSEing of such loads.
+        // These loads can be handled by fgValueNumberByrefExposedLoad below but then it
+        // turns out that CSEing is a problem for optAssertionIsSubtype - it specifically
+        // looks for indirs that load the method table pointer.
+
+        load->SetVNP(vnStore->VNPWithExc({conservativeVN, conservativeVN}, addrExcVNP));
+
+        return;
+    }
+
+    ValueNum valueVN = fgValueNumberByrefExposedLoad(load->GetType(), addr->GetLiberalVN());
+    load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
 }
 
 ValueNum Compiler::vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType)
