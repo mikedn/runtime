@@ -4392,6 +4392,31 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 {
     assert(asg->OperIs(GT_ASG));
+
+    if (store->IsVolatile())
+    {
+        // For volatile stores, first mutate the heap. This prevents previous
+        // stores from being visible after the store.
+        vnClearGcHeap(store DEBUGARG("volatile store"));
+    }
+
+    if (asg->TypeIs(TYP_STRUCT))
+    {
+        assert(store->OperIs(GT_OBJ, GT_BLK));
+
+        if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
+        {
+            assert(lvaGetDesc(lclAddr)->IsAddressExposed());
+            vnClearByRefExposed(asg);
+            return;
+        }
+
+        // For now, arbitrary side effect on GcHeap/ByrefExposed.
+        // TODO-CQ: Why not be complete, and get this case right?
+        vnClearGcHeap(asg DEBUGARG("indirect struct store"));
+        return;
+    }
+
     assert(store->OperIs(GT_IND));
 
     ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
@@ -4414,13 +4439,6 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
         // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
         valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
-
-    if (store->IsVolatile())
-    {
-        // For volatile stores, first mutate the heap. This prevents previous
-        // stores from being visible after the store.
-        vnClearGcHeap(store DEBUGARG("volatile store"));
     }
 
     GenTree* addr = store->GetAddr();
@@ -4485,27 +4503,11 @@ void Compiler::vnAssignment(GenTreeOp* asg)
     if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         vnLocalStore(store->AsLclVarCommon(), asg, value);
-        return;
     }
-
-    if (!asg->TypeIs(TYP_STRUCT))
+    else
     {
         vnIndirStore(store->AsIndir(), asg, value);
-        return;
     }
-
-    assert(store->OperIs(GT_OBJ, GT_BLK));
-
-    if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
-    {
-        assert(lvaGetDesc(lclAddr)->IsAddressExposed());
-        vnClearByRefExposed(asg);
-        return;
-    }
-
-    // For now, arbitrary side effect on GcHeap/ByrefExposed.
-    // TODO-CQ: Why not be complete, and get this case right?
-    vnClearGcHeap(asg DEBUGARG("indirect struct store"));
 }
 
 void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
