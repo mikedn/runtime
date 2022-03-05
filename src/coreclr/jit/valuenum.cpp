@@ -3719,13 +3719,6 @@ ValueNum ValueNumStore::MapExtractStructField(ValueNumKind  vnk,
 
     for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
-        if (fieldSeq->IsBoxedValueField())
-        {
-            // Skip boxed pseudo fields used for static struct fields. We have
-            // s_field.boxed_data.x and we need only s_field.x.
-            continue;
-        }
-
         noway_assert(fieldSeq->IsField());
 
         var_types fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
@@ -4482,21 +4475,27 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
     }
 
-    GenTree* addr = store->GetAddr();
+    GenTree*  addr   = store->GetAddr();
+    ValueNum  addrVN = addr->gtVNPair.GetLiberal();
+    VNFuncApp funcApp;
 
-    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
+    if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
     {
-        assert(!gtIsStaticFieldPtrToBoxedStruct(store->GetType(), clsVarAddr->GetFieldHandle()));
+        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]);
 
-        ValueNum heapVN = vnStaticFieldStore(clsVarAddr->GetFieldHandle(), valueVN, store->GetType());
-        vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
+        if (fieldSeq == FieldSeqStore::NotAField())
+        {
+            vnClearGcHeap(asg, "static field store");
+        }
+        else
+        {
+            ValueNum heapVN = vnStaticFieldStore(fieldSeq, valueVN, store->GetType());
+            vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
+        }
 
         return;
     }
 
-    ValueNum addrVN = addr->gtVNPair.GetLiberal();
-
-    VNFuncApp funcApp;
     if (vnStore->GetVNFunc(vnStore->VNNormalValue(addrVN), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
     {
         ValueNum heapVN = vnArrayElemStore(funcApp, valueVN, store->GetType());
@@ -4612,34 +4611,20 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         return;
     }
 
-    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
-    {
-        ValueNumPair valueVNP;
-
-        // TODO-MIKE: Static fields are a mess. The address is sometimes CLS_VAR_ADDR and
-        // sometimes CNS_INT. In the case of STRUCT static fields, CLS_VAR_ADDR is rare,
-        // the C# compiler seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and
-        // the importer always uses CNS_INT for LDSFLDA. Not good for testing. Moreover
-        // VN doesn't seem to recognize CNS_INT on its own, it only recognizes it together
-        // with a subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
-        // This is somewhat risky because not matter what the IR pattern is we should end
-        // up using the same field sequence in all cases, otherwise we may end up with
-        // loads not correctly seeing previously stored values.
-        if (gtIsStaticFieldPtrToBoxedStruct(load->GetType(), clsVarAddr->GetFieldHandle()))
-        {
-            ValueNum fieldSeqVN = vnStore->VNForFieldSeq(clsVarAddr->GetFieldSeq());
-            valueVNP.SetBoth(vnStore->VNForFunc(TYP_REF, VNF_PtrToStatic, fieldSeqVN));
-        }
-        else
-        {
-            valueVNP.SetLiberal(vnStaticFieldLoad(clsVarAddr->GetFieldHandle(), load->GetType()));
-            valueVNP.SetConservative(conservativeVN);
-        }
-
-        load->SetVNP(valueVNP);
-
-        return;
-    }
+    // TODO-MIKE: Static fields are a mess. The address is sometimes CLS_VAR_ADDR and
+    // sometimes CNS_INT. The later generates a VNHandle instead of VNF_PtrToStatic
+    // and the handle can be recognized as being a static address but it lacks the
+    // field handle/sequence so we can't do much with it. Ideally CNS_INT would also
+    // generate VNF_PtrToStatic but then CSE barfs because it expects constant VNs
+    // for constant nodes and VNF_PtrToStatic isn't a constant.
+    // In the case of STRUCT static fields, CLS_VAR_ADDR is rare,
+    // the C# compiler seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and
+    // the importer always uses CNS_INT for LDSFLDA. Not good for testing. Moreover
+    // VN doesn't seem to recognize CNS_INT on its own, it only recognizes it together
+    // with a subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
+    // This is somewhat risky because not matter what the IR pattern is we should end
+    // up using the same field sequence in all cases, otherwise we may end up with
+    // loads not correctly seeing previously stored values.
 
     if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
     {
@@ -4814,23 +4799,12 @@ ValueNum Compiler::vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, Value
     ValueNum fieldVN    = vnStore->VNForFieldHandle(fieldSeq->GetFieldHandle());
     ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
 
-    if (FieldSeqNode* structFieldSeq = fieldSeq->GetNext())
+    fieldSeq = fieldSeq->GetNext();
+
+    if (fieldSeq != nullptr)
     {
-        if (structFieldSeq->IsBoxedValueField())
-        {
-            structFieldSeq = structFieldSeq->GetNext();
-        }
-
-        // When storing to a static vector field there's no field involved, the entire
-        // boxed value is modified. This could also happen for static STRUCT fields but
-        // currently those aren't handled by this code.
-
-        if (structFieldSeq != nullptr)
-        {
-            ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
-            valueVN = vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, structFieldSeq, valueVN,
-                                                    storeType);
-        }
+        ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
+        valueVN = vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, fieldSeq, valueVN, storeType);
     }
 
     // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
