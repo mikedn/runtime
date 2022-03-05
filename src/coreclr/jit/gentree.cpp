@@ -12649,7 +12649,7 @@ FieldSeqNode* Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj)
 
     if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
-        *pObj = addr;
+        *pObj = nullptr;
         return fieldSeq;
     }
 
@@ -12758,7 +12758,7 @@ FieldSeqNode* Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj)
     if ((staticStructFldSeq != nullptr) &&
         gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->GetFieldHandle()))
     {
-        *pObj = addr;
+        *pObj = nullptr;
         return GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
     }
 

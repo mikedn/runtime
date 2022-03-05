@@ -3960,6 +3960,8 @@ public:
     void vnIndirLoad(GenTreeIndir* indir);
     ValueNum vnStaticFieldStore(CORINFO_FIELD_HANDLE fieldHandle, ValueNum valueVN, var_types storeType);
     ValueNum vnStaticFieldLoad(CORINFO_FIELD_HANDLE fieldHandle, var_types loadType);
+    ValueNum vnStaticFieldStore(FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);
+    ValueNum vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);
     ValueNum vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType);
