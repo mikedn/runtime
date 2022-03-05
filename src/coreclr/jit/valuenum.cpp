@@ -7617,7 +7617,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_CLS_VAR_ADDR:
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
+            tree->gtVNPair.SetBoth(vnStore->VNForFunc(tree->GetType(), VNF_PtrToStatic,
+                                                      vnStore->VNForFieldSeq(tree->AsClsVar()->GetFieldSeq())));
             break;
 
         case GT_LCL_VAR:
