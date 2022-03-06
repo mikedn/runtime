@@ -4027,9 +4027,8 @@ public:
     VNFunc fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc);
 
     ValueNum vnGetBaseAddr(ValueNum addrVN);
-
-    // Adds the exception set for the current tree node which has a memory indirection operation
-    void fgValueNumberAddExceptionSetForIndirection(GenTree* tree, GenTree* baseAddr);
+    ValueNum vnAddNullPtrExset(ValueNum addrVN);
+    void vnAddNullPtrExset(GenTree* node, GenTree* addr);
 
     // Adds the exception sets for the current tree node which is performing a division or modulus operation
     void fgValueNumberAddExceptionSetForDivision(GenTree* tree);

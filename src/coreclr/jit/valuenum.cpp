@@ -4954,7 +4954,7 @@ void Compiler::vnCmpXchg(GenTreeCmpXchg* tree)
     tree->gtVNPair = vnStore->VNPWithExc(normalPair, vnpExcSet);
 
     // add the null check exception for 'location' to the tree's value number
-    fgValueNumberAddExceptionSetForIndirection(tree, location);
+    vnAddNullPtrExset(tree, location);
 }
 
 void Compiler::vnInterlocked(GenTreeOp* tree)
@@ -4982,7 +4982,7 @@ void Compiler::vnInterlocked(GenTreeOp* tree)
     tree->gtVNPair = vnStore->VNPWithExc(normalPair, vnpExcSet);
 
     // add the null check exception for 'addr' to the tree's value number
-    fgValueNumberAddExceptionSetForIndirection(tree, addr);
+    vnAddNullPtrExset(tree, addr);
 }
 
 ValueNum Compiler::fgValueNumberByrefExposedLoad(var_types type, ValueNum addrVN)
@@ -7647,7 +7647,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                 if (tree->OperMayThrow(this))
                 {
-                    fgValueNumberAddExceptionSetForIndirection(tree, tree->AsIndir()->GetAddr());
+                    vnAddNullPtrExset(tree, tree->AsIndir()->GetAddr());
                 }
             }
             break;
@@ -7684,7 +7684,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
             if (tree->OperMayThrow(this))
             {
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsIndir()->GetAddr());
+                vnAddNullPtrExset(tree, tree->AsIndir()->GetAddr());
             }
             break;
 
@@ -7960,7 +7960,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         node->gtVNPair.SetLiberal(loadVN);
         node->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, node->GetType()));
         node->gtVNPair = vnStore->VNPWithExc(node->gtVNPair, addrXVNP);
-        fgValueNumberAddExceptionSetForIndirection(node, node->GetOp(0));
+        vnAddNullPtrExset(node, node->GetOp(0));
 
         return;
     }
@@ -8759,11 +8759,9 @@ ValueNum Compiler::vnGetBaseAddr(ValueNum addrVN)
             break;
         }
 
+        // TODO-MIKE-Review: This doesn't make a lot of sense...
         if (fgIsBigOffset(offsetL))
         {
-            // Failure: Exit this loop if we have a "big" offset
-
-            // reset baseLVN back to the full address expression
             baseLVN = addrVN;
             break;
         }
@@ -8772,61 +8770,27 @@ ValueNum Compiler::vnGetBaseAddr(ValueNum addrVN)
     return baseLVN;
 }
 
-//--------------------------------------------------------------------------------
-// fgValueNumberAddExceptionSetForIndirection
-//         - Adds the exception sets for the current tree node
-//           which is performing a memory indirection operation
-//
-// Arguments:
-//    tree       - The current GenTree node,
-//                 It must be some kind of an indirection node
-//                 or have an implicit indirection
-//    baseAddr   - The address that we are indirecting
-//
-// Return Value:
-//               - The tree's gtVNPair is updated to include the VNF_nullPtrExc
-//                 exception set.  We calculate a base address to use as the
-//                 argument to the VNF_nullPtrExc function.
-//
-// Notes:        - The calculation of the base address removes any constant
-//                 offsets, so that obj.x and obj.y will both have obj as
-//                 their base address.
-//                 For arrays the base address currently includes the
-//                 index calculations.
-//
-void Compiler::fgValueNumberAddExceptionSetForIndirection(GenTree* tree, GenTree* baseAddr)
+ValueNum Compiler::vnAddNullPtrExset(ValueNum addrVN)
 {
-    // We should have tree that a unary indirection or a tree node with an implicit indirection
-    assert(tree->OperIsUnary() || tree->OperIsImplicitIndir());
+    // Peel off constant offsets so that obj.x and obj.y get the same exception VN.
+    addrVN = vnGetBaseAddr(addrVN);
 
-    // We evaluate the baseAddr ValueNumber further in order
-    // to obtain a better value to use for the null check exeception.
-    //
-    ValueNumPair baseVNP = baseAddr->gtVNPair;
-    ValueNum     baseLVN = baseVNP.GetLiberal();
-    ValueNum     baseCVN = baseVNP.GetConservative();
+    // TODO-MIKE-Review: Shouldn't this be done before vnGetBaseAddr?
+    ValueNum addrExset;
+    vnStore->VNUnpackExc(addrVN, &addrVN, &addrExset);
 
-    baseLVN = vnGetBaseAddr(baseLVN);
-    baseCVN = vnGetBaseAddr(baseCVN);
+    ValueNum nullPtrExset = vnStore->VNExcSetSingleton(vnStore->VNForFunc(TYP_REF, VNF_NullPtrExc, addrVN));
+    return vnStore->VNExcSetUnion(nullPtrExset, addrExset);
+}
 
-    // Create baseVNP, from the values we just computed,
-    baseVNP = ValueNumPair(baseLVN, baseCVN);
+void Compiler::vnAddNullPtrExset(GenTree* node, GenTree* addr)
+{
+    assert(node->IsIndir() || node->OperIsImplicitIndir() || node->OperIs(GT_ARR_LENGTH));
 
-    // Unpack, Norm,Exc for the tree's op1 VN
-    ValueNumPair vnpBaseNorm;
-    ValueNumPair vnpBaseExc;
-    vnStore->VNPUnpackExc(baseVNP, &vnpBaseNorm, &vnpBaseExc);
+    ValueNum libExset = vnAddNullPtrExset(addr->GetLiberalVN());
+    ValueNum conExset = vnAddNullPtrExset(addr->GetConservativeVN());
 
-    // The Norm VN for op1 is used to create the NullPtrExc
-    ValueNumPair excChkSet = vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_NullPtrExc, vnpBaseNorm));
-
-    // Combine the excChkSet with exception set of op1
-    ValueNumPair excSetBoth = vnStore->VNPExcSetUnion(excChkSet, vnpBaseExc);
-
-    // Retrieve the Normal VN for tree, note that it may be NoVN, so we handle that case
-    ValueNumPair vnpNorm = vnStore->VNPNormalPair(tree->gtVNPair);
-
-    tree->gtVNPair = vnStore->VNPWithExc(vnpNorm, excSetBoth);
+    node->SetVNP(vnStore->VNPWithExc(vnStore->VNPNormalPair(node->GetVNP()), {libExset, conExset}));
 }
 
 //--------------------------------------------------------------------------------
@@ -9179,10 +9143,10 @@ void Compiler::vnAddNodeExceptionSet(GenTree* node)
             fgValueNumberAddExceptionSetForDivision(node);
             return;
         case GT_ARR_LENGTH:
-            fgValueNumberAddExceptionSetForIndirection(node, node->AsArrLen()->GetArray());
+            vnAddNullPtrExset(node, node->AsArrLen()->GetArray());
             return;
         case GT_ARR_ELEM:
-            fgValueNumberAddExceptionSetForIndirection(node, node->AsArrElem()->GetArray());
+            vnAddNullPtrExset(node, node->AsArrElem()->GetArray());
             return;
         default:
             unreached();
