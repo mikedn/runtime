@@ -7826,6 +7826,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             }
             else
             {
+                // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN...
                 noway_assert(GenTree::OperIsSpecial(oper));
                 tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
             }
@@ -9124,9 +9125,6 @@ void Compiler::vnAddNodeExceptionSet(GenTree* node)
         case GT_MOD:
         case GT_UMOD:
             fgValueNumberAddExceptionSetForDivision(node);
-            return;
-        case GT_ARR_ELEM:
-            vnAddNullPtrExset(node, node->AsArrElem()->GetArray());
             return;
         default:
             unreached();
