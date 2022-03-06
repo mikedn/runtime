@@ -4485,7 +4485,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 
         if (fieldSeq == FieldSeqStore::NotAField())
         {
-            vnClearGcHeap(asg, "static field store");
+            vnClearGcHeap(asg DEBUGARG("static field store"));
         }
         else
         {
