@@ -17,7 +17,7 @@ ValueNumFuncDef(ZeroMap, 0, false, false, false)    // The "ZeroMap": indexing a
 
 ValueNumFuncDef(LclAddr, 3, false, true, false)           // Address of a local variable.  Args: VN's of: 0: var num, 1: offset, 2: FieldSeq.
 ValueNumFuncDef(PtrToArrElem, 4, false, false, false)       // Pointer (byref) to an array element.  Args: 0: array elem type num, 1: array, 2: index, 3: FieldSeq.
-ValueNumFuncDef(PtrToStatic, 1, false, false, false)        // Pointer (byref) to a static variable (or possibly a field thereof, if the static variable is a struct).  Args: 0: FieldSeq, first element
+ValueNumFuncDef(PtrToStatic, 1, false, true, false)        // Pointer (byref) to a static variable (or possibly a field thereof, if the static variable is a struct).  Args: 0: FieldSeq, first element
                                                      // of which is the static var.
 ValueNumFuncDef(Phi, 2, false, false, false)        // A phi function.  Only occurs as arg of PhiDef or PhiMemoryDef.  Arguments are SSA numbers of var being defined.
 ValueNumFuncDef(PhiDef, 3, false, false, false)     // Args: 0: local var # (or -1 for memory), 1: SSA #, 2: VN of definition.
