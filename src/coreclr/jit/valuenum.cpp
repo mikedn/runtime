@@ -8847,12 +8847,6 @@ void Compiler::fgValueNumberAddExceptionSetForIndirection(GenTree* tree, GenTree
     // Retrieve the Normal VN for tree, note that it may be NoVN, so we handle that case
     ValueNumPair vnpNorm = vnStore->VNPNormalPair(tree->gtVNPair);
 
-    // For as GT_IND on the lhs of an assignment we will get a NoVN value
-    if (vnpNorm.GetLiberal() == ValueNumStore::NoVN)
-    {
-        // Use the special Void VN value instead.
-        vnpNorm = vnStore->VNPForVoid();
-    }
     tree->gtVNPair = vnStore->VNPWithExc(vnpNorm, excSetBoth);
 }
 
