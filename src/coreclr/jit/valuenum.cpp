@@ -4926,6 +4926,15 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     return vnStore->VNWithExc(valueVN, excVN);
 }
 
+void Compiler::vnNullCheck(GenTreeIndir* node)
+{
+    assert(node->OperIs(GT_NULLCHECK));
+
+    ValueNum     value = ValueNumStore::VNForVoid();
+    ValueNumPair exset = vnAddNullPtrExset(node->GetAddr()->GetVNP());
+    node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
+}
+
 void Compiler::vnCmpXchg(GenTreeCmpXchg* node)
 {
     vnClearGcHeap(node DEBUGARG("cmpxchg intrinsic"));
@@ -7640,16 +7649,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_NULLCHECK:
-            // An Explicit null check, produces no value
-            // But we do persist any execeptions produced by op1
-            //
-            tree->gtVNPair =
-                vnStore->VNPWithExc(vnStore->VNPForVoid(), vnStore->VNPExceptionSet(tree->AsOp()->gtOp1->gtVNPair));
-
-            if (tree->OperMayThrow(this))
-            {
-                vnAddNullPtrExset(tree, tree->AsIndir()->GetAddr());
-            }
+            vnNullCheck(tree->AsIndir());
             break;
 
         case GT_QMARK:
