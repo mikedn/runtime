@@ -8733,6 +8733,45 @@ bool Compiler::fgValueNumberHelperCall(GenTreeCall* call)
     return modHeap;
 }
 
+ValueNum Compiler::vnGetBaseAddr(ValueNum addrVN)
+{
+    ValueNum  baseLVN = addrVN;
+    ssize_t   offsetL = 0;
+    VNFuncApp funcAttr;
+
+    while (vnStore->GetVNFunc(baseLVN, &funcAttr) && (funcAttr.m_func == (VNFunc)GT_ADD) &&
+           (vnStore->TypeOfVN(baseLVN) == TYP_BYREF))
+    {
+        // The arguments in value numbering functions are sorted in increasing order
+        // Thus either arg could be the constant.
+        if (vnStore->IsVNConstant(funcAttr.m_args[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[0])))
+        {
+            offsetL += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[0]);
+            baseLVN = funcAttr.m_args[1];
+        }
+        else if (vnStore->IsVNConstant(funcAttr.m_args[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[1])))
+        {
+            offsetL += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[1]);
+            baseLVN = funcAttr.m_args[0];
+        }
+        else // neither argument is a constant
+        {
+            break;
+        }
+
+        if (fgIsBigOffset(offsetL))
+        {
+            // Failure: Exit this loop if we have a "big" offset
+
+            // reset baseLVN back to the full address expression
+            baseLVN = addrVN;
+            break;
+        }
+    }
+
+    return baseLVN;
+}
+
 //--------------------------------------------------------------------------------
 // fgValueNumberAddExceptionSetForIndirection
 //         - Adds the exception sets for the current tree node
@@ -8766,69 +8805,9 @@ void Compiler::fgValueNumberAddExceptionSetForIndirection(GenTree* tree, GenTree
     ValueNumPair baseVNP = baseAddr->gtVNPair;
     ValueNum     baseLVN = baseVNP.GetLiberal();
     ValueNum     baseCVN = baseVNP.GetConservative();
-    ssize_t      offsetL = 0;
-    ssize_t      offsetC = 0;
-    VNFuncApp    funcAttr;
 
-    while (vnStore->GetVNFunc(baseLVN, &funcAttr) && (funcAttr.m_func == (VNFunc)GT_ADD) &&
-           (vnStore->TypeOfVN(baseLVN) == TYP_BYREF))
-    {
-        // The arguments in value numbering functions are sorted in increasing order
-        // Thus either arg could be the constant.
-        if (vnStore->IsVNConstant(funcAttr.m_args[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[0])))
-        {
-            offsetL += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[0]);
-            baseLVN = funcAttr.m_args[1];
-        }
-        else if (vnStore->IsVNConstant(funcAttr.m_args[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[1])))
-        {
-            offsetL += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[1]);
-            baseLVN = funcAttr.m_args[0];
-        }
-        else // neither argument is a constant
-        {
-            break;
-        }
-
-        if (fgIsBigOffset(offsetL))
-        {
-            // Failure: Exit this loop if we have a "big" offset
-
-            // reset baseLVN back to the full address expression
-            baseLVN = baseVNP.GetLiberal();
-            break;
-        }
-    }
-
-    while (vnStore->GetVNFunc(baseCVN, &funcAttr) && (funcAttr.m_func == (VNFunc)GT_ADD) &&
-           (vnStore->TypeOfVN(baseCVN) == TYP_BYREF))
-    {
-        // The arguments in value numbering functions are sorted in increasing order
-        // Thus either arg could be the constant.
-        if (vnStore->IsVNConstant(funcAttr.m_args[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[0])))
-        {
-            offsetL += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[0]);
-            baseCVN = funcAttr.m_args[1];
-        }
-        else if (vnStore->IsVNConstant(funcAttr.m_args[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[1])))
-        {
-            offsetC += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[1]);
-            baseCVN = funcAttr.m_args[0];
-        }
-        else // neither argument is a constant
-        {
-            break;
-        }
-
-        if (fgIsBigOffset(offsetC))
-        {
-            // Failure: Exit this loop if we have a "big" offset
-
-            // reset baseCVN back to the full address expression
-            baseCVN = baseVNP.GetConservative();
-            break;
-        }
-    }
+    baseLVN = vnGetBaseAddr(baseLVN);
+    baseCVN = vnGetBaseAddr(baseCVN);
 
     // Create baseVNP, from the values we just computed,
     baseVNP = ValueNumPair(baseLVN, baseCVN);
