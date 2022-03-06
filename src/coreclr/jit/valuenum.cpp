@@ -4935,6 +4935,26 @@ void Compiler::vnNullCheck(GenTreeIndir* node)
     node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
 }
 
+void Compiler::vnArrayLength(GenTreeArrLen* node)
+{
+    VNFunc vnf = GetVNFuncForNode(node);
+    assert(ValueNumStore::VNFuncIsLegal(vnf));
+
+    GenTree*     array    = node->GetArray();
+    ValueNumPair arrayVNP = vnStore->VNPNormalPair(array->GetVNP());
+
+    // If we are fetching the array length for an array ref that came from global memory
+    // then for CSE safety we must use the conservative value number for both.
+    if ((array->gtFlags & GTF_GLOB_REF) != 0)
+    {
+        arrayVNP.SetBoth(arrayVNP.GetConservative());
+    }
+
+    ValueNumPair value = vnStore->VNPairForFunc(node->GetType(), vnf, arrayVNP);
+    ValueNumPair exset = vnAddNullPtrExset(array->GetVNP());
+    node->SetVNP(vnStore->VNPWithExc(value, exset));
+}
+
 void Compiler::vnCmpXchg(GenTreeCmpXchg* node)
 {
     vnClearGcHeap(node DEBUGARG("cmpxchg intrinsic"));
@@ -7652,6 +7672,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             vnNullCheck(tree->AsIndir());
             break;
 
+        case GT_ARR_LENGTH:
+            vnArrayLength(tree->AsArrLen());
+            break;
+
         case GT_QMARK:
         case GT_LOCKADD:
             unreached();
@@ -7761,19 +7785,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 ValueNumPair op1VNPx;
                 vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1VNP, &op1VNPx);
 
-                // If we are fetching the array length for an array ref that came from global memory
-                // then for CSE safety we must use the conservative value number for both
-                //
-                if ((tree->OperGet() == GT_ARR_LENGTH) && ((tree->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) != 0))
-                {
-                    // use the conservative value number for both when computing the VN for the
-                    // ARR_LENGTH
-                    op1VNP.SetBoth(op1VNP.GetConservative());
-                }
-
                 tree->gtVNPair = vnStore->VNPWithExc(vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1VNP), op1VNPx);
 
-                vnAddNodeExceptionSet(tree);
+                assert(!tree->OperMayThrow(this));
             }
             else if (GenTree::OperIsBinary(oper))
             {
@@ -9110,9 +9124,6 @@ void Compiler::vnAddNodeExceptionSet(GenTree* node)
         case GT_MOD:
         case GT_UMOD:
             fgValueNumberAddExceptionSetForDivision(node);
-            return;
-        case GT_ARR_LENGTH:
-            vnAddNullPtrExset(node, node->AsArrLen()->GetArray());
             return;
         case GT_ARR_ELEM:
             vnAddNullPtrExset(node, node->AsArrElem()->GetArray());

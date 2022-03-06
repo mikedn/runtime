@@ -3965,6 +3965,7 @@ public:
     ValueNum vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType);
     ValueNum vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, var_types loadType);
     void vnNullCheck(GenTreeIndir* node);
+    void vnArrayLength(GenTreeArrLen* node);
     void vnCmpXchg(GenTreeCmpXchg* node);
     void vnInterlocked(GenTreeOp* node);
 
