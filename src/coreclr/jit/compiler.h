@@ -3964,8 +3964,8 @@ public:
     ValueNum vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_types loadType);
     ValueNum vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN, var_types storeType);
     ValueNum vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, var_types loadType);
-    void vnCmpXchg(GenTreeCmpXchg* cmpxchg);
-    void vnInterlocked(GenTreeOp* interlocked);
+    void vnCmpXchg(GenTreeCmpXchg* node);
+    void vnInterlocked(GenTreeOp* node);
 
     // Compute the value number for a byref-exposed load of the given type via the given pointerVN.
     ValueNum fgValueNumberByrefExposedLoad(var_types type, ValueNum pointerVN);
@@ -4028,6 +4028,7 @@ public:
 
     ValueNum vnGetBaseAddr(ValueNum addrVN);
     ValueNum vnAddNullPtrExset(ValueNum addrVN);
+    ValueNumPair vnAddNullPtrExset(ValueNumPair addrVNP);
     void vnAddNullPtrExset(GenTree* node, GenTree* addr);
 
     // Adds the exception sets for the current tree node which is performing a division or modulus operation
