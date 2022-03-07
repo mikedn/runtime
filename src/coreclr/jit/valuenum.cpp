@@ -2392,8 +2392,7 @@ TailCall:
                         }
                         if (allSame && sameSelResult != ValueNumStore::RecursiveVN)
                         {
-                            // Make sure we're popping what we pushed.
-                            assert(FixedPointMapSelsTopHasValue(arg0VN));
+                            assert(m_fixedPointMapSels.Top() == arg0VN);
                             m_fixedPointMapSels.Pop();
 
                             // To avoid exponential searches, we make sure that this result is memo-ized.
@@ -2409,8 +2408,8 @@ TailCall:
                         }
                         // Otherwise, fall through to creating the select(phi(m1, m2), x) function application.
                     }
-                    // Make sure we're popping what we pushed.
-                    assert(FixedPointMapSelsTopHasValue(arg0VN));
+
+                    assert(m_fixedPointMapSels.Top() == arg0VN);
                     m_fixedPointMapSels.Pop();
                 }
             }
@@ -2474,13 +2473,6 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     noway_assert(!"Unhandled operation in EvalFuncForConstantArgs");
     return NoVN;
 }
-
-#ifdef DEBUG
-bool ValueNumStore::FixedPointMapSelsTopHasValue(ValueNum map)
-{
-    return !m_fixedPointMapSels.Empty() && (m_fixedPointMapSels.Top() == map);
-}
-#endif
 
 // Given an integer constant value number return its value as an int.
 //

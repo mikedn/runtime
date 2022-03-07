@@ -1145,12 +1145,6 @@ private:
     // This stack represents the set of outer phis such that select(phi, ind) is being evaluated.
     ArrayStack<ValueNum, 1> m_fixedPointMapSels;
 
-#ifdef DEBUG
-    // Returns "true" iff "m_fixedPointMapSels" is non-empty, and it's top element is
-    // "select(map, index)".
-    bool FixedPointMapSelsTopHasValue(ValueNum map);
-#endif
-
     // This is the set of value numbers that have been flagged as arguments to bounds checks, in the length position.
     CheckedBoundVNSet m_checkedBoundVNs;
 
