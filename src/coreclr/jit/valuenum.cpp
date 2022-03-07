@@ -2247,7 +2247,7 @@ TailCall:
         (*pBudget)--;
 
         // If it's recursive, stop the recursion.
-        if (SelectIsBeingEvaluatedRecursively(arg0VN))
+        if (m_fixedPointMapSels.Contains(arg0VN))
         {
             *pUsedRecursiveVN = true;
             return RecursiveVN;
@@ -2473,18 +2473,6 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     }
     noway_assert(!"Unhandled operation in EvalFuncForConstantArgs");
     return NoVN;
-}
-
-bool ValueNumStore::SelectIsBeingEvaluatedRecursively(ValueNum map)
-{
-    for (unsigned i = 0; i < m_fixedPointMapSels.Size(); i++)
-    {
-        if (m_fixedPointMapSels.Get(i) == map)
-        {
-            return true;
-        }
-    }
-    return false;
 }
 
 #ifdef DEBUG

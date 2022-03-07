@@ -1151,9 +1151,6 @@ private:
     bool FixedPointMapSelsTopHasValue(ValueNum map);
 #endif
 
-    // Returns true if "sel(map, ind)" is a member of "m_fixedPointMapSels".
-    bool SelectIsBeingEvaluatedRecursively(ValueNum map);
-
     // This is the set of value numbers that have been flagged as arguments to bounds checks, in the length position.
     CheckedBoundVNSet m_checkedBoundVNs;
 
