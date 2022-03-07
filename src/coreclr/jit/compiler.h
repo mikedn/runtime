@@ -204,7 +204,7 @@ public:
 class SsaMemDef
 {
 public:
-    ValueNumPair m_vnPair;
+    ValueNum m_vn = NoVN;
 };
 
 //------------------------------------------------------------------------

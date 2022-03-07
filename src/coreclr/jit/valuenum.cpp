@@ -2311,7 +2311,14 @@ TailCall:
                     ValueNum phiArgVN;
                     if (isMemory)
                     {
-                        phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                        if (vnk == VNK_Liberal)
+                        {
+                            phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
+                        }
+                        else
+                        {
+                            phiArgVN = NoVN;
+                        }
                     }
                     else
                     {
@@ -2350,7 +2357,14 @@ TailCall:
                             phiArgSsaNum = ConstantValue<unsigned>(cur);
                             if (isMemory)
                             {
-                                phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                                if (vnk == VNK_Liberal)
+                                {
+                                    phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
+                                }
+                                else
+                                {
+                                    phiArgVN = NoVN;
+                                }
                             }
                             else
                             {
@@ -6899,11 +6913,10 @@ void Compiler::fgValueNumber()
     }
     else
     {
-        ValueNumPair noVnp;
         // Make sure the memory SSA names have no value numbers.
         for (unsigned i = 0; i < lvMemoryPerSsaData.GetCount(); i++)
         {
-            lvMemoryPerSsaData.GetSsaDefByIndex(i)->m_vnPair = noVnp;
+            lvMemoryPerSsaData.GetSsaDefByIndex(i)->m_vn = NoVN;
         }
         for (BasicBlock* const blk : Blocks())
         {
@@ -7027,7 +7040,7 @@ void Compiler::fgValueNumber()
     }
     // Give memory an initial value number (about which we know nothing).
     ValueNum memoryInitVal = vnStore->VNForFunc(TYP_REF, VNF_InitVal, vnStore->VNForIntCon(-1)); // Use -1 for memory.
-    GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vnPair.SetBoth(memoryInitVal);
+    GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vn = memoryInitVal;
 #ifdef DEBUG
     if (verbose)
     {
@@ -7159,7 +7172,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         // Is there a phi for this block?
         if (blk->bbMemorySsaPhiFunc[memoryKind] == nullptr)
         {
-            fgCurMemoryVN[memoryKind] = GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vnPair.GetLiberal();
+            fgCurMemoryVN[memoryKind] = GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vn;
             assert(fgCurMemoryVN[memoryKind] != ValueNumStore::NoVN);
         }
         else
@@ -7189,7 +7202,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                 ValueNum phiAppVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
                 JITDUMP("  Building phi application: $%x = SSA# %d.\n", phiAppVN, phiArgs->GetSsaNum());
                 bool     allSame = true;
-                ValueNum sameVN  = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vnPair.GetLiberal();
+                ValueNum sameVN  = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
                 if (sameVN == ValueNumStore::NoVN)
                 {
                     allSame = false;
@@ -7197,7 +7210,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                 phiArgs = phiArgs->m_nextArg;
                 while (phiArgs != nullptr)
                 {
-                    ValueNum phiArgVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vnPair.GetLiberal();
+                    ValueNum phiArgVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
                     if (phiArgVN == ValueNumStore::NoVN || phiArgVN != sameVN)
                     {
                         allSame = false;
@@ -7222,8 +7235,8 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                     newMemoryVN = vnStore->VNForFunc(TYP_REF, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiAppVN);
                 }
             }
-            GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vnPair.SetLiberal(newMemoryVN);
-            fgCurMemoryVN[memoryKind] = newMemoryVN;
+            GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vn = newMemoryVN;
+            fgCurMemoryVN[memoryKind]                                    = newMemoryVN;
             if ((memoryKind == GcHeap) && byrefStatesMatchGcHeapStates)
             {
                 // Keep the CurMemoryVNs in sync
@@ -7282,14 +7295,13 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             // The update to the shared SSA data will have already happened for ByrefExposed.
             assert(memoryKind > ByrefExposed);
             assert(blk->bbMemorySsaNumOut[memoryKind] == blk->bbMemorySsaNumOut[ByrefExposed]);
-            assert(GetMemoryPerSsaData(blk->bbMemorySsaNumOut[memoryKind])->m_vnPair.GetLiberal() ==
-                   fgCurMemoryVN[memoryKind]);
+            assert(GetMemoryPerSsaData(blk->bbMemorySsaNumOut[memoryKind])->m_vn == fgCurMemoryVN[memoryKind]);
             continue;
         }
 
         if (blk->bbMemorySsaNumOut[memoryKind] != blk->bbMemorySsaNumIn[memoryKind])
         {
-            GetMemoryPerSsaData(blk->bbMemorySsaNumOut[memoryKind])->m_vnPair.SetLiberal(fgCurMemoryVN[memoryKind]);
+            GetMemoryPerSsaData(blk->bbMemorySsaNumOut[memoryKind])->m_vn = fgCurMemoryVN[memoryKind];
         }
     }
 
@@ -7377,7 +7389,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->bbMemorySsaNumOut[memoryKind])->m_vnPair.GetLiberal();
+    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->bbMemorySsaNumOut[memoryKind])->m_vn;
     assert(newMemoryVN != ValueNumStore::NoVN); // We must have processed the single non-loop pred before reaching the
                                                 // loop entry.
 
@@ -7502,7 +7514,7 @@ void Compiler::vnUpdateMemorySsaDef(GenTree* node, MemoryKind memoryKind)
 
     if (GetMemorySsaMap(memoryKind)->Lookup(node, &ssaNum))
     {
-        GetMemoryPerSsaData(ssaNum)->m_vnPair.SetLiberal(fgCurMemoryVN[memoryKind]);
+        GetMemoryPerSsaData(ssaNum)->m_vn = fgCurMemoryVN[memoryKind];
         JITDUMP("    %s SSA def %u = " FMT_VN "\n", memoryKindNames[memoryKind], ssaNum, fgCurMemoryVN[memoryKind]);
     }
 }

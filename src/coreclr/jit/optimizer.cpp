@@ -6217,8 +6217,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                 for (MemoryKind memoryKind : allMemoryKinds())
                 {
                     ValueNum loopMemoryVN =
-                        m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn[memoryKind])
-                            ->m_vnPair.GetLiberal();
+                        m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn[memoryKind])->m_vn;
                     if (!m_compiler->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
                                                           &m_hoistContext->m_curLoopVnInvariantCache))
                     {
