@@ -382,10 +382,7 @@ public:
     // that happens to be the same...
     ValueNum VNForHandle(ssize_t cnsVal, GenTreeFlags iconFlags);
 
-    ValueNum VNForFieldHandle(CORINFO_FIELD_HANDLE fieldHandle)
-    {
-        return VNForHandle(reinterpret_cast<ssize_t>(fieldHandle), GTF_ICON_FIELD_HDL);
-    }
+    ValueNum VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle);
 
     ValueNum VNForTypeNum(unsigned typeNum);
 
@@ -1379,6 +1376,8 @@ private:
     // especially relating to GcHeap/ByrefExposed.  We count the number of applications of such terms we consider,
     // and if this exceeds a limit, indicated by a COMPlus_ variable, we assert.
     unsigned m_numMapSels;
+
+    JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, const char*> m_vnNameMap;
 #endif
 };
 

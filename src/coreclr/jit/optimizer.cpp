@@ -6687,7 +6687,7 @@ bool Compiler::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loo
         }
         else if (funcApp.m_func == VNF_PhiMemoryDef)
         {
-            BasicBlock* defnBlk = reinterpret_cast<BasicBlock*>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
+            BasicBlock* defnBlk = vnStore->ConstantHostPtr<BasicBlock>(funcApp.m_args[0]);
             res                 = !optLoopContains(lnum, defnBlk->bbNatLoopNum);
         }
         else if (funcApp.m_func == VNF_MemOpaque)
@@ -7211,9 +7211,8 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                             if (argVN != ValueNumStore::NoVN && vnStore->GetVNFunc(argVN, &funcApp) &&
                                 funcApp.m_func == VNF_PtrToArrElem)
                             {
-                                assert(vnStore->IsVNHandle(funcApp.m_args[0]));
                                 unsigned elemTypeNum =
-                                    static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
+                                    static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
                                 AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeNum);
                                 // Don't set memoryHavoc for GcHeap below.  Do set memoryHavoc for ByrefExposed
                                 // (conservatively assuming that a byref may alias the array element)

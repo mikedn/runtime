@@ -439,6 +439,7 @@ ValueNumStore::ValueNumStore(Compiler* comp, CompAllocator alloc)
     , m_VNFunc4Map(nullptr)
 #ifdef DEBUG
     , m_numMapSels(0)
+    , m_vnNameMap(comp->getAllocator(CMK_DebugOnly))
 #endif
 {
     // We have no current allocation chunks.
@@ -1757,11 +1758,6 @@ ValueNum ValueNumStore::VNForHandle(ssize_t cnsVal, GenTreeFlags handleFlags)
         GetHandleMap()->Set(handle, res);
         return res;
     }
-}
-
-ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
-{
-    return VNForHandle(static_cast<ssize_t>(typeNum), GTF_ICON_CLASS_HDL);
 }
 
 ValueNum ValueNumStore::VNZeroForType(var_types type)
@@ -3633,6 +3629,31 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types typ)
     return resultVN;
 }
 
+ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
+{
+    ValueNum vn = VNForIntCon(static_cast<int32_t>(typeNum));
+
+#ifdef DEBUG
+    if (m_pComp->verbose && !m_vnNameMap.Lookup(vn))
+    {
+        const char* name;
+
+        if (m_pComp->typIsLayoutNum(typeNum))
+        {
+            name = m_pComp->typGetLayoutByNum(typeNum)->GetClassName();
+        }
+        else
+        {
+            name = varTypeName(static_cast<var_types>(typeNum));
+        }
+
+        m_vnNameMap.Set(vn, name);
+    }
+#endif
+
+    return vn;
+}
+
 var_types ValueNumStore::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
 {
     CORINFO_CLASS_HANDLE typeHandle = NO_CLASS_HANDLE;
@@ -3649,6 +3670,25 @@ var_types ValueNumStore::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLay
     }
 
     return type;
+}
+
+ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
+{
+    ValueNum vn = VNForHostPtr(fieldHandle);
+
+#ifdef DEBUG
+    if (m_pComp->verbose && !m_vnNameMap.Lookup(vn))
+    {
+        const char* className;
+        const char* fieldName = m_pComp->eeGetFieldName(fieldHandle, &className);
+        size_t      length    = strlen(className) + strlen(fieldName) + 3;
+        char*       name      = m_vnNameMap.GetAllocator().allocate<char>(length);
+        _snprintf_s(name, length, _TRUNCATE, "%s::%s", className, fieldName);
+        m_vnNameMap.Set(vn, name);
+    }
+#endif
+
+    return vn;
 }
 
 ValueNum ValueNumStore::MapInsertStructField(
@@ -3673,7 +3713,7 @@ ValueNum ValueNumStore::MapInsertStructField(
 
         CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
 
-        fields[count].fieldVN   = VNForFieldHandle(fieldHandle);
+        fields[count].fieldVN   = VNForFieldSeqHandle(fieldHandle);
         fields[count].fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle));
     }
 
@@ -3722,7 +3762,7 @@ ValueNum ValueNumStore::MapExtractStructField(ValueNumKind  vnk,
         noway_assert(fieldSeq->IsField());
 
         var_types fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
-        map                 = VNForMapSelect(vnk, fieldType, map, VNForFieldHandle(fieldSeq->GetFieldHandle()));
+        map                 = VNForMapSelect(vnk, fieldType, map, VNForFieldSeqHandle(fieldSeq->GetFieldHandle()));
     }
 
     return VNApplySelectorsTypeCheck(map, fieldLayout, loadType);
@@ -3739,7 +3779,7 @@ ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode
 
         fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
 
-        ValueNum fieldVN = VNForFieldHandle(fieldSeq->GetFieldHandle());
+        ValueNum fieldVN = VNForFieldSeqHandle(fieldSeq->GetFieldHandle());
         map.SetLiberal(VNForMapSelect(VNK_Liberal, fieldType, map.GetLiberal(), fieldVN));
         map.SetConservative(VNForMapSelect(VNK_Conservative, fieldType, map.GetConservative(), fieldVN));
     }
@@ -4709,7 +4749,7 @@ ValueNum Compiler::vnStaticFieldStore(FieldSeqNode* fieldSeq, ValueNum valueVN, 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnPrintHeapVN(heapVN));
 
-    ValueNum fieldVN = vnStore->VNForFieldHandle(fieldHandle);
+    ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
     ValueNum fieldMapVN;
 
     if (fieldSeq == nullptr)
@@ -4740,7 +4780,7 @@ ValueNum Compiler::vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType)
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnPrintHeapVN(heapVN));
 
-    ValueNum fieldVN = vnStore->VNForFieldHandle(fieldHandle);
+    ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     fieldSeq = fieldSeq->GetNext();
 
@@ -4777,7 +4817,7 @@ ValueNum Compiler::vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, Value
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnPrintHeapVN(heapVN));
 
-    ValueNum fieldVN    = vnStore->VNForFieldHandle(fieldHandle);
+    ValueNum fieldVN    = vnStore->VNForFieldSeqHandle(fieldHandle);
     ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
 
     fieldSeq = fieldSeq->GetNext();
@@ -4811,7 +4851,7 @@ ValueNum Compiler::vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_ty
     ValueNum vn = fgCurMemoryVN[GcHeap];
     INDEBUG(vnPrintHeapVN(vn));
 
-    vn = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, vn, vnStore->VNForFieldHandle(fieldHandle));
+    vn = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, vn, vnStore->VNForFieldSeqHandle(fieldHandle));
     vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, vn, objVN);
 
     fieldSeq = fieldSeq->GetNext();
@@ -4838,7 +4878,7 @@ ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN,
     assert(arrayVN == vnStore->VNNormalValue(arrayVN));
     assert(indexVN == vnStore->VNNormalValue(indexVN));
 
-    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
@@ -4888,7 +4928,7 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     assert(arrayVN == vnStore->VNNormalValue(arrayVN));
     assert(indexVN == vnStore->VNNormalValue(indexVN));
 
-    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
@@ -5035,8 +5075,7 @@ BasicBlock::loopNumber ValueNumStore::LoopOfVN(ValueNum vn)
         }
         else if (funcApp.m_func == VNF_PhiMemoryDef)
         {
-            BasicBlock* const block = reinterpret_cast<BasicBlock*>(ConstantValue<ssize_t>(funcApp.m_args[0]));
-            return block->bbNatLoopNum;
+            return ConstantHostPtr<BasicBlock>(funcApp.m_args[0])->bbNatLoopNum;
         }
     }
 
@@ -6330,11 +6369,9 @@ void ValueNumStore::vnDumpMapSelect(Compiler* comp, VNFuncApp* mapSelect)
     comp->vnPrint(mapVN, 0);
     printf(", ");
     comp->vnPrint(indexVN, 0);
-    if (IsVNHandle(indexVN) && ((GetHandleFlags(indexVN) & GTF_ICON_FIELD_HDL) != 0))
+    if (const char** name = m_vnNameMap.LookupPointer(indexVN))
     {
-        CORINFO_FIELD_HANDLE fieldHandle =
-            reinterpret_cast<CORINFO_FIELD_HANDLE>(ConstantValue<target_size_t>(indexVN));
-        printf(" (%s)", comp->eeGetFieldName(fieldHandle));
+        printf(" (%s)", *name);
     }
     printf(")");
 }
@@ -6352,11 +6389,9 @@ void ValueNumStore::vnDumpMapStore(Compiler* comp, VNFuncApp* mapStore)
     comp->vnPrint(mapVN, 0);
     printf(", ");
     comp->vnPrint(indexVN, 0);
-    if (IsVNHandle(indexVN) && ((GetHandleFlags(indexVN) & GTF_ICON_FIELD_HDL) != 0))
+    if (const char** name = m_vnNameMap.LookupPointer(indexVN))
     {
-        CORINFO_FIELD_HANDLE fieldHandle =
-            reinterpret_cast<CORINFO_FIELD_HANDLE>(ConstantValue<target_size_t>(indexVN));
-        printf(" (%s)", comp->eeGetFieldName(fieldHandle));
+        printf(" (%s)", *name);
     }
     printf(", ");
     comp->vnPrint(newValVN, 0);
@@ -7184,8 +7219,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                 }
                 else
                 {
-                    newMemoryVN = vnStore->VNForFunc(TYP_REF, VNF_PhiMemoryDef,
-                                                     vnStore->VNForHandle(ssize_t(blk), GTF_EMPTY), phiAppVN);
+                    newMemoryVN = vnStore->VNForFunc(TYP_REF, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiAppVN);
                 }
             }
             GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vnPair.SetLiberal(newMemoryVN);
@@ -7365,16 +7399,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
                  ++ki)
             {
                 CORINFO_FIELD_HANDLE fldHnd   = ki.Get();
-                ValueNum             fldHndVN = vnStore->VNForFieldHandle(fldHnd);
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    const char* modName;
-                    const char* fldName = eeGetFieldName(fldHnd, &modName);
-                    printf("     VNForHandle(%s) is " FMT_VN "\n", fldName, fldHndVN);
-                }
-#endif // DEBUG
+                ValueNum             fldHndVN = vnStore->VNForFieldSeqHandle(fldHnd);
 
                 newMemoryVN =
                     vnStore->VNForMapStore(TYP_REF, newMemoryVN, fldHndVN, vnStore->VNForExpr(entryBlock, TYP_REF));
@@ -9198,7 +9223,7 @@ void Compiler::vnPrintArrayElemAddr(const VNFuncApp& elemAddr)
         ValueNum      indexVN    = elemAddr.m_args[2];
         FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
-        unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+        unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
         ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
         var_types elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
