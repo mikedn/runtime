@@ -2202,7 +2202,7 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
 //    (liberal/conservative) to read from the SSA def referenced in the phi argument.
 
 ValueNum ValueNumStore::VNForMapSelectWork(
-    ValueNumKind vnk, var_types typ, ValueNum arg0VN, ValueNum arg1VN, int* pBudget, bool* pUsedRecursiveVN)
+    ValueNumKind vnk, var_types typ, ValueNum arg0VN, const ValueNum arg1VN, int* pBudget, bool* pUsedRecursiveVN)
 {
 TailCall:
     // This label allows us to directly implement a tail call by setting up the arguments, and doing a goto to here.
@@ -2247,7 +2247,7 @@ TailCall:
         (*pBudget)--;
 
         // If it's recursive, stop the recursion.
-        if (SelectIsBeingEvaluatedRecursively(arg0VN, arg1VN))
+        if (SelectIsBeingEvaluatedRecursively(arg0VN))
         {
             *pUsedRecursiveVN = true;
             return RecursiveVN;
@@ -2303,8 +2303,8 @@ TailCall:
                     // select(phi(m1, m2), x): if select(m1, x) == select(m2, x), return that, else new fresh.
                     // Get the first argument of the phi.
 
-                    // We need to be careful about breaking infinite recursion.  Record the outer select.
-                    m_fixedPointMapSels.Push(VNDefFunc2Arg(VNF_MapSelect, arg0VN, arg1VN));
+                    // We need to be careful about breaking infinite recursion.  Record the outer map.
+                    m_fixedPointMapSels.Push(arg0VN);
 
                     assert(IsVNConstant(phiFuncApp.m_args[0]));
                     unsigned phiArgSsaNum = ConstantValue<unsigned>(phiFuncApp.m_args[0]);
@@ -2393,7 +2393,7 @@ TailCall:
                         if (allSame && sameSelResult != ValueNumStore::RecursiveVN)
                         {
                             // Make sure we're popping what we pushed.
-                            assert(FixedPointMapSelsTopHasValue(arg0VN, arg1VN));
+                            assert(FixedPointMapSelsTopHasValue(arg0VN));
                             m_fixedPointMapSels.Pop();
 
                             // To avoid exponential searches, we make sure that this result is memo-ized.
@@ -2410,7 +2410,7 @@ TailCall:
                         // Otherwise, fall through to creating the select(phi(m1, m2), x) function application.
                     }
                     // Make sure we're popping what we pushed.
-                    assert(FixedPointMapSelsTopHasValue(arg0VN, arg1VN));
+                    assert(FixedPointMapSelsTopHasValue(arg0VN));
                     m_fixedPointMapSels.Pop();
                 }
             }
@@ -2475,13 +2475,11 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     return NoVN;
 }
 
-bool ValueNumStore::SelectIsBeingEvaluatedRecursively(ValueNum map, ValueNum ind)
+bool ValueNumStore::SelectIsBeingEvaluatedRecursively(ValueNum map)
 {
     for (unsigned i = 0; i < m_fixedPointMapSels.Size(); i++)
     {
-        VNDefFunc2Arg& elem = m_fixedPointMapSels.GetRef(i);
-        assert(elem.m_func == VNF_MapSelect);
-        if (elem.m_arg0 == map && elem.m_arg1 == ind)
+        if (m_fixedPointMapSels.Get(i) == map)
         {
             return true;
         }
@@ -2490,14 +2488,9 @@ bool ValueNumStore::SelectIsBeingEvaluatedRecursively(ValueNum map, ValueNum ind
 }
 
 #ifdef DEBUG
-bool ValueNumStore::FixedPointMapSelsTopHasValue(ValueNum map, ValueNum index)
+bool ValueNumStore::FixedPointMapSelsTopHasValue(ValueNum map)
 {
-    if (m_fixedPointMapSels.Size() == 0)
-    {
-        return false;
-    }
-    VNDefFunc2Arg& top = m_fixedPointMapSels.TopRef();
-    return top.m_func == VNF_MapSelect && top.m_arg0 == map && top.m_arg1 == index;
+    return !m_fixedPointMapSels.Empty() && (m_fixedPointMapSels.Top() == map);
 }
 #endif
 

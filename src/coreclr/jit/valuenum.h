@@ -1143,16 +1143,16 @@ private:
     // So we have to be careful about breaking infinite recursion.  We can ignore "recursive" results -- if all the
     // non-recursive results are the same, the recursion indicates that the loop structure didn't alter the result.
     // This stack represents the set of outer phis such that select(phi, ind) is being evaluated.
-    ArrayStack<VNDefFunc2Arg, 1> m_fixedPointMapSels;
+    ArrayStack<ValueNum, 1> m_fixedPointMapSels;
 
 #ifdef DEBUG
     // Returns "true" iff "m_fixedPointMapSels" is non-empty, and it's top element is
     // "select(map, index)".
-    bool FixedPointMapSelsTopHasValue(ValueNum map, ValueNum index);
+    bool FixedPointMapSelsTopHasValue(ValueNum map);
 #endif
 
     // Returns true if "sel(map, ind)" is a member of "m_fixedPointMapSels".
-    bool SelectIsBeingEvaluatedRecursively(ValueNum map, ValueNum ind);
+    bool SelectIsBeingEvaluatedRecursively(ValueNum map);
 
     // This is the set of value numbers that have been flagged as arguments to bounds checks, in the length position.
     CheckedBoundVNSet m_checkedBoundVNs;
