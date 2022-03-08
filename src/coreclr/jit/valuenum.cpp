@@ -3826,11 +3826,6 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
     return VNForCast(srcVN, storeType, srcType);
 }
 
-bool ValueNumStore::IsVNNotAField(ValueNum vn)
-{
-    return m_chunks.Get(GetChunkNum(vn))->m_attribs == CEA_NotAField;
-}
-
 ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
 {
     if (fieldSeq == nullptr)

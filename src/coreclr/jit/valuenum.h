@@ -622,9 +622,6 @@ public:
                                bool         srcIsUnsigned    = false,
                                bool         hasOverflowCheck = false);
 
-    // Returns true iff the VN represents an application of VNF_NotAField.
-    bool IsVNNotAField(ValueNum vn);
-
     // PtrToLoc values need to express a field sequence as one of their arguments.  VN for null represents
     // empty sequence, otherwise, "FieldSeq(VN(FieldHandle), restOfSeq)".
     ValueNum VNForFieldSeq(FieldSeqNode* fieldSeq);
