@@ -6889,6 +6889,11 @@ void Compiler::fgValueNumber()
 
     // Start by giving incoming arguments value numbers.
     // Also give must-init vars a zero of their type.
+
+    // The first block is expected to not be part of any loop so that
+    // parameters and initial memory are treated as loop invariant.
+    assert(fgFirstBB->bbNatLoopNum == BasicBlock::NOT_IN_LOOP);
+
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
         LclVarDsc* varDsc = lvaGetDesc(lclNum);
@@ -6906,12 +6911,11 @@ void Compiler::fgValueNumber()
             // has been performed when doing SSA naming, so that all the variables we give
             // initial VNs to here have been given initial SSA definitions there.
             // SSA numbers always start from FIRST_SSA_NUM, and we give the value number to SSA name FIRST_SSA_NUM.
-            // We use the VNF_InitVal(i) from here so we know that this value is loop-invariant
-            // in all loops.
-            ValueNum      initVal = vnStore->VNForFunc(varDsc->TypeGet(), VNF_InitVal, vnStore->VNForIntCon(lclNum));
+            ValueNum      initVal = vnStore->VNForExpr(fgFirstBB, varDsc->GetType());
             LclSsaVarDsc* ssaDef  = varDsc->GetPerSsaData(SsaConfig::FIRST_SSA_NUM);
             ssaDef->m_vnPair.SetBoth(initVal);
             ssaDef->SetBlock(fgFirstBB);
+            INDEBUG(vnTraceLocal(lclNum, ssaDef->GetVNP()));
         }
         else if (info.compInitMem || varDsc->lvMustInit ||
                  VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
@@ -6952,7 +6956,7 @@ void Compiler::fgValueNumber()
                     else
                     {
                         // Here we have uninitialized TYP_BYREF
-                        initVal = vnStore->VNForFunc(typ, VNF_InitVal, vnStore->VNForIntCon(lclNum));
+                        initVal = vnStore->VNForExpr(fgFirstBB, typ);
                     }
                     break;
 
@@ -6965,7 +6969,7 @@ void Compiler::fgValueNumber()
                     }
                     else
                     {
-                        initVal = vnStore->VNForFunc(typ, VNF_InitVal, vnStore->VNForIntCon(lclNum));
+                        initVal = vnStore->VNForExpr(fgFirstBB, typ);
                     }
                     break;
             }
@@ -6981,12 +6985,12 @@ void Compiler::fgValueNumber()
             LclSsaVarDsc* ssaDef = varDsc->GetPerSsaData(SsaConfig::FIRST_SSA_NUM);
             ssaDef->m_vnPair.SetBoth(initVal);
             ssaDef->SetBlock(fgFirstBB);
+            INDEBUG(vnTraceLocal(lclNum, ssaDef->GetVNP()));
         }
     }
+
     // Give memory an initial value number (about which we know nothing).
-    ValueNum memoryInitVal = vnStore->VNForFunc(TYP_REF, VNF_InitVal, vnStore->VNForIntCon(-1)); // Use -1 for memory.
-    GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vn = memoryInitVal;
-    INDEBUG(vnTraceHeapMem(memoryInitVal));
+    GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vn = vnStore->VNForExpr(fgFirstBB, TYP_STRUCT);
 
     ValueNumberState vs(this);
 
