@@ -7155,7 +7155,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                     }
                     unsigned phiArgSSANum   = phiArgs->GetSsaNum();
                     ValueNum phiArgSSANumVN = vnStore->VNForIntCon(phiArgSSANum);
-                    phiAppVN                = vnStore->VNForFunc(TYP_REF, VNF_Phi, phiArgSSANumVN, phiAppVN);
+                    phiAppVN                = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, phiArgSSANumVN, phiAppVN);
                     INDEBUG(vnTrace(phiAppVN));
                     phiArgs = phiArgs->m_nextArg;
                 }
@@ -7165,7 +7165,8 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                 }
                 else
                 {
-                    newMemoryVN = vnStore->VNForFunc(TYP_REF, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiAppVN);
+                    newMemoryVN =
+                        vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiAppVN);
                 }
             }
             GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vn = newMemoryVN;
