@@ -4067,6 +4067,7 @@ public:
     void vnPrint(ValueNum vn, unsigned level);
     void vnPrintArrayElemAddr(const VNFuncApp& elemAddr);
     void vnTrace(ValueNum vn, const char* commenr = nullptr);
+    void vnTrace(ValueNumPair vnp, const char* commenr = nullptr);
     void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
     void vnTraceMem(MemoryKind kind, ValueNum vn, const char* comment = nullptr);
     void vnTraceHeapMem(ValueNum vn, const char* comment = nullptr);

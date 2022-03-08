@@ -7032,6 +7032,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             {
                 phiVNP = vnStore->VNPairForFunc(newSsaDef->TypeGet(), VNF_Phi,
                                                 ValueNumPair(phiArgSsaNumVN, phiArgSsaNumVN), phiVNP);
+                INDEBUG(vnTrace(phiVNP));
 
                 if ((sameVNP.GetLiberal() != phiArgVNP.GetLiberal()) ||
                     (sameVNP.GetConservative() != phiArgVNP.GetConservative()))
@@ -9077,6 +9078,22 @@ void Compiler::vnTrace(ValueNum vn, const char* comment)
     {
         printf("    %s ", varTypeName(vnStore->TypeOfVN(vn)));
         vnPrint(vn, 1);
+
+        if (comment != nullptr)
+        {
+            printf(" ; %s", comment);
+        }
+
+        printf("\n");
+    }
+}
+
+void Compiler::vnTrace(ValueNumPair vnp, const char* comment)
+{
+    if (verbose)
+    {
+        printf("    %s ", varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
+        vnpPrint(vnp, 1);
 
         if (comment != nullptr)
         {
