@@ -7310,7 +7310,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
     // If this loop has memory havoc effects, just use a new, unique VN.
     if (optLoopTable[loopNum].lpLoopHasMemoryHavoc[memoryKind])
     {
-        ValueNum res = vnStore->VNForExpr(entryBlock, TYP_REF);
+        ValueNum res = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
 #ifdef DEBUG
         if (verbose)
         {
@@ -7350,7 +7350,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
     }
     if (multipleNonLoopPreds)
     {
-        ValueNum res = vnStore->VNForExpr(entryBlock, TYP_REF);
+        ValueNum res = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
 #ifdef DEBUG
         if (verbose)
         {
@@ -7386,8 +7386,8 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
                 CORINFO_FIELD_HANDLE fldHnd   = ki.Get();
                 ValueNum             fldHndVN = vnStore->VNForFieldSeqHandle(fldHnd);
 
-                newMemoryVN =
-                    vnStore->VNForMapStore(TYP_REF, newMemoryVN, fldHndVN, vnStore->VNForExpr(entryBlock, TYP_REF));
+                newMemoryVN = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, fldHndVN,
+                                                     vnStore->VNForExpr(entryBlock, TYP_STRUCT));
             }
         }
         // Now do the array maps.
@@ -7417,8 +7417,8 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
 #endif // DEBUG
 
                 ValueNum elemTypeVN = vnStore->VNForTypeNum(elemTypeNum);
-                ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_REF);
-                newMemoryVN         = vnStore->VNForMapStore(TYP_REF, newMemoryVN, elemTypeVN, uniqueVN);
+                ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
+                newMemoryVN         = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, elemTypeVN, uniqueVN);
             }
         }
     }
