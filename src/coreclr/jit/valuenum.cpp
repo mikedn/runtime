@@ -2239,14 +2239,14 @@ TailCall:
             return RecursiveVN;
         }
 
+        VNFuncApp funcApp;
+
         if (arg0VN == VNForZeroMap())
         {
             return VNZeroForType(typ);
         }
-        else if (IsVNFunc(arg0VN))
+        else if (GetVNFunc(arg0VN, &funcApp))
         {
-            VNFuncApp funcApp;
-            GetVNFunc(arg0VN, &funcApp);
             if (funcApp.m_func == VNF_MapStore)
             {
                 // select(store(m, i, v), i) == v
@@ -5945,27 +5945,6 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
     }
 }
 
-bool ValueNumStore::IsVNFunc(ValueNum vn)
-{
-    if (vn == NoVN)
-    {
-        return false;
-    }
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    switch (c->m_attribs)
-    {
-        case CEA_NotAField:
-        case CEA_Func0:
-        case CEA_Func1:
-        case CEA_Func2:
-        case CEA_Func3:
-        case CEA_Func4:
-            return true;
-        default:
-            return false;
-    }
-}
-
 bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
 {
     if (vn == NoVN)
@@ -6050,6 +6029,8 @@ bool ValueNumStore::VNIsValid(ValueNum vn)
 
 void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
 {
+    VNFuncApp funcApp;
+
     printf(" {");
     if (vn == NoVN)
     {
@@ -6178,10 +6159,8 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
         GetCompareCheckedBoundArithInfo(vn, &info);
         info.dump(this);
     }
-    else if (IsVNFunc(vn))
+    else if (GetVNFunc(vn, &funcApp))
     {
-        VNFuncApp funcApp;
-        GetVNFunc(vn, &funcApp);
         // A few special cases...
         switch (funcApp.m_func)
         {
@@ -6265,7 +6244,6 @@ void ValueNumStore::vnDumpValWithExc(Compiler* comp, VNFuncApp* valWithExc)
     ValueNum normVN = valWithExc->m_args[0]; // First arg is the VN from normal execution
     ValueNum excVN  = valWithExc->m_args[1]; // Second arg is the set of possible exceptions
 
-    assert(IsVNFunc(excVN));
     VNFuncApp excSeq;
     GetVNFunc(excVN, &excSeq);
 
@@ -6296,7 +6274,6 @@ void ValueNumStore::vnDumpExcSeq(Compiler* comp, VNFuncApp* excSeq, bool isHead)
     if (hasTail)
     {
         printf(", ");
-        assert(IsVNFunc(excSeq->m_args[1]));
         VNFuncApp tail;
         GetVNFunc(excSeq->m_args[1], &tail);
         vnDumpExcSeq(comp, &tail, false);
@@ -6614,7 +6591,6 @@ void ValueNumStore::RunTests(Compiler* comp)
     assert(vnForFunc2a != vnFor1D && vnForFunc2a != vnFor1F && vnForFunc2a != vnFor1 && vnForFunc2a != vnRandom1);
     assert(vns->TypeOfVN(vnForFunc2a) == TYP_INT);
     assert(!vns->IsVNConstant(vnForFunc2a));
-    assert(vns->IsVNFunc(vnForFunc2a));
     VNFuncApp fa2a;
     bool      b = vns->GetVNFunc(vnForFunc2a, &fa2a);
     assert(b);
