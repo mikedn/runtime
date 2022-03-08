@@ -2144,14 +2144,7 @@ ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum mapVN, ValueNum in
     BasicBlock::loopNumber const loopNum = bb->bbNatLoopNum;
     ValueNum const               result  = VNForFunc(typ, VNF_MapStore, mapVN, indexVN, valueVN, loopNum);
 
-#ifdef DEBUG
-    if (m_pComp->verbose)
-    {
-        printf("    %s ", varTypeName(typ));
-        m_pComp->vnPrint(result, 1);
-        printf("\n");
-    }
-#endif
+    INDEBUG(m_pComp->vnTrace(result));
 
     return result;
 }
@@ -2168,14 +2161,7 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
     // The remaining budget should always be between [0..m_mapSelectBudget]
     assert((budget >= 0) && (budget <= m_mapSelectBudget));
 
-#ifdef DEBUG
-    if (m_pComp->verbose)
-    {
-        printf("    %s ", varTypeName(TypeOfVN(result)));
-        m_pComp->vnPrint(result, 1);
-        printf("\n");
-    }
-#endif
+    INDEBUG(m_pComp->vnTrace(result));
 
     return result;
 }
@@ -3863,14 +3849,7 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
 
     ValueNum fieldSeqVN = VNForFunc(TYP_I_IMPL, VNF_FieldSeq, VNForHostPtr(fieldSeq));
 
-#ifdef DEBUG
-    if (m_pComp->verbose)
-    {
-        printf("    %s ", varTypeName(TYP_I_IMPL));
-        m_pComp->vnPrint(fieldSeqVN, 1);
-        printf("\n");
-    }
-#endif
+    INDEBUG(m_pComp->vnTrace(fieldSeqVN));
 
     return fieldSeqVN;
 }
@@ -3902,14 +3881,7 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fsVN1, ValueNum fsVN2)
 
     ValueNum fieldSeqVN = VNForFieldSeq(m_pComp->GetFieldSeqStore()->Append(fieldSeq1, fieldSeq2));
 
-#ifdef DEBUG
-    if (m_pComp->verbose)
-    {
-        printf("    %s ", varTypeName(TYP_I_IMPL));
-        m_pComp->vnPrint(fieldSeqVN, 1);
-        printf("\n");
-    }
-#endif
+    INDEBUG(m_pComp->vnTrace(fieldSeqVN));
 
     return fieldSeqVN;
 }
@@ -4734,7 +4706,7 @@ ValueNum Compiler::vnStaticFieldStore(FieldSeqNode* fieldSeq, ValueNum valueVN, 
     }
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnPrintHeapVN(heapVN));
+    INDEBUG(vnTraceHeapMem(heapVN));
 
     ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
     ValueNum fieldMapVN;
@@ -4765,7 +4737,7 @@ ValueNum Compiler::vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType)
     var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnPrintHeapVN(heapVN));
+    INDEBUG(vnTraceHeapMem(heapVN));
 
     ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
 
@@ -4802,7 +4774,7 @@ ValueNum Compiler::vnObjFieldStore(ValueNum objVN, FieldSeqNode* fieldSeq, Value
     assert(storeType != TYP_STRUCT);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnPrintHeapVN(heapVN));
+    INDEBUG(vnTraceHeapMem(heapVN));
 
     ValueNum fieldVN    = vnStore->VNForFieldSeqHandle(fieldHandle);
     ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
@@ -4836,7 +4808,7 @@ ValueNum Compiler::vnObjFieldLoad(ValueNum objVN, FieldSeqNode* fieldSeq, var_ty
     var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
 
     ValueNum vn = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnPrintHeapVN(vn));
+    INDEBUG(vnTraceHeapMem(vn));
 
     vn = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, vn, vnStore->VNForFieldSeqHandle(fieldHandle));
     vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, vn, objVN);
@@ -4870,7 +4842,7 @@ ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN,
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnPrintHeapVN(heapVN));
+    INDEBUG(vnTraceHeapMem(heapVN));
     INDEBUG(vnPrintArrayElemAddr(elemAddr));
 
     // TODO-MIKE: We should get a field sequence only for arrays of structs.
@@ -4920,7 +4892,7 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnPrintHeapVN(heapVN));
+    INDEBUG(vnTraceHeapMem(heapVN));
     INDEBUG(vnPrintArrayElemAddr(elemAddr));
 
     // TODO-MIKE: We should get a field sequence only for arrays of structs.
@@ -7014,12 +6986,7 @@ void Compiler::fgValueNumber()
     // Give memory an initial value number (about which we know nothing).
     ValueNum memoryInitVal = vnStore->VNForFunc(TYP_REF, VNF_InitVal, vnStore->VNForIntCon(-1)); // Use -1 for memory.
     GetMemoryPerSsaData(SsaConfig::FIRST_SSA_NUM)->m_vn = memoryInitVal;
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Memory Initial Value in BB01 is: " FMT_VN "\n", memoryInitVal);
-    }
-#endif // DEBUG
+    INDEBUG(vnTraceHeapMem(memoryInitVal));
 
     ValueNumberState vs(this);
 
@@ -7129,14 +7096,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
         LclSsaVarDsc* newSsaDefDsc = lvaGetDesc(newSsaDef)->GetPerSsaData(newSsaDef->GetSsaNum());
         newSsaDefDsc->m_vnPair     = newSsaDefVNP;
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("SSA PHI definition: set VN of local %d/%d to ", newSsaDef->GetLclNum(), newSsaDef->GetSsaNum());
-            vnpPrint(newSsaDefVNP, 1);
-            printf(" %s.\n", sameVNP.BothDefined() ? "(all same)" : "");
-        }
-#endif // DEBUG
+        INDEBUG(vnTraceLocal(newSsaDef->GetLclNum(), newSsaDefVNP));
     }
 
     // Now do the same for each MemoryKind.
@@ -7173,9 +7133,9 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                 // But OSR might leave around "dead" try entry blocks...
                 assert((phiArgs->m_nextArg != nullptr) || opts.IsOSR());
                 ValueNum phiAppVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
-                JITDUMP("  Building phi application: $%x = SSA# %d.\n", phiAppVN, phiArgs->GetSsaNum());
-                bool     allSame = true;
-                ValueNum sameVN  = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                bool     allSame  = true;
+                ValueNum sameVN   = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                INDEBUG(vnTraceMem(memoryKind, sameVN, "predecessor memory"));
                 if (sameVN == ValueNumStore::NoVN)
                 {
                     allSame = false;
@@ -7184,19 +7144,15 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                 while (phiArgs != nullptr)
                 {
                     ValueNum phiArgVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                    INDEBUG(vnTraceMem(memoryKind, phiArgVN, "predecessor memory"));
                     if (phiArgVN == ValueNumStore::NoVN || phiArgVN != sameVN)
                     {
                         allSame = false;
                     }
-#ifdef DEBUG
-                    ValueNum oldPhiAppVN = phiAppVN;
-#endif
                     unsigned phiArgSSANum   = phiArgs->GetSsaNum();
                     ValueNum phiArgSSANumVN = vnStore->VNForIntCon(phiArgSSANum);
-                    JITDUMP("  Building phi application: $%x = SSA# %d.\n", phiArgSSANumVN, phiArgSSANum);
-                    phiAppVN = vnStore->VNForFunc(TYP_REF, VNF_Phi, phiArgSSANumVN, phiAppVN);
-                    JITDUMP("  Building phi application: $%x = phi($%x, $%x).\n", phiAppVN, phiArgSSANumVN,
-                            oldPhiAppVN);
+                    phiAppVN                = vnStore->VNForFunc(TYP_REF, VNF_Phi, phiArgSSANumVN, phiAppVN);
+                    INDEBUG(vnTrace(phiAppVN));
                     phiArgs = phiArgs->m_nextArg;
                 }
                 if (allSame)
@@ -7216,15 +7172,8 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
                 fgCurMemoryVN[ByrefExposed] = newMemoryVN;
             }
         }
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("The SSA definition for %s (#%d) at start of " FMT_BB " is ", memoryKindNames[memoryKind],
-                   blk->bbMemorySsaNumIn[memoryKind], blk->bbNum);
-            vnPrint(fgCurMemoryVN[memoryKind], 1);
-            printf("\n");
-        }
-#endif // DEBUG
+
+        INDEBUG(vnTraceMem(memoryKind, fgCurMemoryVN[memoryKind]));
     }
 
     // Now iterate over the remaining statements, and their trees.
@@ -7299,25 +7248,10 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
         loopsInNest = optLoopTable[loopsInNest].lpParent;
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Computing %s state for block " FMT_BB ", entry block for loops %d to %d:\n",
-               memoryKindNames[memoryKind], entryBlock->bbNum, innermostLoopNum, loopNum);
-    }
-#endif // DEBUG
-
-    // If this loop has memory havoc effects, just use a new, unique VN.
     if (optLoopTable[loopNum].lpLoopHasMemoryHavoc[memoryKind])
     {
-        ValueNum res = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("  Loop %d has memory havoc effect; heap state is new unique $%x.\n", loopNum, res);
-        }
-#endif // DEBUG
-        return res;
+        JITDUMP("    Loop " FMT_LP " has memory havoc effect\n", loopNum);
+        return vnStore->VNForExpr(entryBlock, TYP_STRUCT);
     }
 
     // Otherwise, find the predecessors of the entry block that are not in the loop.
@@ -7336,13 +7270,6 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
             }
             else
             {
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("  Entry block has >1 non-loop preds: (at least) " FMT_BB " and " FMT_BB ".\n",
-                           nonLoopPred->bbNum, predBlock->bbNum);
-                }
-#endif // DEBUG
                 multipleNonLoopPreds = true;
                 break;
             }
@@ -7350,14 +7277,8 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
     }
     if (multipleNonLoopPreds)
     {
-        ValueNum res = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("  Therefore, memory state is new, fresh $%x.\n", res);
-        }
-#endif // DEBUG
-        return res;
+        JITDUMP("    Loop " FMT_LP " entry block has multiple non-loop predecessors\n", loopNum);
+        return vnStore->VNForExpr(entryBlock, TYP_STRUCT);
     }
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
@@ -7366,12 +7287,8 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
     assert(newMemoryVN != ValueNumStore::NoVN); // We must have processed the single non-loop pred before reaching the
                                                 // loop entry.
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("  Init %s state is $%x, with new, fresh VN at:\n", memoryKindNames[memoryKind], newMemoryVN);
-    }
-#endif // DEBUG
+    INDEBUG(vnTraceMem(memoryKind, newMemoryVN DEBUGARG("loop entry memory")));
+
     // Modify "base" by setting all the modified fields/field maps/array maps to unknown values.
     // These annotations apply specifically to the GcHeap, where we disambiguate across such stores.
     if (memoryKind == GcHeap)
@@ -7397,26 +7314,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
             for (Compiler::LoopDsc::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End());
                  ++ki)
             {
-                unsigned elemTypeNum = ki.Get();
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    // If a valid class handle is given when the ElemType is set, DecodeElemType will
-                    // return TYP_STRUCT, and elemClsHnd is that handle.
-                    // Otherwise, elemClsHnd is NOT a valid class handle, and is the encoded var_types value.
-                    if (typIsLayoutNum(elemTypeNum))
-                    {
-                        printf("     Array currentVNP %s[]\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
-                    }
-                    else
-                    {
-                        printf("     Array currentVNP %s[]\n", varTypeName(static_cast<var_types>(elemTypeNum)));
-                    }
-                }
-#endif // DEBUG
-
-                ValueNum elemTypeVN = vnStore->VNForTypeNum(elemTypeNum);
+                ValueNum elemTypeVN = vnStore->VNForTypeNum(ki.Get());
                 ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
                 newMemoryVN         = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, elemTypeVN, uniqueVN);
             }
@@ -7433,12 +7331,6 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
                optLoopTable[loopNum].lpLoopHasMemoryHavoc[memoryKind]);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("  Final %s state is $%x.\n", memoryKindNames[memoryKind], newMemoryVN);
-    }
-#endif // DEBUG
     return newMemoryVN;
 }
 
@@ -7463,8 +7355,8 @@ void Compiler::vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char
     fgCurMemoryVN[GcHeap]       = heapVN;
     fgCurMemoryVN[ByrefExposed] = byrefStatesMatchGcHeapStates ? heapVN : vnStore->VNForExpr(compCurBB, TYP_STRUCT);
 
-    INDEBUG(vnPrintMemVN(GcHeap, fgCurMemoryVN[GcHeap], comment));
-    INDEBUG(vnPrintMemVN(ByrefExposed, fgCurMemoryVN[ByrefExposed], comment));
+    INDEBUG(vnTraceMem(GcHeap, fgCurMemoryVN[GcHeap], comment));
+    INDEBUG(vnTraceMem(ByrefExposed, fgCurMemoryVN[ByrefExposed], comment));
 
     vnUpdateMemorySsaDef(node, GcHeap);
 }
@@ -7476,7 +7368,7 @@ void Compiler::vnUpdateByRefExposed(GenTree* node, ValueNum memVN)
 
     fgCurMemoryVN[ByrefExposed] = memVN;
 
-    INDEBUG(vnPrintMemVN(ByrefExposed, memVN, "address-exposed local store"));
+    INDEBUG(vnTraceMem(ByrefExposed, memVN, "address-exposed local store"));
 
     vnUpdateMemorySsaDef(node, ByrefExposed);
 }
@@ -8051,14 +7943,7 @@ ValueNum ValueNumStore::VNForCast(ValueNum  srcVN,
     ValueNum castTypeVN = VNForCastOper(castToType, srcIsUnsigned);
     ValueNum resultVN   = VNForFunc(resultType, VNF_Cast, srcVN, castTypeVN);
 
-#ifdef DEBUG
-    if (m_pComp->verbose)
-    {
-        printf("    %s ", varTypeName(resultType));
-        m_pComp->vnPrint(resultVN, 1);
-        printf("\n");
-    }
-#endif
+    INDEBUG(m_pComp->vnTrace(resultVN));
 
     return resultVN;
 }
@@ -9176,27 +9061,6 @@ void Compiler::vnPrint(ValueNum vn, unsigned level)
     }
 }
 
-void Compiler::vnPrintHeapVN(ValueNum vn, const char* comment)
-{
-    vnPrintMemVN(GcHeap, vn, comment);
-}
-
-void Compiler::vnPrintMemVN(MemoryKind kind, ValueNum vn, const char* comment)
-{
-    if (verbose)
-    {
-        printf("    %s = ", memoryKindNames[kind]);
-        vnPrint(vn, 1);
-
-        if (comment != nullptr)
-        {
-            printf(" ; %s", comment);
-        }
-
-        printf("\n");
-    }
-}
-
 void Compiler::vnPrintArrayElemAddr(const VNFuncApp& elemAddr)
 {
     if (verbose)
@@ -9230,4 +9094,58 @@ void Compiler::vnPrintArrayElemAddr(const VNFuncApp& elemAddr)
         printf(")\n");
     }
 }
+
+void Compiler::vnTrace(ValueNum vn, const char* comment)
+{
+    if (verbose)
+    {
+        printf("    %s ", varTypeName(vnStore->TypeOfVN(vn)));
+        vnPrint(vn, 1);
+
+        if (comment != nullptr)
+        {
+            printf(" ; %s", comment);
+        }
+
+        printf("\n");
+    }
+}
+
+void Compiler::vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment)
+{
+    if (verbose)
+    {
+        printf("    V%02u = %s ", lclNum, varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
+        vnpPrint(vnp, 1);
+
+        if (comment != nullptr)
+        {
+            printf(" ; %s", comment);
+        }
+
+        printf("\n");
+    }
+}
+
+void Compiler::vnTraceMem(MemoryKind kind, ValueNum vn, const char* comment)
+{
+    if (verbose)
+    {
+        printf("    %s = %s ", memoryKindNames[kind], varTypeName(vnStore->TypeOfVN(vn)));
+        vnPrint(vn, 1);
+
+        if (comment != nullptr)
+        {
+            printf(" ; %s", comment);
+        }
+
+        printf("\n");
+    }
+}
+
+void Compiler::vnTraceHeapMem(ValueNum vn, const char* comment)
+{
+    vnTraceMem(GcHeap, vn, comment);
+}
+
 #endif // DEBUG

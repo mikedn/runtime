@@ -4065,9 +4065,11 @@ public:
     // If "level" is non-zero, we also print out a partial expansion of the value.
     void vnpPrint(ValueNumPair vnp, unsigned level);
     void vnPrint(ValueNum vn, unsigned level);
-    void vnPrintHeapVN(ValueNum vn, const char* comment = nullptr);
-    void vnPrintMemVN(MemoryKind kind, ValueNum vn, const char* comment = nullptr);
     void vnPrintArrayElemAddr(const VNFuncApp& elemAddr);
+    void vnTrace(ValueNum vn, const char* commenr = nullptr);
+    void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
+    void vnTraceMem(MemoryKind kind, ValueNum vn, const char* comment = nullptr);
+    void vnTraceHeapMem(ValueNum vn, const char* comment = nullptr);
 #endif
 
     bool fgDominate(BasicBlock* b1, BasicBlock* b2); // Return true if b1 dominates b2
