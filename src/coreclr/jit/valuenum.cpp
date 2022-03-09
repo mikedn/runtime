@@ -2269,93 +2269,86 @@ TailCall:
             }
             else if (funcApp.m_func == VNF_PhiDef || funcApp.m_func == VNF_PhiMemoryDef)
             {
-                unsigned  lclNum   = BAD_VAR_NUM;
-                bool      isMemory = false;
-                VNFuncApp phiFuncApp;
-                bool      defArgIsFunc = false;
+                LclVarDsc* lcl = nullptr;
+                ValueNum   phiVN;
+
                 if (funcApp.m_func == VNF_PhiDef)
                 {
-                    lclNum       = unsigned(funcApp.m_args[0]);
-                    defArgIsFunc = GetVNFunc(funcApp.m_args[2], &phiFuncApp);
+                    lcl   = m_pComp->lvaGetDesc(unsigned(funcApp.m_args[0]));
+                    phiVN = funcApp.m_args[2];
                 }
                 else
                 {
-                    assert(funcApp.m_func == VNF_PhiMemoryDef);
-                    isMemory     = true;
-                    defArgIsFunc = GetVNFunc(funcApp.m_args[1], &phiFuncApp);
+                    phiVN = funcApp.m_args[1];
                 }
-                if (defArgIsFunc && phiFuncApp.m_func == VNF_Phi)
+
+                if (GetVNFunc(phiVN, &funcApp))
                 {
+                    assert(funcApp.m_func == VNF_Phi);
+
                     // select(phi(m1, m2), x): if select(m1, x) == select(m2, x), return that, else new fresh.
                     // Get the first argument of the phi.
 
                     // We need to be careful about breaking infinite recursion.  Record the outer map.
                     m_fixedPointMapSels.Push(arg0VN);
 
-                    assert(IsVNConstant(phiFuncApp.m_args[0]));
-                    unsigned phiArgSsaNum = ConstantValue<unsigned>(phiFuncApp.m_args[0]);
+                    unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp.m_args[0]);
                     ValueNum phiArgVN;
-                    if (isMemory)
+
+                    if (lcl != nullptr)
                     {
-                        if (vnk == VNK_Liberal)
-                        {
-                            phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
-                        }
-                        else
-                        {
-                            phiArgVN = NoVN;
-                        }
+                        phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                    }
+                    else if (vnk == VNK_Liberal)
+                    {
+                        phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
                     }
                     else
                     {
-                        phiArgVN = m_pComp->lvaTable[lclNum].GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                        phiArgVN = NoVN;
                     }
+
                     if (phiArgVN != ValueNumStore::NoVN)
                     {
-                        bool     allSame = true;
-                        ValueNum argRest = phiFuncApp.m_args[1];
+                        ValueNum argRest = funcApp.m_args[1];
                         ValueNum sameSelResult =
                             VNForMapSelectWork(vnk, typ, phiArgVN, arg1VN, pBudget, pUsedRecursiveVN);
 
-                        // It is possible that we just now exceeded our budget, if so we need to force an early exit
-                        // and stop calling VNForMapSelectWork
-                        if (*pBudget <= 0)
-                        {
-                            // We don't have any budget remaining to verify that all phiArgs are the same
-                            // so setup the default failure case now.
-                            allSame = false;
-                        }
+                        // We don't have any budget remaining to verify that all phiArgs are the same
+                        // so setup the default failure case now.
+                        bool allSame = *pBudget > 0;
 
                         while (allSame && argRest != ValueNumStore::NoVN)
                         {
-                            ValueNum  cur = argRest;
-                            VNFuncApp phiArgFuncApp;
-                            if (GetVNFunc(argRest, &phiArgFuncApp) && phiArgFuncApp.m_func == VNF_Phi)
+                            ValueNum cur = argRest;
+
+                            if (GetVNFunc(argRest, &funcApp))
                             {
-                                cur     = phiArgFuncApp.m_args[0];
-                                argRest = phiArgFuncApp.m_args[1];
+                                assert(funcApp.m_func == VNF_Phi);
+
+                                cur     = funcApp.m_args[0];
+                                argRest = funcApp.m_args[1];
                             }
                             else
                             {
                                 argRest = ValueNumStore::NoVN; // Cause the loop to terminate.
                             }
-                            assert(IsVNConstant(cur));
+
                             phiArgSsaNum = ConstantValue<unsigned>(cur);
-                            if (isMemory)
+
+                            if (lcl != nullptr)
                             {
-                                if (vnk == VNK_Liberal)
-                                {
-                                    phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
-                                }
-                                else
-                                {
-                                    phiArgVN = NoVN;
-                                }
+                                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                            }
+                            else if (vnk == VNK_Liberal)
+                            {
+                                phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
                             }
                             else
                             {
-                                phiArgVN = m_pComp->lvaTable[lclNum].GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
+                                phiArgVN = NoVN;
                             }
+
                             if (phiArgVN == ValueNumStore::NoVN)
                             {
                                 allSame = false;
@@ -2366,16 +2359,19 @@ TailCall:
                                 ValueNum curResult =
                                     VNForMapSelectWork(vnk, typ, phiArgVN, arg1VN, pBudget, &usedRecursiveVN);
                                 *pUsedRecursiveVN |= usedRecursiveVN;
+
                                 if (sameSelResult == ValueNumStore::RecursiveVN)
                                 {
                                     sameSelResult = curResult;
                                 }
+
                                 if (curResult != ValueNumStore::RecursiveVN && curResult != sameSelResult)
                                 {
                                     allSame = false;
                                 }
                             }
                         }
+
                         if (allSame && sameSelResult != ValueNumStore::RecursiveVN)
                         {
                             assert(m_fixedPointMapSels.Top() == arg0VN);
