@@ -2200,11 +2200,13 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
 ValueNum ValueNumStore::VNForMapSelectWork(
     ValueNumKind vnk, var_types typ, ValueNum arg0VN, const ValueNum arg1VN, int* pBudget, bool* pUsedRecursiveVN)
 {
+// This label allows us to directly implement a tail call by setting up the arguments, and doing a goto to here.
 TailCall:
-    // This label allows us to directly implement a tail call by setting up the arguments, and doing a goto to here.
-    assert(arg0VN != NoVN && arg1VN != NoVN);
-    assert(arg0VN == VNNormalValue(arg0VN)); // Arguments carry no exceptions.
-    assert(arg1VN == VNNormalValue(arg1VN)); // Arguments carry no exceptions.
+    assert((arg0VN != NoVN) && (arg1VN != NoVN));
+    assert(arg0VN == VNNormalValue(arg0VN));
+    assert(arg1VN == VNNormalValue(arg1VN));
+    // TODO-MIKE: Hrm, VNForMapSelect gets called with something that isn't a struct?!?
+    // assert(varTypeIsStruct(TypeOfVN(arg0VN)));
 
     *pUsedRecursiveVN = false;
 
@@ -2218,92 +2220,132 @@ TailCall:
     unsigned selLim = JitConfig.JitVNMapSelLimit();
     assert(selLim == 0 || m_numMapSels < selLim);
 #endif
-    ValueNum res;
 
+    if (arg0VN == VNForZeroMap())
+    {
+        return VNZeroForType(typ);
+    }
+
+    ValueNum      res;
     VNDefFunc2Arg fstruct(VNF_MapSelect, arg0VN, arg1VN);
     if (GetVNFunc2Map()->Lookup(fstruct, &res))
     {
         return res;
     }
-    else
+
+    // Give up if we've run out of budget.
+    if (*pBudget == 0)
     {
-        // Give up if we've run out of budget.
-        if (*pBudget == 0)
+        // We have to use 'nullptr' for the basic block here, because subsequent expressions
+        // in different blocks may find this result in the VNFunc2Map -- other expressions in
+        // the IR may "evaluate" to this same VNForExpr, so it is not "unique" in the sense
+        // that permits the BasicBlock attribution.
+        res = VNForExpr(nullptr, typ);
+        GetVNFunc2Map()->Set(fstruct, res);
+        return res;
+    }
+
+    // Reduce our budget by one
+    (*pBudget)--;
+
+    // If it's recursive, stop the recursion.
+    if (m_fixedPointMapSels.Contains(arg0VN))
+    {
+        *pUsedRecursiveVN = true;
+        return RecursiveVN;
+    }
+
+    VNFuncApp funcApp;
+    bool      isVNFunc = GetVNFunc(arg0VN, &funcApp);
+    assert(isVNFunc);
+
+    if (funcApp.m_func == VNF_MapStore)
+    {
+        // select(store(m, i, v), i) == v
+        if (funcApp.m_args[1] == arg1VN)
         {
-            // We have to use 'nullptr' for the basic block here, because subsequent expressions
-            // in different blocks may find this result in the VNFunc2Map -- other expressions in
-            // the IR may "evaluate" to this same VNForExpr, so it is not "unique" in the sense
-            // that permits the BasicBlock attribution.
-            res = VNForExpr(nullptr, typ);
-            GetVNFunc2Map()->Set(fstruct, res);
-            return res;
+            m_pComp->optRecordLoopMemoryDependence(m_pComp->compCurTree, m_pComp->compCurBB, funcApp.m_args[0]);
+            return funcApp.m_args[2];
+        }
+        // i # j ==> select(store(m, i, v), j) == select(m, j)
+        // Currently the only source of distinctions is when both indices are constants.
+        else if (IsVNConstant(arg1VN) && IsVNConstant(funcApp.m_args[1]))
+        {
+            assert(funcApp.m_args[1] != arg1VN); // we already checked this above.
+            // This is the equivalent of the recursive tail call:
+            // return VNForMapSelect(vnk, typ, funcApp.m_args[0], arg1VN);
+            // Make sure we capture any exceptions from the "i" and "v" of the store...
+            arg0VN = funcApp.m_args[0];
+            goto TailCall;
+        }
+    }
+    else if (funcApp.m_func == VNF_PhiDef || funcApp.m_func == VNF_PhiMemoryDef)
+    {
+        LclVarDsc* lcl = nullptr;
+        ValueNum   phiVN;
+
+        if (funcApp.m_func == VNF_PhiDef)
+        {
+            lcl   = m_pComp->lvaGetDesc(unsigned(funcApp.m_args[0]));
+            phiVN = funcApp.m_args[2];
+        }
+        else
+        {
+            phiVN = funcApp.m_args[1];
         }
 
-        // Reduce our budget by one
-        (*pBudget)--;
-
-        // If it's recursive, stop the recursion.
-        if (m_fixedPointMapSels.Contains(arg0VN))
+        if (GetVNFunc(phiVN, &funcApp))
         {
-            *pUsedRecursiveVN = true;
-            return RecursiveVN;
-        }
+            assert(funcApp.m_func == VNF_Phi);
 
-        VNFuncApp funcApp;
+            // select(phi(m1, m2), x): if select(m1, x) == select(m2, x), return that, else new fresh.
+            // Get the first argument of the phi.
 
-        if (arg0VN == VNForZeroMap())
-        {
-            return VNZeroForType(typ);
-        }
-        else if (GetVNFunc(arg0VN, &funcApp))
-        {
-            if (funcApp.m_func == VNF_MapStore)
+            // We need to be careful about breaking infinite recursion.  Record the outer map.
+            m_fixedPointMapSels.Push(arg0VN);
+
+            unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp.m_args[0]);
+            ValueNum phiArgVN;
+
+            if (lcl != nullptr)
             {
-                // select(store(m, i, v), i) == v
-                if (funcApp.m_args[1] == arg1VN)
-                {
-                    m_pComp->optRecordLoopMemoryDependence(m_pComp->compCurTree, m_pComp->compCurBB, funcApp.m_args[0]);
-                    return funcApp.m_args[2];
-                }
-                // i # j ==> select(store(m, i, v), j) == select(m, j)
-                // Currently the only source of distinctions is when both indices are constants.
-                else if (IsVNConstant(arg1VN) && IsVNConstant(funcApp.m_args[1]))
-                {
-                    assert(funcApp.m_args[1] != arg1VN); // we already checked this above.
-                    // This is the equivalent of the recursive tail call:
-                    // return VNForMapSelect(vnk, typ, funcApp.m_args[0], arg1VN);
-                    // Make sure we capture any exceptions from the "i" and "v" of the store...
-                    arg0VN = funcApp.m_args[0];
-                    goto TailCall;
-                }
+                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
             }
-            else if (funcApp.m_func == VNF_PhiDef || funcApp.m_func == VNF_PhiMemoryDef)
+            else if (vnk == VNK_Liberal)
             {
-                LclVarDsc* lcl = nullptr;
-                ValueNum   phiVN;
+                phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
+            }
+            else
+            {
+                phiArgVN = NoVN;
+            }
 
-                if (funcApp.m_func == VNF_PhiDef)
+            if (phiArgVN != ValueNumStore::NoVN)
+            {
+                ValueNum argRest       = funcApp.m_args[1];
+                ValueNum sameSelResult = VNForMapSelectWork(vnk, typ, phiArgVN, arg1VN, pBudget, pUsedRecursiveVN);
+
+                // We don't have any budget remaining to verify that all phiArgs are the same
+                // so setup the default failure case now.
+                bool allSame = *pBudget > 0;
+
+                while (allSame && argRest != ValueNumStore::NoVN)
                 {
-                    lcl   = m_pComp->lvaGetDesc(unsigned(funcApp.m_args[0]));
-                    phiVN = funcApp.m_args[2];
-                }
-                else
-                {
-                    phiVN = funcApp.m_args[1];
-                }
+                    ValueNum cur = argRest;
 
-                if (GetVNFunc(phiVN, &funcApp))
-                {
-                    assert(funcApp.m_func == VNF_Phi);
+                    if (GetVNFunc(argRest, &funcApp))
+                    {
+                        assert(funcApp.m_func == VNF_Phi);
 
-                    // select(phi(m1, m2), x): if select(m1, x) == select(m2, x), return that, else new fresh.
-                    // Get the first argument of the phi.
+                        cur     = funcApp.m_args[0];
+                        argRest = funcApp.m_args[1];
+                    }
+                    else
+                    {
+                        argRest = ValueNumStore::NoVN; // Cause the loop to terminate.
+                    }
 
-                    // We need to be careful about breaking infinite recursion.  Record the outer map.
-                    m_fixedPointMapSels.Push(arg0VN);
-
-                    unsigned phiArgSsaNum = ConstantValue<unsigned>(funcApp.m_args[0]);
-                    ValueNum phiArgVN;
+                    phiArgSsaNum = ConstantValue<unsigned>(cur);
 
                     if (lcl != nullptr)
                     {
@@ -2318,107 +2360,70 @@ TailCall:
                         phiArgVN = NoVN;
                     }
 
-                    if (phiArgVN != ValueNumStore::NoVN)
+                    if (phiArgVN == ValueNumStore::NoVN)
                     {
-                        ValueNum argRest = funcApp.m_args[1];
-                        ValueNum sameSelResult =
-                            VNForMapSelectWork(vnk, typ, phiArgVN, arg1VN, pBudget, pUsedRecursiveVN);
-
-                        // We don't have any budget remaining to verify that all phiArgs are the same
-                        // so setup the default failure case now.
-                        bool allSame = *pBudget > 0;
-
-                        while (allSame && argRest != ValueNumStore::NoVN)
-                        {
-                            ValueNum cur = argRest;
-
-                            if (GetVNFunc(argRest, &funcApp))
-                            {
-                                assert(funcApp.m_func == VNF_Phi);
-
-                                cur     = funcApp.m_args[0];
-                                argRest = funcApp.m_args[1];
-                            }
-                            else
-                            {
-                                argRest = ValueNumStore::NoVN; // Cause the loop to terminate.
-                            }
-
-                            phiArgSsaNum = ConstantValue<unsigned>(cur);
-
-                            if (lcl != nullptr)
-                            {
-                                phiArgVN = lcl->GetPerSsaData(phiArgSsaNum)->m_vnPair.Get(vnk);
-                            }
-                            else if (vnk == VNK_Liberal)
-                            {
-                                phiArgVN = m_pComp->GetMemoryPerSsaData(phiArgSsaNum)->m_vn;
-                            }
-                            else
-                            {
-                                phiArgVN = NoVN;
-                            }
-
-                            if (phiArgVN == ValueNumStore::NoVN)
-                            {
-                                allSame = false;
-                            }
-                            else
-                            {
-                                bool     usedRecursiveVN = false;
-                                ValueNum curResult =
-                                    VNForMapSelectWork(vnk, typ, phiArgVN, arg1VN, pBudget, &usedRecursiveVN);
-                                *pUsedRecursiveVN |= usedRecursiveVN;
-
-                                if (sameSelResult == ValueNumStore::RecursiveVN)
-                                {
-                                    sameSelResult = curResult;
-                                }
-
-                                if (curResult != ValueNumStore::RecursiveVN && curResult != sameSelResult)
-                                {
-                                    allSame = false;
-                                }
-                            }
-                        }
-
-                        if (allSame && sameSelResult != ValueNumStore::RecursiveVN)
-                        {
-                            assert(m_fixedPointMapSels.Top() == arg0VN);
-                            m_fixedPointMapSels.Pop();
-
-                            // To avoid exponential searches, we make sure that this result is memo-ized.
-                            // The result is always valid for memoization if we didn't rely on RecursiveVN to get it.
-                            // If RecursiveVN was used, we are processing a loop and we can't memo-ize this intermediate
-                            // result if, e.g., this block is in a multi-entry loop.
-                            if (!*pUsedRecursiveVN)
-                            {
-                                GetVNFunc2Map()->Set(fstruct, sameSelResult);
-                            }
-
-                            return sameSelResult;
-                        }
-                        // Otherwise, fall through to creating the select(phi(m1, m2), x) function application.
+                        allSame = false;
                     }
+                    else
+                    {
+                        bool     usedRecursiveVN = false;
+                        ValueNum curResult = VNForMapSelectWork(vnk, typ, phiArgVN, arg1VN, pBudget, &usedRecursiveVN);
+                        *pUsedRecursiveVN |= usedRecursiveVN;
 
+                        if (sameSelResult == ValueNumStore::RecursiveVN)
+                        {
+                            sameSelResult = curResult;
+                        }
+
+                        if (curResult != ValueNumStore::RecursiveVN && curResult != sameSelResult)
+                        {
+                            allSame = false;
+                        }
+                    }
+                }
+
+                if (allSame && sameSelResult != ValueNumStore::RecursiveVN)
+                {
                     assert(m_fixedPointMapSels.Top() == arg0VN);
                     m_fixedPointMapSels.Pop();
-                }
-            }
-        }
 
-        // We may have run out of budget and already assigned a result
-        if (!GetVNFunc2Map()->Lookup(fstruct, &res))
-        {
-            // Otherwise, assign a new VN for the function application.
-            Chunk*   c                                                = GetAllocChunk(typ, CEA_Func2);
-            unsigned offsetWithinChunk                                = c->AllocVN();
-            res                                                       = c->m_baseVN + offsetWithinChunk;
-            static_cast<VNDefFunc2Arg*>(c->m_defs)[offsetWithinChunk] = fstruct;
-            GetVNFunc2Map()->Set(fstruct, res);
+                    // To avoid exponential searches, we make sure that this result is memo-ized.
+                    // The result is always valid for memoization if we didn't rely on RecursiveVN to get it.
+                    // If RecursiveVN was used, we are processing a loop and we can't memo-ize this intermediate
+                    // result if, e.g., this block is in a multi-entry loop.
+                    if (!*pUsedRecursiveVN)
+                    {
+                        GetVNFunc2Map()->Set(fstruct, sameSelResult);
+                    }
+
+                    return sameSelResult;
+                }
+                // Otherwise, fall through to creating the select(phi(m1, m2), x) function application.
+            }
+
+            assert(m_fixedPointMapSels.Top() == arg0VN);
+            m_fixedPointMapSels.Pop();
         }
-        return res;
     }
+    else
+    {
+        // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
+        assert((funcApp.m_func == VNF_MemOpaque) || (funcApp.m_func == VNF_MapSelect) ||
+               varTypeIsSIMD(TypeOfVN(arg0VN)));
+    }
+
+    // We may have run out of budget and already assigned a result
+    if (!GetVNFunc2Map()->Lookup(fstruct, &res))
+    {
+        // Otherwise, assign a new VN for the function application.
+        Chunk*   c                                                = GetAllocChunk(typ, CEA_Func2);
+        unsigned offsetWithinChunk                                = c->AllocVN();
+        res                                                       = c->m_baseVN + offsetWithinChunk;
+        static_cast<VNDefFunc2Arg*>(c->m_defs)[offsetWithinChunk] = fstruct;
+        GetVNFunc2Map()->Set(fstruct, res);
+    }
+
+    return res;
 }
 
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN)
