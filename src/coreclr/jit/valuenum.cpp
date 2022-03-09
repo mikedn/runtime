@@ -7628,7 +7628,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         case GT_NOP:
             if (tree->AsUnOp()->gtOp1 == nullptr)
             {
-                tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
+                tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
             }
             else
             {
