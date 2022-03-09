@@ -7264,11 +7264,17 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
             for (Compiler::LoopDsc::FieldHandleSet::KeyIterator ki = fieldsMod->Begin(); !ki.Equal(fieldsMod->End());
                  ++ki)
             {
-                CORINFO_FIELD_HANDLE fldHnd   = ki.Get();
-                ValueNum             fldHndVN = vnStore->VNForFieldSeqHandle(fldHnd);
+                CORINFO_FIELD_HANDLE fieldHandle = ki.Get();
+                ValueNum             fieldVN     = vnStore->VNForFieldSeqHandle(fieldHandle);
+                var_types            fieldType   = TYP_STRUCT;
 
-                newMemoryVN = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, fldHndVN,
-                                                     vnStore->VNForExpr(entryBlock, TYP_STRUCT));
+                if (info.compCompHnd->isFieldStatic(fieldHandle))
+                {
+                    fieldType = CorTypeToVarType(info.compCompHnd->getFieldType(fieldHandle));
+                }
+
+                newMemoryVN =
+                    vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, fieldVN, vnStore->VNForExpr(entryBlock, fieldType));
             }
         }
         // Now do the array maps.
