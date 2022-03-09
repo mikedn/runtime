@@ -4042,8 +4042,7 @@ public:
     // Adds the exception set for the current tree node which is performing a bounds check operation
     void fgValueNumberAddExceptionSetForBoundsCheck(GenTree* tree);
 
-    // Adds the exception set for the current tree node which is performing a ckfinite operation
-    void fgValueNumberAddExceptionSetForCkFinite(GenTree* tree);
+    void vnCkFinite(GenTreeUnOp* node);
 
     // Adds the exception sets for the current tree node
     void vnAddNodeExceptionSet(GenTree* tree);

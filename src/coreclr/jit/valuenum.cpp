@@ -7621,8 +7621,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_CKFINITE:
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
-            fgValueNumberAddExceptionSetForCkFinite(tree);
+            vnCkFinite(tree->AsUnOp());
             break;
 
         case GT_NOP:
@@ -8922,42 +8921,18 @@ void Compiler::fgValueNumberAddExceptionSetForBoundsCheck(GenTree* tree)
     tree->gtVNPair = vnStore->VNPWithExc(vnpTreeNorm, newExcSet);
 }
 
-//--------------------------------------------------------------------------------
-// fgValueNumberAddExceptionSetForCkFinite
-//         - Adds the exception set for the current tree node
-//           which is a CkFinite operation
-//
-// Arguments:
-//    tree       - The current GenTree node,
-//                 It must be a CkFinite node
-//
-// Return Value:
-//               - The tree's gtVNPair is updated to include the VNF_ArithmeticExc
-//                 exception set.
-//
-void Compiler::fgValueNumberAddExceptionSetForCkFinite(GenTree* tree)
+void Compiler::vnCkFinite(GenTreeUnOp* node)
 {
-    // We should only be dealing with an check finite operation.
-    assert(tree->OperGet() == GT_CKFINITE);
+    assert(node->OperIs(GT_CKFINITE));
 
-    // Unpack, Norm,Exc for the tree's VN
-    //
-    ValueNumPair vnpTreeNorm;
-    ValueNumPair vnpTreeExc;
-    ValueNumPair newExcSet;
+    ValueNumPair value;
+    ValueNumPair exset;
+    vnStore->VNPUnpackExc(node->GetOp(0)->GetVNP(), &value, &exset);
 
-    vnStore->VNPUnpackExc(tree->gtVNPair, &vnpTreeNorm, &vnpTreeExc);
+    ValueNumPair ex = vnStore->VNPairForFunc(TYP_REF, VNF_ArithmeticExc, value);
+    exset           = vnStore->VNPExcSetUnion(exset, vnStore->VNPExcSetSingleton(ex));
 
-    // ckfinite adds an Arithmetic exception
-    // The normal result is used as the input argument for the ArithmeticExc
-    ValueNumPair arithmeticExcSet =
-        vnStore->VNPExcSetSingleton(vnStore->VNPairForFunc(TYP_REF, VNF_ArithmeticExc, vnpTreeNorm));
-
-    // Combine the new Arithmetic exception with the original exception set of tree
-    newExcSet = vnStore->VNPExcSetUnion(vnpTreeExc, arithmeticExcSet);
-
-    // Updated VN for tree, it now includes Arithmetic exception
-    tree->gtVNPair = vnStore->VNPWithExc(vnpTreeNorm, newExcSet);
+    node->SetVNP(vnStore->VNPWithExc(value, exset));
 }
 
 void Compiler::vnAddNodeExceptionSet(GenTree* node)
