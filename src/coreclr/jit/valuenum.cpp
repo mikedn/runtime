@@ -6953,7 +6953,7 @@ void Compiler::fgValueNumber()
             bool isVarargParam = (lclNum == lvaVarargsBaseOfStkArgs || lclNum == lvaVarargsHandleArg);
             if (isVarargParam)
             {
-                initVal = vnStore->VNForExpr(fgFirstBB, TYP_UNKNOWN);
+                initVal = vnStore->VNForExpr(fgFirstBB, TYP_INT);
             }
 #endif
             assert(initVal != ValueNumStore::NoVN);
