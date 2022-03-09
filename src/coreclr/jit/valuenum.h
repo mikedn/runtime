@@ -398,11 +398,7 @@ public:
 
     // The ROH map is the map for the "read-only heap".  We assume that this is never mutated, and always
     // has the same value number.
-    static ValueNum VNForROH()
-    {
-        // We reserve Chunk 0 for "special" VNs.  Let SRC_ReadOnlyHeap (== 3) be the read-only heap.
-        return ValueNum(SRC_ReadOnlyHeap);
-    }
+    ValueNum VNForReadOnlyHeapMap();
 
     // A special value number for "void".
     static ValueNum VNForVoid()
@@ -1155,7 +1151,8 @@ private:
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
     Chunk* GetAllocChunk(var_types typ, ChunkExtraAttribs attribs);
 
-    ValueNum m_zeroMap = NoVN;
+    ValueNum m_zeroMap         = NoVN;
+    ValueNum m_readOnlyHeapMap = NoVN;
 
     // First, we need mechanisms for mapping from constants to value numbers.
     // For small integers, we'll use an array.
@@ -1344,7 +1341,6 @@ private:
     enum SpecialRefConsts
     {
         SRC_Null,
-        SRC_ReadOnlyHeap,
         SRC_Void,
         SRC_EmptyExcSet,
 

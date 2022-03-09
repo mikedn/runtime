@@ -1807,6 +1807,16 @@ ValueNum ValueNumStore::VNForZeroMap()
     return m_zeroMap;
 }
 
+ValueNum ValueNumStore::VNForReadOnlyHeapMap()
+{
+    if (m_readOnlyHeapMap == NoVN)
+    {
+        m_readOnlyHeapMap = VNForExpr(m_pComp->fgFirstBB, TYP_STRUCT);
+    }
+
+    return m_readOnlyHeapMap;
+}
+
 // Returns the value number for one of the given "typ".
 // It returns NoVN for a "typ" that has no one value, such as TYP_REF.
 ValueNum ValueNumStore::VNOneForType(var_types typ)
@@ -4567,11 +4577,11 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
             return;
         }
 
-        ValueNum     readOnlyHeap = ValueNumStore::VNForROH();
+        ValueNum     readOnlyHeap = vnStore->VNForReadOnlyHeapMap();
         ValueNumPair vnp;
-        vnp.SetLiberal(vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, readOnlyHeap, addrVNP.GetLiberal()));
+        vnp.SetLiberal(vnStore->VNForMapSelect(VNK_Liberal, load->GetType(), readOnlyHeap, addrVNP.GetLiberal()));
         vnp.SetConservative(
-            vnStore->VNForMapSelect(VNK_Conservative, TYP_REF, readOnlyHeap, addrVNP.GetConservative()));
+            vnStore->VNForMapSelect(VNK_Conservative, load->GetType(), readOnlyHeap, addrVNP.GetConservative()));
 
         load->SetVNP(vnStore->VNPWithExc(vnp, addrExcVNP));
 
@@ -6500,13 +6510,12 @@ const char* ValueNumStore::VNFuncName(VNFunc vnf)
     }
 }
 
-static const char* s_reservedNameArr[] = {
-    "$VN.Recursive",    // -2  RecursiveVN
-    "$VN.No",           // -1  NoVN
-    "$VN.Null",         //  0  VNForNull()
-    "$VN.ReadOnlyHeap", //  2  VNForROH()
-    "$VN.Void",         //  3  VNForVoid()
-    "$VN.EmptyExcSet"   //  4  VNForEmptyExcSet()
+static const char* const s_reservedNameArr[]{
+    "$VN.Recursive",  // -2  RecursiveVN
+    "$VN.No",         // -1  NoVN
+    "$VN.Null",       //  0  VNForNull()
+    "$VN.Void",       //  3  VNForVoid()
+    "$VN.EmptyExcSet" //  4  VNForEmptyExcSet()
 };
 
 // Returns the string name of "vn" when it is a reserved value number, nullptr otherwise
