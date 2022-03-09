@@ -6909,54 +6909,36 @@ void Compiler::fgValueNumber()
                 isZeroed = false;
             }
 
-            ValueNum  initVal = ValueNumStore::NoVN; // We must assign a new value to initVal
-            var_types typ     = varDsc->TypeGet();
-
-            switch (typ)
-            {
-                case TYP_BLK:
-                    // TYP_BLK is used for the EHSlots locals on x86 (aka shadowSPslotsVar),
-                    // for the lvaInlinedPInvokeFrameVar on x64, arm and x86
-                    // and for the outgoing argument area if FEATURE_FIXED_OUT_ARGS is enabled.
-                    // The stack associated with these LclVars are not zero initialized
-                    // thus we set 'initVN' to a new, unique VN.
-                    initVal = vnStore->VNForExpr(fgFirstBB, TYP_UNKNOWN);
-                    break;
-
-                case TYP_BYREF:
-                    if (isZeroed)
-                    {
-                        // LclVars of TYP_BYREF can be zero-inited.
-                        initVal = vnStore->VNForByrefCon(0);
-                    }
-                    else
-                    {
-                        // Here we have uninitialized TYP_BYREF
-                        initVal = vnStore->VNForExpr(fgFirstBB, typ);
-                    }
-                    break;
-
-                default:
-                    if (isZeroed)
-                    {
-                        // By default we will zero init these LclVars
-                        // TODO-MIKE-Cleanup: For SIMD locals this generates bogus typed LONG 0 VN constants.
-                        initVal = vnStore->VNZeroForType(typ);
-                    }
-                    else
-                    {
-                        initVal = vnStore->VNForExpr(fgFirstBB, typ);
-                    }
-                    break;
-            }
 #ifdef TARGET_X86
-            bool isVarargParam = (lclNum == lvaVarargsBaseOfStkArgs || lclNum == lvaVarargsHandleArg);
-            if (isVarargParam)
+            if ((lclNum == lvaVarargsBaseOfStkArgs) || (lclNum == lvaVarargsHandleArg))
             {
-                initVal = vnStore->VNForExpr(fgFirstBB, TYP_INT);
+                isZeroed = false;
             }
 #endif
-            assert(initVal != ValueNumStore::NoVN);
+
+            var_types type = varDsc->GetType();
+
+            if (type == TYP_BLK)
+            {
+                // TYP_BLK is used for the EHSlots locals on x86 (aka shadowSPslotsVar),
+                // for the lvaInlinedPInvokeFrameVar on x64, arm and x86
+                // and for the outgoing argument area if FEATURE_FIXED_OUT_ARGS is enabled.
+                // The stack associated with these LclVars are not zero initialized.
+                isZeroed = false;
+                type     = TYP_STRUCT;
+            }
+
+            ValueNum initVal;
+
+            if (isZeroed)
+            {
+                // TODO-MIKE-Cleanup: For SIMD locals this generates bogus typed LONG 0 VN constants.
+                initVal = vnStore->VNZeroForType(type);
+            }
+            else
+            {
+                initVal = vnStore->VNForExpr(fgFirstBB, type);
+            }
 
             LclSsaVarDsc* ssaDef = varDsc->GetPerSsaData(SsaConfig::FIRST_SSA_NUM);
             ssaDef->m_vnPair.SetBoth(initVal);
