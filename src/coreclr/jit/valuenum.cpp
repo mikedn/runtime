@@ -2205,8 +2205,7 @@ TailCall:
     assert((arg0VN != NoVN) && (arg1VN != NoVN));
     assert(arg0VN == VNNormalValue(arg0VN));
     assert(arg1VN == VNNormalValue(arg1VN));
-    // TODO-MIKE: Hrm, VNForMapSelect gets called with something that isn't a struct?!?
-    // assert(varTypeIsStruct(TypeOfVN(arg0VN)));
+    assert(varTypeIsStruct(TypeOfVN(arg0VN)));
 
     *pUsedRecursiveVN = false;
 
@@ -4741,24 +4740,27 @@ ValueNum Compiler::vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType)
     assert(info.compCompHnd->isFieldStatic(fieldHandle));
     ClassLayout* fieldLayout;
     var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
-
-    ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnTraceHeapMem(heapVN));
-
-    ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
+    ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     fieldSeq = fieldSeq->GetNext();
 
     if ((fieldSeq == nullptr) && (loadType == TYP_REF) && varTypeIsStruct(fieldType))
     {
         // This actually loads a boxed object reference for a static struct field.
-        return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, heapVN, fieldVN);
+        // Note that this must come from the special read only heap. Not only that
+        // the reference is indeed read only (even if the field itself isn't read
+        // only) but we're using MapSelect(GcHeap, field) to load the boxed struct
+        // contents, we cannot use the same value to load the reference.
+        return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->VNForReadOnlyHeapMap(), fieldVN);
     }
 
     if ((fieldSeq != nullptr) && fieldSeq->IsBoxedValueField())
     {
         fieldSeq = fieldSeq->GetNext();
     }
+
+    ValueNum heapVN = fgCurMemoryVN[GcHeap];
+    INDEBUG(vnTraceHeapMem(heapVN));
 
     ValueNum vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, heapVN, fieldVN);
 
