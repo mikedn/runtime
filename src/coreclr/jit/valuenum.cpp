@@ -7102,45 +7102,40 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
             }
             else
             {
-                // Are all the VN's the same?
                 BasicBlock::MemoryPhiArg* phiArgs = blk->bbMemorySsaPhiFunc[memoryKind];
-                assert(phiArgs != BasicBlock::EmptyMemoryPhiDef);
+
+                ValueNum sameMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                INDEBUG(vnTraceMem(memoryKind, sameMemoryVN, "predecessor memory"));
+
+                ValueNum phiVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
+                phiArgs        = phiArgs->m_nextArg;
                 // There should be > 1 args to a phi.
                 // But OSR might leave around "dead" try entry blocks...
-                assert((phiArgs->m_nextArg != nullptr) || opts.IsOSR());
-                ValueNum phiAppVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
-                bool     allSame  = true;
-                ValueNum sameVN   = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
-                INDEBUG(vnTraceMem(memoryKind, sameVN, "predecessor memory"));
-                if (sameVN == ValueNumStore::NoVN)
+                assert((phiArgs != nullptr) || opts.IsOSR());
+
+                for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
                 {
-                    allSame = false;
-                }
-                phiArgs = phiArgs->m_nextArg;
-                while (phiArgs != nullptr)
-                {
-                    ValueNum phiArgVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
-                    INDEBUG(vnTraceMem(memoryKind, phiArgVN, "predecessor memory"));
-                    if (phiArgVN == ValueNumStore::NoVN || phiArgVN != sameVN)
+                    ValueNum phiMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                    INDEBUG(vnTraceMem(memoryKind, phiMemoryVN, "predecessor memory"));
+                    if (sameMemoryVN != phiMemoryVN)
                     {
-                        allSame = false;
+                        sameMemoryVN = NoVN;
                     }
-                    unsigned phiArgSSANum   = phiArgs->GetSsaNum();
-                    ValueNum phiArgSSANumVN = vnStore->VNForIntCon(phiArgSSANum);
-                    phiAppVN                = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, phiArgSSANumVN, phiAppVN);
-                    INDEBUG(vnTrace(phiAppVN));
-                    phiArgs = phiArgs->m_nextArg;
+
+                    phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForIntCon(phiArgs->GetSsaNum()), phiVN);
+                    INDEBUG(vnTrace(phiVN));
                 }
-                if (allSame)
+
+                if (sameMemoryVN != NoVN)
                 {
-                    newMemoryVN = sameVN;
+                    newMemoryVN = sameMemoryVN;
                 }
                 else
                 {
-                    newMemoryVN =
-                        vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiAppVN);
+                    newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiVN);
                 }
             }
+
             GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vn = newMemoryVN;
             fgCurMemoryVN[memoryKind]                                    = newMemoryVN;
             if ((memoryKind == GcHeap) && byrefStatesMatchGcHeapStates)
