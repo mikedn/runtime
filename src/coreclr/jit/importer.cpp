@@ -12307,22 +12307,53 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
                     }
 
+                    // TODO-MIKE-Review: It seems like this should apply to LDFLDA too,
+                    // for some reason old code only did this for LCLFLD.
+                    if (compIsForInlining() && (opcode == CEE_LDFLD) &&
+                        impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
+                    {
+                        impInlineInfo->thisDereferencedFirst = true;
+                    }
+
                     obj = impCheckForNullPointer(obj);
 
-                    GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
-
-                    if (opcode == CEE_LDFLDA)
+                    // Handle the weird case of fields belonging to primitive types. Such fields
+                    // exist in IL/C# but the C# compiler usually does not use them, loading the
+                    // m_value field of Int32 is done using ldind.i4 instead of ldfld for example.
+                    // However, the C# compiler does not perform this transform when the address
+                    // of the field is taken - it does emit ldflda m_value. Roslyn bug?
+                    // Also, the C# compiler does not perform any transform in (U)IntPtr, as if
+                    // these are normal structs. But the runtime does report them as primitives
+                    // to the JIT so we can end up with an INT/LONG value and a field sequence
+                    // for a field that doesn't exist as far as the JIT is concerned.
+                    if (varTypeIsArithmetic(lclTyp) &&
+                        (lclTyp == CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass))))
                     {
-                        op1 = addr;
+                        if (opcode == CEE_LDFLDA)
+                        {
+                            // TODO-MIKE-Fix: This likely needs a NULLCHECK but it's not worth the trouble
+                            // now given the very specific cases that hit this - float/double.GetHashCode,
+                            // where the address is immediately dereferenced.
+                            op1 = obj;
+                        }
+                        else
+                        {
+                            op1 = gtNewOperNode(GT_IND, lclTyp, obj);
+                        }
+
+                        fieldInfo.structType = NO_CLASS_HANDLE;
                     }
                     else
                     {
-                        op1 = gtNewFieldIndir(lclTyp, addr);
+                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
 
-                        if (compIsForInlining() &&
-                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
+                        if (opcode == CEE_LDFLDA)
                         {
-                            impInlineInfo->thisDereferencedFirst = true;
+                            op1 = addr;
+                        }
+                        else
+                        {
+                            op1 = gtNewFieldIndir(lclTyp, addr);
                         }
                     }
                 }

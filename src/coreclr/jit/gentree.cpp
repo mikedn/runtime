@@ -13661,14 +13661,6 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
     CORINFO_CLASS_HANDLE fieldClass;
     CorInfoType          t = vm->getFieldType(a->m_fieldHnd, &fieldClass);
 
-    if ((t == CORINFO_TYPE_NATIVEINT) || (t == CORINFO_TYPE_NATIVEUINT))
-    {
-        // We don't get a class handle for IntPtr so we can't check its _value field...
-        assert(t == vm->asCorInfoType(vm->getFieldClass(b->m_fieldHnd)));
-
-        return;
-    }
-
     // It really should be a value class but we may also get a primitive type due
     // to the normed type mess. It's also possible to end up attempting to access
     // the value field of a primtive struct (Int32, Double etc.) via the primitive
