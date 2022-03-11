@@ -944,6 +944,7 @@ public:
     void vnDumpLclAddr(Compiler* comp, VNFuncApp* lclAddr);
     void DumpBitCast(const VNFuncApp& cast);
     void DumpCast(const VNFuncApp& cast);
+    void DumpPtrToArrElem(const VNFuncApp& elemAddr);
 
     // Requires "excSeq" to be a ExcSetCons sequence.
     // Prints a representation of the set of exceptions on standard out.

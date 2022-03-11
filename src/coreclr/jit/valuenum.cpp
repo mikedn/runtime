@@ -3903,25 +3903,11 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
         if (indexVN != NoVN)
         {
             ValueNum elemTypeEqVN = VNForTypeNum(arrInfo.m_elemTypeNum);
-            JITDUMP("    VNForTypeNum(elemTypeNum: %s) is " FMT_VN "\n",
-                    m_pComp->typIsLayoutNum(arrInfo.m_elemTypeNum)
-                        ? m_pComp->typGetLayoutByNum(arrInfo.m_elemTypeNum)->GetClassName()
-                        : varTypeName(static_cast<var_types>(arrInfo.m_elemTypeNum)),
-                    elemTypeEqVN);
 
             // We take the "VNNormalValue"s here, because if either has exceptional outcomes,
             // they will be captured as part of the value of the composite "addr" operation...
             ValueNum arrVN = VNNormalValue(arrInfo.m_arrayExpr->gtVNPair.GetLiberal());
             indexVN        = VNNormalValue(indexVN);
-
-#ifdef DEBUG
-            if (m_pComp->verbose)
-            {
-                printf("    Index VN is " FMT_VN " ", indexVN);
-                vnDump(m_pComp, indexVN);
-                printf("\n");
-            }
-#endif
 
             FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
 
@@ -4851,7 +4837,6 @@ ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN,
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
-    INDEBUG(vnPrintArrayElemAddr(elemAddr));
 
     // TODO-MIKE: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
@@ -4901,7 +4886,6 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
-    INDEBUG(vnPrintArrayElemAddr(elemAddr));
 
     // TODO-MIKE: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
@@ -6196,6 +6180,9 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
             case VNF_Cast:
                 DumpCast(funcApp);
                 break;
+            case VNF_PtrToArrElem:
+                DumpPtrToArrElem(funcApp);
+                break;
             default:
                 printf("%s", VNFuncName(funcApp.m_func));
 #ifdef FEATURE_HW_INTRINSICS
@@ -6405,6 +6392,39 @@ void ValueNumStore::DumpCast(const VNFuncApp& cast)
 
     printf("Cast<%s, %s>(" FMT_VN ", " FMT_VN ")", varTypeName(fromType), varTypeName(toType), cast.m_args[0],
            cast.m_args[1]);
+}
+
+void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
+{
+    assert(elemAddr.m_func == VNF_PtrToArrElem);
+
+    ValueNum      elemTypeVN = elemAddr.m_args[0];
+    ValueNum      arrayVN    = elemAddr.m_args[1];
+    ValueNum      indexVN    = elemAddr.m_args[2];
+    FieldSeqNode* fieldSeq   = FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
+
+    unsigned     elemTypeNum = static_cast<unsigned>(ConstantValue<int32_t>(elemAddr.m_args[0]));
+    ClassLayout* elemLayout  = m_pComp->typIsLayoutNum(elemTypeNum) ? m_pComp->typGetLayoutByNum(elemTypeNum) : nullptr;
+    var_types    elemType =
+        elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : m_pComp->typGetStructType(elemLayout);
+
+    printf("PtrToArrElem(");
+    printf(FMT_VN, elemTypeVN);
+    printf(" (%s", varTypeName(elemType));
+    if (elemLayout != nullptr)
+    {
+        printf("<%s>", elemLayout->GetClassName());
+    }
+    printf("), ");
+    m_pComp->vnPrint(arrayVN, 1);
+    printf(", ");
+    m_pComp->vnPrint(indexVN, 1);
+    if (fieldSeq != nullptr)
+    {
+        printf(", ");
+        m_pComp->dmpFieldSeqFields(fieldSeq);
+    }
+    printf(")");
 }
 
 #endif // DEBUG
@@ -9002,40 +9022,6 @@ void Compiler::vnPrint(ValueNum vn, unsigned level)
         {
             vnStore->vnDump(this, vn);
         }
-    }
-}
-
-void Compiler::vnPrintArrayElemAddr(const VNFuncApp& elemAddr)
-{
-    if (verbose)
-    {
-        assert(elemAddr.m_func == VNF_PtrToArrElem);
-
-        ValueNum      elemTypeVN = elemAddr.m_args[0];
-        ValueNum      arrayVN    = elemAddr.m_args[1];
-        ValueNum      indexVN    = elemAddr.m_args[2];
-        FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
-
-        unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
-        ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
-        var_types elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
-
-        printf("    VNF_PtrToArrElem(");
-        printf("%s", varTypeName(elemType));
-        if (elemLayout != nullptr)
-        {
-            printf("<%s>", elemLayout->GetClassName());
-        }
-        printf(", ");
-        vnPrint(arrayVN, 1);
-        printf(", ");
-        vnPrint(indexVN, 1);
-        if (fieldSeq != nullptr)
-        {
-            printf(", ");
-            dmpFieldSeqFields(fieldSeq);
-        }
-        printf(")\n");
     }
 }
 
