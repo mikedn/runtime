@@ -7479,16 +7479,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             vnClearGcHeap(tree DEBUGARG("memory barrier"));
             break;
 
-        // These do not represent values.
-        case GT_NO_OP:
-        case GT_JMP:   // Control flow
-        case GT_LABEL: // Control flow
-#if !defined(FEATURE_EH_FUNCLETS)
-        case GT_END_LFIN: // Control flow
-#endif
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-            break;
-
         case GT_ARGPLACE:
             // We'll give ARGPLACE the actual argument value number when the call
             // node itself is value numbered.
@@ -7564,7 +7554,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         case GT_JTRUE:
         case GT_RETURN:
         case GT_SWITCH:
+        case GT_JMP:
         case GT_RETFILT:
+#ifndef FEATURE_EH_FUNCLETS
+        case GT_END_LFIN:
+#endif
             // These nodes never need to have a ValueNumber
             tree->gtVNPair.SetBoth(ValueNumStore::NoVN);
             break;
@@ -7623,18 +7617,21 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 #endif
 
         case GT_LEA:
-            // LEAs could probably value numbered as ADD/MUL expressions but
-            // they should appear in frontend so it's not worth the trouble.
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
-            break;
-
+        // LEAs could probably value numbered as ADD/MUL expressions but
+        // they should not appear in frontend so it's not worth the trouble.
         case GT_LCLHEAP:
+        // It is not necessary to model the StackOverflow exception for LCLHEAP
+        case GT_LABEL:
             tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->GetType()));
-            // It is not necessary to model the StackOverflow exception for LCLHEAP
             break;
 
         case GT_CKFINITE:
             vnCkFinite(tree->AsUnOp());
+            break;
+
+        case GT_NO_OP:
+            assert(tree->TypeIs(TYP_VOID));
+            tree->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
             break;
 
         case GT_NOP:
