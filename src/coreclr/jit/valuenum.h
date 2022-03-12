@@ -631,9 +631,7 @@ public:
     // If "opA" has a PtrToLoc, PtrToArrElem, or PtrToStatic application as its value numbers, and "opB" is an integer
     // with a "fieldSeq", returns the VN for the pointer form extended with the field sequence; or else NoVN.
     ValueNum ExtendPtrVN(GenTreeOp* add);
-    // If "opA" has a PtrToLoc, PtrToArrElem, or PtrToStatic application as its value numbers, returns the VN for the
-    // pointer form extended with "fieldSeq"; or else NoVN.
-    ValueNum ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fieldSeq, target_size_t offset);
+    ValueNum ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fieldSeq, target_size_t offset);
 
     ValueNum ExtractArrayElementIndex(const struct ArrayInfo& arrayInfo);
 

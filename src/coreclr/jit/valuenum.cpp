@@ -3890,7 +3890,7 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fiel
 
 ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
 {
-    assert(add->OperIs(GT_ADD));
+    assert(add->OperIs(GT_ADD) && !add->gtOverflow());
 
     ArrayInfo arrInfo;
     if (m_pComp->optIsArrayElemAddr(add, &arrInfo))
@@ -3903,7 +3903,7 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
 
             // We take the "VNNormalValue"s here, because if either has exceptional outcomes,
             // they will be captured as part of the value of the composite "addr" operation...
-            ValueNum arrVN = VNNormalValue(arrInfo.m_arrayExpr->gtVNPair.GetLiberal());
+            ValueNum arrVN = VNNormalValue(arrInfo.m_arrayExpr->GetLiberalVN());
             indexVN        = VNNormalValue(indexVN);
 
             FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
@@ -3915,7 +3915,11 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
 
             ValueNum fldSeqVN = VNForFieldSeq(fieldSeq);
 
-            return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, indexVN, fldSeqVN);
+            ValueNum addrVN = VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, indexVN, fldSeqVN);
+            ValueNum exset  = VNExceptionSet(add->GetOp(0)->GetLiberalVN());
+            exset           = VNExcSetUnion(exset, VNExceptionSet(add->GetOp(1)->GetLiberalVN()));
+
+            return VNWithExc(addrVN, exset);
         }
     }
 
@@ -3924,7 +3928,15 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
         FieldSeqNode* fldSeq = intCon->GetFieldSeq();
         if ((fldSeq != nullptr) && !fldSeq->IsArrayElement())
         {
-            return ExtendPtrVN(add->GetOp(0)->gtVNPair, fldSeq, static_cast<target_size_t>(intCon->GetValue()));
+            ValueNum addrVN = add->GetOp(0)->GetLiberalVN();
+            ValueNum exset;
+            VNUnpackExc(addrVN, &addrVN, &exset);
+            addrVN = ExtendPtrVN(addrVN, fldSeq, static_cast<target_size_t>(intCon->GetValue()));
+
+            if (addrVN != NoVN)
+            {
+                return VNWithExc(addrVN, exset);
+            }
         }
     }
 
@@ -4129,19 +4141,13 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
     return indexVN;
 }
 
-ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, target_size_t offset)
+ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fldSeq, target_size_t offset)
 {
+    assert(addrVN == VNNormalValue(addrVN));
     assert(fldSeq != nullptr);
 
-    ValueNum opAvnWx = addrVNP.GetLiberal();
-    assert(VNIsValid(opAvnWx));
-    ValueNum opAvn;
-    ValueNum opAvnx;
-    VNUnpackExc(opAvnWx, &opAvn, &opAvnx);
-    assert(VNIsValid(opAvn) && VNIsValid(opAvnx));
-
     VNFuncApp funcApp;
-    if (!GetVNFunc(opAvn, &funcApp))
+    if (!GetVNFunc(addrVN, &funcApp))
     {
         return NoVN;
     }
@@ -4150,10 +4156,6 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
 
     if (funcApp.m_func == VNF_LclAddr)
     {
-        // For PtrToLoc, lib == cons.
-        INDEBUG(VNFuncApp consFuncApp);
-        assert(GetVNFunc(VNNormalValue(addrVNP.GetConservative()), &consFuncApp) && consFuncApp.Equals(funcApp));
-
         ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
         ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], fldSeq);
 
@@ -4175,7 +4177,7 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
                         FieldSeqVNAppend(funcApp.m_args[3], fldSeq));
     }
 
-    return res == NoVN ? res : VNWithExc(res, opAvnx);
+    return res;
 }
 
 void Compiler::vnComma(GenTreeOp* comma)
@@ -4378,10 +4380,13 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
     {
         if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(load))
         {
-            ValueNum extendVN = vnStore->ExtendPtrVN(vnp, fieldSeq, 0);
+            ValueNum extendVN = vnStore->ExtendPtrVN(vnp.GetLiberal(), fieldSeq, 0);
 
             if (extendVN != ValueNumStore::NoVN)
             {
+                // TODO-MIKE: This doesn't make a lot of sense. We only look at the liberal
+                // VN, the conservative VN might be different (e.g. the value stored in the
+                // local variable could have been the result of a load from memory).
                 vnp.SetBoth(extendVN);
             }
         }
@@ -7641,6 +7646,20 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             }
             break;
 
+        case GT_ADD:
+            if (!tree->gtOverflow())
+            {
+                ValueNum addrVN = vnStore->ExtendPtrVN(tree->AsOp());
+
+                if (addrVN != ValueNumStore::NoVN)
+                {
+                    // We don't care about differences between liberal and conservative for pointer values.
+                    // TODO-MIKE: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
+                    tree->gtVNPair.SetBoth(addrVN);
+                    break;
+                }
+            }
+            FALLTHROUGH;
         default:
             if (GenTree::OperIsUnary(oper))
             {
@@ -7669,24 +7688,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 vnStore->VNPUnpackExc(tree->AsOp()->GetOp(1)->GetVNP(), &op2vnp, &op2Xvnp);
                 ValueNumPair excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
 
-                ValueNum newVN = ValueNumStore::NoVN;
-
-                if ((oper == GT_ADD) && !tree->gtOverflowEx())
-                {
-                    newVN = vnStore->ExtendPtrVN(tree->AsOp());
-                }
-
-                if (newVN != ValueNumStore::NoVN)
-                {
-                    // We don't care about differences between liberal and conservative for pointer values.
-                    newVN = vnStore->VNWithExc(newVN, excSetPair.GetLiberal());
-                    tree->gtVNPair.SetBoth(newVN);
-                }
-                else
-                {
-                    ValueNumPair normalPair = vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1vnp, op2vnp);
-                    tree->gtVNPair          = vnStore->VNPWithExc(normalPair, excSetPair);
-                }
+                ValueNumPair normalPair = vnStore->VNPairForFunc(tree->TypeGet(), vnf, op1vnp, op2vnp);
+                tree->gtVNPair          = vnStore->VNPWithExc(normalPair, excSetPair);
 
                 vnAddNodeExceptionSet(tree);
             }
