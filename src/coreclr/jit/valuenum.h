@@ -99,26 +99,6 @@ struct VNFuncApp
     VNFunc   m_func;
     unsigned m_arity;
     ValueNum m_args[4];
-
-    bool Equals(const VNFuncApp& funcApp)
-    {
-        if (m_func != funcApp.m_func)
-        {
-            return false;
-        }
-        if (m_arity != funcApp.m_arity)
-        {
-            return false;
-        }
-        for (unsigned i = 0; i < m_arity; i++)
-        {
-            if (m_args[i] != funcApp.m_args[i])
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 };
 
 // We use a unique prefix character when printing value numbers in dumps:  i.e.  $1c0
@@ -1347,7 +1327,6 @@ private:
     // The "values" of special ref consts will be all be "null" -- their differing meanings will
     // be carried by the distinct value numbers.
     static class Object* s_specialRefConsts[SRC_NumSpecialRefConsts];
-    static class Object* s_nullConst;
 
 #ifdef DEBUG
     // This helps test some performance pathologies related to "evaluation" of VNF_MapSelect terms,
