@@ -3956,6 +3956,7 @@ public:
     void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnLocalFieldLoad(GenTreeLclFld* load);
+    ValueNum vnAddField(GenTreeOp* add);
     void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
     void vnIndirLoad(GenTreeIndir* indir);
     ValueNum vnStaticFieldStore(FieldSeqNode* fieldSeq, ValueNum valueVN, var_types storeType);
