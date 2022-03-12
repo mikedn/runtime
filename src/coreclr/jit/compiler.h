@@ -3964,7 +3964,7 @@ public:
     ValueNum vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
     ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
     ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
-    ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr, ValueNum excVN);
+    ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
     void vnNullCheck(GenTreeIndir* node);
     void vnArrayLength(GenTreeArrLen* node);
     void vnCmpXchg(GenTreeCmpXchg* node);

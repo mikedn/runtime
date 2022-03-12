@@ -4592,8 +4592,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 
     if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
     {
-        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]);
-        ValueNum      valueVN  = vnStaticFieldLoad(load, fieldSeq);
+        ValueNum valueVN = vnStaticFieldLoad(load, vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]));
         load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
 
         return;
@@ -4601,12 +4600,13 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 
     if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
     {
-        ValueNum valueVN = vnArrayElemLoad(load, funcApp, addrExcVNP.GetLiberal());
-
-        load->SetVNP({valueVN, conservativeVN});
+        ValueNum valueVN = vnArrayElemLoad(load, funcApp);
+        load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
 
         // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
         // values, so we don't have their exceptions. Maybe we should.
+        // TODO-MIKE: Actually we do have the liberal array and index and that's pretty much all that
+        // matters in regards to exceptions. But this only matters if range checks are disabled...
 
         return;
     }
@@ -4902,7 +4902,7 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, arrayTypeMapVN);
 }
 
-ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr, ValueNum excVN)
+ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr)
 {
     assert(elemAddr.m_func == VNF_PtrToArrElem);
 
@@ -4945,7 +4945,7 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
         valueVN = vnStore->VNApplySelectorsTypeCheck(valueVN, elemLayout, load->GetType());
     }
 
-    return vnStore->VNWithExc(valueVN, excVN);
+    return valueVN;
 }
 
 void Compiler::vnNullCheck(GenTreeIndir* node)
