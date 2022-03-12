@@ -4434,26 +4434,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         vnClearGcHeap(store DEBUGARG("volatile store"));
     }
 
-    if (asg->TypeIs(TYP_STRUCT))
-    {
-        assert(store->OperIs(GT_OBJ, GT_BLK));
-
-        if (GenTreeLclVarCommon* lclAddr = store->AsIndir()->GetAddr()->IsLocalAddrExpr())
-        {
-            assert(lvaGetDesc(lclAddr)->IsAddressExposed());
-            vnClearByRefExposed(asg);
-        }
-        else
-        {
-            // For now, arbitrary side effect on GcHeap/ByrefExposed.
-            // TODO-CQ: Why not be complete, and get this case right?
-            vnClearGcHeap(asg DEBUGARG("indirect struct store"));
-        }
-
-        return;
-    }
-
-    assert(store->OperIs(GT_IND));
+    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
 
     GenTree*  addr   = store->GetAddr();
     ValueNum  addrVN = vnStore->VNNormalValue(addr->GetLiberalVN());
@@ -4624,8 +4605,11 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 
 ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value)
 {
-    // Currently struct stores are not handled.
-    assert(!store->TypeIs(TYP_STRUCT));
+    // TODO-MIKE-CQ: Currently struct stores are not handled.
+    if (store->TypeIs(TYP_STRUCT))
+    {
+        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(info.compCompHnd->isFieldStatic(fieldHandle));
@@ -4728,8 +4712,11 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
 
 ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value)
 {
-    // Currently struct stores are not handled.
-    assert(!store->TypeIs(TYP_STRUCT));
+    // TODO-MIKE-CQ: Currently struct stores are not handled.
+    if (store->TypeIs(TYP_STRUCT))
+    {
+        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(!info.compCompHnd->isFieldStatic(fieldHandle));
@@ -4810,9 +4797,13 @@ ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNo
 
 ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value)
 {
-    // Currently struct stores are not handled.
-    assert(!store->TypeIs(TYP_STRUCT));
     assert(elemAddr.m_func == VNF_PtrToArrElem);
+
+    // TODO-MIKE-CQ: Currently struct stores are not handled.
+    if (store->TypeIs(TYP_STRUCT))
+    {
+        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
 
     ValueNum      elemTypeVN = elemAddr.m_args[0];
     ValueNum      arrayVN    = elemAddr.m_args[1];
