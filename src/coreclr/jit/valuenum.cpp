@@ -3879,12 +3879,9 @@ FieldSeqNode* ValueNumStore::FieldSeqVNToFieldSeq(ValueNum vn)
     return ConstantHostPtr<FieldSeqNode>(funcApp.m_args[0]);
 }
 
-ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fsVN1, ValueNum fsVN2)
+ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fieldSeq)
 {
-    FieldSeqNode* fieldSeq1 = FieldSeqVNToFieldSeq(fsVN1);
-    FieldSeqNode* fieldSeq2 = FieldSeqVNToFieldSeq(fsVN2);
-
-    ValueNum fieldSeqVN = VNForFieldSeq(m_pComp->GetFieldSeqStore()->Append(fieldSeq1, fieldSeq2));
+    fieldSeqVN = VNForFieldSeq(m_pComp->GetFieldSeqStore()->Append(FieldSeqVNToFieldSeq(fieldSeqVN), fieldSeq));
 
     INDEBUG(m_pComp->vnTrace(fieldSeqVN));
 
@@ -4158,7 +4155,7 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
         assert(GetVNFunc(VNNormalValue(addrVNP.GetConservative()), &consFuncApp) && consFuncApp.Equals(funcApp));
 
         ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
-        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], VNForFieldSeq(fldSeq));
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], fldSeq);
 
         res = VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
     }
@@ -4169,13 +4166,13 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
         // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
         if (fldSeq != FieldSeqStore::NotAField())
         {
-            res = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], VNForFieldSeq(fldSeq)));
+            res = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], fldSeq));
         }
     }
     else if (funcApp.m_func == VNF_PtrToArrElem)
     {
         res = VNForFunc(TYP_BYREF, VNF_PtrToArrElem, funcApp.m_args[0], funcApp.m_args[1], funcApp.m_args[2],
-                        FieldSeqVNAppend(funcApp.m_args[3], VNForFieldSeq(fldSeq)));
+                        FieldSeqVNAppend(funcApp.m_args[3], fldSeq));
     }
 
     return res == NoVN ? res : VNWithExc(res, opAvnx);
