@@ -4678,8 +4678,9 @@ ValueNum Compiler::vnStaticFieldStore(FieldSeqNode* fieldSeq, ValueNum valueVN, 
 
     fieldSeq = fieldSeq->GetNext();
 
-    if ((fieldSeq != nullptr) && fieldSeq->IsBoxedValueField())
+    if (fieldSeq != nullptr)
     {
+        assert(fieldSeq->IsBoxedValueField());
         fieldSeq = fieldSeq->GetNext();
     }
 
@@ -4727,8 +4728,9 @@ ValueNum Compiler::vnStaticFieldLoad(FieldSeqNode* fieldSeq, var_types loadType)
         return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->VNForReadOnlyHeapMap(), fieldVN);
     }
 
-    if ((fieldSeq != nullptr) && fieldSeq->IsBoxedValueField())
+    if (fieldSeq != nullptr)
     {
+        assert(fieldSeq->IsBoxedValueField());
         fieldSeq = fieldSeq->GetNext();
     }
 
