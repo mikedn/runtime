@@ -529,6 +529,7 @@ public:
     // "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
     // (liberal/conservative) to read from the SSA def referenced in the phi argument.
     ValueNum VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum op1VN, ValueNum op2VN);
+    ValueNumPair VNForMapSelect(var_types type, ValueNumPair map, ValueNumPair index);
 
     // A method that does the work for VNForMapSelect and may call itself recursively.
     ValueNum VNForMapSelectWork(
