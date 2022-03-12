@@ -5973,6 +5973,17 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(OPCODE                    o
     }
 
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
+
+    // For static struct fields we may get either the address of a reference to a boxed struct
+    // or a byref to the struct value itself, the helper does the unboxing. Add a boxed field
+    // to the field sequence in both case to keep things consistent.
+
+    if (((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) == 0) &&
+        (CorTypeToVarType(fieldInfo.fieldType) == TYP_STRUCT))
+    {
+        fieldSeq = GetFieldSeqStore()->Append(fieldSeq, GetFieldSeqStore()->GetBoxedValuePseudoField());
+    }
+
     addr = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr->GetType(), addr, fieldSeq, fieldInfo.offset);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
