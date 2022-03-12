@@ -4153,11 +4153,9 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
 
     if (funcApp.m_func == VNF_LclAddr)
     {
-#ifdef DEBUG
         // For PtrToLoc, lib == cons.
-        VNFuncApp consFuncApp;
+        INDEBUG(VNFuncApp consFuncApp);
         assert(GetVNFunc(VNNormalValue(addrVNP.GetConservative()), &consFuncApp) && consFuncApp.Equals(funcApp));
-#endif
 
         ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
         ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], VNForFieldSeq(fldSeq));
@@ -4166,7 +4164,13 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNumPair addrVNP, FieldSeqNode* fldSeq, 
     }
     else if (funcApp.m_func == VNF_PtrToStatic)
     {
-        res = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], VNForFieldSeq(fldSeq)));
+        // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
+        // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
+        // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
+        if (fldSeq != FieldSeqStore::NotAField())
+        {
+            res = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], VNForFieldSeq(fldSeq)));
+        }
     }
     else if (funcApp.m_func == VNF_PtrToArrElem)
     {
@@ -4472,16 +4476,8 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
     {
         FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]);
-
-        if (fieldSeq == FieldSeqStore::NotAField())
-        {
-            vnClearGcHeap(asg DEBUGARG("static field store"));
-        }
-        else
-        {
-            ValueNum heapVN = vnStaticFieldStore(fieldSeq, valueVN, store->GetType());
-            vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
-        }
+        ValueNum      heapVN   = vnStaticFieldStore(fieldSeq, valueVN, store->GetType());
+        vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
 
         return;
     }
@@ -4619,19 +4615,8 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
     {
         FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]);
-        ValueNumPair  valueVNP;
-
-        if (fieldSeq == FieldSeqStore::NotAField())
-        {
-            valueVNP.SetBoth(conservativeVN);
-        }
-        else
-        {
-            valueVNP.SetLiberal(vnStaticFieldLoad(fieldSeq, load->GetType()));
-            valueVNP.SetConservative(conservativeVN);
-        }
-
-        load->SetVNP(vnStore->VNPWithExc(valueVNP, addrExcVNP));
+        ValueNum      valueVN  = vnStaticFieldLoad(fieldSeq, load->GetType());
+        load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
 
         return;
     }
@@ -4828,9 +4813,6 @@ ValueNum Compiler::vnArrayElemStore(const VNFuncApp& elemAddr, ValueNum valueVN,
     ValueNum      indexVN    = elemAddr.m_args[2];
     FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
-    assert(arrayVN == vnStore->VNNormalValue(arrayVN));
-    assert(indexVN == vnStore->VNNormalValue(indexVN));
-
     unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
@@ -4876,9 +4858,6 @@ ValueNum Compiler::vnArrayElemLoad(const VNFuncApp& elemAddr, ValueNum excVN, va
     ValueNum      arrayVN    = elemAddr.m_args[1];
     ValueNum      indexVN    = elemAddr.m_args[2];
     FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
-
-    assert(arrayVN == vnStore->VNNormalValue(arrayVN));
-    assert(indexVN == vnStore->VNNormalValue(indexVN));
 
     unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr.m_args[0]));
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
