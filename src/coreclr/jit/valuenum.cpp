@@ -4349,7 +4349,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
                                              vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
-        load->gtVNPair.SetBoth(fgValueNumberByrefExposedLoad(load->GetType(), addrVN));
+        load->gtVNPair.SetBoth(vnByRefExposedLoad(load->GetType(), addrVN));
 
         return;
     }
@@ -4410,6 +4410,7 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
 
     if (!lcl->IsInSsa() || !load->HasFieldSeq())
     {
+        // TODO-MIKE-CQ: Why doesn't this handle address exposed loads like vnLocalLoad?!
         vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
     }
     else
@@ -4589,15 +4590,15 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     {
         // TODO-MIKE-CQ: Handle method table pointer loads properly. This code gives these
         // loads unique VNs, this prevents CSEing of such loads.
-        // These loads can be handled by fgValueNumberByrefExposedLoad below but then it
-        // turns out that CSEing is a problem for optAssertionIsSubtype - it specifically
-        // looks for indirs that load the method table pointer.
+        // These loads can be handled by vnByRefExposedLoad below but then it turns out
+        // that CSEing is a problem for optAssertionIsSubtype - it specifically looks for
+        // indirs that load the method table pointer.
 
         valueVN = conservativeVN;
     }
     else
     {
-        valueVN = fgValueNumberByrefExposedLoad(load->GetType(), addrVNP.GetLiberal());
+        valueVN = vnByRefExposedLoad(load->GetType(), addrVNP.GetLiberal());
     }
 
     load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
@@ -4966,7 +4967,7 @@ void Compiler::vnInterlocked(GenTreeOp* node)
     node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
 }
 
-ValueNum Compiler::fgValueNumberByrefExposedLoad(var_types type, ValueNum addrVN)
+ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
 {
     assert(addrVN == vnStore->VNNormalValue(addrVN));
 
@@ -4974,12 +4975,21 @@ ValueNum Compiler::fgValueNumberByrefExposedLoad(var_types type, ValueNum addrVN
     {
         // We can't assign a value number for a read of a struct as we can't determine
         // how many bytes will be read by this load, so return a new unique value number
+        // TODO-MIKE-CQ: The type number should be used instead to get this to work.
         return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
     }
 
     ValueNum memoryVN = fgCurMemoryVN[ByrefExposed];
+    INDEBUG(vnTraceMem(ByrefExposed, memoryVN DEBUGARG("byref exposed load")));
+
     // The memoization for VNFunc applications does not factor in the result type, so
     // VNF_ByrefExposedLoad takes the loaded type as an explicit parameter.
+    // TODO-MIKE-CQ: It might make more sense to use the type size instead of the type
+    // itself. Though to be useful this would likely require some CSE changes - if we
+    // load INT and FLOAT from the same address then we could always load INT and add
+    // a VNF_BitCast to FLOAT. But then the 2 loads still get different value numbers
+    // and it would be up to CSE to figure out that it can replace the FLOAT load with
+    // a BITCAST of the CSEd INT load. Probably too much work to be worthwhile.
     ValueNum typeVN = vnStore->VNForIntCon(type);
 
     return vnStore->VNForFunc(type, VNF_ByrefExposedLoad, typeVN, addrVN, memoryVN);
@@ -7450,6 +7460,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
         case GT_LCL_VAR_ADDR:
             assert(lvaGetDesc(tree->AsLclVar())->IsAddressExposed());
+            // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
+            // so that byref exposed loads don't unnecessarily produce different value numbers.
             tree->gtVNPair.SetBoth(
                 vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(tree->AsLclVar()->GetLclNum()),
                                    vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
@@ -7819,7 +7831,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, func, addrVNP.GetLiberal());
 
         // The address could point anywhere, so it is an ByrefExposed load.
-        ValueNum loadVN = fgValueNumberByrefExposedLoad(node->GetType(), addrVN);
+        ValueNum loadVN = vnByRefExposedLoad(node->GetType(), addrVN);
 
         node->gtVNPair.SetLiberal(loadVN);
         node->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, node->GetType()));

@@ -3969,9 +3969,7 @@ public:
     void vnArrayLength(GenTreeArrLen* node);
     void vnCmpXchg(GenTreeCmpXchg* node);
     void vnInterlocked(GenTreeOp* node);
-
-    // Compute the value number for a byref-exposed load of the given type via the given pointerVN.
-    ValueNum fgValueNumberByrefExposedLoad(var_types type, ValueNum pointerVN);
+    ValueNum vnByRefExposedLoad(var_types type, ValueNum addrVN);
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 
