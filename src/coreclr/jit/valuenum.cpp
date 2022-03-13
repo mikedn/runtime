@@ -2204,6 +2204,7 @@ TailCall:
         // in different blocks may find this result in the VNFunc2Map -- other expressions in
         // the IR may "evaluate" to this same VNForExpr, so it is not "unique" in the sense
         // that permits the BasicBlock attribution.
+        // TODO-MIKE-Review: This should probably be MapSelect from the current map.
         res = VNForExpr(nullptr, typ);
         GetVNFunc2Map()->Set(fstruct, res);
         return res;
@@ -3756,6 +3757,9 @@ ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layo
     if (loadSize > size)
     {
         JITDUMP("    *** Value of size %u loaded as wider type %s\n", size, varTypeName(loadType));
+        // TODO-MIKE-Fix: Using VNForExpr with compCurBB here and below is highly suspect.
+        // These are loads, one way or another they use memory that may have been defined
+        // in a block different than the current one.
         return VNForExpr(m_pComp->compCurBB, TypeOfVN(vn));
     }
 
@@ -4857,6 +4861,7 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
 
     if (fieldSeq == FieldSeqStore::NotAField())
     {
+        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
         return vnStore->VNForExpr(compCurBB, elemType);
     }
 
@@ -4909,6 +4914,7 @@ void Compiler::vnCmpXchg(GenTreeCmpXchg* node)
 {
     vnClearGcHeap(node DEBUGARG("cmpxchg intrinsic"));
 
+    // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
     ValueNum     value = vnStore->VNForExpr(compCurBB, node->GetType());
     ValueNumPair exset = vnAddNullPtrExset(node->GetAddr()->GetVNP());
     exset              = vnStore->VNPUnionExcSet(node->GetValue()->GetVNP(), exset);
@@ -4922,6 +4928,7 @@ void Compiler::vnInterlocked(GenTreeOp* node)
 
     vnClearGcHeap(node DEBUGARG("interlocked intrinsic"));
 
+    // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
     ValueNum     value = vnStore->VNForExpr(compCurBB, node->GetType());
     ValueNumPair exset = vnAddNullPtrExset(node->GetOp(0)->GetVNP());
     exset              = vnStore->VNPUnionExcSet(node->GetOp(1)->GetVNP(), exset);
@@ -4938,6 +4945,7 @@ ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
         // how many bytes will be read by this load, so return a new unique value number
 
         // TODO-MIKE-CQ: The type number should be used instead to get this to work.
+        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
         return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
     }
 
@@ -7688,6 +7696,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             {
                 // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN...
                 noway_assert(GenTree::OperIsSpecial(oper));
+                // TODO-MIKE-Fix: Using VNForExpr with compCurBB for arbitrary nodes is suspect.
+                // Also, it might be better to explicitly list all the opers in this switch so
+                // we don't accidentally miss one that may have some sort of side effects that
+                // need special handling.
                 tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
             }
             break;
@@ -7779,6 +7791,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             // For now we will generate a unique value number for loads with more
             // than one operand (i.e. GatherVector128)
+            // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
             node->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, node->GetType()));
             return;
         }
@@ -7797,6 +7810,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         ValueNum loadVN = vnByRefExposedLoad(node->GetType(), addrVN);
 
         node->gtVNPair.SetLiberal(loadVN);
+        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
         node->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, node->GetType()));
         node->gtVNPair = vnStore->VNPWithExc(node->gtVNPair, addrXVNP);
         vnAddNullPtrExset(node, node->GetOp(0));
@@ -8094,6 +8108,10 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
     if (addUniqueArg)
     {
         argCount--;
+        // TODO-MIKE-Fix: Using VNForExpr with compCurBB for calls is suspect.
+        // The call may return a value obtained by loading from memory defined
+        // by a different block. This only works because calls have special
+        // handling in loop hoisting.
         vnpUniqueArg.SetBoth(vnStore->VNForExpr(compCurBB, call->GetType()));
 
         if (argCount == 0)
@@ -8197,6 +8215,10 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
         }
         else
         {
+            // TODO-MIKE-Fix: Using VNForExpr with compCurBB for calls is suspect.
+            // The call may return a value obtained by loading from memory defined
+            // by a different block. This only works because calls have special
+            // handling in loop hoisting.
             call->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, call->TypeGet()));
         }
 
@@ -8557,6 +8579,10 @@ bool Compiler::fgValueNumberHelperCall(GenTreeCall* call)
         }
         else
         {
+            // TODO-MIKE-Fix: Using VNForExpr with compCurBB for calls is suspect.
+            // The call may return a value obtained by loading from memory defined
+            // by a different block. This only works because calls have special
+            // handling in loop hoisting.
             vnpNorm.SetBoth(vnStore->VNForExpr(compCurBB, call->TypeGet()));
         }
     }
