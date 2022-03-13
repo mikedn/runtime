@@ -465,14 +465,6 @@ public:
     // This returns the Union of exceptions from vnpWx and vnpExcSet
     ValueNumPair VNPUnionExcSet(ValueNumPair vnpWx, ValueNumPair vnpExcSet);
 
-    // Sets the normal value to a new unique ValueNum
-    // Keeps any Exception set values
-    ValueNum VNMakeNormalUnique(ValueNum vn);
-
-    // Sets the liberal & conservative
-    // Keeps any Exception set values
-    ValueNumPair VNPMakeNormalUniquePair(ValueNumPair vnp);
-
     // If "vn" is a "VNF_ValWithExc(norm, excSet)" value, returns the "norm" argument; otherwise,
     // just returns "vn".
     // The Normal value is the value number of the expression when no exceptions occurred

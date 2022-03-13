@@ -1352,47 +1352,6 @@ ValueNum ValueNumStore::VNNormalValue(ValueNum vn)
     }
 }
 
-//------------------------------------------------------------------------------------
-// VNMakeNormalUnique:
-//
-// Arguments:
-//    vn         - The current Value Number for the expression, including any excSet.
-//                 This excSet is an optional item and represents the set of
-//                 possible exceptions for the expression.
-//
-// Return Value:
-//               - The normal value is set to a new unique VN, while keeping
-//                 the excSet (if any)
-//
-ValueNum ValueNumStore::VNMakeNormalUnique(ValueNum orig)
-{
-    // First Unpack the existing Norm,Exc for 'elem'
-    ValueNum vnOrigNorm;
-    ValueNum vnOrigExcSet;
-    VNUnpackExc(orig, &vnOrigNorm, &vnOrigExcSet);
-
-    // Replace the normal value with a unique ValueNum
-    ValueNum vnUnique = VNForExpr(m_pComp->compCurBB, TypeOfVN(vnOrigNorm));
-
-    // Keep any ExcSet from 'elem'
-    return VNWithExc(vnUnique, vnOrigExcSet);
-}
-
-//--------------------------------------------------------------------------------
-// VNPMakeNormalUniquePair:
-//
-// Arguments:
-//    vnp         - The Value Number Pair for the expression, including any excSet.
-//
-// Return Value:
-//               - The normal values are set to a new unique VNs, while keeping
-//                 the excSets (if any)
-//
-ValueNumPair ValueNumStore::VNPMakeNormalUniquePair(ValueNumPair vnp)
-{
-    return ValueNumPair(VNMakeNormalUnique(vnp.GetLiberal()), VNMakeNormalUnique(vnp.GetConservative()));
-}
-
 //--------------------------------------------------------------------------------
 // VNNormalValue: - Returns a Value Number that represents the result for the
 //                  normal (non-exceptional) evaluation for the expression.
@@ -3781,6 +3740,8 @@ ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode
 
 ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)
 {
+    assert(vn == VNNormalValue(vn));
+
     var_types type = TypeOfVN(vn);
 
     if (loadType == type)
@@ -3795,13 +3756,13 @@ ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layo
     if (loadSize > size)
     {
         JITDUMP("    *** Value of size %u loaded as wider type %s\n", size, varTypeName(loadType));
-        return VNMakeNormalUnique(vn);
+        return VNForExpr(m_pComp->compCurBB, TypeOfVN(vn));
     }
 
     if (varTypeIsStruct(loadType))
     {
         JITDUMP("    *** Value of type %s loaded as %s\n", varTypeName(type), varTypeName(loadType));
-        return VNMakeNormalUnique(vn);
+        return VNForExpr(m_pComp->compCurBB, TypeOfVN(vn));
     }
 
     // TODO-MIKE-Fix: This is nonsense in reinterpretation case (e.g. load INT field as FLOAT).
@@ -3812,6 +3773,8 @@ ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layo
 
 ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_types storeType)
 {
+    assert(srcVN == VNNormalValue(srcVN));
+
     var_types srcType = TypeOfVN(srcVN);
 
     if (storeType == srcType)
@@ -3828,7 +3791,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_typ
     if (varTypeIsStruct(storeType))
     {
         JITDUMP("    *** Value of type %s stored as %s\n", varTypeName(srcType), varTypeName(storeType));
-        return VNMakeNormalUnique(srcVN);
+        return VNForExpr(m_pComp->compCurBB, TypeOfVN(srcVN));
     }
 
     // TODO-MIKE-Review: This is probably just as bogus as in VNApplySelectorsTypeCheck...
