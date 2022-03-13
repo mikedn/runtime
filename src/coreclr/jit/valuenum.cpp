@@ -4597,7 +4597,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     }
     else
     {
-        valueVN = fgValueNumberByrefExposedLoad(load->GetType(), addr->GetLiberalVN());
+        valueVN = fgValueNumberByrefExposedLoad(load->GetType(), addrVNP.GetLiberal());
     }
 
     load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
@@ -4968,14 +4968,14 @@ void Compiler::vnInterlocked(GenTreeOp* node)
 
 ValueNum Compiler::fgValueNumberByrefExposedLoad(var_types type, ValueNum addrVN)
 {
+    assert(addrVN == vnStore->VNNormalValue(addrVN));
+
     if (type == TYP_STRUCT)
     {
         // We can't assign a value number for a read of a struct as we can't determine
         // how many bytes will be read by this load, so return a new unique value number
         return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
     }
-
-    addrVN = vnStore->VNNormalValue(addrVN);
 
     ValueNum memoryVN = fgCurMemoryVN[ByrefExposed];
     // The memoization for VNFunc applications does not factor in the result type, so
