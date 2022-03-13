@@ -3675,7 +3675,7 @@ ValueNum ValueNumStore::MapInsertStructField(
         fields[i + 1].mapType = fields[i].fieldType;
     }
 
-    // TODO-MIKE: This is nonsense, it tries to coerce the stored value to the store type but the
+    // TODO-MIKE-Fix: This is nonsense, it tries to coerce the stored value to the store type but the
     // stored value should already have the correct type (e.g. ASG(IND.double, some_float_value)
     // is invalid IR to begin with, there's no need to handle such a case). At the same time this
     // completely ignores the field type so if one stores to a FLOAT field by using an INT indir
@@ -4176,7 +4176,7 @@ void Compiler::vnAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
 
-    // TODO-MIKE: This is missing operand exceptions...
+    // TODO-MIKE-Fix: This is missing operand exceptions...
     asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
 
     GenTree* store = asg->GetOp(0);
@@ -4232,15 +4232,13 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
 
         if (value->GetType() != store->GetType())
         {
-            // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
-            // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
-            // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
-            // since
-            // for small int type the value is really INT and the signedness does not matter.
+            // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo
+            // small int. While we could narrow the value here it's not clear if there's a good reason to do it
+            // because we may also need to do it when loading. And using the signedness of the value's type doesn't
+            // make a lot of sense since for small int type the value is really INT and the signedness does not matter.
             // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
-            // VNF_Cast
-            // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-            // replacing the value VN with a new, unique one. So why bother casting to begin with?
+            // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
+            // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
             bool fromUnsigned = varTypeIsUnsigned(value->GetType());
             valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
         }
@@ -4353,9 +4351,9 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
 
             if (extendVN != ValueNumStore::NoVN)
             {
-                // TODO-MIKE: This doesn't make a lot of sense. We only look at the liberal
-                // VN, the conservative VN might be different (e.g. the value stored in the
-                // local variable could have been the result of a load from memory).
+                // TODO-MIKE-Fix: This doesn't make a lot of sense. We only look at the liberal VN,
+                // the conservative VN might be different (e.g. the value stored in the local could
+                // have been the result of a load from memory).
                 vnp.SetBoth(extendVN);
             }
         }
@@ -4512,18 +4510,18 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     }
     else if (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
     {
-        // TODO-MIKE: Static fields are a mess. The address is sometimes CLS_VAR_ADDR and
+        // TODO-MIKE-CQ: Static fields are a mess. The address is sometimes CLS_VAR_ADDR,
         // sometimes CNS_INT. The later generates a VNHandle instead of VNF_PtrToStatic
         // and the handle can be recognized as being a static address but it lacks the
         // field handle/sequence so we can't do much with it. Ideally CNS_INT would also
         // generate VNF_PtrToStatic but then CSE barfs because it expects constant VNs
         // for constant nodes and VNF_PtrToStatic isn't a constant.
-        // In the case of STRUCT static fields, CLS_VAR_ADDR is rare,
-        // the C# compiler seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and
-        // the importer always uses CNS_INT for LDSFLDA. Not good for testing. Moreover
-        // VN doesn't seem to recognize CNS_INT on its own, it only recognizes it together
-        // with a subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
-        // This is somewhat risky because not matter what the IR pattern is we should end
+        // In the case of STRUCT static fields, CLS_VAR_ADDR is rare, the C# compiler
+        // seems to prefer LDSFLDA-LDFLDA-LDFLD to LDSFLD-LDFLD-LDFLD and the importer
+        // always uses CNS_INT for LDSFLDA. Not good for testing. Moreover, VN doesn't
+        // seem to recognize CNS_INT on its own, it only recognizes it together with a
+        // subsequent STRUCT field access, which does not involve VNF_PtrToStatic.
+        // This is somewhat risky because no matter what the IR pattern is we should end
         // up using the same field sequence in all cases, otherwise we may end up with
         // loads not correctly seeing previously stored values.
 
@@ -4535,8 +4533,8 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 
         // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
         // values, so we don't have their exceptions. Maybe we should.
-        // TODO-MIKE: Actually we do have the liberal array and index and that's pretty much all that
-        // matters for exceptions. But then this is only relevant if range checks are disabled...
+        // TODO-MIKE-Fix: Actually we do have the liberal array and index and that's pretty much all
+        // that matters for exceptions. But then this is only relevant if range checks are disabled...
     }
     else if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
     {
@@ -4594,10 +4592,10 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
 
     if (value->GetType() != store->GetType())
     {
-        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
-        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
-        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
-        // for small int type the value is really INT and the signedness does not matter.
+        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
+        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
+        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
+        // since for small int type the value is really INT and the signedness does not matter.
         // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
         // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
         // replacing the value VN with a new, unique one. So why bother casting to begin with?
@@ -4616,7 +4614,7 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
 
     if (fieldSeq == nullptr)
     {
-        // TODO-MIKE: This may need VNApplySelectorsAssignTypeCoerce(valueVN)...
+        // TODO-MIKE-Fix: This may need VNApplySelectorsAssignTypeCoerce(valueVN)...
         fieldMapVN = valueVN;
     }
     else
@@ -4691,10 +4689,10 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
 
     if (value->GetType() != store->GetType())
     {
-        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
-        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
-        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
-        // for small int type the value is really INT and the signedness does not matter.
+        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
+        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
+        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
+        // since for small int type the value is really INT and the signedness does not matter.
         // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
         // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
         // replacing the value VN with a new, unique one. So why bother casting to begin with?
@@ -4725,7 +4723,7 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
             vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, fieldSeq, valueVN, store->GetType());
     }
 
-    // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
+    // TODO-MIKE-Fix: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
     // previously that was incorrectly done when storing to the heap map. It's
     // the store value that may need coercion, the field map value is always
     // treated as if it's a struct.
@@ -4781,7 +4779,7 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
 
-    // TODO-MIKE: We should get a field sequence only for arrays of structs.
+    // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
     // working again.
 
@@ -4795,15 +4793,15 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
         return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
     }
 
-    // TODO-MIKE: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN)
+    // TODO-MIKE-Fix: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN)
     ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
 
     if (value->GetType() != store->GetType())
     {
-        // TODO-MIKE: This is dubious. In general both sides of the assignment have the same type, modulo small int.
-        // While we could narrow the value here it's not clear if there's a good reason to do it because we may also
-        // need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense since
-        // for small int type the value is really INT and the signedness does not matter.
+        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
+        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
+        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
+        // since for small int type the value is really INT and the signedness does not matter.
         // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
         // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
         // replacing the value VN with a new, unique one. So why bother casting to begin with?
@@ -4848,7 +4846,7 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
 
-    // TODO-MIKE: We should get a field sequence only for arrays of structs.
+    // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
     // working again.
 
@@ -4938,6 +4936,7 @@ ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
     {
         // We can't assign a value number for a read of a struct as we can't determine
         // how many bytes will be read by this load, so return a new unique value number
+
         // TODO-MIKE-CQ: The type number should be used instead to get this to work.
         return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
     }
@@ -4947,6 +4946,7 @@ ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
 
     // The memoization for VNFunc applications does not factor in the result type, so
     // VNF_ByrefExposedLoad takes the loaded type as an explicit parameter.
+
     // TODO-MIKE-CQ: It might make more sense to use the type size instead of the type
     // itself. Though to be useful this would likely require some CSE changes - if we
     // load INT and FLOAT from the same address then we could always load INT and add
@@ -7645,7 +7645,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 if (addrVN != ValueNumStore::NoVN)
                 {
                     // We don't care about differences between liberal and conservative for pointer values.
-                    // TODO-MIKE: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
+                    // TODO-MIKE-Fix: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
                     tree->gtVNPair.SetBoth(addrVN);
                     break;
                 }
