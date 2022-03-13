@@ -4652,7 +4652,14 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
         // the reference is indeed read only (even if the field itself isn't read
         // only) but we're using MapSelect(GcHeap, field) to load the boxed struct
         // contents, we cannot use the same value to load the reference.
-        return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->VNForReadOnlyHeapMap(), fieldVN);
+
+        // TODO-MIKE-CQ: Enable this. It produces good improvements thanks to CSE
+        // but there are also significatn regressions, apparently due to the lack
+        // of OBJ address mode marking.
+        //
+        // return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->VNForReadOnlyHeapMap(), fieldVN);
+
+        return vnStore->VNForExpr(compCurBB, TYP_REF);
     }
 
     if (fieldSeq != nullptr)
