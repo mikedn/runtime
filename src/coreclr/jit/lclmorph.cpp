@@ -2107,8 +2107,7 @@ private:
         assert(structIndir->OperIs(GT_OBJ) && structIndir->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
-        GenTree* addr = structIndir->GetAddr();
-        ;
+        GenTree*     addr       = structIndir->GetAddr();
         ClassLayout* addrLayout = nullptr;
 
         if (GenTreeFieldAddr* field = addr->IsFieldAddr())

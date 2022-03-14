@@ -5373,7 +5373,7 @@ private:
 
             if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == tree) &&
                 ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
-                (m_vnStore->VNConservativeNormalValue(tree->gtVNPair) == ValueNumStore::VNForZeroMap()))
+                (m_vnStore->VNConservativeNormalValue(tree->gtVNPair) == m_vnStore->VNForZeroMap()))
             {
                 user->AsOp()->SetOp(1, m_compiler->gtNewIconNode(0));
                 m_stmtMorphPending = true;

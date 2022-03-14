@@ -6217,8 +6217,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
                 for (MemoryKind memoryKind : allMemoryKinds())
                 {
                     ValueNum loopMemoryVN =
-                        m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn[memoryKind])
-                            ->m_vnPair.GetLiberal();
+                        m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn[memoryKind])->m_vn;
                     if (!m_compiler->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
                                                           &m_hoistContext->m_curLoopVnInvariantCache))
                     {
@@ -6687,7 +6686,7 @@ bool Compiler::optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* loo
         }
         else if (funcApp.m_func == VNF_PhiMemoryDef)
         {
-            BasicBlock* defnBlk = reinterpret_cast<BasicBlock*>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
+            BasicBlock* defnBlk = vnStore->ConstantHostPtr<BasicBlock>(funcApp.m_args[0]);
             res                 = !optLoopContains(lnum, defnBlk->bbNatLoopNum);
         }
         else if (funcApp.m_func == VNF_MemOpaque)
@@ -7211,9 +7210,8 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                             if (argVN != ValueNumStore::NoVN && vnStore->GetVNFunc(argVN, &funcApp) &&
                                 funcApp.m_func == VNF_PtrToArrElem)
                             {
-                                assert(vnStore->IsVNHandle(funcApp.m_args[0]));
                                 unsigned elemTypeNum =
-                                    static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
+                                    static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
                                 AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeNum);
                                 // Don't set memoryHavoc for GcHeap below.  Do set memoryHavoc for ByrefExposed
                                 // (conservatively assuming that a byref may alias the array element)
@@ -7234,15 +7232,11 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     }
                     else
                     {
-                        // We are only interested in IsFieldAddr()'s fldSeq out parameter.
-                        //
-                        GenTree*      obj          = nullptr; // unused
-                        GenTree*      staticOffset = nullptr; // unused
-                        FieldSeqNode* fldSeq       = nullptr;
+                        GenTree* obj = nullptr; // unused
 
-                        if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
+                        if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
                         {
-                            AddModifiedFieldAllContainingLoops(mostNestedLoop, fldSeq->GetFieldHandle());
+                            AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
                             // Conservatively assume byrefs may alias this object.
                             memoryHavoc |= memoryKindSet(ByrefExposed);
                         }

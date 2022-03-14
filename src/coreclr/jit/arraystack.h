@@ -128,4 +128,17 @@ public:
     {
         m_size = 0;
     }
+
+    bool Contains(const T& value) const
+    {
+        for (unsigned i = 0; i < m_size; i++)
+        {
+            if (m_data[i] == value)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 };

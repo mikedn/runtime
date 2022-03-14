@@ -80,63 +80,6 @@ GenTree* Compiler::getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBloc
     return arrayLength;
 }
 
-//-----------------------------------------------------------------------------
-// getObjectHandleNodeFromAllocation: Return the type handle for an object allocation
-//                              helper call.
-//
-// Arguments:
-//    tree           - The object allocation helper call.
-//    block          - tree's basic block.
-//
-// Return Value:
-//    Return the object type handle node.
-
-GenTree* Compiler::getObjectHandleNodeFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block))
-{
-    assert(tree != nullptr);
-
-    if (tree->OperGet() == GT_CALL)
-    {
-        GenTreeCall* call = tree->AsCall();
-
-        if (call->gtCallType == CT_HELPER)
-        {
-            bool hasNewObj = call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWFAST) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWSFAST) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWSFAST_FINALIZE) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWSFAST_ALIGN8) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWSFAST_ALIGN8_VC) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE);
-
-            bool hasNewArr = call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_VC) ||
-                             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8);
-
-#ifdef DEBUG
-            if (hasNewObj)
-            {
-                optCheckFlagsAreSet(OMF_HAS_NEWOBJ, "OMF_HAS_NEWOBJ", BBF_HAS_NEWOBJ, "BBF_HAS_NEWOBJ", tree, block);
-            }
-
-            if (hasNewArr)
-            {
-                optCheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", tree,
-                                    block);
-            }
-#endif // DEBUG
-
-            if (hasNewObj || hasNewArr)
-            {
-                // This is an object allocation site. Return the runtime type handle node.
-                return call->GetArgNodeByArgNum(0);
-            }
-        }
-    }
-
-    return nullptr;
-}
-
 #ifdef DEBUG
 //-----------------------------------------------------------------------------
 // optCheckFlagsAreSet: Check that the method flag and the basic block flag are set.

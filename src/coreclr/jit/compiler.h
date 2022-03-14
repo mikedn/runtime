@@ -204,7 +204,7 @@ public:
 class SsaMemDef
 {
 public:
-    ValueNumPair m_vnPair;
+    ValueNum m_vn = NoVN;
 };
 
 //------------------------------------------------------------------------
@@ -2210,16 +2210,7 @@ public:
     // the given "fldHnd", is such an object pointer.
     bool gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd);
 
-    // If returns "true", "addr" may represent the address of a static or instance field
-    // (or a field of such a field, in the case of an object field of type struct).
-    // If returns "true", then either "*pObj" is set to the object reference,
-    // or "*pStatic" is set to the baseAddr or offset to be added to the "*pFldSeq"
-    // Only one of "*pObj" or "*pStatic" will be set, the other one will be null.
-    // The boolean return value only indicates that "this" *may* be a field address
-    // -- the field sequence must also be checked.
-    // If it is a field address, the field sequence will be a sequence of length >= 1,
-    // starting with an instance or static field, and optionally continuing with struct fields.
-    bool optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq);
+    FieldSeqNode* optIsFieldAddr(GenTree* addr, GenTree** obj);
 
     // Requires "indir" to be a GT_IND.
     // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
@@ -3960,31 +3951,25 @@ public:
     // tree node).
     void fgValueNumber();
 
-    // Computes new GcHeap VN via the assignment H[elemTypeEq][arrVN][inx][fldSeq] = rhsVN.
-    // Assumes that "elemTypeEq" is the (equivalence class rep) of the array element type.
-    // The 'indType' is the indirection type of the lhs of the assignment and will typically
-    // match the element type of the array or fldSeq.  When this type doesn't match
-    // or if the fldSeq is 'NotAField' we invalidate the array contents H[elemTypeEq][arrVN]
-    //
-    ValueNum fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueNum rhsVN, var_types indType);
-
-    // Requires that "tree" is a GT_IND marked as an array index, and that its address argument
-    // has been parsed to yield the other input arguments.  If evaluation of the address
-    // can raise exceptions, those should be captured in the exception set "excVN."
-    // Assumes that "elemTypeEq" is the (equivalence class rep) of the array element type.
-    // Marks "tree" with the VN for H[elemTypeEq][arrVN][inx][fldSeq] (for the liberal VN; a new unique
-    // VN for the conservative VN.)  Also marks the tree's argument as the address of an array element.
-    // The type tree->TypeGet() will typically match the element type of the array or fldSeq.
-    // When this type doesn't match or if the fldSeq is 'NotAField' we return a new unique VN
-
-    // Requires "funcApp" to be a VNF_PtrToArrElem, and "addrXvn" to represent the exception set thrown
-    // by evaluating the array index expression "tree".  Returns the value number resulting from
-    // dereferencing the array in the current GcHeap state.  If "tree" is non-null, it must be the
-    // "GT_IND" that does the dereference, and it is given the returned value number.
-    ValueNum fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum addrXvn, var_types indType);
-
-    // Compute the value number for a byref-exposed load of the given type via the given pointerVN.
-    ValueNum fgValueNumberByrefExposedLoad(var_types type, ValueNum pointerVN);
+    void vnComma(GenTreeOp* comma);
+    void vnAssignment(GenTreeOp* asg);
+    void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);
+    void vnLocalLoad(GenTreeLclVar* load);
+    void vnLocalFieldLoad(GenTreeLclFld* load);
+    ValueNum vnAddField(GenTreeOp* add);
+    void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
+    void vnIndirLoad(GenTreeIndir* load);
+    ValueNum vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value);
+    ValueNum vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq);
+    ValueNum vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
+    ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
+    ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
+    ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
+    void vnNullCheck(GenTreeIndir* node);
+    void vnArrayLength(GenTreeArrLen* node);
+    void vnCmpXchg(GenTreeCmpXchg* node);
+    void vnInterlocked(GenTreeOp* node);
+    ValueNum vnByRefExposedLoad(var_types type, ValueNum addrVN);
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 
@@ -3998,24 +3983,11 @@ public:
     // assumed for the memoryKind at the start "entryBlk".
     ValueNum fgMemoryVNForLoopSideEffects(MemoryKind memoryKind, BasicBlock* entryBlock, unsigned loopNum);
 
-    // Called when an operation (performed by "tree", described by "msg") may cause the GcHeap to be mutated.
-    // As GcHeap is a subset of ByrefExposed, this will also annotate the ByrefExposed mutation.
-    void fgMutateGcHeap(GenTree* tree DEBUGARG(const char* msg));
-
-    // Called when an operation (performed by "tree", described by "msg") may cause an address-exposed local to be
-    // mutated.
-    void fgMutateAddressExposedLocal(GenTree* tree);
-
-    // For a GC heap store at curTree, record the new curMemoryVN's and update curTree's MemorySsaMap.
-    // As GcHeap is a subset of ByrefExposed, this will also record the ByrefExposed store.
-    void recordGcHeapStore(GenTree* curTree, ValueNum gcHeapVN DEBUGARG(const char* msg));
-
-    // For a store to an address-exposed local at curTree, record the new curMemoryVN and update curTree's MemorySsaMap.
-    void recordAddressExposedLocalStore(GenTree* curTree, ValueNum memoryVN DEBUGARG(const char* msg));
-
-    // Tree caused an update in the current memory VN.  If "tree" has an associated heap SSA #, record that
-    // value in that SSA #.
-    void fgValueNumberRecordMemorySsa(MemoryKind memoryKind, GenTree* tree);
+    void vnClearGcHeap(GenTree* node DEBUGARG(const char* comment = nullptr));
+    void vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char* comment = nullptr));
+    void vnClearByRefExposed(GenTree* node);
+    void vnUpdateByRefExposed(GenTree* node, ValueNum memVN);
+    void vnUpdateMemorySsaDef(GenTree* node, MemoryKind memoryKind);
 
     // The input 'tree' is a leaf node that is a constant
     // Assign the proper value number to the tree
@@ -4025,9 +3997,6 @@ public:
     // (With some exceptions: the VN of the lhs of an assignment is assigned as part of the
     // assignment.)
     void fgValueNumberTree(GenTree* tree);
-
-    // Does value-numbering for a block assignment.
-    void vnStructAssignment(GenTreeOp* asg);
 
     // Does value-numbering for a cast tree.
     void fgValueNumberCastTree(GenTree* tree);
@@ -4058,8 +4027,10 @@ public:
     // Returns the corresponding VNFunc to use for value numbering
     VNFunc fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc);
 
-    // Adds the exception set for the current tree node which has a memory indirection operation
-    void fgValueNumberAddExceptionSetForIndirection(GenTree* tree, GenTree* baseAddr);
+    ValueNum vnGetBaseAddr(ValueNum addrVN);
+    ValueNum vnAddNullPtrExset(ValueNum addrVN);
+    ValueNumPair vnAddNullPtrExset(ValueNumPair addrVNP);
+    void vnAddNullPtrExset(GenTree* node, GenTree* addr);
 
     // Adds the exception sets for the current tree node which is performing a division or modulus operation
     void fgValueNumberAddExceptionSetForDivision(GenTree* tree);
@@ -4070,11 +4041,10 @@ public:
     // Adds the exception set for the current tree node which is performing a bounds check operation
     void fgValueNumberAddExceptionSetForBoundsCheck(GenTree* tree);
 
-    // Adds the exception set for the current tree node which is performing a ckfinite operation
-    void fgValueNumberAddExceptionSetForCkFinite(GenTree* tree);
+    void vnCkFinite(GenTreeUnOp* node);
 
     // Adds the exception sets for the current tree node
-    void fgValueNumberAddExceptionSet(GenTree* tree);
+    void vnAddNodeExceptionSet(GenTree* tree);
 
     // These are the current value number for the memory implicit variables while
     // doing value numbering.  These are the value numbers under the "liberal" interpretation
@@ -4093,6 +4063,11 @@ public:
     // If "level" is non-zero, we also print out a partial expansion of the value.
     void vnpPrint(ValueNumPair vnp, unsigned level);
     void vnPrint(ValueNum vn, unsigned level);
+    void vnTrace(ValueNum vn, const char* commenr = nullptr);
+    void vnTrace(ValueNumPair vnp, const char* commenr = nullptr);
+    void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
+    void vnTraceMem(MemoryKind kind, ValueNum vn, const char* comment = nullptr);
+    void vnTraceHeapMem(ValueNum vn, const char* comment = nullptr);
 #endif
 
     bool fgDominate(BasicBlock* b1, BasicBlock* b2); // Return true if b1 dominates b2
@@ -5925,7 +5900,6 @@ public:
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
 
     GenTree* getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block));
-    GenTree* getObjectHandleNodeFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block));
     GenTree* optPropGetValueRec(unsigned lclNum, unsigned ssaNum, optPropKind valueKind, int walkDepth);
     GenTree* optPropGetValue(unsigned lclNum, unsigned ssaNum, optPropKind valueKind);
     GenTree* optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap);

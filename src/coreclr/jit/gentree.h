@@ -1103,6 +1103,16 @@ public:
         return gtVNPair;
     }
 
+    ValueNum GetLiberalVN() const
+    {
+        return gtVNPair.GetLiberal();
+    }
+
+    ValueNum GetConservativeVN() const
+    {
+        return gtVNPair.GetConservative();
+    }
+
     void SetVNP(ValueNumPair vnp)
     {
         gtVNPair = vnp;
@@ -5749,6 +5759,12 @@ struct GenTreeArrElem : public GenTree
         }
         gtFlags |= GTF_EXCEPT;
     }
+
+    GenTree* GetArray() const
+    {
+        return gtArrObj;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeArrElem() : GenTree()
     {
@@ -6087,6 +6103,11 @@ struct GenTreeIndir : public GenTreeOp
     void SetUnaligned()
     {
         gtFlags |= GTF_IND_UNALIGNED;
+    }
+
+    bool IsInvariant() const
+    {
+        return (gtFlags & GTF_IND_INVARIANT) != 0;
     }
 
 #if DEBUGGABLE_GENTREE

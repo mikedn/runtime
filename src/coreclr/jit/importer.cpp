@@ -5973,6 +5973,17 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(OPCODE                    o
     }
 
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
+
+    // For static struct fields we may get either the address of a reference to a boxed struct
+    // or a byref to the struct value itself, the helper does the unboxing. Add a boxed field
+    // to the field sequence in both case to keep things consistent.
+
+    if (((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) == 0) &&
+        (CorTypeToVarType(fieldInfo.fieldType) == TYP_STRUCT))
+    {
+        fieldSeq = GetFieldSeqStore()->Append(fieldSeq, GetFieldSeqStore()->GetBoxedValuePseudoField());
+    }
+
     addr = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr->GetType(), addr, fieldSeq, fieldInfo.offset);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
@@ -6246,23 +6257,30 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
 {
     assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
 
+    var_types    type   = CorTypeToVarType(fieldInfo.fieldType);
+    ClassLayout* layout = type != TYP_STRUCT ? nullptr : typGetObjLayout(fieldInfo.structType);
+
     if ((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
         (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
         (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER))
     {
         GenTree* addr = impImportStaticFieldAddressHelper(opcode, resolvedToken, fieldInfo);
 
+        if ((layout != nullptr) && addr->IsFieldAddr())
+        {
+            addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
+        }
+
         if (opcode == CEE_LDSFLDA)
         {
             return addr;
         }
 
-        var_types type = CorTypeToVarType(fieldInfo.fieldType);
-        GenTree*  indir;
+        GenTree* indir;
 
-        if (varTypeIsStruct(type))
+        if (type == TYP_STRUCT)
         {
-            indir = gtNewObjNode(fieldInfo.structType, addr);
+            indir = gtNewObjNode(layout, addr);
         }
         else
         {
@@ -6297,7 +6315,6 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
     void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
     // We should always be able to access this static's address directly
     assert(pFldAddr == nullptr);
-    var_types type = CorTypeToVarType(fieldInfo.fieldType);
 
     // Replace static read-only fields with constant if possible
     if ((opcode == CEE_LDSFLD) && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) != 0) &&
@@ -6367,6 +6384,11 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
 
             fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
             addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+
+            if (layout != nullptr)
+            {
+                addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
+            }
         }
 
         return addr;
@@ -6409,9 +6431,14 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
 
+        if (layout != nullptr)
+        {
+            addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
+        }
+
         if (type == TYP_STRUCT)
         {
-            indir = gtNewObjNode(fieldInfo.structType, addr);
+            indir = gtNewObjNode(layout, addr);
         }
         else
         {
@@ -12291,22 +12318,53 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
                     }
 
+                    // TODO-MIKE-Review: It seems like this should apply to LDFLDA too,
+                    // for some reason old code only did this for LCLFLD.
+                    if (compIsForInlining() && (opcode == CEE_LDFLD) &&
+                        impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
+                    {
+                        impInlineInfo->thisDereferencedFirst = true;
+                    }
+
                     obj = impCheckForNullPointer(obj);
 
-                    GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
-
-                    if (opcode == CEE_LDFLDA)
+                    // Handle the weird case of fields belonging to primitive types. Such fields
+                    // exist in IL/C# but the C# compiler usually does not use them, loading the
+                    // m_value field of Int32 is done using ldind.i4 instead of ldfld for example.
+                    // However, the C# compiler does not perform this transform when the address
+                    // of the field is taken - it does emit ldflda m_value. Roslyn bug?
+                    // Also, the C# compiler does not perform any transform in (U)IntPtr, as if
+                    // these are normal structs. But the runtime does report them as primitives
+                    // to the JIT so we can end up with an INT/LONG value and a field sequence
+                    // for a field that doesn't exist as far as the JIT is concerned.
+                    if (varTypeIsArithmetic(lclTyp) &&
+                        (lclTyp == CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass))))
                     {
-                        op1 = addr;
+                        if (opcode == CEE_LDFLDA)
+                        {
+                            // TODO-MIKE-Fix: This likely needs a NULLCHECK but it's not worth the trouble
+                            // now given the very specific cases that hit this - float/double.GetHashCode,
+                            // where the address is immediately dereferenced.
+                            op1 = obj;
+                        }
+                        else
+                        {
+                            op1 = gtNewOperNode(GT_IND, lclTyp, obj);
+                        }
+
+                        fieldInfo.structType = NO_CLASS_HANDLE;
                     }
                     else
                     {
-                        op1 = gtNewFieldIndir(lclTyp, addr);
+                        GenTreeFieldAddr* addr = impImportFieldAddr(obj, resolvedToken, fieldInfo);
 
-                        if (compIsForInlining() &&
-                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
+                        if (opcode == CEE_LDFLDA)
                         {
-                            impInlineInfo->thisDereferencedFirst = true;
+                            op1 = addr;
+                        }
+                        else
+                        {
+                            op1 = gtNewFieldIndir(lclTyp, addr);
                         }
                     }
                 }
