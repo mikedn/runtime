@@ -3956,8 +3956,9 @@ public:
     ValueNum vnCoerceStoreValue(GenTree* store, GenTree* value, var_types fieldType, ClassLayout* fieldLayout);
     ValueNum vnInsertStructField(
         GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq);
-    void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);
+    void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
+    void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnLocalFieldLoad(GenTreeLclFld* load);
     ValueNum vnAddField(GenTreeOp* add);
     void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);

@@ -4191,9 +4191,13 @@ void Compiler::vnAssignment(GenTreeOp* asg)
         store->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
     }
 
-    if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (store->OperIs(GT_LCL_VAR))
     {
-        vnLocalStore(store->AsLclVarCommon(), asg, value);
+        vnLocalStore(store->AsLclVar(), asg, value);
+    }
+    else if (store->OperIs(GT_LCL_FLD))
+    {
+        vnLocalFieldStore(store->AsLclFld(), asg, value);
     }
     else
     {
@@ -4299,9 +4303,9 @@ ValueNum Compiler::vnInsertStructField(
     return valueVN;
 }
 
-void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
+void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
 {
-    assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
 
     LclVarDsc* lcl = lvaGetDesc(store);
@@ -4353,52 +4357,10 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
         }
     }
 
-    unsigned lclDefSsaNum = store->GetSsaNum();
-
-    if (GenTreeLclFld* lclFld = store->IsLclFld())
-    {
-        assert(((lclFld->gtFlags & GTF_VAR_USEASG) != 0) == lclFld->IsPartialLclFld(this));
-
-        if (!lclFld->HasFieldSeq())
-        {
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
-        }
-        else
-        {
-            ValueNumPair currentVNP;
-
-            if ((store->gtFlags & GTF_VAR_USEASG) == 0)
-            {
-                // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
-                // just insert the new value into a zero map.
-                currentVNP.SetBoth(vnStore->VNForZeroMap());
-            }
-            else
-            {
-                currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
-            }
-
-            valueVNP = vnStore->MapInsertStructField(currentVNP, lcl->GetType(), lclFld->GetFieldSeq(), valueVNP,
-                                                     lclFld->GetType());
-        }
-
-        lclDefSsaNum = GetSsaNumForLocalVarDef(store);
-    }
-
-    lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(valueVNP);
+    lcl->GetPerSsaData(store->GetSsaNum())->SetVNP(valueVNP);
     store->SetVNP(valueVNP);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("[%06u] ", store->GetID());
-        gtDispNodeName(store);
-        gtDispLeaf(store, nullptr);
-        printf(" => ");
-        vnpPrint(valueVNP, 1);
-        printf("\n");
-    }
-#endif
+    vnTraceLocal(store->GetLclNum(), valueVNP);
 }
 
 void Compiler::vnLocalLoad(GenTreeLclVar* load)
@@ -4462,6 +4424,91 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
     }
 
     load->SetVNP(vnp);
+}
+
+void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)
+{
+    assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
+
+    LclVarDsc* lcl = lvaGetDesc(store);
+
+    if (lcl->IsAddressExposed())
+    {
+        vnClearByRefExposed(asg);
+
+        return;
+    }
+
+    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
+
+    if (!lcl->IsInSsa())
+    {
+        return;
+    }
+
+    ValueNumPair valueVNP;
+
+    if (store->TypeIs(TYP_STRUCT) && value->OperIs(GT_CNS_INT))
+    {
+        assert(value->AsIntCon()->GetValue() == 0);
+
+        valueVNP.SetBoth(vnStore->VNForZeroMap());
+    }
+    else
+    {
+        valueVNP = vnStore->VNPNormalPair(value->GetVNP());
+
+        if (value->GetType() != store->GetType())
+        {
+            // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo
+            // small int. While we could narrow the value here it's not clear if there's a good reason to do it
+            // because we may also need to do it when loading. And using the signedness of the value's type doesn't
+            // make a lot of sense since for small int type the value is really INT and the signedness does not matter.
+            // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
+            // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
+            // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
+            bool fromUnsigned = varTypeIsUnsigned(value->GetType());
+            valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+        }
+
+        if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
+        {
+            // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+            // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
+        }
+    }
+
+    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
+
+    if (!store->HasFieldSeq())
+    {
+        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+    }
+    else
+    {
+        ValueNumPair currentVNP;
+
+        if ((store->gtFlags & GTF_VAR_USEASG) == 0)
+        {
+            // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
+            // just insert the new value into a zero map.
+            currentVNP.SetBoth(vnStore->VNForZeroMap());
+        }
+        else
+        {
+            currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
+        }
+
+        valueVNP =
+            vnStore->MapInsertStructField(currentVNP, lcl->GetType(), store->GetFieldSeq(), valueVNP, store->GetType());
+    }
+
+    lcl->GetPerSsaData(GetSsaNumForLocalVarDef(store))->SetVNP(valueVNP);
+    store->SetVNP(valueVNP);
+
+    vnTraceLocal(store->GetLclNum(), valueVNP);
 }
 
 void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
