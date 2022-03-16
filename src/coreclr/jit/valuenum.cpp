@@ -4430,6 +4430,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 {
     assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
+    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
 
     LclVarDsc* lcl = lvaGetDesc(store);
 
@@ -4449,45 +4450,44 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 
     ValueNumPair valueVNP;
 
-    if (store->TypeIs(TYP_STRUCT) && value->OperIs(GT_CNS_INT))
-    {
-        assert(value->AsIntCon()->GetValue() == 0);
-
-        valueVNP.SetBoth(vnStore->VNForZeroMap());
-    }
-    else
-    {
-        valueVNP = vnStore->VNPNormalPair(value->GetVNP());
-
-        if (value->GetType() != store->GetType())
-        {
-            // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo
-            // small int. While we could narrow the value here it's not clear if there's a good reason to do it
-            // because we may also need to do it when loading. And using the signedness of the value's type doesn't
-            // make a lot of sense since for small int type the value is really INT and the signedness does not matter.
-            // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
-            // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
-            // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
-            bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-            valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
-        }
-
-        if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-        {
-            // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-            // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
-        }
-    }
-
-    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
-
     if (!store->HasFieldSeq())
     {
         valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
     }
     else
     {
+        if (store->TypeIs(TYP_STRUCT) && value->OperIs(GT_CNS_INT))
+        {
+            assert(value->AsIntCon()->GetValue() == 0);
+
+            valueVNP.SetBoth(vnStore->VNForZeroMap());
+        }
+        else
+        {
+            valueVNP = vnStore->VNPNormalPair(value->GetVNP());
+
+            if (value->GetType() != store->GetType())
+            {
+                // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo
+                // small int. While we could narrow the value here it's not clear if there's a good reason to do it
+                // because we may also need to do it when loading. And using the signedness of the value's type doesn't
+                // make a lot of sense since for small int type the value is really INT and the signedness does not
+                // matter.
+                // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
+                // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also
+                // handled below by replacing the value VN with a new, unique one. So why bother casting to begin with?
+                bool fromUnsigned = varTypeIsUnsigned(value->GetType());
+                valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+            }
+
+            if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
+            {
+                // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
+                // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
+                valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
+            }
+        }
+
         ValueNumPair currentVNP;
 
         if ((store->gtFlags & GTF_VAR_USEASG) == 0)
