@@ -4201,6 +4201,104 @@ void Compiler::vnAssignment(GenTreeOp* asg)
     }
 }
 
+ValueNum Compiler::vnCoerceStoreValue(GenTree* store, GenTree* value, var_types fieldType, ClassLayout* fieldLayout)
+{
+    // TODO-MIKE-CQ: Currently struct stores are not handled.
+    assert(!store->TypeIs(TYP_STRUCT));
+
+    unsigned fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
+    unsigned storeSize = varTypeSize(store->GetType());
+
+    if (storeSize > fieldSize)
+    {
+        // This store is wider than the field so it may modify other fields, leave it to the
+        // caller to handle as the outcome depends on context (e.g. wider store to a static
+        // field can still be treated as modifying only that static field, it could modify
+        // other static fields but that's undefined behaviour and can be ignored).
+        return NoVN;
+    }
+
+    if (storeSize < fieldSize)
+    {
+        // This store modifies only a part of the field, just store a new, unique value for now.
+        // We could probably merge with the existing value but but that's probably not worthwhile now.
+        return vnStore->VNForExpr(compCurBB, fieldType);
+    }
+
+    ValueNum  valueVN      = vnStore->VNNormalValue(value->GetLiberalVN());
+    var_types valueType    = varActualType(vnStore->TypeOfVN(valueVN));
+    var_types expectedType = varActualType(fieldType);
+
+    if (valueType != expectedType)
+    {
+        // printf("%s %s\n", varTypeName(valueType), varTypeName(expectedType));
+
+        if ((valueType == TYP_LONG) && (expectedType == TYP_INT))
+        {
+            valueVN = vnStore->VNForCast(valueVN, TYP_INT, TYP_LONG);
+        }
+        else if (varTypeSize(valueType) == varTypeSize(expectedType))
+        {
+            valueVN = vnStore->VNForBitCast(valueVN, expectedType, valueType);
+        }
+        else
+        {
+            valueVN = vnStore->VNForExpr(compCurBB, fieldType);
+        }
+
+        INDEBUG(vnTrace(valueVN));
+    }
+
+    return valueVN;
+}
+
+ValueNum Compiler::vnInsertStructField(
+    GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq)
+{
+    assert(varTypeIsStruct(mapType));
+    assert(!fieldSeq->IsBoxedValueField());
+
+    struct
+    {
+        ClassLayout* fieldLayout;
+        var_types    fieldType;
+        ValueNum     fieldVN;
+        var_types    mapType;
+        ValueNum     mapVN;
+    } fields[FieldSeqNode::MaxLength];
+
+    fields[0].mapVN   = map;
+    fields[0].mapType = mapType;
+
+    unsigned count = 0;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext(), count++)
+    {
+        assert(count < _countof(fields));
+
+        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
+
+        fields[count].fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
+        fields[count].fieldType = vnStore->GetFieldType(fieldHandle, &fields[count].fieldLayout);
+    }
+
+    for (unsigned i = 0; i < count - 1; i++)
+    {
+        fields[i + 1].mapVN   = vnStore->VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
+        fields[i + 1].mapType = fields[i].fieldType;
+    }
+
+    ValueNum valueVN = vnCoerceStoreValue(store, value, fields[count - 1].fieldType, fields[count - 1].fieldLayout);
+
+    for (unsigned i = 1; (i <= count) && (valueVN != NoVN); i++)
+    {
+        valueVN = vnStore->VNForMapStore(fields[count - 1].mapType, fields[count - i].mapVN, fields[count - i].fieldVN,
+                                         valueVN);
+    }
+
+    return valueVN;
+}
+
 void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
@@ -4579,7 +4677,6 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(info.compCompHnd->isFieldStatic(fieldHandle));
-    ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     fieldSeq = fieldSeq->GetNext();
 
@@ -4589,50 +4686,33 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
         fieldSeq = fieldSeq->GetNext();
     }
 
+    ClassLayout* fieldLayout;
+    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
+
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
 
-    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
-        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
-        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
-        // since for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
-
-    ValueNum fieldMapVN;
+    ValueNum valueVN;
 
     if (fieldSeq == nullptr)
     {
-        // TODO-MIKE-Fix: This may need VNApplySelectorsAssignTypeCoerce(valueVN)...
-        fieldMapVN = valueVN;
+        valueVN = vnCoerceStoreValue(store, value, fieldType, fieldLayout);
     }
     else
     {
-        ClassLayout* fieldLayout;
-        var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
-        assert(varTypeIsStruct(fieldType));
-
-        fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
-        fieldMapVN =
-            vnStore->MapInsertStructField(VNK_Liberal, fieldMapVN, fieldType, fieldSeq, valueVN, store->GetType());
+        valueVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
+        valueVN = vnInsertStructField(store, value, VNK_Liberal, valueVN, fieldType, fieldSeq);
     }
 
-    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, fieldMapVN);
+    if (valueVN == NoVN)
+    {
+        // If the store is wider than the field just store a new, unique VN in the field.
+        // The store might modify other static fields but that's undefined behaviour.
+        valueVN = vnStore->VNForExpr(compCurBB, fieldType);
+    }
+
+    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, valueVN);
 }
 
 ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
@@ -4693,51 +4773,38 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(!info.compCompHnd->isFieldStatic(fieldHandle));
-    ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
-    fieldSeq         = fieldSeq->GetNext();
-
-    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
-        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
-        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
-        // since for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
+    fieldSeq = fieldSeq->GetNext();
+    ClassLayout* fieldLayout;
+    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
 
     ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
+    ValueNum valueVN;
 
-    if (fieldSeq != nullptr)
+    if (fieldSeq == nullptr)
     {
-        ClassLayout* fieldLayout;
-        var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
-        assert(varTypeIsStruct(fieldType));
-
-        ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
-        valueVN =
-            vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, fieldSeq, valueVN, store->GetType());
+        valueVN = vnCoerceStoreValue(store, value, fieldType, fieldLayout);
+    }
+    else
+    {
+        valueVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
+        valueVN = vnInsertStructField(store, value, VNK_Liberal, valueVN, fieldType, fieldSeq);
     }
 
-    // TODO-MIKE-Fix: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
-    // previously that was incorrectly done when storing to the heap map. It's
-    // the store value that may need coercion, the field map value is always
-    // treated as if it's a struct.
+    if (valueVN == NoVN)
+    {
+        // If the store is wider than the field then update the entire memory.
+        // TODO-MIKE-CQ: This is overly conservative, in practice such a store can only
+        // modify fields of the same object, anything else (static fields, arrays) can
+        // be modified but it's undefined behaviour and can be igored. We could probably
+        // enumerate this object's fields and store unique values in those that overlap
+        // the store.
+        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
+
     fieldMapVN = vnStore->VNForMapStore(TYP_STRUCT, fieldMapVN, objVN, valueVN);
 
     return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, fieldMapVN);
@@ -4804,40 +4871,33 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
         return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
     }
 
-    // TODO-MIKE-Fix: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN)
-    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
-        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
-        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
-        // since for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
-
     ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, elemTypeVN);
     ValueNum arrayMapVN     = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, arrayTypeMapVN, arrayVN);
 
-    if (fieldSeq != nullptr)
+    ValueNum valueVN;
+
+    if (fieldSeq == nullptr)
     {
-        ValueNum elemVN = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
-        valueVN = vnStore->MapInsertStructField(VNK_Liberal, elemVN, elemType, fieldSeq, valueVN, store->GetType());
+        valueVN = vnCoerceStoreValue(store, value, elemType, elemLayout);
+    }
+    else
+    {
+        valueVN = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
+        valueVN = vnInsertStructField(store, value, VNK_Liberal, valueVN, elemType, fieldSeq);
     }
 
-    arrayMapVN     = vnStore->VNForMapStore(TYP_STRUCT, arrayMapVN, indexVN, valueVN);
-    arrayTypeMapVN = vnStore->VNForMapStore(TYP_STRUCT, arrayTypeMapVN, arrayVN, arrayMapVN);
+    if (valueVN == NoVN)
+    {
+        // If the store is wider than the array element then update the entire array, not just the element.
+        // Of course, such a store may modify other arrays/objects but that's undefined behaviour.
+        arrayTypeMapVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
+    else
+    {
+        arrayMapVN     = vnStore->VNForMapStore(TYP_STRUCT, arrayMapVN, indexVN, valueVN);
+        arrayTypeMapVN = vnStore->VNForMapStore(TYP_STRUCT, arrayTypeMapVN, arrayVN, arrayMapVN);
+    }
+
     return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, arrayTypeMapVN);
 }
 

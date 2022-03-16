@@ -3953,6 +3953,9 @@ public:
 
     void vnComma(GenTreeOp* comma);
     void vnAssignment(GenTreeOp* asg);
+    ValueNum vnCoerceStoreValue(GenTree* store, GenTree* value, var_types fieldType, ClassLayout* fieldLayout);
+    ValueNum vnInsertStructField(
+        GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq);
     void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnLocalFieldLoad(GenTreeLclFld* load);
