@@ -3955,8 +3955,12 @@ public:
     void vnAssignment(GenTreeOp* asg);
     ValueNum vnCoerceStoreValue(
         GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
-    ValueNum vnInsertStructField(
-        GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq);
+    ValueNum vnInsertStructField(GenTree*      store,
+                                 GenTree*      value,
+                                 ValueNumKind  vnk,
+                                 ValueNum      structVN,
+                                 var_types     structType,
+                                 FieldSeqNode* fieldSeq);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);

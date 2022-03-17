@@ -4173,23 +4173,22 @@ ValueNum Compiler::vnCoerceStoreValue(
 }
 
 ValueNum Compiler::vnInsertStructField(
-    GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq)
+    GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum structVN, var_types structType, FieldSeqNode* fieldSeq)
 {
-    assert(varTypeIsStruct(mapType));
+    assert(varTypeIsStruct(structType));
 
     struct
     {
-        ClassLayout* fieldLayout;
-        var_types    fieldType;
+        ClassLayout* layout;
         ValueNum     fieldVN;
-        var_types    mapType;
-        ValueNum     mapVN;
-    } fields[FieldSeqNode::MaxLength];
+        ValueNum     valueVN;
+        var_types    type;
+    } fields[1 + FieldSeqNode::MaxLength];
 
-    fields[0].mapVN   = map;
-    fields[0].mapType = mapType;
+    fields[0].valueVN = structVN;
+    fields[0].type    = structType;
 
-    unsigned count = 0;
+    unsigned count = 1;
 
     for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext(), count++)
     {
@@ -4197,23 +4196,30 @@ ValueNum Compiler::vnInsertStructField(
 
         CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
 
-        fields[count].fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
-        fields[count].fieldType = vnStore->GetFieldType(fieldHandle, &fields[count].fieldLayout);
+        fields[count].fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
+        fields[count].type    = vnStore->GetFieldType(fieldHandle, &fields[count].layout);
     }
 
-    for (unsigned i = 0; i < count - 1; i++)
+    auto&    last    = fields[count - 1];
+    ValueNum valueVN = vnCoerceStoreValue(store, value, vnk, last.type, last.layout);
+
+    if (valueVN == NoVN)
     {
-        fields[i + 1].mapVN   = vnStore->VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
-        fields[i + 1].mapType = fields[i].fieldType;
+        return NoVN;
     }
 
-    ValueNum valueVN =
-        vnCoerceStoreValue(store, value, vnk, fields[count - 1].fieldType, fields[count - 1].fieldLayout);
-
-    for (unsigned i = 1; (i <= count) && (valueVN != NoVN); i++)
+    for (unsigned i = 1; i < count - 1; i++)
     {
-        valueVN = vnStore->VNForMapStore(fields[count - 1].mapType, fields[count - i].mapVN, fields[count - i].fieldVN,
-                                         valueVN);
+        auto& current   = fields[i];
+        auto& prev      = fields[i - 1];
+        current.valueVN = vnStore->VNForMapSelect(vnk, current.type, prev.valueVN, current.fieldVN);
+    }
+
+    for (unsigned i = count - 1; i > 0; i--)
+    {
+        auto& current = fields[i];
+        auto& prev    = fields[i - 1];
+        valueVN       = vnStore->VNForMapStore(prev.type, prev.valueVN, current.fieldVN, valueVN);
     }
 
     return valueVN;
@@ -4276,7 +4282,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
     lcl->GetPerSsaData(store->GetSsaNum())->SetVNP(valueVNP);
     store->SetVNP(valueVNP);
 
-    vnTraceLocal(store->GetLclNum(), valueVNP);
+    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
 }
 
 void Compiler::vnLocalLoad(GenTreeLclVar* load)
@@ -4407,7 +4413,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
     lcl->GetPerSsaData(GetSsaNumForLocalVarDef(store))->SetVNP(valueVNP);
     store->SetVNP(valueVNP);
 
-    vnTraceLocal(store->GetLclNum(), valueVNP);
+    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
 }
 
 void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
