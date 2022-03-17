@@ -3603,24 +3603,6 @@ ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
     return vn;
 }
 
-var_types ValueNumStore::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
-{
-    CORINFO_CLASS_HANDLE typeHandle = NO_CLASS_HANDLE;
-    var_types            type = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle, &typeHandle));
-
-    if (type == TYP_STRUCT)
-    {
-        *fieldLayout = m_pComp->typGetObjLayout(typeHandle);
-        type         = m_pComp->typGetStructType(*fieldLayout);
-    }
-    else
-    {
-        *fieldLayout = nullptr;
-    }
-
-    return type;
-}
-
 ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
 {
     ValueNum vn = VNForHostPtr(fieldHandle);
@@ -3638,82 +3620,6 @@ ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
 #endif
 
     return vn;
-}
-
-ValueNum ValueNumStore::MapExtractStructField(ValueNumKind  vnk,
-                                              ValueNum      map,
-                                              FieldSeqNode* fieldSeq,
-                                              var_types     loadType)
-{
-    ClassLayout* fieldLayout = nullptr;
-
-    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
-    {
-        noway_assert(fieldSeq->IsField());
-
-        var_types fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
-        map                 = VNForMapSelect(vnk, fieldType, map, VNForFieldSeqHandle(fieldSeq->GetFieldHandle()));
-    }
-
-    return VNApplySelectorsTypeCheck(map, fieldLayout, loadType);
-}
-
-ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType)
-{
-    ClassLayout* fieldLayout = nullptr;
-    var_types    fieldType;
-
-    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
-    {
-        noway_assert(fieldSeq->IsField());
-
-        fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
-
-        ValueNum fieldVN = VNForFieldSeqHandle(fieldSeq->GetFieldHandle());
-        map.SetLiberal(VNForMapSelect(VNK_Liberal, fieldType, map.GetLiberal(), fieldVN));
-        map.SetConservative(VNForMapSelect(VNK_Conservative, fieldType, map.GetConservative(), fieldVN));
-    }
-
-    map.SetLiberal(VNApplySelectorsTypeCheck(map.GetLiberal(), fieldLayout, loadType));
-    map.SetConservative(VNApplySelectorsTypeCheck(map.GetConservative(), fieldLayout, loadType));
-
-    return map;
-}
-
-ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)
-{
-    assert(vn == VNNormalValue(vn));
-
-    var_types type = TypeOfVN(vn);
-
-    if (loadType == type)
-    {
-        return vn;
-    }
-
-    unsigned structSize = layout == nullptr ? 0 : layout->GetSize();
-    unsigned size       = (type == TYP_STRUCT) ? structSize : varTypeSize(type);
-    unsigned loadSize   = varTypeSize(loadType);
-
-    if (loadSize > size)
-    {
-        JITDUMP("    *** Value of size %u loaded as wider type %s\n", size, varTypeName(loadType));
-        // TODO-MIKE-Fix: Using VNForExpr with compCurBB here and below is highly suspect.
-        // These are loads, one way or another they use memory that may have been defined
-        // in a block different than the current one.
-        return VNForExpr(m_pComp->compCurBB, TypeOfVN(vn));
-    }
-
-    if (varTypeIsStruct(loadType))
-    {
-        JITDUMP("    *** Value of type %s loaded as %s\n", varTypeName(type), varTypeName(loadType));
-        return VNForExpr(m_pComp->compCurBB, TypeOfVN(vn));
-    }
-
-    // TODO-MIKE-Fix: This is nonsense in reinterpretation case (e.g. load INT field as FLOAT).
-    // It produces a VNF_Cast as if it is a INT to FLOAT cast but this is actually a bitcast.
-    // See vn-ind-reinterpret.il.
-    return VNForCast(vn, loadType, type);
 }
 
 ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
@@ -4172,6 +4078,24 @@ ValueNum Compiler::vnCoerceStoreValue(
     return valueVN;
 }
 
+var_types Compiler::vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
+{
+    CORINFO_CLASS_HANDLE typeHandle = NO_CLASS_HANDLE;
+    var_types            type       = CorTypeToVarType(info.compCompHnd->getFieldType(fieldHandle, &typeHandle));
+
+    if (type == TYP_STRUCT)
+    {
+        *fieldLayout = typGetObjLayout(typeHandle);
+        type         = typGetStructType(*fieldLayout);
+    }
+    else
+    {
+        *fieldLayout = nullptr;
+    }
+
+    return type;
+}
+
 ValueNum Compiler::vnInsertStructField(
     GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum structVN, var_types structType, FieldSeqNode* fieldSeq)
 {
@@ -4197,7 +4121,7 @@ ValueNum Compiler::vnInsertStructField(
         CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
 
         fields[count].fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
-        fields[count].type    = vnStore->GetFieldType(fieldHandle, &fields[count].layout);
+        fields[count].type    = vnGetFieldType(fieldHandle, &fields[count].layout);
     }
 
     auto&    last    = fields[count - 1];
@@ -4223,6 +4147,81 @@ ValueNum Compiler::vnInsertStructField(
     }
 
     return valueVN;
+}
+
+ValueNum Compiler::vnExtractStructField(var_types loadType, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq)
+{
+    ClassLayout* fieldLayout = nullptr;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+    {
+        noway_assert(fieldSeq->IsField());
+
+        var_types fieldType = vnGetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
+        ValueNum  fieldVN   = vnStore->VNForFieldSeqHandle(fieldSeq->GetFieldHandle());
+
+        structVN = vnStore->VNForMapSelect(vnk, fieldType, structVN, fieldVN);
+    }
+
+    return vnApplySelectorsTypeCheck(structVN, fieldLayout, loadType);
+}
+
+ValueNumPair Compiler::vnExtractStructField(var_types loadType, ValueNumPair structVNP, FieldSeqNode* fieldSeq)
+{
+    ClassLayout* fieldLayout = nullptr;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+    {
+        noway_assert(fieldSeq->IsField());
+
+        var_types fieldType = vnGetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
+        ValueNum  fieldVN   = vnStore->VNForFieldSeqHandle(fieldSeq->GetFieldHandle());
+
+        structVNP.SetLiberal(vnStore->VNForMapSelect(VNK_Liberal, fieldType, structVNP.GetLiberal(), fieldVN));
+        structVNP.SetConservative(
+            vnStore->VNForMapSelect(VNK_Conservative, fieldType, structVNP.GetConservative(), fieldVN));
+    }
+
+    structVNP.SetLiberal(vnApplySelectorsTypeCheck(structVNP.GetLiberal(), fieldLayout, loadType));
+    structVNP.SetConservative(vnApplySelectorsTypeCheck(structVNP.GetConservative(), fieldLayout, loadType));
+
+    return structVNP;
+}
+
+ValueNum Compiler::vnApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)
+{
+    assert(vn == VNNormalValue(vn));
+
+    var_types type = vnStore->TypeOfVN(vn);
+
+    if (loadType == type)
+    {
+        return vn;
+    }
+
+    unsigned structSize = layout == nullptr ? 0 : layout->GetSize();
+    unsigned size       = (type == TYP_STRUCT) ? structSize : varTypeSize(type);
+    unsigned loadSize   = varTypeSize(loadType);
+
+    if (loadSize > size)
+    {
+        JITDUMP("    *** Value of size %u loaded as wider type %s\n", size, varTypeName(loadType));
+        // TODO-MIKE-Fix: Using VNForExpr with compCurBB here and below is highly suspect.
+        // These are loads, one way or another they use memory that may have been defined
+        // in a block different than the current one.
+        return vnStore->VNForExpr(compCurBB, vnStore->TypeOfVN(vn));
+    }
+
+    if (varTypeIsStruct(loadType))
+    {
+        JITDUMP("    *** Value of type %s loaded as %s\n", varTypeName(type), varTypeName(loadType));
+        return vnStore->VNForExpr(compCurBB, vnStore->TypeOfVN(vn));
+    }
+
+    // TODO-MIKE-Fix: This is nonsense in reinterpretation case (e.g. load INT field as FLOAT).
+    // It produces a VNF_Cast as if it is a INT to FLOAT cast but this is actually a bitcast.
+    // See vn-ind-reinterpret.il.
+    return vnStore->VNForCast(vn, loadType, type);
 }
 
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
@@ -4433,7 +4432,7 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
         assert(varTypeIsStruct(lcl->GetType()));
 
         vnp = lcl->GetPerSsaData(load->GetSsaNum())->GetVNP();
-        vnp = vnStore->MapExtractStructField(vnp, load->GetFieldSeq(), load->GetType());
+        vnp = vnExtractStructField(load->GetType(), vnp, load->GetFieldSeq());
     }
 
     load->SetVNP(vnp);
@@ -4639,7 +4638,7 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     }
 
     ClassLayout* fieldLayout;
-    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
@@ -4672,7 +4671,7 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(info.compCompHnd->isFieldStatic(fieldHandle));
     ClassLayout* fieldLayout;
-    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     fieldSeq = fieldSeq->GetNext();
@@ -4707,11 +4706,11 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
 
     if (fieldSeq != nullptr)
     {
-        return vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq, load->GetType());
+        return vnExtractStructField(load->GetType(), VNK_Liberal, vn, fieldSeq);
     }
     else
     {
-        return vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, load->GetType());
+        return vnApplySelectorsTypeCheck(vn, fieldLayout, load->GetType());
     }
 }
 
@@ -4727,7 +4726,7 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
     assert(!info.compCompHnd->isFieldStatic(fieldHandle));
     fieldSeq = fieldSeq->GetNext();
     ClassLayout* fieldLayout;
-    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
@@ -4769,7 +4768,7 @@ ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNo
     ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
     fieldSeq         = fieldSeq->GetNext();
     ClassLayout* fieldLayout;
-    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
 
     ValueNum vn = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(vn));
@@ -4779,11 +4778,11 @@ ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNo
 
     if (fieldSeq != nullptr)
     {
-        return vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq, load->GetType());
+        return vnExtractStructField(load->GetType(), VNK_Liberal, vn, fieldSeq);
     }
     else
     {
-        return vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, load->GetType());
+        return vnApplySelectorsTypeCheck(vn, fieldLayout, load->GetType());
     }
 }
 
@@ -4890,11 +4889,11 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
 
     if (fieldSeq != nullptr)
     {
-        valueVN = vnStore->MapExtractStructField(VNK_Liberal, valueVN, fieldSeq, load->GetType());
+        valueVN = vnExtractStructField(load->GetType(), VNK_Liberal, valueVN, fieldSeq);
     }
     else
     {
-        valueVN = vnStore->VNApplySelectorsTypeCheck(valueVN, elemLayout, load->GetType());
+        valueVN = vnApplySelectorsTypeCheck(valueVN, elemLayout, load->GetType());
     }
 
     return valueVN;

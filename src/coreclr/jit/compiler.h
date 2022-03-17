@@ -3955,12 +3955,16 @@ public:
     void vnAssignment(GenTreeOp* asg);
     ValueNum vnCoerceStoreValue(
         GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
+    var_types vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
     ValueNum vnInsertStructField(GenTree*      store,
                                  GenTree*      value,
                                  ValueNumKind  vnk,
                                  ValueNum      structVN,
                                  var_types     structType,
                                  FieldSeqNode* fieldSeq);
+    ValueNum vnExtractStructField(var_types loadType, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
+    ValueNumPair vnExtractStructField(var_types loadType, ValueNumPair structVN, FieldSeqNode* fieldSeq);
+    ValueNum vnApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);

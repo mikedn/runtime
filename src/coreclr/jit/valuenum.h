@@ -567,13 +567,6 @@ public:
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
 
-    var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
-
-    ValueNum MapExtractStructField(ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types loadType);
-    ValueNumPair MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType);
-
-    ValueNum VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
-
     ValueNum VNForBitCast(ValueNum src, var_types toType, var_types fromType);
 
     // Compute the normal ValueNumber for a cast with no exceptions
