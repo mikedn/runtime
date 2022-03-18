@@ -3382,13 +3382,12 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 
 GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany)
 {
-    // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
     GenTreeLclFld* destPtrField = gtNewLclFldNode(tempLclNum, TYP_BYREF, OFFSETOF__CORINFO_TypedReference__dataPtr);
-    destPtrField->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyValueField()));
+    destPtrField->SetFieldSeq(GetRefanyValueField());
     GenTree* asgPtrField = gtNewAssignNode(destPtrField, mkrefany->GetOp(0));
 
     GenTreeLclFld* destTypeField = gtNewLclFldNode(tempLclNum, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
-    destTypeField->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
+    destTypeField->SetFieldSeq(GetRefanyTypeField());
     GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
 
     return gtNewCommaNode(asgPtrField, asgTypeField);

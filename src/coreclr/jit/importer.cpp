@@ -1032,9 +1032,6 @@ GenTree* Compiler::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
     GenTree* destAddrUses[2];
     impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
 
-    // TODO-MIKE-Fix: This isn't right, the value field is ByReference<T> now.
-    // The field is accessed by TypedReference.IsNull, which is only called from
-    // RtFieldInfo.Get/SetValueDirect so chances that this causes problems are slim.
     GenTree* valueField = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(),
                                                                     OFFSETOF__CORINFO_TypedReference__dataPtr));
     impAppendTree(gtNewAssignNode(valueField, mkRefAny->GetOp(0)), curLevel, impCurStmtOffs);
@@ -3338,9 +3335,9 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
                 CORINFO_FIELD_HANDLE ptrHnd    = info.compCompHnd->getFieldInClass(clsHnd, 0);
                 const unsigned       ptrOffset = info.compCompHnd->getFieldOffset(ptrHnd);
-                // TODO-MIKE-Fix: This isn't right, the _pointer field of Span is ByReference<T> so we need
-                // 2 FIELD_ADDRs, one for the _pointer field and one for ByReference<T>'s own _value field.
-                GenTree* pointer = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrHnd, ptrOffset));
+                FieldSeqNode*        ptrField  = GetByReferenceValueField(ptrHnd);
+
+                GenTree* pointer = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrField, ptrOffset));
                 GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, indexOffset);
 
                 retNode = gtNewCommaNode(boundsCheck, result);
@@ -12873,7 +12870,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     op1 = gtNewLclFldNode(op1->AsLclVar()->GetLclNum(), TYP_I_IMPL,
                                           OFFSETOF__CORINFO_TypedReference__type);
-                    op1->AsLclFld()->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
+                    op1->AsLclFld()->SetFieldSeq(GetRefanyTypeField());
                 }
                 else
                 {

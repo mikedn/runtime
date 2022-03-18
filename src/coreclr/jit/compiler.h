@@ -2082,6 +2082,7 @@ public:
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
+    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
 
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
@@ -8401,21 +8402,33 @@ public:
 
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
     CORINFO_CLASS_HANDLE m_refAnyClass;
-    CORINFO_FIELD_HANDLE GetRefanyValueField()
+    FieldSeqNode*        GetRefanyValueField()
     {
         if (m_refAnyClass == nullptr)
         {
             m_refAnyClass = info.compCompHnd->getBuiltinClass(CLASSID_TYPED_BYREF);
         }
-        return info.compCompHnd->getFieldInClass(m_refAnyClass, 0);
+        return GetByReferenceValueField(info.compCompHnd->getFieldInClass(m_refAnyClass, 0));
     }
-    CORINFO_FIELD_HANDLE GetRefanyTypeField()
+    FieldSeqNode* GetRefanyTypeField()
     {
         if (m_refAnyClass == nullptr)
         {
             m_refAnyClass = info.compCompHnd->getBuiltinClass(CLASSID_TYPED_BYREF);
         }
-        return info.compCompHnd->getFieldInClass(m_refAnyClass, 1);
+        return GetFieldSeqStore()->CreateSingleton(info.compCompHnd->getFieldInClass(m_refAnyClass, 1));
+    }
+
+    FieldSeqNode* GetByReferenceValueField(CORINFO_FIELD_HANDLE byRefFieldHandle)
+    {
+        CORINFO_CLASS_HANDLE byRefStructType;
+        CorInfoType          byRefType = info.compCompHnd->getFieldType(byRefFieldHandle, &byRefStructType);
+        assert((byRefType == CORINFO_TYPE_VALUECLASS) && (byRefStructType != NO_CLASS_HANDLE));
+        CORINFO_FIELD_HANDLE valueFieldHandle = info.compCompHnd->getFieldInClass(byRefStructType, 0);
+        assert(info.compCompHnd->getFieldOffset(valueFieldHandle) == 0);
+        assert(info.compCompHnd->getFieldType(valueFieldHandle) == CORINFO_TYPE_BYREF);
+        FieldSeqStore* fieldStore = GetFieldSeqStore();
+        return fieldStore->Append(fieldStore->CreateSingleton(byRefFieldHandle), valueFieldHandle);
     }
 
 #if VARSET_COUNTOPS
