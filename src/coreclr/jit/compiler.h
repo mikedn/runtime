@@ -3962,9 +3962,9 @@ public:
                                  ValueNum      structVN,
                                  var_types     structType,
                                  FieldSeqNode* fieldSeq);
-    ValueNum vnExtractStructField(var_types loadType, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
-    ValueNumPair vnExtractStructField(var_types loadType, ValueNumPair structVN, FieldSeqNode* fieldSeq);
-    ValueNum vnApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
+    ValueNum vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
+    ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
+    ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
