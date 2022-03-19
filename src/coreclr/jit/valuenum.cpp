@@ -4053,19 +4053,55 @@ ValueNum Compiler::vnCoerceStoreValue(
         return vnStore->VNForExpr(compCurBB, fieldType);
     }
 
-    ValueNum  valueVN      = vnStore->VNNormalValue(value->GetVN(vnk));
-    var_types valueType    = varActualType(vnStore->TypeOfVN(valueVN));
-    var_types expectedType = varActualType(fieldType);
+    ValueNum  valueVN   = vnStore->VNNormalValue(value->GetVN(vnk));
+    var_types valueType = vnStore->TypeOfVN(valueVN);
 
-    if (valueType != expectedType)
+    // TODO-MIKE-Fix: This isn't right, the constant may be to large for the field type and
+    // we don't truncate here nor when loading. This allows something like 256 to propagate
+    // through a byte field...
+
+    if (vnStore->IsVNConstant(valueVN) && (valueType == varActualType(fieldType)))
     {
-        if ((valueType == TYP_LONG) && (expectedType == TYP_INT))
+        return valueVN;
+    }
+
+    // TODO-MIKE-CQ: Value numbering of small int load/stores is messy and may cause CQ issues.
+    // Stores do not truncate the stored values, loads do not widen the loaded value to INT.
+    // Truncation might not be necessary but the lack of explicit load widening (e.g. VNF_Cast)
+    // is problematic as it may produce different value numbers for the same value. If we store
+    // an INT value into a SHORT field and then load a SHORT the resulting value number should
+    // be the same as the value number of a CAST from INT to SHORT. But the type of CAST is INT
+    // so according to this check it doesn't fit into the field and we get a unique VN. The old
+    // code did generate a VNF_Cast here but surprise, VNForCast doesn't attempt to eliminate
+    // redundant casts and we end up with:
+    //     CAST(x) = VNF_Cast<INT, SHORT>(x)
+    //     LOAD<SHORT>(STORE<SHORT>(x) = VNF_Cast<INT, SHORT>(VNF_Cast<INT, SHORT>(x))
+    // which is pretty much pointless, pointless enough that generating a unique number in this
+    // case results in no diffs.
+    // What probably needs to be done is:
+    //   - allow storing INT values to small int fields here
+    //   - widen loads from small int fields (add VNF_Cast in vnCoerceLoadValue when the field
+    //     type is small int)
+    //   - ensure that VNForCast deals with redundant casts
+    // It's not clear if storing to small int fields should truncate. If loads are guaranteed
+    // to perform widening it seems unnecessary to do anything when storing. Besides, it's not
+    // even clear what truncation means anyway - VNF_Cast to field's small int type? That's
+    // not quite right as that really produces an INT value, the JIT doesn't have a notion of
+    // small int values. Also, there's a pretty good chance to have stores without subsequent
+    // loads in the same method so truncation will just allocate a useless value number. So
+    // probably no truncation it is.
+    // All this may also allow elimination of small int typed value numbers. They just cause
+    // confusion and waste memory due to how value number "chunks" are managed.
+
+    if (valueType != fieldType)
+    {
+        if ((valueType == TYP_LONG) && (fieldType == TYP_INT))
         {
             valueVN = vnStore->VNForCast(valueVN, TYP_INT, TYP_LONG);
         }
-        else if (varTypeSize(valueType) == varTypeSize(expectedType))
+        else if ((varTypeSize(valueType) == varTypeSize(fieldType)) && !varTypeIsSmall(valueType))
         {
-            valueVN = vnStore->VNForBitCast(valueVN, expectedType, valueType);
+            valueVN = vnStore->VNForBitCast(valueVN, fieldType, valueType);
         }
         else
         {
@@ -4111,7 +4147,7 @@ ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types 
         return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
     }
 
-    if ((loadType == fieldType) && !varTypeIsSmall(loadType))
+    if (loadType == fieldType)
     {
         return valueVN;
     }
