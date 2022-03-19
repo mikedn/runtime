@@ -3954,6 +3954,12 @@ public:
 
     void vnComma(GenTreeOp* comma);
     void vnAssignment(GenTreeOp* asg);
+    ValueNum vnCastStruct(ValueNumKind         vnk,
+                          ValueNum             valueVN,
+                          CORINFO_CLASS_HANDLE fromClassHandle,
+                          CORINFO_CLASS_HANDLE toClassHandle);
+    ValueNum vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout);
+    ValueNumPair vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout);
     ValueNum vnCoerceStoreValue(
         GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
     var_types vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);

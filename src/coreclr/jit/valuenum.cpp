@@ -2109,6 +2109,8 @@ ValueNum ValueNumStore::VNForFunc(
 
 ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum mapVN, ValueNum indexVN, ValueNum valueVN)
 {
+    assert(varTypeIsStruct(typ));
+
     BasicBlock* const            bb      = m_pComp->compCurBB;
     BasicBlock::loopNumber const loopNum = bb->bbNatLoopNum;
     ValueNum const               result  = VNForFunc(typ, VNF_MapStore, mapVN, indexVN, valueVN, loopNum);
@@ -4018,23 +4020,156 @@ void Compiler::vnAssignment(GenTreeOp* asg)
     }
 }
 
+ValueNum Compiler::vnCastStruct(ValueNumKind         vnk,
+                                ValueNum             valueVN,
+                                CORINFO_CLASS_HANDLE fromClassHandle,
+                                CORINFO_CLASS_HANDLE toClassHandle)
+{
+    // IR allows assignment of structs with different layout. This is problematic for
+    // value numbering because "maps" used to represent struct values are indexed by
+    // field handles rather than field offsets. If the layout is different then field
+    // handles may also be different and we end up with stores that are effectively
+    // aliased but aren't treated as such: assign a map containing field X to a local
+    // that has a field Y at the same offset, store something to field Y of the local
+    // then load field X - we'll get back the value originally stored in field X, not
+    // the value stored in field Y.
+    //
+    // Create a map by extracting field values from the original map and inserting
+    // into an empty map by using field handles from the new struct layout.
+
+    VNFuncApp funcApp;
+    if ((valueVN == vnStore->VNForZeroMap()) ||
+        (vnStore->GetVNFunc(valueVN, &funcApp) && (funcApp.m_func == VNF_MemOpaque)))
+    {
+        return valueVN;
+    }
+
+    ICorJitInfo* vm             = info.compCompHnd;
+    unsigned     fromFieldCount = vm->getClassNumInstanceFields(fromClassHandle);
+    unsigned     toFieldCount   = vm->getClassNumInstanceFields(toClassHandle);
+
+    if (fromFieldCount < toFieldCount)
+    {
+        return NoVN;
+    }
+
+    ValueNum castValueVN          = vnStore->VNForZeroMap();
+    bool     allFieldHandlesEqual = true;
+
+    for (unsigned i = 0; i < toFieldCount; i++)
+    {
+        CORINFO_FIELD_HANDLE fromFieldHandle = vm->getFieldInClass(fromClassHandle, i);
+        CORINFO_FIELD_HANDLE toFieldHandle   = vm->getFieldInClass(toClassHandle, i);
+
+        if (fromFieldHandle != toFieldHandle)
+        {
+            allFieldHandlesEqual = false;
+        }
+
+        unsigned fromOffset = vm->getFieldOffset(fromFieldHandle);
+        unsigned toOffset   = vm->getFieldOffset(toFieldHandle);
+
+        if (fromOffset != toOffset)
+        {
+            return NoVN;
+        }
+
+        CORINFO_CLASS_HANDLE fromFieldClassHandle;
+        var_types            fromFieldType = CorTypeToVarType(vm->getFieldType(fromFieldHandle, &fromFieldClassHandle));
+        CORINFO_CLASS_HANDLE toFieldClassHandle;
+        var_types            toFieldType = CorTypeToVarType(vm->getFieldType(toFieldHandle, &toFieldClassHandle));
+
+        if (fromFieldType != toFieldType)
+        {
+            return NoVN;
+        }
+
+        ValueNum fromFieldVN = vnStore->VNForFieldSeqHandle(fromFieldHandle);
+        ValueNum toFieldVN   = vnStore->VNForFieldSeqHandle(toFieldHandle);
+
+        ValueNum fieldValueVN = vnStore->VNForMapSelect(vnk, fromFieldType, valueVN, fromFieldVN);
+
+        if ((fromFieldType == TYP_STRUCT) && (fromFieldClassHandle != toFieldClassHandle))
+        {
+            fieldValueVN = vnCastStruct(vnk, fieldValueVN, fromFieldClassHandle, toFieldClassHandle);
+
+            if (fieldValueVN == NoVN)
+            {
+                return NoVN;
+            }
+        }
+
+        castValueVN = vnStore->VNForMapStore(TYP_STRUCT, castValueVN, toFieldVN, fieldValueVN);
+    }
+
+    return allFieldHandlesEqual ? valueVN : castValueVN;
+}
+
+ValueNum Compiler::vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout)
+{
+    valueVN = vnCastStruct(vnk, valueVN, fromLayout->GetClassHandle(), toLayout->GetClassHandle());
+
+    if (valueVN == NoVN)
+    {
+        valueVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
+
+    return valueVN;
+}
+
+ValueNumPair Compiler::vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout)
+{
+    return {vnCastStruct(VNK_Liberal, valueVNP.GetLiberal(), fromLayout, toLayout),
+            vnCastStruct(VNK_Conservative, valueVNP.GetConservative(), fromLayout, toLayout)};
+}
+
 ValueNum Compiler::vnCoerceStoreValue(
     GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout)
 {
-    unsigned fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
-    unsigned storeSize;
+    ValueNum  valueVN   = vnStore->VNNormalValue(value->GetVN(vnk));
+    var_types valueType = vnStore->TypeOfVN(valueVN);
 
-    if (!store->TypeIs(TYP_STRUCT))
+    unsigned fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
+    unsigned storeSize = varTypeSize(store->GetType());
+
+    if (store->TypeIs(TYP_STRUCT))
     {
-        storeSize = varTypeSize(store->GetType());
-    }
-    else if (GenTreeLclFld* lclFld = store->IsLclFld())
-    {
-        storeSize = lclFld->GetLayout(this)->GetSize();
-    }
-    else
-    {
-        storeSize = store->AsBlk()->GetLayout()->GetSize();
+        ClassLayout* storeLayout;
+
+        if (GenTreeLclFld* lclFld = store->IsLclFld())
+        {
+            storeLayout = lclFld->GetLayout(this);
+        }
+        else
+        {
+            storeLayout = store->AsBlk()->GetLayout();
+        }
+
+        storeSize = storeLayout->GetSize();
+
+        if (storeSize == fieldSize)
+        {
+            if (value->OperIs(GT_CNS_INT))
+            {
+                assert(value->IsIntegralConst(0));
+                return vnStore->VNZeroForType(fieldType);
+            }
+
+            if (value->TypeIs(TYP_STRUCT))
+            {
+                ClassLayout* valueLayout = typGetStructLayout(value);
+
+                if (valueLayout != fieldLayout)
+                {
+                    valueVN = vnCastStruct(VNK_Liberal, valueVN, valueLayout, fieldLayout);
+                }
+            }
+            else
+            {
+                assert(value->OperIs(GT_INIT_VAL));
+                valueVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+            }
+        }
     }
 
     if (storeSize > fieldSize)
@@ -4052,9 +4187,6 @@ ValueNum Compiler::vnCoerceStoreValue(
         // We could probably merge with the existing value but that's probably not worthwhile now.
         return vnStore->VNForExpr(compCurBB, fieldType);
     }
-
-    ValueNum  valueVN   = vnStore->VNNormalValue(value->GetVN(vnk));
-    var_types valueType = vnStore->TypeOfVN(valueVN);
 
     // TODO-MIKE-Fix: This isn't right, the constant may be to large for the field type and
     // we don't truncate here nor when loading. This allows something like 256 to propagate
@@ -4303,11 +4435,31 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
 
     ValueNumPair valueVNP;
 
-    if (store->TypeIs(TYP_STRUCT) && value->OperIs(GT_CNS_INT))
+    if (store->TypeIs(TYP_STRUCT))
     {
-        assert(value->AsIntCon()->GetValue() == 0);
+        assert(lcl->TypeIs(TYP_STRUCT));
 
-        valueVNP.SetBoth(vnStore->VNForZeroMap());
+        if (value->TypeIs(TYP_STRUCT))
+        {
+            valueVNP = vnStore->VNPNormalPair(value->GetVNP());
+
+            ClassLayout* valueLayout = typGetStructLayout(value);
+
+            if (valueLayout != lcl->GetLayout())
+            {
+                valueVNP = vnCastStruct(valueVNP, valueLayout, lcl->GetLayout());
+            }
+        }
+        else if (value->OperIs(GT_CNS_INT))
+        {
+            assert(value->IsIntegralConst(0));
+            valueVNP.SetBoth(vnStore->VNForZeroMap());
+        }
+        else
+        {
+            assert(value->OperIs(GT_INIT_VAL));
+            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, TYP_STRUCT));
+        }
     }
     else
     {
