@@ -4188,12 +4188,16 @@ ValueNum Compiler::vnCoerceStoreValue(
         return vnStore->VNForExpr(compCurBB, fieldType);
     }
 
-    // TODO-MIKE-Fix: This isn't right, the constant may be to large for the field type and
-    // we don't truncate here nor when loading. This allows something like 256 to propagate
-    // through a byte field...
+    // TODO-MIKE-Cleanup: This special casing is inherited from old code, it's probably not
+    // necessary if the issue described below is properly fixed.
 
     if (vnStore->IsVNConstant(valueVN) && (valueType == varActualType(fieldType)))
     {
+        if (varTypeIsSmall(fieldType))
+        {
+            valueVN = vnStore->VNForCast(valueVN, fieldType, valueType);
+        }
+
         return valueVN;
     }
 
