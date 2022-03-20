@@ -4018,8 +4018,7 @@ public:
     // assignment.)
     void fgValueNumberTree(GenTree* tree);
 
-    // Does value-numbering for a cast tree.
-    void fgValueNumberCastTree(GenTree* tree);
+    void vnCast(GenTreeCast* cast);
 
     // Does value-numbering for a bitcast tree.
     void fgValueNumberBitCastTree(GenTreeUnOp* tree);

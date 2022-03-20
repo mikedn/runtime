@@ -4478,7 +4478,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
             // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
             // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
             // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
-            valueVNP = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType());
+            valueVNP = vnStore->VNForCast(valueVNP, store->GetType(), value->GetType());
         }
 
         if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
@@ -4530,7 +4530,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
         if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
         {
-            vnp = vnStore->VNPairForCast(vnp, TYP_INT, TYP_LONG);
+            vnp = vnStore->VNForCast(vnp, TYP_INT, TYP_LONG);
         }
         else
         {
@@ -7744,7 +7744,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_CAST:
-            fgValueNumberCastTree(tree);
+            vnCast(tree->AsCast());
             break;
 
         case GT_BITCAST:
@@ -8104,19 +8104,17 @@ void Compiler::fgValueNumberBitCastTree(GenTreeUnOp* bitcast)
     bitcast->SetVN(VNK_Conservative, vnStore->VNForBitCast(src->GetVN(VNK_Conservative), toType, fromType));
 }
 
-void Compiler::fgValueNumberCastTree(GenTree* tree)
+void Compiler::vnCast(GenTreeCast* cast)
 {
-    assert(tree->OperGet() == GT_CAST);
+    ValueNumPair valueVNP      = cast->GetOp(0)->GetVNP();
+    var_types    fromType      = cast->GetOp(0)->GetType();
+    bool         fromUnsigned  = cast->IsUnsigned();
+    var_types    toType        = cast->GetCastType();
+    bool         checkOverflow = cast->gtOverflow();
 
-    ValueNumPair srcVNPair        = tree->AsOp()->gtOp1->gtVNPair;
-    var_types    castToType       = tree->CastToType();
-    var_types    castFromType     = tree->CastFromType();
-    bool         srcIsUnsigned    = ((tree->gtFlags & GTF_UNSIGNED) != 0);
-    bool         hasOverflowCheck = tree->gtOverflowEx();
+    assert(varActualType(toType) == varActualType(cast->GetType()));
 
-    assert(genActualType(castToType) == genActualType(tree->TypeGet())); // Ensure that the resultType is correct
-
-    tree->gtVNPair = vnStore->VNPairForCast(srcVNPair, castToType, castFromType, srcIsUnsigned, hasOverflowCheck);
+    cast->SetVNP(vnStore->VNForCast(valueVNP, toType, fromType, fromUnsigned, checkOverflow));
 }
 
 // Compute the normal ValueNumber for a cast operation with no exceptions
@@ -8171,70 +8169,48 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum src, var_types toType, var_types f
     return VNWithExc(resultVal, srcExc);
 }
 
-// Compute the ValueNumberPair for a cast operation
-ValueNumPair ValueNumStore::VNPairForCast(ValueNumPair srcVNPair,
-                                          var_types    castToType,
-                                          var_types    castFromType,
-                                          bool         srcIsUnsigned,    /* = false */
-                                          bool         hasOverflowCheck) /* = false */
+ValueNumPair ValueNumStore::VNForCast(
+    ValueNumPair valueVNP, var_types toType, var_types fromType, bool fromUnsigned, bool checkOverflow)
 {
-    // The resulting type after performingthe cast is always widened to a supported IL stack size
-    var_types resultType = genActualType(castToType);
+    // Sometimes GTF_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
+    // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.
 
-    ValueNumPair castArgVNP;
-    ValueNumPair castArgxVNP;
-    VNPUnpackExc(srcVNPair, &castArgVNP, &castArgxVNP);
-
-    // When we're considering actual value returned by a non-checking cast, (hasOverflowCheck is false)
-    // whether or not the source is unsigned does *not* matter for non-widening casts.
-    // That is, if we cast an int or a uint to short, we just extract the first two bytes from the source
-    // bit pattern, not worrying about the interpretation.  The same is true in casting between signed/unsigned
-    // types of the same width.  Only when we're doing a widening cast do we care about whether the source
-    // was unsigned, so we know whether to sign or zero extend it.
-    //
-    // Important: Casts to floating point cannot be optimized in this fashion. (bug 946768)
-    //
-    bool srcIsUnsignedNorm = srcIsUnsigned;
-    if (!hasOverflowCheck && !varTypeIsFloating(castToType) && (genTypeSize(castToType) <= genTypeSize(castFromType)))
+    if (varTypeIsFloating(fromType))
     {
-        srcIsUnsignedNorm = false;
+        fromUnsigned = false;
+    }
+    else if (!checkOverflow && !varTypeIsFloating(toType) && (varTypeSize(toType) <= varTypeSize(fromType)))
+    {
+        fromUnsigned = false;
     }
 
-    VNFunc       vnFunc     = hasOverflowCheck ? VNF_CastOvf : VNF_Cast;
-    ValueNum     castTypeVN = VNForCastOper(castToType, srcIsUnsignedNorm);
-    ValueNumPair castTypeVNPair(castTypeVN, castTypeVN);
-    ValueNumPair castNormRes = VNPairForFunc(resultType, vnFunc, castArgVNP, castTypeVNPair);
+    ValueNumPair exset;
+    VNPUnpackExc(valueVNP, &valueVNP, &exset);
 
-    ValueNumPair resultVNP = VNPWithExc(castNormRes, castArgxVNP);
+    VNFunc   vnFunc     = checkOverflow ? VNF_CastOvf : VNF_Cast;
+    ValueNum castTypeVN = VNForCastOper(toType, fromUnsigned);
+    valueVNP            = VNPairForFunc(varActualType(toType), vnFunc, valueVNP, {castTypeVN, castTypeVN});
 
-    // If we have a check for overflow, add the exception information.
-    if (hasOverflowCheck)
+    if (checkOverflow)
     {
-        ValueNumPair excSet = ValueNumStore::VNPForEmptyExcSet();
-
-        ValueNumKind vnKinds[2] = {VNK_Liberal, VNK_Conservative};
-        for (ValueNumKind vnKind : vnKinds)
+        // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
+        if (!IsVNConstant(valueVNP.GetLiberal()))
         {
-            // Do not add exceptions for folded casts.
-            // We only fold checked casts that do not overflow.
-            if (IsVNConstant(castNormRes.Get(vnKind)))
-            {
-                continue;
-            }
-
-            ValueNum ovfChk =
-                VNForFunc(TYP_REF, VNF_ConvOverflowExc, castArgVNP.Get(vnKind), castTypeVNPair.Get(vnKind));
-            excSet.Set(vnKind, VNExcSetSingleton(ovfChk));
+            ValueNum ex = VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetLiberal(), castTypeVN);
+            exset.SetLiberal(VNExcSetUnion(exset.GetLiberal(), VNExcSetSingleton(ex)));
         }
 
-        excSet    = VNPExcSetUnion(excSet, castArgxVNP);
-        resultVNP = VNPWithExc(castNormRes, excSet);
+        if (!IsVNConstant(valueVNP.GetConservative()))
+        {
+            ValueNum ex = VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetConservative(), castTypeVN);
+            exset.SetConservative(VNExcSetUnion(exset.GetConservative(), VNExcSetSingleton(ex)));
+        }
     }
 
-    return resultVNP;
+    return VNPWithExc(valueVNP, exset);
 }
 
-ValueNumPair ValueNumStore::VNPairForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType)
+ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType)
 {
     ValueNum castTypeVN = VNForCastOper(castToType, false);
     return VNPairForFunc(varActualType(castToType), VNF_Cast, valueVNP, {castTypeVN, castTypeVN});

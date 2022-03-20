@@ -572,14 +572,10 @@ public:
     // Compute the normal ValueNumber for a cast with no exceptions
     ValueNum VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType);
 
-    // Compute the ValueNumberPair for a cast
-    ValueNumPair VNPairForCast(ValueNumPair srcVNPair,
-                               var_types    castToType,
-                               var_types    castFromType,
-                               bool         srcIsUnsigned,
-                               bool         hasOverflowCheck);
+    ValueNumPair VNForCast(
+        ValueNumPair valueVNP, var_types toType, var_types fromType, bool fromUnsigned, bool checkOverflow);
 
-    ValueNumPair VNPairForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType);
+    ValueNumPair VNForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType);
 
     // PtrToLoc values need to express a field sequence as one of their arguments.  VN for null represents
     // empty sequence, otherwise, "FieldSeq(VN(FieldHandle), restOfSeq)".
