@@ -8252,6 +8252,12 @@ ValueNumPair ValueNumStore::VNPairForCast(ValueNumPair srcVNPair,
     return resultVNP;
 }
 
+ValueNumPair ValueNumStore::VNPairForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType)
+{
+    ValueNum castTypeVN = VNForCastOper(castToType, false);
+    return VNPairForFunc(varActualType(castToType), VNF_Cast, valueVNP, {castTypeVN, castTypeVN});
+}
+
 void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)
 {
     assert(vnf != VNF_Boundary);

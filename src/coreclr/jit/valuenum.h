@@ -576,8 +576,10 @@ public:
     ValueNumPair VNPairForCast(ValueNumPair srcVNPair,
                                var_types    castToType,
                                var_types    castFromType,
-                               bool         srcIsUnsigned    = false,
-                               bool         hasOverflowCheck = false);
+                               bool         srcIsUnsigned,
+                               bool         hasOverflowCheck);
+
+    ValueNumPair VNPairForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType);
 
     // PtrToLoc values need to express a field sequence as one of their arguments.  VN for null represents
     // empty sequence, otherwise, "FieldSeq(VN(FieldHandle), restOfSeq)".
