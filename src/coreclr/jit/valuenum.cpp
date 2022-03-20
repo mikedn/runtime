@@ -1743,14 +1743,14 @@ ValueNum ValueNumStore::VNZeroForType(var_types type)
         case TYP_BYREF:
             return VNForByrefCon(0);
         case TYP_STRUCT:
-            return VNForZeroMap();
 #ifdef FEATURE_SIMD
+        // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
-            return VNForLongCon(0);
 #endif
+            return VNForZeroMap();
         default:
             unreached();
     }
@@ -7167,7 +7167,6 @@ void Compiler::fgValueNumber()
 
             if (isZeroed)
             {
-                // TODO-MIKE-Cleanup: For SIMD locals this generates bogus typed LONG 0 VN constants.
                 initVal = vnStore->VNZeroForType(type);
             }
             else
