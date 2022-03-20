@@ -7748,7 +7748,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_BITCAST:
-            fgValueNumberBitCastTree(tree->AsUnOp());
+            vnBitCast(tree->AsUnOp());
             break;
 
         case GT_INTRINSIC:
@@ -8090,17 +8090,16 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-void Compiler::fgValueNumberBitCastTree(GenTreeUnOp* bitcast)
+void Compiler::vnBitCast(GenTreeUnOp* bitcast)
 {
     assert(bitcast->OperIs(GT_BITCAST));
 
-    GenTree*  src      = bitcast->GetOp(0);
-    var_types toType   = bitcast->GetType();
-    var_types fromType = src->GetType();
+    ValueNumPair valueVNP = bitcast->GetOp(0)->GetVNP();
+    var_types    fromType = bitcast->GetOp(0)->GetType();
+    var_types    toType   = bitcast->GetType();
 
-    assert(genTypeSize(toType) == genTypeSize(fromType));
+    assert(varTypeSize(toType) == varTypeSize(fromType));
 
-    ValueNumPair valueVNP = src->GetVNP();
     ValueNumPair exset;
     vnStore->VNPUnpackExc(valueVNP, &valueVNP, &exset);
 
@@ -8108,6 +8107,41 @@ void Compiler::fgValueNumberBitCastTree(GenTreeUnOp* bitcast)
     valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), toType, fromType));
 
     bitcast->SetVNP(vnStore->VNPWithExc(valueVNP, exset));
+}
+
+ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType, var_types fromType)
+{
+    assert(valueVN == VNNormalValue(valueVN));
+
+    if (IsVNConstant(valueVN))
+    {
+        if ((fromType == TYP_FLOAT) && (toType == TYP_INT))
+        {
+            return VNForIntCon(jitstd::bit_cast<int32_t>(ConstantValue<float>(valueVN)));
+        }
+
+        if ((fromType == TYP_DOUBLE) && (toType == TYP_LONG))
+        {
+            return VNForLongCon(jitstd::bit_cast<int64_t>(ConstantValue<double>(valueVN)));
+        }
+
+        if ((fromType == TYP_INT) && (toType == TYP_FLOAT))
+        {
+            return VNForFloatCon(jitstd::bit_cast<float>(ConstantValue<int32_t>(valueVN)));
+        }
+
+        if ((fromType == TYP_LONG) && (toType == TYP_DOUBLE))
+        {
+            return VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<int64_t>(valueVN)));
+        }
+
+        // TODO-MIKE-CQ: Handle BITCAST(Vector2 "constant") for win-x64 ABI needs, at least
+        // the trivial zero case if not something more complicated like BITCAST(Create(2, 3)).
+        // The main issue is that since VN doesn't really have vector constants we'd need to
+        // "parse" the BITCAST operand VN(Func) probably...
+    }
+
+    return VNForFunc(toType, VNF_BitCast, valueVN, VNForBitCastOper(toType));
 }
 
 void Compiler::vnCast(GenTreeCast* cast)
@@ -8166,45 +8200,6 @@ ValueNum ValueNumStore::VNForCast(ValueNum srcVN, var_types castToType, var_type
     INDEBUG(m_pComp->vnTrace(resultVN));
 
     return resultVN;
-}
-
-ValueNum ValueNumStore::VNForBitCast(ValueNum src, var_types toType, var_types fromType)
-{
-    assert(src == VNNormalValue(src));
-
-    ValueNum resultVal = NoVN;
-
-    if (IsVNConstant(src))
-    {
-        if ((fromType == TYP_FLOAT) && (toType == TYP_INT))
-        {
-            resultVal = VNForIntCon(jitstd::bit_cast<INT32>(ConstantValue<float>(src)));
-        }
-        else if ((fromType == TYP_DOUBLE) && (toType == TYP_LONG))
-        {
-            resultVal = VNForLongCon(jitstd::bit_cast<INT64>(ConstantValue<double>(src)));
-        }
-        else if ((fromType == TYP_INT) && (toType == TYP_FLOAT))
-        {
-            resultVal = VNForFloatCon(jitstd::bit_cast<float>(ConstantValue<int>(src)));
-        }
-        else if ((fromType == TYP_LONG) && (toType == TYP_DOUBLE))
-        {
-            resultVal = VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<INT64>(src)));
-        }
-
-        // TODO-MIKE-CQ: Handle BITCAST(Vector2 "constant") for win-x64 ABI needs, at least
-        // the trivial zero case if not something more complicated like BITCAST(Create(2, 3)).
-        // The main issue is that since VN doesn't really have vector constants we'd need to
-        // "parse" the BITCAST operand VN(Func) probably...
-    }
-
-    if (resultVal == NoVN)
-    {
-        resultVal = VNForFunc(toType, VNF_BitCast, src, VNForBitCastOper(toType));
-    }
-
-    return resultVal;
 }
 
 ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType)

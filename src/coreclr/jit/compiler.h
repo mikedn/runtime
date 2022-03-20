@@ -4021,7 +4021,7 @@ public:
     void vnCast(GenTreeCast* cast);
 
     // Does value-numbering for a bitcast tree.
-    void fgValueNumberBitCastTree(GenTreeUnOp* tree);
+    void vnBitCast(GenTreeUnOp* tree);
 
     // Does value-numbering for an intrinsic tree.
     void fgValueNumberIntrinsic(GenTree* tree);
