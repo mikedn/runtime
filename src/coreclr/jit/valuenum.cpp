@@ -8095,7 +8095,7 @@ void Compiler::vnBitCast(GenTreeUnOp* bitcast)
     assert(bitcast->OperIs(GT_BITCAST));
 
     ValueNumPair valueVNP = bitcast->GetOp(0)->GetVNP();
-    var_types    fromType = bitcast->GetOp(0)->GetType();
+    var_types    fromType = varActualType(bitcast->GetOp(0)->GetType());
     var_types    toType   = bitcast->GetType();
 
     assert(varTypeSize(toType) == varTypeSize(fromType));
@@ -8147,7 +8147,7 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType, var_typ
 void Compiler::vnCast(GenTreeCast* cast)
 {
     ValueNumPair valueVNP      = cast->GetOp(0)->GetVNP();
-    var_types    fromType      = cast->GetOp(0)->GetType();
+    var_types    fromType      = varActualType(cast->GetOp(0)->GetType());
     bool         fromUnsigned  = cast->IsUnsigned();
     var_types    toType        = cast->GetCastType();
     bool         checkOverflow = cast->gtOverflow();
