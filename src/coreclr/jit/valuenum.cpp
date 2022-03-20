@@ -8120,28 +8120,10 @@ void Compiler::fgValueNumberCastTree(GenTree* tree)
 }
 
 // Compute the normal ValueNumber for a cast operation with no exceptions
-ValueNum ValueNumStore::VNForCast(ValueNum  srcVN,
-                                  var_types castToType,
-                                  var_types castFromType,
-                                  bool      srcIsUnsigned /* = false */)
+ValueNum ValueNumStore::VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType)
 {
-    // The resulting type after performingthe cast is always widened to a supported IL stack size
-    var_types resultType = genActualType(castToType);
-
-    // When we're considering actual value returned by a non-checking cast whether or not the source is
-    // unsigned does *not* matter for non-widening casts.  That is, if we cast an int or a uint to short,
-    // we just extract the first two bytes from the source bit pattern, not worrying about the interpretation.
-    // The same is true in casting between signed/unsigned types of the same width.  Only when we're doing
-    // a widening cast do we care about whether the source was unsigned,so we know whether to sign or zero extend it.
-    //
-    bool srcIsUnsignedNorm = srcIsUnsigned;
-    if (genTypeSize(castToType) <= genTypeSize(castFromType))
-    {
-        srcIsUnsignedNorm = false;
-    }
-
-    ValueNum castTypeVN = VNForCastOper(castToType, srcIsUnsigned);
-    ValueNum resultVN   = VNForFunc(resultType, VNF_Cast, srcVN, castTypeVN);
+    ValueNum castTypeVN = VNForCastOper(castToType, false);
+    ValueNum resultVN   = VNForFunc(varActualType(castToType), VNF_Cast, srcVN, castTypeVN);
 
     INDEBUG(m_pComp->vnTrace(resultVN));
 

@@ -570,7 +570,7 @@ public:
     ValueNum VNForBitCast(ValueNum src, var_types toType, var_types fromType);
 
     // Compute the normal ValueNumber for a cast with no exceptions
-    ValueNum VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType, bool srcIsUnsigned = false);
+    ValueNum VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType);
 
     // Compute the ValueNumberPair for a cast
     ValueNumPair VNPairForCast(ValueNumPair srcVNPair,
