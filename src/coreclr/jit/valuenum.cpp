@@ -8114,10 +8114,44 @@ void Compiler::vnCast(GenTreeCast* cast)
 
     assert(varActualType(toType) == varActualType(cast->GetType()));
 
-    cast->SetVNP(vnStore->VNForCast(valueVNP, toType, fromType, fromUnsigned, checkOverflow));
+    // Sometimes GTF_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
+    // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.
+
+    if (varTypeIsFloating(fromType))
+    {
+        fromUnsigned = false;
+    }
+    else if (!checkOverflow && !varTypeIsFloating(toType) && (varTypeSize(toType) <= varTypeSize(fromType)))
+    {
+        fromUnsigned = false;
+    }
+
+    ValueNumPair exset;
+    vnStore->VNPUnpackExc(valueVNP, &valueVNP, &exset);
+
+    VNFunc   vnFunc     = checkOverflow ? VNF_CastOvf : VNF_Cast;
+    ValueNum castTypeVN = vnStore->VNForCastOper(toType, fromUnsigned);
+    valueVNP            = vnStore->VNPairForFunc(varActualType(toType), vnFunc, valueVNP, {castTypeVN, castTypeVN});
+
+    if (checkOverflow)
+    {
+        // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
+        if (!vnStore->IsVNConstant(valueVNP.GetLiberal()))
+        {
+            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetLiberal(), castTypeVN);
+            exset.SetLiberal(vnStore->VNExcSetUnion(exset.GetLiberal(), vnStore->VNExcSetSingleton(ex)));
+        }
+
+        if (!vnStore->IsVNConstant(valueVNP.GetConservative()))
+        {
+            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetConservative(), castTypeVN);
+            exset.SetConservative(vnStore->VNExcSetUnion(exset.GetConservative(), vnStore->VNExcSetSingleton(ex)));
+        }
+    }
+
+    cast->SetVNP(vnStore->VNPWithExc(valueVNP, exset));
 }
 
-// Compute the normal ValueNumber for a cast operation with no exceptions
 ValueNum ValueNumStore::VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType)
 {
     ValueNum castTypeVN = VNForCastOper(castToType, false);
@@ -8167,47 +8201,6 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum src, var_types toType, var_types f
     }
 
     return VNWithExc(resultVal, srcExc);
-}
-
-ValueNumPair ValueNumStore::VNForCast(
-    ValueNumPair valueVNP, var_types toType, var_types fromType, bool fromUnsigned, bool checkOverflow)
-{
-    // Sometimes GTF_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
-    // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.
-
-    if (varTypeIsFloating(fromType))
-    {
-        fromUnsigned = false;
-    }
-    else if (!checkOverflow && !varTypeIsFloating(toType) && (varTypeSize(toType) <= varTypeSize(fromType)))
-    {
-        fromUnsigned = false;
-    }
-
-    ValueNumPair exset;
-    VNPUnpackExc(valueVNP, &valueVNP, &exset);
-
-    VNFunc   vnFunc     = checkOverflow ? VNF_CastOvf : VNF_Cast;
-    ValueNum castTypeVN = VNForCastOper(toType, fromUnsigned);
-    valueVNP            = VNPairForFunc(varActualType(toType), vnFunc, valueVNP, {castTypeVN, castTypeVN});
-
-    if (checkOverflow)
-    {
-        // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
-        if (!IsVNConstant(valueVNP.GetLiberal()))
-        {
-            ValueNum ex = VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetLiberal(), castTypeVN);
-            exset.SetLiberal(VNExcSetUnion(exset.GetLiberal(), VNExcSetSingleton(ex)));
-        }
-
-        if (!IsVNConstant(valueVNP.GetConservative()))
-        {
-            ValueNum ex = VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetConservative(), castTypeVN);
-            exset.SetConservative(VNExcSetUnion(exset.GetConservative(), VNExcSetSingleton(ex)));
-        }
-    }
-
-    return VNPWithExc(valueVNP, exset);
 }
 
 ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType)
