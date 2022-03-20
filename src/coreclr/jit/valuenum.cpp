@@ -4478,8 +4478,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
             // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
             // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
             // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
-            bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-            valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
+            valueVNP = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType());
         }
 
         if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
