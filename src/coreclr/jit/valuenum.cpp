@@ -4237,7 +4237,7 @@ ValueNum Compiler::vnCoerceStoreValue(
         }
         else if ((varTypeSize(valueType) == varTypeSize(fieldType)) && !varTypeIsSmall(valueType))
         {
-            valueVN = vnStore->VNForBitCast(valueVN, fieldType, valueType);
+            valueVN = vnStore->VNForBitCast(valueVN, fieldType);
         }
         else
         {
@@ -8103,34 +8103,36 @@ void Compiler::vnBitCast(GenTreeUnOp* bitcast)
     ValueNumPair exset;
     vnStore->VNPUnpackExc(valueVNP, &valueVNP, &exset);
 
-    valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), toType, fromType));
-    valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), toType, fromType));
+    valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), toType));
+    valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), toType));
 
     bitcast->SetVNP(vnStore->VNPWithExc(valueVNP, exset));
 }
 
-ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType, var_types fromType)
+ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
 {
     assert(valueVN == VNNormalValue(valueVN));
 
     if (IsVNConstant(valueVN))
     {
-        if ((fromType == TYP_FLOAT) && (toType == TYP_INT))
+        var_types valueType = TypeOfVN(valueVN);
+
+        if ((valueType == TYP_FLOAT) && (toType == TYP_INT))
         {
             return VNForIntCon(jitstd::bit_cast<int32_t>(ConstantValue<float>(valueVN)));
         }
 
-        if ((fromType == TYP_DOUBLE) && (toType == TYP_LONG))
+        if ((valueType == TYP_DOUBLE) && (toType == TYP_LONG))
         {
             return VNForLongCon(jitstd::bit_cast<int64_t>(ConstantValue<double>(valueVN)));
         }
 
-        if ((fromType == TYP_INT) && (toType == TYP_FLOAT))
+        if ((valueType == TYP_INT) && (toType == TYP_FLOAT))
         {
             return VNForFloatCon(jitstd::bit_cast<float>(ConstantValue<int32_t>(valueVN)));
         }
 
-        if ((fromType == TYP_LONG) && (toType == TYP_DOUBLE))
+        if ((valueType == TYP_LONG) && (toType == TYP_DOUBLE))
         {
             return VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<int64_t>(valueVN)));
         }

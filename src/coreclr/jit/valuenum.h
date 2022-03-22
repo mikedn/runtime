@@ -567,7 +567,7 @@ public:
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
 
-    ValueNum VNForBitCast(ValueNum valueVN, var_types toType, var_types fromType);
+    ValueNum VNForBitCast(ValueNum valueVN, var_types toType);
 
     ValueNum VNForCast(ValueNum valueVN, var_types toType);
     ValueNumPair VNForCast(ValueNumPair valueVNP, var_types toType);
