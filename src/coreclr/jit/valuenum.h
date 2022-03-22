@@ -569,10 +569,8 @@ public:
 
     ValueNum VNForBitCast(ValueNum valueVN, var_types toType, var_types fromType);
 
-    // Compute the normal ValueNumber for a cast with no exceptions
-    ValueNum VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType);
-
-    ValueNumPair VNForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType);
+    ValueNum VNForCast(ValueNum valueVN, var_types toType);
+    ValueNumPair VNForCast(ValueNumPair valueVNP, var_types toType);
 
     // PtrToLoc values need to express a field sequence as one of their arguments.  VN for null represents
     // empty sequence, otherwise, "FieldSeq(VN(FieldHandle), restOfSeq)".

@@ -4195,7 +4195,7 @@ ValueNum Compiler::vnCoerceStoreValue(
     {
         if (varTypeIsSmall(fieldType))
         {
-            valueVN = vnStore->VNForCast(valueVN, fieldType, valueType);
+            valueVN = vnStore->VNForCast(valueVN, fieldType);
         }
 
         return valueVN;
@@ -4233,7 +4233,7 @@ ValueNum Compiler::vnCoerceStoreValue(
     {
         if ((valueType == TYP_LONG) && (fieldType == TYP_INT))
         {
-            valueVN = vnStore->VNForCast(valueVN, TYP_INT, TYP_LONG);
+            valueVN = vnStore->VNForCast(valueVN, TYP_INT);
         }
         else if ((varTypeSize(valueType) == varTypeSize(fieldType)) && !varTypeIsSmall(valueType))
         {
@@ -4292,7 +4292,7 @@ ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types 
     {
         if (varTypeIsIntegral(loadType) && varTypeIsIntegral(fieldType))
         {
-            return vnStore->VNForCast(valueVN, loadType, varActualType(fieldType));
+            return vnStore->VNForCast(valueVN, loadType);
         }
     }
 
@@ -4478,7 +4478,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
             // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
             // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
             // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
-            valueVNP = vnStore->VNForCast(valueVNP, store->GetType(), value->GetType());
+            valueVNP = vnStore->VNForCast(valueVNP, store->GetType());
         }
 
         if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
@@ -4530,7 +4530,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
         if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
         {
-            vnp = vnStore->VNForCast(vnp, TYP_INT, TYP_LONG);
+            vnp = vnStore->VNForCast(vnp, TYP_INT);
         }
         else
         {
@@ -8192,20 +8192,20 @@ void Compiler::vnCast(GenTreeCast* cast)
     cast->SetVNP(vnStore->VNPWithExc(valueVNP, exset));
 }
 
-ValueNum ValueNumStore::VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType)
+ValueNum ValueNumStore::VNForCast(ValueNum valueVN, var_types toType)
 {
-    ValueNum castTypeVN = VNForCastOper(castToType, false);
-    ValueNum resultVN   = VNForFunc(varActualType(castToType), VNF_Cast, srcVN, castTypeVN);
+    ValueNum castTypeVN = VNForCastOper(toType, false);
+    ValueNum resultVN   = VNForFunc(varActualType(toType), VNF_Cast, valueVN, castTypeVN);
 
     INDEBUG(m_pComp->vnTrace(resultVN));
 
     return resultVN;
 }
 
-ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types castToType, var_types castFromType)
+ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types toType)
 {
-    ValueNum castTypeVN = VNForCastOper(castToType, false);
-    return VNPairForFunc(varActualType(castToType), VNF_Cast, valueVNP, {castTypeVN, castTypeVN});
+    ValueNum castTypeVN = VNForCastOper(toType, false);
+    return VNPairForFunc(varActualType(toType), VNF_Cast, valueVNP, {castTypeVN, castTypeVN});
 }
 
 void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)
