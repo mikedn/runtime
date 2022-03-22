@@ -4469,23 +4469,29 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
     {
         valueVNP = vnStore->VNPNormalPair(value->GetVNP());
 
-        if (value->GetType() != store->GetType())
-        {
-            // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo
-            // small int. While we could narrow the value here it's not clear if there's a good reason to do it
-            // because we may also need to do it when loading. And using the signedness of the value's type doesn't
-            // make a lot of sense since for small int type the value is really INT and the signedness does not matter.
-            // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
-            // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
-            // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
-            valueVNP = vnStore->VNForCast(valueVNP, store->GetType());
-        }
+        var_types valueType = value->GetType();
+        var_types storeType = store->GetType();
 
-        if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
+        if (valueType != storeType)
         {
-            // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-            // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
+            if ((varTypeSize(valueType) == varTypeSize(storeType)) && !varTypeIsSmall(valueType))
+            {
+                valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), store->GetType()));
+                valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), store->GetType()));
+            }
+            else
+            {
+                // TODO-MIKE-CQ: This inserts superfluous casts for all sort of small int/INT mismatches,
+                // these ultimately impact CSE because they make the stored value appear to be different
+                // from the original value. This happens easily when storing a value loaded from a small
+                // int field into an int or small int local - the load already widened the small int and
+                // produced an INT value, now we're widening it again and given that VNForCast doesn't
+                // attempt to remove redundant casts we end up with a new value number, different from
+                // the one produced by the load.
+                // This is also dubious in case the IR contains other type mismatches, possibly involving
+                // SIMD types, SIMD12 and SIMD16 in particular.
+                valueVNP = vnStore->VNForCast(valueVNP, storeType);
+            }
         }
     }
 
