@@ -2082,6 +2082,7 @@ public:
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
+    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
 
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
@@ -3953,8 +3954,27 @@ public:
 
     void vnComma(GenTreeOp* comma);
     void vnAssignment(GenTreeOp* asg);
-    void vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value);
+    ValueNum vnCastStruct(ValueNumKind         vnk,
+                          ValueNum             valueVN,
+                          CORINFO_CLASS_HANDLE fromClassHandle,
+                          CORINFO_CLASS_HANDLE toClassHandle);
+    ValueNum vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout);
+    ValueNumPair vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout);
+    ValueNum vnCoerceStoreValue(
+        GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout);
+    var_types vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
+    ValueNum vnInsertStructField(GenTree*      store,
+                                 GenTree*      value,
+                                 ValueNumKind  vnk,
+                                 ValueNum      structVN,
+                                 var_types     structType,
+                                 FieldSeqNode* fieldSeq);
+    ValueNum vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
+    ValueNumPair vnExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
+    ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
+    void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
+    void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnLocalFieldLoad(GenTreeLclFld* load);
     ValueNum vnAddField(GenTreeOp* add);
     void vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value);
@@ -3998,11 +4018,10 @@ public:
     // assignment.)
     void fgValueNumberTree(GenTree* tree);
 
-    // Does value-numbering for a cast tree.
-    void fgValueNumberCastTree(GenTree* tree);
+    void vnCast(GenTreeCast* cast);
 
     // Does value-numbering for a bitcast tree.
-    void fgValueNumberBitCastTree(GenTreeUnOp* tree);
+    void vnBitCast(GenTreeUnOp* tree);
 
     // Does value-numbering for an intrinsic tree.
     void fgValueNumberIntrinsic(GenTree* tree);
@@ -8388,21 +8407,33 @@ public:
 
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
     CORINFO_CLASS_HANDLE m_refAnyClass;
-    CORINFO_FIELD_HANDLE GetRefanyValueField()
+    FieldSeqNode*        GetRefanyValueField()
     {
         if (m_refAnyClass == nullptr)
         {
             m_refAnyClass = info.compCompHnd->getBuiltinClass(CLASSID_TYPED_BYREF);
         }
-        return info.compCompHnd->getFieldInClass(m_refAnyClass, 0);
+        return GetByReferenceValueField(info.compCompHnd->getFieldInClass(m_refAnyClass, 0));
     }
-    CORINFO_FIELD_HANDLE GetRefanyTypeField()
+    FieldSeqNode* GetRefanyTypeField()
     {
         if (m_refAnyClass == nullptr)
         {
             m_refAnyClass = info.compCompHnd->getBuiltinClass(CLASSID_TYPED_BYREF);
         }
-        return info.compCompHnd->getFieldInClass(m_refAnyClass, 1);
+        return GetFieldSeqStore()->CreateSingleton(info.compCompHnd->getFieldInClass(m_refAnyClass, 1));
+    }
+
+    FieldSeqNode* GetByReferenceValueField(CORINFO_FIELD_HANDLE byRefFieldHandle)
+    {
+        CORINFO_CLASS_HANDLE byRefStructType;
+        CorInfoType          byRefType = info.compCompHnd->getFieldType(byRefFieldHandle, &byRefStructType);
+        assert((byRefType == CORINFO_TYPE_VALUECLASS) && (byRefStructType != NO_CLASS_HANDLE));
+        CORINFO_FIELD_HANDLE valueFieldHandle = info.compCompHnd->getFieldInClass(byRefStructType, 0);
+        assert(info.compCompHnd->getFieldOffset(valueFieldHandle) == 0);
+        assert(info.compCompHnd->getFieldType(valueFieldHandle) == CORINFO_TYPE_BYREF);
+        FieldSeqStore* fieldStore = GetFieldSeqStore();
+        return fieldStore->Append(fieldStore->CreateSingleton(byRefFieldHandle), valueFieldHandle);
     }
 
 #if VARSET_COUNTOPS

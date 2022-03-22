@@ -1743,14 +1743,14 @@ ValueNum ValueNumStore::VNZeroForType(var_types type)
         case TYP_BYREF:
             return VNForByrefCon(0);
         case TYP_STRUCT:
-            return VNForZeroMap();
 #ifdef FEATURE_SIMD
+        // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
-            return VNForLongCon(0);
 #endif
+            return VNForZeroMap();
         default:
             unreached();
     }
@@ -2109,6 +2109,8 @@ ValueNum ValueNumStore::VNForFunc(
 
 ValueNum ValueNumStore::VNForMapStore(var_types typ, ValueNum mapVN, ValueNum indexVN, ValueNum valueVN)
 {
+    assert(varTypeIsStruct(typ));
+
     BasicBlock* const            bb      = m_pComp->compCurBB;
     BasicBlock::loopNumber const loopNum = bb->bbNatLoopNum;
     ValueNum const               result  = VNForFunc(typ, VNF_MapStore, mapVN, indexVN, valueVN, loopNum);
@@ -3603,24 +3605,6 @@ ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
     return vn;
 }
 
-var_types ValueNumStore::GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
-{
-    CORINFO_CLASS_HANDLE typeHandle = NO_CLASS_HANDLE;
-    var_types            type = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle, &typeHandle));
-
-    if (type == TYP_STRUCT)
-    {
-        *fieldLayout = m_pComp->typGetObjLayout(typeHandle);
-        type         = m_pComp->typGetStructType(*fieldLayout);
-    }
-    else
-    {
-        *fieldLayout = nullptr;
-    }
-
-    return type;
-}
-
 ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
 {
     ValueNum vn = VNForHostPtr(fieldHandle);
@@ -3638,175 +3622,6 @@ ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
 #endif
 
     return vn;
-}
-
-ValueNum ValueNumStore::MapInsertStructField(
-    ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum value, var_types storeType)
-{
-    assert(varTypeIsStruct(mapType));
-    assert(!fieldSeq->IsBoxedValueField());
-
-    struct
-    {
-        var_types fieldType;
-        var_types mapType;
-        ValueNum  fieldVN;
-        ValueNum  mapVN;
-    } fields[FieldSeqNode::MaxLength];
-
-    unsigned count = 0;
-
-    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext(), count++)
-    {
-        assert(count < _countof(fields));
-
-        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
-
-        fields[count].fieldVN   = VNForFieldSeqHandle(fieldHandle);
-        fields[count].fieldType = CorTypeToVarType(m_pComp->info.compCompHnd->getFieldType(fieldHandle));
-    }
-
-    fields[0].mapVN   = map;
-    fields[0].mapType = mapType;
-
-    for (unsigned i = 0; i < count - 1; i++)
-    {
-        assert(varTypeIsStruct(fields[i].fieldType));
-        fields[i + 1].mapVN   = VNForMapSelect(vnk, fields[i].fieldType, fields[i].mapVN, fields[i].fieldVN);
-        fields[i + 1].mapType = fields[i].fieldType;
-    }
-
-    // TODO-MIKE-Fix: This is nonsense, it tries to coerce the stored value to the store type but the
-    // stored value should already have the correct type (e.g. ASG(IND.double, some_float_value)
-    // is invalid IR to begin with, there's no need to handle such a case). At the same time this
-    // completely ignores the field type so if one stores to a FLOAT field by using an INT indir
-    // chaos ensues. Do these poeple think before writing code?!?
-    value = VNApplySelectorsAssignTypeCoerce(value, storeType);
-
-    for (unsigned i = 1; i <= count; i++)
-    {
-        value = VNForMapStore(fields[count - 1].mapType, fields[count - i].mapVN, fields[count - i].fieldVN, value);
-    }
-
-    return value;
-}
-
-ValueNumPair ValueNumStore::MapInsertStructField(
-    ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType)
-{
-    return {MapInsertStructField(VNK_Liberal, map.GetLiberal(), mapType, fieldSeq, value.GetLiberal(), storeType),
-            MapInsertStructField(VNK_Conservative, map.GetConservative(), mapType, fieldSeq, value.GetConservative(),
-                                 storeType)};
-}
-
-ValueNum ValueNumStore::MapExtractStructField(ValueNumKind  vnk,
-                                              ValueNum      map,
-                                              FieldSeqNode* fieldSeq,
-                                              var_types     loadType)
-{
-    ClassLayout* fieldLayout = nullptr;
-
-    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
-    {
-        noway_assert(fieldSeq->IsField());
-
-        var_types fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
-        map                 = VNForMapSelect(vnk, fieldType, map, VNForFieldSeqHandle(fieldSeq->GetFieldHandle()));
-    }
-
-    return VNApplySelectorsTypeCheck(map, fieldLayout, loadType);
-}
-
-ValueNumPair ValueNumStore::MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType)
-{
-    ClassLayout* fieldLayout = nullptr;
-    var_types    fieldType;
-
-    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
-    {
-        noway_assert(fieldSeq->IsField());
-
-        fieldType = GetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
-
-        ValueNum fieldVN = VNForFieldSeqHandle(fieldSeq->GetFieldHandle());
-        map.SetLiberal(VNForMapSelect(VNK_Liberal, fieldType, map.GetLiberal(), fieldVN));
-        map.SetConservative(VNForMapSelect(VNK_Conservative, fieldType, map.GetConservative(), fieldVN));
-    }
-
-    map.SetLiberal(VNApplySelectorsTypeCheck(map.GetLiberal(), fieldLayout, loadType));
-    map.SetConservative(VNApplySelectorsTypeCheck(map.GetConservative(), fieldLayout, loadType));
-
-    return map;
-}
-
-ValueNum ValueNumStore::VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType)
-{
-    assert(vn == VNNormalValue(vn));
-
-    var_types type = TypeOfVN(vn);
-
-    if (loadType == type)
-    {
-        return vn;
-    }
-
-    unsigned structSize = layout == nullptr ? 0 : layout->GetSize();
-    unsigned size       = (type == TYP_STRUCT) ? structSize : varTypeSize(type);
-    unsigned loadSize   = varTypeSize(loadType);
-
-    if (loadSize > size)
-    {
-        JITDUMP("    *** Value of size %u loaded as wider type %s\n", size, varTypeName(loadType));
-        // TODO-MIKE-Fix: Using VNForExpr with compCurBB here and below is highly suspect.
-        // These are loads, one way or another they use memory that may have been defined
-        // in a block different than the current one.
-        return VNForExpr(m_pComp->compCurBB, TypeOfVN(vn));
-    }
-
-    if (varTypeIsStruct(loadType))
-    {
-        JITDUMP("    *** Value of type %s loaded as %s\n", varTypeName(type), varTypeName(loadType));
-        return VNForExpr(m_pComp->compCurBB, TypeOfVN(vn));
-    }
-
-    // TODO-MIKE-Fix: This is nonsense in reinterpretation case (e.g. load INT field as FLOAT).
-    // It produces a VNF_Cast as if it is a INT to FLOAT cast but this is actually a bitcast.
-    // See vn-ind-reinterpret.il.
-    return VNForCast(vn, loadType, type);
-}
-
-ValueNum ValueNumStore::VNApplySelectorsAssignTypeCoerce(ValueNum srcVN, var_types storeType)
-{
-    assert(srcVN == VNNormalValue(srcVN));
-
-    var_types srcType = TypeOfVN(srcVN);
-
-    if (storeType == srcType)
-    {
-        return srcVN;
-    }
-
-    if (IsVNConstant(srcVN) && (srcType == varActualType(storeType)))
-    {
-        // We record INT constants for small int fields.
-        return srcVN;
-    }
-
-    if (varTypeIsStruct(storeType))
-    {
-        JITDUMP("    *** Value of type %s stored as %s\n", varTypeName(srcType), varTypeName(storeType));
-        return VNForExpr(m_pComp->compCurBB, TypeOfVN(srcVN));
-    }
-
-    // TODO-MIKE-Review: This is probably just as bogus as in VNApplySelectorsTypeCheck...
-    // This also generates bizarre struct to scalar casts, though that's probably caused
-    // by an issue in the calling code. In fact, the whole thing is probably bogus because
-    // it involves the stored value's type and the store type, which are expected to be
-    // the same anyway - attempting to store a FLOAT value using an IND indirection is
-    // invalid IR that should not exist, not something that needs automation coercion.
-    // Well, small int stores might need this but even then, the problem is that this
-    // thing appears to ignore the type of the field being stored to...
-    return VNForCast(srcVN, storeType, srcType);
 }
 
 ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
@@ -4191,9 +4006,13 @@ void Compiler::vnAssignment(GenTreeOp* asg)
         store->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
     }
 
-    if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (store->OperIs(GT_LCL_VAR))
     {
-        vnLocalStore(store->AsLclVarCommon(), asg, value);
+        vnLocalStore(store->AsLclVar(), asg, value);
+    }
+    else if (store->OperIs(GT_LCL_FLD))
+    {
+        vnLocalFieldStore(store->AsLclFld(), asg, value);
     }
     else
     {
@@ -4201,9 +4020,405 @@ void Compiler::vnAssignment(GenTreeOp* asg)
     }
 }
 
-void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree* value)
+ValueNum Compiler::vnCastStruct(ValueNumKind         vnk,
+                                ValueNum             valueVN,
+                                CORINFO_CLASS_HANDLE fromClassHandle,
+                                CORINFO_CLASS_HANDLE toClassHandle)
 {
-    assert(store->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    // IR allows assignment of structs with different layout. This is problematic for
+    // value numbering because "maps" used to represent struct values are indexed by
+    // field handles rather than field offsets. If the layout is different then field
+    // handles may also be different and we end up with stores that are effectively
+    // aliased but aren't treated as such: assign a map containing field X to a local
+    // that has a field Y at the same offset, store something to field Y of the local
+    // then load field X - we'll get back the value originally stored in field X, not
+    // the value stored in field Y.
+    //
+    // Create a map by extracting field values from the original map and inserting
+    // into an empty map by using field handles from the new struct layout.
+
+    VNFuncApp funcApp;
+    if ((valueVN == vnStore->VNForZeroMap()) ||
+        (vnStore->GetVNFunc(valueVN, &funcApp) && (funcApp.m_func == VNF_MemOpaque)))
+    {
+        return valueVN;
+    }
+
+    ICorJitInfo* vm             = info.compCompHnd;
+    unsigned     fromFieldCount = vm->getClassNumInstanceFields(fromClassHandle);
+    unsigned     toFieldCount   = vm->getClassNumInstanceFields(toClassHandle);
+
+    if (fromFieldCount < toFieldCount)
+    {
+        return NoVN;
+    }
+
+    ValueNum castValueVN          = vnStore->VNForZeroMap();
+    bool     allFieldHandlesEqual = true;
+
+    for (unsigned i = 0; i < toFieldCount; i++)
+    {
+        CORINFO_FIELD_HANDLE fromFieldHandle = vm->getFieldInClass(fromClassHandle, i);
+        CORINFO_FIELD_HANDLE toFieldHandle   = vm->getFieldInClass(toClassHandle, i);
+
+        if (fromFieldHandle != toFieldHandle)
+        {
+            allFieldHandlesEqual = false;
+        }
+
+        unsigned fromOffset = vm->getFieldOffset(fromFieldHandle);
+        unsigned toOffset   = vm->getFieldOffset(toFieldHandle);
+
+        if (fromOffset != toOffset)
+        {
+            return NoVN;
+        }
+
+        CORINFO_CLASS_HANDLE fromFieldClassHandle;
+        var_types            fromFieldType = CorTypeToVarType(vm->getFieldType(fromFieldHandle, &fromFieldClassHandle));
+        CORINFO_CLASS_HANDLE toFieldClassHandle;
+        var_types            toFieldType = CorTypeToVarType(vm->getFieldType(toFieldHandle, &toFieldClassHandle));
+
+        if (fromFieldType != toFieldType)
+        {
+            return NoVN;
+        }
+
+        ValueNum fromFieldVN = vnStore->VNForFieldSeqHandle(fromFieldHandle);
+        ValueNum toFieldVN   = vnStore->VNForFieldSeqHandle(toFieldHandle);
+
+        ValueNum fieldValueVN = vnStore->VNForMapSelect(vnk, fromFieldType, valueVN, fromFieldVN);
+
+        if ((fromFieldType == TYP_STRUCT) && (fromFieldClassHandle != toFieldClassHandle))
+        {
+            fieldValueVN = vnCastStruct(vnk, fieldValueVN, fromFieldClassHandle, toFieldClassHandle);
+
+            if (fieldValueVN == NoVN)
+            {
+                return NoVN;
+            }
+        }
+
+        castValueVN = vnStore->VNForMapStore(TYP_STRUCT, castValueVN, toFieldVN, fieldValueVN);
+    }
+
+    return allFieldHandlesEqual ? valueVN : castValueVN;
+}
+
+ValueNum Compiler::vnCastStruct(ValueNumKind vnk, ValueNum valueVN, ClassLayout* fromLayout, ClassLayout* toLayout)
+{
+    valueVN = vnCastStruct(vnk, valueVN, fromLayout->GetClassHandle(), toLayout->GetClassHandle());
+
+    if (valueVN == NoVN)
+    {
+        valueVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
+
+    return valueVN;
+}
+
+ValueNumPair Compiler::vnCastStruct(ValueNumPair valueVNP, ClassLayout* fromLayout, ClassLayout* toLayout)
+{
+    return {vnCastStruct(VNK_Liberal, valueVNP.GetLiberal(), fromLayout, toLayout),
+            vnCastStruct(VNK_Conservative, valueVNP.GetConservative(), fromLayout, toLayout)};
+}
+
+ValueNum Compiler::vnCoerceStoreValue(
+    GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout)
+{
+    ValueNum  valueVN   = vnStore->VNNormalValue(value->GetVN(vnk));
+    var_types valueType = vnStore->TypeOfVN(valueVN);
+
+    unsigned fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
+    unsigned storeSize = varTypeSize(store->GetType());
+
+    if (store->TypeIs(TYP_STRUCT))
+    {
+        ClassLayout* storeLayout;
+
+        if (GenTreeLclFld* lclFld = store->IsLclFld())
+        {
+            storeLayout = lclFld->GetLayout(this);
+        }
+        else
+        {
+            storeLayout = store->AsBlk()->GetLayout();
+        }
+
+        storeSize = storeLayout->GetSize();
+
+        if (storeSize == fieldSize)
+        {
+            if (value->OperIs(GT_CNS_INT))
+            {
+                assert(value->IsIntegralConst(0));
+                return vnStore->VNZeroForType(fieldType);
+            }
+
+            if (value->TypeIs(TYP_STRUCT))
+            {
+                ClassLayout* valueLayout = typGetStructLayout(value);
+
+                if (valueLayout != fieldLayout)
+                {
+                    valueVN = vnCastStruct(VNK_Liberal, valueVN, valueLayout, fieldLayout);
+                }
+            }
+            else
+            {
+                assert(value->OperIs(GT_INIT_VAL));
+                valueVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+            }
+        }
+    }
+
+    if (storeSize > fieldSize)
+    {
+        // This store is wider than the field so it may modify other fields, leave it to the
+        // caller to handle as the outcome depends on context (e.g. wider store to a static
+        // field can still be treated as modifying only that static field, it could modify
+        // other static fields but that's undefined behaviour and can be ignored).
+        return NoVN;
+    }
+
+    if (storeSize < fieldSize)
+    {
+        // This store modifies only a part of the field, just store a new, unique value for now.
+        // We could probably merge with the existing value but that's probably not worthwhile now.
+        return vnStore->VNForExpr(compCurBB, fieldType);
+    }
+
+    // TODO-MIKE-Cleanup: This special casing is inherited from old code, it's probably not
+    // necessary if the issue described below is properly fixed.
+
+    if (vnStore->IsVNConstant(valueVN) && (valueType == varActualType(fieldType)))
+    {
+        if (varTypeIsSmall(fieldType))
+        {
+            valueVN = vnStore->VNForCast(valueVN, fieldType);
+        }
+
+        return valueVN;
+    }
+
+    // TODO-MIKE-CQ: Value numbering of small int load/stores is messy and may cause CQ issues.
+    // Stores do not truncate the stored values, loads do not widen the loaded value to INT.
+    // Truncation might not be necessary but the lack of explicit load widening (e.g. VNF_Cast)
+    // is problematic as it may produce different value numbers for the same value. If we store
+    // an INT value into a SHORT field and then load a SHORT the resulting value number should
+    // be the same as the value number of a CAST from INT to SHORT. But the type of CAST is INT
+    // so according to this check it doesn't fit into the field and we get a unique VN. The old
+    // code did generate a VNF_Cast here but surprise, VNForCast doesn't attempt to eliminate
+    // redundant casts and we end up with:
+    //     CAST(x) = VNF_Cast<INT, SHORT>(x)
+    //     LOAD<SHORT>(STORE<SHORT>(x) = VNF_Cast<INT, SHORT>(VNF_Cast<INT, SHORT>(x))
+    // which is pretty much pointless, pointless enough that generating a unique number in this
+    // case results in no diffs.
+    // What probably needs to be done is:
+    //   - allow storing INT values to small int fields here
+    //   - widen loads from small int fields (add VNF_Cast in vnCoerceLoadValue when the field
+    //     type is small int)
+    //   - ensure that VNForCast deals with redundant casts
+    // It's not clear if storing to small int fields should truncate. If loads are guaranteed
+    // to perform widening it seems unnecessary to do anything when storing. Besides, it's not
+    // even clear what truncation means anyway - VNF_Cast to field's small int type? That's
+    // not quite right as that really produces an INT value, the JIT doesn't have a notion of
+    // small int values. Also, there's a pretty good chance to have stores without subsequent
+    // loads in the same method so truncation will just allocate a useless value number. So
+    // probably no truncation it is.
+    // All this may also allow elimination of small int typed value numbers. They just cause
+    // confusion and waste memory due to how value number "chunks" are managed.
+
+    if (valueType != fieldType)
+    {
+        if ((valueType == TYP_LONG) && (fieldType == TYP_INT))
+        {
+            valueVN = vnStore->VNForCast(valueVN, TYP_INT);
+        }
+        else if ((varTypeSize(valueType) == varTypeSize(fieldType)) && !varTypeIsSmall(valueType))
+        {
+            valueVN = vnStore->VNForBitCast(valueVN, fieldType);
+        }
+        else
+        {
+            valueVN = vnStore->VNForExpr(compCurBB, fieldType);
+        }
+
+        INDEBUG(vnTrace(valueVN));
+    }
+
+    return valueVN;
+}
+
+ValueNum Compiler::vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout)
+{
+    assert(valueVN == vnStore->VNNormalValue(valueVN));
+    assert(varActualType(fieldType) == varActualType(vnStore->TypeOfVN(valueVN)));
+
+    var_types loadType = load->GetType();
+
+    if (loadType == TYP_STRUCT)
+    {
+        ClassLayout* loadLayout;
+
+        if (GenTreeLclFld* lclFld = load->IsLclFld())
+        {
+            loadLayout = lclFld->GetLayout(this);
+        }
+        else
+        {
+            loadLayout = load->AsBlk()->GetLayout();
+        }
+
+        if ((fieldType == TYP_STRUCT) && (loadLayout == fieldLayout))
+        {
+            return valueVN;
+        }
+
+        // TODO-MIKE-Fix: Using VNForExpr with compCurBB here and below is highly suspect.
+        // These are loads, one way or another they use memory that may have been defined
+        // in a block different than the current one.
+        // Also, as long as the load size is less or equal the field size the resulting
+        // value depends solely on the loaded value and there's no need to use MemOpaque.
+        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
+
+    if (loadType == fieldType)
+    {
+        return valueVN;
+    }
+
+    if (varTypeSize(loadType) <= varTypeSize(fieldType))
+    {
+        if (varTypeIsIntegral(loadType) && varTypeIsIntegral(fieldType))
+        {
+            return vnStore->VNForCast(valueVN, loadType);
+        }
+    }
+
+    // TODO-MIKE-CQ: Check what other cases might be worth handling here (e.g. float/int,
+    // long/double mismatches -> VNF_BitCast).
+
+    return vnStore->VNForExpr(compCurBB, varActualType(loadType));
+}
+
+var_types Compiler::vnGetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout)
+{
+    CORINFO_CLASS_HANDLE typeHandle = NO_CLASS_HANDLE;
+    var_types            type       = CorTypeToVarType(info.compCompHnd->getFieldType(fieldHandle, &typeHandle));
+
+    if (type == TYP_STRUCT)
+    {
+        *fieldLayout = typGetObjLayout(typeHandle);
+        type         = typGetStructType(*fieldLayout);
+    }
+    else
+    {
+        *fieldLayout = nullptr;
+    }
+
+    return type;
+}
+
+ValueNum Compiler::vnInsertStructField(
+    GenTree* store, GenTree* value, ValueNumKind vnk, ValueNum structVN, var_types structType, FieldSeqNode* fieldSeq)
+{
+    assert(varTypeIsStruct(structType));
+
+    struct
+    {
+        ClassLayout* layout;
+        ValueNum     fieldVN;
+        ValueNum     valueVN;
+        var_types    type;
+    } fields[1 + FieldSeqNode::MaxLength];
+
+    fields[0].valueVN = structVN;
+    fields[0].type    = structType;
+
+    unsigned count = 1;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext(), count++)
+    {
+        assert(count < _countof(fields));
+
+        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
+
+        fields[count].fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
+        fields[count].type    = vnGetFieldType(fieldHandle, &fields[count].layout);
+    }
+
+    auto&    last    = fields[count - 1];
+    ValueNum valueVN = vnCoerceStoreValue(store, value, vnk, last.type, last.layout);
+
+    if (valueVN == NoVN)
+    {
+        return NoVN;
+    }
+
+    for (unsigned i = 1; i < count - 1; i++)
+    {
+        auto& current   = fields[i];
+        auto& prev      = fields[i - 1];
+        current.valueVN = vnStore->VNForMapSelect(vnk, current.type, prev.valueVN, current.fieldVN);
+    }
+
+    for (unsigned i = count - 1; i > 0; i--)
+    {
+        auto& current = fields[i];
+        auto& prev    = fields[i - 1];
+        valueVN       = vnStore->VNForMapStore(prev.type, prev.valueVN, current.fieldVN, valueVN);
+    }
+
+    return valueVN;
+}
+
+ValueNum Compiler::vnExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq)
+{
+    var_types    fieldType   = TYP_UNDEF;
+    ClassLayout* fieldLayout = nullptr;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+    {
+        noway_assert(fieldSeq->IsField());
+
+        fieldType = vnGetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
+
+        ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldSeq->GetFieldHandle());
+
+        structVN = vnStore->VNForMapSelect(vnk, fieldType, structVN, fieldVN);
+    }
+
+    return vnCoerceLoadValue(load, structVN, fieldType, fieldLayout);
+}
+
+ValueNumPair Compiler::vnExtractStructField(GenTree* load, ValueNumPair structVNP, FieldSeqNode* fieldSeq)
+{
+    var_types    fieldType   = TYP_UNDEF;
+    ClassLayout* fieldLayout = nullptr;
+
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
+    {
+        noway_assert(fieldSeq->IsField());
+
+        fieldType = vnGetFieldType(fieldSeq->GetFieldHandle(), &fieldLayout);
+
+        ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldSeq->GetFieldHandle());
+
+        structVNP.SetLiberal(vnStore->VNForMapSelect(VNK_Liberal, fieldType, structVNP.GetLiberal(), fieldVN));
+        structVNP.SetConservative(
+            vnStore->VNForMapSelect(VNK_Conservative, fieldType, structVNP.GetConservative(), fieldVN));
+    }
+
+    structVNP.SetLiberal(vnCoerceLoadValue(load, structVNP.GetLiberal(), fieldType, fieldLayout));
+    structVNP.SetConservative(vnCoerceLoadValue(load, structVNP.GetConservative(), fieldType, fieldLayout));
+
+    return structVNP;
+}
+
+void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
+{
+    assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
     assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
 
     LclVarDsc* lcl = lvaGetDesc(store);
@@ -4224,83 +4439,66 @@ void Compiler::vnLocalStore(GenTreeLclVarCommon* store, GenTreeOp* asg, GenTree*
 
     ValueNumPair valueVNP;
 
-    if (store->TypeIs(TYP_STRUCT) && value->OperIs(GT_CNS_INT))
+    if (store->TypeIs(TYP_STRUCT))
     {
-        assert(value->AsIntCon()->GetValue() == 0);
+        assert(lcl->TypeIs(TYP_STRUCT));
 
-        valueVNP.SetBoth(vnStore->VNForZeroMap());
+        if (value->TypeIs(TYP_STRUCT))
+        {
+            valueVNP = vnStore->VNPNormalPair(value->GetVNP());
+
+            ClassLayout* valueLayout = typGetStructLayout(value);
+
+            if (valueLayout != lcl->GetLayout())
+            {
+                valueVNP = vnCastStruct(valueVNP, valueLayout, lcl->GetLayout());
+            }
+        }
+        else if (value->OperIs(GT_CNS_INT))
+        {
+            assert(value->IsIntegralConst(0));
+            valueVNP.SetBoth(vnStore->VNForZeroMap());
+        }
+        else
+        {
+            assert(value->OperIs(GT_INIT_VAL));
+            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, TYP_STRUCT));
+        }
     }
     else
     {
         valueVNP = vnStore->VNPNormalPair(value->GetVNP());
 
-        if (value->GetType() != store->GetType())
+        var_types valueType = value->GetType();
+        var_types storeType = store->GetType();
+
+        if (valueType != storeType)
         {
-            // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo
-            // small int. While we could narrow the value here it's not clear if there's a good reason to do it
-            // because we may also need to do it when loading. And using the signedness of the value's type doesn't
-            // make a lot of sense since for small int type the value is really INT and the signedness does not matter.
-            // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a
-            // VNF_Cast for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled
-            // below by replacing the value VN with a new, unique one. So why bother casting to begin with?
-            bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-            valueVNP          = vnStore->VNPairForCast(valueVNP, store->GetType(), value->GetType(), fromUnsigned);
-        }
-
-        if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-        {
-            // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-            // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, store->GetType()));
-        }
-    }
-
-    unsigned lclDefSsaNum = store->GetSsaNum();
-
-    if (GenTreeLclFld* lclFld = store->IsLclFld())
-    {
-        assert(((lclFld->gtFlags & GTF_VAR_USEASG) != 0) == lclFld->IsPartialLclFld(this));
-
-        if (!lclFld->HasFieldSeq())
-        {
-            valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
-        }
-        else
-        {
-            ValueNumPair currentVNP;
-
-            if ((store->gtFlags & GTF_VAR_USEASG) == 0)
+            if ((varTypeSize(valueType) == varTypeSize(storeType)) && !varTypeIsSmall(valueType))
             {
-                // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
-                // just insert the new value into a zero map.
-                currentVNP.SetBoth(vnStore->VNForZeroMap());
+                valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), store->GetType()));
+                valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), store->GetType()));
             }
             else
             {
-                currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
+                // TODO-MIKE-CQ: This inserts superfluous casts for all sort of small int/INT mismatches,
+                // these ultimately impact CSE because they make the stored value appear to be different
+                // from the original value. This happens easily when storing a value loaded from a small
+                // int field into an int or small int local - the load already widened the small int and
+                // produced an INT value, now we're widening it again and given that VNForCast doesn't
+                // attempt to remove redundant casts we end up with a new value number, different from
+                // the one produced by the load.
+                // This is also dubious in case the IR contains other type mismatches, possibly involving
+                // SIMD types, SIMD12 and SIMD16 in particular.
+                valueVNP = vnStore->VNForCast(valueVNP, storeType);
             }
-
-            valueVNP = vnStore->MapInsertStructField(currentVNP, lcl->GetType(), lclFld->GetFieldSeq(), valueVNP,
-                                                     lclFld->GetType());
         }
-
-        lclDefSsaNum = GetSsaNumForLocalVarDef(store);
     }
 
-    lcl->GetPerSsaData(lclDefSsaNum)->SetVNP(valueVNP);
+    lcl->GetPerSsaData(store->GetSsaNum())->SetVNP(valueVNP);
     store->SetVNP(valueVNP);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("[%06u] ", store->GetID());
-        gtDispNodeName(store);
-        gtDispLeaf(store, nullptr);
-        printf(" => ");
-        vnpPrint(valueVNP, 1);
-        printf("\n");
-    }
-#endif
+    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
 }
 
 void Compiler::vnLocalLoad(GenTreeLclVar* load)
@@ -4338,7 +4536,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
         if (load->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
         {
-            vnp = vnStore->VNPairForCast(vnp, TYP_INT, TYP_LONG);
+            vnp = vnStore->VNForCast(vnp, TYP_INT);
         }
         else
         {
@@ -4366,6 +4564,74 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
     load->SetVNP(vnp);
 }
 
+void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)
+{
+    assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
+    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
+    assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
+
+    LclVarDsc* lcl = lvaGetDesc(store);
+
+    if (lcl->IsAddressExposed())
+    {
+        vnClearByRefExposed(asg);
+
+        return;
+    }
+
+    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
+
+    if (!lcl->IsInSsa())
+    {
+        return;
+    }
+
+    ValueNumPair valueVNP;
+
+    if (!store->HasFieldSeq())
+    {
+        valueVNP.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+    }
+    else
+    {
+        ValueNumPair currentVNP;
+
+        if ((store->gtFlags & GTF_VAR_USEASG) == 0)
+        {
+            // If the LCL_FLD exactly overlaps the local we can ignore the existing value,
+            // just insert the new value into a zero map.
+            currentVNP.SetBoth(vnStore->VNForZeroMap());
+        }
+        else
+        {
+            currentVNP = lcl->GetPerSsaData(store->GetSsaNum())->GetVNP();
+        }
+
+        FieldSeqNode* fieldSeq = store->GetFieldSeq();
+        var_types     lclType  = lcl->GetType();
+
+        valueVNP.SetLiberal(vnInsertStructField(store, value, VNK_Liberal, currentVNP.GetLiberal(), lclType, fieldSeq));
+
+        if (valueVNP.GetLiberal() == NoVN)
+        {
+            valueVNP.SetLiberal(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+        }
+
+        valueVNP.SetConservative(
+            vnInsertStructField(store, value, VNK_Conservative, currentVNP.GetConservative(), lclType, fieldSeq));
+
+        if (valueVNP.GetConservative() == NoVN)
+        {
+            valueVNP.SetConservative(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
+        }
+    }
+
+    lcl->GetPerSsaData(GetSsaNumForLocalVarDef(store))->SetVNP(valueVNP);
+    store->SetVNP(valueVNP);
+
+    INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
+}
+
 void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
 {
     assert(load->OperIs(GT_LCL_FLD) && ((load->gtFlags & GTF_VAR_DEF) == 0));
@@ -4383,7 +4649,7 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
         assert(varTypeIsStruct(lcl->GetType()));
 
         vnp = lcl->GetPerSsaData(load->GetSsaNum())->GetVNP();
-        vnp = vnStore->MapExtractStructField(vnp, load->GetFieldSeq(), load->GetType());
+        vnp = vnExtractStructField(load, vnp, load->GetFieldSeq());
     }
 
     load->SetVNP(vnp);
@@ -4579,7 +4845,6 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(info.compCompHnd->isFieldStatic(fieldHandle));
-    ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     fieldSeq = fieldSeq->GetNext();
 
@@ -4589,50 +4854,33 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
         fieldSeq = fieldSeq->GetNext();
     }
 
+    ClassLayout* fieldLayout;
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
+    ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
+
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
 
-    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
-        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
-        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
-        // since for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
-
-    ValueNum fieldMapVN;
+    ValueNum valueVN;
 
     if (fieldSeq == nullptr)
     {
-        // TODO-MIKE-Fix: This may need VNApplySelectorsAssignTypeCoerce(valueVN)...
-        fieldMapVN = valueVN;
+        valueVN = vnCoerceStoreValue(store, value, VNK_Liberal, fieldType, fieldLayout);
     }
     else
     {
-        ClassLayout* fieldLayout;
-        var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
-        assert(varTypeIsStruct(fieldType));
-
-        fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
-        fieldMapVN =
-            vnStore->MapInsertStructField(VNK_Liberal, fieldMapVN, fieldType, fieldSeq, valueVN, store->GetType());
+        valueVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
+        valueVN = vnInsertStructField(store, value, VNK_Liberal, valueVN, fieldType, fieldSeq);
     }
 
-    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, fieldMapVN);
+    if (valueVN == NoVN)
+    {
+        // If the store is wider than the field just store a new, unique VN in the field.
+        // The store might modify other static fields but that's undefined behaviour.
+        valueVN = vnStore->VNForExpr(compCurBB, fieldType);
+    }
+
+    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, valueVN);
 }
 
 ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
@@ -4640,7 +4888,7 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(info.compCompHnd->isFieldStatic(fieldHandle));
     ClassLayout* fieldLayout;
-    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     fieldSeq = fieldSeq->GetNext();
@@ -4675,11 +4923,11 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
 
     if (fieldSeq != nullptr)
     {
-        return vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq, load->GetType());
+        return vnExtractStructField(load, VNK_Liberal, vn, fieldSeq);
     }
     else
     {
-        return vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, load->GetType());
+        return vnCoerceLoadValue(load, vn, fieldType, fieldLayout);
     }
 }
 
@@ -4693,51 +4941,38 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
 
     CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
     assert(!info.compCompHnd->isFieldStatic(fieldHandle));
-    ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
-    fieldSeq         = fieldSeq->GetNext();
-
-    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
-        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
-        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
-        // since for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
+    fieldSeq = fieldSeq->GetNext();
+    ClassLayout* fieldLayout;
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
+    ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
     ValueNum heapVN = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(heapVN));
 
     ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
+    ValueNum valueVN;
 
-    if (fieldSeq != nullptr)
+    if (fieldSeq == nullptr)
     {
-        ClassLayout* fieldLayout;
-        var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
-        assert(varTypeIsStruct(fieldType));
-
-        ValueNum objFieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
-        valueVN =
-            vnStore->MapInsertStructField(VNK_Liberal, objFieldMapVN, fieldType, fieldSeq, valueVN, store->GetType());
+        valueVN = vnCoerceStoreValue(store, value, VNK_Liberal, fieldType, fieldLayout);
+    }
+    else
+    {
+        valueVN = vnStore->VNForMapSelect(VNK_Liberal, fieldType, fieldMapVN, objVN);
+        valueVN = vnInsertStructField(store, value, VNK_Liberal, valueVN, fieldType, fieldSeq);
     }
 
-    // TODO-MIKE-Fix: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN),
-    // previously that was incorrectly done when storing to the heap map. It's
-    // the store value that may need coercion, the field map value is always
-    // treated as if it's a struct.
+    if (valueVN == NoVN)
+    {
+        // If the store is wider than the field then update the entire memory.
+        // TODO-MIKE-CQ: This is overly conservative, in practice such a store can only
+        // modify fields of the same object, anything else (static fields, arrays) can
+        // be modified but it's undefined behaviour and can be igored. We could probably
+        // enumerate this object's fields and store unique values in those that overlap
+        // the store.
+        return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
+
     fieldMapVN = vnStore->VNForMapStore(TYP_STRUCT, fieldMapVN, objVN, valueVN);
 
     return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, fieldMapVN);
@@ -4750,7 +4985,7 @@ ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNo
     ValueNum fieldVN = vnStore->VNForFieldSeqHandle(fieldHandle);
     fieldSeq         = fieldSeq->GetNext();
     ClassLayout* fieldLayout;
-    var_types    fieldType = vnStore->GetFieldType(fieldHandle, &fieldLayout);
+    var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
 
     ValueNum vn = fgCurMemoryVN[GcHeap];
     INDEBUG(vnTraceHeapMem(vn));
@@ -4760,11 +4995,11 @@ ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNo
 
     if (fieldSeq != nullptr)
     {
-        return vnStore->MapExtractStructField(VNK_Liberal, vn, fieldSeq, load->GetType());
+        return vnExtractStructField(load, VNK_Liberal, vn, fieldSeq);
     }
     else
     {
-        return vnStore->VNApplySelectorsTypeCheck(vn, fieldLayout, load->GetType());
+        return vnCoerceLoadValue(load, vn, fieldType, fieldLayout);
     }
 }
 
@@ -4804,40 +5039,33 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
         return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
     }
 
-    // TODO-MIKE-Fix: This likely needs VNApplySelectorsAssignTypeCoerce(valueVN)
-    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
-
-    if (value->GetType() != store->GetType())
-    {
-        // TODO-MIKE-Fix: This is dubious. In general both sides of the assignment have the same type, modulo small
-        // int. While we could narrow the value here it's not clear if there's a good reason to do it because we may
-        // also need to do it when loading. And using the signedness of the value's type doesn't make a lot of sense
-        // since for small int type the value is really INT and the signedness does not matter.
-        // There are special cases like REF/BYREF and BYREF/I_IMPL conversions but it's not clear if using a VNF_Cast
-        // for those makes sense, VNF_BitCast might be preferrable. Besides, the REF/BYREF is also handled below by
-        // replacing the value VN with a new, unique one. So why bother casting to begin with?
-        bool fromUnsigned = varTypeIsUnsigned(value->GetType());
-        valueVN           = vnStore->VNForCast(valueVN, store->GetType(), value->GetType(), fromUnsigned);
-    }
-
-    if ((value->GetType() != store->GetType()) && value->TypeIs(TYP_REF))
-    {
-        // If we have an unsafe IL assignment of a TYP_REF to a non-ref (typically a TYP_BYREF)
-        // then don't propagate this ValueNumber to the lhs, instead create a new unique VN
-        valueVN = vnStore->VNForExpr(compCurBB, store->GetType());
-    }
-
     ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, elemTypeVN);
     ValueNum arrayMapVN     = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, arrayTypeMapVN, arrayVN);
 
-    if (fieldSeq != nullptr)
+    ValueNum valueVN;
+
+    if (fieldSeq == nullptr)
     {
-        ValueNum elemVN = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
-        valueVN = vnStore->MapInsertStructField(VNK_Liberal, elemVN, elemType, fieldSeq, valueVN, store->GetType());
+        valueVN = vnCoerceStoreValue(store, value, VNK_Liberal, elemType, elemLayout);
+    }
+    else
+    {
+        valueVN = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
+        valueVN = vnInsertStructField(store, value, VNK_Liberal, valueVN, elemType, fieldSeq);
     }
 
-    arrayMapVN     = vnStore->VNForMapStore(TYP_STRUCT, arrayMapVN, indexVN, valueVN);
-    arrayTypeMapVN = vnStore->VNForMapStore(TYP_STRUCT, arrayTypeMapVN, arrayVN, arrayMapVN);
+    if (valueVN == NoVN)
+    {
+        // If the store is wider than the array element then update the entire array, not just the element.
+        // Of course, such a store may modify other arrays/objects but that's undefined behaviour.
+        arrayTypeMapVN = vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    }
+    else
+    {
+        arrayMapVN     = vnStore->VNForMapStore(TYP_STRUCT, arrayMapVN, indexVN, valueVN);
+        arrayTypeMapVN = vnStore->VNForMapStore(TYP_STRUCT, arrayTypeMapVN, arrayVN, arrayMapVN);
+    }
+
     return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, arrayTypeMapVN);
 }
 
@@ -4878,11 +5106,11 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
 
     if (fieldSeq != nullptr)
     {
-        valueVN = vnStore->MapExtractStructField(VNK_Liberal, valueVN, fieldSeq, load->GetType());
+        valueVN = vnExtractStructField(load, VNK_Liberal, valueVN, fieldSeq);
     }
     else
     {
-        valueVN = vnStore->VNApplySelectorsTypeCheck(valueVN, elemLayout, load->GetType());
+        valueVN = vnCoerceLoadValue(load, valueVN, elemType, elemLayout);
     }
 
     return valueVN;
@@ -6944,7 +7172,6 @@ void Compiler::fgValueNumber()
 
             if (isZeroed)
             {
-                // TODO-MIKE-Cleanup: For SIMD locals this generates bogus typed LONG 0 VN constants.
                 initVal = vnStore->VNZeroForType(type);
             }
             else
@@ -7523,11 +7750,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_CAST:
-            fgValueNumberCastTree(tree);
+            vnCast(tree->AsCast());
             break;
 
         case GT_BITCAST:
-            fgValueNumberBitCastTree(tree->AsUnOp());
+            vnBitCast(tree->AsUnOp());
             break;
 
         case GT_INTRINSIC:
@@ -7869,89 +8096,51 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-void Compiler::fgValueNumberBitCastTree(GenTreeUnOp* bitcast)
+void Compiler::vnBitCast(GenTreeUnOp* bitcast)
 {
     assert(bitcast->OperIs(GT_BITCAST));
 
-    GenTree*  src      = bitcast->GetOp(0);
-    var_types toType   = bitcast->GetType();
-    var_types fromType = src->GetType();
+    ValueNumPair valueVNP = bitcast->GetOp(0)->GetVNP();
+    var_types    fromType = varActualType(bitcast->GetOp(0)->GetType());
+    var_types    toType   = bitcast->GetType();
 
-    assert(genTypeSize(toType) == genTypeSize(fromType));
+    assert(varTypeSize(toType) == varTypeSize(fromType));
 
-    bitcast->SetVN(VNK_Liberal, vnStore->VNForBitCast(src->GetVN(VNK_Liberal), toType, fromType));
-    bitcast->SetVN(VNK_Conservative, vnStore->VNForBitCast(src->GetVN(VNK_Conservative), toType, fromType));
+    ValueNumPair exset;
+    vnStore->VNPUnpackExc(valueVNP, &valueVNP, &exset);
+
+    valueVNP.SetLiberal(vnStore->VNForBitCast(valueVNP.GetLiberal(), toType));
+    valueVNP.SetConservative(vnStore->VNForBitCast(valueVNP.GetConservative(), toType));
+
+    bitcast->SetVNP(vnStore->VNPWithExc(valueVNP, exset));
 }
 
-void Compiler::fgValueNumberCastTree(GenTree* tree)
+ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
 {
-    assert(tree->OperGet() == GT_CAST);
+    assert(valueVN == VNNormalValue(valueVN));
 
-    ValueNumPair srcVNPair        = tree->AsOp()->gtOp1->gtVNPair;
-    var_types    castToType       = tree->CastToType();
-    var_types    castFromType     = tree->CastFromType();
-    bool         srcIsUnsigned    = ((tree->gtFlags & GTF_UNSIGNED) != 0);
-    bool         hasOverflowCheck = tree->gtOverflowEx();
-
-    assert(genActualType(castToType) == genActualType(tree->TypeGet())); // Ensure that the resultType is correct
-
-    tree->gtVNPair = vnStore->VNPairForCast(srcVNPair, castToType, castFromType, srcIsUnsigned, hasOverflowCheck);
-}
-
-// Compute the normal ValueNumber for a cast operation with no exceptions
-ValueNum ValueNumStore::VNForCast(ValueNum  srcVN,
-                                  var_types castToType,
-                                  var_types castFromType,
-                                  bool      srcIsUnsigned /* = false */)
-{
-    // The resulting type after performingthe cast is always widened to a supported IL stack size
-    var_types resultType = genActualType(castToType);
-
-    // When we're considering actual value returned by a non-checking cast whether or not the source is
-    // unsigned does *not* matter for non-widening casts.  That is, if we cast an int or a uint to short,
-    // we just extract the first two bytes from the source bit pattern, not worrying about the interpretation.
-    // The same is true in casting between signed/unsigned types of the same width.  Only when we're doing
-    // a widening cast do we care about whether the source was unsigned,so we know whether to sign or zero extend it.
-    //
-    bool srcIsUnsignedNorm = srcIsUnsigned;
-    if (genTypeSize(castToType) <= genTypeSize(castFromType))
+    if (IsVNConstant(valueVN))
     {
-        srcIsUnsignedNorm = false;
-    }
+        var_types valueType = TypeOfVN(valueVN);
 
-    ValueNum castTypeVN = VNForCastOper(castToType, srcIsUnsigned);
-    ValueNum resultVN   = VNForFunc(resultType, VNF_Cast, srcVN, castTypeVN);
-
-    INDEBUG(m_pComp->vnTrace(resultVN));
-
-    return resultVN;
-}
-
-ValueNum ValueNumStore::VNForBitCast(ValueNum src, var_types toType, var_types fromType)
-{
-    ValueNum srcVal;
-    ValueNum srcExc;
-    VNUnpackExc(src, &srcVal, &srcExc);
-
-    ValueNum resultVal = NoVN;
-
-    if (IsVNConstant(srcVal))
-    {
-        if ((fromType == TYP_FLOAT) && (toType == TYP_INT))
+        if ((valueType == TYP_FLOAT) && (toType == TYP_INT))
         {
-            resultVal = VNForIntCon(jitstd::bit_cast<INT32>(ConstantValue<float>(srcVal)));
+            return VNForIntCon(jitstd::bit_cast<int32_t>(ConstantValue<float>(valueVN)));
         }
-        else if ((fromType == TYP_DOUBLE) && (toType == TYP_LONG))
+
+        if ((valueType == TYP_DOUBLE) && (toType == TYP_LONG))
         {
-            resultVal = VNForLongCon(jitstd::bit_cast<INT64>(ConstantValue<double>(srcVal)));
+            return VNForLongCon(jitstd::bit_cast<int64_t>(ConstantValue<double>(valueVN)));
         }
-        else if ((fromType == TYP_INT) && (toType == TYP_FLOAT))
+
+        if ((valueType == TYP_INT) && (toType == TYP_FLOAT))
         {
-            resultVal = VNForFloatCon(jitstd::bit_cast<float>(ConstantValue<int>(srcVal)));
+            return VNForFloatCon(jitstd::bit_cast<float>(ConstantValue<int32_t>(valueVN)));
         }
-        else if ((fromType == TYP_LONG) && (toType == TYP_DOUBLE))
+
+        if ((valueType == TYP_LONG) && (toType == TYP_DOUBLE))
         {
-            resultVal = VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<INT64>(srcVal)));
+            return VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<int64_t>(valueVN)));
         }
 
         // TODO-MIKE-CQ: Handle BITCAST(Vector2 "constant") for win-x64 ABI needs, at least
@@ -7960,75 +8149,71 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum src, var_types toType, var_types f
         // "parse" the BITCAST operand VN(Func) probably...
     }
 
-    if (resultVal == NoVN)
-    {
-        resultVal = VNForFunc(toType, VNF_BitCast, srcVal, VNForBitCastOper(toType));
-    }
-
-    return VNWithExc(resultVal, srcExc);
+    return VNForFunc(toType, VNF_BitCast, valueVN, VNForBitCastOper(toType));
 }
 
-// Compute the ValueNumberPair for a cast operation
-ValueNumPair ValueNumStore::VNPairForCast(ValueNumPair srcVNPair,
-                                          var_types    castToType,
-                                          var_types    castFromType,
-                                          bool         srcIsUnsigned,    /* = false */
-                                          bool         hasOverflowCheck) /* = false */
+void Compiler::vnCast(GenTreeCast* cast)
 {
-    // The resulting type after performingthe cast is always widened to a supported IL stack size
-    var_types resultType = genActualType(castToType);
+    ValueNumPair valueVNP      = cast->GetOp(0)->GetVNP();
+    var_types    fromType      = varActualType(cast->GetOp(0)->GetType());
+    bool         fromUnsigned  = cast->IsUnsigned();
+    var_types    toType        = cast->GetCastType();
+    bool         checkOverflow = cast->gtOverflow();
 
-    ValueNumPair castArgVNP;
-    ValueNumPair castArgxVNP;
-    VNPUnpackExc(srcVNPair, &castArgVNP, &castArgxVNP);
+    assert(varActualType(toType) == varActualType(cast->GetType()));
 
-    // When we're considering actual value returned by a non-checking cast, (hasOverflowCheck is false)
-    // whether or not the source is unsigned does *not* matter for non-widening casts.
-    // That is, if we cast an int or a uint to short, we just extract the first two bytes from the source
-    // bit pattern, not worrying about the interpretation.  The same is true in casting between signed/unsigned
-    // types of the same width.  Only when we're doing a widening cast do we care about whether the source
-    // was unsigned, so we know whether to sign or zero extend it.
-    //
-    // Important: Casts to floating point cannot be optimized in this fashion. (bug 946768)
-    //
-    bool srcIsUnsignedNorm = srcIsUnsigned;
-    if (!hasOverflowCheck && !varTypeIsFloating(castToType) && (genTypeSize(castToType) <= genTypeSize(castFromType)))
+    // Sometimes GTF_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
+    // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.
+
+    if (varTypeIsFloating(fromType))
     {
-        srcIsUnsignedNorm = false;
+        fromUnsigned = false;
+    }
+    else if (!checkOverflow && !varTypeIsFloating(toType) && (varTypeSize(toType) <= varTypeSize(fromType)))
+    {
+        fromUnsigned = false;
     }
 
-    VNFunc       vnFunc     = hasOverflowCheck ? VNF_CastOvf : VNF_Cast;
-    ValueNum     castTypeVN = VNForCastOper(castToType, srcIsUnsignedNorm);
-    ValueNumPair castTypeVNPair(castTypeVN, castTypeVN);
-    ValueNumPair castNormRes = VNPairForFunc(resultType, vnFunc, castArgVNP, castTypeVNPair);
+    ValueNumPair exset;
+    vnStore->VNPUnpackExc(valueVNP, &valueVNP, &exset);
 
-    ValueNumPair resultVNP = VNPWithExc(castNormRes, castArgxVNP);
+    VNFunc   vnFunc     = checkOverflow ? VNF_CastOvf : VNF_Cast;
+    ValueNum castTypeVN = vnStore->VNForCastOper(toType, fromUnsigned);
+    valueVNP            = vnStore->VNPairForFunc(varActualType(toType), vnFunc, valueVNP, {castTypeVN, castTypeVN});
 
-    // If we have a check for overflow, add the exception information.
-    if (hasOverflowCheck)
+    if (checkOverflow)
     {
-        ValueNumPair excSet = ValueNumStore::VNPForEmptyExcSet();
-
-        ValueNumKind vnKinds[2] = {VNK_Liberal, VNK_Conservative};
-        for (ValueNumKind vnKind : vnKinds)
+        // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
+        if (!vnStore->IsVNConstant(valueVNP.GetLiberal()))
         {
-            // Do not add exceptions for folded casts.
-            // We only fold checked casts that do not overflow.
-            if (IsVNConstant(castNormRes.Get(vnKind)))
-            {
-                continue;
-            }
-
-            ValueNum ovfChk =
-                VNForFunc(TYP_REF, VNF_ConvOverflowExc, castArgVNP.Get(vnKind), castTypeVNPair.Get(vnKind));
-            excSet.Set(vnKind, VNExcSetSingleton(ovfChk));
+            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetLiberal(), castTypeVN);
+            exset.SetLiberal(vnStore->VNExcSetUnion(exset.GetLiberal(), vnStore->VNExcSetSingleton(ex)));
         }
 
-        excSet    = VNPExcSetUnion(excSet, castArgxVNP);
-        resultVNP = VNPWithExc(castNormRes, excSet);
+        if (!vnStore->IsVNConstant(valueVNP.GetConservative()))
+        {
+            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, valueVNP.GetConservative(), castTypeVN);
+            exset.SetConservative(vnStore->VNExcSetUnion(exset.GetConservative(), vnStore->VNExcSetSingleton(ex)));
+        }
     }
 
-    return resultVNP;
+    cast->SetVNP(vnStore->VNPWithExc(valueVNP, exset));
+}
+
+ValueNum ValueNumStore::VNForCast(ValueNum valueVN, var_types toType)
+{
+    ValueNum castTypeVN = VNForCastOper(toType, false);
+    ValueNum resultVN   = VNForFunc(varActualType(toType), VNF_Cast, valueVN, castTypeVN);
+
+    INDEBUG(m_pComp->vnTrace(resultVN));
+
+    return resultVN;
+}
+
+ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types toType)
+{
+    ValueNum castTypeVN = VNForCastOper(toType, false);
+    return VNPairForFunc(varActualType(toType), VNF_Cast, valueVNP, {castTypeVN, castTypeVN});
 }
 
 void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)

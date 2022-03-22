@@ -567,29 +567,10 @@ public:
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
 
-    var_types GetFieldType(CORINFO_FIELD_HANDLE fieldHandle, ClassLayout** fieldLayout);
+    ValueNum VNForBitCast(ValueNum valueVN, var_types toType);
 
-    ValueNum MapInsertStructField(
-        ValueNumKind vnk, ValueNum map, var_types mapType, FieldSeqNode* fieldSeq, ValueNum rhs, var_types storeType);
-    ValueNumPair MapInsertStructField(
-        ValueNumPair map, var_types mapType, FieldSeqNode* fieldSeq, ValueNumPair value, var_types storeType);
-    ValueNum MapExtractStructField(ValueNumKind vnk, ValueNum map, FieldSeqNode* fieldSeq, var_types loadType);
-    ValueNumPair MapExtractStructField(ValueNumPair map, FieldSeqNode* fieldSeq, var_types loadType);
-
-    ValueNum VNApplySelectorsTypeCheck(ValueNum vn, ClassLayout* layout, var_types loadType);
-    ValueNum VNApplySelectorsAssignTypeCoerce(ValueNum srcElem, var_types dstIndType);
-
-    ValueNum VNForBitCast(ValueNum src, var_types toType, var_types fromType);
-
-    // Compute the normal ValueNumber for a cast with no exceptions
-    ValueNum VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType, bool srcIsUnsigned = false);
-
-    // Compute the ValueNumberPair for a cast
-    ValueNumPair VNPairForCast(ValueNumPair srcVNPair,
-                               var_types    castToType,
-                               var_types    castFromType,
-                               bool         srcIsUnsigned    = false,
-                               bool         hasOverflowCheck = false);
+    ValueNum VNForCast(ValueNum valueVN, var_types toType);
+    ValueNumPair VNForCast(ValueNumPair valueVNP, var_types toType);
 
     // PtrToLoc values need to express a field sequence as one of their arguments.  VN for null represents
     // empty sequence, otherwise, "FieldSeq(VN(FieldHandle), restOfSeq)".
