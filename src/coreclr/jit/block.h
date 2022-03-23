@@ -1060,13 +1060,18 @@ struct BasicBlock : private LIR::Range
         unsigned      m_ssaNum;  // SSA# for incoming value.
         MemoryPhiArg* m_nextArg; // Next arg in the list, else NULL.
 
-        unsigned GetSsaNum()
+        MemoryPhiArg(unsigned ssaNum, MemoryPhiArg* nextArg) : m_ssaNum(ssaNum), m_nextArg(nextArg)
+        {
+        }
+
+        unsigned GetSsaNum() const
         {
             return m_ssaNum;
         }
 
-        MemoryPhiArg(unsigned ssaNum, MemoryPhiArg* nextArg = nullptr) : m_ssaNum(ssaNum), m_nextArg(nextArg)
+        MemoryPhiArg* GetNext() const
         {
+            return m_nextArg;
         }
 
         void* operator new(size_t sz, class Compiler* comp);
