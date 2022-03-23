@@ -768,32 +768,40 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     if (!block->bbMemoryHavoc && m_pCompiler->ehBlockHasExnFlowDsc(block))
     {
-        if (lclNode == nullptr)
+        bool isMemoryDef = false;
+
+        if (lclNode != nullptr)
+        {
+            isMemoryDef = m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed();
+        }
+        else
         {
             if (GenTreeIndir* indir = dst->IsIndir())
             {
-                lclNode = indir->GetAddr()->IsLocalAddrExpr();
-                assert((lclNode == nullptr) || m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed());
+                if (GenTreeLclVarCommon* lclAddr = indir->GetAddr()->IsLocalAddrExpr())
+                {
+                    assert(m_pCompiler->lvaGetDesc(lclAddr)->IsAddressExposed());
+                }
             }
+
+            isMemoryDef = true;
         }
 
-        bool isAddrExposedLocal = (lclNode != nullptr) && m_pCompiler->lvaGetDesc(lclNode)->IsAddressExposed();
-        if ((lclNode == nullptr) || isAddrExposedLocal)
+        // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
+
+        if (isMemoryDef)
         {
-            // It *may* define memory in a non-havoc way.  Make a new SSA # -- associate with this node.
             unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
             m_renameStack.PushMemory(block, ssaNum);
             m_pCompiler->GetMemorySsaMap()->Set(asgNode, ssaNum);
+
 #ifdef DEBUG
             if (m_pCompiler->verboseSsa)
             {
-                printf("Node ");
-                Compiler::printTreeID(asgNode);
-                printf(" (in try block) may define memory; ssa # = %d.\n", ssaNum);
+                printf("Node [%06u] in try block defines memory; SSA # = %u.\n", asgNode->GetID(), ssaNum);
             }
-#endif // DEBUG
+#endif
 
-            // Now add this SSA # to all phis of the reachable catch blocks.
             AddMemoryDefToHandlerPhis(block, ssaNum);
         }
     }
