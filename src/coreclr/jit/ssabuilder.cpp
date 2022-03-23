@@ -886,55 +886,54 @@ void SsaBuilder::AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, unsigne
 
 void SsaBuilder::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
 {
-    if (m_pCompiler->ehBlockHasExnFlowDsc(block))
+    assert(m_pCompiler->ehBlockHasExnFlowDsc(block));
+
+    // Don't do anything for a compiler-inserted BBJ_ALWAYS that is a "leave helper".
+    if ((block->bbFlags & BBF_INTERNAL) && block->isBBCallAlwaysPairTail())
     {
-        // Don't do anything for a compiler-inserted BBJ_ALWAYS that is a "leave helper".
-        if ((block->bbFlags & BBF_INTERNAL) && block->isBBCallAlwaysPairTail())
-        {
-            return;
-        }
+        return;
+    }
 
-        // Otherwise...
-        DBG_SSA_JITDUMP("Definition of Memory:%u in block " FMT_BB " has exn handler; adding as phi arg to handlers.\n",
-                        ssaNum, block->bbNum);
-        EHblkDsc* tryBlk = m_pCompiler->ehGetBlockExnFlowDsc(block);
-        while (true)
-        {
-            BasicBlock* handler = tryBlk->ExFlowBlock();
+    // Otherwise...
+    DBG_SSA_JITDUMP("Definition of Memory:%u in block " FMT_BB " has exn handler; adding as phi arg to handlers.\n",
+                    ssaNum, block->bbNum);
+    EHblkDsc* tryBlk = m_pCompiler->ehGetBlockExnFlowDsc(block);
+    while (true)
+    {
+        BasicBlock* handler = tryBlk->ExFlowBlock();
 
-            // Is memoryKind live on entry to the handler?
-            if (handler->bbMemoryLiveIn)
+        // Is memoryKind live on entry to the handler?
+        if (handler->bbMemoryLiveIn)
+        {
+            // Add "ssaNum" to the phi args of memoryKind.
+            BasicBlock::MemoryPhiArg*& handlerMemoryPhi = handler->bbMemorySsaPhiFunc;
+
+            if (handlerMemoryPhi == BasicBlock::EmptyMemoryPhiDef)
             {
-                // Add "ssaNum" to the phi args of memoryKind.
-                BasicBlock::MemoryPhiArg*& handlerMemoryPhi = handler->bbMemorySsaPhiFunc;
-
-                if (handlerMemoryPhi == BasicBlock::EmptyMemoryPhiDef)
-                {
-                    handlerMemoryPhi = new (m_pCompiler) BasicBlock::MemoryPhiArg(ssaNum);
-                }
-                else
-                {
+                handlerMemoryPhi = new (m_pCompiler) BasicBlock::MemoryPhiArg(ssaNum);
+            }
+            else
+            {
 #ifdef DEBUG
-                    BasicBlock::MemoryPhiArg* curArg = handler->bbMemorySsaPhiFunc;
-                    while (curArg != nullptr)
-                    {
-                        assert(curArg->GetSsaNum() != ssaNum);
-                        curArg = curArg->m_nextArg;
-                    }
-#endif // DEBUG
-                    handlerMemoryPhi = new (m_pCompiler) BasicBlock::MemoryPhiArg(ssaNum, handlerMemoryPhi);
+                BasicBlock::MemoryPhiArg* curArg = handler->bbMemorySsaPhiFunc;
+                while (curArg != nullptr)
+                {
+                    assert(curArg->GetSsaNum() != ssaNum);
+                    curArg = curArg->m_nextArg;
                 }
+#endif // DEBUG
+                handlerMemoryPhi = new (m_pCompiler) BasicBlock::MemoryPhiArg(ssaNum, handlerMemoryPhi);
+            }
 
-                DBG_SSA_JITDUMP("   Added phi arg u:%u for Memory to phi defn in handler block " FMT_BB ".\n", ssaNum,
-                                handler->bbNum);
-            }
-            unsigned tryInd = tryBlk->ebdEnclosingTryIndex;
-            if (tryInd == EHblkDsc::NO_ENCLOSING_INDEX)
-            {
-                break;
-            }
-            tryBlk = m_pCompiler->ehGetDsc(tryInd);
+            DBG_SSA_JITDUMP("   Added phi arg u:%u for Memory to phi defn in handler block " FMT_BB ".\n", ssaNum,
+                            handler->bbNum);
         }
+        unsigned tryInd = tryBlk->ebdEnclosingTryIndex;
+        if (tryInd == EHblkDsc::NO_ENCLOSING_INDEX)
+        {
+            break;
+        }
+        tryBlk = m_pCompiler->ehGetDsc(tryInd);
     }
 }
 
@@ -986,7 +985,11 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
     {
         unsigned ssaNum = m_pCompiler->lvMemoryPerSsaData.AllocSsaNum(m_allocator);
         m_renameStack.PushMemory(block, ssaNum);
-        AddMemoryDefToHandlerPhis(block, ssaNum);
+
+        if (m_pCompiler->ehBlockHasExnFlowDsc(block))
+        {
+            AddMemoryDefToHandlerPhis(block, ssaNum);
+        }
 
         block->bbMemorySsaNumOut = ssaNum;
     }
