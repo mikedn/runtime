@@ -4003,11 +4003,9 @@ public:
     // assumed for the memoryKind at the start "entryBlk".
     ValueNum fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned loopNum);
 
-    void vnClearGcHeap(GenTree* node DEBUGARG(const char* comment = nullptr));
-    void vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char* comment = nullptr));
-    void vnClearByRefExposed(GenTree* node);
-    void vnUpdateByRefExposed(GenTree* node, ValueNum memVN);
-    void vnUpdateMemorySsaDef(GenTree* node);
+    void vnStoreAddressExposedLocal(GenTree* node);
+    void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
+    void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
 
     // The input 'tree' is a leaf node that is a constant
     // Assign the proper value number to the tree

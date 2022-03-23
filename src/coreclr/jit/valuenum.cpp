@@ -1766,14 +1766,14 @@ ValueNum ValueNumStore::VNForZeroMap()
     return m_zeroMap;
 }
 
-ValueNum ValueNumStore::VNForReadOnlyHeapMap()
+ValueNum ValueNumStore::VNForReadOnlyMemoryMap()
 {
-    if (m_readOnlyHeapMap == NoVN)
+    if (m_readOnlyMemoryMap == NoVN)
     {
-        m_readOnlyHeapMap = VNForExpr(m_pComp->fgFirstBB, TYP_STRUCT);
+        m_readOnlyMemoryMap = VNForExpr(m_pComp->fgFirstBB, TYP_STRUCT);
     }
 
-    return m_readOnlyHeapMap;
+    return m_readOnlyMemoryMap;
 }
 
 // Returns the value number for one of the given "typ".
@@ -4424,7 +4424,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
 
     if (lcl->IsAddressExposed())
     {
-        vnClearByRefExposed(asg);
+        vnStoreAddressExposedLocal(asg);
 
         return;
     }
@@ -4572,7 +4572,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 
     if (lcl->IsAddressExposed())
     {
-        vnClearByRefExposed(asg);
+        vnStoreAddressExposedLocal(asg);
 
         return;
     }
@@ -4659,9 +4659,9 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 
     if (store->IsVolatile())
     {
-        // For volatile stores, first mutate the heap. This prevents previous
+        // For volatile stores, first mutate memory. This prevents previous
         // stores from being visible after the store.
-        vnClearGcHeap(store DEBUGARG("volatile store"));
+        vnClearMemory(store DEBUGARG("volatile store"));
     }
 
     assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
@@ -4672,16 +4672,16 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 
     if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
     {
-        ValueNum heapVN = vnStaticFieldStore(store, vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]), value);
-        vnUpdateGcHeap(asg, heapVN DEBUGARG("static field store"));
+        ValueNum memVN = vnStaticFieldStore(store, vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]), value);
+        vnUpdateMemory(asg, memVN DEBUGARG("static field store"));
 
         return;
     }
 
     if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
     {
-        ValueNum heapVN = vnArrayElemStore(store, funcApp, value);
-        vnUpdateGcHeap(asg, heapVN DEBUGARG("array element store"));
+        ValueNum memVN = vnArrayElemStore(store, funcApp, value);
+        vnUpdateMemory(asg, memVN DEBUGARG("array element store"));
 
         return;
     }
@@ -4689,31 +4689,31 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     GenTree* obj;
     if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
     {
-        ValueNum heapVN;
+        ValueNum memVN;
 
         if (obj == nullptr)
         {
-            heapVN = vnStaticFieldStore(store, fieldSeq, value);
+            memVN = vnStaticFieldStore(store, fieldSeq, value);
         }
         else
         {
-            heapVN = vnObjFieldStore(store, vnStore->VNNormalValue(obj->GetLiberalVN()), fieldSeq, value);
+            memVN = vnObjFieldStore(store, vnStore->VNNormalValue(obj->GetLiberalVN()), fieldSeq, value);
         }
 
-        vnUpdateGcHeap(asg, heapVN DEBUGARG(obj == nullptr ? "static field store" : "object field store"));
+        vnUpdateMemory(asg, memVN DEBUGARG(obj == nullptr ? "static field store" : "object field store"));
 
         return;
     }
 
-    if (GenTreeLclVarCommon* dstLclNode = addr->IsLocalAddrExpr())
+    if (GenTreeLclVarCommon* lclAddr = addr->IsLocalAddrExpr())
     {
-        assert(lvaGetDesc(dstLclNode)->IsAddressExposed());
-        vnClearByRefExposed(asg);
+        assert(lvaGetDesc(lclAddr)->IsAddressExposed());
+        vnStoreAddressExposedLocal(asg);
 
         return;
     }
 
-    vnClearGcHeap(asg DEBUGARG("indirect store"));
+    vnClearMemory(asg DEBUGARG("indirect store"));
 }
 
 void Compiler::vnIndirLoad(GenTreeIndir* load)
@@ -4745,7 +4745,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         }
         else
         {
-            vnp.SetBoth(vnStore->VNForReadOnlyHeapMap());
+            vnp.SetBoth(vnStore->VNForReadOnlyMemoryMap());
             vnp = vnStore->VNForMapSelect(load->GetType(), vnp, addrVNP);
         }
 
@@ -4761,18 +4761,18 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 
     if (load->IsVolatile())
     {
-        // We just mutate GcHeap/ByrefExposed for volatile loads, and then do the load as normal.
+        // We just mutate memory for volatile loads, and then do the load as normal.
         //
         // This allows:
         //   1: read s;
         //   2: volatile read s;
         //   3: read s;
         //
-        // We should never assume that the values loaded by 1 and 2 are the same (because the heap was
+        // We should never assume that the values loaded by 1 and 2 are the same (because memory was
         // mutated in between them) but we *should* be able to prove that the values loaded by 2 and
         // 3 are the same.
 
-        vnClearGcHeap(load DEBUGARG("volatile load"));
+        vnClearMemory(load DEBUGARG("volatile load"));
 
         valueVN = conservativeVN;
     }
@@ -4856,8 +4856,8 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
-    ValueNum heapVN = fgCurMemoryVN;
-    INDEBUG(vnTraceMem(heapVN));
+    ValueNum memVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(memVN));
 
     ValueNum valueVN;
 
@@ -4867,7 +4867,7 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     }
     else
     {
-        valueVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
+        valueVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, memVN, fieldVN);
         valueVN = vnInsertStructField(store, value, VNK_Liberal, valueVN, fieldType, fieldSeq);
     }
 
@@ -4878,7 +4878,7 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
         valueVN = vnStore->VNForExpr(compCurBB, fieldType);
     }
 
-    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, valueVN);
+    return vnStore->VNForMapStore(TYP_STRUCT, memVN, fieldVN, valueVN);
 }
 
 ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
@@ -4896,14 +4896,14 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
         // This actually loads a boxed object reference for a static struct field.
         // Note that this must come from the special read only heap. Not only that
         // the reference is indeed read only (even if the field itself isn't read
-        // only) but we're using MapSelect(GcHeap, field) to load the boxed struct
+        // only) but we're using MapSelect(Memory, field) to load the boxed struct
         // contents, we cannot use the same value to load the reference.
 
         // TODO-MIKE-CQ: Enable this. It produces good improvements thanks to CSE
         // but there are also significatn regressions, apparently due to the lack
         // of OBJ address mode marking.
         //
-        // return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->VNForReadOnlyHeapMap(), fieldVN);
+        // return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->VNForReadOnlyMemoryMap(), fieldVN);
 
         return vnStore->VNForExpr(compCurBB, TYP_REF);
     }
@@ -4914,10 +4914,10 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
         fieldSeq = fieldSeq->GetNext();
     }
 
-    ValueNum heapVN = fgCurMemoryVN;
-    INDEBUG(vnTraceMem(heapVN));
+    ValueNum memVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(memVN));
 
-    ValueNum vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, heapVN, fieldVN);
+    ValueNum vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, memVN, fieldVN);
 
     if (fieldSeq != nullptr)
     {
@@ -4944,10 +4944,10 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
     var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
-    ValueNum heapVN = fgCurMemoryVN;
-    INDEBUG(vnTraceMem(heapVN));
+    ValueNum memVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(memVN));
 
-    ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
+    ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, memVN, fieldVN);
     ValueNum valueVN;
 
     if (fieldSeq == nullptr)
@@ -4973,7 +4973,7 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
 
     fieldMapVN = vnStore->VNForMapStore(TYP_STRUCT, fieldMapVN, objVN, valueVN);
 
-    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, fieldVN, fieldMapVN);
+    return vnStore->VNForMapStore(TYP_STRUCT, memVN, fieldVN, fieldMapVN);
 }
 
 ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq)
@@ -5020,8 +5020,8 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
-    ValueNum heapVN = fgCurMemoryVN;
-    INDEBUG(vnTraceMem(heapVN));
+    ValueNum memVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(memVN));
 
     // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
@@ -5034,10 +5034,10 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
 
     if (fieldSeq == FieldSeqStore::NotAField())
     {
-        return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
+        return vnStore->VNForMapStore(TYP_STRUCT, memVN, elemTypeVN, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
     }
 
-    ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, elemTypeVN);
+    ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, memVN, elemTypeVN);
     ValueNum arrayMapVN     = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, arrayTypeMapVN, arrayVN);
 
     ValueNum valueVN;
@@ -5064,7 +5064,7 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
         arrayTypeMapVN = vnStore->VNForMapStore(TYP_STRUCT, arrayTypeMapVN, arrayVN, arrayMapVN);
     }
 
-    return vnStore->VNForMapStore(TYP_STRUCT, heapVN, elemTypeVN, arrayTypeMapVN);
+    return vnStore->VNForMapStore(TYP_STRUCT, memVN, elemTypeVN, arrayTypeMapVN);
 }
 
 ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr)
@@ -5080,8 +5080,8 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
-    ValueNum heapVN = fgCurMemoryVN;
-    INDEBUG(vnTraceMem(heapVN));
+    ValueNum memVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(memVN));
 
     // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
@@ -5098,7 +5098,7 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
         return vnStore->VNForExpr(compCurBB, elemType);
     }
 
-    ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, elemTypeVN);
+    ValueNum arrayTypeMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, memVN, elemTypeVN);
     ValueNum arrayMapVN     = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, arrayTypeMapVN, arrayVN);
     ValueNum valueVN        = vnStore->VNForMapSelect(VNK_Liberal, elemType, arrayMapVN, indexVN);
 
@@ -5145,7 +5145,7 @@ void Compiler::vnArrayLength(GenTreeArrLen* node)
 
 void Compiler::vnCmpXchg(GenTreeCmpXchg* node)
 {
-    vnClearGcHeap(node DEBUGARG("cmpxchg intrinsic"));
+    vnClearMemory(node DEBUGARG("cmpxchg intrinsic"));
 
     // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
     ValueNum     value = vnStore->VNForExpr(compCurBB, node->GetType());
@@ -5159,7 +5159,7 @@ void Compiler::vnInterlocked(GenTreeOp* node)
 {
     assert(node->OperIs(GT_XORR, GT_XAND, GT_XADD, GT_XCHG));
 
-    vnClearGcHeap(node DEBUGARG("interlocked intrinsic"));
+    vnClearMemory(node DEBUGARG("interlocked intrinsic"));
 
     // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
     ValueNum     value = vnStore->VNForExpr(compCurBB, node->GetType());
@@ -7493,50 +7493,33 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
     return newMemoryVN;
 }
 
-void Compiler::vnClearGcHeap(GenTree* node DEBUGARG(const char* comment))
-{
-    vnUpdateGcHeap(node, vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG(comment));
-}
-
-void Compiler::vnClearByRefExposed(GenTree* node)
+void Compiler::vnStoreAddressExposedLocal(GenTree* node)
 {
     // TODO-MIKE-CQ: For stores to address exposed locals we could probably be
     // mode precise and use a map store with the local number as the "index".
     // For now, just use a new opaque VN.
 
-    vnUpdateByRefExposed(node, vnStore->VNForExpr(compCurBB, TYP_STRUCT));
+    vnClearMemory(node DEBUGARG("address-exposed local store"));
 }
 
-void Compiler::vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char* comment))
+void Compiler::vnClearMemory(GenTree* node DEBUGARG(const char* comment))
 {
-    assert(compCurBB->bbMemoryDef);
-
-    fgCurMemoryVN = heapVN;
-
-    INDEBUG(vnTraceMem(fgCurMemoryVN, comment));
-
-    vnUpdateMemorySsaDef(node);
+    vnUpdateMemory(node, vnStore->VNForExpr(compCurBB, TYP_STRUCT) DEBUGARG(comment));
 }
 
-void Compiler::vnUpdateByRefExposed(GenTree* node, ValueNum memVN)
+void Compiler::vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment))
 {
     assert(compCurBB->bbMemoryDef);
 
     fgCurMemoryVN = memVN;
+    INDEBUG(vnTraceMem(fgCurMemoryVN, comment));
 
-    INDEBUG(vnTraceMem(memVN, "address-exposed local store"));
-
-    vnUpdateMemorySsaDef(node);
-}
-
-void Compiler::vnUpdateMemorySsaDef(GenTree* node)
-{
     unsigned ssaNum;
 
     if (GetMemorySsaMap()->Lookup(node, &ssaNum))
     {
-        GetMemoryPerSsaData(ssaNum)->m_vn = fgCurMemoryVN;
-        JITDUMP("    Memory SSA def %u = " FMT_VN "\n", ssaNum, fgCurMemoryVN);
+        GetMemoryPerSsaData(ssaNum)->m_vn = memVN;
+        JITDUMP("    Memory SSA def %u = " FMT_VN "\n", ssaNum, memVN);
     }
 }
 
@@ -7662,7 +7645,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_MEMORYBARRIER:
-            vnClearGcHeap(tree DEBUGARG("memory barrier"));
+            vnClearMemory(tree DEBUGARG("memory barrier"));
             break;
 
         case GT_ARGPLACE:
@@ -7697,7 +7680,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            vnClearGcHeap(tree DEBUGARG("dynamic sized init/copy block"));
+            vnClearMemory(tree DEBUGARG("dynamic sized init/copy block"));
             tree->gtVNPair.SetBoth(vnStore->VNForVoid());
             break;
 
@@ -7957,7 +7940,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     if (node->OperIsMemoryStore())
     {
-        vnClearGcHeap(node DEBUGARG("HWIntrinsic store"));
+        vnClearMemory(node DEBUGARG("HWIntrinsic store"));
     }
 
     if (node->GetAuxiliaryType() != TYP_UNDEF)
@@ -8348,7 +8331,7 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
 
         if (modHeap)
         {
-            vnClearGcHeap(call DEBUGARG("helper call"));
+            vnClearMemory(call DEBUGARG("helper call"));
         }
     }
     else
@@ -8366,7 +8349,7 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
             call->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, call->TypeGet()));
         }
 
-        vnClearGcHeap(call DEBUGARG("user call"));
+        vnClearMemory(call DEBUGARG("user call"));
     }
 }
 
