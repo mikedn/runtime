@@ -592,6 +592,9 @@ void SsaBuilder::AddPhiArg(
                     block->bbNum);
 }
 
+// Special value to represent a to-be-filled in Memory Phi arg list.
+static BasicBlock::MemoryPhiArg EmptyMemoryPhiDef(0);
+
 /**
  * Inserts phi functions at DF(b) for variables v that are live after the phi
  * insertion point i.e., v in live-in(b).
@@ -684,10 +687,9 @@ void SsaBuilder::InsertPhiFunctions(BasicBlock** postOrder, int count)
                 if (bbInDomFront->bbMemorySsaPhiFunc == nullptr)
                 {
                     // We have a variable i that is defined in block j and live at l, and l belongs to dom frontier
-                    // of
-                    // j. So insert a phi node at l.
+                    // of j. So insert a phi node at l.
                     JITDUMP("Inserting phi definition for Memory at start of " FMT_BB ".\n", bbInDomFront->bbNum);
-                    bbInDomFront->bbMemorySsaPhiFunc = BasicBlock::EmptyMemoryPhiDef;
+                    bbInDomFront->bbMemorySsaPhiFunc = &EmptyMemoryPhiDef;
                 }
             }
         }
@@ -908,7 +910,7 @@ void SsaBuilder::AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum)
             // Add "ssaNum" to the phi args of memoryKind.
             BasicBlock::MemoryPhiArg*& handlerMemoryPhi = handler->bbMemorySsaPhiFunc;
 
-            if (handlerMemoryPhi == BasicBlock::EmptyMemoryPhiDef)
+            if (handlerMemoryPhi == &EmptyMemoryPhiDef)
             {
                 handlerMemoryPhi = new (m_pCompiler) BasicBlock::MemoryPhiArg(ssaNum);
             }
@@ -1051,7 +1053,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
         BasicBlock::MemoryPhiArg*& succMemoryPhi = succ->bbMemorySsaPhiFunc;
         if (succMemoryPhi != nullptr)
         {
-            if (succMemoryPhi == BasicBlock::EmptyMemoryPhiDef)
+            if (succMemoryPhi == &EmptyMemoryPhiDef)
             {
                 succMemoryPhi = new (m_pCompiler) BasicBlock::MemoryPhiArg(block->bbMemorySsaNumOut);
             }
@@ -1175,7 +1177,7 @@ void SsaBuilder::AddPhiArgsToSuccessors(BasicBlock* block)
                 BasicBlock::MemoryPhiArg*& handlerMemoryPhi = handlerStart->bbMemorySsaPhiFunc;
                 if (handlerMemoryPhi != nullptr)
                 {
-                    if (handlerMemoryPhi == BasicBlock::EmptyMemoryPhiDef)
+                    if (handlerMemoryPhi == &EmptyMemoryPhiDef)
                     {
                         handlerMemoryPhi = new (m_pCompiler) BasicBlock::MemoryPhiArg(block->bbMemorySsaNumOut);
                     }

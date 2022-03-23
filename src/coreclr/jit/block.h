@@ -1071,10 +1071,9 @@ struct BasicBlock : private LIR::Range
 
         void* operator new(size_t sz, class Compiler* comp);
     };
-    static MemoryPhiArg* EmptyMemoryPhiDef; // Special value (0x1, FWIW) to represent a to-be-filled in Phi arg list
-                                            // for Heap.
-    MemoryPhiArg* bbMemorySsaPhiFunc;       // If the "in" Heap SSA var is not a phi definition, this value
-                                            // is NULL.
+
+    MemoryPhiArg* bbMemorySsaPhiFunc; // If the "in" Heap SSA var is not a phi definition, this value
+                                      // is NULL.
     // Otherwise, it is either the special value EmptyMemoryPhiDefn, to indicate
     // that Heap needs a phi definition on entry, or else it is the linked list
     // of the phi arguments.

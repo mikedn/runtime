@@ -932,9 +932,6 @@ BasicBlock* BasicBlock::GetUniqueSucc() const
     }
 }
 
-// Static vars.
-BasicBlock::MemoryPhiArg* BasicBlock::EmptyMemoryPhiDef = (BasicBlock::MemoryPhiArg*)0x1;
-
 unsigned JitPtrKeyFuncs<BasicBlock>::GetHashCode(const BasicBlock* ptr)
 {
 #ifdef DEBUG
