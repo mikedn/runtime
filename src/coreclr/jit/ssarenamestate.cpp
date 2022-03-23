@@ -136,13 +136,9 @@ void SsaRenameState::DumpStack(Stack* stack)
 {
     if (JitTls::GetCompiler()->verboseSsa)
     {
-        if (stack == &m_memoryStack[ByrefExposed])
+        if (stack == &m_memoryStack)
         {
-            printf("ByrefExposed: ");
-        }
-        else if (stack == &m_memoryStack[GcHeap])
-        {
-            printf("GcHeap: ");
+            printf("Memory: ");
         }
         else
         {

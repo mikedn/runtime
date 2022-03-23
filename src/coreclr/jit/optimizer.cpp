@@ -1117,10 +1117,8 @@ bool Compiler::optRecordLoop(BasicBlock*   head,
     optLoopTable[loopInd].lpFlags = LPFLG_EMPTY;
 
     // We haven't yet recorded any side effects.
-    for (MemoryKind memoryKind : allMemoryKinds())
-    {
-        optLoopTable[loopInd].lpLoopHasMemoryHavoc[memoryKind] = false;
-    }
+    optLoopTable[loopInd].lpLoopHasMemoryHavoc = false;
+
     optLoopTable[loopInd].lpFieldsModified         = nullptr;
     optLoopTable[loopInd].lpArrayElemTypesModified = nullptr;
 
@@ -6214,15 +6212,11 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
             BasicBlock*                     loopEntryBlock = nullptr;
             if (map->Lookup(tree, &loopEntryBlock))
             {
-                for (MemoryKind memoryKind : allMemoryKinds())
+                ValueNum loopMemoryVN = m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn)->m_vn;
+                if (!m_compiler->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
+                                                      &m_hoistContext->m_curLoopVnInvariantCache))
                 {
-                    ValueNum loopMemoryVN =
-                        m_compiler->GetMemoryPerSsaData(loopEntryBlock->bbMemorySsaNumIn[memoryKind])->m_vn;
-                    if (!m_compiler->optVNIsLoopInvariant(loopMemoryVN, m_loopNum,
-                                                          &m_hoistContext->m_curLoopVnInvariantCache))
-                    {
-                        return false;
-                    }
+                    return false;
                 }
             }
 
@@ -7097,7 +7091,7 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
             //
             // Record that all loops containing this block have memory havoc effects.
             //
-            optRecordLoopNestsMemoryHavoc(lnum, fullMemoryKindSet);
+            optRecordLoopNestsMemoryHavoc(lnum);
 
             // All done, no need to keep visiting more blocks
             break;
@@ -7105,20 +7099,14 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
     }
 }
 
-void Compiler::optRecordLoopNestsMemoryHavoc(unsigned lnum, MemoryKindSet memoryHavoc)
+void Compiler::optRecordLoopNestsMemoryHavoc(unsigned lnum)
 {
     // We should start out with 'lnum' set to a valid natural loop index
     assert(lnum != BasicBlock::NOT_IN_LOOP);
 
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        for (MemoryKind memoryKind : allMemoryKinds())
-        {
-            if ((memoryHavoc & memoryKindSet(memoryKind)) != 0)
-            {
-                optLoopTable[lnum].lpLoopHasMemoryHavoc[memoryKind] = true;
-            }
-        }
+        optLoopTable[lnum].lpLoopHasMemoryHavoc = true;
 
         // Move lnum to the next outtermost loop that we need to mark
         lnum = optLoopTable[lnum].lpParent;
@@ -7135,8 +7123,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
     }
     AddVariableLivenessAllContainingLoops(mostNestedLoop, blk);
 
-    // MemoryKinds for which an in-loop call or store has arbitrary effects.
-    MemoryKindSet memoryHavoc = emptyMemoryKindSet;
+    bool memoryHavoc = false;
 
     // Now iterate over the remaining statements, and their trees.
     for (Statement* const stmt : blk->NonPhiStatements())
@@ -7146,7 +7133,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
             genTreeOps oper = tree->OperGet();
 
             // Even after we set memoryHavoc we still may want to know if a loop contains calls
-            if (memoryHavoc == fullMemoryKindSet)
+            if (memoryHavoc)
             {
                 if (oper == GT_CALL)
                 {
@@ -7165,9 +7152,6 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                 continue;
             }
 
-            // otherwise memoryHavoc is not set for at least one heap ID
-            assert(memoryHavoc != fullMemoryKindSet);
-
             // This body is a distillation of the memory side-effect code of value numbering.
             // We also do a very limited analysis if byref PtrTo values, to cover some cases
             // that the compiler creates.
@@ -7184,15 +7168,13 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                     if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
                     {
-                        memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                        memoryHavoc = true;
                         continue;
                     }
 
                     if (GenTreeClsVar* clsVarAddr = arg->IsClsVar())
                     {
                         AddModifiedFieldAllContainingLoops(mostNestedLoop, clsVarAddr->GetFieldHandle());
-                        // Conservatively assume byrefs may alias this static field
-                        memoryHavoc |= memoryKindSet(ByrefExposed);
                         continue;
                     }
 
@@ -7213,22 +7195,17 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                                 unsigned elemTypeNum =
                                     static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
                                 AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeNum);
-                                // Don't set memoryHavoc for GcHeap below.  Do set memoryHavoc for ByrefExposed
-                                // (conservatively assuming that a byref may alias the array element)
-                                memoryHavoc |= memoryKindSet(ByrefExposed);
                                 continue;
                             }
                         }
                         // Otherwise...
-                        memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                        memoryHavoc = true;
                     }
                     else if (optIsArrayElem(lhs->AsIndir(), &arrInfo))
                     {
                         // We actually ignore field sequences -- any modification to an S[], at any
                         // field of "S", will lose all information about the array type.
                         AddModifiedElemTypeAllContainingLoops(mostNestedLoop, arrInfo.m_elemTypeNum);
-                        // Conservatively assume byrefs may alias this array element
-                        memoryHavoc |= memoryKindSet(ByrefExposed);
                     }
                     else
                     {
@@ -7237,12 +7214,10 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
                         {
                             AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
-                            // Conservatively assume byrefs may alias this object.
-                            memoryHavoc |= memoryKindSet(ByrefExposed);
                         }
                         else
                         {
-                            memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                            memoryHavoc = true;
                         }
                     }
                 }
@@ -7251,12 +7226,9 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     if (GenTreeLclVarCommon* lclNode = lhs->AsIndir()->GetAddr()->IsLocalAddrExpr())
                     {
                         assert(lvaGetDesc(lclNode)->IsAddressExposed());
-                        memoryHavoc |= memoryKindSet(ByrefExposed);
                     }
-                    else
-                    {
-                        memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
-                    }
+
+                    memoryHavoc = true;
                 }
                 else if (lhs->OperIs(GT_LCL_VAR))
                 {
@@ -7265,7 +7237,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                     if (lcl->IsAddressExposed())
                     {
-                        memoryHavoc |= memoryKindSet(ByrefExposed);
+                        memoryHavoc = true;
                     }
                     else if (lcl->IsInSsa() && lclNode->HasSsaName())
                     {
@@ -7313,7 +7285,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     case GT_COPY_BLK:
                     case GT_INIT_BLK:
                         assert(!tree->OperIs(GT_LOCKADD) && "LOCKADD should not appear before lowering");
-                        memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                        memoryHavoc = true;
                         break;
 
                     case GT_CALL:
@@ -7328,7 +7300,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                             CorInfoHelpFunc helpFunc = eeGetHelperNum(call->gtCallMethHnd);
                             if (s_helperCallProperties.MutatesHeap(helpFunc))
                             {
-                                memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                                memoryHavoc = true;
                             }
                             else if (s_helperCallProperties.MayRunCctor(helpFunc))
                             {
@@ -7338,13 +7310,13 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                                 // and might have arbitrary side effects.
                                 if ((tree->gtFlags & GTF_CALL_HOISTABLE) == 0)
                                 {
-                                    memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                                    memoryHavoc = true;
                                 }
                             }
                         }
                         else
                         {
-                            memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                            memoryHavoc = true;
                         }
                         break;
                     }
@@ -7357,10 +7329,10 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
         }
     }
 
-    if (memoryHavoc != emptyMemoryKindSet)
+    if (memoryHavoc)
     {
         // Record that all loops containing this block have this kind of memoryHavoc effects.
-        optRecordLoopNestsMemoryHavoc(mostNestedLoop, memoryHavoc);
+        optRecordLoopNestsMemoryHavoc(mostNestedLoop);
     }
     return true;
 }

@@ -1288,10 +1288,10 @@ void BasicBlock::InitVarSets(Compiler* comp)
     VarSetOps::AssignNoCopy(comp, bbLiveOut, VarSetOps::MakeEmpty(comp));
     VarSetOps::AssignNoCopy(comp, bbScope, VarSetOps::MakeEmpty(comp));
 
-    bbMemoryUse     = emptyMemoryKindSet;
-    bbMemoryDef     = emptyMemoryKindSet;
-    bbMemoryLiveIn  = emptyMemoryKindSet;
-    bbMemoryLiveOut = emptyMemoryKindSet;
+    bbMemoryUse     = false;
+    bbMemoryDef     = false;
+    bbMemoryLiveIn  = false;
+    bbMemoryLiveOut = false;
 }
 
 // Returns true if the basic block ends with GT_JMP
@@ -1515,17 +1515,14 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
         VarSetOps::AssignNoCopy(this, block->bbScope, VarSetOps::UninitVal());
     }
 
-    block->bbMemoryUse     = emptyMemoryKindSet;
-    block->bbMemoryDef     = emptyMemoryKindSet;
-    block->bbMemoryLiveIn  = emptyMemoryKindSet;
-    block->bbMemoryLiveOut = emptyMemoryKindSet;
+    block->bbMemoryUse     = false;
+    block->bbMemoryDef     = false;
+    block->bbMemoryLiveIn  = false;
+    block->bbMemoryLiveOut = false;
 
-    for (MemoryKind memoryKind : allMemoryKinds())
-    {
-        block->bbMemorySsaPhiFunc[memoryKind] = nullptr;
-        block->bbMemorySsaNumIn[memoryKind]   = 0;
-        block->bbMemorySsaNumOut[memoryKind]  = 0;
-    }
+    block->bbMemorySsaPhiFunc = nullptr;
+    block->bbMemorySsaNumIn   = 0;
+    block->bbMemorySsaNumOut  = 0;
 
     // Make sure we reserve a NOT_IN_LOOP value that isn't a legal table index.
     static_assert_no_msg(BasicBlock::MAX_LOOP_NUM < BasicBlock::NOT_IN_LOOP);

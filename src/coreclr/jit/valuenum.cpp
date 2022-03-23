@@ -4419,7 +4419,6 @@ ValueNumPair Compiler::vnExtractStructField(GenTree* load, ValueNumPair structVN
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
-    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
 
     LclVarDsc* lcl = lvaGetDesc(store);
 
@@ -4430,7 +4429,7 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
         return;
     }
 
-    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
+    assert(!GetMemorySsaMap()->Lookup(asg));
 
     if (!lcl->IsInSsa())
     {
@@ -4567,7 +4566,6 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
 void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_FLD) && ((store->gtFlags & GTF_VAR_DEF) != 0));
-    assert(!GetMemorySsaMap(GcHeap)->Lookup(asg));
     assert(((store->gtFlags & GTF_VAR_USEASG) != 0) == store->IsPartialLclFld(this));
 
     LclVarDsc* lcl = lvaGetDesc(store);
@@ -4579,7 +4577,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
         return;
     }
 
-    assert(!GetMemorySsaMap(ByrefExposed)->Lookup(asg));
+    assert(!GetMemorySsaMap()->Lookup(asg));
 
     if (!lcl->IsInSsa())
     {
@@ -4858,8 +4856,8 @@ ValueNum Compiler::vnStaticFieldStore(GenTreeIndir* store, FieldSeqNode* fieldSe
     var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
-    ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnTraceHeapMem(heapVN));
+    ValueNum heapVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(heapVN));
 
     ValueNum valueVN;
 
@@ -4916,8 +4914,8 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
         fieldSeq = fieldSeq->GetNext();
     }
 
-    ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnTraceHeapMem(heapVN));
+    ValueNum heapVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(heapVN));
 
     ValueNum vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, heapVN, fieldVN);
 
@@ -4946,8 +4944,8 @@ ValueNum Compiler::vnObjFieldStore(GenTreeIndir* store, ValueNum objVN, FieldSeq
     var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
     ValueNum     fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
 
-    ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnTraceHeapMem(heapVN));
+    ValueNum heapVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(heapVN));
 
     ValueNum fieldMapVN = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, heapVN, fieldVN);
     ValueNum valueVN;
@@ -4987,8 +4985,8 @@ ValueNum Compiler::vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNo
     ClassLayout* fieldLayout;
     var_types    fieldType = vnGetFieldType(fieldHandle, &fieldLayout);
 
-    ValueNum vn = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnTraceHeapMem(vn));
+    ValueNum vn = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(vn));
 
     vn = vnStore->VNForMapSelect(VNK_Liberal, TYP_STRUCT, vn, fieldVN);
     vn = vnStore->VNForMapSelect(VNK_Liberal, fieldType, vn, objVN);
@@ -5022,8 +5020,8 @@ ValueNum Compiler::vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAd
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
-    ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnTraceHeapMem(heapVN));
+    ValueNum heapVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(heapVN));
 
     // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
@@ -5082,8 +5080,8 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
     ClassLayout* elemLayout  = typIsLayoutNum(elemTypeNum) ? typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types    elemType = elemLayout == nullptr ? static_cast<var_types>(elemTypeNum) : typGetStructType(elemLayout);
 
-    ValueNum heapVN = fgCurMemoryVN[GcHeap];
-    INDEBUG(vnTraceHeapMem(heapVN));
+    ValueNum heapVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(heapVN));
 
     // TODO-MIKE-Fix: We should get a field sequence only for arrays of structs.
     // This isn't the best place to check this but for now it gets pmi diff
@@ -5184,8 +5182,8 @@ ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
         return vnStore->VNForExpr(compCurBB, TYP_STRUCT);
     }
 
-    ValueNum memoryVN = fgCurMemoryVN[ByrefExposed];
-    INDEBUG(vnTraceMem(ByrefExposed, memoryVN DEBUGARG("byref exposed load")));
+    ValueNum memoryVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(memoryVN DEBUGARG("byref exposed load")));
 
     // The memoization for VNFunc applications does not factor in the result type, so
     // VNF_ByrefExposedLoad takes the loaded type as an explicit parameter.
@@ -7301,78 +7299,63 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         INDEBUG(vnTraceLocal(newSsaDef->GetLclNum(), newSsaDefVNP));
     }
 
-    // Now do the same for each MemoryKind.
-    for (MemoryKind memoryKind : allMemoryKinds())
+    // Now do the same for memory.
+
+    // Is there a phi for this block?
+    if (blk->bbMemorySsaPhiFunc == nullptr)
     {
-        // Is there a phi for this block?
-        if (blk->bbMemorySsaPhiFunc[memoryKind] == nullptr)
+        fgCurMemoryVN = GetMemoryPerSsaData(blk->bbMemorySsaNumIn)->m_vn;
+        assert(fgCurMemoryVN != ValueNumStore::NoVN);
+    }
+    else
+    {
+        unsigned loopNum;
+        ValueNum newMemoryVN;
+        if (optBlockIsLoopEntry(blk, &loopNum))
         {
-            fgCurMemoryVN[memoryKind] = GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vn;
-            assert(fgCurMemoryVN[memoryKind] != ValueNumStore::NoVN);
+            newMemoryVN = fgMemoryVNForLoopSideEffects(blk, loopNum);
         }
         else
         {
-            if ((memoryKind == ByrefExposed) && byrefStatesMatchGcHeapStates)
+            BasicBlock::MemoryPhiArg* phiArgs = blk->bbMemorySsaPhiFunc;
+
+            ValueNum sameMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+            INDEBUG(vnTraceMem(sameMemoryVN, "predecessor memory"));
+
+            ValueNum phiVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
+            phiArgs        = phiArgs->m_nextArg;
+            // There should be > 1 args to a phi.
+            // But OSR might leave around "dead" try entry blocks...
+            assert((phiArgs != nullptr) || opts.IsOSR());
+
+            for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
             {
-                // The update for GcHeap will copy its result to ByrefExposed.
-                assert(memoryKind < GcHeap);
-                assert(blk->bbMemorySsaPhiFunc[memoryKind] == blk->bbMemorySsaPhiFunc[GcHeap]);
-                continue;
+                ValueNum phiMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
+                INDEBUG(vnTraceMem(phiMemoryVN, "predecessor memory"));
+                if (sameMemoryVN != phiMemoryVN)
+                {
+                    sameMemoryVN = NoVN;
+                }
+
+                phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForIntCon(phiArgs->GetSsaNum()), phiVN);
+                INDEBUG(vnTrace(phiVN));
             }
 
-            unsigned loopNum;
-            ValueNum newMemoryVN;
-            if (optBlockIsLoopEntry(blk, &loopNum))
+            if (sameMemoryVN != NoVN)
             {
-                newMemoryVN = fgMemoryVNForLoopSideEffects(memoryKind, blk, loopNum);
+                newMemoryVN = sameMemoryVN;
             }
             else
             {
-                BasicBlock::MemoryPhiArg* phiArgs = blk->bbMemorySsaPhiFunc[memoryKind];
-
-                ValueNum sameMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
-                INDEBUG(vnTraceMem(memoryKind, sameMemoryVN, "predecessor memory"));
-
-                ValueNum phiVN = vnStore->VNForIntCon(phiArgs->GetSsaNum());
-                phiArgs        = phiArgs->m_nextArg;
-                // There should be > 1 args to a phi.
-                // But OSR might leave around "dead" try entry blocks...
-                assert((phiArgs != nullptr) || opts.IsOSR());
-
-                for (; phiArgs != nullptr; phiArgs = phiArgs->m_nextArg)
-                {
-                    ValueNum phiMemoryVN = GetMemoryPerSsaData(phiArgs->GetSsaNum())->m_vn;
-                    INDEBUG(vnTraceMem(memoryKind, phiMemoryVN, "predecessor memory"));
-                    if (sameMemoryVN != phiMemoryVN)
-                    {
-                        sameMemoryVN = NoVN;
-                    }
-
-                    phiVN = vnStore->VNForFunc(TYP_STRUCT, VNF_Phi, vnStore->VNForIntCon(phiArgs->GetSsaNum()), phiVN);
-                    INDEBUG(vnTrace(phiVN));
-                }
-
-                if (sameMemoryVN != NoVN)
-                {
-                    newMemoryVN = sameMemoryVN;
-                }
-                else
-                {
-                    newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiVN);
-                }
-            }
-
-            GetMemoryPerSsaData(blk->bbMemorySsaNumIn[memoryKind])->m_vn = newMemoryVN;
-            fgCurMemoryVN[memoryKind]                                    = newMemoryVN;
-            if ((memoryKind == GcHeap) && byrefStatesMatchGcHeapStates)
-            {
-                // Keep the CurMemoryVNs in sync
-                fgCurMemoryVN[ByrefExposed] = newMemoryVN;
+                newMemoryVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiMemoryDef, vnStore->VNForHostPtr(blk), phiVN);
             }
         }
 
-        INDEBUG(vnTraceMem(memoryKind, fgCurMemoryVN[memoryKind]));
+        GetMemoryPerSsaData(blk->bbMemorySsaNumIn)->m_vn = newMemoryVN;
+        fgCurMemoryVN                                    = newMemoryVN;
     }
+
+    INDEBUG(vnTraceMem(fgCurMemoryVN));
 
     // Now iterate over the remaining statements, and their trees.
     for (; stmt != nullptr; stmt = stmt->GetNextStmt())
@@ -7408,29 +7391,15 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 #endif
     }
 
-    for (MemoryKind memoryKind : allMemoryKinds())
+    if (blk->bbMemorySsaNumOut != blk->bbMemorySsaNumIn)
     {
-        if ((memoryKind == GcHeap) && byrefStatesMatchGcHeapStates)
-        {
-            // The update to the shared SSA data will have already happened for ByrefExposed.
-            assert(memoryKind > ByrefExposed);
-            assert(blk->bbMemorySsaNumOut[memoryKind] == blk->bbMemorySsaNumOut[ByrefExposed]);
-            assert(GetMemoryPerSsaData(blk->bbMemorySsaNumOut[memoryKind])->m_vn == fgCurMemoryVN[memoryKind]);
-            continue;
-        }
-
-        if (blk->bbMemorySsaNumOut[memoryKind] != blk->bbMemorySsaNumIn[memoryKind])
-        {
-            GetMemoryPerSsaData(blk->bbMemorySsaNumOut[memoryKind])->m_vn = fgCurMemoryVN[memoryKind];
-        }
+        GetMemoryPerSsaData(blk->bbMemorySsaNumOut)->m_vn = fgCurMemoryVN;
     }
 
     compCurBB = nullptr;
 }
 
-ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
-                                                BasicBlock* entryBlock,
-                                                unsigned    innermostLoopNum)
+ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned innermostLoopNum)
 {
     // "loopNum" is the innermost loop for which "blk" is the entry; find the outermost one.
     assert(innermostLoopNum != BasicBlock::NOT_IN_LOOP);
@@ -7446,7 +7415,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
         loopsInNest = optLoopTable[loopsInNest].lpParent;
     }
 
-    if (optLoopTable[loopNum].lpLoopHasMemoryHavoc[memoryKind])
+    if (optLoopTable[loopNum].lpLoopHasMemoryHavoc)
     {
         JITDUMP("    Loop " FMT_LP " has memory havoc effect\n", loopNum);
         return vnStore->VNForExpr(entryBlock, TYP_STRUCT);
@@ -7481,58 +7450,44 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
     // Otherwise, there is a single non-loop pred.
     assert(nonLoopPred != nullptr);
     // What is its memory post-state?
-    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->bbMemorySsaNumOut[memoryKind])->m_vn;
+    ValueNum newMemoryVN = GetMemoryPerSsaData(nonLoopPred->bbMemorySsaNumOut)->m_vn;
     assert(newMemoryVN != ValueNumStore::NoVN); // We must have processed the single non-loop pred before reaching the
                                                 // loop entry.
 
-    INDEBUG(vnTraceMem(memoryKind, newMemoryVN DEBUGARG("loop entry memory")));
+    INDEBUG(vnTraceMem(newMemoryVN DEBUGARG("loop entry memory")));
 
     // Modify "base" by setting all the modified fields/field maps/array maps to unknown values.
-    // These annotations apply specifically to the GcHeap, where we disambiguate across such stores.
-    if (memoryKind == GcHeap)
+
+    // First the fields/field maps.
+    Compiler::LoopDsc::FieldHandleSet* fieldsMod = optLoopTable[loopNum].lpFieldsModified;
+    if (fieldsMod != nullptr)
     {
-        // First the fields/field maps.
-        Compiler::LoopDsc::FieldHandleSet* fieldsMod = optLoopTable[loopNum].lpFieldsModified;
-        if (fieldsMod != nullptr)
+        for (Compiler::LoopDsc::FieldHandleSet::KeyIterator ki = fieldsMod->Begin(); !ki.Equal(fieldsMod->End()); ++ki)
         {
-            for (Compiler::LoopDsc::FieldHandleSet::KeyIterator ki = fieldsMod->Begin(); !ki.Equal(fieldsMod->End());
-                 ++ki)
-            {
-                CORINFO_FIELD_HANDLE fieldHandle = ki.Get();
-                ValueNum             fieldVN     = vnStore->VNForFieldSeqHandle(fieldHandle);
-                var_types            fieldType   = TYP_STRUCT;
+            CORINFO_FIELD_HANDLE fieldHandle = ki.Get();
+            ValueNum             fieldVN     = vnStore->VNForFieldSeqHandle(fieldHandle);
+            var_types            fieldType   = TYP_STRUCT;
 
-                if (info.compCompHnd->isFieldStatic(fieldHandle))
-                {
-                    fieldType = CorTypeToVarType(info.compCompHnd->getFieldType(fieldHandle));
-                }
-
-                newMemoryVN =
-                    vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, fieldVN, vnStore->VNForExpr(entryBlock, fieldType));
-            }
-        }
-        // Now do the array maps.
-        Compiler::LoopDsc::TypeNumSet* elemTypesMod = optLoopTable[loopNum].lpArrayElemTypesModified;
-        if (elemTypesMod != nullptr)
-        {
-            for (Compiler::LoopDsc::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End());
-                 ++ki)
+            if (info.compCompHnd->isFieldStatic(fieldHandle))
             {
-                ValueNum elemTypeVN = vnStore->VNForTypeNum(ki.Get());
-                ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
-                newMemoryVN         = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, elemTypeVN, uniqueVN);
+                fieldType = CorTypeToVarType(info.compCompHnd->getFieldType(fieldHandle));
             }
+
+            newMemoryVN =
+                vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, fieldVN, vnStore->VNForExpr(entryBlock, fieldType));
         }
     }
-    else
+    // Now do the array maps.
+    Compiler::LoopDsc::TypeNumSet* elemTypesMod = optLoopTable[loopNum].lpArrayElemTypesModified;
+    if (elemTypesMod != nullptr)
     {
-        // If there were any fields/elements modified, this should have been recorded as havoc
-        // for ByrefExposed.
-        assert(memoryKind == ByrefExposed);
-        assert((optLoopTable[loopNum].lpFieldsModified == nullptr) ||
-               optLoopTable[loopNum].lpLoopHasMemoryHavoc[memoryKind]);
-        assert((optLoopTable[loopNum].lpArrayElemTypesModified == nullptr) ||
-               optLoopTable[loopNum].lpLoopHasMemoryHavoc[memoryKind]);
+        for (Compiler::LoopDsc::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End());
+             ++ki)
+        {
+            ValueNum elemTypeVN = vnStore->VNForTypeNum(ki.Get());
+            ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
+            newMemoryVN         = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, elemTypeVN, uniqueVN);
+        }
     }
 
     return newMemoryVN;
@@ -7554,37 +7509,34 @@ void Compiler::vnClearByRefExposed(GenTree* node)
 
 void Compiler::vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char* comment))
 {
-    assert((compCurBB->bbMemoryDef & memoryKindSet(GcHeap, ByrefExposed)) == memoryKindSet(GcHeap, ByrefExposed));
+    assert(compCurBB->bbMemoryDef);
 
-    fgCurMemoryVN[GcHeap]       = heapVN;
-    fgCurMemoryVN[ByrefExposed] = byrefStatesMatchGcHeapStates ? heapVN : vnStore->VNForExpr(compCurBB, TYP_STRUCT);
+    fgCurMemoryVN = heapVN;
 
-    INDEBUG(vnTraceMem(GcHeap, fgCurMemoryVN[GcHeap], comment));
-    INDEBUG(vnTraceMem(ByrefExposed, fgCurMemoryVN[ByrefExposed], comment));
+    INDEBUG(vnTraceMem(fgCurMemoryVN, comment));
 
-    vnUpdateMemorySsaDef(node, GcHeap);
+    vnUpdateMemorySsaDef(node);
 }
 
 void Compiler::vnUpdateByRefExposed(GenTree* node, ValueNum memVN)
 {
-    assert(!byrefStatesMatchGcHeapStates);
-    assert((compCurBB->bbMemoryDef & memoryKindSet(ByrefExposed)) != 0);
+    assert(compCurBB->bbMemoryDef);
 
-    fgCurMemoryVN[ByrefExposed] = memVN;
+    fgCurMemoryVN = memVN;
 
-    INDEBUG(vnTraceMem(ByrefExposed, memVN, "address-exposed local store"));
+    INDEBUG(vnTraceMem(memVN, "address-exposed local store"));
 
-    vnUpdateMemorySsaDef(node, ByrefExposed);
+    vnUpdateMemorySsaDef(node);
 }
 
-void Compiler::vnUpdateMemorySsaDef(GenTree* node, MemoryKind memoryKind)
+void Compiler::vnUpdateMemorySsaDef(GenTree* node)
 {
     unsigned ssaNum;
 
-    if (GetMemorySsaMap(memoryKind)->Lookup(node, &ssaNum))
+    if (GetMemorySsaMap()->Lookup(node, &ssaNum))
     {
-        GetMemoryPerSsaData(ssaNum)->m_vn = fgCurMemoryVN[memoryKind];
-        JITDUMP("    %s SSA def %u = " FMT_VN "\n", memoryKindNames[memoryKind], ssaNum, fgCurMemoryVN[memoryKind]);
+        GetMemoryPerSsaData(ssaNum)->m_vn = fgCurMemoryVN;
+        JITDUMP("    Memory SSA def %u = " FMT_VN "\n", ssaNum, fgCurMemoryVN);
     }
 }
 
@@ -9261,11 +9213,11 @@ void Compiler::vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comme
     }
 }
 
-void Compiler::vnTraceMem(MemoryKind kind, ValueNum vn, const char* comment)
+void Compiler::vnTraceMem(ValueNum vn, const char* comment)
 {
     if (verbose)
     {
-        printf("    %s = %s ", memoryKindNames[kind], varTypeName(vnStore->TypeOfVN(vn)));
+        printf("    Memory = %s ", varTypeName(vnStore->TypeOfVN(vn)));
         vnPrint(vn, 1);
 
         if (comment != nullptr)
@@ -9275,11 +9227,6 @@ void Compiler::vnTraceMem(MemoryKind kind, ValueNum vn, const char* comment)
 
         printf("\n");
     }
-}
-
-void Compiler::vnTraceHeapMem(ValueNum vn, const char* comment)
-{
-    vnTraceMem(GcHeap, vn, comment);
 }
 
 #endif // DEBUG
