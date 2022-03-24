@@ -3990,7 +3990,7 @@ public:
     void vnArrayLength(GenTreeArrLen* node);
     void vnCmpXchg(GenTreeCmpXchg* node);
     void vnInterlocked(GenTreeOp* node);
-    ValueNum vnByRefExposedLoad(var_types type, ValueNum addrVN);
+    ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 

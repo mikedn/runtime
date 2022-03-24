@@ -4531,7 +4531,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
                                              vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
-        load->gtVNPair.SetBoth(vnByRefExposedLoad(load->GetType(), addrVN));
+        load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
 
         return;
     }
@@ -4847,7 +4847,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     {
         // TODO-MIKE-CQ: Handle method table pointer loads properly. This code gives these
         // loads unique VNs, this prevents CSEing of such loads.
-        // These loads can be handled by vnByRefExposedLoad below but then it turns out
+        // These loads can be handled by vnMemoryLoad below but then it turns out
         // that CSEing is a problem for optAssertionIsSubtype - it specifically looks for
         // indirs that load the method table pointer.
 
@@ -4855,7 +4855,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     }
     else
     {
-        valueVN = vnByRefExposedLoad(load->GetType(), addrVNP.GetLiberal());
+        valueVN = vnMemoryLoad(load->GetType(), addrVNP.GetLiberal());
     }
 
     load->SetVNP(vnStore->VNPWithExc({valueVN, conservativeVN}, addrExcVNP));
@@ -5219,7 +5219,7 @@ void Compiler::vnInterlocked(GenTreeOp* node)
     node->SetVNP(vnStore->VNPWithExc({value, value}, exset));
 }
 
-ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
+ValueNum Compiler::vnMemoryLoad(var_types type, ValueNum addrVN)
 {
     assert(addrVN == vnStore->VNNormalValue(addrVN));
 
@@ -5234,7 +5234,7 @@ ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
     }
 
     ValueNum memoryVN = fgCurMemoryVN;
-    INDEBUG(vnTraceMem(memoryVN DEBUGARG("byref exposed load")));
+    INDEBUG(vnTraceMem(memoryVN DEBUGARG("memory load")));
 
     // The memoization for VNFunc applications does not factor in the result type, so
     // VNF_ByrefExposedLoad takes the loaded type as an explicit parameter.
@@ -5247,7 +5247,7 @@ ValueNum Compiler::vnByRefExposedLoad(var_types type, ValueNum addrVN)
     // a BITCAST of the CSEd INT load. Probably too much work to be worthwhile.
     ValueNum typeVN = vnStore->VNForIntCon(type);
 
-    return vnStore->VNForFunc(type, VNF_ByrefExposedLoad, typeVN, addrVN, memoryVN);
+    return vnStore->VNForFunc(type, VNF_MemLoad, typeVN, addrVN, memoryVN);
 }
 
 var_types ValueNumStore::TypeOfVN(ValueNum vn)
@@ -8020,7 +8020,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* node)
         ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, func, addrVNP.GetLiberal());
 
         // The address could point anywhere, so it is an ByrefExposed load.
-        ValueNum loadVN = vnByRefExposedLoad(node->GetType(), addrVN);
+        ValueNum loadVN = vnMemoryLoad(node->GetType(), addrVN);
 
         node->gtVNPair.SetLiberal(loadVN);
         // TODO-MIKE-Fix: Using VNForExpr with compCurBB for loads is suspect...
