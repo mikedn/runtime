@@ -2256,8 +2256,7 @@ TailCall:
             (IsVNConstant(storeIndexVN) || (GetVNFunc(storeIndexVN, &funcApp) && (funcApp.m_func == VNF_LclAddr))))
         {
             // This is the equivalent of the recursive tail call:
-            // return VNForMapSelect(vnk, typ, funcApp.m_args[0], arg1VN);
-            // Make sure we capture any exceptions from the "i" and "v" of the store...
+            // return VNForMapSelect(vnk, typ, storeMapVN, indexVN);
             mapVN = storeMapVN;
             goto TailCall;
         }
