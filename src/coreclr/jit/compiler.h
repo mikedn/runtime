@@ -3985,6 +3985,7 @@ public:
     ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
     ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
     ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
+    ValueNum vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value);
     void vnNullCheck(GenTreeIndir* node);
     void vnArrayLength(GenTreeArrLen* node);
     void vnCmpXchg(GenTreeCmpXchg* node);
@@ -4003,7 +4004,6 @@ public:
     // assumed for the memoryKind at the start "entryBlk".
     ValueNum fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned loopNum);
 
-    void vnStoreAddressExposedLocal(GenTree* node);
     void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
     void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
 

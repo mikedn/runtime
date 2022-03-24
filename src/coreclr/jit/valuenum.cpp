@@ -4424,7 +4424,10 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
 
     if (lcl->IsAddressExposed())
     {
-        vnStoreAddressExposedLocal(asg);
+        ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+                                                vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+        ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
+        vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 
         return;
     }
@@ -4572,7 +4575,11 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
 
     if (lcl->IsAddressExposed())
     {
-        vnStoreAddressExposedLocal(asg);
+        ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+                                                vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
+                                                vnStore->VNForFieldSeq(store->GetFieldSeq()));
+        ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
+        vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 
         return;
     }
@@ -4690,7 +4697,8 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     if (funcApp.m_func == VNF_LclAddr)
     {
         assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]))->IsAddressExposed());
-        vnStoreAddressExposedLocal(asg);
+        ValueNum memVN = vnAddressExposedLocalStore(store, addrVN, value);
+        vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 
         return;
     }
@@ -5113,6 +5121,29 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
     }
 
     return valueVN;
+}
+
+ValueNum Compiler::vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value)
+{
+    VNFuncApp funcApp;
+    assert(vnStore->GetVNFunc(lclAddrVN, &funcApp) && (funcApp.m_func == VNF_LclAddr));
+
+    ValueNum memVN = fgCurMemoryVN;
+    INDEBUG(vnTraceMem(memVN));
+
+    // Currently we don't try to load address-exposed locals from memory so just store
+    // whatever value we've got, without dealing with fields and coercion.
+    // We just need to store something to create a new memory VN that keeps track that
+    // some local (rather than a static/object field or array element) was modified.
+
+    ValueNum valueVN = vnStore->VNNormalValue(value->GetLiberalVN());
+
+    // Note that the map index has to be a VNF_LclAddr VN, it cannot be just the local
+    // number even if we currently don't care about field sequence and local offset.
+    // We're using integers as map indices for array element types so using them for
+    // locals as well would result in bad aliasing between locals and arrays.
+
+    return vnStore->VNForMapStore(TYP_STRUCT, memVN, lclAddrVN, valueVN);
 }
 
 void Compiler::vnNullCheck(GenTreeIndir* node)
@@ -7494,15 +7525,6 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
     }
 
     return newMemoryVN;
-}
-
-void Compiler::vnStoreAddressExposedLocal(GenTree* node)
-{
-    // TODO-MIKE-CQ: For stores to address exposed locals we could probably be
-    // mode precise and use a map store with the local number as the "index".
-    // For now, just use a new opaque VN.
-
-    vnClearMemory(node DEBUGARG("address-exposed local store"));
 }
 
 void Compiler::vnClearMemory(GenTree* node DEBUGARG(const char* comment))
