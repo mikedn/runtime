@@ -4669,8 +4669,9 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     GenTree*  addr   = store->GetAddr();
     ValueNum  addrVN = vnStore->VNNormalValue(addr->GetLiberalVN());
     VNFuncApp funcApp;
+    vnStore->GetVNFunc(addrVN, &funcApp);
 
-    if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToStatic))
+    if (funcApp.m_func == VNF_PtrToStatic)
     {
         ValueNum memVN = vnStaticFieldStore(store, vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]), value);
         vnUpdateMemory(asg, memVN DEBUGARG("static field store"));
@@ -4678,10 +4679,18 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         return;
     }
 
-    if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
+    if (funcApp.m_func == VNF_PtrToArrElem)
     {
         ValueNum memVN = vnArrayElemStore(store, funcApp, value);
         vnUpdateMemory(asg, memVN DEBUGARG("array element store"));
+
+        return;
+    }
+
+    if (funcApp.m_func == VNF_LclAddr)
+    {
+        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]))->IsAddressExposed());
+        vnStoreAddressExposedLocal(asg);
 
         return;
     }
@@ -4701,14 +4710,6 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         }
 
         vnUpdateMemory(asg, memVN DEBUGARG(obj == nullptr ? "static field store" : "object field store"));
-
-        return;
-    }
-
-    if (GenTreeLclVarCommon* lclAddr = addr->IsLocalAddrExpr())
-    {
-        assert(lvaGetDesc(lclAddr)->IsAddressExposed());
-        vnStoreAddressExposedLocal(asg);
 
         return;
     }
@@ -6152,6 +6153,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
 {
     if (vn == NoVN)
     {
+        funcApp->m_func = static_cast<VNFunc>(GT_NONE);
         return false;
     }
 
@@ -6212,6 +6214,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             return true;
         }
         default:
+            funcApp->m_func = static_cast<VNFunc>(GT_NONE);
             return false;
     }
 }
