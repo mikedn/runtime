@@ -2228,21 +2228,37 @@ TailCall:
 
     if (funcApp.m_func == VNF_MapStore)
     {
+        ValueNum storeMapVN   = funcApp.m_args[0];
+        ValueNum storeIndexVN = funcApp.m_args[1];
+
         // select(store(m, i, v), i) == v
-        if (funcApp.m_args[1] == indexVN)
+        if (storeIndexVN == indexVN)
         {
-            m_pComp->optRecordLoopMemoryDependence(m_pComp->compCurTree, m_pComp->compCurBB, funcApp.m_args[0]);
+            m_pComp->optRecordLoopMemoryDependence(m_pComp->compCurTree, m_pComp->compCurBB, storeMapVN);
             return funcApp.m_args[2];
         }
-        // i # j ==> select(store(m, i, v), j) == select(m, j)
-        // Currently the only source of distinctions is when both indices are constants.
-        else if (IsVNConstant(indexVN) && IsVNConstant(funcApp.m_args[1]))
+
+        // We can skip a store if it doesn't alias this load.
+        // Most indices used in maps are field handles (encoded as constants in the VN world),
+        // we discard overlapping fields early so if we get 2 different constants we conclude
+        // that they're different fields and thus they do not alias.
+        // For arrays indices can be arbitrary values but if they're constants then it's clear
+        // that we're accessing different array elements that do not alias (provided that we
+        // don't mix up array elements of different types in the same map).
+        // We can also have local addresses (VNF_LclAddr) values as map indices but we don't
+        // try to do loads with these. So in the memory map we can assume that local address
+        // values and constant values do not alias, since constants represents static/object
+        // fields or array.
+        // They could alias in an array map since local addresses are basically constants but
+        // good luck writing any meaningful code that uses a local address as an array index.
+
+        if (IsVNConstant(indexVN) &&
+            (IsVNConstant(storeIndexVN) || (GetVNFunc(storeIndexVN, &funcApp) && (funcApp.m_func == VNF_LclAddr))))
         {
-            assert(funcApp.m_args[1] != indexVN); // we already checked this above.
             // This is the equivalent of the recursive tail call:
             // return VNForMapSelect(vnk, typ, funcApp.m_args[0], arg1VN);
             // Make sure we capture any exceptions from the "i" and "v" of the store...
-            mapVN = funcApp.m_args[0];
+            mapVN = storeMapVN;
             goto TailCall;
         }
     }
@@ -4426,6 +4442,8 @@ void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value
     {
         ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
                                                 vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+        INDEBUG(vnTrace(lclAddrVN));
+
         ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
         vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 
@@ -4578,6 +4596,8 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
         ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
                                                 vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
                                                 vnStore->VNForFieldSeq(store->GetFieldSeq()));
+        INDEBUG(vnTrace(lclAddrVN));
+
         ValueNum memVN = vnAddressExposedLocalStore(store, lclAddrVN, value);
         vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 
@@ -5125,7 +5145,7 @@ ValueNum Compiler::vnArrayElemLoad(GenTreeIndir* load, const VNFuncApp& elemAddr
 
 ValueNum Compiler::vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value)
 {
-    VNFuncApp funcApp;
+    INDEBUG(VNFuncApp funcApp);
     assert(vnStore->GetVNFunc(lclAddrVN, &funcApp) && (funcApp.m_func == VNF_LclAddr));
 
     ValueNum memVN = fgCurMemoryVN;
