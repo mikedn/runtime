@@ -1117,7 +1117,8 @@ bool Compiler::optRecordLoop(BasicBlock*   head,
     optLoopTable[loopInd].lpFlags = LPFLG_EMPTY;
 
     // We haven't yet recorded any side effects.
-    optLoopTable[loopInd].lpLoopHasMemoryHavoc = false;
+    optLoopTable[loopInd].lpLoopHasMemoryHavoc         = false;
+    optLoopTable[loopInd].modifiesAddressExposedLocals = false;
 
     optLoopTable[loopInd].lpFieldsModified         = nullptr;
     optLoopTable[loopInd].lpArrayElemTypesModified = nullptr;
@@ -7113,6 +7114,20 @@ void Compiler::optRecordLoopNestsMemoryHavoc(unsigned lnum)
     }
 }
 
+void Compiler::optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum)
+{
+    // We should start out with 'lnum' set to a valid natural loop index
+    assert(lnum != BasicBlock::NOT_IN_LOOP);
+
+    while (lnum != BasicBlock::NOT_IN_LOOP)
+    {
+        optLoopTable[lnum].modifiesAddressExposedLocals = true;
+
+        // Move lnum to the next outtermost loop that we need to mark
+        lnum = optLoopTable[lnum].lpParent;
+    }
+}
+
 bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 {
     unsigned mostNestedLoop = blk->bbNatLoopNum;
@@ -7123,7 +7138,8 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
     }
     AddVariableLivenessAllContainingLoops(mostNestedLoop, blk);
 
-    bool memoryHavoc = false;
+    bool memoryHavoc                  = false;
+    bool modifiesAddressExposedLocals = false;
 
     // Now iterate over the remaining statements, and their trees.
     for (Statement* const stmt : blk->NonPhiStatements())
@@ -7237,7 +7253,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                     if (lcl->IsAddressExposed())
                     {
-                        memoryHavoc = true;
+                        modifiesAddressExposedLocals = true;
                     }
                     else if (lcl->IsInSsa() && lclNode->HasSsaName())
                     {
@@ -7334,6 +7350,12 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
         // Record that all loops containing this block have this kind of memoryHavoc effects.
         optRecordLoopNestsMemoryHavoc(mostNestedLoop);
     }
+
+    if (modifiesAddressExposedLocals)
+    {
+        optRecordLoopNestsModifiesAddressExposedLocals(mostNestedLoop);
+    }
+
     return true;
 }
 

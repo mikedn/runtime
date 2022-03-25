@@ -5108,6 +5108,8 @@ private:
     // Given a loop number 'lnum' mark it and any nested loops as having 'memoryHavoc'
     void optRecordLoopNestsMemoryHavoc(unsigned lnum);
 
+    void optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum);
+
     // Add the side effects of "blk" (which is required to be within a loop) to all loops of which it is a part.
     // Returns false if we encounter a block that is not marked as being inside a loop.
     //
@@ -5184,6 +5186,9 @@ public:
                                    // may not be accurate (since they become irrelevant.)
         bool lpContainsCall;       // True if executing the loop body *may* execute a call
 
+        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
+        bool modifiesAddressExposedLocals;
+
         VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
         VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
 
@@ -5209,8 +5214,8 @@ public:
         // Adds the variable liveness information for 'blk' to 'this' LoopDsc
         void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
 
-        inline void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
-        inline void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
+        void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
+        void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 

@@ -7543,6 +7543,16 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
         }
     }
 
+    if (optLoopTable[loopNum].modifiesAddressExposedLocals)
+    {
+        // We currently don't try to resolve address exposed loads to stores so do a dummy local store for now.
+        ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(0),
+                                                vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
+        INDEBUG(vnTrace(lclAddrVN, "dummy loop address exposed local"));
+        ValueNum uniqueVN = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
+        newMemoryVN       = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, lclAddrVN, uniqueVN);
+    }
+
     return newMemoryVN;
 }
 
