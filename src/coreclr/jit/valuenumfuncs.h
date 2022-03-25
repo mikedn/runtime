@@ -7,7 +7,7 @@
 
 // clang-format off
 ValueNumFuncDef(MemOpaque, 1, false, false, false)  // Args: 0: loop num
-ValueNumFuncDef(MapZero, 0, false, false, false)
+ValueNumFuncDef(MemLoad, 3, false, false, false)    // Args: 0: type, 1: address; 2: memory value
 ValueNumFuncDef(MapStore, 4, false, false, false)   // Args: 0: map, 1: index (e. g. field handle), 2: value being stored, 3: loop num.
 ValueNumFuncDef(MapSelect, 2, false, false, false)  // Args: 0: map, 1: key.
 
@@ -46,8 +46,6 @@ ValueNumFuncDef(TypeHandleToRuntimeTypeHandle, 1, false, false, false)      // A
 ValueNumFuncDef(AreTypesEquivalent, 2, false, false, false) // Args: 0: first TypeHandle, 1: second TypeHandle
 
 ValueNumFuncDef(LdElemA, 3, false, false, false)            // Args: 0: array value; 1: index value; 2: type handle of element.
-
-ValueNumFuncDef(ByrefExposedLoad, 3, false, false, false)      // Args: 0: type, 1: address; 2: ByrefExposed heap value
 
 ValueNumFuncDef(GetRefanyVal, 2, false, false, false)       // Args: 0: type handle; 1: typedref value.  Returns the value (asserting that the type is right).
 

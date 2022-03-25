@@ -60,8 +60,8 @@ class SsaRenameState
     Stack* m_stacks;
     // The tail of the list of stacks that have been pushed to
     Stack* m_stackListTail;
-    // Same state for the special implicit memory variables
-    Stack m_memoryStack[MemoryKindCount];
+    // Same state for the special implicit memory variable
+    Stack m_memoryStack;
     // A stack of free stack nodes
     Stack m_freeStack;
 
@@ -78,14 +78,14 @@ public:
     void PopBlockStacks(BasicBlock* block);
 
     // Similar functions for the special implicit memory variable.
-    unsigned TopMemory(MemoryKind memoryKind)
+    unsigned TopMemory()
     {
-        return m_memoryStack[memoryKind].Top()->m_ssaNum;
+        return m_memoryStack.Top()->m_ssaNum;
     }
 
-    void PushMemory(MemoryKind memoryKind, BasicBlock* block, unsigned ssaNum)
+    void PushMemory(BasicBlock* block, unsigned ssaNum)
     {
-        Push(&m_memoryStack[memoryKind], block, ssaNum);
+        Push(&m_memoryStack, block, ssaNum);
     }
 
 private:

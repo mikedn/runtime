@@ -728,8 +728,8 @@ bool GenTreeCall::HasSideEffects(Compiler* compiler, bool ignoreExceptions, bool
         return true;
     }
 
-    CorInfoHelpFunc       helper           = compiler->eeGetHelperNum(gtCallMethHnd);
-    HelperCallProperties& helperProperties = compiler->s_helperCallProperties;
+    CorInfoHelpFunc             helper           = compiler->eeGetHelperNum(gtCallMethHnd);
+    const HelperCallProperties& helperProperties = Compiler::s_helperCallProperties;
 
     // We definitely care about the side effects if MutatesHeap is true
     if (helperProperties.MutatesHeap(helper))

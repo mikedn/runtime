@@ -1241,10 +1241,8 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     m_fieldSeqStore      = nullptr;
     m_zeroOffsetFieldMap = nullptr;
     m_refAnyClass        = nullptr;
-    for (MemoryKind memoryKind : allMemoryKinds())
-    {
-        m_memorySsaMap[memoryKind] = nullptr;
-    }
+
+    m_memorySsaMap = nullptr;
 
 #ifdef DEBUG
     if (!compIsForInlining())
@@ -8112,7 +8110,7 @@ BitSetSupport::BitSetOpCounter Compiler::m_allvarsetOpCounter("AllVarSetOpCounts
 #endif
 
 // static
-HelperCallProperties Compiler::s_helperCallProperties;
+const HelperCallProperties Compiler::s_helperCallProperties;
 
 /*****************************************************************************/
 /*****************************************************************************/

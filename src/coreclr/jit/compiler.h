@@ -3985,11 +3985,12 @@ public:
     ValueNum vnObjFieldLoad(GenTreeIndir* load, ValueNum objVN, FieldSeqNode* fieldSeq);
     ValueNum vnArrayElemStore(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value);
     ValueNum vnArrayElemLoad(GenTreeIndir* store, const VNFuncApp& elemAddr);
+    ValueNum vnAddressExposedLocalStore(GenTree* store, ValueNum lclAddrVN, GenTree* value);
     void vnNullCheck(GenTreeIndir* node);
     void vnArrayLength(GenTreeArrLen* node);
     void vnCmpXchg(GenTreeCmpXchg* node);
     void vnInterlocked(GenTreeOp* node);
-    ValueNum vnByRefExposedLoad(var_types type, ValueNum addrVN);
+    ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 
@@ -4001,13 +4002,10 @@ public:
     // Requires that "entryBlock" is the entry block of loop "loopNum", and that "loopNum" is the
     // innermost loop of which "entryBlock" is the entry.  Returns the value number that should be
     // assumed for the memoryKind at the start "entryBlk".
-    ValueNum fgMemoryVNForLoopSideEffects(MemoryKind memoryKind, BasicBlock* entryBlock, unsigned loopNum);
+    ValueNum fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned loopNum);
 
-    void vnClearGcHeap(GenTree* node DEBUGARG(const char* comment = nullptr));
-    void vnUpdateGcHeap(GenTree* node, ValueNum heapVN DEBUGARG(const char* comment = nullptr));
-    void vnClearByRefExposed(GenTree* node);
-    void vnUpdateByRefExposed(GenTree* node, ValueNum memVN);
-    void vnUpdateMemorySsaDef(GenTree* node, MemoryKind memoryKind);
+    void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
+    void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
 
     // The input 'tree' is a leaf node that is a constant
     // Assign the proper value number to the tree
@@ -4065,11 +4063,11 @@ public:
     // Adds the exception sets for the current tree node
     void vnAddNodeExceptionSet(GenTree* tree);
 
-    // These are the current value number for the memory implicit variables while
-    // doing value numbering.  These are the value numbers under the "liberal" interpretation
-    // of memory values; the "conservative" interpretation needs no VN, since every access of
-    // memory yields an unknown value.
-    ValueNum fgCurMemoryVN[MemoryKindCount];
+    // This is the current value number for the memory implicit variable while doing
+    // value numbering.  This is the value number under the "liberal" interpretation
+    // of memory values; the "conservative" interpretation needs no VN, since every
+    // access of memory yields an unknown value.
+    ValueNum fgCurMemoryVN;
 
     bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
     bool isNativePrimitiveStructType(ClassLayout* layout);
@@ -4085,8 +4083,7 @@ public:
     void vnTrace(ValueNum vn, const char* commenr = nullptr);
     void vnTrace(ValueNumPair vnp, const char* commenr = nullptr);
     void vnTraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
-    void vnTraceMem(MemoryKind kind, ValueNum vn, const char* comment = nullptr);
-    void vnTraceHeapMem(ValueNum vn, const char* comment = nullptr);
+    void vnTraceMem(ValueNum vn, const char* comment = nullptr);
 #endif
 
     bool fgDominate(BasicBlock* b1, BasicBlock* b2); // Return true if b1 dominates b2
@@ -4863,11 +4860,9 @@ private:
     VARSET_TP fgCurUseSet; // vars used     by block (before an assignment)
     VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
 
-    MemoryKindSet fgCurMemoryUse;   // True iff the current basic block uses memory.
-    MemoryKindSet fgCurMemoryDef;   // True iff the current basic block modifies memory.
-    MemoryKindSet fgCurMemoryHavoc; // True if  the current basic block is known to set memory to a "havoc" value.
-
-    bool byrefStatesMatchGcHeapStates; // True iff GcHeap and ByrefExposed memory have all the same def points.
+    bool fgCurMemoryUse : 1;   // True iff the current basic block uses memory.
+    bool fgCurMemoryDef : 1;   // True iff the current basic block modifies memory.
+    bool fgCurMemoryHavoc : 1; // True if  the current basic block is known to set memory to a "havoc" value.
 
     void fgMarkUseDef(GenTreeLclVarCommon* tree);
 
@@ -5111,7 +5106,9 @@ private:
     void optComputeLoopNestSideEffects(unsigned lnum);
 
     // Given a loop number 'lnum' mark it and any nested loops as having 'memoryHavoc'
-    void optRecordLoopNestsMemoryHavoc(unsigned lnum, MemoryKindSet memoryHavoc);
+    void optRecordLoopNestsMemoryHavoc(unsigned lnum);
+
+    void optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum);
 
     // Add the side effects of "blk" (which is required to be within a loop) to all loops of which it is a part.
     // Returns false if we encounter a block that is not marked as being inside a loop.
@@ -5184,10 +5181,13 @@ public:
                                  // or else BasicBlock::NOT_IN_LOOP.  One can enumerate all the children of a loop
                                  // by following "lpChild" then "lpSibling" links.
 
-        bool lpLoopHasMemoryHavoc[MemoryKindCount]; // The loop contains an operation that we assume has arbitrary
-                                                    // memory side effects.  If this is set, the fields below
-                                                    // may not be accurate (since they become irrelevant.)
-        bool lpContainsCall;                        // True if executing the loop body *may* execute a call
+        bool lpLoopHasMemoryHavoc; // The loop contains an operation that we assume has arbitrary
+                                   // memory side effects.  If this is set, the fields below
+                                   // may not be accurate (since they become irrelevant.)
+        bool lpContainsCall;       // True if executing the loop body *may* execute a call
+
+        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
+        bool modifiesAddressExposedLocals;
 
         VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
         VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
@@ -5214,8 +5214,8 @@ public:
         // Adds the variable liveness information for 'blk' to 'this' LoopDsc
         void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
 
-        inline void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
-        inline void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
+        void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
+        void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 
@@ -8382,27 +8382,20 @@ public:
     void CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to);
     void AddZeroOffsetFieldSeq(GenTree* node, FieldSeqNode* fieldSeq);
 
-    NodeToUnsignedMap* m_memorySsaMap[MemoryKindCount];
+    NodeToUnsignedMap* m_memorySsaMap;
 
     // In some cases, we want to assign intermediate SSA #'s to memory states, and know what nodes create those memory
     // states. (We do this for try blocks, where, if the try block doesn't do a call that loses track of the memory
     // state, all the possible memory states are possible initial states of the corresponding catch block(s).)
-    NodeToUnsignedMap* GetMemorySsaMap(MemoryKind memoryKind)
+    NodeToUnsignedMap* GetMemorySsaMap()
     {
-        if (memoryKind == GcHeap && byrefStatesMatchGcHeapStates)
-        {
-            // Use the same map for GCHeap and ByrefExposed when their states match.
-            memoryKind = ByrefExposed;
-        }
-
-        assert(memoryKind < MemoryKindCount);
         Compiler* compRoot = impInlineRoot();
-        if (compRoot->m_memorySsaMap[memoryKind] == nullptr)
+        if (compRoot->m_memorySsaMap == nullptr)
         {
             CompAllocator ialloc(getAllocator(CMK_SSA));
-            compRoot->m_memorySsaMap[memoryKind] = new (ialloc) NodeToUnsignedMap(ialloc);
+            compRoot->m_memorySsaMap = new (ialloc) NodeToUnsignedMap(ialloc);
         }
-        return compRoot->m_memorySsaMap[memoryKind];
+        return compRoot->m_memorySsaMap;
     }
 
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
@@ -8443,7 +8436,7 @@ public:
     static BitSetSupport::BitSetOpCounter m_allvarsetOpCounter;
 #endif
 
-    static HelperCallProperties s_helperCallProperties;
+    const static HelperCallProperties s_helperCallProperties;
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
     void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);

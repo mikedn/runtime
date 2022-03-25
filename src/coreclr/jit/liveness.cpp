@@ -175,7 +175,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             {
                 if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
                 {
-                    fgCurMemoryUse |= memoryKindSet(ByrefExposed);
+                    fgCurMemoryUse = true;
                 }
                 else
                 {
@@ -198,9 +198,8 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             // and allows for a CSE of a subsequent non-volatile read
             if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
             {
-                // For any Volatile indirection, we must handle it as a
-                // definition of the GcHeap/ByrefExposed
-                fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
+                // For any Volatile indirection, we must handle it as a memory def
+                fgCurMemoryDef = true;
             }
 
             // If the GT_IND is the lhs of an assignment, we'll handle it
@@ -213,12 +212,9 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
                 if (GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr())
                 {
                     assert(lvaGetDesc(lclNode)->IsAddressExposed());
-                    fgCurMemoryUse |= memoryKindSet(ByrefExposed);
                 }
-                else
-                {
-                    fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
-                }
+
+                fgCurMemoryUse = true;
             }
             break;
 
@@ -231,14 +227,14 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
-            fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
-            fgCurMemoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+            fgCurMemoryUse   = true;
+            fgCurMemoryDef   = true;
+            fgCurMemoryHavoc = true;
             break;
 
         case GT_MEMORYBARRIER:
             // Simliar to any Volatile indirection, we must handle this as a definition of GcHeap/ByrefExposed
-            fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
+            fgCurMemoryDef = true;
             break;
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -246,17 +242,15 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         {
             GenTreeHWIntrinsic* hwIntrinsicNode = tree->AsHWIntrinsic();
 
-            // We can't call vnClearGcHeap unless the block has recorded a MemoryDef
+            // We can't call vnClearMemory unless the block has recorded a MemoryDef
             //
             if (hwIntrinsicNode->OperIsMemoryStore())
             {
-                // We currently handle this like a Volatile store, so it counts as a definition of GcHeap/ByrefExposed
-                fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
+                fgCurMemoryDef = true;
             }
             if (hwIntrinsicNode->OperIsMemoryLoad())
             {
-                // This instruction loads from memory and we need to record this information
-                fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
+                fgCurMemoryUse = true;
             }
             break;
         }
@@ -278,9 +272,9 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             }
             if (modHeap)
             {
-                fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
-                fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
-                fgCurMemoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
+                fgCurMemoryUse   = true;
+                fgCurMemoryDef   = true;
+                fgCurMemoryHavoc = true;
             }
 
             fgPInvokeFrameLiveness(call);
@@ -294,8 +288,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
 
                 if (lvaGetDesc(lclNode)->IsAddressExposed())
                 {
-                    fgCurMemoryDef |= memoryKindSet(ByrefExposed);
-                    byrefStatesMatchGcHeapStates = false;
+                    fgCurMemoryDef = true;
                     break;
                 }
 
@@ -308,13 +301,10 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
                 if (GenTreeLclVarCommon* lclNode = indir->GetAddr()->IsLocalAddrExpr())
                 {
                     assert(lvaGetDesc(lclNode)->IsAddressExposed());
-                    fgCurMemoryDef |= memoryKindSet(ByrefExposed);
-                    byrefStatesMatchGcHeapStates = false;
-                    break;
                 }
             }
 
-            fgCurMemoryDef |= memoryKindSet(GcHeap, ByrefExposed);
+            fgCurMemoryDef = true;
             break;
 
         case GT_QMARK:
@@ -427,10 +417,10 @@ void Compiler::fgPerBlockLocalVarLiveness()
             VarSetOps::Assign(this, block->bbVarUse, liveAll);
             VarSetOps::Assign(this, block->bbVarDef, liveAll);
             VarSetOps::Assign(this, block->bbLiveIn, liveAll);
-            block->bbMemoryUse     = fullMemoryKindSet;
-            block->bbMemoryDef     = fullMemoryKindSet;
-            block->bbMemoryLiveIn  = fullMemoryKindSet;
-            block->bbMemoryLiveOut = fullMemoryKindSet;
+            block->bbMemoryUse     = true;
+            block->bbMemoryDef     = true;
+            block->bbMemoryLiveIn  = true;
+            block->bbMemoryLiveOut = true;
 
             switch (block->bbJumpKind)
             {
@@ -445,10 +435,6 @@ void Compiler::fgPerBlockLocalVarLiveness()
             }
         }
 
-        // In minopts, we don't explicitly build SSA or value-number; GcHeap and
-        // ByrefExposed implicitly (conservatively) change state at each instr.
-        byrefStatesMatchGcHeapStates = true;
-
         return;
     }
 
@@ -456,18 +442,14 @@ void Compiler::fgPerBlockLocalVarLiveness()
     VarSetOps::AssignNoCopy(this, fgCurUseSet, VarSetOps::MakeEmpty(this));
     VarSetOps::AssignNoCopy(this, fgCurDefSet, VarSetOps::MakeEmpty(this));
 
-    // GC Heap and ByrefExposed can share states unless we see a def of byref-exposed
-    // memory that is not a GC Heap def.
-    byrefStatesMatchGcHeapStates = true;
-
     for (block = fgFirstBB; block; block = block->bbNext)
     {
         VarSetOps::ClearD(this, fgCurUseSet);
         VarSetOps::ClearD(this, fgCurDefSet);
 
-        fgCurMemoryUse   = emptyMemoryKindSet;
-        fgCurMemoryDef   = emptyMemoryKindSet;
-        fgCurMemoryHavoc = emptyMemoryKindSet;
+        fgCurMemoryUse   = false;
+        fgCurMemoryDef   = false;
+        fgCurMemoryHavoc = false;
 
         compCurBB = block;
         if (block->IsLIR())
@@ -528,18 +510,12 @@ void Compiler::fgPerBlockLocalVarLiveness()
         /* also initialize the IN set, just in case we will do multiple DFAs */
 
         VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
-        block->bbMemoryLiveIn = emptyMemoryKindSet;
+        block->bbMemoryLiveIn = false;
 
         DBEXEC(verbose, fgDispBBLocalLiveness(block))
     }
 
     noway_assert(livenessVarEpoch == GetCurLVEpoch());
-
-    if (!compRationalIRForm)
-    {
-        JITDUMP("** Memory liveness computed, GcHeap states and ByrefExposed states %s\n",
-                (byrefStatesMatchGcHeapStates ? "match" : "diverge"));
-    }
 }
 
 // Helper functions to mark variables live over their entire scope
@@ -1163,16 +1139,16 @@ class LiveVarAnalysis
 
     bool m_hasPossibleBackEdge;
 
-    unsigned  m_memoryLiveIn;
-    unsigned  m_memoryLiveOut;
+    bool      m_memoryLiveIn : 1;
+    bool      m_memoryLiveOut : 1;
     VARSET_TP m_liveIn;
     VARSET_TP m_liveOut;
 
     LiveVarAnalysis(Compiler* compiler)
         : m_compiler(compiler)
         , m_hasPossibleBackEdge(false)
-        , m_memoryLiveIn(emptyMemoryKindSet)
-        , m_memoryLiveOut(emptyMemoryKindSet)
+        , m_memoryLiveIn(false)
+        , m_memoryLiveOut(false)
         , m_liveIn(VarSetOps::MakeEmpty(compiler))
         , m_liveOut(VarSetOps::MakeEmpty(compiler))
     {
@@ -1182,7 +1158,7 @@ class LiveVarAnalysis
     {
         /* Compute the 'liveOut' set */
         VarSetOps::ClearD(m_compiler, m_liveOut);
-        m_memoryLiveOut = emptyMemoryKindSet;
+        m_memoryLiveOut = false;
         if (block->endsWithJmpMethod(m_compiler))
         {
             // A JMP uses all the arguments, so mark them all
@@ -1224,7 +1200,7 @@ class LiveVarAnalysis
 
         // Even if block->bbMemoryDef is set, we must assume that it doesn't kill memory liveness from m_memoryLiveOut,
         // since (without proof otherwise) the use and def may touch different memory at run-time.
-        m_memoryLiveIn = m_memoryLiveOut | block->bbMemoryUse;
+        m_memoryLiveIn = m_memoryLiveOut || block->bbMemoryUse;
 
         // Does this block have implicit exception flow to a filter or handler?
         // If so, include the effects of that flow.
@@ -1301,8 +1277,8 @@ class LiveVarAnalysis
             VarSetOps::ClearD(m_compiler, m_liveIn);
             VarSetOps::ClearD(m_compiler, m_liveOut);
 
-            m_memoryLiveIn  = emptyMemoryKindSet;
-            m_memoryLiveOut = emptyMemoryKindSet;
+            m_memoryLiveIn  = false;
+            m_memoryLiveOut = false;
 
             for (BasicBlock* block = m_compiler->fgLastBB; block; block = block->bbPrev)
             {
@@ -2272,12 +2248,9 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 
     if (!block->IsLIR())
     {
-        for (MemoryKind memoryKind : allMemoryKinds())
+        if (block->bbMemoryUse)
         {
-            if ((block->bbMemoryUse & memoryKindSet(memoryKind)) != 0)
-            {
-                printf(" + %s", memoryKindNames[memoryKind]);
-            }
+            printf(" + Memory");
         }
     }
 
@@ -2286,16 +2259,13 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 
     if (!block->IsLIR())
     {
-        for (MemoryKind memoryKind : allMemoryKinds())
+        if (block->bbMemoryDef)
         {
-            if ((block->bbMemoryDef & memoryKindSet(memoryKind)) != 0)
-            {
-                printf(" + %s", memoryKindNames[memoryKind]);
-            }
-            if ((block->bbMemoryHavoc & memoryKindSet(memoryKind)) != 0)
-            {
-                printf("*");
-            }
+            printf(" + Memory");
+        }
+        if (block->bbMemoryHavoc)
+        {
+            printf("*");
         }
     }
 
@@ -2311,12 +2281,9 @@ void Compiler::fgDispBBLiveness(BasicBlock* block)
 
     if (!block->IsLIR())
     {
-        for (MemoryKind memoryKind : allMemoryKinds())
+        if (block->bbMemoryLiveIn)
         {
-            if ((block->bbMemoryLiveIn & memoryKindSet(memoryKind)) != 0)
-            {
-                printf(" + %s", memoryKindNames[memoryKind]);
-            }
+            printf(" + Memory");
         }
     }
 
@@ -2325,12 +2292,9 @@ void Compiler::fgDispBBLiveness(BasicBlock* block)
 
     if (!block->IsLIR())
     {
-        for (MemoryKind memoryKind : allMemoryKinds())
+        if (block->bbMemoryLiveOut)
         {
-            if ((block->bbMemoryLiveOut & memoryKindSet(memoryKind)) != 0)
-            {
-                printf(" + %s", memoryKindNames[memoryKind]);
-            }
+            printf(" + Memory");
         }
     }
 

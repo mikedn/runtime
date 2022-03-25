@@ -376,9 +376,9 @@ public:
     // The zero map is the map that returns a zero "for the appropriate type" when indexed at any index.
     ValueNum VNForZeroMap();
 
-    // The ROH map is the map for the "read-only heap".  We assume that this is never mutated, and always
+    // The ROH map is the map for "read-only memory".  We assume that this is never mutated, and always
     // has the same value number.
-    ValueNum VNForReadOnlyHeapMap();
+    ValueNum VNForReadOnlyMemoryMap();
 
     // A special value number for "void".
     static ValueNum VNForVoid()
@@ -1099,8 +1099,8 @@ private:
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
     Chunk* GetAllocChunk(var_types typ, ChunkExtraAttribs attribs);
 
-    ValueNum m_zeroMap         = NoVN;
-    ValueNum m_readOnlyHeapMap = NoVN;
+    ValueNum m_zeroMap           = NoVN;
+    ValueNum m_readOnlyMemoryMap = NoVN;
 
     // First, we need mechanisms for mapping from constants to value numbers.
     // For small integers, we'll use an array.

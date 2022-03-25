@@ -88,7 +88,7 @@ private:
     void AddDefToHandlerPhis(BasicBlock* block, unsigned lclNum, unsigned ssaNum);
 
     // Same as above, for memory.
-    void AddMemoryDefToHandlerPhis(MemoryKind memoryKind, BasicBlock* block, unsigned ssaNum);
+    void AddMemoryDefToHandlerPhis(BasicBlock* block, unsigned ssaNum);
 
     // Add GT_PHI_ARG nodes to the GT_PHI nodes within block's successors.
     void AddPhiArgsToSuccessors(BasicBlock* block);
