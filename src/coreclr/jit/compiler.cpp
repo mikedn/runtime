@@ -8110,7 +8110,7 @@ BitSetSupport::BitSetOpCounter Compiler::m_allvarsetOpCounter("AllVarSetOpCounts
 #endif
 
 // static
-HelperCallProperties Compiler::s_helperCallProperties;
+const HelperCallProperties Compiler::s_helperCallProperties;
 
 /*****************************************************************************/
 /*****************************************************************************/

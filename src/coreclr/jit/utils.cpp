@@ -1097,7 +1097,7 @@ void hexDump(FILE* dmpf, const char* name, BYTE* addr, size_t size)
 
 #endif // DEBUG
 
-void HelperCallProperties::init()
+HelperCallProperties::HelperCallProperties()
 {
     for (CorInfoHelpFunc helper = CORINFO_HELP_UNDEF; // initialize helper
          (helper < CORINFO_HELP_COUNT);               // test helper for loop exit
@@ -1392,13 +1392,13 @@ void HelperCallProperties::init()
                 break;
         }
 
-        m_isPure[helper]        = isPure;
-        m_noThrow[helper]       = noThrow;
-        m_alwaysThrow[helper]   = alwaysThrow;
-        m_nonNullReturn[helper] = nonNullReturn;
-        m_isAllocator[helper]   = isAllocator;
-        m_mutatesHeap[helper]   = mutatesHeap;
-        m_mayRunCctor[helper]   = mayRunCctor;
+        m_props[helper].m_isPure        = isPure;
+        m_props[helper].m_noThrow       = noThrow;
+        m_props[helper].m_alwaysThrow   = alwaysThrow;
+        m_props[helper].m_nonNullReturn = nonNullReturn;
+        m_props[helper].m_isAllocator   = isAllocator;
+        m_props[helper].m_mutatesHeap   = mutatesHeap;
+        m_props[helper].m_mayRunCctor   = mayRunCctor;
     }
 }
 

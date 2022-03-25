@@ -8436,7 +8436,7 @@ public:
     static BitSetSupport::BitSetOpCounter m_allvarsetOpCounter;
 #endif
 
-    static HelperCallProperties s_helperCallProperties;
+    const static HelperCallProperties s_helperCallProperties;
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
     void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
