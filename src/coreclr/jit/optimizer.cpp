@@ -5590,6 +5590,46 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
 #endif // LOOP_HOIST_STATS
 }
 
+struct LoopHoistContext
+{
+    using VNSet       = Compiler::VNSet;
+    using VNToBoolMap = Compiler::VNToBoolMap;
+
+private:
+    // The set of variables hoisted in the current loop (or nullptr if there are none).
+    VNSet* m_pHoistedInCurLoop;
+
+public:
+    // Value numbers of expressions that have been hoisted in parent loops in the loop nest.
+    VNSet m_hoistedInParentLoops;
+    // Value numbers of expressions that have been hoisted in the current (or most recent) loop in the nest.
+    // Previous decisions on loop-invariance of value numbers in the current loop.
+    VNToBoolMap m_curLoopVnInvariantCache;
+
+    LoopHoistContext(Compiler* comp)
+        : m_pHoistedInCurLoop(nullptr)
+        , m_hoistedInParentLoops(comp->getAllocatorLoopHoist())
+        , m_curLoopVnInvariantCache(comp->getAllocatorLoopHoist())
+    {
+    }
+
+    VNSet* GetHoistedInCurLoop(Compiler* comp)
+    {
+        if (m_pHoistedInCurLoop == nullptr)
+        {
+            m_pHoistedInCurLoop = new (comp->getAllocatorLoopHoist()) VNSet(comp->getAllocatorLoopHoist());
+        }
+        return m_pHoistedInCurLoop;
+    }
+
+    VNSet* ExtractHoistedInCurLoop()
+    {
+        VNSet* res          = m_pHoistedInCurLoop;
+        m_pHoistedInCurLoop = nullptr;
+        return res;
+    }
+};
+
 void Compiler::optHoistLoopCode()
 {
     // If we don't have any loops in the method then take an early out now.

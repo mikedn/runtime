@@ -5025,42 +5025,7 @@ protected:
     typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool> VNToBoolMap;
     typedef VNToBoolMap VNSet;
 
-    struct LoopHoistContext
-    {
-    private:
-        // The set of variables hoisted in the current loop (or nullptr if there are none).
-        VNSet* m_pHoistedInCurLoop;
-
-    public:
-        // Value numbers of expressions that have been hoisted in parent loops in the loop nest.
-        VNSet m_hoistedInParentLoops;
-        // Value numbers of expressions that have been hoisted in the current (or most recent) loop in the nest.
-        // Previous decisions on loop-invariance of value numbers in the current loop.
-        VNToBoolMap m_curLoopVnInvariantCache;
-
-        VNSet* GetHoistedInCurLoop(Compiler* comp)
-        {
-            if (m_pHoistedInCurLoop == nullptr)
-            {
-                m_pHoistedInCurLoop = new (comp->getAllocatorLoopHoist()) VNSet(comp->getAllocatorLoopHoist());
-            }
-            return m_pHoistedInCurLoop;
-        }
-
-        VNSet* ExtractHoistedInCurLoop()
-        {
-            VNSet* res          = m_pHoistedInCurLoop;
-            m_pHoistedInCurLoop = nullptr;
-            return res;
-        }
-
-        LoopHoistContext(Compiler* comp)
-            : m_pHoistedInCurLoop(nullptr)
-            , m_hoistedInParentLoops(comp->getAllocatorLoopHoist())
-            , m_curLoopVnInvariantCache(comp->getAllocatorLoopHoist())
-        {
-        }
-    };
+    friend struct LoopHoistContext;
 
     // Do hoisting for loop "lnum" (an index into the optLoopTable), and all loops nested within it.
     // Tracks the expressions that have been hoisted by containing loops by temporary recording their
