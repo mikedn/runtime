@@ -4961,7 +4961,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
     // so it can be CSEd on its own (e.g. floatArray[i] and intArray[i] have the same offset expression
     // even if the array and the element type are different). This also minimizes the number of byrefs
     // since only the final ADD produces one.
-    // It does slightly complicate array element address pattern matching as done in optIsArrayElemAddr
+    // It does slightly complicate array element address pattern matching as done in vnIsArrayElemAddr
     // because we need to check the inner ADD to find the data offset constant. That would be simpler
     // with ADD(ADD(array, MUL(index, elemSize)), dataOffs) but then the entire expression depends on
     // "array" so CSEing is more limited.
@@ -9223,7 +9223,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         {
             // TODO-MIKE-CQ: This doesn't handle the array case. The array data offset (or the entire
             // element offset if the index is constant) is hidden under a COMMA and another ADD. We
-            // could try to extract the offset from that tree but then optIsArrayElemAddr will have
+            // could try to extract the offset from that tree but then vnIsArrayElemAddr will have
             // a difficult time recovering array element information.
 
             if (addr->OperIs(GT_ADD) && !addr->gtOverflow())

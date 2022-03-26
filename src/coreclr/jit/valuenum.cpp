@@ -3696,7 +3696,7 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
     assert(add->OperIs(GT_ADD) && !add->gtOverflow());
 
     ArrayInfo arrInfo;
-    if (optIsArrayElemAddr(add, &arrInfo))
+    if (vnIsArrayElemAddr(add, &arrInfo))
     {
         ValueNum indexVN = vnStore->ExtractArrayElementIndex(arrInfo);
 
@@ -3744,6 +3744,264 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
     }
 
     return NoVN;
+}
+
+FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
+{
+    FieldSeqNode* fieldSeq     = nullptr;
+    bool          mustBeStatic = false;
+
+    if (addr->OperIs(GT_ADD))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        if (op1->OperIs(GT_CNS_INT) && op1->IsIconHandle())
+        {
+            // If one operand is a field sequence/handle, the other operand must not also be a field sequence/handle.
+            assert(!op2->OperIs(GT_CNS_INT) || !op2->IsIconHandle());
+
+            fieldSeq = op1->AsIntCon()->GetFieldSeq();
+            addr     = op2;
+        }
+        else if (op2->OperIs(GT_CNS_INT))
+        {
+            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+            fieldSeq = op2->AsIntCon()->GetFieldSeq();
+            addr     = op1;
+        }
+    }
+    else if ((fieldSeq = GetZeroOffsetFieldSeq(addr)) != nullptr)
+    {
+        // Reference type objects can't have a field at offset 0 (that's where the method table
+        // pointer is) so this can only be a static field. If it isn't then it means that it's
+        // a field of a struct value accessed via an (un)managed pointer and we don't recognize
+        // those here.
+
+        mustBeStatic = true;
+    }
+
+    if ((fieldSeq == nullptr) || (fieldSeq == FieldSeqStore::NotAField()))
+    {
+        // If we can't find a field sequence then it's not a field address.
+        return nullptr;
+    }
+
+    if (fieldSeq->IsArrayElement())
+    {
+        // Array elements are handled separately.
+        return nullptr;
+    }
+
+    if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
+    {
+        *pObj = nullptr;
+        return fieldSeq;
+    }
+
+    if (mustBeStatic || !addr->TypeIs(TYP_REF))
+    {
+        return nullptr;
+    }
+
+    addr = addr->gtEffectiveVal();
+
+    // Recognize struct static field patterns...
+
+    FieldSeqNode* staticStructFldSeq = nullptr;
+
+    if (GenTreeIndir* indir = addr->IsIndir())
+    {
+        GenTree*       addr = indir->GetAddr();
+        GenTreeIntCon* icon = nullptr;
+
+        if (addr->OperIs(GT_CNS_INT))
+        {
+            icon = addr->AsIntCon();
+        }
+        else if (addr->OperIs(GT_ADD))
+        {
+            GenTree* op1 = addr->AsOp()->GetOp(0);
+            GenTree* op2 = addr->AsOp()->GetOp(1);
+
+            // op1 should never be a field sequence (or any other kind of handle)
+            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+            if (op2->OperIs(GT_CNS_INT))
+            {
+                icon = op2->AsIntCon();
+            }
+        }
+
+        if ((icon != nullptr) && !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
+            (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
+            (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
+            // TODO-Review: A pseudoField here indicates an issue - this requires investigation
+            // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
+            !icon->GetFieldSeq()->IsBoxedValueField() && !icon->GetFieldSeq()->IsArrayElement())
+        {
+            staticStructFldSeq = icon->GetFieldSeq();
+        }
+        else
+        {
+            addr = addr->gtEffectiveVal();
+
+            // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
+            if (addr->OperIs(GT_CALL, GT_LCL_VAR))
+            {
+                FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(addr);
+
+                if ((zeroFieldSeq != nullptr) && (zeroFieldSeq->GetNext() == nullptr))
+                {
+                    staticStructFldSeq = zeroFieldSeq;
+                }
+            }
+        }
+    }
+    else if (GenTreeClsVar* clsVar = addr->IsClsVar())
+    {
+        staticStructFldSeq = clsVar->GetFieldSeq();
+    }
+    else if (addr->OperIsLocal())
+    {
+        // If we have a GT_LCL_VAR, it can be result of a CSE substitution
+        // If it is then the CSE assignment will have a ValueNum that
+        // describes the RHS of the CSE assignment.
+        //
+        // The CSE could be a pointer to a boxed struct
+
+        ValueNum vn = addr->gtVNPair.GetLiberal();
+        if (vn != ValueNumStore::NoVN)
+        {
+            // Is the ValueNum a MapSelect involving a SharedStatic helper?
+            VNFuncApp funcApp1;
+            if (vnStore->GetVNFunc(vn, &funcApp1) && (funcApp1.m_func == VNF_MapSelect) &&
+                (vnStore->IsSharedStatic(funcApp1.m_args[1])))
+            {
+                ValueNum mapVN = funcApp1.m_args[0];
+                // Is this new 'mapVN' ValueNum, a MapSelect involving a handle?
+                VNFuncApp funcApp2;
+                if (vnStore->GetVNFunc(mapVN, &funcApp2) && (funcApp2.m_func == VNF_MapSelect) &&
+                    (vnStore->IsVNHandle(funcApp2.m_args[1])))
+                {
+                    ValueNum fldHndVN = funcApp2.m_args[1];
+                    // Is this new 'fldHndVN' VNhandle a FieldHandle?
+                    if (vnStore->GetHandleFlags(fldHndVN) == GTF_ICON_FIELD_HDL)
+                    {
+                        CORINFO_FIELD_HANDLE fieldHnd = CORINFO_FIELD_HANDLE(vnStore->ConstantValue<ssize_t>(fldHndVN));
+
+                        // Record this field sequence in 'statStructFldSeq' as it is likely to be a Boxed Struct
+                        // field access.
+                        staticStructFldSeq = GetFieldSeqStore()->CreateSingleton(fieldHnd);
+                    }
+                }
+            }
+        }
+    }
+
+    assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->GetNext() == nullptr));
+
+    if ((staticStructFldSeq != nullptr) &&
+        vnIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->GetFieldHandle()))
+    {
+        *pObj = nullptr;
+        return GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
+    }
+
+    if (fieldSeq->IsBoxedValueField())
+    {
+        // Ignore boxed value fields, the same (pseudo) field is used for all boxed types
+        // so a store to such a field may alias multiple actual fields. These can only be
+        // disambiguated when used together with a static field.
+
+        return nullptr;
+    }
+
+    assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+
+    *pObj = addr;
+    return fieldSeq;
+}
+
+bool Compiler::vnIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd)
+{
+    if (fieldNodeType != TYP_REF)
+    {
+        return false;
+    }
+    noway_assert(fldHnd != nullptr);
+    CorInfoType cit      = info.compCompHnd->getFieldType(fldHnd);
+    var_types   fieldTyp = JITtype2varType(cit);
+    return fieldTyp != TYP_REF;
+}
+
+bool Compiler::vnIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo)
+{
+    assert(indir->OperIs(GT_IND));
+
+    return vnIsArrayElemAddr(indir->GetAddr(), arrayInfo);
+}
+
+bool Compiler::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
+{
+    if (!addr->OperIs(GT_ADD) || !addr->TypeIs(TYP_BYREF))
+    {
+        return false;
+    }
+
+    GenTree* array  = addr->AsOp()->GetOp(0);
+    GenTree* offset = addr->AsOp()->GetOp(1);
+
+    if (!array->TypeIs(TYP_REF))
+    {
+        if (!offset->TypeIs(TYP_REF))
+        {
+            return false;
+        }
+
+        std::swap(array, offset);
+    }
+
+    assert(offset->TypeIs(TYP_I_IMPL));
+
+    GenTree* offsetExpr  = nullptr;
+    GenTree* offsetConst = offset;
+
+    if (offset->OperIs(GT_ADD))
+    {
+        offsetExpr  = offset->AsOp()->GetOp(0);
+        offsetConst = offset->AsOp()->GetOp(1);
+    }
+
+    if (!offsetConst->IsIntCon())
+    {
+        return false;
+    }
+
+    FieldSeqNode* fieldSeq = offsetConst->AsIntCon()->GetFieldSeq();
+
+    if ((fieldSeq == nullptr) || !fieldSeq->IsArrayElement())
+    {
+        return false;
+    }
+
+    arrayInfo->m_arrayExpr       = array;
+    arrayInfo->m_elemOffsetExpr  = offsetExpr;
+    arrayInfo->m_elemOffsetConst = offsetConst->AsIntCon();
+    arrayInfo->m_elemTypeNum     = fieldSeq->GetArrayElementTypeNum();
+
+    if (!typIsLayoutNum(arrayInfo->m_elemTypeNum))
+    {
+        var_types elemType = static_cast<var_types>(arrayInfo->m_elemTypeNum);
+
+        // The runtime allows casting between arrays of signed and unsigned integer types.
+        // We're going to treat such arrays as aliased by always using the signed type.
+        elemType                 = varTypeToSigned(elemType);
+        arrayInfo->m_elemTypeNum = static_cast<unsigned>(elemType);
+    }
+
+    return true;
 }
 
 ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
@@ -4723,7 +4981,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     }
 
     GenTree* obj;
-    if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
+    if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
     {
         ValueNum memVN;
 
@@ -4832,7 +5090,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         // TODO-MIKE-Fix: Actually we do have the liberal array and index and that's pretty much all
         // that matters for exceptions. But then this is only relevant if range checks are disabled...
     }
-    else if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
+    else if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
     {
         if (obj == nullptr)
         {
@@ -7640,7 +7898,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         // Otherwise...
                         memoryHavoc = true;
                     }
-                    else if (optIsArrayElem(lhs->AsIndir(), &arrInfo))
+                    else if (vnIsArrayElem(lhs->AsIndir(), &arrInfo))
                     {
                         // We actually ignore field sequences -- any modification to an S[], at any
                         // field of "S", will lose all information about the array type.
@@ -7650,7 +7908,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     {
                         GenTree* obj = nullptr; // unused
 
-                        if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
+                        if (FieldSeqNode* fieldSeq = vnIsFieldAddr(arg, &obj))
                         {
                             AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
                         }
@@ -7702,7 +7960,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     case GT_ADD:
                     {
                         ArrayInfo arrInfo;
-                        if (optIsArrayElemAddr(tree, &arrInfo))
+                        if (vnIsArrayElemAddr(tree, &arrInfo))
                         {
                             ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
                             ValueNum ptrToArrElemVN =
@@ -7839,6 +8097,16 @@ void Compiler::AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_H
     }
 }
 
+void Compiler::LoopDsc::AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd)
+{
+    if (lpFieldsModified == nullptr)
+    {
+        lpFieldsModified =
+            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::FieldHandleSet(comp->getAllocatorLoopHoist());
+    }
+    lpFieldsModified->Set(fldHnd, true, FieldHandleSet::Overwrite);
+}
+
 // Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
 void Compiler::AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum)
 {
@@ -7848,6 +8116,16 @@ void Compiler::AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned ele
         optLoopTable[lnum].AddModifiedElemType(this, elemTypeNum);
         lnum = optLoopTable[lnum].lpParent;
     }
+}
+
+void Compiler::LoopDsc::AddModifiedElemType(Compiler* comp, unsigned elemTypeNum)
+{
+    if (lpArrayElemTypesModified == nullptr)
+    {
+        lpArrayElemTypesModified =
+            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::TypeNumSet(comp->getAllocatorLoopHoist());
+    }
+    lpArrayElemTypesModified->Set(elemTypeNum, true, TypeNumSet::Overwrite);
 }
 
 ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned innermostLoopNum)

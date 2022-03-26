@@ -2205,20 +2205,6 @@ public:
                               unsigned  flags      = GTF_SIDE_EFFECT,
                               bool      ignoreRoot = false);
 
-    // Static fields of struct types (and sometimes the types that those are reduced to) are represented by having the
-    // static field contain an object pointer to the boxed struct.  This simplifies the GC implementation...but
-    // complicates the JIT somewhat.  This predicate returns "true" iff a node with type "fieldNodeType", representing
-    // the given "fldHnd", is such an object pointer.
-    bool gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd);
-
-    FieldSeqNode* optIsFieldAddr(GenTree* addr, GenTree** obj);
-
-    // Requires "indir" to be a GT_IND.
-    // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
-    // array information.
-    bool optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo);
-    bool optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
-
     // Return true if call is a recursive call; return false otherwise.
     // Note when inlining, this looks for calls back to the root method.
     bool gtIsRecursiveCall(GenTreeCall* call)
@@ -3991,6 +3977,20 @@ public:
     void vnCmpXchg(GenTreeCmpXchg* node);
     void vnInterlocked(GenTreeOp* node);
     ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
+
+    // Static fields of struct types (and sometimes the types that those are reduced to) are represented by having the
+    // static field contain an object pointer to the boxed struct.  This simplifies the GC implementation...but
+    // complicates the JIT somewhat.  This predicate returns "true" iff a node with type "fieldNodeType", representing
+    // the given "fldHnd", is such an object pointer.
+    bool vnIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd);
+
+    FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
+
+    // Requires "indir" to be a GT_IND.
+    // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
+    // array information.
+    bool vnIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo);
+    bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 

@@ -2880,26 +2880,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-inline void Compiler::LoopDsc::AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd)
-{
-    if (lpFieldsModified == nullptr)
-    {
-        lpFieldsModified =
-            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::FieldHandleSet(comp->getAllocatorLoopHoist());
-    }
-    lpFieldsModified->Set(fldHnd, true, FieldHandleSet::Overwrite);
-}
-
-inline void Compiler::LoopDsc::AddModifiedElemType(Compiler* comp, unsigned elemTypeNum)
-{
-    if (lpArrayElemTypesModified == nullptr)
-    {
-        lpArrayElemTypesModified =
-            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::TypeNumSet(comp->getAllocatorLoopHoist());
-    }
-    lpArrayElemTypesModified->Set(elemTypeNum, true, TypeNumSet::Overwrite);
-}
-
 inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
 {
 #ifdef DEBUG
