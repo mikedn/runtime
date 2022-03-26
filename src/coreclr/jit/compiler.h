@@ -5133,7 +5133,7 @@ public:
 protected:
     // This enumeration describes what is killed by a call.
 
-    enum callInterf
+    enum callInterf : uint8_t
     {
         CALLINT_NONE,       // no interference                               (most helpers)
         CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
@@ -5162,9 +5162,9 @@ public:
         BasicBlock* lpBottom; // loop BOTTOM (from here we have a back edge to the TOP)
         BasicBlock* lpExit;   // if a single exit loop this is the EXIT (in most cases BOTTOM)
 
-        callInterf   lpAsgCall;     // "callInterf" for calls in the loop
-        ALLVARSET_TP lpAsgVars;     // set of vars assigned within the loop (all vars, not just tracked)
-        varRefKinds  lpAsgInds : 8; // set of inds modified within the loop
+        ALLVARSET_TP lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
+        callInterf   lpAsgCall; // "callInterf" for calls in the loop
+        varRefKinds  lpAsgInds; // set of inds modified within the loop
 
         LoopFlags lpFlags;
 
@@ -5181,14 +5181,6 @@ public:
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 
-        GenTree*   lpIterTree;          // The "i = i <op> const" tree
-        unsigned   lpIterVar() const;   // iterator variable #
-        int        lpIterConst() const; // the constant with which the iterator is incremented
-        genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
-        void       VERIFY_lpIterTree() const;
-
-        var_types lpIterOperType() const; // For overflow instructions
-
         union {
             int lpConstInit;    // initial constant value of iterator
                                 // : Valid if LPFLG_CONST_INIT
@@ -5196,9 +5188,18 @@ public:
                                 // : Valid if LPFLG_VAR_INIT
         };
 
+        GenTree* lpIterTree; // The "i = i <op> const" tree
+        GenTree* lpTestTree; // pointer to the node containing the loop test
+
+        unsigned   lpIterVar() const;   // iterator variable #
+        int        lpIterConst() const; // the constant with which the iterator is incremented
+        genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
+        void       VERIFY_lpIterTree() const;
+
+        var_types lpIterOperType() const; // For overflow instructions
+
         // The following is for LPFLG_ITER loops only (i.e. the loop condition is "i RELOP const or var"
 
-        GenTree*   lpTestTree;         // pointer to the node containing the loop test
         genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
                                        // etc.)
         void VERIFY_lpTestTree() const;

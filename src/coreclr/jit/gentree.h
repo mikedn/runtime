@@ -7882,7 +7882,7 @@ inline bool GenTree::isUsedFromSpillTemp() const
 const size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
 const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);
 
-enum varRefKinds
+enum varRefKinds : uint8_t
 {
     VR_INVARIANT = 0x00, // an invariant value
     VR_NONE      = 0x00,
