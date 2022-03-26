@@ -194,6 +194,16 @@ public:
         return m_vnPair;
     }
 
+    ValueNum GetLiberalVN() const
+    {
+        return m_vnPair.GetLiberal();
+    }
+
+    ValueNum GetConservativeVN() const
+    {
+        return m_vnPair.GetConservative();
+    }
+
     void SetVNP(ValueNumPair vnp)
     {
         m_vnPair = vnp;
@@ -3978,11 +3988,6 @@ public:
     bool vnIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd);
 
     FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
-
-    // Requires "indir" to be a GT_IND.
-    // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
-    // array information.
-    bool vnIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo);
     bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.

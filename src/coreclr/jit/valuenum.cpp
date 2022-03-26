@@ -3936,13 +3936,6 @@ bool Compiler::vnIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_
     return fieldTyp != TYP_REF;
 }
 
-bool Compiler::vnIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo)
-{
-    assert(indir->OperIs(GT_IND));
-
-    return vnIsArrayElemAddr(indir->GetAddr(), arrayInfo);
-}
-
 bool Compiler::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
 {
     if (!addr->OperIs(GT_ADD) || !addr->TypeIs(TYP_BYREF))
@@ -7855,6 +7848,7 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     }
 
                     ArrayInfo arrInfo;
+                    GenTree*  obj;
 
                     if (arg->TypeGet() == TYP_BYREF && arg->OperGet() == GT_LCL_VAR)
                     {
@@ -7862,11 +7856,9 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         GenTreeLclVar* argLcl = arg->AsLclVar();
                         if (lvaInSsa(argLcl->GetLclNum()) && argLcl->HasSsaName())
                         {
-                            ValueNum argVN =
-                                lvaTable[argLcl->GetLclNum()].GetPerSsaData(argLcl->GetSsaNum())->m_vnPair.GetLiberal();
+                            ValueNum  argVN = lvaGetDesc(argLcl)->GetPerSsaData(argLcl->GetSsaNum())->GetLiberalVN();
                             VNFuncApp funcApp;
-                            if (argVN != ValueNumStore::NoVN && vnStore->GetVNFunc(argVN, &funcApp) &&
-                                funcApp.m_func == VNF_PtrToArrElem)
+                            if (vnStore->GetVNFunc(argVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
                             {
                                 unsigned elemTypeNum =
                                     static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
@@ -7877,24 +7869,19 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         // Otherwise...
                         memoryHavoc = true;
                     }
-                    else if (vnIsArrayElem(lhs->AsIndir(), &arrInfo))
+                    else if (vnIsArrayElemAddr(lhs->AsIndir()->GetAddr(), &arrInfo))
                     {
                         // We actually ignore field sequences -- any modification to an S[], at any
                         // field of "S", will lose all information about the array type.
                         AddModifiedElemTypeAllContainingLoops(mostNestedLoop, arrInfo.m_elemTypeNum);
                     }
+                    else if (FieldSeqNode* fieldSeq = vnIsFieldAddr(arg, &obj))
+                    {
+                        AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
+                    }
                     else
                     {
-                        GenTree* obj = nullptr; // unused
-
-                        if (FieldSeqNode* fieldSeq = vnIsFieldAddr(arg, &obj))
-                        {
-                            AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
-                        }
-                        else
-                        {
-                            memoryHavoc = true;
-                        }
+                        memoryHavoc = true;
                     }
                 }
                 else if (lhs->OperIs(GT_OBJ, GT_BLK))
