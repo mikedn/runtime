@@ -7800,7 +7800,8 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
     unsigned mostNestedLoop = blk->bbNatLoopNum;
     JITDUMP("optComputeLoopSideEffectsOfBlock " FMT_BB ", mostNestedLoop %d\n", blk->bbNum, mostNestedLoop);
 
-    bool memoryHavoc                  = false;
+    bool memoryHavoc                  = vnLoopTable[mostNestedLoop].lpLoopHasMemoryHavoc;
+    bool containsCall                 = vnLoopTable[mostNestedLoop].lpContainsCall;
     bool modifiesAddressExposedLocals = false;
 
     // Now iterate over the remaining statements, and their trees.
@@ -7808,31 +7809,12 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
     {
         for (GenTree* const tree : stmt->TreeList())
         {
-            genTreeOps oper = tree->OperGet();
-
-            // Even after we set memoryHavoc we still may want to know if a loop contains calls
-            if (memoryHavoc)
+            if (containsCall && memoryHavoc)
             {
-                if (oper == GT_CALL)
-                {
-                    // Record that this loop contains a call
-                    AddContainsCallAllContainingLoops(mostNestedLoop);
-                }
-
-                // If we just set lpContainsCall or it was previously set
-                if (vnLoopTable[mostNestedLoop].lpContainsCall)
-                {
-                    // We can early exit after both memoryHavoc and lpContainsCall are both set to true.
-                    break;
-                }
-
-                // We are just looking for GT_CALL nodes after memoryHavoc was set.
-                continue;
+                break;
             }
 
-            // This body is a distillation of the memory side-effect code of value numbering.
-            // We also do a very limited analysis if byref PtrTo values, to cover some cases
-            // that the compiler creates.
+            genTreeOps oper = tree->OperGet();
 
             if (oper == GT_ASG)
             {
@@ -7964,8 +7946,7 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     {
                         GenTreeCall* call = tree->AsCall();
 
-                        // Record that this loop contains a call
-                        AddContainsCallAllContainingLoops(mostNestedLoop);
+                        containsCall = true;
 
                         if (call->gtCallType == CT_HELPER)
                         {
@@ -7999,6 +7980,11 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                 }
             }
         }
+
+        if (containsCall && memoryHavoc)
+        {
+            break;
+        }
     }
 
     if (memoryHavoc)
@@ -8009,6 +7995,11 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
     else if (modifiesAddressExposedLocals)
     {
         optRecordLoopNestsModifiesAddressExposedLocals(mostNestedLoop);
+    }
+
+    if (containsCall)
+    {
+        AddContainsCallAllContainingLoops(mostNestedLoop);
     }
 }
 
