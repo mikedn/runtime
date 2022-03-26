@@ -7763,21 +7763,19 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
     JITDUMP("optComputeLoopSideEffects lnum is %d\n", lnum);
     for (BasicBlock* const bbInLoop : optLoopTable[lnum].LoopBlocks())
     {
-        if (!optComputeLoopSideEffectsOfBlock(bbInLoop))
+        if (bbInLoop->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
         {
-            // When optComputeLoopSideEffectsOfBlock returns false, we encountered
-            // a block that was moved into the loop range (by fgReorderBlocks),
+            // We encountered a block that was moved into the loop range (by fgReorderBlocks),
             // but not marked correctly as being inside the loop.
-            // We conservatively mark this loop (and any outer loops)
-            // as having memory havoc side effects.
-            //
-            // Record that all loops containing this block have memory havoc effects.
-            //
+            // We conservatively mark this loop (and any outer loops) as having memory havoc
+            // side effects.
             optRecordLoopNestsMemoryHavoc(lnum);
 
             // All done, no need to keep visiting more blocks
             break;
         }
+
+        optComputeLoopSideEffectsOfBlock(bbInLoop);
     }
 }
 
@@ -7809,14 +7807,10 @@ void Compiler::optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum)
     }
 }
 
-bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
+void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 {
     unsigned mostNestedLoop = blk->bbNatLoopNum;
     JITDUMP("optComputeLoopSideEffectsOfBlock " FMT_BB ", mostNestedLoop %d\n", blk->bbNum, mostNestedLoop);
-    if (mostNestedLoop == BasicBlock::NOT_IN_LOOP)
-    {
-        return false;
-    }
     AddVariableLivenessAllContainingLoops(mostNestedLoop, blk);
 
     bool memoryHavoc                  = false;
@@ -8036,8 +8030,6 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
     {
         optRecordLoopNestsModifiesAddressExposedLocals(mostNestedLoop);
     }
-
-    return true;
 }
 
 // Marks the containsCall information to "lnum" and any parent loops.
