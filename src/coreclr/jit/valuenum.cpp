@@ -7400,8 +7400,10 @@ void Compiler::fgValueNumber()
         }
     }
 
-    // Compute the side effects of loops.
-    optComputeLoopSideEffects();
+    if (optLoopCount > 0)
+    {
+        optComputeLoopSideEffects();
+    }
 
     // At the block level, we will use a modified worklist algorithm.  We will have two
     // "todo" sets of unvisited blocks.  Blocks (other than the entry block) are put in a
@@ -7712,16 +7714,18 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
 
 void Compiler::optComputeLoopSideEffects()
 {
+    vnLoopTable = new (this, CMK_ValueNumber) VNLoop[optLoopCount];
+
     unsigned lnum;
     for (lnum = 0; lnum < optLoopCount; lnum++)
     {
-        VarSetOps::AssignNoCopy(this, optLoopTable[lnum].lpVarInOut, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, optLoopTable[lnum].lpVarUseDef, VarSetOps::MakeEmpty(this));
-        optLoopTable[lnum].lpContainsCall               = false;
-        optLoopTable[lnum].lpLoopHasMemoryHavoc         = false;
-        optLoopTable[lnum].modifiesAddressExposedLocals = false;
-        optLoopTable[lnum].lpFieldsModified             = nullptr;
-        optLoopTable[lnum].lpArrayElemTypesModified     = nullptr;
+        VarSetOps::AssignNoCopy(this, vnLoopTable[lnum].lpVarInOut, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, vnLoopTable[lnum].lpVarUseDef, VarSetOps::MakeEmpty(this));
+        vnLoopTable[lnum].lpContainsCall               = false;
+        vnLoopTable[lnum].lpLoopHasMemoryHavoc         = false;
+        vnLoopTable[lnum].modifiesAddressExposedLocals = false;
+        vnLoopTable[lnum].lpFieldsModified             = nullptr;
+        vnLoopTable[lnum].lpArrayElemTypesModified     = nullptr;
     }
 
     for (lnum = 0; lnum < optLoopCount; lnum++)
@@ -7767,7 +7771,7 @@ void Compiler::optRecordLoopNestsMemoryHavoc(unsigned lnum)
 
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        optLoopTable[lnum].lpLoopHasMemoryHavoc = true;
+        vnLoopTable[lnum].lpLoopHasMemoryHavoc = true;
 
         // Move lnum to the next outtermost loop that we need to mark
         lnum = optLoopTable[lnum].lpParent;
@@ -7781,7 +7785,7 @@ void Compiler::optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum)
 
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        optLoopTable[lnum].modifiesAddressExposedLocals = true;
+        vnLoopTable[lnum].modifiesAddressExposedLocals = true;
 
         // Move lnum to the next outtermost loop that we need to mark
         lnum = optLoopTable[lnum].lpParent;
@@ -7814,7 +7818,7 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                 }
 
                 // If we just set lpContainsCall or it was previously set
-                if (optLoopTable[mostNestedLoop].lpContainsCall)
+                if (vnLoopTable[mostNestedLoop].lpContainsCall)
                 {
                     // We can early exit after both memoryHavoc and lpContainsCall are both set to true.
                     break;
@@ -8032,13 +8036,13 @@ void Compiler::AddContainsCallAllContainingLoops(unsigned lnum)
     assert(0 <= lnum && lnum < optLoopCount);
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        optLoopTable[lnum].lpContainsCall = true;
-        lnum                              = optLoopTable[lnum].lpParent;
+        vnLoopTable[lnum].lpContainsCall = true;
+        lnum                             = optLoopTable[lnum].lpParent;
     }
 }
 
 // Adds the variable liveness information for 'blk' to 'this' LoopDsc
-void Compiler::LoopDsc::AddVariableLiveness(Compiler* comp, BasicBlock* blk)
+void Compiler::VNLoop::AddVariableLiveness(Compiler* comp, BasicBlock* blk)
 {
     VarSetOps::UnionD(comp, this->lpVarInOut, blk->bbLiveIn);
     VarSetOps::UnionD(comp, this->lpVarInOut, blk->bbLiveOut);
@@ -8053,7 +8057,7 @@ void Compiler::AddVariableLivenessAllContainingLoops(unsigned lnum, BasicBlock* 
     assert(0 <= lnum && lnum < optLoopCount);
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        optLoopTable[lnum].AddVariableLiveness(this, blk);
+        vnLoopTable[lnum].AddVariableLiveness(this, blk);
         lnum = optLoopTable[lnum].lpParent;
     }
 }
@@ -8064,17 +8068,16 @@ void Compiler::AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_H
     assert(0 <= lnum && lnum < optLoopCount);
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        optLoopTable[lnum].AddModifiedField(this, fldHnd);
+        vnLoopTable[lnum].AddModifiedField(this, fldHnd);
         lnum = optLoopTable[lnum].lpParent;
     }
 }
 
-void Compiler::LoopDsc::AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd)
+void Compiler::VNLoop::AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd)
 {
     if (lpFieldsModified == nullptr)
     {
-        lpFieldsModified =
-            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::FieldHandleSet(comp->getAllocatorLoopHoist());
+        lpFieldsModified = new (comp->getAllocatorLoopHoist()) VNLoop::FieldHandleSet(comp->getAllocatorLoopHoist());
     }
     lpFieldsModified->Set(fldHnd, true, FieldHandleSet::Overwrite);
 }
@@ -8085,17 +8088,17 @@ void Compiler::AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned ele
     assert(0 <= lnum && lnum < optLoopCount);
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        optLoopTable[lnum].AddModifiedElemType(this, elemTypeNum);
+        vnLoopTable[lnum].AddModifiedElemType(this, elemTypeNum);
         lnum = optLoopTable[lnum].lpParent;
     }
 }
 
-void Compiler::LoopDsc::AddModifiedElemType(Compiler* comp, unsigned elemTypeNum)
+void Compiler::VNLoop::AddModifiedElemType(Compiler* comp, unsigned elemTypeNum)
 {
     if (lpArrayElemTypesModified == nullptr)
     {
         lpArrayElemTypesModified =
-            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::TypeNumSet(comp->getAllocatorLoopHoist());
+            new (comp->getAllocatorLoopHoist()) VNLoop::TypeNumSet(comp->getAllocatorLoopHoist());
     }
     lpArrayElemTypesModified->Set(elemTypeNum, true, TypeNumSet::Overwrite);
 }
@@ -8116,7 +8119,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
         loopsInNest = optLoopTable[loopsInNest].lpParent;
     }
 
-    if (optLoopTable[loopNum].lpLoopHasMemoryHavoc)
+    if (vnLoopTable[loopNum].lpLoopHasMemoryHavoc)
     {
         JITDUMP("    Loop " FMT_LP " has memory havoc effect\n", loopNum);
         return vnStore->VNForExpr(entryBlock, TYP_STRUCT);
@@ -8160,10 +8163,10 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
     // Modify "base" by setting all the modified fields/field maps/array maps to unknown values.
 
     // First the fields/field maps.
-    Compiler::LoopDsc::FieldHandleSet* fieldsMod = optLoopTable[loopNum].lpFieldsModified;
+    Compiler::VNLoop::FieldHandleSet* fieldsMod = vnLoopTable[loopNum].lpFieldsModified;
     if (fieldsMod != nullptr)
     {
-        for (Compiler::LoopDsc::FieldHandleSet::KeyIterator ki = fieldsMod->Begin(); !ki.Equal(fieldsMod->End()); ++ki)
+        for (Compiler::VNLoop::FieldHandleSet::KeyIterator ki = fieldsMod->Begin(); !ki.Equal(fieldsMod->End()); ++ki)
         {
             CORINFO_FIELD_HANDLE fieldHandle = ki.Get();
             ValueNum             fieldVN     = vnStore->VNForFieldSeqHandle(fieldHandle);
@@ -8179,11 +8182,10 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
         }
     }
     // Now do the array maps.
-    Compiler::LoopDsc::TypeNumSet* elemTypesMod = optLoopTable[loopNum].lpArrayElemTypesModified;
+    Compiler::VNLoop::TypeNumSet* elemTypesMod = vnLoopTable[loopNum].lpArrayElemTypesModified;
     if (elemTypesMod != nullptr)
     {
-        for (Compiler::LoopDsc::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End());
-             ++ki)
+        for (Compiler::VNLoop::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End()); ++ki)
         {
             ValueNum elemTypeVN = vnStore->VNForTypeNum(ki.Get());
             ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
@@ -8191,7 +8193,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
         }
     }
 
-    if (optLoopTable[loopNum].modifiesAddressExposedLocals)
+    if (vnLoopTable[loopNum].modifiesAddressExposedLocals)
     {
         // We currently don't try to resolve address exposed loads to stores so do a dummy local store for now.
         ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(0),

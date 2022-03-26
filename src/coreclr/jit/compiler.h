@@ -3987,6 +3987,48 @@ public:
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 
+    struct VNLoop
+    {
+        typedef JitHashTable<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>, bool> FieldHandleSet;
+        FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
+                                          // instance fields modified
+                                          // in the loop.
+
+        // The set of array element types that are modified in the loop.
+        typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, bool> TypeNumSet;
+        TypeNumSet* lpArrayElemTypesModified;
+
+        VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
+        VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
+
+        bool lpLoopHasMemoryHavoc; // The loop contains an operation that we assume has arbitrary
+                                   // memory side effects.  If this is set, the fields below
+                                   // may not be accurate (since they become irrelevant.)
+        bool lpContainsCall;       // True if executing the loop body *may* execute a call
+
+        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
+        bool modifiesAddressExposedLocals;
+
+        // TODO-MIKE-Cleanup: These have nothing to do with value numbering,
+        // they should be moved to LoopHoistContext.
+
+        int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
+                                // hoisted
+        int lpLoopVarCount;     // The register count for the non-FP LclVars that are read/written inside this loop
+        int lpVarInOutCount;    // The register count for the non-FP LclVars that are alive inside or across this loop
+
+        int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
+                                  // hoisted
+        int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
+        int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
+
+        void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
+        void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
+        void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
+    };
+
+    VNLoop* vnLoopTable;
+
     // Utility functions for fgValueNumber.
 
     // Perform value-numbering for the trees in "blk".
@@ -5136,42 +5178,6 @@ public:
         unsigned char lpSibling; // The index of another loop that is an immediate child of lpParent,
                                  // or else BasicBlock::NOT_IN_LOOP.  One can enumerate all the children of a loop
                                  // by following "lpChild" then "lpSibling" links.
-
-        bool lpLoopHasMemoryHavoc; // The loop contains an operation that we assume has arbitrary
-                                   // memory side effects.  If this is set, the fields below
-                                   // may not be accurate (since they become irrelevant.)
-        bool lpContainsCall;       // True if executing the loop body *may* execute a call
-
-        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
-        bool modifiesAddressExposedLocals;
-
-        VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
-        VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
-
-        int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
-                                // hoisted
-        int lpLoopVarCount;     // The register count for the non-FP LclVars that are read/written inside this loop
-        int lpVarInOutCount;    // The register count for the non-FP LclVars that are alive inside or across this loop
-
-        int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
-                                  // hoisted
-        int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
-        int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
-
-        typedef JitHashTable<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>, bool> FieldHandleSet;
-        FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
-                                          // instance fields modified
-                                          // in the loop.
-
-        // The set of array element types that are modified in the loop.
-        typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, bool> TypeNumSet;
-        TypeNumSet* lpArrayElemTypesModified;
-
-        // Adds the variable liveness information for 'blk' to 'this' LoopDsc
-        void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
-
-        void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
-        void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 
