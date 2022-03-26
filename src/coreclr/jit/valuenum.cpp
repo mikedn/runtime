@@ -7754,6 +7754,15 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
         }
 
         AddVariableLivenessAllContainingLoops(block);
+
+        VNLoop& innermostLoop = vnLoopTable[block->bbNatLoopNum];
+
+        if (innermostLoop.lpContainsCall && innermostLoop.lpLoopHasMemoryHavoc)
+        {
+            // We don't need to traverse the block if the loop already has memory havoc and calls.
+            continue;
+        }
+
         optComputeLoopSideEffectsOfBlock(block);
     }
 }
