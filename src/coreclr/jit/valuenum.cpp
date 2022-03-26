@@ -7739,9 +7739,9 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
 {
     assert(optLoopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP); // Requires: lnum is outermost.
     JITDUMP("optComputeLoopSideEffects lnum is %d\n", lnum);
-    for (BasicBlock* const bbInLoop : optLoopTable[lnum].LoopBlocks())
+    for (BasicBlock* const block : optLoopTable[lnum].LoopBlocks())
     {
-        if (bbInLoop->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
+        if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
         {
             // We encountered a block that was moved into the loop range (by fgReorderBlocks),
             // but not marked correctly as being inside the loop.
@@ -7753,7 +7753,8 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
             break;
         }
 
-        optComputeLoopSideEffectsOfBlock(bbInLoop);
+        AddVariableLivenessAllContainingLoops(block);
+        optComputeLoopSideEffectsOfBlock(block);
     }
 }
 
@@ -7789,7 +7790,6 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 {
     unsigned mostNestedLoop = blk->bbNatLoopNum;
     JITDUMP("optComputeLoopSideEffectsOfBlock " FMT_BB ", mostNestedLoop %d\n", blk->bbNum, mostNestedLoop);
-    AddVariableLivenessAllContainingLoops(mostNestedLoop, blk);
 
     bool memoryHavoc                  = false;
     bool modifiesAddressExposedLocals = false;
@@ -8028,24 +8028,20 @@ void Compiler::AddContainsCallAllContainingLoops(unsigned lnum)
     }
 }
 
-// Adds the variable liveness information for 'blk' to 'this' LoopDsc
-void Compiler::VNLoop::AddVariableLiveness(Compiler* comp, BasicBlock* blk)
+void Compiler::VNLoop::AddVariableLiveness(Compiler* comp, BasicBlock* block)
 {
-    VarSetOps::UnionD(comp, this->lpVarInOut, blk->bbLiveIn);
-    VarSetOps::UnionD(comp, this->lpVarInOut, blk->bbLiveOut);
+    VarSetOps::UnionD(comp, lpVarInOut, block->bbLiveIn);
+    VarSetOps::UnionD(comp, lpVarInOut, block->bbLiveOut);
 
-    VarSetOps::UnionD(comp, this->lpVarUseDef, blk->bbVarUse);
-    VarSetOps::UnionD(comp, this->lpVarUseDef, blk->bbVarDef);
+    VarSetOps::UnionD(comp, lpVarUseDef, block->bbVarUse);
+    VarSetOps::UnionD(comp, lpVarUseDef, block->bbVarDef);
 }
 
-// Adds the variable liveness information for 'blk' to "lnum" and any parent loops.
-void Compiler::AddVariableLivenessAllContainingLoops(unsigned lnum, BasicBlock* blk)
+void Compiler::AddVariableLivenessAllContainingLoops(BasicBlock* block)
 {
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
+    for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
     {
-        vnLoopTable[lnum].AddVariableLiveness(this, blk);
-        lnum = optLoopTable[lnum].lpParent;
+        vnLoopTable[n].AddVariableLiveness(this, block);
     }
 }
 

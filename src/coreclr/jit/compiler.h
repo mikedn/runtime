@@ -4027,7 +4027,7 @@ public:
         int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
         int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
 
-        void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
+        void AddVariableLiveness(Compiler* comp, BasicBlock* block);
         void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
         void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
     };
@@ -5375,8 +5375,7 @@ protected:
     // Marks the containsCall information to "lnum" and any parent loops.
     void AddContainsCallAllContainingLoops(unsigned lnum);
 
-    // Adds the variable liveness information from 'blk' to "lnum" and any parent loops.
-    void AddVariableLivenessAllContainingLoops(unsigned lnum, BasicBlock* blk);
+    void AddVariableLivenessAllContainingLoops(BasicBlock* block);
 
     // Adds "fldHnd" to the set of modified fields of "lnum" and any parent loops.
     void AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_HANDLE fldHnd);
