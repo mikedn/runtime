@@ -1117,11 +1117,6 @@ bool Compiler::optRecordLoop(BasicBlock*   head,
     optLoopTable[loopInd].lpFlags = LPFLG_EMPTY;
 
     // We haven't yet recorded any side effects.
-    optLoopTable[loopInd].lpLoopHasMemoryHavoc         = false;
-    optLoopTable[loopInd].modifiesAddressExposedLocals = false;
-
-    optLoopTable[loopInd].lpFieldsModified         = nullptr;
-    optLoopTable[loopInd].lpArrayElemTypesModified = nullptr;
 
     // If DO-WHILE loop mark it as such.
     if (head->bbNext == entry)

@@ -7717,7 +7717,11 @@ void Compiler::optComputeLoopSideEffects()
     {
         VarSetOps::AssignNoCopy(this, optLoopTable[lnum].lpVarInOut, VarSetOps::MakeEmpty(this));
         VarSetOps::AssignNoCopy(this, optLoopTable[lnum].lpVarUseDef, VarSetOps::MakeEmpty(this));
-        optLoopTable[lnum].lpContainsCall = false;
+        optLoopTable[lnum].lpContainsCall               = false;
+        optLoopTable[lnum].lpLoopHasMemoryHavoc         = false;
+        optLoopTable[lnum].modifiesAddressExposedLocals = false;
+        optLoopTable[lnum].lpFieldsModified             = nullptr;
+        optLoopTable[lnum].lpArrayElemTypesModified     = nullptr;
     }
 
     for (lnum = 0; lnum < optLoopCount; lnum++)
