@@ -8006,8 +8006,7 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
         // Record that all loops containing this block have this kind of memoryHavoc effects.
         optRecordLoopNestsMemoryHavoc(mostNestedLoop);
     }
-
-    if (modifiesAddressExposedLocals)
+    else if (modifiesAddressExposedLocals)
     {
         optRecordLoopNestsModifiesAddressExposedLocals(mostNestedLoop);
     }
