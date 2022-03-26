@@ -7732,29 +7732,6 @@ void Compiler::optComputeLoopSideEffects()
             optComputeLoopNestSideEffects(lnum);
         }
     }
-
-    VarSetOps::AssignNoCopy(this, lvaFloatVars, VarSetOps::MakeEmpty(this));
-#ifndef TARGET_64BIT
-    VarSetOps::AssignNoCopy(this, lvaLongVars, VarSetOps::MakeEmpty(this));
-#endif
-
-    for (unsigned i = 0; i < lvaCount; i++)
-    {
-        LclVarDsc* varDsc = &lvaTable[i];
-        if (varDsc->lvTracked)
-        {
-            if (varTypeIsFloating(varDsc->lvType))
-            {
-                VarSetOps::AddElemD(this, lvaFloatVars, varDsc->lvVarIndex);
-            }
-#ifndef TARGET_64BIT
-            else if (varTypeIsLong(varDsc->lvType))
-            {
-                VarSetOps::AddElemD(this, lvaLongVars, varDsc->lvVarIndex);
-            }
-#endif
-        }
-    }
 }
 
 void Compiler::optComputeLoopNestSideEffects(unsigned lnum)

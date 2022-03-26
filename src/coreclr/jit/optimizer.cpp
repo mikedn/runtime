@@ -5605,12 +5605,38 @@ public:
     // Value numbers of expressions that have been hoisted in the current (or most recent) loop in the nest.
     // Previous decisions on loop-invariance of value numbers in the current loop.
     VNToBoolMap m_curLoopVnInvariantCache;
+#ifndef TARGET_64BIT
+    VARSET_TP lvaLongVars; // set of long (64-bit) variables
+#endif
+    VARSET_TP lvaFloatVars; // set of floating-point (32-bit and 64-bit) variables
 
     LoopHoistContext(Compiler* comp)
         : m_pHoistedInCurLoop(nullptr)
         , m_hoistedInParentLoops(comp->getAllocatorLoopHoist())
         , m_curLoopVnInvariantCache(comp->getAllocatorLoopHoist())
     {
+        VarSetOps::AssignNoCopy(comp, lvaFloatVars, VarSetOps::MakeEmpty(comp));
+#ifndef TARGET_64BIT
+        VarSetOps::AssignNoCopy(comp, lvaLongVars, VarSetOps::MakeEmpty(comp));
+#endif
+
+        for (unsigned i = 0; i < comp->lvaCount; i++)
+        {
+            LclVarDsc* varDsc = comp->lvaGetDesc(i);
+            if (varDsc->lvTracked)
+            {
+                if (varTypeIsFloating(varDsc->lvType))
+                {
+                    VarSetOps::AddElemD(comp, lvaFloatVars, varDsc->lvVarIndex);
+                }
+#ifndef TARGET_64BIT
+                else if (varTypeIsLong(varDsc->lvType))
+                {
+                    VarSetOps::AddElemD(comp, lvaLongVars, varDsc->lvVarIndex);
+                }
+#endif
+            }
+        }
     }
 
     VNSet* GetHoistedInCurLoop(Compiler* comp)
@@ -5830,21 +5856,21 @@ void Compiler::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
     pLoopDsc->lpHoistedExprCount = 0;
 
 #ifndef TARGET_64BIT
-    unsigned longVarsCount = VarSetOps::Count(this, lvaLongVars);
+    unsigned longVarsCount = VarSetOps::Count(this, hoistCtxt->lvaLongVars);
 
     if (longVarsCount > 0)
     {
         // Since 64-bit variables take up two registers on 32-bit targets, we increase
         //  the Counts such that each TYP_LONG variable counts twice.
         //
-        VARSET_TP loopLongVars(VarSetOps::Intersection(this, loopVars, lvaLongVars));
-        VARSET_TP inOutLongVars(VarSetOps::Intersection(this, pLoopDsc->lpVarInOut, lvaLongVars));
+        VARSET_TP loopLongVars(VarSetOps::Intersection(this, loopVars, hoistCtxt->lvaLongVars));
+        VARSET_TP inOutLongVars(VarSetOps::Intersection(this, pLoopDsc->lpVarInOut, hoistCtxt->lvaLongVars));
 
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\n  LONGVARS(%d)=", VarSetOps::Count(this, lvaLongVars));
-            lvaDispVarSet(lvaLongVars);
+            printf("\n  LONGVARS(%d)=", VarSetOps::Count(this, hoistCtxt->lvaLongVars));
+            lvaDispVarSet(hoistCtxt->lvaLongVars);
         }
 #endif
         pLoopDsc->lpLoopVarCount += VarSetOps::Count(this, loopLongVars);
@@ -5867,12 +5893,12 @@ void Compiler::optHoistThisLoop(unsigned lnum, LoopHoistContext* hoistCtxt)
     }
 #endif
 
-    unsigned floatVarsCount = VarSetOps::Count(this, lvaFloatVars);
+    unsigned floatVarsCount = VarSetOps::Count(this, hoistCtxt->lvaFloatVars);
 
     if (floatVarsCount > 0)
     {
-        VARSET_TP loopFPVars(VarSetOps::Intersection(this, loopVars, lvaFloatVars));
-        VARSET_TP inOutFPVars(VarSetOps::Intersection(this, pLoopDsc->lpVarInOut, lvaFloatVars));
+        VARSET_TP loopFPVars(VarSetOps::Intersection(this, loopVars, hoistCtxt->lvaFloatVars));
+        VARSET_TP inOutFPVars(VarSetOps::Intersection(this, pLoopDsc->lpVarInOut, hoistCtxt->lvaFloatVars));
 
         pLoopDsc->lpLoopVarFPCount     = VarSetOps::Count(this, loopFPVars);
         pLoopDsc->lpVarInOutFPCount    = VarSetOps::Count(this, inOutFPVars);

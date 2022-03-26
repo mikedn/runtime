@@ -2394,11 +2394,6 @@ public:
     unsigned lvaTrackedCount;             // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits; // min # of size_t's sufficient to hold a bit for all the locals being tracked
 
-#ifndef TARGET_64BIT
-    VARSET_TP lvaLongVars; // set of long (64-bit) variables
-#endif
-    VARSET_TP lvaFloatVars; // set of floating-point (32-bit and 64-bit) variables
-
     unsigned lvaCurEpoch; // VarSets are relative to a specific set of tracked var indices.
                           // It that changes, this changes.  VarSets from different epochs
                           // cannot be meaningfully combined.
