@@ -12599,29 +12599,6 @@ ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
     return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
 }
 
-ClassLayout* Compiler::gtGetStructLayout(GenTree* tree)
-{
-    assert(tree->TypeIs(TYP_STRUCT));
-
-    tree = tree->gtEffectiveVal();
-
-    switch (tree->GetOper())
-    {
-        case GT_OBJ:
-            return tree->AsObj()->GetLayout();
-        case GT_CALL:
-            return tree->AsCall()->GetRetLayout();
-        case GT_RET_EXPR:
-            return tree->AsRetExpr()->GetLayout();
-        case GT_LCL_VAR:
-            return lvaGetDesc(tree->AsLclVar())->GetLayout();
-        case GT_LCL_FLD:
-            return tree->AsLclFld()->GetLayout(this);
-        default:
-            unreached();
-    }
-}
-
 //------------------------------------------------------------------------
 // gtGetClassHandle: find class handle for a ref type
 //

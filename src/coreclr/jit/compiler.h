@@ -2246,8 +2246,6 @@ public:
     GenTree* gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options = BR_REMOVE_AND_NARROW);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
 
-    ClassLayout* gtGetStructLayout(GenTree* tree);
-
     // Get the handle for a ref type.
     CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* pIsExact, bool* pIsNonNull);
     // Get the class handle for an helper call
