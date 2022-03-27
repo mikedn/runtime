@@ -1108,6 +1108,11 @@ public:
         return gtVNPair.GetLiberal();
     }
 
+    void SetLiberalVN(ValueNum vn)
+    {
+        gtVNPair.SetLiberal(vn);
+    }
+
     ValueNum GetConservativeVN() const
     {
         return gtVNPair.GetConservative();

@@ -6840,7 +6840,6 @@ void Compiler::gtDispVN(GenTree* tree)
 {
     if (tree->gtVNPair.GetLiberal() != ValueNumStore::NoVN)
     {
-        assert(tree->gtVNPair.GetConservative() != ValueNumStore::NoVN);
         printf(" ");
         vnpPrint(tree->gtVNPair, 0);
     }

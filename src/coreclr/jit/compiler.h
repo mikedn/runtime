@@ -208,6 +208,11 @@ public:
     {
         m_vnPair = vnp;
     }
+
+    void SetLiberalVN(ValueNum vn)
+    {
+        m_vnPair.SetLiberal(vn);
+    }
 };
 
 // This class stores information associated with a memory SSA definition.

@@ -7824,56 +7824,39 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                     if (lhs->OperIs(GT_IND))
                     {
-                        GenTree* arg = lhs->AsIndir()->GetAddr()->SkipComma();
-
                         if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
                         {
                             memoryHavoc = true;
                             continue;
                         }
 
-                        if (GenTreeClsVar* clsVarAddr = arg->IsClsVar())
+                        GenTree* addr = lhs->AsIndir()->GetAddr()->SkipComma();
+
+                        if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
                         {
                             AddModifiedFieldAllContainingLoops(mostNestedLoop, clsVarAddr->GetFieldHandle());
                             continue;
                         }
 
-                        ArrayInfo arrInfo;
-                        GenTree*  obj;
+                        ValueNum  addrVN = addr->GetLiberalVN();
+                        VNFuncApp funcApp;
 
-                        if (arg->TypeGet() == TYP_BYREF && arg->OperGet() == GT_LCL_VAR)
+                        if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
                         {
-                            // If it's a local byref for which we recorded a value number, use that...
-                            GenTreeLclVar* argLcl = arg->AsLclVar();
-                            if (lvaInSsa(argLcl->GetLclNum()) && argLcl->HasSsaName())
-                            {
-                                ValueNum argVN = lvaGetDesc(argLcl)->GetPerSsaData(argLcl->GetSsaNum())->GetLiberalVN();
-                                VNFuncApp funcApp;
-                                if (vnStore->GetVNFunc(argVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
-                                {
-                                    unsigned elemTypeNum =
-                                        static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
-                                    AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeNum);
-                                    continue;
-                                }
-                            }
-                            // Otherwise...
-                            memoryHavoc = true;
+                            int32_t elemTypeNum = vnStore->ConstantValue<int32_t>(funcApp.m_args[0]);
+                            AddModifiedElemTypeAllContainingLoops(mostNestedLoop, static_cast<unsigned>(elemTypeNum));
+                            continue;
                         }
-                        else if (vnIsArrayElemAddr(lhs->AsIndir()->GetAddr(), &arrInfo))
-                        {
-                            // We actually ignore field sequences -- any modification to an S[], at any
-                            // field of "S", will lose all information about the array type.
-                            AddModifiedElemTypeAllContainingLoops(mostNestedLoop, arrInfo.m_elemTypeNum);
-                        }
-                        else if (FieldSeqNode* fieldSeq = vnIsFieldAddr(arg, &obj))
+
+                        GenTree* obj;
+
+                        if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
                         {
                             AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
+                            continue;
                         }
-                        else
-                        {
-                            memoryHavoc = true;
-                        }
+
+                        memoryHavoc = true;
                     }
                     else if (lhs->OperIs(GT_OBJ, GT_BLK))
                     {
@@ -7893,23 +7876,29 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         {
                             modifiesAddressExposedLocals = true;
                         }
-                        else if (lcl->IsInSsa() && lclNode->HasSsaName())
+                        else if (lcl->IsInSsa() && lcl->TypeIs(TYP_BYREF))
                         {
-                            ValueNum srcVN = tree->AsOp()->GetOp(1)->gtVNPair.GetLiberal();
-
-                            if (srcVN != ValueNumStore::NoVN)
-                            {
-                                srcVN = vnStore->VNNormalValue(srcVN);
-
-                                lcl->GetPerSsaData(lclNode->GetSsaNum())->m_vnPair.SetLiberal(srcVN);
-                            }
+                            ValueNum valueVN = tree->AsOp()->GetOp(1)->GetLiberalVN();
+                            lcl->GetPerSsaData(lclNode->GetSsaNum())->SetLiberalVN(valueVN);
                         }
                     }
                 }
                 break;
 
+                case GT_LCL_VAR:
+                    if (tree->TypeIs(TYP_BYREF) && ((tree->gtFlags & GTF_VAR_DEF) == 0))
+                    {
+                        LclVarDsc* lcl = lvaGetDesc(tree->AsLclVar());
+
+                        if (lcl->IsInSsa())
+                        {
+                            tree->SetLiberalVN(lcl->GetPerSsaData(tree->AsLclVar()->GetSsaNum())->GetLiberalVN());
+                        }
+                    }
+                    break;
+
                 case GT_COMMA:
-                    tree->gtVNPair = tree->AsOp()->gtOp2->gtVNPair;
+                    tree->SetLiberalVN(tree->AsOp()->GetOp(1)->GetLiberalVN());
                     break;
 
                 case GT_ADD:
@@ -7922,7 +7911,7 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                             vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
                                                // The rest are dummy arguments.
                                                vnStore->VNForNull(), vnStore->VNForNull(), vnStore->VNForNull());
-                        tree->gtVNPair.SetBoth(ptrToArrElemVN);
+                        tree->SetLiberalVN(ptrToArrElemVN);
                     }
                 }
                 break;
