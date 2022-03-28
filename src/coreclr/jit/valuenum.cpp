@@ -7814,13 +7814,17 @@ void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                 break;
             }
 
+            // TODO-MIKE-Fix: This code is swiss cheese.
+            //  - It doesn't handle LCL_FLD and intrinsic stores, not even by simply setting memory havoc.
+            //  - It always sets memory havoc for OBJ/BLK even if they could trated pretty much like IND.
+            //  - It always sets memory havoc for indirections that use local addresses.
+            //  - For object fields it doesn't check for wider than field stores.
+
             switch (tree->GetOper())
             {
                 case GT_ASG:
                 {
                     GenTree* lhs = tree->AsOp()->GetOp(0)->SkipComma();
-
-                    // TODO-MIKE-Review: This thing ignores LCL_FLD assignments.
 
                     if (lhs->OperIs(GT_IND))
                     {
