@@ -3834,8 +3834,8 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
             }
         }
 
-        if ((icon != nullptr) && !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
-            (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
+        if ((icon != nullptr) && (icon->GetFieldSeq() != nullptr) &&
+            (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
             (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
             icon->GetFieldSeq()->IsField())
         {
