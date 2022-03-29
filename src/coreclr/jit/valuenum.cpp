@@ -3863,42 +3863,6 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
     {
         staticStructFldSeq = clsVar->GetFieldSeq();
     }
-    else if (addr->OperIsLocal())
-    {
-        // If we have a GT_LCL_VAR, it can be result of a CSE substitution
-        // If it is then the CSE assignment will have a ValueNum that
-        // describes the RHS of the CSE assignment.
-        //
-        // The CSE could be a pointer to a boxed struct
-
-        ValueNum vn = addr->gtVNPair.GetLiberal();
-        if (vn != ValueNumStore::NoVN)
-        {
-            // Is the ValueNum a MapSelect involving a SharedStatic helper?
-            VNFuncApp funcApp1;
-            if (vnStore->GetVNFunc(vn, &funcApp1) && (funcApp1.m_func == VNF_MapSelect) &&
-                (vnStore->IsSharedStatic(funcApp1.m_args[1])))
-            {
-                ValueNum mapVN = funcApp1.m_args[0];
-                // Is this new 'mapVN' ValueNum, a MapSelect involving a handle?
-                VNFuncApp funcApp2;
-                if (vnStore->GetVNFunc(mapVN, &funcApp2) && (funcApp2.m_func == VNF_MapSelect) &&
-                    (vnStore->IsVNHandle(funcApp2.m_args[1])))
-                {
-                    ValueNum fldHndVN = funcApp2.m_args[1];
-                    // Is this new 'fldHndVN' VNhandle a FieldHandle?
-                    if (vnStore->GetHandleFlags(fldHndVN) == GTF_ICON_FIELD_HDL)
-                    {
-                        CORINFO_FIELD_HANDLE fieldHnd = CORINFO_FIELD_HANDLE(vnStore->ConstantValue<ssize_t>(fldHndVN));
-
-                        // Record this field sequence in 'statStructFldSeq' as it is likely to be a Boxed Struct
-                        // field access.
-                        staticStructFldSeq = GetFieldSeqStore()->CreateSingleton(fieldHnd);
-                    }
-                }
-            }
-        }
-    }
 
     assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->GetNext() == nullptr));
 
