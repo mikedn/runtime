@@ -3837,9 +3837,7 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
         if ((icon != nullptr) && !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
             (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
             (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
-            // TODO-Review: A pseudoField here indicates an issue - this requires investigation
-            // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
-            !icon->GetFieldSeq()->IsBoxedValueField() && !icon->GetFieldSeq()->IsArrayElement())
+            icon->GetFieldSeq()->IsField())
         {
             staticStructFldSeq = icon->GetFieldSeq();
         }
