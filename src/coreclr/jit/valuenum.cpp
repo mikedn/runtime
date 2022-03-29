@@ -3859,10 +3859,6 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
             }
         }
     }
-    else if (GenTreeClsVar* clsVar = addr->IsClsVar())
-    {
-        staticStructFldSeq = clsVar->GetFieldSeq();
-    }
 
     assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->GetNext() == nullptr));
 
