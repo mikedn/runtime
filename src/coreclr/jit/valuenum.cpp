@@ -3837,7 +3837,7 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
         if ((icon != nullptr) && (icon->GetFieldSeq() != nullptr) &&
             (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
             (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
-            icon->GetFieldSeq()->IsField())
+            icon->GetFieldSeq()->IsField() && info.compCompHnd->isFieldStatic(icon->GetFieldSeq()->GetFieldHandle()))
         {
             staticStructFldSeq = icon->GetFieldSeq();
         }
