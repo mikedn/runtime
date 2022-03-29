@@ -3863,7 +3863,7 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
     assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->GetNext() == nullptr));
 
     if ((staticStructFldSeq != nullptr) &&
-        vnIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->GetFieldHandle()))
+        (CorTypeToVarType(info.compCompHnd->getFieldType(staticStructFldSeq->GetFieldHandle())) != TYP_REF))
     {
         *pObj = nullptr;
         return GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
@@ -3882,18 +3882,6 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
 
     *pObj = addr;
     return fieldSeq;
-}
-
-bool Compiler::vnIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd)
-{
-    if (fieldNodeType != TYP_REF)
-    {
-        return false;
-    }
-    noway_assert(fldHnd != nullptr);
-    CorInfoType cit      = info.compCompHnd->getFieldType(fldHnd);
-    var_types   fieldTyp = JITtype2varType(cit);
-    return fieldTyp != TYP_REF;
 }
 
 bool Compiler::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)

@@ -3986,12 +3986,6 @@ public:
     void vnInterlocked(GenTreeOp* node);
     ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
 
-    // Static fields of struct types (and sometimes the types that those are reduced to) are represented by having the
-    // static field contain an object pointer to the boxed struct.  This simplifies the GC implementation...but
-    // complicates the JIT somewhat.  This predicate returns "true" iff a node with type "fieldNodeType", representing
-    // the given "fldHnd", is such an object pointer.
-    bool vnIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd);
-
     FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
     bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
 
