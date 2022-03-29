@@ -3987,6 +3987,7 @@ public:
     ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
 
     FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
+    FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
     bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
 
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.

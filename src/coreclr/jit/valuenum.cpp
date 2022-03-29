@@ -3807,64 +3807,13 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
 
     addr = addr->gtEffectiveVal();
 
-    // Recognize struct static field patterns...
-
-    FieldSeqNode* staticStructFldSeq = nullptr;
-
     if (GenTreeIndir* indir = addr->IsIndir())
     {
-        GenTree*       addr = indir->GetAddr();
-        GenTreeIntCon* icon = nullptr;
-
-        if (addr->OperIs(GT_CNS_INT))
+        if (FieldSeqNode* staticStructFieldSeq = vnIsStaticStructFieldAddr(indir->GetAddr()))
         {
-            icon = addr->AsIntCon();
+            *pObj = nullptr;
+            return GetFieldSeqStore()->Append(staticStructFieldSeq, fieldSeq);
         }
-        else if (addr->OperIs(GT_ADD))
-        {
-            GenTree* op1 = addr->AsOp()->GetOp(0);
-            GenTree* op2 = addr->AsOp()->GetOp(1);
-
-            // op1 should never be a field sequence (or any other kind of handle)
-            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
-
-            if (op2->OperIs(GT_CNS_INT))
-            {
-                icon = op2->AsIntCon();
-            }
-        }
-
-        if ((icon != nullptr) && (icon->GetFieldSeq() != nullptr) &&
-            (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
-            (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
-            icon->GetFieldSeq()->IsField() && info.compCompHnd->isFieldStatic(icon->GetFieldSeq()->GetFieldHandle()))
-        {
-            staticStructFldSeq = icon->GetFieldSeq();
-        }
-        else
-        {
-            addr = addr->gtEffectiveVal();
-
-            // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
-            if (addr->OperIs(GT_CALL, GT_LCL_VAR))
-            {
-                FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(addr);
-
-                if ((zeroFieldSeq != nullptr) && (zeroFieldSeq->GetNext() == nullptr))
-                {
-                    staticStructFldSeq = zeroFieldSeq;
-                }
-            }
-        }
-    }
-
-    assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->GetNext() == nullptr));
-
-    if ((staticStructFldSeq != nullptr) &&
-        (CorTypeToVarType(info.compCompHnd->getFieldType(staticStructFldSeq->GetFieldHandle())) != TYP_REF))
-    {
-        *pObj = nullptr;
-        return GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
     }
 
     if (fieldSeq->IsBoxedValueField())
@@ -3880,6 +3829,62 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
 
     *pObj = addr;
     return fieldSeq;
+}
+
+FieldSeqNode* Compiler::vnIsStaticStructFieldAddr(GenTree* addr)
+{
+    FieldSeqNode*  fieldSeq = nullptr;
+    GenTreeIntCon* icon     = nullptr;
+
+    if (addr->OperIs(GT_CNS_INT))
+    {
+        icon = addr->AsIntCon();
+    }
+    else if (addr->OperIs(GT_ADD))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        // op1 should never be a field sequence (or any other kind of handle)
+        assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+        if (op2->OperIs(GT_CNS_INT))
+        {
+            icon = op2->AsIntCon();
+        }
+    }
+
+    if ((icon != nullptr) && (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
+        (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
+        icon->GetFieldSeq()->IsField() && info.compCompHnd->isFieldStatic(icon->GetFieldSeq()->GetFieldHandle()))
+    {
+        fieldSeq = icon->GetFieldSeq();
+    }
+    else
+    {
+        addr = addr->gtEffectiveVal();
+
+        // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
+        if (addr->OperIs(GT_CALL, GT_LCL_VAR))
+        {
+            FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(addr);
+
+            if ((zeroFieldSeq != nullptr) && (zeroFieldSeq->GetNext() == nullptr))
+            {
+                fieldSeq = zeroFieldSeq;
+            }
+        }
+    }
+
+    assert((fieldSeq == nullptr) || (fieldSeq->GetNext() == nullptr));
+
+    if ((fieldSeq != nullptr) &&
+        (CorTypeToVarType(info.compCompHnd->getFieldType(fieldSeq->GetFieldHandle())) == TYP_STRUCT))
+    {
+        return fieldSeq;
+    }
+
+    return nullptr;
 }
 
 bool Compiler::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
