@@ -4028,8 +4028,6 @@ public:
         int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
 
         void AddVariableLiveness(Compiler* comp, BasicBlock* block);
-        void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
-        void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
     };
 
     VNLoop* vnLoopTable;
@@ -5133,7 +5131,7 @@ private:
         void AddCall();
         void AddAddressExposedLocal(unsigned lclNum);
         void AddField(CORINFO_FIELD_HANDLE fieldHandle);
-        void AddArrayType(unsigned typeNum);
+        void AddArrayType(unsigned elemTypeNum);
         bool IsComplete() const;
     };
 
@@ -5401,12 +5399,6 @@ protected:
     void AddContainsCallAllContainingLoops(unsigned lnum);
 
     void AddVariableLivenessAllContainingLoops(BasicBlock* block);
-
-    // Adds "fldHnd" to the set of modified fields of "lnum" and any parent loops.
-    void AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_HANDLE fldHnd);
-
-    // Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
-    void AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum);
 
     // Requires that "from" and "to" have the same "bbJumpKind" (perhaps because "to" is a clone
     // of "from".)  Copies the jump destination from "from" to "to".

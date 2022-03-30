@@ -7812,11 +7812,13 @@ void Compiler::optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum)
 }
 
 Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, unsigned loopNum)
-    : m_compiler(compiler), m_loopNum(loopNum)
+    : m_compiler(compiler)
+    , m_loopNum(loopNum)
+    , m_memoryHavoc(compiler->vnLoopTable[loopNum].lpLoopHasMemoryHavoc)
+    , m_containsCall(compiler->vnLoopTable[loopNum].lpContainsCall)
+    , m_modifiesAddressExposedLocals(false)
 {
-    m_memoryHavoc                  = compiler->vnLoopTable[loopNum].lpLoopHasMemoryHavoc;
-    m_containsCall                 = compiler->vnLoopTable[loopNum].lpContainsCall;
-    m_modifiesAddressExposedLocals = false;
+    assert(loopNum < compiler->optLoopCount);
 }
 
 void Compiler::VNLoopMemorySummary::AddMemoryHavoc()
@@ -7836,12 +7838,34 @@ void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
 void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
 {
-    m_compiler->AddModifiedFieldAllContainingLoops(m_loopNum, fieldHandle);
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+    {
+        VNLoop& loop = m_compiler->vnLoopTable[n];
+
+        if (loop.lpFieldsModified == nullptr)
+        {
+            loop.lpFieldsModified = new (m_compiler->getAllocator(CMK_ValueNumber))
+                VNLoop::FieldHandleSet(m_compiler->getAllocator(CMK_ValueNumber));
+        }
+
+        loop.lpFieldsModified->Set(fieldHandle, true, VNLoop::FieldHandleSet::Overwrite);
+    }
 }
 
-void Compiler::VNLoopMemorySummary::AddArrayType(unsigned typeNum)
+void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 {
-    m_compiler->AddModifiedElemTypeAllContainingLoops(m_loopNum, typeNum);
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+    {
+        VNLoop& loop = m_compiler->vnLoopTable[n];
+
+        if (loop.lpArrayElemTypesModified == nullptr)
+        {
+            loop.lpArrayElemTypesModified = new (m_compiler->getAllocator(CMK_ValueNumber))
+                VNLoop::TypeNumSet(m_compiler->getAllocator(CMK_ValueNumber));
+        }
+
+        loop.lpArrayElemTypesModified->Set(elemTypeNum, true, VNLoop::TypeNumSet::Overwrite);
+    }
 }
 
 bool Compiler::VNLoopMemorySummary::IsComplete() const
@@ -7931,47 +7955,6 @@ void Compiler::AddVariableLivenessAllContainingLoops(BasicBlock* block)
     {
         vnLoopTable[n].AddVariableLiveness(this, block);
     }
-}
-
-// Adds "fldHnd" to the set of modified fields of "lnum" and any parent loops.
-void Compiler::AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_HANDLE fldHnd)
-{
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        vnLoopTable[lnum].AddModifiedField(this, fldHnd);
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-void Compiler::VNLoop::AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd)
-{
-    if (lpFieldsModified == nullptr)
-    {
-        lpFieldsModified = new (comp->getAllocatorLoopHoist()) VNLoop::FieldHandleSet(comp->getAllocatorLoopHoist());
-    }
-    lpFieldsModified->Set(fldHnd, true, FieldHandleSet::Overwrite);
-}
-
-// Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
-void Compiler::AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum)
-{
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        vnLoopTable[lnum].AddModifiedElemType(this, elemTypeNum);
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-void Compiler::VNLoop::AddModifiedElemType(Compiler* comp, unsigned elemTypeNum)
-{
-    if (lpArrayElemTypesModified == nullptr)
-    {
-        lpArrayElemTypesModified =
-            new (comp->getAllocatorLoopHoist()) VNLoop::TypeNumSet(comp->getAllocatorLoopHoist());
-    }
-    lpArrayElemTypesModified->Set(elemTypeNum, true, TypeNumSet::Overwrite);
 }
 
 ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned innermostLoopNum)
