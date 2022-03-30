@@ -7779,7 +7779,39 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
             continue;
         }
 
-        optComputeLoopSideEffectsOfBlock(block);
+        VNLoopMemorySummary summary(this, block->bbNatLoopNum);
+
+        for (Statement* const stmt : block->NonPhiStatements())
+        {
+            for (GenTree* const tree : stmt->TreeList())
+            {
+                if (summary.IsComplete())
+                {
+                    break;
+                }
+
+                vnSummarizeLoopNodeMemoryStores(tree, summary);
+            }
+
+            if (summary.IsComplete())
+            {
+                break;
+            }
+        }
+
+        if (summary.m_memoryHavoc)
+        {
+            optRecordLoopNestsMemoryHavoc(block->bbNatLoopNum);
+        }
+        else if (summary.m_modifiesAddressExposedLocals)
+        {
+            optRecordLoopNestsModifiesAddressExposedLocals(block->bbNatLoopNum);
+        }
+
+        if (summary.m_containsCall)
+        {
+            AddContainsCallAllContainingLoops(block->bbNatLoopNum);
+        }
     }
 }
 
@@ -7871,48 +7903,6 @@ void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 bool Compiler::VNLoopMemorySummary::IsComplete() const
 {
     return m_memoryHavoc && m_containsCall;
-}
-
-void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
-{
-    unsigned mostNestedLoop = blk->bbNatLoopNum;
-    JITDUMP("optComputeLoopSideEffectsOfBlock " FMT_BB ", mostNestedLoop %d\n", blk->bbNum, mostNestedLoop);
-
-    VNLoopMemorySummary summary(this, mostNestedLoop);
-
-    // Now iterate over the remaining statements, and their trees.
-    for (Statement* const stmt : blk->NonPhiStatements())
-    {
-        for (GenTree* const tree : stmt->TreeList())
-        {
-            if (summary.IsComplete())
-            {
-                break;
-            }
-
-            vnSummarizeLoopNodeMemoryStores(tree, summary);
-        }
-
-        if (summary.IsComplete())
-        {
-            break;
-        }
-    }
-
-    if (summary.m_memoryHavoc)
-    {
-        // Record that all loops containing this block have this kind of memoryHavoc effects.
-        optRecordLoopNestsMemoryHavoc(mostNestedLoop);
-    }
-    else if (summary.m_modifiesAddressExposedLocals)
-    {
-        optRecordLoopNestsModifiesAddressExposedLocals(mostNestedLoop);
-    }
-
-    if (summary.m_containsCall)
-    {
-        AddContainsCallAllContainingLoops(mostNestedLoop);
-    }
 }
 
 // Marks the containsCall information to "lnum" and any parent loops.

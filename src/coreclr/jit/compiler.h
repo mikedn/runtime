@@ -5113,9 +5113,6 @@ private:
 
     void optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum);
 
-    // Add the side effects of "blk" (which is required to be within a loop) to all loops of which it is a part.
-    void optComputeLoopSideEffectsOfBlock(BasicBlock* blk);
-
     class VNLoopMemorySummary
     {
         Compiler* m_compiler;
