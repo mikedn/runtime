@@ -7877,7 +7877,7 @@ void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
                 VNLoop::FieldHandleSet(m_compiler->getAllocator(CMK_ValueNumber));
         }
 
-        loop.lpFieldsModified->Set(fieldHandle, true, VNLoop::FieldHandleSet::Overwrite);
+        loop.lpFieldsModified->Add(fieldHandle);
     }
 }
 
@@ -7893,7 +7893,7 @@ void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
                 VNLoop::TypeNumSet(m_compiler->getAllocator(CMK_ValueNumber));
         }
 
-        loop.lpArrayElemTypesModified->Set(elemTypeNum, true, VNLoop::TypeNumSet::Overwrite);
+        loop.lpArrayElemTypesModified->Add(elemTypeNum);
     }
 }
 
@@ -8008,11 +8008,10 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
     Compiler::VNLoop::FieldHandleSet* fieldsMod = vnLoopTable[loopNum].lpFieldsModified;
     if (fieldsMod != nullptr)
     {
-        for (Compiler::VNLoop::FieldHandleSet::KeyIterator ki = fieldsMod->Begin(); !ki.Equal(fieldsMod->End()); ++ki)
+        for (CORINFO_FIELD_HANDLE fieldHandle : *fieldsMod)
         {
-            CORINFO_FIELD_HANDLE fieldHandle = ki.Get();
-            ValueNum             fieldVN     = vnStore->VNForFieldSeqHandle(fieldHandle);
-            var_types            fieldType   = TYP_STRUCT;
+            ValueNum  fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
+            var_types fieldType = TYP_STRUCT;
 
             if (info.compCompHnd->isFieldStatic(fieldHandle))
             {
@@ -8027,9 +8026,9 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
     Compiler::VNLoop::TypeNumSet* elemTypesMod = vnLoopTable[loopNum].lpArrayElemTypesModified;
     if (elemTypesMod != nullptr)
     {
-        for (Compiler::VNLoop::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End()); ++ki)
+        for (unsigned elemTypeNum : *elemTypesMod)
         {
-            ValueNum elemTypeVN = vnStore->VNForTypeNum(ki.Get());
+            ValueNum elemTypeVN = vnStore->VNForTypeNum(elemTypeNum);
             ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
             newMemoryVN         = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, elemTypeVN, uniqueVN);
         }

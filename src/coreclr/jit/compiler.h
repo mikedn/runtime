@@ -3994,13 +3994,13 @@ public:
 
     struct VNLoop
     {
-        typedef JitHashTable<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>, bool> FieldHandleSet;
+        typedef JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>> FieldHandleSet;
         FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
                                           // instance fields modified
                                           // in the loop.
 
         // The set of array element types that are modified in the loop.
-        typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, bool> TypeNumSet;
+        typedef JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>> TypeNumSet;
         TypeNumSet* lpArrayElemTypesModified;
 
         VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
