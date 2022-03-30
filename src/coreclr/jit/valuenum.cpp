@@ -7771,15 +7771,12 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
 
         AddVariableLivenessAllContainingLoops(block);
 
-        VNLoop& innermostLoop = vnLoopTable[block->bbNatLoopNum];
+        VNLoopMemorySummary summary(this, block->bbNatLoopNum);
 
-        if (innermostLoop.lpContainsCall && innermostLoop.lpLoopHasMemoryHavoc)
+        if (summary.IsComplete())
         {
-            // We don't need to traverse the block if the loop already has memory havoc and calls.
             continue;
         }
-
-        VNLoopMemorySummary summary(this, block->bbNatLoopNum);
 
         for (Statement* const stmt : block->NonPhiStatements())
         {
@@ -7902,6 +7899,7 @@ void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 
 bool Compiler::VNLoopMemorySummary::IsComplete() const
 {
+    // Once a loop is known to contain calls and memory havoc we can stop analyzing it.
     return m_memoryHavoc && m_containsCall;
 }
 
