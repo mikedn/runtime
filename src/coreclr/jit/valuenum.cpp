@@ -4184,6 +4184,24 @@ void Compiler::vnComma(GenTreeOp* comma)
     comma->SetVNP(vnStore->VNPWithExc(op2vnp, vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp)));
 }
 
+void Compiler::vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary)
+{
+    GenTree* store = asg->GetOp(0)->SkipComma();
+
+    if (store->OperIs(GT_LCL_VAR))
+    {
+        vnSummarizeLoopLocalMemoryStores(store->AsLclVar(), asg, summary);
+    }
+    else if (store->OperIs(GT_LCL_FLD))
+    {
+        // TODO-MIKE-Fix: Handle LCL_FLD stores
+    }
+    else if (store->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    {
+        vnSummarizeLoopIndirMemoryStores(store->AsIndir(), asg, summary);
+    }
+}
+
 void Compiler::vnAssignment(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
@@ -4609,6 +4627,21 @@ ValueNumPair Compiler::vnExtractStructField(GenTree* load, ValueNumPair structVN
     return structVNP;
 }
 
+void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVar* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
+{
+    LclVarDsc* lcl = lvaGetDesc(store);
+
+    if (lcl->IsAddressExposed())
+    {
+        summary.AddAddressExposedLocal(store->GetLclNum());
+    }
+    else if (lcl->IsInSsa() && lcl->TypeIs(TYP_BYREF))
+    {
+        ValueNum valueVN = asg->GetOp(1)->GetLiberalVN();
+        lcl->GetPerSsaData(store->GetSsaNum())->SetLiberalVN(valueVN);
+    }
+}
+
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
@@ -4855,6 +4888,62 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
     }
 
     load->SetVNP(vnp);
+}
+
+void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
+{
+    if (store->OperIs(GT_IND))
+    {
+        // TODO-MIKE-Review: Huh, why is this checking for GTF_IND_VOLATILE on ASG?!?
+        // TODO-MIKE-Fix: This code doesn't check for wider than field stores.
+
+        if ((asg->gtFlags & GTF_IND_VOLATILE) != 0)
+        {
+            summary.AddMemoryHavoc();
+            return;
+        }
+
+        GenTree* addr = store->GetAddr()->SkipComma();
+
+        if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
+        {
+            summary.AddField(clsVarAddr->GetFieldHandle());
+            return;
+        }
+
+        ValueNum  addrVN = addr->GetLiberalVN();
+        VNFuncApp funcApp;
+
+        if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
+        {
+            int32_t elemTypeNum = vnStore->ConstantValue<int32_t>(funcApp.m_args[0]);
+            summary.AddArrayType(static_cast<unsigned>(elemTypeNum));
+            return;
+        }
+
+        GenTree* obj;
+
+        if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
+        {
+            summary.AddField(fieldSeq->GetFieldHandle());
+            return;
+        }
+
+        // TODO-MIKE-CQ: Handle local addresses
+
+        summary.AddMemoryHavoc();
+    }
+    else if (store->OperIs(GT_OBJ, GT_BLK))
+    {
+        // TODO-MIKE-CQ: Handle OBJ/BLK like IND
+
+        if (GenTreeLclVarCommon* lclNode = store->GetAddr()->IsLocalAddrExpr())
+        {
+            assert(lvaGetDesc(lclNode)->IsAddressExposed());
+        }
+
+        summary.AddMemoryHavoc();
+    }
 }
 
 void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
@@ -7722,198 +7811,81 @@ void Compiler::optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum)
     }
 }
 
+Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, unsigned loopNum)
+    : m_compiler(compiler), m_loopNum(loopNum)
+{
+    m_memoryHavoc                  = compiler->vnLoopTable[loopNum].lpLoopHasMemoryHavoc;
+    m_containsCall                 = compiler->vnLoopTable[loopNum].lpContainsCall;
+    m_modifiesAddressExposedLocals = false;
+}
+
+void Compiler::VNLoopMemorySummary::AddMemoryHavoc()
+{
+    m_memoryHavoc = true;
+}
+
+void Compiler::VNLoopMemorySummary::AddCall()
+{
+    m_containsCall = true;
+}
+
+void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
+{
+    m_modifiesAddressExposedLocals = true;
+}
+
+void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
+{
+    m_compiler->AddModifiedFieldAllContainingLoops(m_loopNum, fieldHandle);
+}
+
+void Compiler::VNLoopMemorySummary::AddArrayType(unsigned typeNum)
+{
+    m_compiler->AddModifiedElemTypeAllContainingLoops(m_loopNum, typeNum);
+}
+
+bool Compiler::VNLoopMemorySummary::IsComplete() const
+{
+    return m_memoryHavoc && m_containsCall;
+}
+
 void Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 {
     unsigned mostNestedLoop = blk->bbNatLoopNum;
     JITDUMP("optComputeLoopSideEffectsOfBlock " FMT_BB ", mostNestedLoop %d\n", blk->bbNum, mostNestedLoop);
 
-    bool memoryHavoc                  = vnLoopTable[mostNestedLoop].lpLoopHasMemoryHavoc;
-    bool containsCall                 = vnLoopTable[mostNestedLoop].lpContainsCall;
-    bool modifiesAddressExposedLocals = false;
+    VNLoopMemorySummary summary(this, mostNestedLoop);
 
     // Now iterate over the remaining statements, and their trees.
     for (Statement* const stmt : blk->NonPhiStatements())
     {
         for (GenTree* const tree : stmt->TreeList())
         {
-            if (containsCall && memoryHavoc)
+            if (summary.IsComplete())
             {
                 break;
             }
 
-            // TODO-MIKE-Fix: This code is swiss cheese.
-            //  - It doesn't handle LCL_FLD and intrinsic stores, not even by simply setting memory havoc.
-            //  - It always sets memory havoc for OBJ/BLK even if they could trated pretty much like IND.
-            //  - It always sets memory havoc for indirections that use local addresses.
-            //  - For object fields it doesn't check for wider than field stores.
-
-            switch (tree->GetOper())
-            {
-                case GT_ASG:
-                {
-                    GenTree* lhs = tree->AsOp()->GetOp(0)->SkipComma();
-
-                    if (lhs->OperIs(GT_IND))
-                    {
-                        if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
-                        {
-                            memoryHavoc = true;
-                            continue;
-                        }
-
-                        GenTree* addr = lhs->AsIndir()->GetAddr()->SkipComma();
-
-                        if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
-                        {
-                            AddModifiedFieldAllContainingLoops(mostNestedLoop, clsVarAddr->GetFieldHandle());
-                            continue;
-                        }
-
-                        ValueNum  addrVN = addr->GetLiberalVN();
-                        VNFuncApp funcApp;
-
-                        if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
-                        {
-                            int32_t elemTypeNum = vnStore->ConstantValue<int32_t>(funcApp.m_args[0]);
-                            AddModifiedElemTypeAllContainingLoops(mostNestedLoop, static_cast<unsigned>(elemTypeNum));
-                            continue;
-                        }
-
-                        GenTree* obj;
-
-                        if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
-                        {
-                            AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
-                            continue;
-                        }
-
-                        memoryHavoc = true;
-                    }
-                    else if (lhs->OperIs(GT_OBJ, GT_BLK))
-                    {
-                        if (GenTreeLclVarCommon* lclNode = lhs->AsIndir()->GetAddr()->IsLocalAddrExpr())
-                        {
-                            assert(lvaGetDesc(lclNode)->IsAddressExposed());
-                        }
-
-                        memoryHavoc = true;
-                    }
-                    else if (lhs->OperIs(GT_LCL_VAR))
-                    {
-                        GenTreeLclVar* lclNode = lhs->AsLclVar();
-                        LclVarDsc*     lcl     = lvaGetDesc(lclNode);
-
-                        if (lcl->IsAddressExposed())
-                        {
-                            modifiesAddressExposedLocals = true;
-                        }
-                        else if (lcl->IsInSsa() && lcl->TypeIs(TYP_BYREF))
-                        {
-                            ValueNum valueVN = tree->AsOp()->GetOp(1)->GetLiberalVN();
-                            lcl->GetPerSsaData(lclNode->GetSsaNum())->SetLiberalVN(valueVN);
-                        }
-                    }
-                }
-                break;
-
-                case GT_LCL_VAR:
-                    if (tree->TypeIs(TYP_BYREF) && ((tree->gtFlags & GTF_VAR_DEF) == 0))
-                    {
-                        LclVarDsc* lcl = lvaGetDesc(tree->AsLclVar());
-
-                        if (lcl->IsInSsa())
-                        {
-                            tree->SetLiberalVN(lcl->GetPerSsaData(tree->AsLclVar()->GetSsaNum())->GetLiberalVN());
-                        }
-                    }
-                    break;
-
-                case GT_COMMA:
-                    tree->SetLiberalVN(tree->AsOp()->GetOp(1)->GetLiberalVN());
-                    break;
-
-                case GT_ADD:
-                {
-                    ArrayInfo arrInfo;
-                    if (vnIsArrayElemAddr(tree, &arrInfo))
-                    {
-                        ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-                        ValueNum ptrToArrElemVN =
-                            vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
-                                               // The rest are dummy arguments.
-                                               vnStore->VNForNull(), vnStore->VNForNull(), vnStore->VNForNull());
-                        tree->SetLiberalVN(ptrToArrElemVN);
-                    }
-                }
-                break;
-
-                case GT_LOCKADD:
-                case GT_XORR:
-                case GT_XAND:
-                case GT_XADD:
-                case GT_XCHG:
-                case GT_CMPXCHG:
-                case GT_MEMORYBARRIER:
-                case GT_COPY_BLK:
-                case GT_INIT_BLK:
-                    memoryHavoc = true;
-                    break;
-
-                case GT_CALL:
-                {
-                    GenTreeCall* call = tree->AsCall();
-
-                    containsCall = true;
-
-                    if (call->gtCallType == CT_HELPER)
-                    {
-                        CorInfoHelpFunc helpFunc = eeGetHelperNum(call->gtCallMethHnd);
-                        if (s_helperCallProperties.MutatesHeap(helpFunc))
-                        {
-                            memoryHavoc = true;
-                        }
-                        else if (s_helperCallProperties.MayRunCctor(helpFunc))
-                        {
-                            // If the call is labeled as "Hoistable", then we've checked the
-                            // class that would be constructed, and it is not precise-init, so
-                            // the cctor will not be run by this call.  Otherwise, it might be,
-                            // and might have arbitrary side effects.
-                            if ((tree->gtFlags & GTF_CALL_HOISTABLE) == 0)
-                            {
-                                memoryHavoc = true;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        memoryHavoc = true;
-                    }
-                    break;
-                }
-
-                default:
-                    // All other gtOper node kinds, leave 'memoryHavoc' unchanged (i.e. false)
-                    break;
-            }
+            vnSummarizeLoopNodeMemoryStores(tree, summary);
         }
 
-        if (containsCall && memoryHavoc)
+        if (summary.IsComplete())
         {
             break;
         }
     }
 
-    if (memoryHavoc)
+    if (summary.m_memoryHavoc)
     {
         // Record that all loops containing this block have this kind of memoryHavoc effects.
         optRecordLoopNestsMemoryHavoc(mostNestedLoop);
     }
-    else if (modifiesAddressExposedLocals)
+    else if (summary.m_modifiesAddressExposedLocals)
     {
         optRecordLoopNestsModifiesAddressExposedLocals(mostNestedLoop);
     }
 
-    if (containsCall)
+    if (summary.m_containsCall)
     {
         AddContainsCallAllContainingLoops(mostNestedLoop);
     }
@@ -8186,6 +8158,72 @@ void Compiler::fgValueNumberTreeConst(GenTree* tree)
 
         default:
             unreached();
+    }
+}
+
+void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary)
+{
+    switch (node->GetOper())
+    {
+        case GT_ASG:
+            vnSummarizeLoopAssignmentMemoryStores(node->AsOp(), summary);
+            break;
+
+        case GT_CALL:
+            vnSummarizeLoopCallMemoryStores(node->AsCall(), summary);
+            break;
+
+        case GT_LOCKADD:
+        case GT_XORR:
+        case GT_XAND:
+        case GT_XADD:
+        case GT_XCHG:
+        case GT_CMPXCHG:
+        case GT_MEMORYBARRIER:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            summary.AddMemoryHavoc();
+            break;
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            // TODO-MIKE-Fix: Handle intrinsic stores.
+            break;
+#endif
+
+        case GT_COMMA:
+            node->SetLiberalVN(node->AsOp()->GetOp(1)->GetLiberalVN());
+            break;
+
+        case GT_LCL_VAR:
+            if (node->TypeIs(TYP_BYREF) && ((node->gtFlags & GTF_VAR_DEF) == 0))
+            {
+                LclVarDsc* lcl = lvaGetDesc(node->AsLclVar());
+
+                if (lcl->IsInSsa())
+                {
+                    node->SetLiberalVN(lcl->GetPerSsaData(node->AsLclVar()->GetSsaNum())->GetLiberalVN());
+                }
+            }
+            break;
+
+        case GT_ADD:
+        {
+            ArrayInfo arrInfo;
+            if (vnIsArrayElemAddr(node, &arrInfo))
+            {
+                ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+                ValueNum ptrToArrElemVN =
+                    vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
+                                       // The rest are dummy arguments.
+                                       vnStore->VNForNull(), vnStore->VNForNull(), vnStore->VNForNull());
+                node->SetLiberalVN(ptrToArrElemVN);
+            }
+        }
+        break;
+
+        default:
+            break;
     }
 }
 
@@ -8910,6 +8948,35 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
     }
 
     call->SetVNP(vnStore->VNPWithExc(vnpCall, vnpExc));
+}
+
+void Compiler::vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary)
+{
+    summary.AddCall();
+
+    if (call->gtCallType == CT_HELPER)
+    {
+        CorInfoHelpFunc helpFunc = eeGetHelperNum(call->gtCallMethHnd);
+        if (s_helperCallProperties.MutatesHeap(helpFunc))
+        {
+            summary.AddMemoryHavoc();
+        }
+        else if (s_helperCallProperties.MayRunCctor(helpFunc))
+        {
+            // If the call is labeled as "Hoistable", then we've checked the
+            // class that would be constructed, and it is not precise-init, so
+            // the cctor will not be run by this call.  Otherwise, it might be,
+            // and might have arbitrary side effects.
+            if ((call->gtFlags & GTF_CALL_HOISTABLE) == 0)
+            {
+                summary.AddMemoryHavoc();
+            }
+        }
+    }
+    else
+    {
+        summary.AddMemoryHavoc();
+    }
 }
 
 void Compiler::fgValueNumberCall(GenTreeCall* call)

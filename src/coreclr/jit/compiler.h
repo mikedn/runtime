@@ -5118,6 +5118,31 @@ private:
     // Add the side effects of "blk" (which is required to be within a loop) to all loops of which it is a part.
     void optComputeLoopSideEffectsOfBlock(BasicBlock* blk);
 
+    class VNLoopMemorySummary
+    {
+        Compiler* m_compiler;
+        unsigned  m_loopNum;
+
+    public:
+        bool m_memoryHavoc;
+        bool m_containsCall;
+        bool m_modifiesAddressExposedLocals;
+
+        VNLoopMemorySummary(Compiler* compiler, unsigned loopNum);
+        void AddMemoryHavoc();
+        void AddCall();
+        void AddAddressExposedLocal(unsigned lclNum);
+        void AddField(CORINFO_FIELD_HANDLE fieldHandle);
+        void AddArrayType(unsigned typeNum);
+        bool IsComplete() const;
+    };
+
+    void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVar* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
+
     // Hoist the expression "expr" out of loop "lnum".
     void optPerformHoistExpr(GenTree* expr, unsigned lnum);
 
