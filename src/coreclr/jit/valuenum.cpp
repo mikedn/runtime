@@ -3871,7 +3871,12 @@ FieldSeqNode* Compiler::vnIsStaticStructFieldAddr(GenTree* addr)
 
             if ((zeroFieldSeq != nullptr) && (zeroFieldSeq->GetNext() == nullptr))
             {
-                fieldSeq = zeroFieldSeq;
+                assert(zeroFieldSeq->IsField());
+
+                if (info.compCompHnd->isFieldStatic(zeroFieldSeq->GetFieldHandle()))
+                {
+                    fieldSeq = zeroFieldSeq;
+                }
             }
         }
     }
