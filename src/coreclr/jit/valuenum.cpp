@@ -4895,16 +4895,15 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
 
 void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
 {
+    if (store->IsVolatile())
+    {
+        summary.AddMemoryHavoc();
+        return;
+    }
+
     if (store->OperIs(GT_IND))
     {
-        // TODO-MIKE-Review: Huh, why is this checking for GTF_IND_VOLATILE on ASG?!?
         // TODO-MIKE-Fix: This code doesn't check for wider than field stores.
-
-        if ((asg->gtFlags & GTF_IND_VOLATILE) != 0)
-        {
-            summary.AddMemoryHavoc();
-            return;
-        }
 
         GenTree* addr = store->GetAddr()->SkipComma();
 
