@@ -4006,13 +4006,13 @@ public:
         VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
         VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
 
-        bool lpLoopHasMemoryHavoc; // The loop contains an operation that we assume has arbitrary
-                                   // memory side effects.  If this is set, the fields below
-                                   // may not be accurate (since they become irrelevant.)
-        bool lpContainsCall;       // True if executing the loop body *may* execute a call
+        bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
+                                       // memory side effects.  If this is set, the fields below
+                                       // may not be accurate (since they become irrelevant.)
+        bool lpContainsCall : 1;       // True if executing the loop body *may* execute a call
 
         // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
-        bool modifiesAddressExposedLocals;
+        bool modifiesAddressExposedLocals : 1;
 
         // TODO-MIKE-Cleanup: These have nothing to do with value numbering,
         // they should be moved to LoopHoistContext.
@@ -4026,8 +4026,6 @@ public:
                                   // hoisted
         int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
         int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
-
-        void AddVariableLiveness(Compiler* comp, BasicBlock* block);
     };
 
     VNLoop* vnLoopTable;
@@ -5108,28 +5106,25 @@ private:
     // static) written to, and SZ-array element type equivalence classes updated.
     void optComputeLoopNestSideEffects(unsigned lnum);
 
-    // Given a loop number 'lnum' mark it and any nested loops as having 'memoryHavoc'
-    void optRecordLoopNestsMemoryHavoc(unsigned lnum);
-
-    void optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum);
-
     class VNLoopMemorySummary
     {
         Compiler* m_compiler;
         unsigned  m_loopNum;
 
     public:
-        bool m_memoryHavoc;
-        bool m_containsCall;
-        bool m_modifiesAddressExposedLocals;
+        bool m_memoryHavoc : 1;
+        bool m_containsCall : 1;
+        bool m_modifiesAddressExposedLocals : 1;
 
         VNLoopMemorySummary(Compiler* compiler, unsigned loopNum);
+        void AddLocalLiveness(BasicBlock* block) const;
         void AddMemoryHavoc();
         void AddCall();
         void AddAddressExposedLocal(unsigned lclNum);
         void AddField(CORINFO_FIELD_HANDLE fieldHandle);
         void AddArrayType(unsigned elemTypeNum);
         bool IsComplete() const;
+        void UpdateLoops() const;
     };
 
     void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
@@ -5391,11 +5386,6 @@ protected:
     void optUpdateLoopHead(unsigned loopInd, BasicBlock* from, BasicBlock* to);
 
     void optRedirectBlock(BasicBlock* blk, BlockToBlockMap* redirectMap, const bool updatePreds = false);
-
-    // Marks the containsCall information to "lnum" and any parent loops.
-    void AddContainsCallAllContainingLoops(unsigned lnum);
-
-    void AddVariableLivenessAllContainingLoops(BasicBlock* block);
 
     // Requires that "from" and "to" have the same "bbJumpKind" (perhaps because "to" is a clone
     // of "from".)  Copies the jump destination from "from" to "to".

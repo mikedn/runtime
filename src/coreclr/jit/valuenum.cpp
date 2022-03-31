@@ -7763,15 +7763,17 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
             // but not marked correctly as being inside the loop.
             // We conservatively mark this loop (and any outer loops) as having memory havoc
             // side effects.
-            optRecordLoopNestsMemoryHavoc(lnum);
+            VNLoopMemorySummary summary(this, lnum);
+            summary.AddMemoryHavoc();
+            summary.UpdateLoops();
 
             // All done, no need to keep visiting more blocks
             break;
         }
 
-        AddVariableLivenessAllContainingLoops(block);
-
         VNLoopMemorySummary summary(this, block->bbNatLoopNum);
+
+        summary.AddLocalLiveness(block);
 
         if (summary.IsComplete())
         {
@@ -7782,12 +7784,12 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
         {
             for (GenTree* const tree : stmt->TreeList())
             {
+                vnSummarizeLoopNodeMemoryStores(tree, summary);
+
                 if (summary.IsComplete())
                 {
                     break;
                 }
-
-                vnSummarizeLoopNodeMemoryStores(tree, summary);
             }
 
             if (summary.IsComplete())
@@ -7796,47 +7798,7 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
             }
         }
 
-        if (summary.m_memoryHavoc)
-        {
-            optRecordLoopNestsMemoryHavoc(block->bbNatLoopNum);
-        }
-        else if (summary.m_modifiesAddressExposedLocals)
-        {
-            optRecordLoopNestsModifiesAddressExposedLocals(block->bbNatLoopNum);
-        }
-
-        if (summary.m_containsCall)
-        {
-            AddContainsCallAllContainingLoops(block->bbNatLoopNum);
-        }
-    }
-}
-
-void Compiler::optRecordLoopNestsMemoryHavoc(unsigned lnum)
-{
-    // We should start out with 'lnum' set to a valid natural loop index
-    assert(lnum != BasicBlock::NOT_IN_LOOP);
-
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        vnLoopTable[lnum].lpLoopHasMemoryHavoc = true;
-
-        // Move lnum to the next outtermost loop that we need to mark
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-void Compiler::optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum)
-{
-    // We should start out with 'lnum' set to a valid natural loop index
-    assert(lnum != BasicBlock::NOT_IN_LOOP);
-
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        vnLoopTable[lnum].modifiesAddressExposedLocals = true;
-
-        // Move lnum to the next outtermost loop that we need to mark
-        lnum = optLoopTable[lnum].lpParent;
+        summary.UpdateLoops();
     }
 }
 
@@ -7848,6 +7810,20 @@ Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, unsigned 
     , m_modifiesAddressExposedLocals(false)
 {
     assert(loopNum < compiler->optLoopCount);
+}
+
+void Compiler::VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
+{
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+    {
+        VNLoop& loop = m_compiler->vnLoopTable[n];
+
+        VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveIn);
+        VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveOut);
+
+        VarSetOps::UnionD(m_compiler, loop.lpVarUseDef, block->bbVarUse);
+        VarSetOps::UnionD(m_compiler, loop.lpVarUseDef, block->bbVarDef);
+    }
 }
 
 void Compiler::VNLoopMemorySummary::AddMemoryHavoc()
@@ -7862,7 +7838,17 @@ void Compiler::VNLoopMemorySummary::AddCall()
 
 void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 {
+    if (m_modifiesAddressExposedLocals || m_memoryHavoc)
+    {
+        return;
+    }
+
     m_modifiesAddressExposedLocals = true;
+
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+    {
+        m_compiler->vnLoopTable[n].modifiesAddressExposedLocals = true;
+    }
 }
 
 void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
@@ -7903,46 +7889,29 @@ bool Compiler::VNLoopMemorySummary::IsComplete() const
     return m_memoryHavoc && m_containsCall;
 }
 
-// Marks the containsCall information to "lnum" and any parent loops.
-void Compiler::AddContainsCallAllContainingLoops(unsigned lnum)
+void Compiler::VNLoopMemorySummary::UpdateLoops() const
 {
+    if (m_memoryHavoc || m_containsCall)
+    {
+        for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+        {
+            m_compiler->vnLoopTable[n].lpLoopHasMemoryHavoc |= m_memoryHavoc;
+            m_compiler->vnLoopTable[n].lpContainsCall |= m_containsCall;
+        }
+    }
 
 #if FEATURE_LOOP_ALIGN
-    // If this is the inner most loop, reset the LOOP_ALIGN flag
-    // because a loop having call will not likely to benefit from
-    // alignment
-    if (optLoopTable[lnum].lpChild == BasicBlock::NOT_IN_LOOP)
+    // A loop having call will not likely benefit from alignment.
+    // TODO-MIKE-Cleanup: This has nothing to do with VN but it looks like
+    // there are no other places that traverse the entire loop IR.
+    if (m_containsCall && (m_compiler->optLoopTable[m_loopNum].lpChild == BasicBlock::NOT_IN_LOOP))
     {
-        BasicBlock* first = optLoopTable[lnum].lpFirst;
+        BasicBlock* first = m_compiler->optLoopTable[m_loopNum].lpFirst;
         first->bbFlags &= ~BBF_LOOP_ALIGN;
-        JITDUMP("Removing LOOP_ALIGN flag for " FMT_LP " that starts at " FMT_BB " because loop has a call.\n", lnum,
-                first->bbNum);
+        JITDUMP("Removing LOOP_ALIGN flag for " FMT_LP " that starts at " FMT_BB " because loop has a call.\n",
+                m_loopNum, first->bbNum);
     }
 #endif
-
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        vnLoopTable[lnum].lpContainsCall = true;
-        lnum                             = optLoopTable[lnum].lpParent;
-    }
-}
-
-void Compiler::VNLoop::AddVariableLiveness(Compiler* comp, BasicBlock* block)
-{
-    VarSetOps::UnionD(comp, lpVarInOut, block->bbLiveIn);
-    VarSetOps::UnionD(comp, lpVarInOut, block->bbLiveOut);
-
-    VarSetOps::UnionD(comp, lpVarUseDef, block->bbVarUse);
-    VarSetOps::UnionD(comp, lpVarUseDef, block->bbVarDef);
-}
-
-void Compiler::AddVariableLivenessAllContainingLoops(BasicBlock* block)
-{
-    for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
-    {
-        vnLoopTable[n].AddVariableLiveness(this, block);
-    }
 }
 
 ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned innermostLoopNum)
