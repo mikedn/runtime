@@ -4188,15 +4188,11 @@ void Compiler::vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemor
 {
     GenTree* store = asg->GetOp(0)->SkipComma();
 
-    if (store->OperIs(GT_LCL_VAR))
+    if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        vnSummarizeLoopLocalMemoryStores(store->AsLclVar(), asg, summary);
+        vnSummarizeLoopLocalMemoryStores(store->AsLclVarCommon(), asg, summary);
     }
-    else if (store->OperIs(GT_LCL_FLD))
-    {
-        // TODO-MIKE-Fix: Handle LCL_FLD stores
-    }
-    else if (store->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    else
     {
         vnSummarizeLoopIndirMemoryStores(store->AsIndir(), asg, summary);
     }
@@ -4627,19 +4623,26 @@ ValueNumPair Compiler::vnExtractStructField(GenTree* load, ValueNumPair structVN
     return structVNP;
 }
 
-void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVar* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
+void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
+                                                GenTreeOp*           asg,
+                                                VNLoopMemorySummary& summary)
 {
     LclVarDsc* lcl = lvaGetDesc(store);
 
     if (lcl->IsAddressExposed())
     {
         summary.AddAddressExposedLocal(store->GetLclNum());
+
+        return;
     }
-    else if (lcl->IsInSsa() && lcl->TypeIs(TYP_BYREF))
+
+    if (!lcl->IsInSsa() || !lcl->TypeIs(TYP_BYREF) || !store->OperIs(GT_LCL_VAR))
     {
-        ValueNum valueVN = asg->GetOp(1)->GetLiberalVN();
-        lcl->GetPerSsaData(store->GetSsaNum())->SetLiberalVN(valueVN);
+        return;
     }
+
+    ValueNum valueVN = asg->GetOp(1)->GetLiberalVN();
+    lcl->GetPerSsaData(store->GetSsaNum())->SetLiberalVN(valueVN);
 }
 
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)

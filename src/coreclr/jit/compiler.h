@@ -5130,7 +5130,7 @@ private:
     void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
     void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
-    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVar* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
 
     // Hoist the expression "expr" out of loop "lnum".
