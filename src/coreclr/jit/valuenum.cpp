@@ -4905,69 +4905,66 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
 
 void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
 {
+    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
+    assert(asg->OperIs(GT_ASG));
+
+    if (store->OperIs(GT_OBJ, GT_BLK))
+    {
+        // TODO-MIKE-CQ: Handle OBJ/BLK like IND
+        summary.AddMemoryHavoc();
+        return;
+    }
+
     if (store->IsVolatile())
     {
         summary.AddMemoryHavoc();
         return;
     }
 
-    if (store->OperIs(GT_IND))
+    GenTree*  addr   = store->GetAddr();
+    ValueNum  addrVN = addr->GetLiberalVN();
+    VNFuncApp funcApp;
+    VNFunc    func = vnStore->GetVNFunc(addrVN, &funcApp);
+
+    if (func == VNF_PtrToStatic)
+    {
+        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp[0]);
+        summary.AddField(fieldSeq->GetFieldHandle());
+
+        return;
+    }
+
+    if (func == VNF_PtrToArrElem)
+    {
+        unsigned elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        summary.AddArrayType(elemTypeNum);
+
+        return;
+    }
+
+    if (func == VNF_LclAddr)
+    {
+        unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        summary.AddAddressExposedLocal(lclNum);
+
+        return;
+    }
+
+    GenTree* obj;
+    if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
     {
         // TODO-MIKE-Fix: This code doesn't check for wider than field stores.
+        summary.AddField(fieldSeq->GetFieldHandle());
 
-        GenTree*  addr   = store->GetAddr();
-        ValueNum  addrVN = addr->GetLiberalVN();
-        VNFuncApp funcApp;
-        vnStore->GetVNFunc(addrVN, &funcApp);
-
-        if (funcApp.m_func == VNF_PtrToStatic)
-        {
-            FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp[0]);
-            summary.AddField(fieldSeq->GetFieldHandle());
-
-            return;
-        }
-
-        if (funcApp.m_func == VNF_PtrToArrElem)
-        {
-            int32_t elemTypeNum = vnStore->ConstantValue<int32_t>(funcApp.m_args[0]);
-            summary.AddArrayType(static_cast<unsigned>(elemTypeNum));
-            return;
-        }
-
-        if (funcApp.m_func == VNF_LclAddr)
-        {
-            unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
-            summary.AddAddressExposedLocal(lclNum);
-
-            return;
-        }
-
-        GenTree* obj;
-
-        if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
-        {
-            summary.AddField(fieldSeq->GetFieldHandle());
-            return;
-        }
-
-        summary.AddMemoryHavoc();
+        return;
     }
-    else if (store->OperIs(GT_OBJ, GT_BLK))
-    {
-        // TODO-MIKE-CQ: Handle OBJ/BLK like IND
 
-        if (GenTreeLclVarCommon* lclNode = store->GetAddr()->IsLocalAddrExpr())
-        {
-            assert(lvaGetDesc(lclNode)->IsAddressExposed());
-        }
-
-        summary.AddMemoryHavoc();
-    }
+    summary.AddMemoryHavoc();
 }
 
 void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 {
+    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
     assert(asg->OperIs(GT_ASG));
 
     if (store->IsVolatile())
@@ -4977,22 +4974,20 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         vnClearMemory(store DEBUGARG("volatile store"));
     }
 
-    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
-
     GenTree*  addr   = store->GetAddr();
     ValueNum  addrVN = vnStore->VNNormalValue(addr->GetLiberalVN());
     VNFuncApp funcApp;
-    vnStore->GetVNFunc(addrVN, &funcApp);
+    VNFunc    func = vnStore->GetVNFunc(addrVN, &funcApp);
 
-    if (funcApp.m_func == VNF_PtrToStatic)
+    if (func == VNF_PtrToStatic)
     {
-        ValueNum memVN = vnStaticFieldStore(store, vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]), value);
+        ValueNum memVN = vnStaticFieldStore(store, vnStore->FieldSeqVNToFieldSeq(funcApp[0]), value);
         vnUpdateMemory(asg, memVN DEBUGARG("static field store"));
 
         return;
     }
 
-    if (funcApp.m_func == VNF_PtrToArrElem)
+    if (func == VNF_PtrToArrElem)
     {
         ValueNum memVN = vnArrayElemStore(store, funcApp, value);
         vnUpdateMemory(asg, memVN DEBUGARG("array element store"));
@@ -5000,9 +4995,9 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         return;
     }
 
-    if (funcApp.m_func == VNF_LclAddr)
+    if (func == VNF_LclAddr)
     {
-        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]))->IsAddressExposed());
+        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
         ValueNum memVN = vnAddressExposedLocalStore(store, addrVN, value);
         vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 
@@ -7856,6 +7851,8 @@ void Compiler::VNLoopMemorySummary::AddCall()
 
 void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 {
+    assert(m_compiler->lvaGetDesc(lclNum)->IsAddressExposed());
+
     if (m_modifiesAddressExposedLocals || m_memoryHavoc)
     {
         return;
