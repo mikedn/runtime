@@ -8201,7 +8201,7 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
                 VNFuncApp funcApp;
                 VNFunc    func = vnStore->GetVNFunc(node->AsOp()->GetOp(0)->GetLiberalVN(), &funcApp);
 
-                if ((func == VNF_LclAddr) || (func == VNF_PtrToStatic))
+                if ((func == VNF_LclAddr) || (func == VNF_PtrToStatic) || (func == VNF_PtrToArrElem))
                 {
                     // For loop memory store summarization we don't care about the offset.
                     node->SetLiberalVN(node->AsOp()->GetOp(0)->GetLiberalVN());
