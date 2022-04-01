@@ -457,12 +457,14 @@ public:
     // otherwise we use VNExcSetUnion to combine the exception sets of both "vn" and "excSet"
     // and return that ValueNum
     ValueNum VNWithExc(ValueNum vn, ValueNum excSet);
+    ValueNum PackExset(ValueNum vn, ValueNum exset);
 
     ValueNumPair VNPWithExc(ValueNumPair vnp, ValueNumPair excSetVNP);
 
     // This sets "*pvn" to the Normal value and sets "*pvnx" to Exception set value.
     // "pvnx" represents the set of all exceptions that can happen for the expression
     void VNUnpackExc(ValueNum vnWx, ValueNum* pvn, ValueNum* pvnx);
+    ValueNum UnpackExset(ValueNum vn, ValueNum* exset);
 
     void VNPUnpackExc(ValueNumPair vnWx, ValueNumPair* pvn, ValueNumPair* pvnx);
 

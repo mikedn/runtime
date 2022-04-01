@@ -1270,6 +1270,20 @@ void ValueNumStore::VNUnpackExc(ValueNum vnWx, ValueNum* pvn, ValueNum* pvnx)
     }
 }
 
+ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset)
+{
+    VNFuncApp funcApp;
+
+    if (GetVNFunc(vn, &funcApp) == VNF_ValWithExc)
+    {
+        *exset = funcApp[1];
+        return funcApp[0];
+    }
+
+    *exset = VNForEmptyExcSet();
+    return vn;
+}
+
 //-------------------------------------------------------------------------------------
 // VNPUnpackExc: - Given a ValueNumPair 'vnpWx, return via write back parameters
 //                 both the normal and the exception set components.
@@ -1465,6 +1479,11 @@ ValueNum ValueNumStore::VNWithExc(ValueNum vn, ValueNum excSet)
         VNUnpackExc(vn, &vnNorm, &vnX);
         return VNForFunc(TypeOfVN(vnNorm), VNF_ValWithExc, vnNorm, VNExcSetUnion(vnX, excSet));
     }
+}
+
+ValueNum ValueNumStore::PackExset(ValueNum vn, ValueNum exset)
+{
+    return VNWithExc(vn, exset);
 }
 
 //--------------------------------------------------------------------------------
@@ -3728,15 +3747,12 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
         FieldSeqNode* fldSeq = intCon->GetFieldSeq();
         if ((fldSeq != nullptr) && !fldSeq->IsArrayElement())
         {
-            ValueNum addrVN = add->GetOp(0)->GetLiberalVN();
             ValueNum exset;
-            vnStore->VNUnpackExc(addrVN, &addrVN, &exset);
+            ValueNum addrVN = vnStore->UnpackExset(add->GetOp(0)->GetLiberalVN(), &exset);
+
             addrVN = vnStore->ExtendPtrVN(addrVN, fldSeq, static_cast<target_size_t>(intCon->GetValue()));
 
-            if (addrVN != NoVN)
-            {
-                return vnStore->VNWithExc(addrVN, exset);
-            }
+            return addrVN == NoVN ? addrVN : vnStore->PackExset(addrVN, exset);
         }
     }
 
