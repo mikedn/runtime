@@ -39,6 +39,7 @@
 // (Though some of these may be labeled "illegal").
 enum VNFunc
 {
+    VNF_None = GT_NONE,
     // Implicitly, elements of genTreeOps here.
     VNF_Boundary = GT_COUNT,
 #define ValueNumFuncDef(nm, arity, commute, knownNonNull, sharedStatic) VNF_##nm,
@@ -99,6 +100,12 @@ struct VNFuncApp
     VNFunc   m_func;
     unsigned m_arity;
     ValueNum m_args[4];
+
+    ValueNum operator[](unsigned i) const
+    {
+        assert(i < m_arity);
+        return m_args[i];
+    }
 };
 
 // We use a unique prefix character when printing value numbers in dumps:  i.e.  $1c0
@@ -857,7 +864,7 @@ public:
 
     // If "vn" represents a function application, returns "true" and set "*funcApp" to
     // the function application it represents; otherwise, return "false."
-    bool GetVNFunc(ValueNum vn, VNFuncApp* funcApp);
+    VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp);
 
     // Returns "true" iff "vn" is a valid value number -- one that has been previously returned.
     bool VNIsValid(ValueNum vn);

@@ -4125,28 +4125,29 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fieldSeq, tar
     assert((fieldSeq != nullptr) && !fieldSeq->IsArrayElement());
 
     VNFuncApp funcApp;
-    GetVNFunc(addrVN, &funcApp);
+    VNFunc    func = GetVNFunc(addrVN, &funcApp);
 
-    if (funcApp.m_func == VNF_LclAddr)
+    if (func == VNF_LclAddr)
     {
-        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
-        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], fieldSeq);
+        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp[1]) + offset);
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp[2], fieldSeq);
 
-        return VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
+        return VNForFunc(TYP_I_IMPL, func, funcApp[0], newOffsetVN, newFieldSeqVN);
     }
 
-    if (funcApp.m_func == VNF_PtrToArrElem)
+    if (func == VNF_PtrToArrElem)
     {
-        return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, funcApp.m_args[0], funcApp.m_args[1], funcApp.m_args[2],
-                         FieldSeqVNAppend(funcApp.m_args[3], fieldSeq));
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp[3], fieldSeq);
+
+        return VNForFunc(TYP_BYREF, func, funcApp[0], funcApp[1], funcApp[2], newFieldSeqVN);
     }
 
     // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
     // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
     // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
-    if ((funcApp.m_func == VNF_PtrToStatic) && (fieldSeq != FieldSeqStore::NotAField()))
+    if ((func == VNF_PtrToStatic) && (fieldSeq != FieldSeqStore::NotAField()))
     {
-        return VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], fieldSeq));
+        return VNForFunc(TYP_BYREF, func, FieldSeqVNAppend(funcApp[0], fieldSeq));
     }
 
     return NoVN;
@@ -6466,12 +6467,12 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
     }
 }
 
-bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
+VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
 {
     if (vn == NoVN)
     {
-        funcApp->m_func = static_cast<VNFunc>(GT_NONE);
-        return false;
+        funcApp->m_func = VNF_None;
+        return VNF_None;
     }
 
     Chunk*   c      = m_chunks.Get(GetChunkNum(vn));
@@ -6488,7 +6489,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_args[1]   = farg4->m_arg1;
             funcApp->m_args[2]   = farg4->m_arg2;
             funcApp->m_args[3]   = farg4->m_arg3;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func3:
         {
@@ -6498,7 +6499,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_args[0]   = farg3->m_arg0;
             funcApp->m_args[1]   = farg3->m_arg1;
             funcApp->m_args[2]   = farg3->m_arg2;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func2:
         {
@@ -6507,7 +6508,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_arity     = 2;
             funcApp->m_args[0]   = farg2->m_arg0;
             funcApp->m_args[1]   = farg2->m_arg1;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func1:
         {
@@ -6515,24 +6516,22 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_func      = farg1->m_func;
             funcApp->m_arity     = 1;
             funcApp->m_args[0]   = farg1->m_arg0;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func0:
         {
             VNDefFunc0Arg* farg0 = &static_cast<VNDefFunc0Arg*>(c->m_defs)[offset];
             funcApp->m_func      = farg0->m_func;
             funcApp->m_arity     = 0;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_NotAField:
-        {
             funcApp->m_func  = VNF_NotAField;
             funcApp->m_arity = 0;
-            return true;
-        }
+            return VNF_NotAField;
         default:
-            funcApp->m_func = static_cast<VNFunc>(GT_NONE);
-            return false;
+            funcApp->m_func = VNF_None;
+            return VNF_None;
     }
 }
 
