@@ -8128,7 +8128,15 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            // TODO-MIKE-Fix: Handle intrinsic stores.
+            if (node->AsHWIntrinsic()->OperIsMemoryStore())
+            {
+                // TODO-MIKE-CQ: Ideally we'd figure out the store address (in most cases it's the first operand)
+                // and restrict the store, at least in the trivial case of arrays where we just update the entire
+                // array, without caring about individual elements. Problem is, we're dealing with native pointers
+                // so we'll also have to deal with pinning locals and pointer arithmetic to be able to extract the
+                // array type we need to update.
+                summary.AddMemoryHavoc();
+            }
             break;
 #endif
 
