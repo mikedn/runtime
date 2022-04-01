@@ -3764,6 +3764,8 @@ FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
     FieldSeqNode* fieldSeq     = nullptr;
     bool          mustBeStatic = false;
 
+    addr = addr->SkipComma();
+
     if (addr->OperIs(GT_ADD))
     {
         GenTree* op1 = addr->AsOp()->GetOp(0);
@@ -4913,8 +4915,7 @@ void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* 
     {
         // TODO-MIKE-Fix: This code doesn't check for wider than field stores.
 
-        GenTree* addr = store->GetAddr()->SkipComma();
-
+        GenTree*  addr   = store->GetAddr();
         ValueNum  addrVN = addr->GetLiberalVN();
         VNFuncApp funcApp;
         vnStore->GetVNFunc(addrVN, &funcApp);
