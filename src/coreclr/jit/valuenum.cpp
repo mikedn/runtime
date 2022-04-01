@@ -3595,6 +3595,11 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types typ)
     return resultVN;
 }
 
+ValueNum ValueNumStore::UniqueVN(var_types type)
+{
+    return VNForExpr(nullptr, type);
+}
+
 ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
 {
     ValueNum vn = VNForIntCon(static_cast<int32_t>(typeNum));
@@ -3700,25 +3705,22 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
     {
         ValueNum indexVN = vnStore->ExtractArrayElementIndex(arrInfo);
 
-        if (indexVN != NoVN)
+        FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
+
+        if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(add))
         {
-            FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
-
-            if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(add))
-            {
-                fieldSeq = GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
-            }
-
-            ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-            ValueNum arrayVN      = vnStore->VNNormalValue(arrInfo.m_arrayExpr->GetLiberalVN());
-            ValueNum fldSeqVN     = vnStore->VNForFieldSeq(fieldSeq);
-
-            ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrayVN, indexVN, fldSeqVN);
-            ValueNum exset  = vnStore->VNExceptionSet(add->GetOp(0)->GetLiberalVN());
-            exset           = vnStore->VNExcSetUnion(exset, vnStore->VNExceptionSet(add->GetOp(1)->GetLiberalVN()));
-
-            return vnStore->VNWithExc(addrVN, exset);
+            fieldSeq = GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
         }
+
+        ValueNum elemTypeVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+        ValueNum arrayVN    = vnStore->VNNormalValue(arrInfo.m_arrayExpr->GetLiberalVN());
+        ValueNum fieldSeqVN = vnStore->VNForFieldSeq(fieldSeq);
+        ValueNum addrVN     = vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeVN, arrayVN, indexVN, fieldSeqVN);
+
+        ValueNum exset = vnStore->VNExceptionSet(add->GetOp(0)->GetLiberalVN());
+        exset          = vnStore->VNExcSetUnion(exset, vnStore->VNExceptionSet(add->GetOp(1)->GetLiberalVN()));
+
+        return vnStore->VNWithExc(addrVN, exset);
     }
 
     if (GenTreeIntCon* intCon = add->GetOp(1)->IsIntCon())
@@ -4008,7 +4010,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
         // type but that requires an extra integer division and it's not clear
         // if there's any real benefit in wasting cycles on that.
 
-        return (index > INT32_MAX) ? NoVN : VNForUPtrSizeIntCon(index);
+        return (index > INT32_MAX) ? UniqueVN(TYP_I_IMPL) : VNForUPtrSizeIntCon(index);
     }
 
     // Otherwise the offset is something like "ADD(MUL(i, elemSize), offset)". Morph

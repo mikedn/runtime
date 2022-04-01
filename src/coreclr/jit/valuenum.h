@@ -566,6 +566,7 @@ public:
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
+    ValueNum UniqueVN(var_types type);
 
     ValueNum VNForBitCast(ValueNum valueVN, var_types toType);
 
