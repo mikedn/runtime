@@ -3702,13 +3702,6 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
 
         if (indexVN != NoVN)
         {
-            ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-
-            // We take the "VNNormalValue"s here, because if either has exceptional outcomes,
-            // they will be captured as part of the value of the composite "addr" operation...
-            ValueNum arrVN = vnStore->VNNormalValue(arrInfo.m_arrayExpr->GetLiberalVN());
-            indexVN        = vnStore->VNNormalValue(indexVN);
-
             FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
 
             if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(add))
@@ -3716,9 +3709,11 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
                 fieldSeq = GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
             }
 
-            ValueNum fldSeqVN = vnStore->VNForFieldSeq(fieldSeq);
+            ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+            ValueNum arrayVN      = vnStore->VNNormalValue(arrInfo.m_arrayExpr->GetLiberalVN());
+            ValueNum fldSeqVN     = vnStore->VNForFieldSeq(fieldSeq);
 
-            ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, indexVN, fldSeqVN);
+            ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrayVN, indexVN, fldSeqVN);
             ValueNum exset  = vnStore->VNExceptionSet(add->GetOp(0)->GetLiberalVN());
             exset           = vnStore->VNExcSetUnion(exset, vnStore->VNExceptionSet(add->GetOp(1)->GetLiberalVN()));
 
@@ -3951,7 +3946,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
 
     if (arrayInfo.m_elemOffsetExpr != nullptr)
     {
-        offsetVN = VNNormalValue(arrayInfo.m_elemOffsetExpr->gtVNPair.GetLiberal());
+        offsetVN = VNNormalValue(arrayInfo.m_elemOffsetExpr->GetLiberalVN());
         assert(varActualType(TypeOfVN(offsetVN)) == TYP_I_IMPL);
 
         if (IsVNConstant(offsetVN))
