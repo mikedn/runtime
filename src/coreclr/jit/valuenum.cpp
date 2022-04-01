@@ -4915,11 +4915,20 @@ void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* 
 
         ValueNum  addrVN = addr->GetLiberalVN();
         VNFuncApp funcApp;
+        vnStore->GetVNFunc(addrVN, &funcApp);
 
-        if (vnStore->GetVNFunc(addrVN, &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
+        if (funcApp.m_func == VNF_PtrToArrElem)
         {
             int32_t elemTypeNum = vnStore->ConstantValue<int32_t>(funcApp.m_args[0]);
             summary.AddArrayType(static_cast<unsigned>(elemTypeNum));
+            return;
+        }
+
+        if (funcApp.m_func == VNF_LclAddr)
+        {
+            unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
+            summary.AddAddressExposedLocal(lclNum);
+
             return;
         }
 
@@ -4930,8 +4939,6 @@ void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* 
             summary.AddField(fieldSeq->GetFieldHandle());
             return;
         }
-
-        // TODO-MIKE-CQ: Handle local addresses
 
         summary.AddMemoryHavoc();
     }
@@ -8156,6 +8163,16 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             }
             break;
 
+        case GT_LCL_VAR_ADDR:
+        case GT_LCL_FLD_ADDR:
+            assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
+            // so that byref exposed loads don't unnecessarily produce different value numbers.
+            node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
+                                                  vnStore->VNForIntCon(node->AsLclVarCommon()->GetLclNum()),
+                                                  vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
+            break;
+
         case GT_ADD:
         {
             ArrayInfo arrInfo;
@@ -8167,6 +8184,17 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
                                        // The rest are dummy arguments.
                                        vnStore->VNForNull(), vnStore->VNForNull(), vnStore->VNForNull());
                 node->SetLiberalVN(ptrToArrElemVN);
+            }
+            else if (node->AsOp()->GetOp(1)->IsIntCon())
+            {
+                VNFuncApp funcApp;
+                vnStore->GetVNFunc(node->AsOp()->GetOp(0)->GetLiberalVN(), &funcApp);
+
+                if (funcApp.m_func == VNF_LclAddr)
+                {
+                    // For loop memory store summarization we don't care about the offset.
+                    node->SetLiberalVN(node->AsOp()->GetOp(0)->GetLiberalVN());
+                }
             }
         }
         break;
