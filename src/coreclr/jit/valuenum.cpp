@@ -4915,15 +4915,17 @@ void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* 
 
         GenTree* addr = store->GetAddr()->SkipComma();
 
-        if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
-        {
-            summary.AddField(clsVarAddr->GetFieldHandle());
-            return;
-        }
-
         ValueNum  addrVN = addr->GetLiberalVN();
         VNFuncApp funcApp;
         vnStore->GetVNFunc(addrVN, &funcApp);
+
+        if (funcApp.m_func == VNF_PtrToStatic)
+        {
+            FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp[0]);
+            summary.AddField(fieldSeq->GetFieldHandle());
+
+            return;
+        }
 
         if (funcApp.m_func == VNF_PtrToArrElem)
         {
@@ -8179,6 +8181,11 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
                                                   vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
             break;
 
+        case GT_CLS_VAR_ADDR:
+            node->SetLiberalVN(vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
+                                                  vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq())));
+            break;
+
         case GT_ADD:
         {
             ArrayInfo arrInfo;
@@ -8194,9 +8201,9 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             else if (node->AsOp()->GetOp(1)->IsIntCon())
             {
                 VNFuncApp funcApp;
-                vnStore->GetVNFunc(node->AsOp()->GetOp(0)->GetLiberalVN(), &funcApp);
+                VNFunc    func = vnStore->GetVNFunc(node->AsOp()->GetOp(0)->GetLiberalVN(), &funcApp);
 
-                if (funcApp.m_func == VNF_LclAddr)
+                if ((func == VNF_LclAddr) || (func == VNF_PtrToStatic))
                 {
                     // For loop memory store summarization we don't care about the offset.
                     node->SetLiberalVN(node->AsOp()->GetOp(0)->GetLiberalVN());
