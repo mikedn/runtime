@@ -4119,43 +4119,37 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
     return indexVN;
 }
 
-ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fldSeq, target_size_t offset)
+ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fieldSeq, target_size_t offset)
 {
     assert(addrVN == VNNormalValue(addrVN));
-    assert(fldSeq != nullptr);
+    assert((fieldSeq != nullptr) && !fieldSeq->IsArrayElement());
 
     VNFuncApp funcApp;
-    if (!GetVNFunc(addrVN, &funcApp))
-    {
-        return NoVN;
-    }
-
-    ValueNum res = NoVN;
+    GetVNFunc(addrVN, &funcApp);
 
     if (funcApp.m_func == VNF_LclAddr)
     {
         ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
-        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], fldSeq);
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], fieldSeq);
 
-        res = VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
-    }
-    else if (funcApp.m_func == VNF_PtrToStatic)
-    {
-        // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
-        // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
-        // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
-        if (fldSeq != FieldSeqStore::NotAField())
-        {
-            res = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], fldSeq));
-        }
-    }
-    else if (funcApp.m_func == VNF_PtrToArrElem)
-    {
-        res = VNForFunc(TYP_BYREF, VNF_PtrToArrElem, funcApp.m_args[0], funcApp.m_args[1], funcApp.m_args[2],
-                        FieldSeqVNAppend(funcApp.m_args[3], fldSeq));
+        return VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
     }
 
-    return res;
+    if (funcApp.m_func == VNF_PtrToArrElem)
+    {
+        return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, funcApp.m_args[0], funcApp.m_args[1], funcApp.m_args[2],
+                         FieldSeqVNAppend(funcApp.m_args[3], fieldSeq));
+    }
+
+    // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
+    // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
+    // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
+    if ((funcApp.m_func == VNF_PtrToStatic) && (fieldSeq != FieldSeqStore::NotAField()))
+    {
+        return VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], fieldSeq));
+    }
+
+    return NoVN;
 }
 
 void Compiler::vnComma(GenTreeOp* comma)
