@@ -77,6 +77,7 @@ class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 struct IndentStack;
 #endif
+struct LoopHoistContext;
 
 class Lowering; // defined in lower.h
 
