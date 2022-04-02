@@ -4908,13 +4908,6 @@ void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* 
     assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
     assert(asg->OperIs(GT_ASG));
 
-    if (store->OperIs(GT_OBJ, GT_BLK))
-    {
-        // TODO-MIKE-CQ: Handle OBJ/BLK like IND
-        summary.AddMemoryHavoc();
-        return;
-    }
-
     if (store->IsVolatile())
     {
         summary.AddMemoryHavoc();
