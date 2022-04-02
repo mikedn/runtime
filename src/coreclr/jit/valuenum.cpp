@@ -7253,7 +7253,7 @@ struct ValueNumberState
 
             // See if "cand" is a loop entry.
             unsigned lnum;
-            if (m_comp->optBlockIsLoopEntry(cand, &lnum))
+            if (m_comp->vnBlockIsLoopEntry(cand, &lnum))
             {
                 // "lnum" is the innermost loop of which "cand" is the entry; find the outermost.
                 unsigned lnumPar = m_comp->optLoopTable[lnum].lpParent;
@@ -7623,6 +7623,25 @@ void Compiler::vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemoryS
     }
 }
 
+bool Compiler::vnBlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
+{
+    for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
+    {
+        if (optLoopTable[n].lpFlags & LPFLG_REMOVED)
+        {
+            continue;
+        }
+
+        if (optLoopTable[n].lpEntry == block)
+        {
+            *loopNum = n;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void Compiler::fgValueNumberBlock(BasicBlock* blk)
 {
     compCurBB = blk;
@@ -7713,7 +7732,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     {
         unsigned loopNum;
         ValueNum newMemoryVN;
-        if (optBlockIsLoopEntry(blk, &loopNum))
+        if (vnBlockIsLoopEntry(blk, &loopNum))
         {
             newMemoryVN = vnBuildLoopEntryMemory(blk, loopNum);
         }

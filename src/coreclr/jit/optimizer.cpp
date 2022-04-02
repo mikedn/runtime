@@ -7075,23 +7075,6 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     }
 }
 
-bool Compiler::optBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum)
-{
-    for (unsigned lnum = blk->bbNatLoopNum; lnum != BasicBlock::NOT_IN_LOOP; lnum = optLoopTable[lnum].lpParent)
-    {
-        if (optLoopTable[lnum].lpFlags & LPFLG_REMOVED)
-        {
-            continue;
-        }
-        if (optLoopTable[lnum].lpEntry == blk)
-        {
-            *pLnum = lnum;
-            return true;
-        }
-    }
-    return false;
-}
-
 //------------------------------------------------------------------------------
 // optRemoveRangeCheck : Given an indexing node, mark it as not needing a range check.
 //

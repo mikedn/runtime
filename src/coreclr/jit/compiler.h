@@ -5095,10 +5095,6 @@ protected:
     //   VNPhi's connect VN's to the SSA definition, so we can know if the SSA def occurs in the loop.
     bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* recordedVNs);
 
-    // If "blk" is the entry block of a natural loop, returns true and sets "*pLnum" to the index of the loop
-    // in the loop table.
-    bool optBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
-
 private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
@@ -5132,6 +5128,8 @@ private:
     void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
+
+    bool vnBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
 
     // Hoist the expression "expr" out of loop "lnum".
     void optPerformHoistExpr(GenTree* expr, unsigned lnum);
