@@ -7551,19 +7551,11 @@ void Compiler::fgValueNumber()
 
 void Compiler::vnSummarizeLoopMemoryStores()
 {
-    vnLoopTable = new (this, CMK_ValueNumber) VNLoop[optLoopCount];
+    vnLoopTable = getAllocator(CMK_ValueNumber).allocate<VNLoop>(optLoopCount);
 
     for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
     {
-        VNLoop& vnLoop = vnLoopTable[loopNum];
-
-        VarSetOps::AssignNoCopy(this, vnLoop.lpVarInOut, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, vnLoop.lpVarUseDef, VarSetOps::MakeEmpty(this));
-        vnLoop.lpContainsCall               = false;
-        vnLoop.lpLoopHasMemoryHavoc         = false;
-        vnLoop.modifiesAddressExposedLocals = false;
-        vnLoop.lpFieldsModified             = nullptr;
-        vnLoop.lpArrayElemTypesModified     = nullptr;
+        new (&vnLoopTable[loopNum]) VNLoop(this);
     }
 
     for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
@@ -7807,6 +7799,17 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     }
 
     compCurBB = nullptr;
+}
+
+Compiler::VNLoop::VNLoop(Compiler* compiler)
+    : lpFieldsModified(nullptr)
+    , lpArrayElemTypesModified(nullptr)
+    , lpVarInOut(VarSetOps::MakeEmpty(compiler))
+    , lpVarUseDef(VarSetOps::MakeEmpty(compiler))
+    , lpLoopHasMemoryHavoc(false)
+    , lpContainsCall(false)
+    , modifiesAddressExposedLocals(false)
+{
 }
 
 Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, unsigned loopNum)

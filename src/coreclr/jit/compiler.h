@@ -4027,6 +4027,8 @@ public:
                                   // hoisted
         int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
         int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
+
+        VNLoop(Compiler* compiler);
     };
 
     VNLoop* vnLoopTable;
