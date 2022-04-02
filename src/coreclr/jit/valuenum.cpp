@@ -4946,8 +4946,14 @@ void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* 
     GenTree* obj;
     if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
     {
-        // TODO-MIKE-Fix: This code doesn't check for wider than field stores.
-        summary.AddField(fieldSeq->GetFieldHandle());
+        if (obj == nullptr)
+        {
+            summary.AddField(fieldSeq->GetFieldHandle());
+        }
+        else
+        {
+            vnSummarizeLoopObjFieldMemoryStores(store, fieldSeq, summary);
+        }
 
         return;
     }
@@ -5229,6 +5235,26 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
     else
     {
         return vnCoerceLoadValue(load, vn, fieldType, fieldLayout);
+    }
+}
+
+void Compiler::vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir*        store,
+                                                   FieldSeqNode*        fieldSeq,
+                                                   VNLoopMemorySummary& summary)
+{
+    ClassLayout* fieldLayout;
+    var_types    fieldType = vnGetFieldType(fieldSeq->GetTail()->GetFieldHandle(), &fieldLayout);
+
+    unsigned fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
+    unsigned storeSize = store->IsBlk() ? store->AsBlk()->GetLayout()->GetSize() : varTypeSize(store->GetType());
+
+    if (storeSize <= fieldSize)
+    {
+        summary.AddField(fieldSeq->GetFieldHandle());
+    }
+    else
+    {
+        summary.AddMemoryHavoc();
     }
 }
 
