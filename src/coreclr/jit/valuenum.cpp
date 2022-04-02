@@ -7549,6 +7549,88 @@ void Compiler::fgValueNumber()
     fgVNPassesCompleted++;
 }
 
+void Compiler::vnSummarizeLoopMemoryStores()
+{
+    vnLoopTable = new (this, CMK_ValueNumber) VNLoop[optLoopCount];
+
+    for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
+    {
+        VNLoop& vnLoop = vnLoopTable[loopNum];
+
+        VarSetOps::AssignNoCopy(this, vnLoop.lpVarInOut, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, vnLoop.lpVarUseDef, VarSetOps::MakeEmpty(this));
+        vnLoop.lpContainsCall               = false;
+        vnLoop.lpLoopHasMemoryHavoc         = false;
+        vnLoop.modifiesAddressExposedLocals = false;
+        vnLoop.lpFieldsModified             = nullptr;
+        vnLoop.lpArrayElemTypesModified     = nullptr;
+    }
+
+    for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
+    {
+        if (optLoopTable[loopNum].lpFlags & LPFLG_REMOVED)
+        {
+            continue;
+        }
+
+        if (optLoopTable[loopNum].lpParent != BasicBlock::NOT_IN_LOOP)
+        {
+            continue;
+        }
+
+        for (BasicBlock* const block : optLoopTable[loopNum].LoopBlocks())
+        {
+            if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
+            {
+                // We encountered a block that was moved into the loop range (by fgReorderBlocks),
+                // but not marked correctly as being inside the loop.
+                // We conservatively mark this loop (and any outer loops) as having memory havoc
+                // side effects.
+                VNLoopMemorySummary summary(this, loopNum);
+                summary.AddMemoryHavoc();
+                summary.UpdateLoops();
+
+                // All done, no need to keep visiting more blocks.
+                // TODO-MIKE-Review: What about local liveness and calls?
+                // And in general this case is dubious. Why wasn't the block marked correctly?
+                // Is it a part of the loop or not? Why wasn't this fixed? Stupid JIT commenting
+                // as usual, write a bunch of crap that doesn't actually explain anything.
+                break;
+            }
+
+            VNLoopMemorySummary summary(this, block->bbNatLoopNum);
+            summary.AddLocalLiveness(block);
+
+            if (!summary.IsComplete())
+            {
+                vnSummarizeLoopBlockMemoryStores(block, summary);
+                summary.UpdateLoops();
+            }
+        }
+    }
+}
+
+void Compiler::vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary)
+{
+    for (Statement* const stmt : block->NonPhiStatements())
+    {
+        for (GenTree* const node : stmt->Nodes())
+        {
+            vnSummarizeLoopNodeMemoryStores(node, summary);
+
+            if (summary.IsComplete())
+            {
+                return;
+            }
+        }
+
+        if (summary.IsComplete())
+        {
+            return;
+        }
+    }
+}
+
 void Compiler::fgValueNumberBlock(BasicBlock* blk)
 {
     compCurBB = blk;
@@ -7725,87 +7807,6 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     }
 
     compCurBB = nullptr;
-}
-
-void Compiler::vnSummarizeLoopMemoryStores()
-{
-    vnLoopTable = new (this, CMK_ValueNumber) VNLoop[optLoopCount];
-
-    unsigned lnum;
-    for (lnum = 0; lnum < optLoopCount; lnum++)
-    {
-        VarSetOps::AssignNoCopy(this, vnLoopTable[lnum].lpVarInOut, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, vnLoopTable[lnum].lpVarUseDef, VarSetOps::MakeEmpty(this));
-        vnLoopTable[lnum].lpContainsCall               = false;
-        vnLoopTable[lnum].lpLoopHasMemoryHavoc         = false;
-        vnLoopTable[lnum].modifiesAddressExposedLocals = false;
-        vnLoopTable[lnum].lpFieldsModified             = nullptr;
-        vnLoopTable[lnum].lpArrayElemTypesModified     = nullptr;
-    }
-
-    for (lnum = 0; lnum < optLoopCount; lnum++)
-    {
-        if (optLoopTable[lnum].lpFlags & LPFLG_REMOVED)
-        {
-            continue;
-        }
-
-        if (optLoopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP)
-        { // Is outermost...
-            vnSummarizeLoopMemoryStores(lnum);
-        }
-    }
-}
-
-void Compiler::vnSummarizeLoopMemoryStores(unsigned outermostLoopNum)
-{
-    assert(optLoopTable[outermostLoopNum].lpParent == BasicBlock::NOT_IN_LOOP);
-
-    for (BasicBlock* const block : optLoopTable[outermostLoopNum].LoopBlocks())
-    {
-        if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
-        {
-            // We encountered a block that was moved into the loop range (by fgReorderBlocks),
-            // but not marked correctly as being inside the loop.
-            // We conservatively mark this loop (and any outer loops) as having memory havoc
-            // side effects.
-            VNLoopMemorySummary summary(this, outermostLoopNum);
-            summary.AddMemoryHavoc();
-            summary.UpdateLoops();
-
-            // All done, no need to keep visiting more blocks
-            break;
-        }
-
-        VNLoopMemorySummary summary(this, block->bbNatLoopNum);
-
-        summary.AddLocalLiveness(block);
-
-        if (summary.IsComplete())
-        {
-            continue;
-        }
-
-        for (Statement* const stmt : block->NonPhiStatements())
-        {
-            for (GenTree* const tree : stmt->TreeList())
-            {
-                vnSummarizeLoopNodeMemoryStores(tree, summary);
-
-                if (summary.IsComplete())
-                {
-                    break;
-                }
-            }
-
-            if (summary.IsComplete())
-            {
-                break;
-            }
-        }
-
-        summary.UpdateLoops();
-    }
 }
 
 Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, unsigned loopNum)

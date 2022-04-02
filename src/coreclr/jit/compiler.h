@@ -5097,15 +5097,10 @@ protected:
     // in the loop table.
     bool optBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
 
-    // Records the set of "side effects" of all loops: fields (object instance and static)
-    // written to, and SZ-array element type equivalence classes updated.
-    void vnSummarizeLoopMemoryStores();
-
 private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
     // static) written to, and SZ-array element type equivalence classes updated.
-    void vnSummarizeLoopMemoryStores(unsigned lnum);
 
     class VNLoopMemorySummary
     {
@@ -5128,6 +5123,8 @@ private:
         void UpdateLoops() const;
     };
 
+    void vnSummarizeLoopMemoryStores();
+    void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
     void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
     void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
     void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);

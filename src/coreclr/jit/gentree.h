@@ -6641,6 +6641,11 @@ public:
         return GenTreeList(GetTreeList());
     }
 
+    GenTreeList Nodes() const
+    {
+        return GenTreeList(m_treeList);
+    }
+
     InlineContext* GetInlineContext() const
     {
         return m_inlineContext;
