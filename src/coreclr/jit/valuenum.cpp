@@ -7417,7 +7417,7 @@ void Compiler::fgValueNumber()
 
     if (optLoopCount > 0)
     {
-        optComputeLoopSideEffects();
+        vnSummarizeLoopMemoryStores();
     }
 
     // At the block level, we will use a modified worklist algorithm.  We will have two
@@ -7641,7 +7641,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
         ValueNum newMemoryVN;
         if (optBlockIsLoopEntry(blk, &loopNum))
         {
-            newMemoryVN = fgMemoryVNForLoopSideEffects(blk, loopNum);
+            newMemoryVN = vnBuildLoopEntryMemory(blk, loopNum);
         }
         else
         {
@@ -7727,7 +7727,7 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     compCurBB = nullptr;
 }
 
-void Compiler::optComputeLoopSideEffects()
+void Compiler::vnSummarizeLoopMemoryStores()
 {
     vnLoopTable = new (this, CMK_ValueNumber) VNLoop[optLoopCount];
 
@@ -7752,16 +7752,16 @@ void Compiler::optComputeLoopSideEffects()
 
         if (optLoopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP)
         { // Is outermost...
-            optComputeLoopNestSideEffects(lnum);
+            vnSummarizeLoopMemoryStores(lnum);
         }
     }
 }
 
-void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
+void Compiler::vnSummarizeLoopMemoryStores(unsigned outermostLoopNum)
 {
-    assert(optLoopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP); // Requires: lnum is outermost.
-    JITDUMP("optComputeLoopSideEffects lnum is %d\n", lnum);
-    for (BasicBlock* const block : optLoopTable[lnum].LoopBlocks())
+    assert(optLoopTable[outermostLoopNum].lpParent == BasicBlock::NOT_IN_LOOP);
+
+    for (BasicBlock* const block : optLoopTable[outermostLoopNum].LoopBlocks())
     {
         if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
         {
@@ -7769,7 +7769,7 @@ void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
             // but not marked correctly as being inside the loop.
             // We conservatively mark this loop (and any outer loops) as having memory havoc
             // side effects.
-            VNLoopMemorySummary summary(this, lnum);
+            VNLoopMemorySummary summary(this, outermostLoopNum);
             summary.AddMemoryHavoc();
             summary.UpdateLoops();
 
@@ -7922,7 +7922,7 @@ void Compiler::VNLoopMemorySummary::UpdateLoops() const
 #endif
 }
 
-ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned innermostLoopNum)
+ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned innermostLoopNum)
 {
     // "loopNum" is the innermost loop for which "blk" is the entry; find the outermost one.
     assert(innermostLoopNum != BasicBlock::NOT_IN_LOOP);

@@ -4039,7 +4039,7 @@ public:
     // Requires that "entryBlock" is the entry block of loop "loopNum", and that "loopNum" is the
     // innermost loop of which "entryBlock" is the entry.  Returns the value number that should be
     // assumed for the memoryKind at the start "entryBlk".
-    ValueNum fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned loopNum);
+    ValueNum vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned loopNum);
 
     void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
     void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
@@ -5099,13 +5099,13 @@ protected:
 
     // Records the set of "side effects" of all loops: fields (object instance and static)
     // written to, and SZ-array element type equivalence classes updated.
-    void optComputeLoopSideEffects();
+    void vnSummarizeLoopMemoryStores();
 
 private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
     // static) written to, and SZ-array element type equivalence classes updated.
-    void optComputeLoopNestSideEffects(unsigned lnum);
+    void vnSummarizeLoopMemoryStores(unsigned lnum);
 
     class VNLoopMemorySummary
     {
