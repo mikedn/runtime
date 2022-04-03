@@ -3850,9 +3850,11 @@ FieldSeqNode* Compiler::vnIsStaticStructFieldAddr(GenTree* addr)
 {
     FieldSeqNode* fieldSeq = nullptr;
 
-    // TODO-MIKE-CQ: This doesn't check for CLS_VAR_ADDR.
-
-    if (GenTreeIntCon* intCon = addr->IsIntCon())
+    if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
+    {
+        fieldSeq = clsVarAddr->GetFieldSeq();
+    }
+    else if (GenTreeIntCon* intCon = addr->IsIntCon())
     {
         fieldSeq = intCon->GetFieldSeq();
     }
