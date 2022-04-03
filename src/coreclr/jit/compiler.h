@@ -77,6 +77,7 @@ class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 struct IndentStack;
 #endif
+struct LoopHoistContext;
 
 class Lowering; // defined in lower.h
 
@@ -194,9 +195,24 @@ public:
         return m_vnPair;
     }
 
+    ValueNum GetLiberalVN() const
+    {
+        return m_vnPair.GetLiberal();
+    }
+
+    ValueNum GetConservativeVN() const
+    {
+        return m_vnPair.GetConservative();
+    }
+
     void SetVNP(ValueNumPair vnp)
     {
         m_vnPair = vnp;
+    }
+
+    void SetLiberalVN(ValueNum vn)
+    {
+        m_vnPair.SetLiberal(vn);
     }
 };
 
@@ -2205,20 +2221,6 @@ public:
                               unsigned  flags      = GTF_SIDE_EFFECT,
                               bool      ignoreRoot = false);
 
-    // Static fields of struct types (and sometimes the types that those are reduced to) are represented by having the
-    // static field contain an object pointer to the boxed struct.  This simplifies the GC implementation...but
-    // complicates the JIT somewhat.  This predicate returns "true" iff a node with type "fieldNodeType", representing
-    // the given "fldHnd", is such an object pointer.
-    bool gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd);
-
-    FieldSeqNode* optIsFieldAddr(GenTree* addr, GenTree** obj);
-
-    // Requires "indir" to be a GT_IND.
-    // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
-    // array information.
-    bool optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo);
-    bool optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
-
     // Return true if call is a recursive call; return false otherwise.
     // Note when inlining, this looks for calls back to the root method.
     bool gtIsRecursiveCall(GenTreeCall* call)
@@ -2259,8 +2261,6 @@ public:
 
     GenTree* gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options = BR_REMOVE_AND_NARROW);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
-
-    ClassLayout* gtGetStructLayout(GenTree* tree);
 
     // Get the handle for a ref type.
     CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* pIsExact, bool* pIsNonNull);
@@ -2409,11 +2409,6 @@ public:
 
     unsigned lvaTrackedCount;             // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits; // min # of size_t's sufficient to hold a bit for all the locals being tracked
-
-#ifndef TARGET_64BIT
-    VARSET_TP lvaLongVars; // set of long (64-bit) variables
-#endif
-    VARSET_TP lvaFloatVars; // set of floating-point (32-bit and 64-bit) variables
 
     unsigned lvaCurEpoch; // VarSets are relative to a specific set of tracked var indices.
                           // It that changes, this changes.  VarSets from different epochs
@@ -3992,7 +3987,51 @@ public:
     void vnInterlocked(GenTreeOp* node);
     ValueNum vnMemoryLoad(var_types type, ValueNum addrVN);
 
+    FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
+    FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
+    bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
+
     unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
+
+    struct VNLoop
+    {
+        typedef JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>> FieldHandleSet;
+        FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
+                                          // instance fields modified
+                                          // in the loop.
+
+        // The set of array element types that are modified in the loop.
+        typedef JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>> TypeNumSet;
+        TypeNumSet* lpArrayElemTypesModified;
+
+        VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
+        VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
+
+        bool lpLoopHasMemoryHavoc : 1; // The loop contains an operation that we assume has arbitrary
+                                       // memory side effects.  If this is set, the fields below
+                                       // may not be accurate (since they become irrelevant.)
+        bool lpContainsCall : 1;       // True if executing the loop body *may* execute a call
+
+        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
+        bool modifiesAddressExposedLocals : 1;
+
+        // TODO-MIKE-Cleanup: These have nothing to do with value numbering,
+        // they should be moved to LoopHoistContext.
+
+        int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
+                                // hoisted
+        int lpLoopVarCount;     // The register count for the non-FP LclVars that are read/written inside this loop
+        int lpVarInOutCount;    // The register count for the non-FP LclVars that are alive inside or across this loop
+
+        int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
+                                  // hoisted
+        int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
+        int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
+
+        VNLoop(Compiler* compiler);
+    };
+
+    VNLoop* vnLoopTable;
 
     // Utility functions for fgValueNumber.
 
@@ -4002,7 +4041,7 @@ public:
     // Requires that "entryBlock" is the entry block of loop "loopNum", and that "loopNum" is the
     // innermost loop of which "entryBlock" is the entry.  Returns the value number that should be
     // assumed for the memoryKind at the start "entryBlk".
-    ValueNum fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned loopNum);
+    ValueNum vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned loopNum);
 
     void vnClearMemory(GenTree* node DEBUGARG(const char* comment = nullptr));
     void vnUpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment = nullptr));
@@ -5027,42 +5066,7 @@ protected:
     typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool> VNToBoolMap;
     typedef VNToBoolMap VNSet;
 
-    struct LoopHoistContext
-    {
-    private:
-        // The set of variables hoisted in the current loop (or nullptr if there are none).
-        VNSet* m_pHoistedInCurLoop;
-
-    public:
-        // Value numbers of expressions that have been hoisted in parent loops in the loop nest.
-        VNSet m_hoistedInParentLoops;
-        // Value numbers of expressions that have been hoisted in the current (or most recent) loop in the nest.
-        // Previous decisions on loop-invariance of value numbers in the current loop.
-        VNToBoolMap m_curLoopVnInvariantCache;
-
-        VNSet* GetHoistedInCurLoop(Compiler* comp)
-        {
-            if (m_pHoistedInCurLoop == nullptr)
-            {
-                m_pHoistedInCurLoop = new (comp->getAllocatorLoopHoist()) VNSet(comp->getAllocatorLoopHoist());
-            }
-            return m_pHoistedInCurLoop;
-        }
-
-        VNSet* ExtractHoistedInCurLoop()
-        {
-            VNSet* res          = m_pHoistedInCurLoop;
-            m_pHoistedInCurLoop = nullptr;
-            return res;
-        }
-
-        LoopHoistContext(Compiler* comp)
-            : m_pHoistedInCurLoop(nullptr)
-            , m_hoistedInParentLoops(comp->getAllocatorLoopHoist())
-            , m_curLoopVnInvariantCache(comp->getAllocatorLoopHoist())
-        {
-        }
-    };
+    friend struct LoopHoistContext;
 
     // Do hoisting for loop "lnum" (an index into the optLoopTable), and all loops nested within it.
     // Tracks the expressions that have been hoisted by containing loops by temporary recording their
@@ -5091,29 +5095,42 @@ protected:
     //   VNPhi's connect VN's to the SSA definition, so we can know if the SSA def occurs in the loop.
     bool optVNIsLoopInvariant(ValueNum vn, unsigned lnum, VNToBoolMap* recordedVNs);
 
-    // If "blk" is the entry block of a natural loop, returns true and sets "*pLnum" to the index of the loop
-    // in the loop table.
-    bool optBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
-
-    // Records the set of "side effects" of all loops: fields (object instance and static)
-    // written to, and SZ-array element type equivalence classes updated.
-    void optComputeLoopSideEffects();
-
 private:
     // Requires "lnum" to be the index of an outermost loop in the loop table.  Traverses the body of that loop,
     // including all nested loops, and records the set of "side effects" of the loop: fields (object instance and
     // static) written to, and SZ-array element type equivalence classes updated.
-    void optComputeLoopNestSideEffects(unsigned lnum);
 
-    // Given a loop number 'lnum' mark it and any nested loops as having 'memoryHavoc'
-    void optRecordLoopNestsMemoryHavoc(unsigned lnum);
+    class VNLoopMemorySummary
+    {
+        Compiler* m_compiler;
+        unsigned  m_loopNum;
 
-    void optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum);
+    public:
+        bool m_memoryHavoc : 1;
+        bool m_containsCall : 1;
+        bool m_modifiesAddressExposedLocals : 1;
 
-    // Add the side effects of "blk" (which is required to be within a loop) to all loops of which it is a part.
-    // Returns false if we encounter a block that is not marked as being inside a loop.
-    //
-    bool optComputeLoopSideEffectsOfBlock(BasicBlock* blk);
+        VNLoopMemorySummary(Compiler* compiler, unsigned loopNum);
+        void AddLocalLiveness(BasicBlock* block) const;
+        void AddMemoryHavoc();
+        void AddCall();
+        void AddAddressExposedLocal(unsigned lclNum);
+        void AddField(CORINFO_FIELD_HANDLE fieldHandle);
+        void AddArrayType(unsigned elemTypeNum);
+        bool IsComplete() const;
+        void UpdateLoops() const;
+    };
+
+    void vnSummarizeLoopMemoryStores();
+    void vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, GenTreeOp* asg, VNLoopMemorySummary& summary);
+    void vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
+
+    bool vnBlockIsLoopEntry(BasicBlock* blk, unsigned* pLnum);
 
     // Hoist the expression "expr" out of loop "lnum".
     void optPerformHoistExpr(GenTree* expr, unsigned lnum);
@@ -5135,7 +5152,7 @@ public:
 protected:
     // This enumeration describes what is killed by a call.
 
-    enum callInterf
+    enum callInterf : uint8_t
     {
         CALLINT_NONE,       // no interference                               (most helpers)
         CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
@@ -5164,9 +5181,9 @@ public:
         BasicBlock* lpBottom; // loop BOTTOM (from here we have a back edge to the TOP)
         BasicBlock* lpExit;   // if a single exit loop this is the EXIT (in most cases BOTTOM)
 
-        callInterf   lpAsgCall;     // "callInterf" for calls in the loop
-        ALLVARSET_TP lpAsgVars;     // set of vars assigned within the loop (all vars, not just tracked)
-        varRefKinds  lpAsgInds : 8; // set of inds modified within the loop
+        ALLVARSET_TP lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
+        callInterf   lpAsgCall; // "callInterf" for calls in the loop
+        varRefKinds  lpAsgInds; // set of inds modified within the loop
 
         LoopFlags lpFlags;
 
@@ -5181,51 +5198,7 @@ public:
                                  // or else BasicBlock::NOT_IN_LOOP.  One can enumerate all the children of a loop
                                  // by following "lpChild" then "lpSibling" links.
 
-        bool lpLoopHasMemoryHavoc; // The loop contains an operation that we assume has arbitrary
-                                   // memory side effects.  If this is set, the fields below
-                                   // may not be accurate (since they become irrelevant.)
-        bool lpContainsCall;       // True if executing the loop body *may* execute a call
-
-        // TODO-MIKE-CQ: We could record individual AX local access like we do for fields and arrays.
-        bool modifiesAddressExposedLocals;
-
-        VARSET_TP lpVarInOut;  // The set of variables that are IN or OUT during the execution of this loop
-        VARSET_TP lpVarUseDef; // The set of variables that are USE or DEF during the execution of this loop
-
-        int lpHoistedExprCount; // The register count for the non-FP expressions from inside this loop that have been
-                                // hoisted
-        int lpLoopVarCount;     // The register count for the non-FP LclVars that are read/written inside this loop
-        int lpVarInOutCount;    // The register count for the non-FP LclVars that are alive inside or across this loop
-
-        int lpHoistedFPExprCount; // The register count for the FP expressions from inside this loop that have been
-                                  // hoisted
-        int lpLoopVarFPCount;     // The register count for the FP LclVars that are read/written inside this loop
-        int lpVarInOutFPCount;    // The register count for the FP LclVars that are alive inside or across this loop
-
-        typedef JitHashTable<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>, bool> FieldHandleSet;
-        FieldHandleSet* lpFieldsModified; // This has entries (mappings to "true") for all static field and object
-                                          // instance fields modified
-                                          // in the loop.
-
-        // The set of array element types that are modified in the loop.
-        typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, bool> TypeNumSet;
-        TypeNumSet* lpArrayElemTypesModified;
-
-        // Adds the variable liveness information for 'blk' to 'this' LoopDsc
-        void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
-
-        void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
-        void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
-
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
-
-        GenTree*   lpIterTree;          // The "i = i <op> const" tree
-        unsigned   lpIterVar() const;   // iterator variable #
-        int        lpIterConst() const; // the constant with which the iterator is incremented
-        genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
-        void       VERIFY_lpIterTree() const;
-
-        var_types lpIterOperType() const; // For overflow instructions
 
         union {
             int lpConstInit;    // initial constant value of iterator
@@ -5234,9 +5207,18 @@ public:
                                 // : Valid if LPFLG_VAR_INIT
         };
 
+        GenTree* lpIterTree; // The "i = i <op> const" tree
+        GenTree* lpTestTree; // pointer to the node containing the loop test
+
+        unsigned   lpIterVar() const;   // iterator variable #
+        int        lpIterConst() const; // the constant with which the iterator is incremented
+        genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
+        void       VERIFY_lpIterTree() const;
+
+        var_types lpIterOperType() const; // For overflow instructions
+
         // The following is for LPFLG_ITER loops only (i.e. the loop condition is "i RELOP const or var"
 
-        GenTree*   lpTestTree;         // pointer to the node containing the loop test
         genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
                                        // etc.)
         void VERIFY_lpTestTree() const;
@@ -5403,18 +5385,6 @@ protected:
     void optUpdateLoopHead(unsigned loopInd, BasicBlock* from, BasicBlock* to);
 
     void optRedirectBlock(BasicBlock* blk, BlockToBlockMap* redirectMap, const bool updatePreds = false);
-
-    // Marks the containsCall information to "lnum" and any parent loops.
-    void AddContainsCallAllContainingLoops(unsigned lnum);
-
-    // Adds the variable liveness information from 'blk' to "lnum" and any parent loops.
-    void AddVariableLivenessAllContainingLoops(unsigned lnum, BasicBlock* blk);
-
-    // Adds "fldHnd" to the set of modified fields of "lnum" and any parent loops.
-    void AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_HANDLE fldHnd);
-
-    // Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
-    void AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum);
 
     // Requires that "from" and "to" have the same "bbJumpKind" (perhaps because "to" is a clone
     // of "from".)  Copies the jump destination from "from" to "to".
@@ -7895,6 +7865,7 @@ private:
 
 public:
     bool typIsLayoutNum(unsigned layoutNum);
+    INDEBUG(const char* typGetName(unsigned typeNum);)
     // Get the layout having the specified layout number.
     ClassLayout* typGetLayoutByNum(unsigned layoutNum);
     // Get the layout number of the specified layout.

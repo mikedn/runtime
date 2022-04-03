@@ -1270,6 +1270,20 @@ void ValueNumStore::VNUnpackExc(ValueNum vnWx, ValueNum* pvn, ValueNum* pvnx)
     }
 }
 
+ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset)
+{
+    VNFuncApp funcApp;
+
+    if (GetVNFunc(vn, &funcApp) == VNF_ValWithExc)
+    {
+        *exset = funcApp[1];
+        return funcApp[0];
+    }
+
+    *exset = VNForEmptyExcSet();
+    return vn;
+}
+
 //-------------------------------------------------------------------------------------
 // VNPUnpackExc: - Given a ValueNumPair 'vnpWx, return via write back parameters
 //                 both the normal and the exception set components.
@@ -1465,6 +1479,11 @@ ValueNum ValueNumStore::VNWithExc(ValueNum vn, ValueNum excSet)
         VNUnpackExc(vn, &vnNorm, &vnX);
         return VNForFunc(TypeOfVN(vnNorm), VNF_ValWithExc, vnNorm, VNExcSetUnion(vnX, excSet));
     }
+}
+
+ValueNum ValueNumStore::PackExset(ValueNum vn, ValueNum exset)
+{
+    return VNWithExc(vn, exset);
 }
 
 //--------------------------------------------------------------------------------
@@ -3595,6 +3614,11 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types typ)
     return resultVN;
 }
 
+ValueNum ValueNumStore::UniqueVN(var_types type)
+{
+    return VNForExpr(nullptr, type);
+}
+
 ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
 {
     ValueNum vn = VNForIntCon(static_cast<int32_t>(typeNum));
@@ -3696,34 +3720,26 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
     assert(add->OperIs(GT_ADD) && !add->gtOverflow());
 
     ArrayInfo arrInfo;
-    if (optIsArrayElemAddr(add, &arrInfo))
+    if (vnIsArrayElemAddr(add, &arrInfo))
     {
         ValueNum indexVN = vnStore->ExtractArrayElementIndex(arrInfo);
 
-        if (indexVN != NoVN)
+        FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
+
+        if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(add))
         {
-            ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-
-            // We take the "VNNormalValue"s here, because if either has exceptional outcomes,
-            // they will be captured as part of the value of the composite "addr" operation...
-            ValueNum arrVN = vnStore->VNNormalValue(arrInfo.m_arrayExpr->GetLiberalVN());
-            indexVN        = vnStore->VNNormalValue(indexVN);
-
-            FieldSeqNode* fieldSeq = arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext();
-
-            if (FieldSeqNode* zeroFieldSeq = GetZeroOffsetFieldSeq(add))
-            {
-                fieldSeq = GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
-            }
-
-            ValueNum fldSeqVN = vnStore->VNForFieldSeq(fieldSeq);
-
-            ValueNum addrVN = vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, indexVN, fldSeqVN);
-            ValueNum exset  = vnStore->VNExceptionSet(add->GetOp(0)->GetLiberalVN());
-            exset           = vnStore->VNExcSetUnion(exset, vnStore->VNExceptionSet(add->GetOp(1)->GetLiberalVN()));
-
-            return vnStore->VNWithExc(addrVN, exset);
+            fieldSeq = GetFieldSeqStore()->Append(fieldSeq, zeroFieldSeq);
         }
+
+        ValueNum elemTypeVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+        ValueNum arrayVN    = vnStore->VNNormalValue(arrInfo.m_arrayExpr->GetLiberalVN());
+        ValueNum fieldSeqVN = vnStore->VNForFieldSeq(fieldSeq);
+        ValueNum addrVN     = vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeVN, arrayVN, indexVN, fieldSeqVN);
+
+        ValueNum exset = vnStore->VNExceptionSet(add->GetOp(0)->GetLiberalVN());
+        exset          = vnStore->VNExcSetUnion(exset, vnStore->VNExceptionSet(add->GetOp(1)->GetLiberalVN()));
+
+        return vnStore->VNWithExc(addrVN, exset);
     }
 
     if (GenTreeIntCon* intCon = add->GetOp(1)->IsIntCon())
@@ -3731,19 +3747,196 @@ ValueNum Compiler::vnAddField(GenTreeOp* add)
         FieldSeqNode* fldSeq = intCon->GetFieldSeq();
         if ((fldSeq != nullptr) && !fldSeq->IsArrayElement())
         {
-            ValueNum addrVN = add->GetOp(0)->GetLiberalVN();
             ValueNum exset;
-            vnStore->VNUnpackExc(addrVN, &addrVN, &exset);
+            ValueNum addrVN = vnStore->UnpackExset(add->GetOp(0)->GetLiberalVN(), &exset);
+
             addrVN = vnStore->ExtendPtrVN(addrVN, fldSeq, static_cast<target_size_t>(intCon->GetValue()));
 
-            if (addrVN != NoVN)
-            {
-                return vnStore->VNWithExc(addrVN, exset);
-            }
+            return addrVN == NoVN ? addrVN : vnStore->PackExset(addrVN, exset);
         }
     }
 
     return NoVN;
+}
+
+FieldSeqNode* Compiler::vnIsFieldAddr(GenTree* addr, GenTree** pObj)
+{
+    FieldSeqNode* fieldSeq     = nullptr;
+    bool          mustBeStatic = false;
+
+    addr = addr->SkipComma();
+
+    if (addr->OperIs(GT_ADD))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        if (op1->OperIs(GT_CNS_INT) && op1->IsIconHandle())
+        {
+            // If one operand is a field sequence/handle, the other operand must not also be a field sequence/handle.
+            assert(!op2->OperIs(GT_CNS_INT) || !op2->IsIconHandle());
+
+            fieldSeq = op1->AsIntCon()->GetFieldSeq();
+            addr     = op2;
+        }
+        else if (op2->OperIs(GT_CNS_INT))
+        {
+            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+            fieldSeq = op2->AsIntCon()->GetFieldSeq();
+            addr     = op1;
+        }
+    }
+    else if ((fieldSeq = GetZeroOffsetFieldSeq(addr)) != nullptr)
+    {
+        // Reference type objects can't have a field at offset 0 (that's where the method table
+        // pointer is) so this can only be a static field. If it isn't then it means that it's
+        // a field of a struct value accessed via an (un)managed pointer and we don't recognize
+        // those here.
+
+        mustBeStatic = true;
+    }
+
+    if ((fieldSeq == nullptr) || (fieldSeq == FieldSeqStore::NotAField()))
+    {
+        // If we can't find a field sequence then it's not a field address.
+        return nullptr;
+    }
+
+    if (fieldSeq->IsArrayElement())
+    {
+        // Array elements are handled separately.
+        return nullptr;
+    }
+
+    if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
+    {
+        *pObj = nullptr;
+        return fieldSeq;
+    }
+
+    if (mustBeStatic || !addr->TypeIs(TYP_REF))
+    {
+        return nullptr;
+    }
+
+    addr = addr->gtEffectiveVal();
+
+    if (GenTreeIndir* indir = addr->IsIndir())
+    {
+        if (FieldSeqNode* staticStructFieldSeq = vnIsStaticStructFieldAddr(indir->GetAddr()->SkipComma()))
+        {
+            *pObj = nullptr;
+            return GetFieldSeqStore()->Append(staticStructFieldSeq, fieldSeq);
+        }
+    }
+
+    if (fieldSeq->IsBoxedValueField())
+    {
+        // Ignore boxed value fields, the same (pseudo) field is used for all boxed types
+        // so a store to such a field may alias multiple actual fields. These can only be
+        // disambiguated when used together with a static field.
+
+        return nullptr;
+    }
+
+    assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+
+    *pObj = addr;
+    return fieldSeq;
+}
+
+FieldSeqNode* Compiler::vnIsStaticStructFieldAddr(GenTree* addr)
+{
+    FieldSeqNode* fieldSeq = nullptr;
+
+    // TODO-MIKE-CQ: This doesn't check for CLS_VAR_ADDR.
+
+    if (GenTreeIntCon* intCon = addr->IsIntCon())
+    {
+        fieldSeq = intCon->GetFieldSeq();
+    }
+    else if (addr->OperIs(GT_ADD))
+    {
+        if (GenTreeIntCon* intCon = addr->AsOp()->GetOp(1)->IsIntCon())
+        {
+            fieldSeq = intCon->GetFieldSeq();
+        }
+    }
+    else
+    {
+        fieldSeq = GetZeroOffsetFieldSeq(addr);
+    }
+
+    if ((fieldSeq == nullptr) || (fieldSeq->GetNext() != nullptr) || !fieldSeq->IsField() ||
+        !info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()) ||
+        (CorTypeToVarType(info.compCompHnd->getFieldType(fieldSeq->GetFieldHandle())) != TYP_STRUCT))
+    {
+        return nullptr;
+    }
+
+    return fieldSeq;
+}
+
+bool Compiler::vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
+{
+    if (!addr->OperIs(GT_ADD) || !addr->TypeIs(TYP_BYREF))
+    {
+        return false;
+    }
+
+    GenTree* array  = addr->AsOp()->GetOp(0);
+    GenTree* offset = addr->AsOp()->GetOp(1);
+
+    if (!array->TypeIs(TYP_REF))
+    {
+        if (!offset->TypeIs(TYP_REF))
+        {
+            return false;
+        }
+
+        std::swap(array, offset);
+    }
+
+    assert(offset->TypeIs(TYP_I_IMPL));
+
+    GenTree* offsetExpr  = nullptr;
+    GenTree* offsetConst = offset;
+
+    if (offset->OperIs(GT_ADD))
+    {
+        offsetExpr  = offset->AsOp()->GetOp(0);
+        offsetConst = offset->AsOp()->GetOp(1);
+    }
+
+    if (!offsetConst->IsIntCon())
+    {
+        return false;
+    }
+
+    FieldSeqNode* fieldSeq = offsetConst->AsIntCon()->GetFieldSeq();
+
+    if ((fieldSeq == nullptr) || !fieldSeq->IsArrayElement())
+    {
+        return false;
+    }
+
+    arrayInfo->m_arrayExpr       = array;
+    arrayInfo->m_elemOffsetExpr  = offsetExpr;
+    arrayInfo->m_elemOffsetConst = offsetConst->AsIntCon();
+    arrayInfo->m_elemTypeNum     = fieldSeq->GetArrayElementTypeNum();
+
+    if (!typIsLayoutNum(arrayInfo->m_elemTypeNum))
+    {
+        var_types elemType = static_cast<var_types>(arrayInfo->m_elemTypeNum);
+
+        // The runtime allows casting between arrays of signed and unsigned integer types.
+        // We're going to treat such arrays as aliased by always using the signed type.
+        elemType                 = varTypeToSigned(elemType);
+        arrayInfo->m_elemTypeNum = static_cast<unsigned>(elemType);
+    }
+
+    return true;
 }
 
 ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
@@ -3773,7 +3966,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
 
     if (arrayInfo.m_elemOffsetExpr != nullptr)
     {
-        offsetVN = VNNormalValue(arrayInfo.m_elemOffsetExpr->gtVNPair.GetLiberal());
+        offsetVN = VNNormalValue(arrayInfo.m_elemOffsetExpr->GetLiberalVN());
         assert(varActualType(TypeOfVN(offsetVN)) == TYP_I_IMPL);
 
         if (IsVNConstant(offsetVN))
@@ -3835,7 +4028,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
         // type but that requires an extra integer division and it's not clear
         // if there's any real benefit in wasting cycles on that.
 
-        return (index > INT32_MAX) ? NoVN : VNForUPtrSizeIntCon(index);
+        return (index > INT32_MAX) ? UniqueVN(TYP_I_IMPL) : VNForUPtrSizeIntCon(index);
     }
 
     // Otherwise the offset is something like "ADD(MUL(i, elemSize), offset)". Morph
@@ -3944,43 +4137,38 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
     return indexVN;
 }
 
-ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fldSeq, target_size_t offset)
+ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fieldSeq, target_size_t offset)
 {
     assert(addrVN == VNNormalValue(addrVN));
-    assert(fldSeq != nullptr);
+    assert((fieldSeq != nullptr) && !fieldSeq->IsArrayElement());
 
     VNFuncApp funcApp;
-    if (!GetVNFunc(addrVN, &funcApp))
+    VNFunc    func = GetVNFunc(addrVN, &funcApp);
+
+    if (func == VNF_LclAddr)
     {
-        return NoVN;
+        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp[1]) + offset);
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp[2], fieldSeq);
+
+        return VNForFunc(TYP_I_IMPL, func, funcApp[0], newOffsetVN, newFieldSeqVN);
     }
 
-    ValueNum res = NoVN;
+    if (func == VNF_PtrToArrElem)
+    {
+        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp[3], fieldSeq);
 
-    if (funcApp.m_func == VNF_LclAddr)
-    {
-        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp.m_args[1]) + offset);
-        ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp.m_args[2], fldSeq);
-
-        res = VNForFunc(TYP_I_IMPL, VNF_LclAddr, funcApp.m_args[0], newOffsetVN, newFieldSeqVN);
-    }
-    else if (funcApp.m_func == VNF_PtrToStatic)
-    {
-        // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
-        // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
-        // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
-        if (fldSeq != FieldSeqStore::NotAField())
-        {
-            res = VNForFunc(TYP_BYREF, VNF_PtrToStatic, FieldSeqVNAppend(funcApp.m_args[0], fldSeq));
-        }
-    }
-    else if (funcApp.m_func == VNF_PtrToArrElem)
-    {
-        res = VNForFunc(TYP_BYREF, VNF_PtrToArrElem, funcApp.m_args[0], funcApp.m_args[1], funcApp.m_args[2],
-                        FieldSeqVNAppend(funcApp.m_args[3], fldSeq));
+        return VNForFunc(TYP_BYREF, func, funcApp[0], funcApp[1], funcApp[2], newFieldSeqVN);
     }
 
-    return res;
+    // TODO-MIKE-CQ: We could separate the static field handle and struct field sequence in VNF_PtrToStatic.
+    // Then even if the field sequence is NotAField we could still know that the store doesn't alias any
+    // other static fields, instance fields etc. But having NotAField for a static field is probably rare.
+    if ((func == VNF_PtrToStatic) && (fieldSeq != FieldSeqStore::NotAField()))
+    {
+        return VNForFunc(TYP_BYREF, func, FieldSeqVNAppend(funcApp[0], fieldSeq));
+    }
+
+    return NoVN;
 }
 
 void Compiler::vnComma(GenTreeOp* comma)
@@ -4004,6 +4192,20 @@ void Compiler::vnComma(GenTreeOp* comma)
     }
 
     comma->SetVNP(vnStore->VNPWithExc(op2vnp, vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp)));
+}
+
+void Compiler::vnSummarizeLoopAssignmentMemoryStores(GenTreeOp* asg, VNLoopMemorySummary& summary)
+{
+    GenTree* store = asg->GetOp(0)->SkipComma();
+
+    if (store->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        vnSummarizeLoopLocalMemoryStores(store->AsLclVarCommon(), asg, summary);
+    }
+    else
+    {
+        vnSummarizeLoopIndirMemoryStores(store->AsIndir(), asg, summary);
+    }
 }
 
 void Compiler::vnAssignment(GenTreeOp* asg)
@@ -4431,6 +4633,28 @@ ValueNumPair Compiler::vnExtractStructField(GenTree* load, ValueNumPair structVN
     return structVNP;
 }
 
+void Compiler::vnSummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store,
+                                                GenTreeOp*           asg,
+                                                VNLoopMemorySummary& summary)
+{
+    LclVarDsc* lcl = lvaGetDesc(store);
+
+    if (lcl->IsAddressExposed())
+    {
+        summary.AddAddressExposedLocal(store->GetLclNum());
+
+        return;
+    }
+
+    if (!lcl->IsInSsa() || !lcl->TypeIs(TYP_BYREF) || !store->OperIs(GT_LCL_VAR))
+    {
+        return;
+    }
+
+    ValueNum valueVN = asg->GetOp(1)->GetLiberalVN();
+    lcl->GetPerSsaData(store->GetSsaNum())->SetLiberalVN(valueVN);
+}
+
 void Compiler::vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value)
 {
     assert(store->OperIs(GT_LCL_VAR) && ((store->gtFlags & GTF_VAR_DEF) != 0));
@@ -4679,8 +4903,67 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
     load->SetVNP(vnp);
 }
 
+void Compiler::vnSummarizeLoopIndirMemoryStores(GenTreeIndir* store, GenTreeOp* asg, VNLoopMemorySummary& summary)
+{
+    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
+    assert(asg->OperIs(GT_ASG));
+
+    if (store->IsVolatile())
+    {
+        summary.AddMemoryHavoc();
+        return;
+    }
+
+    GenTree*  addr   = store->GetAddr();
+    ValueNum  addrVN = addr->GetLiberalVN();
+    VNFuncApp funcApp;
+    VNFunc    func = vnStore->GetVNFunc(addrVN, &funcApp);
+
+    if (func == VNF_PtrToStatic)
+    {
+        FieldSeqNode* fieldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp[0]);
+        summary.AddField(fieldSeq->GetFieldHandle());
+
+        return;
+    }
+
+    if (func == VNF_PtrToArrElem)
+    {
+        unsigned elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        summary.AddArrayType(elemTypeNum);
+
+        return;
+    }
+
+    if (func == VNF_LclAddr)
+    {
+        unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        summary.AddAddressExposedLocal(lclNum);
+
+        return;
+    }
+
+    GenTree* obj;
+    if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
+    {
+        if (obj == nullptr)
+        {
+            summary.AddField(fieldSeq->GetFieldHandle());
+        }
+        else
+        {
+            vnSummarizeLoopObjFieldMemoryStores(store, fieldSeq, summary);
+        }
+
+        return;
+    }
+
+    summary.AddMemoryHavoc();
+}
+
 void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
 {
+    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
     assert(asg->OperIs(GT_ASG));
 
     if (store->IsVolatile())
@@ -4690,22 +4973,20 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         vnClearMemory(store DEBUGARG("volatile store"));
     }
 
-    assert(store->OperIs(GT_IND, GT_OBJ, GT_BLK));
-
     GenTree*  addr   = store->GetAddr();
     ValueNum  addrVN = vnStore->VNNormalValue(addr->GetLiberalVN());
     VNFuncApp funcApp;
-    vnStore->GetVNFunc(addrVN, &funcApp);
+    VNFunc    func = vnStore->GetVNFunc(addrVN, &funcApp);
 
-    if (funcApp.m_func == VNF_PtrToStatic)
+    if (func == VNF_PtrToStatic)
     {
-        ValueNum memVN = vnStaticFieldStore(store, vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[0]), value);
+        ValueNum memVN = vnStaticFieldStore(store, vnStore->FieldSeqVNToFieldSeq(funcApp[0]), value);
         vnUpdateMemory(asg, memVN DEBUGARG("static field store"));
 
         return;
     }
 
-    if (funcApp.m_func == VNF_PtrToArrElem)
+    if (func == VNF_PtrToArrElem)
     {
         ValueNum memVN = vnArrayElemStore(store, funcApp, value);
         vnUpdateMemory(asg, memVN DEBUGARG("array element store"));
@@ -4713,9 +4994,9 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
         return;
     }
 
-    if (funcApp.m_func == VNF_LclAddr)
+    if (func == VNF_LclAddr)
     {
-        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]))->IsAddressExposed());
+        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
         ValueNum memVN = vnAddressExposedLocalStore(store, addrVN, value);
         vnUpdateMemory(asg, memVN DEBUGARG("address-exposed local store"));
 
@@ -4723,7 +5004,7 @@ void Compiler::vnIndirStore(GenTreeIndir* store, GenTreeOp* asg, GenTree* value)
     }
 
     GenTree* obj;
-    if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
+    if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
     {
         ValueNum memVN;
 
@@ -4832,7 +5113,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         // TODO-MIKE-Fix: Actually we do have the liberal array and index and that's pretty much all
         // that matters for exceptions. But then this is only relevant if range checks are disabled...
     }
-    else if (FieldSeqNode* fieldSeq = optIsFieldAddr(addr, &obj))
+    else if (FieldSeqNode* fieldSeq = vnIsFieldAddr(addr, &obj))
     {
         if (obj == nullptr)
         {
@@ -4954,6 +5235,26 @@ ValueNum Compiler::vnStaticFieldLoad(GenTreeIndir* load, FieldSeqNode* fieldSeq)
     else
     {
         return vnCoerceLoadValue(load, vn, fieldType, fieldLayout);
+    }
+}
+
+void Compiler::vnSummarizeLoopObjFieldMemoryStores(GenTreeIndir*        store,
+                                                   FieldSeqNode*        fieldSeq,
+                                                   VNLoopMemorySummary& summary)
+{
+    ClassLayout* fieldLayout;
+    var_types    fieldType = vnGetFieldType(fieldSeq->GetTail()->GetFieldHandle(), &fieldLayout);
+
+    unsigned fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
+    unsigned storeSize = store->IsBlk() ? store->AsBlk()->GetLayout()->GetSize() : varTypeSize(store->GetType());
+
+    if (storeSize <= fieldSize)
+    {
+        summary.AddField(fieldSeq->GetFieldHandle());
+    }
+    else
+    {
+        summary.AddMemoryHavoc();
     }
 }
 
@@ -6199,12 +6500,12 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
     }
 }
 
-bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
+VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
 {
     if (vn == NoVN)
     {
-        funcApp->m_func = static_cast<VNFunc>(GT_NONE);
-        return false;
+        funcApp->m_func = VNF_None;
+        return VNF_None;
     }
 
     Chunk*   c      = m_chunks.Get(GetChunkNum(vn));
@@ -6221,7 +6522,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_args[1]   = farg4->m_arg1;
             funcApp->m_args[2]   = farg4->m_arg2;
             funcApp->m_args[3]   = farg4->m_arg3;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func3:
         {
@@ -6231,7 +6532,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_args[0]   = farg3->m_arg0;
             funcApp->m_args[1]   = farg3->m_arg1;
             funcApp->m_args[2]   = farg3->m_arg2;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func2:
         {
@@ -6240,7 +6541,7 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_arity     = 2;
             funcApp->m_args[0]   = farg2->m_arg0;
             funcApp->m_args[1]   = farg2->m_arg1;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func1:
         {
@@ -6248,24 +6549,22 @@ bool ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp)
             funcApp->m_func      = farg1->m_func;
             funcApp->m_arity     = 1;
             funcApp->m_args[0]   = farg1->m_arg0;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_Func0:
         {
             VNDefFunc0Arg* farg0 = &static_cast<VNDefFunc0Arg*>(c->m_defs)[offset];
             funcApp->m_func      = farg0->m_func;
             funcApp->m_arity     = 0;
-            return true;
+            return funcApp->m_func;
         }
         case CEA_NotAField:
-        {
             funcApp->m_func  = VNF_NotAField;
             funcApp->m_arity = 0;
-            return true;
-        }
+            return VNF_NotAField;
         default:
-            funcApp->m_func = static_cast<VNFunc>(GT_NONE);
-            return false;
+            funcApp->m_func = VNF_None;
+            return VNF_None;
     }
 }
 
@@ -6980,7 +7279,7 @@ struct ValueNumberState
 
             // See if "cand" is a loop entry.
             unsigned lnum;
-            if (m_comp->optBlockIsLoopEntry(cand, &lnum))
+            if (m_comp->vnBlockIsLoopEntry(cand, &lnum))
             {
                 // "lnum" is the innermost loop of which "cand" is the entry; find the outermost.
                 unsigned lnumPar = m_comp->optLoopTable[lnum].lpParent;
@@ -7142,8 +7441,10 @@ void Compiler::fgValueNumber()
         }
     }
 
-    // Compute the side effects of loops.
-    optComputeLoopSideEffects();
+    if (optLoopCount > 0)
+    {
+        vnSummarizeLoopMemoryStores();
+    }
 
     // At the block level, we will use a modified worklist algorithm.  We will have two
     // "todo" sets of unvisited blocks.  Blocks (other than the entry block) are put in a
@@ -7274,6 +7575,101 @@ void Compiler::fgValueNumber()
     fgVNPassesCompleted++;
 }
 
+void Compiler::vnSummarizeLoopMemoryStores()
+{
+    vnLoopTable = getAllocator(CMK_ValueNumber).allocate<VNLoop>(optLoopCount);
+
+    for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
+    {
+        new (&vnLoopTable[loopNum]) VNLoop(this);
+    }
+
+    for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
+    {
+        if (optLoopTable[loopNum].lpFlags & LPFLG_REMOVED)
+        {
+            continue;
+        }
+
+        if (optLoopTable[loopNum].lpParent != BasicBlock::NOT_IN_LOOP)
+        {
+            continue;
+        }
+
+        for (BasicBlock* const block : optLoopTable[loopNum].LoopBlocks())
+        {
+            if (block->bbNatLoopNum == BasicBlock::NOT_IN_LOOP)
+            {
+                // We encountered a block that was moved into the loop range (by fgReorderBlocks),
+                // but not marked correctly as being inside the loop.
+                // We conservatively mark this loop (and any outer loops) as having memory havoc
+                // side effects.
+                VNLoopMemorySummary summary(this, loopNum);
+                summary.AddMemoryHavoc();
+                summary.UpdateLoops();
+
+                // All done, no need to keep visiting more blocks.
+                // TODO-MIKE-Review: What about local liveness and calls?
+                // And in general this case is dubious. Why wasn't the block marked correctly?
+                // Is it a part of the loop or not? Why wasn't this fixed? Stupid JIT commenting
+                // as usual, write a bunch of crap that doesn't actually explain anything.
+                break;
+            }
+
+            VNLoopMemorySummary summary(this, block->bbNatLoopNum);
+            summary.AddLocalLiveness(block);
+
+            if (!summary.IsComplete())
+            {
+                vnSummarizeLoopBlockMemoryStores(block, summary);
+                summary.UpdateLoops();
+            }
+        }
+    }
+
+    JITDUMP("\n");
+}
+
+void Compiler::vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary)
+{
+    for (Statement* const stmt : block->NonPhiStatements())
+    {
+        for (GenTree* const node : stmt->Nodes())
+        {
+            vnSummarizeLoopNodeMemoryStores(node, summary);
+
+            if (summary.IsComplete())
+            {
+                return;
+            }
+        }
+
+        if (summary.IsComplete())
+        {
+            return;
+        }
+    }
+}
+
+bool Compiler::vnBlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
+{
+    for (unsigned n = block->bbNatLoopNum; n != BasicBlock::NOT_IN_LOOP; n = optLoopTable[n].lpParent)
+    {
+        if (optLoopTable[n].lpFlags & LPFLG_REMOVED)
+        {
+            continue;
+        }
+
+        if (optLoopTable[n].lpEntry == block)
+        {
+            *loopNum = n;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void Compiler::fgValueNumberBlock(BasicBlock* blk)
 {
     compCurBB = blk;
@@ -7364,9 +7760,9 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     {
         unsigned loopNum;
         ValueNum newMemoryVN;
-        if (optBlockIsLoopEntry(blk, &loopNum))
+        if (vnBlockIsLoopEntry(blk, &loopNum))
         {
-            newMemoryVN = fgMemoryVNForLoopSideEffects(blk, loopNum);
+            newMemoryVN = vnBuildLoopEntryMemory(blk, loopNum);
         }
         else
         {
@@ -7452,405 +7848,157 @@ void Compiler::fgValueNumberBlock(BasicBlock* blk)
     compCurBB = nullptr;
 }
 
-void Compiler::optComputeLoopSideEffects()
+Compiler::VNLoop::VNLoop(Compiler* compiler)
+    : lpFieldsModified(nullptr)
+    , lpArrayElemTypesModified(nullptr)
+    , lpVarInOut(VarSetOps::MakeEmpty(compiler))
+    , lpVarUseDef(VarSetOps::MakeEmpty(compiler))
+    , lpLoopHasMemoryHavoc(false)
+    , lpContainsCall(false)
+    , modifiesAddressExposedLocals(false)
 {
-    unsigned lnum;
-    for (lnum = 0; lnum < optLoopCount; lnum++)
+}
+
+Compiler::VNLoopMemorySummary::VNLoopMemorySummary(Compiler* compiler, unsigned loopNum)
+    : m_compiler(compiler)
+    , m_loopNum(loopNum)
+    , m_memoryHavoc(compiler->vnLoopTable[loopNum].lpLoopHasMemoryHavoc)
+    , m_containsCall(compiler->vnLoopTable[loopNum].lpContainsCall)
+    , m_modifiesAddressExposedLocals(false)
+{
+    assert(loopNum < compiler->optLoopCount);
+}
+
+void Compiler::VNLoopMemorySummary::AddLocalLiveness(BasicBlock* block) const
+{
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        VarSetOps::AssignNoCopy(this, optLoopTable[lnum].lpVarInOut, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, optLoopTable[lnum].lpVarUseDef, VarSetOps::MakeEmpty(this));
-        optLoopTable[lnum].lpContainsCall = false;
+        VNLoop& loop = m_compiler->vnLoopTable[n];
+
+        VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveIn);
+        VarSetOps::UnionD(m_compiler, loop.lpVarInOut, block->bbLiveOut);
+
+        VarSetOps::UnionD(m_compiler, loop.lpVarUseDef, block->bbVarUse);
+        VarSetOps::UnionD(m_compiler, loop.lpVarUseDef, block->bbVarDef);
+    }
+}
+
+void Compiler::VNLoopMemorySummary::AddMemoryHavoc()
+{
+    m_memoryHavoc = true;
+}
+
+void Compiler::VNLoopMemorySummary::AddCall()
+{
+    m_containsCall = true;
+}
+
+void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
+{
+    assert(m_compiler->lvaGetDesc(lclNum)->IsAddressExposed());
+
+    if (m_modifiesAddressExposedLocals || m_memoryHavoc)
+    {
+        return;
     }
 
-    for (lnum = 0; lnum < optLoopCount; lnum++)
+    m_modifiesAddressExposedLocals = true;
+
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        if (optLoopTable[lnum].lpFlags & LPFLG_REMOVED)
+        VNLoop& loop = m_compiler->vnLoopTable[n];
+
+        if (!loop.modifiesAddressExposedLocals)
         {
-            continue;
+            JITDUMP("Loop " FMT_LP " stores to address-exposed local V%02u\n", n, lclNum);
         }
 
-        if (optLoopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP)
-        { // Is outermost...
-            optComputeLoopNestSideEffects(lnum);
-        }
+        loop.modifiesAddressExposedLocals = true;
     }
+}
 
-    VarSetOps::AssignNoCopy(this, lvaFloatVars, VarSetOps::MakeEmpty(this));
-#ifndef TARGET_64BIT
-    VarSetOps::AssignNoCopy(this, lvaLongVars, VarSetOps::MakeEmpty(this));
-#endif
-
-    for (unsigned i = 0; i < lvaCount; i++)
+void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
+{
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        LclVarDsc* varDsc = &lvaTable[i];
-        if (varDsc->lvTracked)
+        VNLoop& loop = m_compiler->vnLoopTable[n];
+
+        if (loop.lpFieldsModified == nullptr)
         {
-            if (varTypeIsFloating(varDsc->lvType))
-            {
-                VarSetOps::AddElemD(this, lvaFloatVars, varDsc->lvVarIndex);
-            }
-#ifndef TARGET_64BIT
-            else if (varTypeIsLong(varDsc->lvType))
-            {
-                VarSetOps::AddElemD(this, lvaLongVars, varDsc->lvVarIndex);
-            }
-#endif
+            loop.lpFieldsModified = new (m_compiler->getAllocator(CMK_ValueNumber))
+                VNLoop::FieldHandleSet(m_compiler->getAllocator(CMK_ValueNumber));
         }
-    }
-}
 
-void Compiler::optComputeLoopNestSideEffects(unsigned lnum)
-{
-    assert(optLoopTable[lnum].lpParent == BasicBlock::NOT_IN_LOOP); // Requires: lnum is outermost.
-    JITDUMP("optComputeLoopSideEffects lnum is %d\n", lnum);
-    for (BasicBlock* const bbInLoop : optLoopTable[lnum].LoopBlocks())
-    {
-        if (!optComputeLoopSideEffectsOfBlock(bbInLoop))
+        if (loop.lpFieldsModified->Add(fieldHandle))
         {
-            // When optComputeLoopSideEffectsOfBlock returns false, we encountered
-            // a block that was moved into the loop range (by fgReorderBlocks),
-            // but not marked correctly as being inside the loop.
-            // We conservatively mark this loop (and any outer loops)
-            // as having memory havoc side effects.
-            //
-            // Record that all loops containing this block have memory havoc effects.
-            //
-            optRecordLoopNestsMemoryHavoc(lnum);
-
-            // All done, no need to keep visiting more blocks
-            break;
+            JITDUMP("Loop " FMT_LP " stores to field %s\n", n, m_compiler->eeGetFieldName(fieldHandle));
         }
     }
 }
 
-void Compiler::optRecordLoopNestsMemoryHavoc(unsigned lnum)
+void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
 {
-    // We should start out with 'lnum' set to a valid natural loop index
-    assert(lnum != BasicBlock::NOT_IN_LOOP);
-
-    while (lnum != BasicBlock::NOT_IN_LOOP)
+    for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        optLoopTable[lnum].lpLoopHasMemoryHavoc = true;
+        VNLoop& loop = m_compiler->vnLoopTable[n];
 
-        // Move lnum to the next outtermost loop that we need to mark
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-void Compiler::optRecordLoopNestsModifiesAddressExposedLocals(unsigned lnum)
-{
-    // We should start out with 'lnum' set to a valid natural loop index
-    assert(lnum != BasicBlock::NOT_IN_LOOP);
-
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        optLoopTable[lnum].modifiesAddressExposedLocals = true;
-
-        // Move lnum to the next outtermost loop that we need to mark
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
-{
-    unsigned mostNestedLoop = blk->bbNatLoopNum;
-    JITDUMP("optComputeLoopSideEffectsOfBlock " FMT_BB ", mostNestedLoop %d\n", blk->bbNum, mostNestedLoop);
-    if (mostNestedLoop == BasicBlock::NOT_IN_LOOP)
-    {
-        return false;
-    }
-    AddVariableLivenessAllContainingLoops(mostNestedLoop, blk);
-
-    bool memoryHavoc                  = false;
-    bool modifiesAddressExposedLocals = false;
-
-    // Now iterate over the remaining statements, and their trees.
-    for (Statement* const stmt : blk->NonPhiStatements())
-    {
-        for (GenTree* const tree : stmt->TreeList())
+        if (loop.lpArrayElemTypesModified == nullptr)
         {
-            genTreeOps oper = tree->OperGet();
+            loop.lpArrayElemTypesModified = new (m_compiler->getAllocator(CMK_ValueNumber))
+                VNLoop::TypeNumSet(m_compiler->getAllocator(CMK_ValueNumber));
+        }
 
-            // Even after we set memoryHavoc we still may want to know if a loop contains calls
-            if (memoryHavoc)
-            {
-                if (oper == GT_CALL)
-                {
-                    // Record that this loop contains a call
-                    AddContainsCallAllContainingLoops(mostNestedLoop);
-                }
-
-                // If we just set lpContainsCall or it was previously set
-                if (optLoopTable[mostNestedLoop].lpContainsCall)
-                {
-                    // We can early exit after both memoryHavoc and lpContainsCall are both set to true.
-                    break;
-                }
-
-                // We are just looking for GT_CALL nodes after memoryHavoc was set.
-                continue;
-            }
-
-            // This body is a distillation of the memory side-effect code of value numbering.
-            // We also do a very limited analysis if byref PtrTo values, to cover some cases
-            // that the compiler creates.
-
-            if (oper == GT_ASG)
-            {
-                GenTree* lhs = tree->AsOp()->GetOp(0)->SkipComma();
-
-                // TODO-MIKE-Review: This thing ignores LCL_FLD assignments.
-
-                if (lhs->OperIs(GT_IND))
-                {
-                    GenTree* arg = lhs->AsIndir()->GetAddr()->SkipComma();
-
-                    if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
-                    {
-                        memoryHavoc = true;
-                        continue;
-                    }
-
-                    if (GenTreeClsVar* clsVarAddr = arg->IsClsVar())
-                    {
-                        AddModifiedFieldAllContainingLoops(mostNestedLoop, clsVarAddr->GetFieldHandle());
-                        continue;
-                    }
-
-                    ArrayInfo arrInfo;
-
-                    if (arg->TypeGet() == TYP_BYREF && arg->OperGet() == GT_LCL_VAR)
-                    {
-                        // If it's a local byref for which we recorded a value number, use that...
-                        GenTreeLclVar* argLcl = arg->AsLclVar();
-                        if (lvaInSsa(argLcl->GetLclNum()) && argLcl->HasSsaName())
-                        {
-                            ValueNum argVN =
-                                lvaTable[argLcl->GetLclNum()].GetPerSsaData(argLcl->GetSsaNum())->m_vnPair.GetLiberal();
-                            VNFuncApp funcApp;
-                            if (argVN != ValueNumStore::NoVN && vnStore->GetVNFunc(argVN, &funcApp) &&
-                                funcApp.m_func == VNF_PtrToArrElem)
-                            {
-                                unsigned elemTypeNum =
-                                    static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp.m_args[0]));
-                                AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeNum);
-                                continue;
-                            }
-                        }
-                        // Otherwise...
-                        memoryHavoc = true;
-                    }
-                    else if (optIsArrayElem(lhs->AsIndir(), &arrInfo))
-                    {
-                        // We actually ignore field sequences -- any modification to an S[], at any
-                        // field of "S", will lose all information about the array type.
-                        AddModifiedElemTypeAllContainingLoops(mostNestedLoop, arrInfo.m_elemTypeNum);
-                    }
-                    else
-                    {
-                        GenTree* obj = nullptr; // unused
-
-                        if (FieldSeqNode* fieldSeq = optIsFieldAddr(arg, &obj))
-                        {
-                            AddModifiedFieldAllContainingLoops(mostNestedLoop, fieldSeq->GetFieldHandle());
-                        }
-                        else
-                        {
-                            memoryHavoc = true;
-                        }
-                    }
-                }
-                else if (lhs->OperIs(GT_OBJ, GT_BLK))
-                {
-                    if (GenTreeLclVarCommon* lclNode = lhs->AsIndir()->GetAddr()->IsLocalAddrExpr())
-                    {
-                        assert(lvaGetDesc(lclNode)->IsAddressExposed());
-                    }
-
-                    memoryHavoc = true;
-                }
-                else if (lhs->OperIs(GT_LCL_VAR))
-                {
-                    GenTreeLclVar* lclNode = lhs->AsLclVar();
-                    LclVarDsc*     lcl     = lvaGetDesc(lclNode);
-
-                    if (lcl->IsAddressExposed())
-                    {
-                        modifiesAddressExposedLocals = true;
-                    }
-                    else if (lcl->IsInSsa() && lclNode->HasSsaName())
-                    {
-                        ValueNum srcVN = tree->AsOp()->GetOp(1)->gtVNPair.GetLiberal();
-
-                        if (srcVN != ValueNumStore::NoVN)
-                        {
-                            srcVN = vnStore->VNNormalValue(srcVN);
-
-                            lcl->GetPerSsaData(lclNode->GetSsaNum())->m_vnPair.SetLiberal(srcVN);
-                        }
-                    }
-                }
-            }
-            else // if (oper != GT_ASG)
-            {
-                switch (oper)
-                {
-                    case GT_COMMA:
-                        tree->gtVNPair = tree->AsOp()->gtOp2->gtVNPair;
-                        break;
-
-                    case GT_ADD:
-                    {
-                        ArrayInfo arrInfo;
-                        if (optIsArrayElemAddr(tree, &arrInfo))
-                        {
-                            ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-                            ValueNum ptrToArrElemVN =
-                                vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
-                                                   // The rest are dummy arguments.
-                                                   vnStore->VNForNull(), vnStore->VNForNull(), vnStore->VNForNull());
-                            tree->gtVNPair.SetBoth(ptrToArrElemVN);
-                        }
-                    }
-                    break;
-
-                    case GT_LOCKADD:
-                    case GT_XORR:
-                    case GT_XAND:
-                    case GT_XADD:
-                    case GT_XCHG:
-                    case GT_CMPXCHG:
-                    case GT_MEMORYBARRIER:
-                    case GT_COPY_BLK:
-                    case GT_INIT_BLK:
-                        assert(!tree->OperIs(GT_LOCKADD) && "LOCKADD should not appear before lowering");
-                        memoryHavoc = true;
-                        break;
-
-                    case GT_CALL:
-                    {
-                        GenTreeCall* call = tree->AsCall();
-
-                        // Record that this loop contains a call
-                        AddContainsCallAllContainingLoops(mostNestedLoop);
-
-                        if (call->gtCallType == CT_HELPER)
-                        {
-                            CorInfoHelpFunc helpFunc = eeGetHelperNum(call->gtCallMethHnd);
-                            if (s_helperCallProperties.MutatesHeap(helpFunc))
-                            {
-                                memoryHavoc = true;
-                            }
-                            else if (s_helperCallProperties.MayRunCctor(helpFunc))
-                            {
-                                // If the call is labeled as "Hoistable", then we've checked the
-                                // class that would be constructed, and it is not precise-init, so
-                                // the cctor will not be run by this call.  Otherwise, it might be,
-                                // and might have arbitrary side effects.
-                                if ((tree->gtFlags & GTF_CALL_HOISTABLE) == 0)
-                                {
-                                    memoryHavoc = true;
-                                }
-                            }
-                        }
-                        else
-                        {
-                            memoryHavoc = true;
-                        }
-                        break;
-                    }
-
-                    default:
-                        // All other gtOper node kinds, leave 'memoryHavoc' unchanged (i.e. false)
-                        break;
-                }
-            }
+        if (loop.lpArrayElemTypesModified->Add(elemTypeNum))
+        {
+            JITDUMP("Loop " FMT_LP " stores to array of type %s\n", n, m_compiler->typGetName(elemTypeNum));
         }
     }
-
-    if (memoryHavoc)
-    {
-        // Record that all loops containing this block have this kind of memoryHavoc effects.
-        optRecordLoopNestsMemoryHavoc(mostNestedLoop);
-    }
-
-    if (modifiesAddressExposedLocals)
-    {
-        optRecordLoopNestsModifiesAddressExposedLocals(mostNestedLoop);
-    }
-
-    return true;
 }
 
-// Marks the containsCall information to "lnum" and any parent loops.
-void Compiler::AddContainsCallAllContainingLoops(unsigned lnum)
+bool Compiler::VNLoopMemorySummary::IsComplete() const
 {
+    // Once a loop is known to contain calls and memory havoc we can stop analyzing it.
+    return m_memoryHavoc && m_containsCall;
+}
+
+void Compiler::VNLoopMemorySummary::UpdateLoops() const
+{
+    if (m_memoryHavoc || m_containsCall)
+    {
+        for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
+        {
+            VNLoop& loop = m_compiler->vnLoopTable[n];
+
+            if (!loop.lpLoopHasMemoryHavoc && m_memoryHavoc)
+            {
+                JITDUMP("Loop " FMT_LP " has memory havoc\n", n);
+            }
+
+            if (!loop.lpContainsCall && m_containsCall)
+            {
+                JITDUMP("Loop " FMT_LP " has calls\n", n);
+            }
+
+            loop.lpLoopHasMemoryHavoc |= m_memoryHavoc;
+            loop.lpContainsCall |= m_containsCall;
+        }
+    }
 
 #if FEATURE_LOOP_ALIGN
-    // If this is the inner most loop, reset the LOOP_ALIGN flag
-    // because a loop having call will not likely to benefit from
-    // alignment
-    if (optLoopTable[lnum].lpChild == BasicBlock::NOT_IN_LOOP)
+    // A loop having call will not likely benefit from alignment.
+    // TODO-MIKE-Cleanup: This has nothing to do with VN but it looks like
+    // there are no other places that traverse the entire loop IR.
+    if (m_containsCall && (m_compiler->optLoopTable[m_loopNum].lpChild == BasicBlock::NOT_IN_LOOP))
     {
-        BasicBlock* first = optLoopTable[lnum].lpFirst;
+        BasicBlock* first = m_compiler->optLoopTable[m_loopNum].lpFirst;
         first->bbFlags &= ~BBF_LOOP_ALIGN;
-        JITDUMP("Removing LOOP_ALIGN flag for " FMT_LP " that starts at " FMT_BB " because loop has a call.\n", lnum,
-                first->bbNum);
+        JITDUMP("Removing LOOP_ALIGN flag for " FMT_LP " that starts at " FMT_BB " because loop has a call.\n",
+                m_loopNum, first->bbNum);
     }
 #endif
-
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        optLoopTable[lnum].lpContainsCall = true;
-        lnum                              = optLoopTable[lnum].lpParent;
-    }
 }
 
-// Adds the variable liveness information for 'blk' to 'this' LoopDsc
-void Compiler::LoopDsc::AddVariableLiveness(Compiler* comp, BasicBlock* blk)
-{
-    VarSetOps::UnionD(comp, this->lpVarInOut, blk->bbLiveIn);
-    VarSetOps::UnionD(comp, this->lpVarInOut, blk->bbLiveOut);
-
-    VarSetOps::UnionD(comp, this->lpVarUseDef, blk->bbVarUse);
-    VarSetOps::UnionD(comp, this->lpVarUseDef, blk->bbVarDef);
-}
-
-// Adds the variable liveness information for 'blk' to "lnum" and any parent loops.
-void Compiler::AddVariableLivenessAllContainingLoops(unsigned lnum, BasicBlock* blk)
-{
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        optLoopTable[lnum].AddVariableLiveness(this, blk);
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-// Adds "fldHnd" to the set of modified fields of "lnum" and any parent loops.
-void Compiler::AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_HANDLE fldHnd)
-{
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        optLoopTable[lnum].AddModifiedField(this, fldHnd);
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-// Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
-void Compiler::AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum)
-{
-    assert(0 <= lnum && lnum < optLoopCount);
-    while (lnum != BasicBlock::NOT_IN_LOOP)
-    {
-        optLoopTable[lnum].AddModifiedElemType(this, elemTypeNum);
-        lnum = optLoopTable[lnum].lpParent;
-    }
-}
-
-ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned innermostLoopNum)
+ValueNum Compiler::vnBuildLoopEntryMemory(BasicBlock* entryBlock, unsigned innermostLoopNum)
 {
     // "loopNum" is the innermost loop for which "blk" is the entry; find the outermost one.
     assert(innermostLoopNum != BasicBlock::NOT_IN_LOOP);
@@ -7866,7 +8014,7 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
         loopsInNest = optLoopTable[loopsInNest].lpParent;
     }
 
-    if (optLoopTable[loopNum].lpLoopHasMemoryHavoc)
+    if (vnLoopTable[loopNum].lpLoopHasMemoryHavoc)
     {
         JITDUMP("    Loop " FMT_LP " has memory havoc effect\n", loopNum);
         return vnStore->VNForExpr(entryBlock, TYP_STRUCT);
@@ -7910,14 +8058,13 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
     // Modify "base" by setting all the modified fields/field maps/array maps to unknown values.
 
     // First the fields/field maps.
-    Compiler::LoopDsc::FieldHandleSet* fieldsMod = optLoopTable[loopNum].lpFieldsModified;
+    Compiler::VNLoop::FieldHandleSet* fieldsMod = vnLoopTable[loopNum].lpFieldsModified;
     if (fieldsMod != nullptr)
     {
-        for (Compiler::LoopDsc::FieldHandleSet::KeyIterator ki = fieldsMod->Begin(); !ki.Equal(fieldsMod->End()); ++ki)
+        for (CORINFO_FIELD_HANDLE fieldHandle : *fieldsMod)
         {
-            CORINFO_FIELD_HANDLE fieldHandle = ki.Get();
-            ValueNum             fieldVN     = vnStore->VNForFieldSeqHandle(fieldHandle);
-            var_types            fieldType   = TYP_STRUCT;
+            ValueNum  fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
+            var_types fieldType = TYP_STRUCT;
 
             if (info.compCompHnd->isFieldStatic(fieldHandle))
             {
@@ -7929,19 +8076,18 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(BasicBlock* entryBlock, unsigned
         }
     }
     // Now do the array maps.
-    Compiler::LoopDsc::TypeNumSet* elemTypesMod = optLoopTable[loopNum].lpArrayElemTypesModified;
+    Compiler::VNLoop::TypeNumSet* elemTypesMod = vnLoopTable[loopNum].lpArrayElemTypesModified;
     if (elemTypesMod != nullptr)
     {
-        for (Compiler::LoopDsc::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End());
-             ++ki)
+        for (unsigned elemTypeNum : *elemTypesMod)
         {
-            ValueNum elemTypeVN = vnStore->VNForTypeNum(ki.Get());
+            ValueNum elemTypeVN = vnStore->VNForTypeNum(elemTypeNum);
             ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_STRUCT);
             newMemoryVN         = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, elemTypeVN, uniqueVN);
         }
     }
 
-    if (optLoopTable[loopNum].modifiesAddressExposedLocals)
+    if (vnLoopTable[loopNum].modifiesAddressExposedLocals)
     {
         // We currently don't try to resolve address exposed loads to stores so do a dummy local store for now.
         ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(0),
@@ -8035,6 +8181,109 @@ void Compiler::fgValueNumberTreeConst(GenTree* tree)
 
         default:
             unreached();
+    }
+}
+
+void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummary& summary)
+{
+    switch (node->GetOper())
+    {
+        case GT_ASG:
+            vnSummarizeLoopAssignmentMemoryStores(node->AsOp(), summary);
+            break;
+
+        case GT_CALL:
+            vnSummarizeLoopCallMemoryStores(node->AsCall(), summary);
+            break;
+
+        case GT_LOCKADD:
+        case GT_XORR:
+        case GT_XAND:
+        case GT_XADD:
+        case GT_XCHG:
+        case GT_CMPXCHG:
+        case GT_MEMORYBARRIER:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            summary.AddMemoryHavoc();
+            break;
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            if (node->AsHWIntrinsic()->OperIsMemoryStore())
+            {
+                // TODO-MIKE-CQ: Ideally we'd figure out the store address (in most cases it's the first operand)
+                // and restrict the store, at least in the trivial case of arrays where we just update the entire
+                // array, without caring about individual elements. Problem is, we're dealing with native pointers
+                // so we'll also have to deal with pinning locals and pointer arithmetic to be able to extract the
+                // array type we need to update.
+                summary.AddMemoryHavoc();
+            }
+            break;
+#endif
+
+        case GT_COMMA:
+            node->SetLiberalVN(node->AsOp()->GetOp(1)->GetLiberalVN());
+            break;
+
+        case GT_LCL_VAR:
+            if (node->TypeIs(TYP_BYREF) && ((node->gtFlags & GTF_VAR_DEF) == 0))
+            {
+                LclVarDsc* lcl = lvaGetDesc(node->AsLclVar());
+
+                // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
+                // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
+                // traverse them but this code does and ends up asserting due to missing SSA numbers.
+                if (lcl->IsInSsa() && node->AsLclVar()->HasSsaName())
+                {
+                    node->SetLiberalVN(lcl->GetPerSsaData(node->AsLclVar()->GetSsaNum())->GetLiberalVN());
+                }
+            }
+            break;
+
+        case GT_LCL_VAR_ADDR:
+        case GT_LCL_FLD_ADDR:
+            assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
+            // so that byref exposed loads don't unnecessarily produce different value numbers.
+            node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
+                                                  vnStore->VNForIntCon(node->AsLclVarCommon()->GetLclNum()),
+                                                  vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
+            break;
+
+        case GT_CLS_VAR_ADDR:
+            node->SetLiberalVN(vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
+                                                  vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq())));
+            break;
+
+        case GT_ADD:
+        {
+            ArrayInfo arrInfo;
+            if (vnIsArrayElemAddr(node, &arrInfo))
+            {
+                ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+                ValueNum ptrToArrElemVN =
+                    vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
+                                       // The rest are dummy arguments.
+                                       vnStore->VNForNull(), vnStore->VNForNull(), vnStore->VNForNull());
+                node->SetLiberalVN(ptrToArrElemVN);
+            }
+            else if (node->AsOp()->GetOp(1)->IsIntCon())
+            {
+                VNFuncApp funcApp;
+                VNFunc    func = vnStore->GetVNFunc(node->AsOp()->GetOp(0)->GetLiberalVN(), &funcApp);
+
+                if ((func == VNF_LclAddr) || (func == VNF_PtrToStatic) || (func == VNF_PtrToArrElem))
+                {
+                    // For loop memory store summarization we don't care about the offset.
+                    node->SetLiberalVN(node->AsOp()->GetOp(0)->GetLiberalVN());
+                }
+            }
+        }
+        break;
+
+        default:
+            break;
     }
 }
 
@@ -8759,6 +9008,35 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
     }
 
     call->SetVNP(vnStore->VNPWithExc(vnpCall, vnpExc));
+}
+
+void Compiler::vnSummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary)
+{
+    summary.AddCall();
+
+    if (call->gtCallType == CT_HELPER)
+    {
+        CorInfoHelpFunc helpFunc = eeGetHelperNum(call->gtCallMethHnd);
+        if (s_helperCallProperties.MutatesHeap(helpFunc))
+        {
+            summary.AddMemoryHavoc();
+        }
+        else if (s_helperCallProperties.MayRunCctor(helpFunc))
+        {
+            // If the call is labeled as "Hoistable", then we've checked the
+            // class that would be constructed, and it is not precise-init, so
+            // the cctor will not be run by this call.  Otherwise, it might be,
+            // and might have arbitrary side effects.
+            if ((call->gtFlags & GTF_CALL_HOISTABLE) == 0)
+            {
+                summary.AddMemoryHavoc();
+            }
+        }
+    }
+    else
+    {
+        summary.AddMemoryHavoc();
+    }
 }
 
 void Compiler::fgValueNumberCall(GenTreeCall* call)

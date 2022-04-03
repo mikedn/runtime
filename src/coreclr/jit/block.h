@@ -1440,19 +1440,8 @@ public:
     static unsigned GetHashCode(const BasicBlock* ptr);
 };
 
-// A set of blocks.
-typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, bool> BlkSet;
-
-// A vector of blocks.
 typedef jitstd::vector<BasicBlock*> BlkVector;
-
-// A map of block -> set of blocks, can be used as sparse block trees.
-typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlkSet*> BlkToBlkSetMap;
-
-// A map of block -> vector of blocks, can be used as sparse block trees.
-typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlkVector> BlkToBlkVectorMap;
-
-// Map from Block to Block.  Used for a variety of purposes.
+typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlkVector>   BlkToBlkVectorMap;
 typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BasicBlock*> BlockToBlockMap;
 
 // BasicBlockIterator: forward iterator for the BasicBlock linked list.

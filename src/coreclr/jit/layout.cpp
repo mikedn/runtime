@@ -516,6 +516,14 @@ bool Compiler::typIsLayoutNum(unsigned layoutNum)
     return ClassLayoutTable::IsLayoutNum(layoutNum);
 }
 
+#ifdef DEBUG
+const char* Compiler::typGetName(unsigned typeNum)
+{
+    return typIsLayoutNum(typeNum) ? typGetLayoutByNum(typeNum)->GetClassName()
+                                   : varTypeName(static_cast<var_types>(typeNum));
+}
+#endif
+
 ClassLayout* Compiler::typGetLayoutByNum(unsigned layoutNum)
 {
     return typGetClassLayoutTable()->GetLayoutByNum(layoutNum);

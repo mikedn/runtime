@@ -39,6 +39,7 @@
 // (Though some of these may be labeled "illegal").
 enum VNFunc
 {
+    VNF_None = GT_NONE,
     // Implicitly, elements of genTreeOps here.
     VNF_Boundary = GT_COUNT,
 #define ValueNumFuncDef(nm, arity, commute, knownNonNull, sharedStatic) VNF_##nm,
@@ -99,6 +100,12 @@ struct VNFuncApp
     VNFunc   m_func;
     unsigned m_arity;
     ValueNum m_args[4];
+
+    ValueNum operator[](unsigned i) const
+    {
+        assert(i < m_arity);
+        return m_args[i];
+    }
 };
 
 // We use a unique prefix character when printing value numbers in dumps:  i.e.  $1c0
@@ -450,12 +457,14 @@ public:
     // otherwise we use VNExcSetUnion to combine the exception sets of both "vn" and "excSet"
     // and return that ValueNum
     ValueNum VNWithExc(ValueNum vn, ValueNum excSet);
+    ValueNum PackExset(ValueNum vn, ValueNum exset);
 
     ValueNumPair VNPWithExc(ValueNumPair vnp, ValueNumPair excSetVNP);
 
     // This sets "*pvn" to the Normal value and sets "*pvnx" to Exception set value.
     // "pvnx" represents the set of all exceptions that can happen for the expression
     void VNUnpackExc(ValueNum vnWx, ValueNum* pvn, ValueNum* pvnx);
+    ValueNum UnpackExset(ValueNum vn, ValueNum* exset);
 
     void VNPUnpackExc(ValueNumPair vnWx, ValueNumPair* pvn, ValueNumPair* pvnx);
 
@@ -566,6 +575,7 @@ public:
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
     ValueNum VNForExpr(BasicBlock* block, var_types typ);
+    ValueNum UniqueVN(var_types type);
 
     ValueNum VNForBitCast(ValueNum valueVN, var_types toType);
 
@@ -856,7 +866,7 @@ public:
 
     // If "vn" represents a function application, returns "true" and set "*funcApp" to
     // the function application it represents; otherwise, return "false."
-    bool GetVNFunc(ValueNum vn, VNFuncApp* funcApp);
+    VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp);
 
     // Returns "true" iff "vn" is a valid value number -- one that has been previously returned.
     bool VNIsValid(ValueNum vn);
