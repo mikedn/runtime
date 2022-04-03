@@ -8204,7 +8204,10 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             {
                 LclVarDsc* lcl = lvaGetDesc(node->AsLclVar());
 
-                if (lcl->IsInSsa())
+                // TODO-MIKE-Cleanup: Unreachable blocks aren't properly removed (see Runtime_57061_2).
+                // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
+                // traverse them but this code does and ends up asserting due to missing SSA numbers.
+                if (lcl->IsInSsa() && node->AsLclVar()->HasSsaName())
                 {
                     node->SetLiberalVN(lcl->GetPerSsaData(node->AsLclVar()->GetSsaNum())->GetLiberalVN());
                 }
