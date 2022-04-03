@@ -227,181 +227,139 @@ void Compiler::optEarlyProp()
 //
 GenTree* Compiler::optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
 {
-    GenTree*    objectRefPtr = nullptr;
-    optPropKind propKind     = optPropKind::OPK_INVALID;
-
-    if (tree->OperIsIndirOrArrLength())
-    {
-        // optFoldNullCheck takes care of updating statement info if a null check is removed.
-        optFoldNullCheck(tree, nullCheckMap);
-    }
-    else
+    if (!tree->OperIsIndirOrArrLength())
     {
         return nullptr;
     }
 
-    if (tree->OperGet() == GT_ARR_LENGTH)
-    {
-        objectRefPtr = tree->AsOp()->gtOp1;
-        propKind     = optPropKind::OPK_ARRAYLEN;
-    }
-    else
+    // optFoldNullCheck takes care of updating statement info if a null check is removed.
+    optFoldNullCheck(tree, nullCheckMap);
+
+    if (tree->OperGet() != GT_ARR_LENGTH)
     {
         return nullptr;
     }
+
+    GenTree* objectRefPtr = tree->AsOp()->gtOp1;
 
     if (!objectRefPtr->OperIs(GT_LCL_VAR) || !lvaInSsa(objectRefPtr->AsLclVar()->GetLclNum()))
     {
         return nullptr;
     }
-#ifdef DEBUG
-    if (propKind == optPropKind::OPK_ARRAYLEN)
-    {
-        optCheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree, compCurBB);
-    }
-#endif
 
-    unsigned lclNum    = objectRefPtr->AsLclVar()->GetLclNum();
-    unsigned ssaNum    = objectRefPtr->AsLclVar()->GetSsaNum();
-    GenTree* actualVal = optPropGetValue(lclNum, ssaNum, propKind);
+    INDEBUG(
+        optCheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree, compCurBB));
 
-    if (actualVal != nullptr)
-    {
-        assert(propKind == optPropKind::OPK_ARRAYLEN);
-        assert(actualVal->IsCnsIntOrI() && !actualVal->AsIntCon()->IsIconHandle());
-        assert(actualVal->GetNodeSize() == TREE_NODE_SZ_SMALL);
+    GenTree* actualVal = optPropGetValue(objectRefPtr->AsLclVar());
 
-        ssize_t actualConstVal = actualVal->AsIntCon()->IconValue();
-
-        if (propKind == optPropKind::OPK_ARRAYLEN)
-        {
-            if ((actualConstVal < 0) || (actualConstVal > INT32_MAX))
-            {
-                // Don't propagate array lengths that are beyond the maximum value of a GT_ARR_LENGTH or negative.
-                // node. CORINFO_HELP_NEWARR_1_OBJ helper call allows to take a long integer as the
-                // array length argument, but the type of GT_ARR_LENGTH is always INT32.
-                return nullptr;
-            }
-
-            // When replacing GT_ARR_LENGTH nodes with constants we can end up with GT_ARR_BOUNDS_CHECK
-            // nodes that have constant operands and thus can be trivially proved to be useless. It's
-            // better to remove these range checks here, otherwise they'll pass through assertion prop
-            // (creating useless (c1 < c2)-like assertions) and reach RangeCheck where they are finally
-            // removed. Common patterns like new int[] { x, y, z } benefit from this.
-
-            if ((tree->gtNext != nullptr) && tree->gtNext->OperIs(GT_ARR_BOUNDS_CHECK))
-            {
-                GenTreeBoundsChk* check = tree->gtNext->AsBoundsChk();
-
-                if ((check->gtArrLen == tree) && check->gtIndex->IsCnsIntOrI())
-                {
-                    ssize_t checkConstVal = check->gtIndex->AsIntCon()->IconValue();
-                    if ((checkConstVal >= 0) && (checkConstVal < actualConstVal))
-                    {
-                        GenTree* comma = check->FindUser();
-
-                        // We should never see cases other than these in the IR,
-                        // as the check node does not produce a value.
-                        assert(((comma != nullptr) && comma->OperIs(GT_COMMA) &&
-                                (comma->gtGetOp1() == check || comma->TypeIs(TYP_VOID))) ||
-                               (check == compCurStmt->GetRootNode()));
-
-                        // Still, we guard here so that release builds do not try to optimize trees we don't understand.
-                        if (((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->gtGetOp1() == check)) ||
-                            (check == compCurStmt->GetRootNode()))
-                        {
-                            // Both `tree` and `check` have been removed from the statement.
-                            // 'tree' was replaced with 'nop' or side effect list under 'comma'.
-                            // optRemoveRangeCheck returns this modified tree.
-                            return optRemoveRangeCheck(check, comma, compCurStmt);
-                        }
-                    }
-                }
-            }
-        }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("optEarlyProp Rewriting " FMT_BB "\n", compCurBB->bbNum);
-            gtDispStmt(compCurStmt);
-            printf("\n");
-        }
-#endif
-
-        GenTree* actualValClone = gtCloneExpr(actualVal);
-
-        if (actualValClone->gtType != tree->gtType)
-        {
-            assert(actualValClone->gtType == TYP_LONG);
-            assert(tree->gtType == TYP_INT);
-            assert((actualConstVal >= 0) && (actualConstVal <= INT32_MAX));
-            actualValClone->gtType = tree->gtType;
-        }
-
-        // actualValClone has small tree node size, it is safe to use CopyFrom here.
-        tree->ReplaceWith(actualValClone, this);
-
-        // Propagating a constant may create an opportunity to use a division by constant optimization
-        //
-        if ((tree->gtNext != nullptr) && tree->gtNext->OperIsBinary())
-        {
-            // We need to mark the parent divide/mod operation when this occurs
-            tree->gtNext->AsOp()->CheckDivideByConstOptimized(this);
-        }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("to\n");
-            gtDispStmt(compCurStmt);
-            printf("\n");
-        }
-#endif
-        return tree;
-    }
-
-    return nullptr;
-}
-
-//-------------------------------------------------------------------------------------------
-// optPropGetValue: Given an SSA object ref pointer, get the value needed based on valueKind.
-//
-// Arguments:
-//    lclNum         - The local var number of the ref pointer.
-//    ssaNum         - The SSA var number of the ref pointer.
-//    valueKind      - The kind of value of interest.
-//
-// Return Value:
-//    Return the corresponding value based on valueKind.
-
-GenTree* Compiler::optPropGetValue(unsigned lclNum, unsigned ssaNum, optPropKind valueKind)
-{
-    return optPropGetValueRec(lclNum, ssaNum, valueKind, 0);
-}
-
-//-----------------------------------------------------------------------------------
-// optPropGetValueRec: Given an SSA object ref pointer, get the value needed based on valueKind
-//                     within a recursion bound.
-//
-// Arguments:
-//    lclNum         - The local var number of the array pointer.
-//    ssaNum         - The SSA var number of the array pointer.
-//    valueKind      - The kind of value of interest.
-//    walkDepth      - Current recursive walking depth.
-//
-// Return Value:
-//    Return the corresponding value based on valueKind.
-
-GenTree* Compiler::optPropGetValueRec(unsigned lclNum, unsigned ssaNum, optPropKind valueKind, int walkDepth)
-{
-    if (ssaNum == SsaConfig::RESERVED_SSA_NUM)
+    if (actualVal == nullptr)
     {
         return nullptr;
     }
 
-    SSAName  ssaName(lclNum, ssaNum);
-    GenTree* value = nullptr;
+    assert(actualVal->IsCnsIntOrI() && !actualVal->AsIntCon()->IsIconHandle());
+    assert(actualVal->GetNodeSize() == TREE_NODE_SZ_SMALL);
+
+    ssize_t actualConstVal = actualVal->AsIntCon()->IconValue();
+
+    if ((actualConstVal < 0) || (actualConstVal > INT32_MAX))
+    {
+        // Don't propagate array lengths that are beyond the maximum value of a GT_ARR_LENGTH or negative.
+        // node. CORINFO_HELP_NEWARR_1_OBJ helper call allows to take a long integer as the
+        // array length argument, but the type of GT_ARR_LENGTH is always INT32.
+        return nullptr;
+    }
+
+    // When replacing GT_ARR_LENGTH nodes with constants we can end up with GT_ARR_BOUNDS_CHECK
+    // nodes that have constant operands and thus can be trivially proved to be useless. It's
+    // better to remove these range checks here, otherwise they'll pass through assertion prop
+    // (creating useless (c1 < c2)-like assertions) and reach RangeCheck where they are finally
+    // removed. Common patterns like new int[] { x, y, z } benefit from this.
+
+    if ((tree->gtNext != nullptr) && tree->gtNext->OperIs(GT_ARR_BOUNDS_CHECK))
+    {
+        GenTreeBoundsChk* check = tree->gtNext->AsBoundsChk();
+
+        if ((check->gtArrLen == tree) && check->gtIndex->IsCnsIntOrI())
+        {
+            ssize_t checkConstVal = check->gtIndex->AsIntCon()->IconValue();
+            if ((checkConstVal >= 0) && (checkConstVal < actualConstVal))
+            {
+                GenTree* comma = check->FindUser();
+
+                // We should never see cases other than these in the IR,
+                // as the check node does not produce a value.
+                assert(((comma != nullptr) && comma->OperIs(GT_COMMA) &&
+                        (comma->gtGetOp1() == check || comma->TypeIs(TYP_VOID))) ||
+                       (check == compCurStmt->GetRootNode()));
+
+                // Still, we guard here so that release builds do not try to optimize trees we don't understand.
+                if (((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->gtGetOp1() == check)) ||
+                    (check == compCurStmt->GetRootNode()))
+                {
+                    // Both `tree` and `check` have been removed from the statement.
+                    // 'tree' was replaced with 'nop' or side effect list under 'comma'.
+                    // optRemoveRangeCheck returns this modified tree.
+                    return optRemoveRangeCheck(check, comma, compCurStmt);
+                }
+            }
+        }
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("optEarlyProp Rewriting " FMT_BB "\n", compCurBB->bbNum);
+        gtDispStmt(compCurStmt);
+        printf("\n");
+    }
+#endif
+
+    GenTree* actualValClone = gtCloneExpr(actualVal);
+
+    if (actualValClone->gtType != tree->gtType)
+    {
+        assert(actualValClone->gtType == TYP_LONG);
+        assert(tree->gtType == TYP_INT);
+        assert((actualConstVal >= 0) && (actualConstVal <= INT32_MAX));
+        actualValClone->gtType = tree->gtType;
+    }
+
+    // actualValClone has small tree node size, it is safe to use CopyFrom here.
+    tree->ReplaceWith(actualValClone, this);
+
+    // Propagating a constant may create an opportunity to use a division by constant optimization
+    //
+    if ((tree->gtNext != nullptr) && tree->gtNext->OperIsBinary())
+    {
+        // We need to mark the parent divide/mod operation when this occurs
+        tree->gtNext->AsOp()->CheckDivideByConstOptimized(this);
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("to\n");
+        gtDispStmt(compCurStmt);
+        printf("\n");
+    }
+#endif
+    return tree;
+}
+
+GenTree* Compiler::optPropGetValue(GenTreeLclVar* lclVar)
+{
+    return optPropGetValueRec(lclVar, 0);
+}
+
+GenTree* Compiler::optPropGetValueRec(GenTreeLclVar* lclVar, int walkDepth)
+{
+    unsigned ssaNum = lclVar->GetSsaNum();
+
+    if (ssaNum == SsaConfig::RESERVED_SSA_NUM)
+    {
+        return nullptr;
+    }
 
     // Bound the recursion with a hard limit.
     if (walkDepth > optEarlyPropRecurBound)
@@ -410,7 +368,7 @@ GenTree* Compiler::optPropGetValueRec(unsigned lclNum, unsigned ssaNum, optPropK
     }
 
     // Track along the use-def chain to get the array length
-    LclSsaVarDsc* ssaVarDsc = lvaTable[lclNum].GetPerSsaData(ssaNum);
+    LclSsaVarDsc* ssaVarDsc = lvaGetDesc(lclVar)->GetPerSsaData(ssaNum);
     GenTreeOp*    ssaDefAsg = ssaVarDsc->GetAssignment();
 
     if (ssaDefAsg == nullptr)
@@ -418,37 +376,23 @@ GenTree* Compiler::optPropGetValueRec(unsigned lclNum, unsigned ssaNum, optPropK
         // Incoming parameters or live-in variables don't have actual definition tree node
         // for their FIRST_SSA_NUM. See SsaBuilder::RenameVariables.
         assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
+        return nullptr;
     }
-    else
+
+    assert(ssaDefAsg->OperIs(GT_ASG));
+
+    GenTree* treeRhs = ssaDefAsg->gtGetOp2();
+
+    if (treeRhs->OperIs(GT_LCL_VAR) && lvaInSsa(treeRhs->AsLclVar()->GetLclNum()) && treeRhs->AsLclVar()->HasSsaName())
     {
-        assert(ssaDefAsg->OperIs(GT_ASG));
+        return optPropGetValueRec(treeRhs->AsLclVar(), walkDepth + 1);
+    }
 
-        GenTree* treeRhs = ssaDefAsg->gtGetOp2();
-
-        if (treeRhs->OperIs(GT_LCL_VAR) && lvaInSsa(treeRhs->AsLclVar()->GetLclNum()) &&
-            treeRhs->AsLclVar()->HasSsaName())
-        {
-            // Recursively track the Rhs
-            unsigned rhsLclNum = treeRhs->AsLclVar()->GetLclNum();
-            unsigned rhsSsaNum = treeRhs->AsLclVar()->GetSsaNum();
-
-            value = optPropGetValueRec(rhsLclNum, rhsSsaNum, valueKind, walkDepth + 1);
-        }
-        else
-        {
-            if (valueKind == optPropKind::OPK_ARRAYLEN)
-            {
-                value = getArrayLengthFromAllocation(treeRhs DEBUGARG(ssaVarDsc->GetBlock()));
-                if (value != nullptr)
-                {
-                    if (!value->IsCnsIntOrI())
-                    {
-                        // Leave out non-constant-sized array
-                        value = nullptr;
-                    }
-                }
-            }
-        }
+    GenTree* value = getArrayLengthFromAllocation(treeRhs DEBUGARG(ssaVarDsc->GetBlock()));
+    if ((value != nullptr) && !value->IsCnsIntOrI())
+    {
+        // Leave out non-constant-sized array
+        value = nullptr;
     }
 
     return value;

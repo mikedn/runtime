@@ -5742,29 +5742,9 @@ public:
     void optVnCopyProp();
     INDEBUG(void optDumpCopyPropStack(LclNumToGenTreePtrStack* curSsaName));
 
-    /**************************************************************************
-     *               Early value propagation
-     *************************************************************************/
-    struct SSAName
-    {
-        unsigned m_lvNum;
-        unsigned m_ssaNum;
-
-        SSAName(unsigned lvNum, unsigned ssaNum) : m_lvNum(lvNum), m_ssaNum(ssaNum)
-        {
-        }
-
-        static unsigned GetHashCode(SSAName ssaNm)
-        {
-            return (ssaNm.m_lvNum << 16) | (ssaNm.m_ssaNum);
-        }
-
-        static bool Equals(SSAName ssaNm1, SSAName ssaNm2)
-        {
-            return (ssaNm1.m_lvNum == ssaNm2.m_lvNum) && (ssaNm1.m_ssaNum == ssaNm2.m_ssaNum);
-        }
-    };
-
+/**************************************************************************
+ *               Early value propagation
+ *************************************************************************/
 #define OMF_HAS_NEWARRAY 0x00000001         // Method contains 'new' of an array
 #define OMF_HAS_NEWOBJ 0x00000002           // Method contains 'new' of an object type.
 #define OMF_HAS_ARRAYREF 0x00000004         // Method contains array element loads or stores.
@@ -5879,18 +5859,11 @@ public:
     // No throughput diff was found with backward walk bound between 3-8.
     static const int optEarlyPropRecurBound = 5;
 
-    enum class optPropKind
-    {
-        OPK_INVALID,
-        OPK_ARRAYLEN,
-        OPK_NULLCHECK
-    };
-
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
 
     GenTree* getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block));
-    GenTree* optPropGetValueRec(unsigned lclNum, unsigned ssaNum, optPropKind valueKind, int walkDepth);
-    GenTree* optPropGetValue(unsigned lclNum, unsigned ssaNum, optPropKind valueKind);
+    GenTree* optPropGetValueRec(GenTreeLclVar* lclVar, int walkDepth);
+    GenTree* optPropGetValue(GenTreeLclVar* lclVar);
     GenTree* optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap);
     bool optDoEarlyPropForBlock(BasicBlock* block);
     bool optDoEarlyPropForFunc();
