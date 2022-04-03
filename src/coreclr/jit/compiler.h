@@ -7865,6 +7865,7 @@ private:
 
 public:
     bool typIsLayoutNum(unsigned layoutNum);
+    INDEBUG(const char* typGetName(unsigned typeNum);)
     // Get the layout having the specified layout number.
     ClassLayout* typGetLayoutByNum(unsigned layoutNum);
     // Get the layout number of the specified layout.

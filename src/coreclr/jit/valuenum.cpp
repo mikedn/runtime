@@ -7626,6 +7626,8 @@ void Compiler::vnSummarizeLoopMemoryStores()
             }
         }
     }
+
+    JITDUMP("\n");
 }
 
 void Compiler::vnSummarizeLoopBlockMemoryStores(BasicBlock* block, VNLoopMemorySummary& summary)
@@ -7904,7 +7906,14 @@ void Compiler::VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
     for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
     {
-        m_compiler->vnLoopTable[n].modifiesAddressExposedLocals = true;
+        VNLoop& loop = m_compiler->vnLoopTable[n];
+
+        if (!loop.modifiesAddressExposedLocals)
+        {
+            JITDUMP("Loop " FMT_LP " stores to address-exposed local V%02u\n", n, lclNum);
+        }
+
+        loop.modifiesAddressExposedLocals = true;
     }
 }
 
@@ -7920,7 +7929,10 @@ void Compiler::VNLoopMemorySummary::AddField(CORINFO_FIELD_HANDLE fieldHandle)
                 VNLoop::FieldHandleSet(m_compiler->getAllocator(CMK_ValueNumber));
         }
 
-        loop.lpFieldsModified->Add(fieldHandle);
+        if (loop.lpFieldsModified->Add(fieldHandle))
+        {
+            JITDUMP("Loop " FMT_LP " stores to field %s\n", n, m_compiler->eeGetFieldName(fieldHandle));
+        }
     }
 }
 
@@ -7936,7 +7948,10 @@ void Compiler::VNLoopMemorySummary::AddArrayType(unsigned elemTypeNum)
                 VNLoop::TypeNumSet(m_compiler->getAllocator(CMK_ValueNumber));
         }
 
-        loop.lpArrayElemTypesModified->Add(elemTypeNum);
+        if (loop.lpArrayElemTypesModified->Add(elemTypeNum))
+        {
+            JITDUMP("Loop " FMT_LP " stores to array of type %s\n", n, m_compiler->typGetName(elemTypeNum));
+        }
     }
 }
 
@@ -7952,8 +7967,20 @@ void Compiler::VNLoopMemorySummary::UpdateLoops() const
     {
         for (unsigned n = m_loopNum; n != BasicBlock::NOT_IN_LOOP; n = m_compiler->optLoopTable[n].lpParent)
         {
-            m_compiler->vnLoopTable[n].lpLoopHasMemoryHavoc |= m_memoryHavoc;
-            m_compiler->vnLoopTable[n].lpContainsCall |= m_containsCall;
+            VNLoop& loop = m_compiler->vnLoopTable[n];
+
+            if (!loop.lpLoopHasMemoryHavoc && m_memoryHavoc)
+            {
+                JITDUMP("Loop " FMT_LP " has memory havoc\n", n);
+            }
+
+            if (!loop.lpContainsCall && m_containsCall)
+            {
+                JITDUMP("Loop " FMT_LP " has calls\n", n);
+            }
+
+            loop.lpLoopHasMemoryHavoc |= m_memoryHavoc;
+            loop.lpContainsCall |= m_containsCall;
         }
     }
 

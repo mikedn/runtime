@@ -829,13 +829,13 @@ public:
 
         if (node != nullptr)
         {
-            return true;
+            return false;
         }
 
         m_buckets[index] = new (m_alloc) Node(m_buckets[index], value);
         m_count++;
 
-        return false;
+        return true;
     }
 
     bool Contains(Value value) const
