@@ -1510,16 +1510,6 @@ bool ValueNumStore::IsKnownNonNull(ValueNum vn)
     return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_KnownNonNull) != 0);
 }
 
-bool ValueNumStore::IsSharedStatic(ValueNum vn)
-{
-    if (vn == NoVN)
-    {
-        return false;
-    }
-    VNFuncApp funcAttr;
-    return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_SharedStatic) != 0);
-}
-
 ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_types typ, ChunkExtraAttribs attribs)
     : m_defs(nullptr), m_numUsed(0), m_baseVN(*pNextBaseVN), m_typ(typ), m_attribs(attribs)
 {
@@ -4757,6 +4747,10 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
                                              vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
+        // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
+        // Well, the chance that an address-exposed local is modified by another thread
+        // is slim so perhaps this is fine as it is but then vnIndirStore should do the
+        // same for local addresses.
         load->gtVNPair.SetBoth(vnMemoryLoad(load->GetType(), addrVN));
 
         return;
@@ -4886,22 +4880,34 @@ void Compiler::vnLocalFieldLoad(GenTreeLclFld* load)
 {
     assert(load->OperIs(GT_LCL_FLD) && ((load->gtFlags & GTF_VAR_DEF) == 0));
 
-    LclVarDsc*   lcl = lvaGetDesc(load);
-    ValueNumPair vnp;
+    LclVarDsc* lcl = lvaGetDesc(load);
+
+    if (lcl->IsAddressExposed())
+    {
+        // Note that the field sequence is currently ignored because we don't try to resolve
+        // these loads back to a store. We only care about getting the same VN when loading
+        // the same type from the same address (provided that there are no interfering stores).
+        ValueNum addrVN =
+            vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+                               vnStore->VNForUPtrSizeIntCon(load->GetLclOffs()), vnStore->VNForFieldSeq(nullptr));
+
+        load->SetLiberalVN(vnMemoryLoad(load->GetType(), addrVN));
+        load->SetConservativeVN(vnStore->VNForExpr(compCurBB, load->GetType()));
+
+        return;
+    }
 
     if (!lcl->IsInSsa() || !load->HasFieldSeq())
     {
-        // TODO-MIKE-CQ: Why doesn't this handle address exposed loads like vnLocalLoad?!
-        vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
-    }
-    else
-    {
-        assert(varTypeIsStruct(lcl->GetType()));
+        load->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
 
-        vnp = lcl->GetPerSsaData(load->GetSsaNum())->GetVNP();
-        vnp = vnExtractStructField(load, vnp, load->GetFieldSeq());
+        return;
     }
 
+    assert(varTypeIsStruct(lcl->GetType()));
+
+    ValueNumPair vnp = lcl->GetPerSsaData(load->GetSsaNum())->GetVNP();
+    vnp              = vnExtractStructField(load, vnp, load->GetFieldSeq());
     load->SetVNP(vnp);
 }
 
@@ -7039,8 +7045,6 @@ void ValueNumStore::InitValueNumStoreStatics()
         vnfOpAttribs[vnfNum] |= VNFOA_Commutative;                                                                     \
     if (knownNonNull)                                                                                                  \
         vnfOpAttribs[vnfNum] |= VNFOA_KnownNonNull;                                                                    \
-    if (sharedStatic)                                                                                                  \
-        vnfOpAttribs[vnfNum] |= VNFOA_SharedStatic;                                                                    \
     vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);                                           \
     vnfNum++;
 
