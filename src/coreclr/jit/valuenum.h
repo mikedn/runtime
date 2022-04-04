@@ -166,7 +166,6 @@ private:
         VNFOA_Arity2           = 0x8,  // Bits 2,3,4 encode the arity.
         VNFOA_Arity4           = 0x10, // Bits 2,3,4 encode the arity.
         VNFOA_KnownNonNull     = 0x20, // 1 iff the result is known to be non-null.
-        VNFOA_SharedStatic     = 0x40, // 1 iff this VNF is represent one of the shared static jit helpers
     };
 
     static const unsigned VNFOA_ArityShift = 2;
@@ -511,9 +510,6 @@ public:
 
     // True "iff" vn is a value known to be non-null.  (For example, the result of an allocation...)
     bool IsKnownNonNull(ValueNum vn);
-
-    // True "iff" vn is a value returned by a call to a shared static helper.
-    bool IsSharedStatic(ValueNum vn);
 
     // VNForFunc: We have five overloads, for arities 0, 1, 2, 3 and 4
     ValueNum VNForFunc(var_types typ, VNFunc func);

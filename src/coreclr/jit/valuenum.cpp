@@ -1510,16 +1510,6 @@ bool ValueNumStore::IsKnownNonNull(ValueNum vn)
     return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_KnownNonNull) != 0);
 }
 
-bool ValueNumStore::IsSharedStatic(ValueNum vn)
-{
-    if (vn == NoVN)
-    {
-        return false;
-    }
-    VNFuncApp funcAttr;
-    return GetVNFunc(vn, &funcAttr) && ((VNFuncAttribs(funcAttr.m_func) & VNFOA_SharedStatic) != 0);
-}
-
 ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_types typ, ChunkExtraAttribs attribs)
     : m_defs(nullptr), m_numUsed(0), m_baseVN(*pNextBaseVN), m_typ(typ), m_attribs(attribs)
 {
@@ -7055,8 +7045,6 @@ void ValueNumStore::InitValueNumStoreStatics()
         vnfOpAttribs[vnfNum] |= VNFOA_Commutative;                                                                     \
     if (knownNonNull)                                                                                                  \
         vnfOpAttribs[vnfNum] |= VNFOA_KnownNonNull;                                                                    \
-    if (sharedStatic)                                                                                                  \
-        vnfOpAttribs[vnfNum] |= VNFOA_SharedStatic;                                                                    \
     vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask);                                           \
     vnfNum++;
 
