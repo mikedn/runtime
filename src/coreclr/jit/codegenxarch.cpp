@@ -4598,7 +4598,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     }
 
     bool     dataIsUnary   = false;
-    bool     isRMWMemoryOp = tree->IsRMWMemoryOp();
+    bool     isRMWMemoryOp = data->isContained() && data->OperIsRMWMemOp();
     GenTree* rmwSrc        = nullptr;
 
     // We must consume the operands in the proper execution order, so that liveness is
@@ -4609,8 +4609,6 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     // and non-indir operand of data is the source of RMW memory op.
     if (isRMWMemoryOp)
     {
-        assert(data->isContained() && !data->OperIsLeaf());
-
         GenTree* rmwDst = nullptr;
 
         dataIsUnary = (GenTree::OperIsUnary(data->OperGet()) != 0);

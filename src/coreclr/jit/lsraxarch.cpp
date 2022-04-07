@@ -2403,11 +2403,10 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
     if (indirTree->gtOper == GT_STOREIND)
     {
         GenTree* source = indirTree->gtGetOp2();
-        if (indirTree->AsStoreInd()->IsRMWMemoryOp())
+        if (source->isContained() && source->OperIsRMWMemOp())
         {
             // Because 'source' is contained, we haven't yet determined its special register requirements, if any.
             // As it happens, the Shift or Rotate cases are the only ones with special requirements.
-            assert(source->isContained() && source->OperIsRMWMemOp());
 
             if (source->OperIsShiftOrRotate())
             {
