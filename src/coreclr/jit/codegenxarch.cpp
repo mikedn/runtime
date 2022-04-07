@@ -4553,147 +4553,94 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreInd: Produce code for a GT_STOREIND node.
-//
-// Arguments:
-//    tree - the GT_STOREIND node
-//
-void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
+void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
 {
-    assert(tree->OperIs(GT_STOREIND));
+    assert(store->OperIs(GT_STOREIND));
 
 #ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(tree, tree->GetValue());
+        genStoreSIMD12(store, store->GetValue());
         return;
     }
 #endif
 
-    GenTree*  addr       = tree->GetAddr();
-    GenTree*  data       = tree->GetValue();
-    var_types targetType = tree->GetType();
+    GenTree*  addr  = store->GetAddr();
+    GenTree*  value = store->GetValue();
+    var_types type  = store->GetType();
 
-    assert(IsValidSourceType(targetType, data->GetType()));
+    assert(IsValidSourceType(type, value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
+    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(store);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
         regNumber addrReg = UseReg(addr);
-        regNumber dataReg = UseReg(data);
+        regNumber dataReg = UseReg(value);
 
-        if (!genEmitOptimizedGCWriteBarrier(writeBarrierForm, addr, data))
+        if (!genEmitOptimizedGCWriteBarrier(writeBarrierForm, addr, value))
         {
             // At this point, we should not have any interference.
             // That is, 'data' must not be in REG_ARG_0, as that is where 'addr' must go.
             noway_assert(dataReg != REG_ARG_0);
 
             inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
-            inst_Mov(data->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
-            genGCWriteBarrier(tree, writeBarrierForm);
+            inst_Mov(value->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
+            genGCWriteBarrier(store, writeBarrierForm);
         }
 
         return;
     }
 
-    bool     dataIsUnary   = false;
-    bool     isRMWMemoryOp = data->isContained() && data->OperIsRMWMemOp();
-    GenTree* rmwSrc        = nullptr;
+    emitAttr attr = emitTypeSize(type);
 
-    // We must consume the operands in the proper execution order, so that liveness is
-    // updated appropriately.
     genConsumeAddress(addr);
 
-    // If tree represents a RMW memory op then its data is a non-leaf node marked as contained
-    // and non-indir operand of data is the source of RMW memory op.
-    if (isRMWMemoryOp)
+    if (!value->isContained() || !value->OperIsRMWMemOp())
     {
-        GenTree* rmwDst = nullptr;
+        genConsumeRegs(value);
+        GetEmitter()->emitInsStoreInd(ins_Store(value->GetType()), attr, store);
 
-        dataIsUnary = (GenTree::OperIsUnary(data->OperGet()) != 0);
-        if (!dataIsUnary)
-        {
-            if (tree->IsRMWDstOp1())
-            {
-                rmwDst = data->gtGetOp1();
-                rmwSrc = data->gtGetOp2();
-            }
-            else
-            {
-                assert(tree->IsRMWDstOp2());
-                rmwDst = data->gtGetOp2();
-                rmwSrc = data->gtGetOp1();
-            }
+        return;
+    }
 
-            genConsumeRegs(rmwSrc);
-        }
-        else
-        {
-            // *(p) = oper *(p): Here addr = p, rmwsrc=rmwDst = *(p) i.e. GT_IND(p)
-            // For unary RMW ops, src and dst of RMW memory op is the same.  Lower
-            // clears operand counts on rmwSrc and we don't need to perform a
-            // genConsumeReg() on it.
-            assert(tree->IsRMWDstOp1());
-            rmwSrc = data->gtGetOp1();
-            rmwDst = data->gtGetOp1();
-            assert(rmwSrc->isUsedFromMemory());
-        }
+    if (value->OperIsUnary())
+    {
+        INDEBUG(GenTree* load = value->AsUnOp()->GetOp(0));
+        assert(load->isUsedFromMemory() && Lowering::IndirsAreEquivalent(load, store));
 
-        assert(rmwSrc != nullptr);
-        assert(rmwDst != nullptr);
-        assert(Lowering::IndirsAreEquivalent(rmwDst, tree));
+        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, store);
+
+        return;
+    }
+
+    GenTree* load = value->AsOp()->GetOp(0);
+    GenTree* src  = value->AsOp()->GetOp(1);
+
+    if (!store->IsRMWDstOp1())
+    {
+        assert(store->IsRMWDstOp2());
+        std::swap(load, src);
+    }
+
+    genConsumeRegs(src);
+
+    assert(Lowering::IndirsAreEquivalent(load, store));
+
+    if (value->OperIsShiftOrRotate())
+    {
+        assert(src == value->AsOp()->GetOp(1));
+
+        genCodeForShiftRMW(store);
+    }
+    else if (value->OperIs(GT_ADD) && (src->IsIntCon(1) || src->IsIntCon(-1)))
+    {
+        assert(src->isContained());
+
+        GetEmitter()->emitInsRMW(src->IsIntCon(1) ? INS_inc : INS_dec, attr, store);
     }
     else
     {
-        genConsumeRegs(data);
-    }
-
-    if (isRMWMemoryOp)
-    {
-        if (dataIsUnary)
-        {
-            // generate code for unary RMW memory ops like neg/not
-            GetEmitter()->emitInsRMW(genGetInsForOper(data->OperGet(), data->TypeGet()), emitTypeSize(tree), tree);
-        }
-        else
-        {
-            if (data->OperIsShiftOrRotate())
-            {
-                // Generate code for shift RMW memory ops.
-                // The data address needs to be op1 (it must be [addr] = [addr] <shift> <amount>, not [addr] =
-                // <amount> <shift> [addr]).
-                assert(tree->IsRMWDstOp1());
-                assert(rmwSrc == data->gtGetOp2());
-                genCodeForShiftRMW(tree);
-            }
-            else if (data->OperGet() == GT_ADD && (rmwSrc->IsIntegralConst(1) || rmwSrc->IsIntegralConst(-1)))
-            {
-                // Generate "inc/dec [mem]" instead of "add/sub [mem], 1".
-                //
-                // Notes:
-                //  1) Global morph transforms GT_SUB(x, +/-1) into GT_ADD(x, -/+1).
-                //  2) TODO-AMD64: Debugger routine NativeWalker::Decode() runs into
-                //     an assert while decoding ModR/M byte of "inc dword ptr [rax]".
-                //     It is not clear whether Decode() can handle all possible
-                //     addr modes with inc/dec.  For this reason, inc/dec [mem]
-                //     is not generated while generating debuggable code.  Update
-                //     the above if condition once Decode() routine is fixed.
-                assert(rmwSrc->isContainedIntOrIImmed());
-                instruction ins = rmwSrc->IsIntegralConst(1) ? INS_inc : INS_dec;
-                GetEmitter()->emitInsRMW(ins, emitTypeSize(tree), tree);
-            }
-            else
-            {
-                // generate code for remaining binary RMW memory ops like add/sub/and/or/xor
-                GetEmitter()->emitInsRMW(genGetInsForOper(data->OperGet(), data->TypeGet()), emitTypeSize(tree), tree,
-                                         rmwSrc);
-            }
-        }
-    }
-    else
-    {
-        GetEmitter()->emitInsStoreInd(ins_Store(data->TypeGet()), emitTypeSize(tree), tree);
+        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, store, src);
     }
 }
 

@@ -1698,6 +1698,8 @@ public:
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
+    bool IsIntCon(ssize_t value) const;
+
     inline GenTree* gtGetOp1() const;
 
     // Directly return op2. Asserts the node is binary. Might return nullptr if the binary node allows
@@ -7447,7 +7449,6 @@ inline bool GenTree::IsHWIntrinsicZero() const
 //    long constants in a target-independent way.
 
 inline bool GenTree::IsIntegralConst(ssize_t constVal) const
-
 {
     if ((gtOper == GT_CNS_INT) && (AsIntConCommon()->IconValue() == constVal))
     {
@@ -7460,6 +7461,11 @@ inline bool GenTree::IsIntegralConst(ssize_t constVal) const
     }
 
     return false;
+}
+
+inline bool GenTree::IsIntCon(ssize_t value) const
+{
+    return (gtOper == GT_CNS_INT) && (AsIntCon()->GetValue() == value);
 }
 
 inline GenTree* GenTree::gtGetOp1() const
