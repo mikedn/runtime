@@ -3147,48 +3147,13 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
     *outIndirCandidate = nullptr;
     *outIndirOpSource  = nullptr;
 
-    // Early out if storeInd is already known to be a non-RMW memory op
     GenTreeStoreInd* storeInd = tree->AsStoreInd();
-    if (storeInd->IsNonRMWMemoryOp())
-    {
-        return false;
-    }
+
+    assert(storeInd->IsRMWStatusUnknown());
 
     GenTree*   indirDst = storeInd->gtGetOp1();
     GenTree*   indirSrc = storeInd->gtGetOp2();
     genTreeOps oper     = indirSrc->OperGet();
-
-    // Early out if it is already known to be a RMW memory op
-    if (storeInd->IsRMWMemoryOp())
-    {
-        if (GenTree::OperIsBinary(oper))
-        {
-            if (storeInd->IsRMWDstOp1())
-            {
-                *outIndirCandidate = indirSrc->gtGetOp1();
-                *outIndirOpSource  = indirSrc->gtGetOp2();
-            }
-            else
-            {
-                assert(storeInd->IsRMWDstOp2());
-                *outIndirCandidate = indirSrc->gtGetOp2();
-                *outIndirOpSource  = indirSrc->gtGetOp1();
-            }
-            assert(IndirsAreEquivalent(*outIndirCandidate, storeInd));
-        }
-        else
-        {
-            assert(GenTree::OperIsUnary(oper));
-            assert(IndirsAreEquivalent(indirSrc->gtGetOp1(), storeInd));
-            *outIndirCandidate = indirSrc->gtGetOp1();
-            *outIndirOpSource  = indirSrc->gtGetOp1();
-        }
-
-        return true;
-    }
-
-    // If reached here means that we do not know RMW status of tree rooted at storeInd
-    assert(storeInd->IsRMWStatusUnknown());
 
     // Early out if indirDst is not one of the supported memory operands.
     if (!indirDst->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
