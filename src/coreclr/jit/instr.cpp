@@ -438,15 +438,13 @@ void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned
     assert(val < 256);
 #endif
 
-    ins = genMapShiftInsToShiftByConstantIns(ins, val);
-
     if (val == 1)
     {
-        GetEmitter()->emitIns_R(ins, size, reg);
+        GetEmitter()->emitIns_R(MapShiftInsToShiftBy1Ins(ins), size, reg);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(ins, size, reg, val);
+        GetEmitter()->emitIns_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, val);
     }
 
 #else

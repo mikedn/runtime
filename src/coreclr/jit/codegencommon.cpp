@@ -8754,60 +8754,6 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
 
 #endif // defined(TARGET_XARCH)
 
-#ifdef TARGET_XARCH
-
-//------------------------------------------------------------------------
-// genMapShiftInsToShiftByConstantIns: Given a general shift/rotate instruction,
-// map it to the specific x86/x64 shift opcode for a shift/rotate by a constant.
-// X86/x64 has a special encoding for shift/rotate-by-constant-1.
-//
-// Arguments:
-//    ins: the base shift/rotate instruction
-//    shiftByValue: the constant value by which we are shifting/rotating
-//
-instruction CodeGen::genMapShiftInsToShiftByConstantIns(instruction ins, int shiftByValue)
-{
-    assert(ins == INS_rcl || ins == INS_rcr || ins == INS_rol || ins == INS_ror || ins == INS_shl || ins == INS_shr ||
-           ins == INS_sar);
-
-    // Which format should we use?
-
-    instruction shiftByConstantIns;
-
-    if (shiftByValue == 1)
-    {
-        // Use the shift-by-one format.
-
-        assert(INS_rcl + 1 == INS_rcl_1);
-        assert(INS_rcr + 1 == INS_rcr_1);
-        assert(INS_rol + 1 == INS_rol_1);
-        assert(INS_ror + 1 == INS_ror_1);
-        assert(INS_shl + 1 == INS_shl_1);
-        assert(INS_shr + 1 == INS_shr_1);
-        assert(INS_sar + 1 == INS_sar_1);
-
-        shiftByConstantIns = (instruction)(ins + 1);
-    }
-    else
-    {
-        // Use the shift-by-NNN format.
-
-        assert(INS_rcl + 2 == INS_rcl_N);
-        assert(INS_rcr + 2 == INS_rcr_N);
-        assert(INS_rol + 2 == INS_rol_N);
-        assert(INS_ror + 2 == INS_ror_N);
-        assert(INS_shl + 2 == INS_shl_N);
-        assert(INS_shr + 2 == INS_shr_N);
-        assert(INS_sar + 2 == INS_sar_N);
-
-        shiftByConstantIns = (instruction)(ins + 2);
-    }
-
-    return shiftByConstantIns;
-}
-
-#endif // TARGET_XARCH
-
 //------------------------------------------------------------------------------------------------ //
 // getFirstArgWithStackSlot - returns the first argument with stack slot on the caller's frame.
 //

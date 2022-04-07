@@ -3119,7 +3119,7 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
 // to be correct and functional.
 //     IndirsAreEquivalent()
 //     NodesAreEquivalentLeaves()
-//     Codegen of GT_STOREIND and genCodeForShiftRMW()
+//     Codegen of GT_STOREIND and GenStoreIndRMWShift()
 //     emitInsRMW()
 //
 //  TODO-CQ: Enable support for more complex indirections (if needed) or use the value numbering

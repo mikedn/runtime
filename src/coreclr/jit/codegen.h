@@ -1125,7 +1125,7 @@ protected:
 #endif
 
 #ifdef TARGET_XARCH
-    void genCodeForShiftRMW(GenTreeStoreInd* storeInd);
+    void GenStoreIndRMWShift(GenTreeStoreInd* store, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
 #endif // TARGET_XARCH
 
@@ -1440,8 +1440,9 @@ public:
                                     DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
 
 #ifdef TARGET_XARCH
-    instruction genMapShiftInsToShiftByConstantIns(instruction ins, int shiftByValue);
-#endif // TARGET_XARCH
+    instruction MapShiftInsToShiftBy1Ins(instruction ins);
+    instruction MapShiftInsToShiftByImmIns(instruction ins);
+#endif
 
     // Maps a GenCondition code to a sequence of conditional jumps or other conditional instructions
     // such as X86's SETcc. A sequence of instructions rather than just a single one is required for
