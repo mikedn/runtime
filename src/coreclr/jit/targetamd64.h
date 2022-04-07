@@ -9,7 +9,6 @@
 // clang-format off
   // TODO-AMD64-CQ: Fine tune the following xxBlk threshold values:
 
-  #define CPU_LOAD_STORE_ARCH      0
   #define ROUND_FLOAT              0       // Do not round intermed float expression results
   #define CPU_HAS_BYTE_REGS        0
 

@@ -331,7 +331,7 @@ private:
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);
 
-#if !CPU_LOAD_STORE_ARCH
+#ifdef TARGET_XARCH
     bool IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd);
     bool IsRMWMemOpRootedAtStoreInd(GenTree* storeIndTree, GenTree** indirCandidate, GenTree** indirOpSource);
     bool LowerRMWMemOp(GenTreeIndir* storeInd);

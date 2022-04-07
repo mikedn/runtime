@@ -6587,7 +6587,7 @@ void CodeGen::genFnProlog()
 
     if (compiler->info.compPublishStubParam)
     {
-#if CPU_LOAD_STORE_ARCH
+#ifndef TARGET_XARCH
         GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SECRET_STUB_PARAM,
                                   compiler->lvaStubArgumentVar, 0);
 #else

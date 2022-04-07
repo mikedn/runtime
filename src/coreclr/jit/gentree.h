@@ -6390,9 +6390,9 @@ inline const char* RMWStatusDescription(RMWStatus status)
 // StoreInd is just a BinOp, with additional RMW status
 struct GenTreeStoreInd : public GenTreeIndir
 {
-#if !CPU_LOAD_STORE_ARCH
+#ifdef TARGET_XARCH
     // The below flag is set and used during lowering
-    RMWStatus gtRMWStatus;
+    RMWStatus gtRMWStatus = STOREIND_RMW_STATUS_UNKNOWN;
 
     bool IsRMWStatusUnknown()
     {
@@ -6415,30 +6415,22 @@ struct GenTreeStoreInd : public GenTreeIndir
     {
         return gtRMWStatus == STOREIND_RMW_DST_IS_OP2;
     }
-#endif //! CPU_LOAD_STORE_ARCH
 
     RMWStatus GetRMWStatus()
     {
-#if !CPU_LOAD_STORE_ARCH
         return gtRMWStatus;
-#else
-        return STOREIND_RMW_STATUS_UNKNOWN;
-#endif
     }
 
     void SetRMWStatusDefault()
     {
-#if !CPU_LOAD_STORE_ARCH
         gtRMWStatus = STOREIND_RMW_STATUS_UNKNOWN;
-#endif
     }
 
     void SetRMWStatus(RMWStatus status)
     {
-#if !CPU_LOAD_STORE_ARCH
         gtRMWStatus = status;
-#endif
     }
+#endif // TARGET_XARCH
 
     GenTree*& Data()
     {
@@ -6447,16 +6439,11 @@ struct GenTreeStoreInd : public GenTreeIndir
 
     GenTreeStoreInd(var_types type, GenTree* destPtr, GenTree* data) : GenTreeIndir(GT_STOREIND, type, destPtr, data)
     {
-        SetRMWStatusDefault();
     }
 
 #if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
-    // Used only for GenTree::GetVtableForOper()
     GenTreeStoreInd() : GenTreeIndir()
     {
-        SetRMWStatusDefault();
     }
 #endif
 };
