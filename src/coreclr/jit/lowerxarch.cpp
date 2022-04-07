@@ -2968,46 +2968,6 @@ bool Lowering::IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd)
 }
 
 //----------------------------------------------------------------------------------------------
-// Returns true if this tree is bin-op of a GT_STOREIND of the following form
-//      storeInd(subTreeA, binOp(gtInd(subTreeA), subtreeB)) or
-//      storeInd(subTreeA, binOp(subtreeB, gtInd(subTreeA)) in case of commutative bin-ops
-//
-// The above form for storeInd represents a read-modify-write memory binary operation.
-//
-// Parameters
-//     tree   -   GentreePtr of binOp
-//
-// Return Value
-//     True if 'tree' is part of a RMW memory operation pattern
-//
-bool Lowering::IsBinOpInRMWStoreInd(GenTree* tree)
-{
-    // Must be a non floating-point type binary operator since SSE2 doesn't support RMW memory ops
-    assert(!varTypeIsFloating(tree));
-    assert(GenTree::OperIsBinary(tree->OperGet()));
-
-    // Cheap bail out check before more expensive checks are performed.
-    // RMW memory op pattern requires that one of the operands of binOp to be GT_IND.
-    if (tree->gtGetOp1()->OperGet() != GT_IND && tree->gtGetOp2()->OperGet() != GT_IND)
-    {
-        return false;
-    }
-
-    LIR::Use use;
-    if (!BlockRange().TryGetUse(tree, &use) || use.User()->OperGet() != GT_STOREIND || use.User()->gtGetOp2() != tree)
-    {
-        return false;
-    }
-
-    // Since it is not relatively cheap to recognize RMW memory op pattern, we
-    // cache the result in GT_STOREIND node so that while lowering GT_STOREIND
-    // we can use the result.
-    GenTree* indirCandidate = nullptr;
-    GenTree* indirOpSource  = nullptr;
-    return IsRMWMemOpRootedAtStoreInd(use.User(), &indirCandidate, &indirOpSource);
-}
-
-//----------------------------------------------------------------------------------------------
 // This method recognizes the case where we have a treeNode with the following structure:
 //         storeInd(IndirDst, binOp(gtInd(IndirDst), indirOpSource)) OR
 //         storeInd(IndirDst, binOp(indirOpSource, gtInd(IndirDst)) in case of commutative operations OR
@@ -4208,7 +4168,6 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
     // This is because during codegen, type of 'tree' is used to determine emit Type size. If the types
     // do not match, they get normalized (i.e. sign/zero extended) on load into a register.
     bool     directlyEncodable  = false;
-    bool     binOpInRMW         = false;
     GenTree* operand            = nullptr;
     bool     isSafeToContainOp1 = true;
     bool     isSafeToContainOp2 = true;
@@ -4220,37 +4179,33 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
     }
     else
     {
-        binOpInRMW = IsBinOpInRMWStoreInd(node);
-        if (!binOpInRMW)
+        const unsigned operatorSize = genTypeSize(node->TypeGet());
+        if ((genTypeSize(op2->TypeGet()) == operatorSize) && IsContainableMemoryOp(op2))
         {
-            const unsigned operatorSize = genTypeSize(node->TypeGet());
-            if ((genTypeSize(op2->TypeGet()) == operatorSize) && IsContainableMemoryOp(op2))
+            isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+            if (isSafeToContainOp2)
             {
-                isSafeToContainOp2 = IsSafeToContainMem(node, op2);
-                if (isSafeToContainOp2)
-                {
-                    directlyEncodable = true;
-                    operand           = op2;
-                }
+                directlyEncodable = true;
+                operand           = op2;
             }
+        }
 
-            if ((operand == nullptr) && node->OperIsCommutative())
+        if ((operand == nullptr) && node->OperIsCommutative())
+        {
+            // If it is safe, we can reverse the order of operands of commutative operations for efficient
+            // codegen
+            if (IsContainableImmed(node, op1))
             {
-                // If it is safe, we can reverse the order of operands of commutative operations for efficient
-                // codegen
-                if (IsContainableImmed(node, op1))
+                directlyEncodable = true;
+                operand           = op1;
+            }
+            else if ((genTypeSize(op1->TypeGet()) == operatorSize) && IsContainableMemoryOp(op1))
+            {
+                isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+                if (isSafeToContainOp1)
                 {
                     directlyEncodable = true;
                     operand           = op1;
-                }
-                else if ((genTypeSize(op1->TypeGet()) == operatorSize) && IsContainableMemoryOp(op1))
-                {
-                    isSafeToContainOp1 = IsSafeToContainMem(node, op1);
-                    if (isSafeToContainOp1)
-                    {
-                        directlyEncodable = true;
-                        operand           = op1;
-                    }
                 }
             }
         }
@@ -4261,12 +4216,8 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
         assert(operand != nullptr);
         MakeSrcContained(node, operand);
     }
-    else if (!binOpInRMW)
+    else
     {
-        // If this binary op neither has contained operands, nor is a
-        // Read-Modify-Write (RMW) operation, we can mark its operands
-        // as reg optional.
-
         // IsSafeToContainMem is expensive so we call it at most once for each operand
         // in this method. If we already called IsSafeToContainMem, it must have returned false;
         // otherwise, directlyEncodable would be true.

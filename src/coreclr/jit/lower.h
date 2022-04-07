@@ -333,7 +333,6 @@ private:
 
 #if !CPU_LOAD_STORE_ARCH
     bool IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd);
-    bool IsBinOpInRMWStoreInd(GenTree* tree);
     bool IsRMWMemOpRootedAtStoreInd(GenTree* storeIndTree, GenTree** indirCandidate, GenTree** indirOpSource);
     bool LowerRMWMemOp(GenTreeIndir* storeInd);
 #endif
