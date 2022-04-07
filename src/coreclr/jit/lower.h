@@ -335,6 +335,12 @@ private:
     bool IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd);
     bool IsRMWMemOpRootedAtStoreInd(GenTree* storeIndTree, GenTree** indirCandidate, GenTree** indirOpSource);
     bool LowerRMWMemOp(GenTreeIndir* storeInd);
+    static bool NodesAreEquivalentLeaves(GenTree* candidate, GenTree* storeInd);
+
+public:
+    static bool IndirsAreEquivalent(GenTree* pTreeA, GenTree* pTreeB);
+
+private:
 #endif
 
     void WidenSIMD12IfNecessary(GenTreeLclVarCommon* node);
@@ -397,8 +403,6 @@ private:
 
     // Utility functions
 public:
-    static bool IndirsAreEquivalent(GenTree* pTreeA, GenTree* pTreeB);
-
     // return true if 'childNode' is an immediate that can be contained
     //  by the 'parentNode' (i.e. folded into an instruction)
     //  for example small enough and non-relocatable
@@ -418,8 +422,6 @@ public:
     static void TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, BasicBlock* block);
 
 private:
-    static bool NodesAreEquivalentLeaves(GenTree* candidate, GenTree* storeInd);
-
     bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
 
     // Makes 'childNode' contained in the 'parentNode'

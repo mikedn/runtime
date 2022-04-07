@@ -2967,6 +2967,131 @@ bool Lowering::IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd)
     return true;
 }
 
+/** Verifies if both of these trees represent the same indirection.
+ * Used by Lower to annotate if CodeGen generate an instruction of the
+ * form *addrMode BinOp= expr
+ *
+ * Preconditions: both trees are children of GT_INDs and their underlying children
+ * have the same gtOper.
+ *
+ * This is a first iteration to actually recognize trees that can be code-generated
+ * as a single read-modify-write instruction on AMD64/x86.  For now
+ * this method only supports the recognition of simple addressing modes (through GT_LEA)
+ * or local var indirections.  Local fields, array access and other more complex nodes are
+ * not yet supported.
+ *
+ * TODO-CQ:  Perform tree recognition by using the Value Numbering Package, that way we can recognize
+ * arbitrary complex trees and support much more addressing patterns.
+ */
+bool Lowering::IndirsAreEquivalent(GenTree* candidate, GenTree* storeInd)
+{
+    assert(candidate->OperGet() == GT_IND);
+    assert(storeInd->OperGet() == GT_STOREIND);
+
+    // We should check the size of the indirections.  If they are
+    // different, say because of a cast, then we can't call them equivalent.  Doing so could cause us
+    // to drop a cast.
+    // Signed-ness difference is okay and expected since a store indirection must always
+    // be signed based on the CIL spec, but a load could be unsigned.
+    if (genTypeSize(candidate->gtType) != genTypeSize(storeInd->gtType))
+    {
+        return false;
+    }
+
+    GenTree* pTreeA = candidate->gtGetOp1();
+    GenTree* pTreeB = storeInd->gtGetOp1();
+
+    // This method will be called by codegen (as well as during lowering).
+    // After register allocation, the sources may have been spilled and reloaded
+    // to a different register, indicated by an inserted GT_RELOAD node.
+    pTreeA = pTreeA->gtSkipReloadOrCopy();
+    pTreeB = pTreeB->gtSkipReloadOrCopy();
+
+    genTreeOps oper;
+
+    if (pTreeA->OperGet() != pTreeB->OperGet())
+    {
+        return false;
+    }
+
+    oper = pTreeA->OperGet();
+    switch (oper)
+    {
+        case GT_LCL_VAR:
+        case GT_LCL_VAR_ADDR:
+        case GT_CLS_VAR_ADDR:
+        case GT_CNS_INT:
+            return NodesAreEquivalentLeaves(pTreeA, pTreeB);
+
+        case GT_LEA:
+        {
+            GenTreeAddrMode* gtAddr1 = pTreeA->AsAddrMode();
+            GenTreeAddrMode* gtAddr2 = pTreeB->AsAddrMode();
+            return NodesAreEquivalentLeaves(gtAddr1->Base(), gtAddr2->Base()) &&
+                   NodesAreEquivalentLeaves(gtAddr1->Index(), gtAddr2->Index()) &&
+                   (gtAddr1->gtScale == gtAddr2->gtScale) && (gtAddr1->Offset() == gtAddr2->Offset());
+        }
+        default:
+            // We don't handle anything that is not either a constant,
+            // a local var or LEA.
+            return false;
+    }
+}
+
+//------------------------------------------------------------------------
+// NodesAreEquivalentLeaves: Check whether the two given nodes are the same leaves.
+//
+// Arguments:
+//      tree1 and tree2 are nodes to be checked.
+// Return Value:
+//    Returns true if they are same leaves, false otherwise.
+//
+// static
+bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
+{
+    if (tree1 == tree2)
+    {
+        return true;
+    }
+
+    if (tree1 == nullptr || tree2 == nullptr)
+    {
+        return false;
+    }
+
+    tree1 = tree1->gtSkipReloadOrCopy();
+    tree2 = tree2->gtSkipReloadOrCopy();
+
+    if (tree1->TypeGet() != tree2->TypeGet())
+    {
+        return false;
+    }
+
+    if (tree1->OperGet() != tree2->OperGet())
+    {
+        return false;
+    }
+
+    if (!tree1->OperIsLeaf() || !tree2->OperIsLeaf())
+    {
+        return false;
+    }
+
+    switch (tree1->OperGet())
+    {
+        case GT_CNS_INT:
+            return tree1->AsIntCon()->IconValue() == tree2->AsIntCon()->IconValue() &&
+                   tree1->IsIconHandle() == tree2->IsIconHandle();
+        case GT_LCL_VAR:
+        case GT_LCL_VAR_ADDR:
+            return tree1->AsLclVarCommon()->GetLclNum() == tree2->AsLclVarCommon()->GetLclNum();
+        case GT_CLS_VAR_ADDR:
+            return tree1->AsClsVar()->gtClsVarHnd == tree2->AsClsVar()->gtClsVarHnd;
+        default:
+            return false;
+    }
+}
+
 //----------------------------------------------------------------------------------------------
 // This method recognizes the case where we have a treeNode with the following structure:
 //         storeInd(IndirDst, binOp(gtInd(IndirDst), indirOpSource)) OR
