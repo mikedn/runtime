@@ -3155,6 +3155,12 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
     GenTree*   indirSrc = storeInd->gtGetOp2();
     genTreeOps oper     = indirSrc->OperGet();
 
+    if (!GenTree::OperIsRMWMemOp(oper))
+    {
+        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
+        return false;
+    }
+
     // Early out if indirDst is not one of the supported memory operands.
     if (!indirDst->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
@@ -3194,13 +3200,6 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
     RMWStatus status         = STOREIND_RMW_UNKNOWN;
     if (GenTree::OperIsBinary(oper))
     {
-        // Return if binary op is not one of the supported operations for RMW of memory.
-        if (!GenTree::OperIsRMWMemOp(oper))
-        {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-            return false;
-        }
-
         if (GenTree::OperIsShiftOrRotate(oper) && varTypeIsSmall(storeInd))
         {
             // In ldind, Integer values smaller than 4 bytes, a boolean, or a character converted to 4 bytes
@@ -3230,14 +3229,9 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
             return false;
         }
     }
-    else if (GenTree::OperIsUnary(oper))
+    else
     {
-        // Nodes other than GT_NOT and GT_NEG are not yet supported.
-        if (oper != GT_NOT && oper != GT_NEG)
-        {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-            return false;
-        }
+        assert(GenTree::OperIsUnary(oper));
 
         if (indirSrc->gtGetOp1()->OperGet() != GT_IND)
         {
@@ -3258,11 +3252,6 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
             storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
             return false;
         }
-    }
-    else
-    {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-        return false;
     }
 
     // By this point we've verified that we have a supported operand with a supported address. Now we need to ensure
