@@ -139,7 +139,7 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
             assignment->ChangeOper(GT_STOREIND);
             assignment->SetType(location->GetType());
 #ifdef TARGET_XARCH
-            assignment->AsStoreInd()->SetRMWStatus(STOREIND_RMW_STATUS_UNKNOWN);
+            assignment->AsStoreInd()->SetRMWStatus(STOREIND_RMW_UNKNOWN);
 #endif
             assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
             assignment->AsIndir()->SetValue(value);

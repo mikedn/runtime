@@ -6348,18 +6348,10 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
 // Read-modify-write status of a RMW memory op rooted at a storeInd
 enum RMWStatus
 {
-    STOREIND_RMW_STATUS_UNKNOWN, // RMW status of storeInd unknown
-                                 // Default status unless modified by IsRMWMemOpRootedAtStoreInd()
-
-    // One of these denote storeind is a RMW memory operation.
-    STOREIND_RMW_DST_IS_OP1, // StoreInd is known to be a RMW memory op and dst candidate is op1
-    STOREIND_RMW_DST_IS_OP2, // StoreInd is known to be a RMW memory op and dst candidate is op2
-
-    // One of these denote the reason for storeind is marked as non-RMW operation
-    STOREIND_RMW_UNSUPPORTED_ADDR, // Addr mode is not yet supported for RMW memory
-    STOREIND_RMW_UNSUPPORTED_OPER, // Operation is not supported for RMW memory
-    STOREIND_RMW_UNSUPPORTED_TYPE, // Type is not supported for RMW memory
-    STOREIND_RMW_INDIR_UNEQUAL     // Indir to read value is not equivalent to indir that writes the value
+    STOREIND_RMW_UNKNOWN,
+    STOREIND_RMW_DST_IS_OP1,
+    STOREIND_RMW_DST_IS_OP2,
+    STOREIND_RMW_UNSUPPORTED
 };
 
 #ifdef DEBUG
@@ -6367,22 +6359,16 @@ inline const char* RMWStatusDescription(RMWStatus status)
 {
     switch (status)
     {
-        case STOREIND_RMW_STATUS_UNKNOWN:
+        case STOREIND_RMW_UNKNOWN:
             return "RMW status unknown";
         case STOREIND_RMW_DST_IS_OP1:
             return "dst candidate is op1";
         case STOREIND_RMW_DST_IS_OP2:
             return "dst candidate is op2";
-        case STOREIND_RMW_UNSUPPORTED_ADDR:
-            return "address mode is not supported";
-        case STOREIND_RMW_UNSUPPORTED_OPER:
-            return "oper is not supported";
-        case STOREIND_RMW_UNSUPPORTED_TYPE:
-            return "type is not supported";
-        case STOREIND_RMW_INDIR_UNEQUAL:
-            return "read indir is not equivalent to write indir";
+        case STOREIND_RMW_UNSUPPORTED:
+            return "not supported";
         default:
-            unreached();
+            return "???";
     }
 }
 #endif
@@ -6392,16 +6378,15 @@ struct GenTreeStoreInd : public GenTreeIndir
 {
 #ifdef TARGET_XARCH
     // The below flag is set and used during lowering
-    RMWStatus gtRMWStatus = STOREIND_RMW_STATUS_UNKNOWN;
+    RMWStatus gtRMWStatus = STOREIND_RMW_UNKNOWN;
 
     bool IsRMWStatusUnknown()
     {
-        return gtRMWStatus == STOREIND_RMW_STATUS_UNKNOWN;
+        return gtRMWStatus == STOREIND_RMW_UNKNOWN;
     }
     bool IsNonRMWMemoryOp()
     {
-        return gtRMWStatus == STOREIND_RMW_UNSUPPORTED_ADDR || gtRMWStatus == STOREIND_RMW_UNSUPPORTED_OPER ||
-               gtRMWStatus == STOREIND_RMW_UNSUPPORTED_TYPE || gtRMWStatus == STOREIND_RMW_INDIR_UNEQUAL;
+        return gtRMWStatus == STOREIND_RMW_UNSUPPORTED;
     }
     bool IsRMWMemoryOp()
     {

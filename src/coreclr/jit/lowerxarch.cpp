@@ -89,7 +89,7 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 {
     // Mark all GT_STOREIND nodes to indicate that it is not known
     // whether it represents a RMW memory op.
-    store->SetRMWStatus(STOREIND_RMW_STATUS_UNKNOWN);
+    store->SetRMWStatus(STOREIND_RMW_UNKNOWN);
 
     if (!varTypeIsFloating(store->GetType()))
     {
@@ -3193,7 +3193,7 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
     // Early out if indirDst is not one of the supported memory operands.
     if (!indirDst->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_ADDR);
+        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
         return false;
     }
 
@@ -3201,7 +3201,7 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
     // because we are not allowed to modify the target until after the overflow check.
     if (indirSrc->gtOverflowEx())
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_OPER);
+        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
         return false;
     }
 
@@ -3226,13 +3226,13 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
 
     GenTree*  indirCandidate = nullptr;
     GenTree*  indirOpSource  = nullptr;
-    RMWStatus status         = STOREIND_RMW_STATUS_UNKNOWN;
+    RMWStatus status         = STOREIND_RMW_UNKNOWN;
     if (GenTree::OperIsBinary(oper))
     {
         // Return if binary op is not one of the supported operations for RMW of memory.
         if (!GenTree::OperIsRMWMemOp(oper))
         {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_OPER);
+            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
             return false;
         }
 
@@ -3241,7 +3241,7 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
             // In ldind, Integer values smaller than 4 bytes, a boolean, or a character converted to 4 bytes
             // by sign or zero-extension as appropriate. If we directly shift the short type data using sar, we
             // will lose the sign or zero-extension bits.
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_TYPE);
+            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
             return false;
         }
 
@@ -3261,7 +3261,7 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
         }
         else
         {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_ADDR);
+            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
             return false;
         }
     }
@@ -3270,13 +3270,13 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
         // Nodes other than GT_NOT and GT_NEG are not yet supported.
         if (oper != GT_NOT && oper != GT_NEG)
         {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_OPER);
+            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
             return false;
         }
 
         if (indirSrc->gtGetOp1()->OperGet() != GT_IND)
         {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_ADDR);
+            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
             return false;
         }
 
@@ -3290,13 +3290,13 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
         }
         else
         {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_ADDR);
+            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
             return false;
         }
     }
     else
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_OPER);
+        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
         return false;
     }
 
@@ -3304,13 +3304,13 @@ bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandi
     // that we're able to move the destination address for the source indirection forwards.
     if (!IsSafeToContainMem(storeInd, indirDst))
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED_ADDR);
+        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
         return false;
     }
 
     assert(indirCandidate != nullptr);
     assert(indirOpSource != nullptr);
-    assert(status != STOREIND_RMW_STATUS_UNKNOWN);
+    assert(status != STOREIND_RMW_UNKNOWN);
 
     *outIndirCandidate = indirCandidate;
     *outIndirOpSource  = indirOpSource;
@@ -4174,9 +4174,6 @@ bool Lowering::LowerRMWMemOp(GenTreeIndir* storeInd)
 
     if (!IsRMWMemOpRootedAtStoreInd(storeInd, &indirCandidate, &indirOpSource))
     {
-        JITDUMP("Lower of StoreInd didn't mark the node as self contained for reason: %s\n",
-                RMWStatusDescription(storeInd->AsStoreInd()->GetRMWStatus()));
-        DISPTREERANGE(BlockRange(), storeInd);
         return false;
     }
 
