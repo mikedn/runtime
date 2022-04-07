@@ -332,13 +332,13 @@ private:
     GenTree* LowerCast(GenTreeCast* cast);
 
 #ifdef TARGET_XARCH
-    bool IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd);
-    bool IsRMWMemOpRootedAtStoreInd(GenTree* storeIndTree, GenTree** indirCandidate, GenTree** indirOpSource);
-    bool LowerRMWMemOp(GenTreeIndir* storeInd);
-    static bool NodesAreEquivalentLeaves(GenTree* candidate, GenTree* storeInd);
+    bool IsLoadIndRMWCandidate(GenTreeIndir* load, GenTreeStoreInd* store);
+    RMWStatus IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, GenTree** outSrc);
+    bool LowerStoreIndRMW(GenTreeStoreInd* store);
+    static bool NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2);
 
 public:
-    static bool IndirsAreEquivalent(GenTree* pTreeA, GenTree* pTreeB);
+    static bool IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
 
 private:
 #endif

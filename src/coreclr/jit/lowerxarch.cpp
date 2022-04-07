@@ -93,14 +93,7 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 
     if (!varTypeIsFloating(store->GetType()))
     {
-        // Perform recognition of trees with the following structure:
-        //        StoreInd(addr, BinOp(expr, GT_IND(addr)))
-        // to be able to fold this into an instruction of the form
-        //        BINOP [addr], register
-        // where register is the actual place where 'expr' is computed.
-        //
-        // SSE2 doesn't support RMW form of instructions.
-        if (LowerRMWMemOp(store))
+        if (LowerStoreIndRMW(store))
         {
             return;
         }
@@ -2887,44 +2880,24 @@ void Lowering::LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node)
 
 #endif // FEATURE_HW_INTRINSICS
 
-//----------------------------------------------------------------------------------------------
-// Lowering::IsRMWIndirCandidate:
-//    Returns true if the given operand is a candidate indirection for a read-modify-write
-//    operator.
-//
-//  Arguments:
-//     operand - The operand to consider.
-//     storeInd - The indirect store that roots the possible RMW operator.
-//
-bool Lowering::IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd)
+bool Lowering::IsLoadIndRMWCandidate(GenTreeIndir* load, GenTreeStoreInd* store)
 {
-    // If the operand isn't an indirection, it's trivially not a candidate.
-    if (operand->OperGet() != GT_IND)
+    GenTree* loadAddr  = load->GetAddr();
+    GenTree* storeAddr = store->GetAddr();
+
+    if ((loadAddr->GetOper() != storeAddr->GetOper()) || !IndirsAreEquivalent(load, store))
     {
         return false;
     }
-
-    // If the indirection's source address isn't equivalent to the destination address of the storeIndir, then the
-    // indirection is not a candidate.
-    GenTree* srcAddr = operand->gtGetOp1();
-    GenTree* dstAddr = storeInd->gtGetOp1();
-    if ((srcAddr->OperGet() != dstAddr->OperGet()) || !IndirsAreEquivalent(operand, storeInd))
-    {
-        return false;
-    }
-
-    // If it is not safe to contain the entire tree rooted at the indirection, then the indirection is not a
-    // candidate. Crawl the IR from the node immediately preceding the storeIndir until the last node in the
-    // indirection's tree is visited and check the side effects at each point.
 
     m_scratchSideEffects.Clear();
 
-    assert((operand->gtLIRFlags & LIR::Flags::Mark) == 0);
-    operand->gtLIRFlags |= LIR::Flags::Mark;
+    assert((load->gtLIRFlags & LIR::Flags::Mark) == 0);
+    load->gtLIRFlags |= LIR::Flags::Mark;
 
     unsigned markCount = 1;
-    GenTree* node;
-    for (node = storeInd->gtPrev; markCount > 0; node = node->gtPrev)
+
+    for (GenTree* node = store->gtPrev; markCount > 0; node = node->gtPrev)
     {
         assert(node != nullptr);
 
@@ -2939,8 +2912,8 @@ bool Lowering::IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd)
 
             if (m_scratchSideEffects.InterferesWith(comp, node, false))
             {
-                // The indirection's tree contains some node that can't be moved to the storeInder. The indirection is
-                // not a candidate. Clear any leftover mark bits and return.
+                // The indirection's tree contains some node that can't be moved to the store.
+                // The indirection is not a candidate. Clear any leftover mark bits and return.
                 for (; markCount > 0; node = node->gtPrev)
                 {
                     if ((node->gtLIRFlags & LIR::Flags::Mark) != 0)
@@ -2949,6 +2922,7 @@ bool Lowering::IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd)
                         markCount--;
                     }
                 }
+
                 return false;
             }
 
@@ -2961,315 +2935,166 @@ bool Lowering::IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd)
         }
     }
 
-    // At this point we've verified that the operand is an indirection, its address is equivalent to the storeIndir's
-    // destination address, and that it and the transitive closure of its operand can be safely contained by the
-    // storeIndir. This indirection is therefore a candidate for an RMW op.
     return true;
 }
 
-/** Verifies if both of these trees represent the same indirection.
- * Used by Lower to annotate if CodeGen generate an instruction of the
- * form *addrMode BinOp= expr
- *
- * Preconditions: both trees are children of GT_INDs and their underlying children
- * have the same gtOper.
- *
- * This is a first iteration to actually recognize trees that can be code-generated
- * as a single read-modify-write instruction on AMD64/x86.  For now
- * this method only supports the recognition of simple addressing modes (through GT_LEA)
- * or local var indirections.  Local fields, array access and other more complex nodes are
- * not yet supported.
- *
- * TODO-CQ:  Perform tree recognition by using the Value Numbering Package, that way we can recognize
- * arbitrary complex trees and support much more addressing patterns.
- */
-bool Lowering::IndirsAreEquivalent(GenTree* candidate, GenTree* storeInd)
+bool Lowering::IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
 {
-    assert(candidate->OperGet() == GT_IND);
-    assert(storeInd->OperGet() == GT_STOREIND);
+    assert(indir1->OperIs(GT_IND));
+    assert(indir2->OperIs(GT_STOREIND));
 
-    // We should check the size of the indirections.  If they are
-    // different, say because of a cast, then we can't call them equivalent.  Doing so could cause us
-    // to drop a cast.
-    // Signed-ness difference is okay and expected since a store indirection must always
-    // be signed based on the CIL spec, but a load could be unsigned.
-    if (genTypeSize(candidate->gtType) != genTypeSize(storeInd->gtType))
+    if (varTypeSize(indir1->GetType()) != varTypeSize(indir2->GetType()))
     {
         return false;
     }
 
-    GenTree* pTreeA = candidate->gtGetOp1();
-    GenTree* pTreeB = storeInd->gtGetOp1();
+    GenTree* addr1 = indir1->GetAddr();
+    GenTree* addr2 = indir2->GetAddr();
 
     // This method will be called by codegen (as well as during lowering).
     // After register allocation, the sources may have been spilled and reloaded
     // to a different register, indicated by an inserted GT_RELOAD node.
-    pTreeA = pTreeA->gtSkipReloadOrCopy();
-    pTreeB = pTreeB->gtSkipReloadOrCopy();
+    addr1 = addr1->gtSkipReloadOrCopy();
+    addr2 = addr2->gtSkipReloadOrCopy();
 
-    genTreeOps oper;
-
-    if (pTreeA->OperGet() != pTreeB->OperGet())
+    if (addr1->GetOper() != addr2->GetOper())
     {
         return false;
     }
 
-    oper = pTreeA->OperGet();
-    switch (oper)
+    switch (addr1->GetOper())
     {
         case GT_LCL_VAR:
         case GT_LCL_VAR_ADDR:
         case GT_CLS_VAR_ADDR:
         case GT_CNS_INT:
-            return NodesAreEquivalentLeaves(pTreeA, pTreeB);
+            return NodesAreEquivalentLeaves(addr1, addr2);
 
         case GT_LEA:
         {
-            GenTreeAddrMode* gtAddr1 = pTreeA->AsAddrMode();
-            GenTreeAddrMode* gtAddr2 = pTreeB->AsAddrMode();
-            return NodesAreEquivalentLeaves(gtAddr1->Base(), gtAddr2->Base()) &&
-                   NodesAreEquivalentLeaves(gtAddr1->Index(), gtAddr2->Index()) &&
-                   (gtAddr1->gtScale == gtAddr2->gtScale) && (gtAddr1->Offset() == gtAddr2->Offset());
+            GenTreeAddrMode* am1 = addr1->AsAddrMode();
+            GenTreeAddrMode* am2 = addr2->AsAddrMode();
+            return NodesAreEquivalentLeaves(am1->GetBase(), am2->GetBase()) &&
+                   NodesAreEquivalentLeaves(am1->GetIndex(), am2->GetIndex()) && (am1->GetScale() == am2->GetScale()) &&
+                   (am1->GetOffset() == am2->GetOffset());
         }
+
         default:
-            // We don't handle anything that is not either a constant,
-            // a local var or LEA.
             return false;
     }
 }
 
-//------------------------------------------------------------------------
-// NodesAreEquivalentLeaves: Check whether the two given nodes are the same leaves.
-//
-// Arguments:
-//      tree1 and tree2 are nodes to be checked.
-// Return Value:
-//    Returns true if they are same leaves, false otherwise.
-//
-// static
-bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
+bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
 {
-    if (tree1 == tree2)
+    if ((node1 == nullptr) || (node2 == nullptr))
     {
-        return true;
+        return node1 == node2;
     }
 
-    if (tree1 == nullptr || tree2 == nullptr)
-    {
-        return false;
-    }
+    node1 = node1->gtSkipReloadOrCopy();
+    node2 = node2->gtSkipReloadOrCopy();
 
-    tree1 = tree1->gtSkipReloadOrCopy();
-    tree2 = tree2->gtSkipReloadOrCopy();
-
-    if (tree1->TypeGet() != tree2->TypeGet())
+    if ((node1->GetOper() != node2->GetOper()) || (node1->GetType() != node2->GetType()))
     {
         return false;
     }
 
-    if (tree1->OperGet() != tree2->OperGet())
-    {
-        return false;
-    }
-
-    if (!tree1->OperIsLeaf() || !tree2->OperIsLeaf())
-    {
-        return false;
-    }
-
-    switch (tree1->OperGet())
+    switch (node1->GetOper())
     {
         case GT_CNS_INT:
-            return tree1->AsIntCon()->IconValue() == tree2->AsIntCon()->IconValue() &&
-                   tree1->IsIconHandle() == tree2->IsIconHandle();
+            return (node1->AsIntCon()->GetValue() == node2->AsIntCon()->GetValue()) &&
+                   (node1->IsIconHandle() == node2->IsIconHandle());
         case GT_LCL_VAR:
         case GT_LCL_VAR_ADDR:
-            return tree1->AsLclVarCommon()->GetLclNum() == tree2->AsLclVarCommon()->GetLclNum();
+            return node1->AsLclVar()->GetLclNum() == node2->AsLclVar()->GetLclNum();
         case GT_CLS_VAR_ADDR:
-            return tree1->AsClsVar()->gtClsVarHnd == tree2->AsClsVar()->gtClsVarHnd;
+            return node1->AsClsVar()->GetFieldHandle() == node2->AsClsVar()->GetFieldHandle();
         default:
             return false;
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// This method recognizes the case where we have a treeNode with the following structure:
-//         storeInd(IndirDst, binOp(gtInd(IndirDst), indirOpSource)) OR
-//         storeInd(IndirDst, binOp(indirOpSource, gtInd(IndirDst)) in case of commutative operations OR
-//         storeInd(IndirDst, unaryOp(gtInd(IndirDst)) in case of unary operations
-//
-// Terminology:
-//         indirDst = memory write of an addr mode  (i.e. storeind destination)
-//         indirSrc = value being written to memory (i.e. storeind source which could either be a binary or unary op)
-//         indirCandidate = memory read i.e. a gtInd of an addr mode
-//         indirOpSource = source operand used in binary/unary op (i.e. source operand of indirSrc node)
-//
-// In x86/x64 this storeInd pattern can be effectively encoded in a single instruction of the
-// following form in case of integer operations:
-//         binOp [addressing mode], RegIndirOpSource
-//         binOp [addressing mode], immediateVal
-// where RegIndirOpSource is the register where indirOpSource was computed.
-//
-// Right now, we recognize few cases:
-//     a) The gtInd child is a lea/lclVar/lclVarAddr/addr/constant
-//     b) BinOp is either add, sub, xor, or, and, shl, rsh, rsz.
-//     c) unaryOp is either not/neg
-//
-// Implementation Note: The following routines need to be in sync for RMW memory op optimization
-// to be correct and functional.
-//     IndirsAreEquivalent()
-//     NodesAreEquivalentLeaves()
-//     Codegen of GT_STOREIND and GenStoreIndRMWShift()
-//     emitInsRMW()
-//
-//  TODO-CQ: Enable support for more complex indirections (if needed) or use the value numbering
-//  package to perform more complex tree recognition.
-//
-//  TODO-XArch-CQ: Add support for RMW of lcl fields (e.g. lclfield binop= source)
-//
-//  Parameters:
-//     tree               -  GT_STOREIND node
-//     outIndirCandidate  -  out param set to indirCandidate as described above
-//     ouutIndirOpSource  -  out param set to indirOpSource as described above
-//
-//  Return value
-//     True if there is a RMW memory operation rooted at a GT_STOREIND tree
-//     and out params indirCandidate and indirOpSource are set to non-null values.
-//     Otherwise, returns false with indirCandidate and indirOpSource set to null.
-//     Also updates flags of GT_STOREIND tree with its RMW status.
-//
-bool Lowering::IsRMWMemOpRootedAtStoreInd(GenTree* tree, GenTree** outIndirCandidate, GenTree** outIndirOpSource)
+RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, GenTree** outSrc)
 {
-    assert(!varTypeIsFloating(tree));
-    assert(outIndirCandidate != nullptr);
-    assert(outIndirOpSource != nullptr);
+    assert(store->IsRMWStatusUnknown());
+    assert(!varTypeIsFloating(store->GetType()));
 
-    *outIndirCandidate = nullptr;
-    *outIndirOpSource  = nullptr;
+    GenTree* addr = store->GetAddr();
+    GenTree* op   = store->GetValue();
 
-    GenTreeStoreInd* storeInd = tree->AsStoreInd();
-
-    assert(storeInd->IsRMWStatusUnknown());
-
-    GenTree*   indirDst = storeInd->gtGetOp1();
-    GenTree*   indirSrc = storeInd->gtGetOp2();
-    genTreeOps oper     = indirSrc->OperGet();
-
-    if (!GenTree::OperIsRMWMemOp(oper))
+    if (!op->OperIsRMWMemOp())
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-        return false;
+        return STOREIND_RMW_UNSUPPORTED;
     }
 
-    // Early out if indirDst is not one of the supported memory operands.
-    if (!indirDst->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
+    if (!addr->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-        return false;
+        return STOREIND_RMW_UNSUPPORTED;
     }
 
-    // We can not use Read-Modify-Write instruction forms with overflow checking instructions
-    // because we are not allowed to modify the target until after the overflow check.
-    if (indirSrc->gtOverflowEx())
+    if (op->gtOverflowEx())
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-        return false;
+        // The overflow check needs to happen before the store so we can't use RMW.
+        return STOREIND_RMW_UNSUPPORTED;
     }
 
-    // At this point we can match one of two patterns:
-    //
-    //     t_ind = indir t_addr_0
-    //       ...
-    //     t_value = binop t_ind, t_other
-    //       ...
-    //     storeIndir t_addr_1, t_value
-    //
-    // or
-    //
-    //     t_ind = indir t_addr_0
-    //       ...
-    //     t_value = unop t_ind
-    //       ...
-    //     storeIndir t_addr_1, t_value
-    //
-    // In all cases, we will eventually make the binop that produces t_value and the entire dataflow tree rooted at
-    // t_ind contained by t_value.
+    GenTreeIndir* load   = nullptr;
+    GenTree*      src    = nullptr;
+    RMWStatus     status = STOREIND_RMW_UNKNOWN;
 
-    GenTree*  indirCandidate = nullptr;
-    GenTree*  indirOpSource  = nullptr;
-    RMWStatus status         = STOREIND_RMW_UNKNOWN;
-    if (GenTree::OperIsBinary(oper))
+    if (op->OperIsBinary())
     {
-        if (GenTree::OperIsShiftOrRotate(oper) && varTypeIsSmall(storeInd))
+        if (op->OperIsShiftOrRotate() && varTypeIsSmall(store->GetType()))
         {
-            // In ldind, Integer values smaller than 4 bytes, a boolean, or a character converted to 4 bytes
-            // by sign or zero-extension as appropriate. If we directly shift the short type data using sar, we
-            // will lose the sign or zero-extension bits.
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-            return false;
+            return STOREIND_RMW_UNSUPPORTED;
         }
 
-        // In the common case, the second operand to the binop will be the indir candidate.
-        GenTreeOp* binOp = indirSrc->AsOp();
-        if (GenTree::OperIsCommutative(oper) && IsRMWIndirCandidate(binOp->gtOp2, storeInd))
+        GenTree* op1 = op->AsOp()->GetOp(0);
+        GenTree* op2 = op->AsOp()->GetOp(1);
+
+        if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsLoadIndRMWCandidate(op2->AsIndir(), store))
         {
-            indirCandidate = binOp->gtOp2;
-            indirOpSource  = binOp->gtOp1;
-            status         = STOREIND_RMW_DST_IS_OP2;
+            load   = op2->AsIndir();
+            src    = op1;
+            status = STOREIND_RMW_DST_IS_OP2;
         }
-        else if (IsRMWIndirCandidate(binOp->gtOp1, storeInd))
+        else if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
         {
-            indirCandidate = binOp->gtOp1;
-            indirOpSource  = binOp->gtOp2;
-            status         = STOREIND_RMW_DST_IS_OP1;
+            load   = op1->AsIndir();
+            src    = op2;
+            status = STOREIND_RMW_DST_IS_OP1;
         }
         else
         {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-            return false;
+            return STOREIND_RMW_UNSUPPORTED;
         }
     }
     else
     {
-        assert(GenTree::OperIsUnary(oper));
+        assert(op->OperIsUnary());
 
-        if (indirSrc->gtGetOp1()->OperGet() != GT_IND)
-        {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-            return false;
-        }
+        GenTree* op1 = op->AsUnOp()->GetOp(0);
 
-        GenTreeUnOp* unOp = indirSrc->AsUnOp();
-        if (IsRMWIndirCandidate(unOp->gtOp1, storeInd))
+        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
         {
-            // src and dest are the same in case of unary ops
-            indirCandidate = unOp->gtOp1;
-            indirOpSource  = unOp->gtOp1;
-            status         = STOREIND_RMW_DST_IS_OP1;
+            load   = op1->AsIndir();
+            status = STOREIND_RMW_DST_IS_OP1;
         }
         else
         {
-            storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-            return false;
+            return STOREIND_RMW_UNSUPPORTED;
         }
     }
 
-    // By this point we've verified that we have a supported operand with a supported address. Now we need to ensure
-    // that we're able to move the destination address for the source indirection forwards.
-    if (!IsSafeToContainMem(storeInd, indirDst))
+    if (!IsSafeToContainMem(store, addr))
     {
-        storeInd->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
-        return false;
+        return STOREIND_RMW_UNSUPPORTED;
     }
 
-    assert(indirCandidate != nullptr);
-    assert(indirOpSource != nullptr);
-    assert(status != STOREIND_RMW_UNKNOWN);
+    *outLoad = load;
+    *outSrc  = src;
 
-    *outIndirCandidate = indirCandidate;
-    *outIndirOpSource  = indirOpSource;
-    storeInd->SetRMWStatus(status);
-    return true;
+    return status;
 }
 
 // anything is in range for AMD64
@@ -4101,121 +3926,75 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
     }
 }
 
-//------------------------------------------------------------------------
-// LowerRMWMemOp: Determine if this is a valid RMW mem op, and if so lower it accordingly
-//
-// Arguments:
-//    node       - The indirect store node (GT_STORE_IND) of interest
-//
-// Return Value:
-//    Returns true if 'node' is a valid RMW mem op; false otherwise.
-//
-bool Lowering::LowerRMWMemOp(GenTreeIndir* storeInd)
+bool Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 {
-    assert(storeInd->OperGet() == GT_STOREIND);
+    assert(store->OperIs(GT_STOREIND) && !varTypeIsFloating(store->GetType()));
 
-    // SSE2 doesn't support RMW on float values
-    assert(!varTypeIsFloating(storeInd));
+    GenTreeIndir* load   = nullptr;
+    GenTree*      src    = nullptr;
+    RMWStatus     status = IsStoreIndRMW(store, &load, &src);
 
-    // Terminology:
-    // indirDst = memory write of an addr mode  (i.e. storeind destination)
-    // indirSrc = value being written to memory (i.e. storeind source which could a binary/unary op)
-    // indirCandidate = memory read i.e. a gtInd of an addr mode
-    // indirOpSource = source operand used in binary/unary op (i.e. source operand of indirSrc node)
+    store->SetRMWStatus(status);
 
-    GenTree* indirCandidate = nullptr;
-    GenTree* indirOpSource  = nullptr;
-
-    if (!IsRMWMemOpRootedAtStoreInd(storeInd, &indirCandidate, &indirOpSource))
+    if (status == STOREIND_RMW_UNSUPPORTED)
     {
         return false;
     }
 
-    GenTree*   indirDst = storeInd->gtGetOp1();
-    GenTree*   indirSrc = storeInd->gtGetOp2();
-    genTreeOps oper     = indirSrc->OperGet();
+    assert(status != STOREIND_RMW_UNKNOWN);
 
-    // At this point we have successfully detected a RMW memory op of one of the following forms
-    //         storeInd(indirDst, indirSrc(indirCandidate, indirOpSource)) OR
-    //         storeInd(indirDst, indirSrc(indirOpSource, indirCandidate) in case of commutative operations OR
-    //         storeInd(indirDst, indirSrc(indirCandidate) in case of unary operations
-    //
-    // Here indirSrc = one of the supported binary or unary operation for RMW of memory
-    //      indirCandidate = a GT_IND node
-    //      indirCandidateChild = operand of GT_IND indirCandidate
-    //
-    // The logic below does the following
-    //      Make indirOpSource contained.
-    //      Make indirSrc contained.
-    //      Make indirCandidate contained.
-    //      Make indirCandidateChild contained.
-    //      Make indirDst contained except when it is a GT_LCL_VAR or GT_CNS_INT that doesn't fit within addr
-    //      base.
-    //
+    GenTree* storeAddr = store->GetAddr();
+    GenTree* op        = store->GetValue();
 
-    // We have already done containment analysis on the indirSrc op.
-    // If any of its operands are marked regOptional, reset that now.
-    indirSrc->AsOp()->gtOp1->ClearRegOptional();
-    if (GenTree::OperIsBinary(oper))
+    if (src != nullptr)
     {
-        // On Xarch RMW operations require the source to be an immediate or in a register.
-        // Therefore, if we have previously marked the indirOpSource as contained while lowering
-        // the binary node, we need to reset that now.
-        if (IsContainableMemoryOp(indirOpSource))
+        assert(op->OperIsBinary());
+
+        src->ClearRegOptional();
+
+        if (!src->IsIntCon())
         {
-            indirOpSource->ClearContained();
+            src->ClearContained();
         }
-        indirSrc->AsOp()->gtOp2->ClearRegOptional();
-        JITDUMP("Lower succesfully detected an assignment of the form: *addrMode BinOp= source\n");
+    }
+
+    op->SetContained();
+    load->ClearRegOptional();
+    load->SetContained();
+
+    GenTree* loadAddr = load->GetAddr();
+    loadAddr->SetContained();
+
+    if (GenTreeAddrMode* addrMode = loadAddr->IsAddrMode())
+    {
+        if (GenTree* base = addrMode->GetBase())
+        {
+            assert(base->OperIsLeaf());
+            base->SetContained();
+        }
+
+        if (GenTree* index = addrMode->GetIndex())
+        {
+            assert(index->OperIsLeaf());
+            index->SetContained();
+        }
+
+        storeAddr->SetContained();
     }
     else
     {
-        assert(GenTree::OperIsUnary(oper));
-        JITDUMP("Lower succesfully detected an assignment of the form: *addrMode = UnaryOp(*addrMode)\n");
-    }
-    DISPTREERANGE(BlockRange(), storeInd);
+        assert(loadAddr->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT));
 
-    indirSrc->SetContained();
-    indirCandidate->SetContained();
-
-    GenTree* indirCandidateChild = indirCandidate->gtGetOp1();
-    indirCandidateChild->SetContained();
-
-    if (indirCandidateChild->OperGet() == GT_LEA)
-    {
-        GenTreeAddrMode* addrMode = indirCandidateChild->AsAddrMode();
-
-        if (addrMode->HasBase())
+        if (loadAddr->OperIs(GT_CLS_VAR_ADDR))
         {
-            assert(addrMode->Base()->OperIsLeaf());
-            addrMode->Base()->SetContained();
+            storeAddr->SetContained();
         }
-
-        if (addrMode->HasIndex())
+        else if (loadAddr->IsIntCon() && loadAddr->AsIntCon()->FitsInAddrBase(comp))
         {
-            assert(addrMode->Index()->OperIsLeaf());
-            addrMode->Index()->SetContained();
-        }
-
-        indirDst->SetContained();
-    }
-    else
-    {
-        assert(indirCandidateChild->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT));
-
-        // If it is a GT_LCL_VAR, it still needs the reg to hold the address.
-        // We would still need a reg for GT_CNS_INT if it doesn't fit within addressing mode base.
-        // For GT_CLS_VAR_ADDR, we don't need a reg to hold the address, because field address value is known at jit
-        // time. Also, we don't need a reg for GT_CLS_VAR_ADDR.
-        if (indirCandidateChild->OperIs(GT_CLS_VAR_ADDR))
-        {
-            indirDst->SetContained();
-        }
-        else if (indirCandidateChild->IsCnsIntOrI() && indirCandidateChild->AsIntConCommon()->FitsInAddrBase(comp))
-        {
-            indirDst->SetContained();
+            storeAddr->SetContained();
         }
     }
+
     return true;
 }
 
@@ -5057,7 +4836,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         default:
                         {
-                            assert(!"Unhandled containment for binary hardware intrinsic with immediate operand");
+                            assert(!"Unhandled containment for binary hardware intrinsic with immediate indir1");
                             break;
                         }
                     }
@@ -5241,7 +5020,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         default:
                         {
-                            assert(!"Unhandled containment for ternary hardware intrinsic with immediate operand");
+                            assert(!"Unhandled containment for ternary hardware intrinsic with immediate indir1");
                             break;
                         }
                     }
