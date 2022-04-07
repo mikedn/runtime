@@ -4143,12 +4143,6 @@ bool Lowering::LowerRMWMemOp(GenTreeIndir* storeInd)
     return true;
 }
 
-//------------------------------------------------------------------------
-// ContainCheckBinary: Determine whether a binary op's operands should be contained.
-//
-// Arguments:
-//    node - the node we care about
-//
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
     assert(node->OperIsBinary());
@@ -4160,72 +4154,59 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
         return;
     }
 
-    GenTree* op1 = node->gtOp1;
-    GenTree* op2 = node->gtOp2;
-
-    // We can directly encode the second operand if it is either a containable constant or a memory-op.
-    // In case of memory-op, we can encode it directly provided its type matches with 'tree' type.
-    // This is because during codegen, type of 'tree' is used to determine emit Type size. If the types
-    // do not match, they get normalized (i.e. sign/zero extended) on load into a register.
-    bool     directlyEncodable  = false;
-    GenTree* operand            = nullptr;
-    bool     isSafeToContainOp1 = true;
-    bool     isSafeToContainOp2 = true;
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
 
     if (IsContainableImmed(node, op2))
     {
-        directlyEncodable = true;
-        operand           = op2;
+        op2->SetContained();
+        return;
     }
-    else
-    {
-        const unsigned operatorSize = genTypeSize(node->TypeGet());
-        if ((genTypeSize(op2->TypeGet()) == operatorSize) && IsContainableMemoryOp(op2))
-        {
-            isSafeToContainOp2 = IsSafeToContainMem(node, op2);
-            if (isSafeToContainOp2)
-            {
-                directlyEncodable = true;
-                operand           = op2;
-            }
-        }
 
-        if ((operand == nullptr) && node->OperIsCommutative())
+    bool isSafeToContainOp1 = true;
+    bool isSafeToContainOp2 = true;
+
+    const unsigned operatorSize = varTypeSize(node->GetType());
+
+    if ((varTypeSize(op2->GetType()) == operatorSize) && IsContainableMemoryOp(op2))
+    {
+        isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+
+        if (isSafeToContainOp2)
         {
-            // If it is safe, we can reverse the order of operands of commutative operations for efficient
-            // codegen
-            if (IsContainableImmed(node, op1))
-            {
-                directlyEncodable = true;
-                operand           = op1;
-            }
-            else if ((genTypeSize(op1->TypeGet()) == operatorSize) && IsContainableMemoryOp(op1))
-            {
-                isSafeToContainOp1 = IsSafeToContainMem(node, op1);
-                if (isSafeToContainOp1)
-                {
-                    directlyEncodable = true;
-                    operand           = op1;
-                }
-            }
+            op2->SetContained();
+            return;
         }
     }
 
-    if (directlyEncodable)
+    if (node->OperIsCommutative())
     {
-        assert(operand != nullptr);
-        MakeSrcContained(node, operand);
-    }
-    else
-    {
-        // IsSafeToContainMem is expensive so we call it at most once for each operand
-        // in this method. If we already called IsSafeToContainMem, it must have returned false;
-        // otherwise, directlyEncodable would be true.
-        isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
-        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+        // TODO-MIKE-Review: This is likely useless, constants are normally in op2.
+        if (IsContainableImmed(node, op1))
+        {
+            op1->SetContained();
+            return;
+        }
 
-        SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
+        if ((varTypeSize(op1->GetType()) == operatorSize) && IsContainableMemoryOp(op1))
+        {
+            isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+
+            if (isSafeToContainOp1)
+            {
+                op1->SetContained();
+                return;
+            }
+        }
     }
+
+    // IsSafeToContainMem is expensive so we call it at most once for each operand
+    // in this method. If we already called IsSafeToContainMem, it must have returned
+    // false; otherwise we would have already contained an operand.
+    isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
+    isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+
+    SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
 }
 
 void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
