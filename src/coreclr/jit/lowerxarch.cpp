@@ -89,7 +89,7 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 {
     // Mark all GT_STOREIND nodes to indicate that it is not known
     // whether it represents a RMW memory op.
-    store->SetRMWStatusDefault();
+    store->SetRMWStatus(STOREIND_RMW_STATUS_UNKNOWN);
 
     if (!varTypeIsFloating(store->GetType()))
     {

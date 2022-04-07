@@ -6421,11 +6421,6 @@ struct GenTreeStoreInd : public GenTreeIndir
         return gtRMWStatus;
     }
 
-    void SetRMWStatusDefault()
-    {
-        gtRMWStatus = STOREIND_RMW_STATUS_UNKNOWN;
-    }
-
     void SetRMWStatus(RMWStatus status)
     {
         gtRMWStatus = status;
