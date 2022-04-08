@@ -129,7 +129,7 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 
     ContainCheckStoreIndir(store);
 
-    if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp())
+    if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp() && !value->gtOverflowEx())
     {
         LowerStoreIndRMW(store);
     }
@@ -3008,13 +3008,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
     }
 
     GenTree* op = store->GetValue();
-    assert(op->OperIsRMWMemOp());
-
-    if (op->gtOverflowEx())
-    {
-        // The overflow check needs to happen before the store so we can't use RMW.
-        return nullptr;
-    }
+    assert(op->OperIsRMWMemOp() && !op->gtOverflowEx());
 
     GenTreeIndir* load = nullptr;
     GenTree*      src  = nullptr;
