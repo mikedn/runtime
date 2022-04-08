@@ -4564,11 +4564,9 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     GenTree* load = value->AsOp()->GetOp(0);
     GenTree* src  = value->AsOp()->GetOp(1);
 
-    assert(store->IsRMWMemoryOp());
+    assert(load->isUsedFromMemory() && Lowering::IndirsAreEquivalent(load->AsIndir(), store));
 
     genConsumeRegs(src);
-
-    assert(Lowering::IndirsAreEquivalent(load->AsIndir(), store));
 
     if (value->OperIs(GT_ADD) && (src->IsIntCon(1) || src->IsIntCon(-1)))
     {

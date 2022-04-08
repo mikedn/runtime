@@ -2421,8 +2421,6 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
                 // Note that BuildShiftRotate (above) will handle the byte requirement as needed,
                 // but STOREIND isn't itself an RMW op, so we have to explicitly set it for that case.
 
-                assert(indirTree->AsStoreInd()->IsRMWMemoryOp());
-
                 GenTreeIndir* otherIndir   = source->gtGetOp1()->AsIndir();
                 GenTree*      nonMemSource = nullptr;
                 if (source->OperIsBinary())

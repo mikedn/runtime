@@ -6347,62 +6347,8 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
 #endif
 };
 
-// Read-modify-write status of a RMW memory op rooted at a storeInd
-enum RMWStatus
-{
-    STOREIND_RMW_UNKNOWN,
-    STOREIND_RMW_DST_IS_OP1,
-    STOREIND_RMW_UNSUPPORTED
-};
-
-#ifdef DEBUG
-inline const char* RMWStatusDescription(RMWStatus status)
-{
-    switch (status)
-    {
-        case STOREIND_RMW_UNKNOWN:
-            return "RMW status unknown";
-        case STOREIND_RMW_DST_IS_OP1:
-            return "dst candidate is op1";
-        case STOREIND_RMW_UNSUPPORTED:
-            return "not supported";
-        default:
-            return "???";
-    }
-}
-#endif
-
-// StoreInd is just a BinOp, with additional RMW status
 struct GenTreeStoreInd : public GenTreeIndir
 {
-#ifdef TARGET_XARCH
-    // The below flag is set and used during lowering
-    RMWStatus gtRMWStatus = STOREIND_RMW_UNKNOWN;
-
-    bool IsRMWStatusUnknown()
-    {
-        return gtRMWStatus == STOREIND_RMW_UNKNOWN;
-    }
-    bool IsNonRMWMemoryOp()
-    {
-        return gtRMWStatus == STOREIND_RMW_UNSUPPORTED;
-    }
-    bool IsRMWMemoryOp()
-    {
-        return gtRMWStatus == STOREIND_RMW_DST_IS_OP1;
-    }
-
-    RMWStatus GetRMWStatus()
-    {
-        return gtRMWStatus;
-    }
-
-    void SetRMWStatus(RMWStatus status)
-    {
-        gtRMWStatus = status;
-    }
-#endif // TARGET_XARCH
-
     GenTree*& Data()
     {
         return gtOp2;

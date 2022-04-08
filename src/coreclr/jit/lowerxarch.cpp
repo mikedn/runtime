@@ -87,10 +87,6 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
 
 void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 {
-    // Mark all GT_STOREIND nodes to indicate that it is not known
-    // whether it represents a RMW memory op.
-    store->SetRMWStatus(STOREIND_RMW_UNKNOWN);
-
     GenTree* value = store->GetValue();
 
     if (varTypeIsByte(store->GetType()) && (value->OperIsCompare() || value->OperIs(GT_SETCC)))
@@ -136,10 +132,6 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
     if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp())
     {
         LowerStoreIndRMW(store);
-    }
-    else
-    {
-        store->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
     }
 }
 
@@ -3015,16 +3007,15 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
     }
 }
 
-RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, GenTree** outSrc)
+bool Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, GenTree** outSrc)
 {
-    assert(store->IsRMWStatusUnknown());
     assert(varTypeIsIntegralOrI(store->GetType()));
 
     GenTree* addr = store->GetAddr();
 
     if (!addr->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
-        return STOREIND_RMW_UNSUPPORTED;
+        return false;
     }
 
     GenTree* op = store->GetValue();
@@ -3033,18 +3024,17 @@ RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad
     if (op->gtOverflowEx())
     {
         // The overflow check needs to happen before the store so we can't use RMW.
-        return STOREIND_RMW_UNSUPPORTED;
+        return false;
     }
 
-    GenTreeIndir* load   = nullptr;
-    GenTree*      src    = nullptr;
-    RMWStatus     status = STOREIND_RMW_UNKNOWN;
+    GenTreeIndir* load = nullptr;
+    GenTree*      src  = nullptr;
 
     if (op->OperIsBinary())
     {
         if (op->OperIsShiftOrRotate() && varTypeIsSmall(store->GetType()))
         {
-            return STOREIND_RMW_UNSUPPORTED;
+            return false;
         }
 
         GenTree* op1 = op->AsOp()->GetOp(0);
@@ -3052,19 +3042,17 @@ RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad
 
         if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsLoadIndRMWCandidate(op2->AsIndir(), store))
         {
-            load   = op2->AsIndir();
-            src    = op1;
-            status = STOREIND_RMW_DST_IS_OP1;
+            load = op2->AsIndir();
+            src  = op1;
         }
         else if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
         {
-            load   = op1->AsIndir();
-            src    = op2;
-            status = STOREIND_RMW_DST_IS_OP1;
+            load = op1->AsIndir();
+            src  = op2;
         }
         else
         {
-            return STOREIND_RMW_UNSUPPORTED;
+            return false;
         }
     }
     else
@@ -3075,19 +3063,18 @@ RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad
 
         if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
         {
-            load   = op1->AsIndir();
-            status = STOREIND_RMW_DST_IS_OP1;
+            load = op1->AsIndir();
         }
         else
         {
-            return STOREIND_RMW_UNSUPPORTED;
+            return false;
         }
     }
 
     *outLoad = load;
     *outSrc  = src;
 
-    return status;
+    return true;
 }
 
 // anything is in range for AMD64
@@ -3923,18 +3910,13 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 {
     assert(store->OperIs(GT_STOREIND) && varTypeIsIntegralOrI(store->GetType()));
 
-    GenTreeIndir* load   = nullptr;
-    GenTree*      src    = nullptr;
-    RMWStatus     status = IsStoreIndRMW(store, &load, &src);
+    GenTreeIndir* load = nullptr;
+    GenTree*      src  = nullptr;
 
-    store->SetRMWStatus(status);
-
-    if (status == STOREIND_RMW_UNSUPPORTED)
+    if (!IsStoreIndRMW(store, &load, &src))
     {
         return;
     }
-
-    assert(status != STOREIND_RMW_UNKNOWN);
 
     GenTree* op = store->GetValue();
 
@@ -3955,7 +3937,6 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 
             op->AsOp()->SetOp(0, load);
             op->AsOp()->SetOp(1, src);
-            store->SetRMWStatus(STOREIND_RMW_DST_IS_OP1);
         }
     }
 
