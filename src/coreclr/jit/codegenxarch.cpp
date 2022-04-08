@@ -4564,11 +4564,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     GenTree* load = value->AsOp()->GetOp(0);
     GenTree* src  = value->AsOp()->GetOp(1);
 
-    if (!store->IsRMWDstOp1())
-    {
-        assert(store->IsRMWDstOp2());
-        std::swap(load, src);
-    }
+    assert(store->IsRMWMemoryOp());
 
     genConsumeRegs(src);
 

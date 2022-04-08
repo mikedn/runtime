@@ -3054,7 +3054,7 @@ RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad
         {
             load   = op2->AsIndir();
             src    = op1;
-            status = STOREIND_RMW_DST_IS_OP2;
+            status = STOREIND_RMW_DST_IS_OP1;
         }
         else if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
         {
@@ -3942,11 +3942,20 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
     {
         assert(op->OperIsBinary());
 
-        src->ClearRegOptional();
-
         if (!src->IsIntCon())
         {
             src->ClearContained();
+        }
+
+        assert(!src->IsRegOptional());
+
+        if (load == op->AsOp()->GetOp(1))
+        {
+            assert(op->OperIsCommutative());
+
+            op->AsOp()->SetOp(0, load);
+            op->AsOp()->SetOp(1, src);
+            store->SetRMWStatus(STOREIND_RMW_DST_IS_OP1);
         }
     }
 

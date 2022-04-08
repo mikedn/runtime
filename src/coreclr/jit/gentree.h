@@ -6352,7 +6352,6 @@ enum RMWStatus
 {
     STOREIND_RMW_UNKNOWN,
     STOREIND_RMW_DST_IS_OP1,
-    STOREIND_RMW_DST_IS_OP2,
     STOREIND_RMW_UNSUPPORTED
 };
 
@@ -6365,8 +6364,6 @@ inline const char* RMWStatusDescription(RMWStatus status)
             return "RMW status unknown";
         case STOREIND_RMW_DST_IS_OP1:
             return "dst candidate is op1";
-        case STOREIND_RMW_DST_IS_OP2:
-            return "dst candidate is op2";
         case STOREIND_RMW_UNSUPPORTED:
             return "not supported";
         default:
@@ -6392,15 +6389,7 @@ struct GenTreeStoreInd : public GenTreeIndir
     }
     bool IsRMWMemoryOp()
     {
-        return gtRMWStatus == STOREIND_RMW_DST_IS_OP1 || gtRMWStatus == STOREIND_RMW_DST_IS_OP2;
-    }
-    bool IsRMWDstOp1()
-    {
         return gtRMWStatus == STOREIND_RMW_DST_IS_OP1;
-    }
-    bool IsRMWDstOp2()
-    {
-        return gtRMWStatus == STOREIND_RMW_DST_IS_OP2;
     }
 
     RMWStatus GetRMWStatus()
