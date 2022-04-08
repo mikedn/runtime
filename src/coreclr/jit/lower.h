@@ -334,7 +334,7 @@ private:
 #ifdef TARGET_XARCH
     bool IsLoadIndRMWCandidate(GenTreeIndir* load, GenTreeStoreInd* store);
     RMWStatus IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, GenTree** outSrc);
-    bool LowerStoreIndRMW(GenTreeStoreInd* store);
+    void LowerStoreIndRMW(GenTreeStoreInd* store);
     static bool NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2);
 
 public:

@@ -91,21 +91,13 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
     // whether it represents a RMW memory op.
     store->SetRMWStatus(STOREIND_RMW_UNKNOWN);
 
-    if (!varTypeIsFloating(store->GetType()))
+    GenTree* value = store->GetValue();
+
+    if (varTypeIsByte(store->GetType()) && (value->OperIsCompare() || value->OperIs(GT_SETCC)))
     {
-        if (LowerStoreIndRMW(store))
-        {
-            return;
-        }
-
-        GenTree* value = store->GetValue();
-
-        if (varTypeIsByte(store->GetType()) && (value->OperIsCompare() || value->OperIs(GT_SETCC)))
-        {
-            value->SetType(store->GetType());
-        }
+        value->SetType(store->GetType());
     }
-    else if (GenTreeDblCon* dblCon = store->GetValue()->IsDblCon())
+    if (GenTreeDblCon* dblCon = store->GetValue()->IsDblCon())
     {
         // Optimize *x = DCON to *x = ICON which is slightly faster on xarch
 
@@ -140,6 +132,15 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
     }
 
     ContainCheckStoreIndir(store);
+
+    if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp())
+    {
+        LowerStoreIndRMW(store);
+    }
+    else
+    {
+        store->SetRMWStatus(STOREIND_RMW_UNSUPPORTED);
+    }
 }
 
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
@@ -3017,20 +3018,17 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
 RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, GenTree** outSrc)
 {
     assert(store->IsRMWStatusUnknown());
-    assert(!varTypeIsFloating(store->GetType()));
+    assert(varTypeIsIntegralOrI(store->GetType()));
 
     GenTree* addr = store->GetAddr();
-    GenTree* op   = store->GetValue();
-
-    if (!op->OperIsRMWMemOp())
-    {
-        return STOREIND_RMW_UNSUPPORTED;
-    }
 
     if (!addr->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
         return STOREIND_RMW_UNSUPPORTED;
     }
+
+    GenTree* op = store->GetValue();
+    assert(op->OperIsRMWMemOp());
 
     if (op->gtOverflowEx())
     {
@@ -3084,11 +3082,6 @@ RMWStatus Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad
         {
             return STOREIND_RMW_UNSUPPORTED;
         }
-    }
-
-    if (!IsSafeToContainMem(store, addr))
-    {
-        return STOREIND_RMW_UNSUPPORTED;
     }
 
     *outLoad = load;
@@ -3926,9 +3919,9 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
     }
 }
 
-bool Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
+void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 {
-    assert(store->OperIs(GT_STOREIND) && !varTypeIsFloating(store->GetType()));
+    assert(store->OperIs(GT_STOREIND) && varTypeIsIntegralOrI(store->GetType()));
 
     GenTreeIndir* load   = nullptr;
     GenTree*      src    = nullptr;
@@ -3938,13 +3931,12 @@ bool Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 
     if (status == STOREIND_RMW_UNSUPPORTED)
     {
-        return false;
+        return;
     }
 
     assert(status != STOREIND_RMW_UNKNOWN);
 
-    GenTree* storeAddr = store->GetAddr();
-    GenTree* op        = store->GetValue();
+    GenTree* op = store->GetValue();
 
     if (src != nullptr)
     {
@@ -3962,6 +3954,9 @@ bool Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
     load->ClearRegOptional();
     load->SetContained();
 
+    // Part of the load address may have already been contained during load lowering.
+    // But we need to contain everything because the entire load and its address are
+    // now subsumed by the store.
     GenTree* loadAddr = load->GetAddr();
     loadAddr->SetContained();
 
@@ -3978,24 +3973,7 @@ bool Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
             assert(index->OperIsLeaf());
             index->SetContained();
         }
-
-        storeAddr->SetContained();
     }
-    else
-    {
-        assert(loadAddr->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT));
-
-        if (loadAddr->OperIs(GT_CLS_VAR_ADDR))
-        {
-            storeAddr->SetContained();
-        }
-        else if (loadAddr->IsIntCon() && loadAddr->AsIntCon()->FitsInAddrBase(comp))
-        {
-            storeAddr->SetContained();
-        }
-    }
-
-    return true;
 }
 
 void Lowering::ContainCheckBinary(GenTreeOp* node)
