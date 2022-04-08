@@ -2420,33 +2420,37 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
         }
         else
         {
-            regMaskTP srcCandidates = RBM_NONE;
-
-#ifdef TARGET_X86
             GenTreeIndir* load;
+            GenTree*      src = nullptr;
 
             if (value->OperIsBinary())
             {
-                GenTree* src = value->AsOp()->GetOp(1);
-
-                if (!src->isContained() && varTypeIsByte(store->GetType()))
-                {
-                    srcCandidates = RBM_BYTE_REGS;
-                }
-
                 load = value->AsOp()->GetOp(0)->AsIndir();
+                src  = value->AsOp()->GetOp(1);
             }
             else
             {
                 load = value->AsUnOp()->GetOp(0)->AsIndir();
             }
 
+#ifdef TARGET_X86
             // TODO-MIKE-Review: Huh, why is this x86 only? And what about shift/rotate?
             CheckAndMoveRMWLastUse(load->Base(), store->Base());
             CheckAndMoveRMWLastUse(load->Index(), store->Index());
-#endif // TARGET_X86
+#endif
 
-            srcCount += BuildBinaryUses(value->AsOp(), srcCandidates);
+            if ((src != nullptr) && !src->isContained())
+            {
+                regMaskTP srcCandidates = RBM_NONE;
+#ifdef TARGET_X86
+                if (varTypeIsByte(store->GetType()))
+                {
+                    srcCandidates = RBM_BYTE_REGS;
+                }
+#endif
+                BuildUse(src, srcCandidates);
+                srcCount++;
+            }
         }
     }
 #ifdef TARGET_X86
