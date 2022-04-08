@@ -2417,20 +2417,21 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
         if (value->OperIsShiftOrRotate())
         {
             srcCount += BuildShiftRotate(value);
+            value = nullptr;
         }
         else
         {
             GenTreeIndir* load;
-            GenTree*      src = nullptr;
 
             if (value->OperIsBinary())
             {
-                load = value->AsOp()->GetOp(0)->AsIndir();
-                src  = value->AsOp()->GetOp(1);
+                load  = value->AsOp()->GetOp(0)->AsIndir();
+                value = value->AsOp()->GetOp(1);
             }
             else
             {
-                load = value->AsUnOp()->GetOp(0)->AsIndir();
+                load  = value->AsUnOp()->GetOp(0)->AsIndir();
+                value = nullptr;
             }
 
 #ifdef TARGET_X86
@@ -2438,31 +2439,12 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
             CheckAndMoveRMWLastUse(load->Base(), store->Base());
             CheckAndMoveRMWLastUse(load->Index(), store->Index());
 #endif
-
-            if ((src != nullptr) && !src->isContained())
-            {
-                regMaskTP srcCandidates = RBM_NONE;
-#ifdef TARGET_X86
-                if (varTypeIsByte(store->GetType()))
-                {
-                    srcCandidates = RBM_BYTE_REGS;
-                }
-#endif
-                BuildUse(src, srcCandidates);
-                srcCount++;
-            }
         }
     }
-#ifdef TARGET_X86
-    else if (!value->isContained() && varTypeIsByte(store->GetType()))
+
+    if ((value != nullptr) && !value->isContained())
     {
-        BuildUse(value, allByteRegs());
-        srcCount++;
-    }
-#endif
-    else if (!value->isContained())
-    {
-        BuildUse(value);
+        BuildUse(value, X86_ONLY(varTypeIsByte(store->GetType()) ? allByteRegs() :) RBM_NONE);
         srcCount++;
     }
 
