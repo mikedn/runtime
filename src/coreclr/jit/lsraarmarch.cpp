@@ -52,7 +52,7 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
         var_types type = TYP_UNDEF;
         if (indirTree->OperGet() == GT_STOREIND)
         {
-            type = indirTree->AsStoreInd()->Data()->TypeGet();
+            type = indirTree->AsStoreInd()->GetValue()->TypeGet();
         }
         else if (indirTree->OperGet() == GT_IND)
         {

@@ -6349,12 +6349,7 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
 
 struct GenTreeStoreInd : public GenTreeIndir
 {
-    GenTree*& Data()
-    {
-        return gtOp2;
-    }
-
-    GenTreeStoreInd(var_types type, GenTree* destPtr, GenTree* data) : GenTreeIndir(GT_STOREIND, type, destPtr, data)
+    GenTreeStoreInd(var_types type, GenTree* addr, GenTree* value) : GenTreeIndir(GT_STOREIND, type, addr, value)
     {
     }
 

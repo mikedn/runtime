@@ -3276,8 +3276,8 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
 {
     assert(mem->OperIs(GT_STOREIND));
 
-    GenTree* addr = mem->Addr();
-    GenTree* data = mem->Data();
+    GenTree* addr = mem->GetAddr();
+    GenTree* data = mem->GetValue();
 
     if (addr->OperGet() == GT_CLS_VAR_ADDR)
     {
