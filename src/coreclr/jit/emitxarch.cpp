@@ -3769,7 +3769,7 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
 {
     GenTree* addr = storeInd->Addr();
     addr          = addr->gtSkipReloadOrCopy();
-    assert(addr->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_LEA, GT_CLS_VAR_ADDR, GT_CNS_INT));
+    assert(addr->OperIs(GT_LCL_VAR, GT_LEA, GT_CLS_VAR_ADDR, GT_CNS_INT));
 
     instrDesc*     id = nullptr;
     UNATIVE_OFFSET sz;
@@ -3799,19 +3799,10 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
                 break;
         }
 
-        if (addr->isContained() && addr->OperIsLocalAddr())
-        {
-            GenTreeLclVarCommon* lclVar = addr->AsLclVarCommon();
-            emitIns_S_I(ins, attr, lclVar->GetLclNum(), lclVar->GetLclOffs(), iconVal);
-            return;
-        }
-        else
-        {
-            id = emitNewInstrAmdCns(attr, offset, iconVal);
-            emitHandleMemOp(storeInd, id, IF_ARW_CNS, ins);
-            id->idIns(ins);
-            sz = emitInsSizeAM(id, insCodeMI(ins), iconVal);
-        }
+        id = emitNewInstrAmdCns(attr, offset, iconVal);
+        emitHandleMemOp(storeInd, id, IF_ARW_CNS, ins);
+        id->idIns(ins);
+        sz = emitInsSizeAM(id, insCodeMI(ins), iconVal);
     }
     else
     {
@@ -3857,19 +3848,12 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
 {
     GenTree* addr = storeInd->Addr();
     addr          = addr->gtSkipReloadOrCopy();
-    assert(addr->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_LEA, GT_CNS_INT));
+    assert(addr->OperIs(GT_LCL_VAR, GT_CLS_VAR_ADDR, GT_LEA, GT_CNS_INT));
 
     ssize_t offset = 0;
     if (addr->OperGet() != GT_CLS_VAR_ADDR)
     {
         offset = storeInd->Offset();
-    }
-
-    if (addr->isContained() && addr->OperIsLocalAddr())
-    {
-        GenTreeLclVarCommon* lclVar = addr->AsLclVarCommon();
-        emitIns_S(ins, attr, lclVar->GetLclNum(), lclVar->GetLclOffs());
-        return;
     }
 
     instrDesc* id = emitNewInstrAmd(attr, offset);

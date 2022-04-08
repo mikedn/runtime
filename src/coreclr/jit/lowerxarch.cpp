@@ -2958,7 +2958,6 @@ bool Lowering::IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
     switch (addr1->GetOper())
     {
         case GT_LCL_VAR:
-        case GT_LCL_VAR_ADDR:
         case GT_CLS_VAR_ADDR:
         case GT_CNS_INT:
             return NodesAreEquivalentLeaves(addr1, addr2);
@@ -2998,7 +2997,6 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
             return (node1->AsIntCon()->GetValue() == node2->AsIntCon()->GetValue()) &&
                    (node1->IsIconHandle() == node2->IsIconHandle());
         case GT_LCL_VAR:
-        case GT_LCL_VAR_ADDR:
             return node1->AsLclVar()->GetLclNum() == node2->AsLclVar()->GetLclNum();
         case GT_CLS_VAR_ADDR:
             return node1->AsClsVar()->GetFieldHandle() == node2->AsClsVar()->GetFieldHandle();
@@ -3013,7 +3011,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
 
     GenTree* addr = store->GetAddr();
 
-    if (!addr->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
+    if (!addr->OperIs(GT_LEA, GT_LCL_VAR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
         return nullptr;
     }
