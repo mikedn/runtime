@@ -904,16 +904,13 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
         RefPosition* sourceLoUse = BuildUse(sourceLo, srcCandidates);
         RefPosition* sourceHiUse = BuildUse(sourceHi, srcCandidates);
 
-        if (!tree->isContained())
+        if (tree->OperIs(GT_LSH_HI))
         {
-            if (tree->OperGet() == GT_LSH_HI)
-            {
-                setDelayFree(sourceLoUse);
-            }
-            else
-            {
-                setDelayFree(sourceHiUse);
-            }
+            setDelayFree(sourceLoUse);
+        }
+        else
+        {
+            setDelayFree(sourceHiUse);
         }
     }
     else
@@ -927,23 +924,15 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
     {
         srcCount += BuildOperandUses(source, srcCandidates);
     }
-    if (!tree->isContained())
+
+    if (!shiftBy->isContained())
     {
-        if (!shiftBy->isContained())
-        {
-            srcCount += BuildDelayFreeUses(shiftBy, source, RBM_RCX);
-            buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
-        }
-        BuildDef(tree, dstCandidates);
+        srcCount += BuildDelayFreeUses(shiftBy, source, RBM_RCX);
+        buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
     }
-    else
-    {
-        if (!shiftBy->isContained())
-        {
-            srcCount += BuildOperandUses(shiftBy, RBM_RCX);
-            buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
-        }
-    }
+
+    BuildDef(tree, dstCandidates);
+
     return srcCount;
 }
 
@@ -2410,42 +2399,58 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
 
     int srcCount = BuildAddrUses(store->GetAddr());
 
-    GenTree* value = store->GetValue();
+    GenTree* value   = store->GetValue();
+    bool     isShift = false;
 
     if (value->isContained() && value->OperIsRMWMemOp())
     {
-        if (value->OperIsShiftOrRotate())
+        GenTreeIndir* load;
+
+        if (value->OperIsBinary())
         {
-            srcCount += BuildShiftRotate(value);
-            value = nullptr;
+            isShift = value->OperIsShiftOrRotate();
+            load    = value->AsOp()->GetOp(0)->AsIndir();
+            value   = value->AsOp()->GetOp(1);
         }
         else
         {
-            GenTreeIndir* load;
-
-            if (value->OperIsBinary())
-            {
-                load  = value->AsOp()->GetOp(0)->AsIndir();
-                value = value->AsOp()->GetOp(1);
-            }
-            else
-            {
-                load  = value->AsUnOp()->GetOp(0)->AsIndir();
-                value = nullptr;
-            }
+            load  = value->AsUnOp()->GetOp(0)->AsIndir();
+            value = nullptr;
+        }
 
 #ifdef TARGET_X86
-            // TODO-MIKE-Review: Huh, why is this x86 only? And what about shift/rotate?
+        // TODO-MIKE-Review: Huh, why is this x86 only? And what about shift/rotate?
+        if (!isShift)
+        {
             CheckAndMoveRMWLastUse(load->Base(), store->Base());
             CheckAndMoveRMWLastUse(load->Index(), store->Index());
-#endif
         }
+#endif
     }
 
     if ((value != nullptr) && !value->isContained())
     {
-        BuildUse(value, X86_ONLY(varTypeIsByte(store->GetType()) ? allByteRegs() :) RBM_NONE);
+        regMaskTP regs = RBM_NONE;
+
+        if (isShift)
+        {
+            regs = RBM_RCX;
+        }
+#ifdef TARGET_X86
+        else if (varTypeIsByte(store->GetType()))
+        {
+            regs = allByteRegs();
+        }
+#endif
+
+        BuildUse(value, regs);
         srcCount++;
+
+        if (isShift)
+        {
+            // TODO-MIKE-Review: It's not clear why shifts needs this.
+            buildKillPositionsForNode(store, currentLoc + 1, RBM_RCX);
+        }
     }
 
     BuildInternalUses();
