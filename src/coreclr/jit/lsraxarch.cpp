@@ -2376,132 +2376,103 @@ int LinearScan::BuildLoadInd(GenTreeIndir* load)
     return srcCount;
 }
 
-int LinearScan::BuildStoreInd(GenTreeIndir* indirTree)
+int LinearScan::BuildStoreInd(GenTreeIndir* store)
 {
-    // struct typed indirs are expected only on rhs of a block copy,
-    // but in this case they must be contained.
-    assert(indirTree->TypeGet() != TYP_STRUCT);
+    assert(store->OperIs(GT_STOREIND) && !store->TypeIs(TYP_STRUCT));
 
 #ifdef FEATURE_SIMD
-    if (indirTree->TypeIs(TYP_SIMD12))
+    if (varTypeIsSIMD(store->GetType()))
     {
-        if (indirTree->OperIs(GT_STOREIND))
+        SetContainsAVXFlags(varTypeSize(store->GetType()));
+
+        if (store->TypeIs(TYP_SIMD12))
         {
-            GenTree* value = indirTree->AsStoreInd()->GetValue();
+            GenTree* value = store->GetValue();
 
             if (value->isContained())
             {
 #ifdef TARGET_64BIT
-                buildInternalIntRegisterDefForNode(indirTree);
+                BuildInternalIntDef(store);
 #else
-                buildInternalFloatRegisterDefForNode(indirTree);
+                BuildInternalFloatDef(store);
 #endif
-                int srcCount = BuildAddrUses(indirTree->GetAddr());
+                int srcCount = BuildAddrUses(store->GetAddr());
                 srcCount += value->OperIs(GT_IND) ? BuildAddrUses(value->AsIndir()->GetAddr()) : 0;
-                buildInternalRegisterUses();
+                BuildInternalUses();
+
                 return srcCount;
             }
-        }
 
-        buildInternalFloatRegisterDefForNode(indirTree);
-
-        // In case of GT_IND we need an internal register different from targetReg and
-        // both of the registers are used at the same time.
-        if (indirTree->OperIs(GT_IND))
-        {
-            setInternalRegsDelayFree = true;
+            BuildInternalFloatDef(store);
         }
     }
 #endif // FEATURE_SIMD
 
-    regMaskTP indirCandidates = RBM_NONE;
-    int       srcCount        = BuildIndirUses(indirTree, indirCandidates);
-    if (indirTree->gtOper == GT_STOREIND)
+    int srcCount = BuildAddrUses(store->GetAddr());
+
+    GenTree* value = store->GetValue();
+
+    if (value->isContained() && value->OperIsRMWMemOp())
     {
-        GenTree* source = indirTree->gtGetOp2();
-        if (source->isContained() && source->OperIsRMWMemOp())
+        if (value->OperIsShiftOrRotate())
         {
-            // Because 'source' is contained, we haven't yet determined its special register requirements, if any.
-            // As it happens, the Shift or Rotate cases are the only ones with special requirements.
-
-            if (source->OperIsShiftOrRotate())
-            {
-                srcCount += BuildShiftRotate(source);
-            }
-            else
-            {
-                regMaskTP srcCandidates = RBM_NONE;
-
-#ifdef TARGET_X86
-                // Determine if we need byte regs for the non-mem source, if any.
-                // Note that BuildShiftRotate (above) will handle the byte requirement as needed,
-                // but STOREIND isn't itself an RMW op, so we have to explicitly set it for that case.
-
-                GenTreeIndir* otherIndir   = source->gtGetOp1()->AsIndir();
-                GenTree*      nonMemSource = nullptr;
-                if (source->OperIsBinary())
-                {
-                    nonMemSource = source->gtGetOp2();
-                }
-
-                if ((nonMemSource != nullptr) && !nonMemSource->isContained() && varTypeIsByte(indirTree))
-                {
-                    srcCandidates = RBM_BYTE_REGS;
-                }
-                if (otherIndir != nullptr)
-                {
-                    // Any lclVars in the addressing mode of this indirection are contained.
-                    // If they are marked as lastUse, transfer the last use flag to the store indir.
-                    GenTree* base    = otherIndir->Base();
-                    GenTree* dstBase = indirTree->Base();
-                    CheckAndMoveRMWLastUse(base, dstBase);
-                    GenTree* index    = otherIndir->Index();
-                    GenTree* dstIndex = indirTree->Index();
-                    CheckAndMoveRMWLastUse(index, dstIndex);
-                }
-#endif // TARGET_X86
-
-                srcCount += BuildBinaryUses(source->AsOp(), srcCandidates);
-            }
+            srcCount += BuildShiftRotate(value);
         }
         else
         {
+            regMaskTP srcCandidates = RBM_NONE;
+
 #ifdef TARGET_X86
-            if (varTypeIsByte(indirTree) && !source->isContained())
+            GenTreeIndir* load;
+
+            if (value->OperIsBinary())
             {
-                BuildUse(source, allByteRegs());
-                srcCount++;
+                GenTree* src = value->AsOp()->GetOp(1);
+
+                if (!src->isContained() && varTypeIsByte(store->GetType()))
+                {
+                    srcCandidates = RBM_BYTE_REGS;
+                }
+
+                load = value->AsOp()->GetOp(0)->AsIndir();
             }
             else
-#endif
             {
-                srcCount += BuildOperandUses(source);
+                load = value->AsUnOp()->GetOp(0)->AsIndir();
             }
+
+            // TODO-MIKE-Review: Huh, why is this x86 only? And what about shift/rotate?
+            CheckAndMoveRMWLastUse(load->Base(), store->Base());
+            CheckAndMoveRMWLastUse(load->Index(), store->Index());
+#endif // TARGET_X86
+
+            srcCount += BuildBinaryUses(value->AsOp(), srcCandidates);
         }
     }
-
-#ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(indirTree))
+#ifdef TARGET_X86
+    else if (!value->isContained() && varTypeIsByte(store->GetType()))
     {
-        SetContainsAVXFlags(genTypeSize(indirTree->TypeGet()));
+        BuildUse(value, allByteRegs());
+        srcCount++;
     }
-    buildInternalRegisterUses();
-#endif // FEATURE_SIMD
+#endif
+    else
+    {
+        srcCount += BuildOperandUses(value);
+    }
+
+    BuildInternalUses();
 
 #ifdef TARGET_X86
-    // There are only BYTE_REG_COUNT byteable registers on x86. If we have a source that requires
+    // There are only BYTE_REG_COUNT byteable registers on x86. If the value requires
     // such a register, we must have no more than BYTE_REG_COUNT sources.
-    // If we have more than BYTE_REG_COUNT sources, and require a byteable register, we need to reserve
-    // one explicitly (see BuildStructStore()).
-    // (Note that the assert below doesn't count internal registers because we only have
-    // floating point internal registers, if any).
+    // If we have more than BYTE_REG_COUNT sources, and require a byteable register,
+    // we need to reserve one explicitly (see BuildStructStore()).
+    // Note that the assert below doesn't count internal registers because we only
+    // have floating point internal registers, if any.
     assert(srcCount <= BYTE_REG_COUNT);
 #endif
 
-    if (indirTree->gtOper != GT_STOREIND)
-    {
-        BuildDef(indirTree);
-    }
     return srcCount;
 }
 
