@@ -3007,7 +3007,7 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
     }
 }
 
-bool Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, GenTree** outSrc)
+GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
 {
     assert(varTypeIsIntegralOrI(store->GetType()));
 
@@ -3015,7 +3015,7 @@ bool Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, Gen
 
     if (!addr->OperIs(GT_LEA, GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
-        return false;
+        return nullptr;
     }
 
     GenTree* op = store->GetValue();
@@ -3024,7 +3024,7 @@ bool Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, Gen
     if (op->gtOverflowEx())
     {
         // The overflow check needs to happen before the store so we can't use RMW.
-        return false;
+        return nullptr;
     }
 
     GenTreeIndir* load = nullptr;
@@ -3034,7 +3034,7 @@ bool Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, Gen
     {
         if (op->OperIsShiftOrRotate() && varTypeIsSmall(store->GetType()))
         {
-            return false;
+            return nullptr;
         }
 
         GenTree* op1 = op->AsOp()->GetOp(0);
@@ -3042,17 +3042,12 @@ bool Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, Gen
 
         if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsLoadIndRMWCandidate(op2->AsIndir(), store))
         {
-            load = op2->AsIndir();
-            src  = op1;
+            return op2->AsIndir();
         }
-        else if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
+
+        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
         {
-            load = op1->AsIndir();
-            src  = op2;
-        }
-        else
-        {
-            return false;
+            return op1->AsIndir();
         }
     }
     else
@@ -3063,18 +3058,11 @@ bool Lowering::IsStoreIndRMW(GenTreeStoreInd* store, GenTreeIndir** outLoad, Gen
 
         if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
         {
-            load = op1->AsIndir();
-        }
-        else
-        {
-            return false;
+            return op1->AsIndir();
         }
     }
 
-    *outLoad = load;
-    *outSrc  = src;
-
-    return true;
+    return nullptr;
 }
 
 // anything is in range for AMD64
@@ -3910,19 +3898,27 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 {
     assert(store->OperIs(GT_STOREIND) && varTypeIsIntegralOrI(store->GetType()));
 
-    GenTreeIndir* load = nullptr;
-    GenTree*      src  = nullptr;
+    GenTreeIndir* load = IsStoreIndRMW(store);
 
-    if (!IsStoreIndRMW(store, &load, &src))
+    if (load == nullptr)
     {
         return;
     }
 
     GenTree* op = store->GetValue();
 
-    if (src != nullptr)
+    if (op->OperIsBinary())
     {
-        assert(op->OperIsBinary());
+        GenTree* src = op->AsOp()->GetOp(1);
+
+        if (load == src)
+        {
+            assert(op->OperIsCommutative());
+
+            src = op->AsOp()->GetOp(0);
+            op->AsOp()->SetOp(0, load);
+            op->AsOp()->SetOp(1, src);
+        }
 
         if (!src->IsIntCon())
         {
@@ -3930,14 +3926,6 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
         }
 
         assert(!src->IsRegOptional());
-
-        if (load == op->AsOp()->GetOp(1))
-        {
-            assert(op->OperIsCommutative());
-
-            op->AsOp()->SetOp(0, load);
-            op->AsOp()->SetOp(1, src);
-        }
     }
 
     op->SetContained();
