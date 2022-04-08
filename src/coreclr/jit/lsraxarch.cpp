@@ -2460,9 +2460,10 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
         srcCount++;
     }
 #endif
-    else
+    else if (!value->isContained())
     {
-        srcCount += BuildOperandUses(value);
+        BuildUse(value);
+        srcCount++;
     }
 
     BuildInternalUses();
