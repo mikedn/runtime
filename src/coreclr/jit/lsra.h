@@ -1848,7 +1848,12 @@ private:
     int BuildStoreLclVar(GenTreeLclVar* store, int* dstCount);
     int BuildStoreLclFld(GenTreeLclFld* store);
     int BuildStoreLcl(GenTreeLclVarCommon* store);
+#ifdef TARGET_XARCH
+    int BuildLoadInd(GenTreeIndir* load);
+    int BuildStoreInd(GenTreeIndir* store);
+#else
     int BuildIndir(GenTreeIndir* indirTree);
+#endif
     int BuildGCWriteBarrier(GenTreeStoreInd* store);
     int BuildCast(GenTreeCast* cast);
 
