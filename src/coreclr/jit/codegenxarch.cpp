@@ -4554,7 +4554,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     if (value->OperIsUnary())
     {
         INDEBUG(GenTreeIndir* load = value->AsUnOp()->GetOp(0)->AsIndir());
-        assert(load->isUsedFromMemory() && Lowering::IndirsAreEquivalent(load, store));
+        assert(load->isUsedFromMemory() && load->isContained());
 
         GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, store);
 
@@ -4564,7 +4564,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     GenTree* load = value->AsOp()->GetOp(0);
     GenTree* src  = value->AsOp()->GetOp(1);
 
-    assert(load->isUsedFromMemory() && Lowering::IndirsAreEquivalent(load->AsIndir(), store));
+    assert(load->isUsedFromMemory() && load->isContained());
 
     genConsumeRegs(src);
 

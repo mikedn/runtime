@@ -2944,12 +2944,6 @@ bool Lowering::IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
     GenTree* addr1 = indir1->GetAddr();
     GenTree* addr2 = indir2->GetAddr();
 
-    // This method will be called by codegen (as well as during lowering).
-    // After register allocation, the sources may have been spilled and reloaded
-    // to a different register, indicated by an inserted GT_RELOAD node.
-    addr1 = addr1->gtSkipReloadOrCopy();
-    addr2 = addr2->gtSkipReloadOrCopy();
-
     if (addr1->GetOper() != addr2->GetOper())
     {
         return false;
@@ -2982,9 +2976,6 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
     {
         return node1 == node2;
     }
-
-    node1 = node1->gtSkipReloadOrCopy();
-    node2 = node2->gtSkipReloadOrCopy();
 
     if ((node1->GetOper() != node2->GetOper()) || (node1->GetType() != node2->GetType()))
     {

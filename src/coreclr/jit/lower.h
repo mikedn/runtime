@@ -335,10 +335,8 @@ private:
     bool IsLoadIndRMWCandidate(GenTreeIndir* load, GenTreeStoreInd* store);
     GenTreeIndir* IsStoreIndRMW(GenTreeStoreInd* store);
     void LowerStoreIndRMW(GenTreeStoreInd* store);
-    static bool NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2);
-
-public:
     static bool IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
+    static bool NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2);
 
 private:
 #endif
