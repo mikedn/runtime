@@ -3320,6 +3320,11 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
         return;
     }
 
+    if ((node->gtFlags & GTF_IND_REQ_ADDR_IN_REG) != 0)
+    {
+        return;
+    }
+
     GenTree* addr = node->GetAddr();
 
 #ifdef FEATURE_SIMD
@@ -3335,33 +3340,12 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     }
 #endif // FEATURE_SIMD
 
-    if ((node->gtFlags & GTF_IND_REQ_ADDR_IN_REG) != 0)
-    {
-        // The address of an indirection that requires its address in a reg.
-        // Skip any further processing that might otherwise make it contained.
-    }
-    else if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
         addr->SetContained();
     }
     else if (addr->IsCnsIntOrI() && addr->AsIntConCommon()->FitsInAddrBase(comp))
     {
-        // Amd64:
-        // We can mark any pc-relative 32-bit addr as containable, except for a direct VSD call address.
-        // (i.e. those VSD calls for which stub addr is known during JIT compilation time).  In this case,
-        // VM requires us to pass stub addr in VirtualStubParam.reg - see LowerVirtualStubCall().  For
-        // that reason we cannot mark such an addr as contained.  Note that this is not an issue for
-        // indirect VSD calls since morphArgs() is explicitly materializing hidden param as a non-standard
-        // argument.
-        //
-        // Workaround:
-        // Note that LowerVirtualStubCall() sets addr->GetRegNum() to VirtualStubParam.reg and Lowering::doPhase()
-        // sets destination candidates on such nodes and resets addr->GetRegNum() to REG_NA.
-        // Ideally we should set a flag on addr nodes that shouldn't be marked as contained
-        // (in LowerVirtualStubCall()), but we don't have any GTF_* flags left for that purpose.  As a workaround
-        // an explicit check is made here.
-        //
-        // On x86, direct VSD is done via a relative branch, and in fact it MUST be contained.
         MakeSrcContained(node, addr);
     }
     else if ((addr->OperGet() == GT_LEA) && IsSafeToContainMem(node, addr))
