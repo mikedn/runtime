@@ -231,59 +231,10 @@ private:
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     GenTree* PreferredRegOptionalOperand(GenTree* tree);
-
-    // ------------------------------------------------------------------
-    // SetRegOptionalBinOp - Indicates which of the operands of a bin-op
-    // register requirement is optional. Xarch instruction set allows
-    // either of op1 or op2 of binary operation (e.g. add, mul etc) to be
-    // a memory operand.  This routine provides info to register allocator
-    // which of its operands optionally require a register.  Lsra might not
-    // allocate a register to RefTypeUse positions of such operands if it
-    // is beneficial. In such a case codegen will treat them as memory
-    // operands.
-    //
-    // Arguments:
-    //     tree  -             Gentree of a binary operation.
-    //     isSafeToMarkOp1     True if it's safe to mark op1 as register optional
-    //     isSafeToMarkOp2     True if it's safe to mark op2 as register optional
-    //
-    // Returns
-    //     The caller is expected to get isSafeToMarkOp1 and isSafeToMarkOp2
-    //     by calling IsSafeToContainMem.
-    //
-    // Note: On xarch at most only one of the operands will be marked as
-    // reg optional, even when both operands could be considered register
-    // optional.
-    void SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2)
-    {
-        assert(GenTree::OperIsBinary(tree->OperGet()));
-
-        GenTree* const op1 = tree->gtGetOp1();
-        GenTree* const op2 = tree->gtGetOp2();
-
-        const unsigned operatorSize = genTypeSize(tree->TypeGet());
-
-        const bool op1Legal =
-            isSafeToMarkOp1 && tree->OperIsCommutative() && (operatorSize == genTypeSize(op1->TypeGet()));
-        const bool op2Legal = isSafeToMarkOp2 && (operatorSize == genTypeSize(op2->TypeGet()));
-
-        GenTree* regOptionalOperand = nullptr;
-        if (op1Legal)
-        {
-            regOptionalOperand = op2Legal ? PreferredRegOptionalOperand(tree) : op1;
-        }
-        else if (op2Legal)
-        {
-            regOptionalOperand = op2;
-        }
-        if (regOptionalOperand != nullptr)
-        {
-            regOptionalOperand->SetRegOptional();
-        }
-    }
-#endif // defined(TARGET_XARCH)
+    void SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
+#endif
 
     void LowerIndir(GenTreeIndir* ind);
     void LowerStoreIndir(GenTreeStoreInd* store);
