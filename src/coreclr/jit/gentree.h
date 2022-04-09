@@ -926,11 +926,6 @@ public:
 
     bool isIndirAddrMode();
 
-    // This returns true only for GT_IND and GT_STOREIND, and is used in contexts where a "true"
-    // indirection is expected (i.e. either a load to or a store from a single register).
-    // OperIsIndir() returns true also for indirection nodes such as GT_BLK, etc. as well as GT_NULLCHECK.
-    bool isIndir() const;
-
     bool isContainedIntOrIImmed() const
     {
         return isContained() && IsCnsIntOrI() && !isUsedFromSpillTemp();
@@ -948,8 +943,11 @@ public:
 
     bool isUsedFromSpillTemp() const;
 
-    // Indicates whether it is a memory op.
-    // Right now it includes Indir and LclField ops.
+    bool isIndir() const
+    {
+        return OperGet() == GT_IND || OperGet() == GT_STOREIND;
+    }
+
     bool isMemoryOp() const
     {
         return isIndir() || isLclField();
