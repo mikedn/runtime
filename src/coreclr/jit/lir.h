@@ -257,6 +257,8 @@ public:
 
         GenTree* FirstNonCatchArgNode() const;
 
+        GenTree* MoveBefore(GenTree* before, GenTree* node);
+
         void InsertBefore(GenTree* insertionPoint, GenTree* node);
         void InsertAfter(GenTree* insertionPoint, GenTree* node);
 

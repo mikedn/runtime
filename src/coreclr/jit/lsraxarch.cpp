@@ -2417,15 +2417,6 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
             load  = value->AsUnOp()->GetOp(0)->AsIndir();
             value = nullptr;
         }
-
-#ifdef TARGET_X86
-        // TODO-MIKE-Review: Huh, why is this x86 only? And what about shift/rotate?
-        if (!isShift)
-        {
-            CheckAndMoveRMWLastUse(load->Base(), store->Base());
-            CheckAndMoveRMWLastUse(load->Index(), store->Index());
-        }
-#endif
     }
 
     if ((value != nullptr) && !value->isContained())

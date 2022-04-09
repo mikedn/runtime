@@ -3928,7 +3928,59 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
         return;
     }
 
+    // We've went through a lot of trouble to ensure that all the nodes directly involved
+    // in the RMW store can be moved forward, we may as well actually move them now.
+    // In many cases where these nodes are does not matter, many are side effect free to
+    // begin with - LEA, ADD, CNS_INT etc. But we may have multiple LCL_VAR uses of the
+    // same local and some of them may be contained as part of the load address. In this
+    // case the order matters. Most backend code effectively ignores containment, except
+    // liveness which will happily mark a contained LCL_VAR as last-use even if for all
+    // intents and purposes it's not a real use. This can happen if load address LCL_VARs
+    // appear after store address LCL_VARs, which is rather unlikely but not impossible.
+    // So we'll just move everthing that can be moved before store and ensure that any
+    // load address LCL_VARs always come first:
+    //     load address, load, src (if needed), op, store address, store
+
+    // TODO-MIKE-Cleanup: This is still kind of dodgy, though it's preferable to fixing
+    // last-use in LSRA. The real problem is of course the fact that we need to keep
+    // load address related nodes in the IR and mark them as contained. But that's not
+    // the same as normal containment, where any sort of effects a contained node may
+    // have (like keeping a local alive) still occur, just at a different place.
+    // One simple alternative might be to replace the load address with a constant,
+    // but that seems slightly risky as there are places in lowering that sometimes
+    // undo containment. Though that's very unlikely to ever happen in the RMW case.
+    // Ideally we'd just use INSTR and remove a lot of this circus but that doesn't
+    // currently work on XARCH.
+
+    GenTree* insertBefore = store;
+    GenTree* storeAddr    = store->GetAddr();
+
+    insertBefore = BlockRange().MoveBefore(insertBefore, storeAddr);
+
+    if (GenTreeAddrMode* addrMode = storeAddr->IsAddrMode())
+    {
+        assert(addrMode->isContained());
+
+        if (GenTree* base = addrMode->GetBase())
+        {
+            if (base->OperIs(GT_LCL_VAR))
+            {
+                insertBefore = BlockRange().MoveBefore(insertBefore, base);
+            }
+        }
+
+        if (GenTree* index = addrMode->GetIndex())
+        {
+            if (index->OperIs(GT_LCL_VAR))
+            {
+                insertBefore = BlockRange().MoveBefore(insertBefore, index);
+            }
+        }
+    }
+
     GenTree* op = store->GetValue();
+    op->SetContained();
+    insertBefore = BlockRange().MoveBefore(insertBefore, op);
 
     if (op->OperIsBinary())
     {
@@ -3949,17 +4001,23 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
         }
 
         assert(!src->IsRegOptional());
+
+        if (src->OperIs(GT_LCL_VAR, GT_CNS_INT))
+        {
+            insertBefore = BlockRange().MoveBefore(insertBefore, src);
+        }
     }
 
-    op->SetContained();
     load->ClearRegOptional();
     load->SetContained();
+    insertBefore = BlockRange().MoveBefore(insertBefore, load);
 
     // Part of the load address may have already been contained during load lowering.
     // But we need to contain everything because the entire load and its address are
     // now subsumed by the store.
     GenTree* loadAddr = load->GetAddr();
     loadAddr->SetContained();
+    insertBefore = BlockRange().MoveBefore(insertBefore, loadAddr);
 
     if (GenTreeAddrMode* addrMode = loadAddr->IsAddrMode())
     {
@@ -3967,12 +4025,14 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
         {
             assert(base->OperIsLeaf());
             base->SetContained();
+            insertBefore = BlockRange().MoveBefore(insertBefore, base);
         }
 
         if (GenTree* index = addrMode->GetIndex())
         {
             assert(index->OperIsLeaf());
             index->SetContained();
+            insertBefore = BlockRange().MoveBefore(insertBefore, index);
         }
     }
 }

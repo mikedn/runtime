@@ -498,6 +498,17 @@ void LIR::Range::InsertBefore(GenTree* insertionPoint, GenTree* node)
     FinishInsertBefore(insertionPoint, node, node);
 }
 
+GenTree* LIR::Range::MoveBefore(GenTree* before, GenTree* node)
+{
+    if (node->gtNext != before)
+    {
+        Remove(node);
+        InsertBefore(before, node);
+    }
+
+    return node;
+}
+
 //------------------------------------------------------------------------
 // LIR::Range::InsertBefore: Inserts 2 nodes before another node in this range.
 //
