@@ -4027,6 +4027,14 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
         }
     }
 
+    // TODO-MIKE-Review: The use of IsSafeToContainMem for reg-optional is dubious.
+    // It's meaningless for non-LCL_VAR nodes, making these reg-optional doesn't
+    // change where their reg def is placed, it only prevents unspilling, which is
+    // rare to begin with in these cases.
+    // Even for LCL_VAR nodes this seems pointless. These are supposed to be reg
+    // candidates so their reg use was anyway placed where the user node is, not
+    // where the LCL_VAR node is.
+
     // IsSafeToContainMem is expensive so we call it at most once for each operand
     // in this method. If we already called IsSafeToContainMem, it must have returned
     // false; otherwise we would have already contained an operand.
