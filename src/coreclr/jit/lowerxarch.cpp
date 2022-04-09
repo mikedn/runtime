@@ -3328,29 +3328,23 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     GenTree* addr = node->GetAddr();
 
 #ifdef FEATURE_SIMD
-    if (node->TypeIs(TYP_SIMD12))
+    if (node->TypeIs(TYP_SIMD12) && (!addr->IsAddrMode() || (addr->AsAddrMode()->GetOffset() > INT32_MAX - 8)))
     {
-        if (addr->OperIs(GT_LEA) && (addr->AsAddrMode()->GetOffset() <= INT32_MAX - 8) &&
-            IsSafeToContainMem(node, addr))
-        {
-            addr->SetContained();
-        }
-
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
         addr->SetContained();
     }
-    else if (addr->IsCnsIntOrI() && addr->AsIntConCommon()->FitsInAddrBase(comp))
+    else if (addr->IsIntCon() && addr->AsIntCon()->FitsInAddrBase(comp))
     {
-        MakeSrcContained(node, addr);
+        addr->SetContained();
     }
-    else if ((addr->OperGet() == GT_LEA) && IsSafeToContainMem(node, addr))
+    else if (addr->IsAddrMode() && IsSafeToContainMem(node, addr))
     {
-        MakeSrcContained(node, addr);
+        addr->SetContained();
     }
 }
 
