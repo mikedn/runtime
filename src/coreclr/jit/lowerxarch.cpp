@@ -4015,13 +4015,6 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 
     if (node->OperIsCommutative())
     {
-        // TODO-MIKE-Review: This is likely useless, constants are normally in op2.
-        if (IsContainableImmed(node, op1))
-        {
-            op1->SetContained();
-            return;
-        }
-
         if ((varTypeSize(op1->GetType()) == operatorSize) && IsContainableMemoryOp(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(node, op1);
