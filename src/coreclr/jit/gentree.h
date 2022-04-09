@@ -1236,13 +1236,17 @@ public:
     //   These helper methods, along with the flag values they manipulate, are defined in lir.h
     //
     // UnusedValue indicates that, although this node produces a value, it is unused.
-    inline void SetUnusedValue();
-    inline void ClearUnusedValue();
-    inline bool IsUnusedValue() const;
+    void SetUnusedValue();
+    void ClearUnusedValue();
+    bool IsUnusedValue() const;
     // RegOptional indicates that codegen can still generate code even if it isn't allocated a register.
-    inline bool IsRegOptional() const;
-    inline void SetRegOptional();
-    inline void ClearRegOptional();
+    bool IsRegOptional() const;
+    void SetRegOptional();
+    void ClearRegOptional();
+
+    void SetLIRMark();
+    bool HasLIRMark() const;
+    void ClearLIRMark();
 
     bool TypeIs(var_types type) const
     {

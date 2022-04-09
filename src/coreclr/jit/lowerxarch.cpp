@@ -2873,7 +2873,7 @@ void Lowering::LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node)
 
 #endif // FEATURE_HW_INTRINSICS
 
-bool Lowering::IsLoadIndRMWCandidate(GenTreeIndir* load, GenTreeStoreInd* store)
+bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src)
 {
     GenTree* loadAddr  = load->GetAddr();
     GenTree* storeAddr = store->GetAddr();
@@ -2883,52 +2883,110 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeIndir* load, GenTreeStoreInd* store)
         return false;
     }
 
+    // RMW stores require multiple interference checks to ensure corectness:
+    //  - The RMW operation (e.g. ADD) needs to be moved before the store. This is
+    //    trivial for the operation itself, it's always side effect free, but binary
+    //    operations have a source operand that needs checking if it's a LCL_VAR.
+    //  - The load needs to be moved before the store.
+    //  - Load and store addresses need not be moved, it would be perfectly fine if
+    //    the store address is computed into a register anywhere before the store.
+    //    But this gets more complicated if addresses contain LCL_VAR uses because
+    //    IndirsAreEquivalent only checks that the 2 addresses expressions are the
+    //    same, not that they produce the same value.
+    // Reg candidate LCL_VARs are treated as if they're contained - the register is
+    // guaranteed to be available at user's position, not at LCL_VAR's position. So:
+    //  - The LCL_VAR source of a binary operation must be safe to move before the store
+    //    because we have to move the binary operation itself.
+    //  - If addresses are LCL_VARs then the load address LCL_VAR must be safe to move
+    //    before the store, it does not matter where the store address LCL_VAR is.
+    //  - If addresses are LEAs that use LCL_VARs then the load address LCL_VARs must
+    //    be safe to move before the store address LEA.
+    // The last case is another complication when the LEA is not contained. We might
+    // need to run two separate interference check traversals, one starting from the
+    // store and one starting from the LEA. And then we don't even know where the load
+    // address LCL_VARs are, they could be after the store address LEA. This kind of
+    // interference is very rare anyway so to keep things simple we require that the
+    // store address LEA is contained. So pretty much all the nodes involved in the
+    // RMW store must be safe to move before the store.
+
+    // TODO-MIKE-Review: We should only check LCL_VARs that are reg candidates. For
+    // now we check all of them because existing code (AddNode) does it like this.
+
     m_scratchSideEffects.Clear();
+    unsigned markCount = 0;
 
-    assert((load->gtLIRFlags & LIR::Flags::Mark) == 0);
-    load->gtLIRFlags |= LIR::Flags::Mark;
+    m_scratchSideEffects.AddNode(comp, load);
+    load->SetLIRMark();
+    markCount++;
 
-    unsigned markCount = 1;
+    if (GenTreeAddrMode* am = loadAddr->IsAddrMode())
+    {
+        // AddNode automatically adds the load address if it's a LCL_VAR but
+        // it doesn not add LCL_VARs that are used as part of an address mode.
+        // Note that we could pass the address mode directly to AddNode but
+        // we still need to mark the LCL_VARs.
+
+        if (GenTree* base = am->GetBase())
+        {
+            if (base->OperIs(GT_LCL_VAR))
+            {
+                m_scratchSideEffects.AddNode(comp, base);
+                base->SetLIRMark();
+                markCount++;
+            }
+        }
+
+        if (GenTree* index = am->GetIndex())
+        {
+            if (index->OperIs(GT_LCL_VAR))
+            {
+                m_scratchSideEffects.AddNode(comp, index);
+                index->SetLIRMark();
+                markCount++;
+            }
+        }
+    }
+    else if (loadAddr->OperIs(GT_LCL_VAR))
+    {
+        // AddNode(load) already added this but we still need to mark it.
+        loadAddr->SetLIRMark();
+        markCount++;
+    }
+
+    if ((src != nullptr) && src->OperIs(GT_LCL_VAR))
+    {
+        m_scratchSideEffects.AddNode(comp, src);
+        src->SetLIRMark();
+        markCount++;
+    }
+
+    if (storeAddr->IsAddrMode())
+    {
+        assert(storeAddr->isContained());
+    }
+    else if (storeAddr->OperIs(GT_LCL_VAR))
+    {
+        m_scratchSideEffects.AddNode(comp, storeAddr);
+        storeAddr->SetLIRMark();
+        markCount++;
+    }
+
+    bool hasInterference = false;
 
     for (GenTree* node = store->gtPrev; markCount > 0; node = node->gtPrev)
     {
-        assert(node != nullptr);
-
-        if ((node->gtLIRFlags & LIR::Flags::Mark) == 0)
+        if (node->HasLIRMark())
         {
-            m_scratchSideEffects.AddNode(comp, node);
-        }
-        else
-        {
-            node->gtLIRFlags &= ~LIR::Flags::Mark;
+            node->ClearLIRMark();
             markCount--;
-
-            if (m_scratchSideEffects.InterferesWith(comp, node, false))
-            {
-                // The indirection's tree contains some node that can't be moved to the store.
-                // The indirection is not a candidate. Clear any leftover mark bits and return.
-                for (; markCount > 0; node = node->gtPrev)
-                {
-                    if ((node->gtLIRFlags & LIR::Flags::Mark) != 0)
-                    {
-                        node->gtLIRFlags &= ~LIR::Flags::Mark;
-                        markCount--;
-                    }
-                }
-
-                return false;
-            }
-
-            node->VisitOperands([&markCount](GenTree* nodeOperand) -> GenTree::VisitResult {
-                assert((nodeOperand->gtLIRFlags & LIR::Flags::Mark) == 0);
-                nodeOperand->gtLIRFlags |= LIR::Flags::Mark;
-                markCount++;
-                return GenTree::VisitResult::Continue;
-            });
+            continue;
         }
+
+        // TODO-MIKE-Review: Why does IsSafeToContainMem uses strict checking while this doesn't?
+        hasInterference = hasInterference || m_scratchSideEffects.InterferesWith(comp, node, false);
     }
 
-    return true;
+    return !hasInterference;
 }
 
 bool Lowering::IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
@@ -3000,18 +3058,22 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
 {
     assert(varTypeIsIntegralOrI(store->GetType()));
 
-    GenTree* addr = store->GetAddr();
+    GenTree* storeAddr = store->GetAddr();
 
-    if (!addr->OperIs(GT_LEA, GT_LCL_VAR, GT_CLS_VAR_ADDR, GT_CNS_INT))
+    if (!storeAddr->OperIs(GT_LEA, GT_LCL_VAR, GT_CLS_VAR_ADDR, GT_CNS_INT))
     {
+        return nullptr;
+    }
+
+    if (storeAddr->IsAddrMode() && !storeAddr->isContained())
+    {
+        // Give up if the address is an uncontained LEA (likely due to base/index interference).
+        // This is rare and ignoring it simplifies IsLoadIndRMWCandidate interference checking.
         return nullptr;
     }
 
     GenTree* op = store->GetValue();
     assert(op->OperIsRMWMemOp() && !op->gtOverflowEx());
-
-    GenTreeIndir* load = nullptr;
-    GenTree*      src  = nullptr;
 
     if (op->OperIsBinary())
     {
@@ -3023,12 +3085,12 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
         GenTree* op1 = op->AsOp()->GetOp(0);
         GenTree* op2 = op->AsOp()->GetOp(1);
 
-        if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsLoadIndRMWCandidate(op2->AsIndir(), store))
+        if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op2->AsIndir(), op1))
         {
             return op2->AsIndir();
         }
 
-        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
+        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op1->AsIndir(), op2))
         {
             return op1->AsIndir();
         }
@@ -3039,7 +3101,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
 
         GenTree* op1 = op->AsUnOp()->GetOp(0);
 
-        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(op1->AsIndir(), store))
+        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op1->AsIndir(), nullptr))
         {
             return op1->AsIndir();
         }

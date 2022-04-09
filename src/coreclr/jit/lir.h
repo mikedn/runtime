@@ -338,4 +338,21 @@ inline bool GenTree::IsRegOptional() const
     return (gtLIRFlags & LIR::Flags::RegOptional) != 0;
 }
 
+inline void GenTree::SetLIRMark()
+{
+    assert((gtLIRFlags & LIR::Flags::Mark) == 0);
+    gtLIRFlags |= LIR::Flags::Mark;
+}
+
+inline bool GenTree::HasLIRMark() const
+{
+    return (gtLIRFlags & LIR::Flags::Mark) != 0;
+}
+
+inline void GenTree::ClearLIRMark()
+{
+    assert((gtLIRFlags & LIR::Flags::Mark) != 0);
+    gtLIRFlags &= ~LIR::Flags::Mark;
+}
+
 #endif // _LIR_H_

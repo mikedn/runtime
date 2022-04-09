@@ -332,7 +332,7 @@ private:
     GenTree* LowerCast(GenTreeCast* cast);
 
 #ifdef TARGET_XARCH
-    bool IsLoadIndRMWCandidate(GenTreeIndir* load, GenTreeStoreInd* store);
+    bool IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src);
     GenTreeIndir* IsStoreIndRMW(GenTreeStoreInd* store);
     void LowerStoreIndRMW(GenTreeStoreInd* store);
     static bool IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
