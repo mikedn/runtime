@@ -358,10 +358,7 @@ public:
     bool IsContainableImmed(GenTree* parentNode, GenTree* childNode) const;
 
     // Return true if 'node' is a containable memory op.
-    bool IsContainableMemoryOp(GenTree* node)
-    {
-        return m_lsra->isContainableMemoryOp(node);
-    }
+    bool IsContainableMemoryOp(GenTree* node);
 
 #ifdef FEATURE_HW_INTRINSICS
     // Return true if 'node' is a containable HWIntrinsic op.

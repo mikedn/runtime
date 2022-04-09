@@ -933,8 +933,6 @@ public:
     // Used by Lowering when considering whether to split Longs, as well as by identifyCandidates().
     bool isRegCandidate(LclVarDsc* varDsc);
 
-    bool isContainableMemoryOp(GenTree* node);
-
 private:
     // Determine which locals are candidates for allocation
     void identifyCandidates();

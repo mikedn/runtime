@@ -6146,3 +6146,21 @@ bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
     return true;
 }
 #endif
+
+bool Lowering::IsContainableMemoryOp(GenTree* node)
+{
+    if (node->isMemoryOp())
+    {
+        return true;
+    }
+    if (node->IsLocal())
+    {
+        if (!comp->compEnregLocals())
+        {
+            return true;
+        }
+        LclVarDsc* varDsc = &comp->lvaTable[node->AsLclVar()->GetLclNum()];
+        return varDsc->lvDoNotEnregister;
+    }
+    return false;
+}
