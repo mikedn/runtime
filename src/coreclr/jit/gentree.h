@@ -961,16 +961,6 @@ public:
                 isUsedFromSpillTemp());
     }
 
-    bool isLclVarUsedFromMemory() const
-    {
-        return (OperGet() == GT_LCL_VAR) && (isContained() || isUsedFromSpillTemp());
-    }
-
-    bool isLclFldUsedFromMemory() const
-    {
-        return isLclField() && (isContained() || isUsedFromSpillTemp());
-    }
-
     bool isUsedFromReg() const
     {
         return !isContained() && !isUsedFromSpillTemp();
@@ -1858,11 +1848,6 @@ public:
     // Determine whether this is an assignment tree of the form X = X (op) Y,
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
-
-    static bool IsContained(unsigned flags)
-    {
-        return ((flags & GTF_CONTAINED) != 0);
-    }
 
     void SetContained()
     {
