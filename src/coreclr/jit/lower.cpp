@@ -68,23 +68,12 @@ bool Lowering::CheckImmedAndMakeContained(GenTree* parentNode, GenTree* childNod
     return false;
 }
 
-//------------------------------------------------------------------------
-// IsSafeToContainMem: Checks for conflicts between childNode and parentNode,
-// and returns 'true' iff memory operand childNode can be contained in parentNode.
-//
-// Arguments:
-//    parentNode - any non-leaf node
-//    childNode  - some node that is an input to `parentNode`
-//
-// Return value:
-//    true if it is safe to make childNode a contained memory operand.
-//
-bool Lowering::IsSafeToContainMem(GenTree* parentNode, GenTree* childNode)
+bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
 {
     m_scratchSideEffects.Clear();
-    m_scratchSideEffects.AddNode(comp, childNode);
+    m_scratchSideEffects.AddNode(comp, move);
 
-    for (GenTree* node = childNode->gtNext; node != parentNode; node = node->gtNext)
+    for (GenTree* node = move->gtNext; node != before; node = node->gtNext)
     {
         const bool strict = true;
         if (m_scratchSideEffects.InterferesWith(comp, node, strict))

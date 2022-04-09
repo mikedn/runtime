@@ -3342,7 +3342,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     {
         addr->SetContained();
     }
-    else if (addr->IsAddrMode() && IsSafeToContainMem(node, addr))
+    else if (addr->IsAddrMode() && IsSafeToMoveForward(addr, node))
     {
         addr->SetContained();
     }

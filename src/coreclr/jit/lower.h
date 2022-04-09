@@ -430,7 +430,12 @@ private:
 
     // Checks for memory conflicts in the instructions between childNode and parentNode, and returns true if childNode
     // can be contained.
-    bool IsSafeToContainMem(GenTree* parentNode, GenTree* childNode);
+    bool IsSafeToContainMem(GenTree* parentNode, GenTree* childNode)
+    {
+        return IsSafeToMoveForward(childNode, parentNode);
+    }
+
+    bool IsSafeToMoveForward(GenTree* move, GenTree* before);
 
     inline LIR::Range& BlockRange() const
     {
