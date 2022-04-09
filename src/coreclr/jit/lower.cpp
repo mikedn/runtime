@@ -6153,14 +6153,11 @@ bool Lowering::IsContainableMemoryOp(GenTree* node)
     {
         return true;
     }
-    if (node->IsLocal())
+
+    if (node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        if (!comp->compEnregLocals())
-        {
-            return true;
-        }
-        LclVarDsc* varDsc = &comp->lvaTable[node->AsLclVar()->GetLclNum()];
-        return varDsc->lvDoNotEnregister;
+        return !comp->compEnregLocals() || comp->lvaGetDesc(node->AsLclVar())->lvDoNotEnregister;
     }
+
     return false;
 }
