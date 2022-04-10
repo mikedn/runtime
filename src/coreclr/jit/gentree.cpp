@@ -1229,11 +1229,11 @@ AGAIN:
                     }
                     break;
                 case GT_LEA:
-                    if (op1->AsAddrMode()->gtScale != op2->AsAddrMode()->gtScale)
+                    if (op1->AsAddrMode()->GetScale() != op2->AsAddrMode()->GetScale())
                     {
                         return false;
                     }
-                    if (op1->AsAddrMode()->Offset() != op2->AsAddrMode()->Offset())
+                    if (op1->AsAddrMode()->GetOffset() != op2->AsAddrMode()->GetOffset())
                     {
                         return false;
                     }
@@ -1546,7 +1546,8 @@ AGAIN:
                     hash += tree->AsIntrinsic()->gtIntrinsicId;
                     break;
                 case GT_LEA:
-                    hash += static_cast<unsigned>(tree->AsAddrMode()->Offset() << 3) + tree->AsAddrMode()->gtScale;
+                    hash +=
+                        static_cast<unsigned>(tree->AsAddrMode()->GetOffset() << 3) + tree->AsAddrMode()->GetScale();
                     break;
 
                 case GT_STORE_BLK:
@@ -6777,7 +6778,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
         {
             bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "(i*%d)+", lea->GetScale());
         }
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->Offset());
+        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->GetOffset());
     }
     else if (tree->gtOper == GT_ARR_BOUNDS_CHECK)
     {

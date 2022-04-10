@@ -168,7 +168,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
     // up to 16 bytes lower than offset + size. But offsets large enough to hit this case are likely
     // to be extremely rare for this to ever be a CQ issue.
     // On x86 this shouldn't be needed but then again, offsets large enough to hit this are rare.
-    if (addrMode->Offset() > (INT32_MAX - static_cast<int>(size)))
+    if (addrMode->GetOffset() > (INT32_MAX - static_cast<int>(size)))
     {
         return;
     }
@@ -185,7 +185,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
             // than Unroll because it copies only 4 bytes at a time. Besides, if we need to push a lot of slots
             // the cost of the extra LEA is likely to be irrelevant.
 
-            if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->Offset() > 128 - 16) && (size > 16)))
+            if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->GetOffset() > 128 - 16) && (size > 16)))
             {
                 return;
             }
@@ -198,7 +198,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
             // size treshold as on x64 we copy 8 and even 16 bytes at a time. Not that RepInstr/RepInstr also
             // do unlimited unroll but unlike GCUnroll/GCUnrollXMM they use the address mode only once.
 
-            if ((addrMode->HasIndex() && (size > 64)) || ((addrMode->Offset() > 128 - 32) && (size > 32)))
+            if ((addrMode->HasIndex() && (size > 64)) || ((addrMode->GetOffset() > 128 - 32) && (size > 32)))
             {
                 return;
             }

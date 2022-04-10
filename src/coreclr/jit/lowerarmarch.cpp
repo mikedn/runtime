@@ -1033,7 +1033,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         // ldr Rdst, [Rbase + Roffset] with offset in a register. The only supported
         // form is vldr Rdst, [Rbase + imm] with a more limited constraint on the imm.
         GenTreeAddrMode* lea = addr->AsAddrMode();
-        int              cns = lea->Offset();
+        int              cns = lea->GetOffset();
         if (lea->HasIndex() || !emitter::emitIns_valid_imm_for_vldst_offset(cns))
         {
             if (indirNode->OperGet() == GT_STOREIND)
@@ -1235,11 +1235,11 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
                 {
                     isContainable = false;
                 }
-                else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->Offset() != 0))
+                else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
                 {
                     isContainable = false;
                 }
-                else if (addr->AsAddrMode()->Offset() < -255 || addr->AsAddrMode()->Offset() > 255)
+                else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
                 {
                     isContainable = false;
                 }

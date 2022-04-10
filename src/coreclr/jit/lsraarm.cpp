@@ -546,8 +546,7 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_LEA:
         {
-            GenTreeAddrMode* lea    = tree->AsAddrMode();
-            int              offset = lea->Offset();
+            GenTreeAddrMode* lea = tree->AsAddrMode();
 
             // This LEA is instantiating an address, so we set up the srcCount and dstCount here.
             srcCount = 0;
@@ -562,6 +561,8 @@ int LinearScan::BuildNode(GenTree* tree)
                 srcCount++;
                 BuildUse(index);
             }
+
+            int offset = lea->GetOffset();
 
             // An internal register may be needed too; the logic here should be in sync with the
             // genLeaInstruction()'s requirements for a such register.

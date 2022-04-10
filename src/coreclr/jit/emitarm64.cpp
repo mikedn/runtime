@@ -13317,13 +13317,13 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
         int   offset = 0;
         DWORD lsl    = 0;
 
-        if (addr->OperGet() == GT_LEA)
+        if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
         {
-            offset = addr->AsAddrMode()->Offset();
-            if (addr->AsAddrMode()->gtScale > 0)
+            offset = addrMode->GetOffset();
+            if (addrMode->GetScale() > 0)
             {
-                assert(isPow2(addr->AsAddrMode()->gtScale));
-                BitScanForward(&lsl, addr->AsAddrMode()->gtScale);
+                assert(isPow2(addrMode->GetScale()));
+                BitScanForward(&lsl, addrMode->GetScale());
             }
         }
 

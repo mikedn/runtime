@@ -795,7 +795,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
         {
             srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
             assert(!srcAddr->AsAddrMode()->HasIndex());
-            srcOffset = srcAddr->AsAddrMode()->Offset();
+            srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
 
         srcLayout = src->AsObj()->GetLayout();
@@ -1095,7 +1095,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
         {
             srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
             assert(!srcAddr->AsAddrMode()->HasIndex());
-            srcOffset = srcAddr->AsAddrMode()->Offset();
+            srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
 
         srcLayout = src->AsObj()->GetLayout();

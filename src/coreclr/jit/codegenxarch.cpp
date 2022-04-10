@@ -7575,7 +7575,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
                 srcAddrIndexScale = addrMode->GetScale();
             }
 
-            srcOffset = addrMode->Offset();
+            srcOffset = addrMode->GetOffset();
         }
 
         srcLayout   = src->AsObj()->GetLayout();

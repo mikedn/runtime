@@ -5979,11 +5979,6 @@ struct GenTreeAddrMode : public GenTreeOp
         gtScale = scale;
     }
 
-    int Offset()
-    {
-        return static_cast<int>(gtOffset);
-    }
-
     int GetOffset() const
     {
         return static_cast<int>(gtOffset);
