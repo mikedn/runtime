@@ -444,8 +444,8 @@ protected:
                      emitAttr              retSize
                      MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
                      IL_OFFSETX            ilOffset,
-                     regNumber             base   = REG_NA,
-                     bool                  isJump = false);
+                     regNumber             base,
+                     bool                  isJump);
     // clang-format on
 
     // clang-format off

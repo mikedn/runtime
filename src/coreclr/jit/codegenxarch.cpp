@@ -5076,7 +5076,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                             X86_ARG(argSizeForEmitter),
                             retSize
                             MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                            ilOffset);
+                            ilOffset,
+                            REG_NA,
+                            false);
                 // clang-format on
             }
             else
@@ -5108,7 +5110,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                         retSize
                         MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
                         ilOffset,
-                        genConsumeReg(target));
+                        genConsumeReg(target),
+                        false);
             // clang-format on
         }
     }
@@ -5124,7 +5127,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                     X86_ARG(argSizeForEmitter),
                     retSize
                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                    ilOffset);
+                    ilOffset,
+                    REG_NA,
+                    false);
         // clang-format on
     }
 #endif
@@ -5162,7 +5167,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                     X86_ARG(argSizeForEmitter),
                     retSize
                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                    ilOffset);
+                    ilOffset,
+                    REG_NA,
+                    false);
         // clang-format on
     }
 

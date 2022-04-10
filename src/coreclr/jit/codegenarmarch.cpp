@@ -2718,7 +2718,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         assert(genIsValidIntReg(target->GetRegNum()));
 
         genEmitCall(emitter::EC_INDIR_R, methHnd DEBUGARG(sigInfo), nullptr, // addr
-                    retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset, target->GetRegNum());
+                    retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset, target->GetRegNum(), false);
     }
     else if (call->IsR2ROrVirtualStubRelativeIndir())
     {
@@ -2740,7 +2740,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         assert(genIsValidIntReg(tmpReg));
 
         genEmitCall(emitter::EC_INDIR_R, methHnd DEBUGARG(sigInfo), nullptr, // addr
-                    retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset, tmpReg);
+                    retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset, tmpReg, false);
     }
     else
     {
@@ -2779,13 +2779,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             regNumber tmpReg = call->GetSingleTempReg();
             instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, tmpReg, (ssize_t)addr);
-            genEmitCall(emitter::EC_INDIR_R, methHnd DEBUGARG(sigInfo), nullptr, retSize, ilOffset, tmpReg);
+            genEmitCall(emitter::EC_INDIR_R, methHnd DEBUGARG(sigInfo), nullptr, retSize, ilOffset, tmpReg, false);
         }
         else
 #endif // TARGET_ARM
         {
             genEmitCall(emitter::EC_FUNC_TOKEN, methHnd DEBUGARG(sigInfo), addr,
-                        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset);
+                        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset, REG_NA, false);
         }
 
 #if 0 && defined(TARGET_ARM64)
