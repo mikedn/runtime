@@ -922,14 +922,14 @@ public:
     // for codegen purposes, is this node a subnode of its parent
     bool isContained() const;
 
-    bool isContainedIntOrIImmed() const
+    bool isContainedIntOrIImmed()
     {
         return IsContainedIntCon();
     }
 
-    bool IsContainedIntCon() const
+    GenTreeIntCon* IsContainedIntCon()
     {
-        return isContained() && IsIntCon() && !isUsedFromSpillTemp();
+        return isContained() && IsIntCon() && !isUsedFromSpillTemp() ? AsIntCon() : nullptr;
     }
 
     bool isContainedFltOrDblImmed() const

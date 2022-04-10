@@ -5061,29 +5061,42 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
             if (target->isContained())
         {
-            GenTreeIndir* indir = target->AsIndir();
-            GenTree*      addr  = indir->GetAddr();
+            GenTree* addr = target->AsIndir()->GetAddr();
 
-            if (addr->IsContainedIntCon())
+            if (GenTreeIntCon* intConAddr = addr->IsContainedIntCon())
             {
                 // Note that if gtControlExpr is an indir of an absolute address, we mark it as
                 // contained only if it can be encoded as PC-relative offset.
-                assert(addr->AsIntCon()->FitsInAddrBase(compiler));
+                assert(intConAddr->FitsInAddrBase(compiler));
 
                 emitCallType = emitter::EC_FUNC_TOKEN_INDIR;
-                callAddr     = reinterpret_cast<void*>(addr->AsIntCon()->GetValue());
+                callAddr     = reinterpret_cast<void*>(intConAddr->GetValue());
             }
-            else
+            else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
             {
                 emitCallType = emitter::EC_INDIR_ARD;
 
-                genConsumeAddress(indir->GetAddr());
+                if (GenTree* base = addrMode->GetBase())
+                {
+                    amBaseReg = UseReg(base);
+                }
 
-                GenTree* base = indir->Base();
-                amBaseReg     = (base != nullptr) ? base->GetRegNum() : REG_NA;
-                amIndexReg    = (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA;
-                amIndexScale  = indir->Scale();
-                amOffset      = indir->Offset();
+                if (GenTree* index = addrMode->GetIndex())
+                {
+                    amIndexReg   = UseReg(index);
+                    amIndexScale = addrMode->GetScale();
+                }
+
+                amOffset = addrMode->GetOffset();
+            }
+            else
+            {
+                // TODO-MIKE-Review: It looks like there's no way to have a contained CLS_VAR_ADDR
+                // addr here because the importer spills the target to a local. Maybe it shouldn't.
+
+                emitCallType = emitter::EC_INDIR_ARD;
+
+                amBaseReg = UseReg(addr);
             }
         }
         else
@@ -5093,7 +5106,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             assert(genIsValidIntReg(target->GetRegNum()));
 
             emitCallType = emitter::EC_INDIR_R;
-            amBaseReg    = genConsumeReg(target);
+            amBaseReg    = UseReg(target);
         }
     }
 #ifdef FEATURE_READYTORUN_COMPILER
