@@ -3785,10 +3785,6 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
 //
 void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeInd, GenTree* src)
 {
-    GenTree* addr = storeInd->Addr();
-    addr          = addr->gtSkipReloadOrCopy();
-    assert(addr->OperIs(GT_LCL_VAR, GT_LEA, GT_CLS_VAR_ADDR, GT_CNS_INT));
-
     instrDesc*     id = nullptr;
     UNATIVE_OFFSET sz;
 
@@ -3859,10 +3855,6 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
 //
 void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeInd)
 {
-    GenTree* addr = storeInd->Addr();
-    addr          = addr->gtSkipReloadOrCopy();
-    assert(addr->OperIs(GT_LCL_VAR, GT_CLS_VAR_ADDR, GT_LEA, GT_CNS_INT));
-
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(storeInd));
     emitHandleMemOp(storeInd, id, IF_ARW, ins);
     id->idIns(ins);
