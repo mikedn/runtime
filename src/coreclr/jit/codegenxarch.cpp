@@ -5021,6 +5021,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         noway_assert(helperNum != CORINFO_HELP_UNDEF);
     }
 
+    emitter::EmitCallType emitCallType;
+    void*                 callAddr     = nullptr;
+    regNumber             amBaseReg    = REG_NA;
+    regNumber             amIndexReg   = REG_NA;
+    unsigned              amIndexScale = 0;
+    ssize_t               amOffset     = 0;
+
     if (target != nullptr)
     {
 #ifdef TARGET_X86
@@ -5046,19 +5053,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
             GetEmitter()->emitIns_Nop(3);
 
-            // clang-format off
-            GetEmitter()->emitIns_Call(emitter::EC_INDIR_ARD,
-                                       methHnd
-                                       DEBUGARG(sigInfo),
-                                       nullptr,
-                                       argSizeForEmitter,
-                                       retSize
-                                       MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                                       gcInfo.gcVarPtrSetCur,
-                                       gcInfo.gcRegGCrefSetCur,
-                                       gcInfo.gcRegByrefSetCur,
-                                       ilOffset, REG_VIRTUAL_STUB_TARGET, REG_NA, 1, 0);
-            // clang-format on
+            emitCallType = emitter::EC_INDIR_ARD;
+            amBaseReg    = REG_VIRTUAL_STUB_TARGET;
+            amIndexScale = 1;
         }
         else
 #endif
@@ -5073,49 +5070,20 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 // contained only if it can be encoded as PC-relative offset.
                 assert(addr->AsIntCon()->FitsInAddrBase(compiler));
 
-                // clang-format off
-                GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN_INDIR,
-                    methHnd
-                    DEBUGARG(sigInfo),
-                    reinterpret_cast<void*>(addr->AsIntCon()->GetValue()),
-                    argSizeForEmitter,
-                    retSize
-                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                    gcInfo.gcVarPtrSetCur,
-                    gcInfo.gcRegGCrefSetCur,
-                    gcInfo.gcRegByrefSetCur,
-                    ilOffset,
-                    REG_NA,
-                    REG_NA,
-                    0,
-                    0,
-                    false);
-                // clang-format on
+                emitCallType = emitter::EC_FUNC_TOKEN_INDIR;
+                callAddr     = reinterpret_cast<void*>(addr->AsIntCon()->GetValue());
             }
             else
             {
+                emitCallType = emitter::EC_INDIR_ARD;
+
                 genConsumeAddress(indir->GetAddr());
 
                 GenTree* base = indir->Base();
-
-                // clang-format off
-                GetEmitter()->emitIns_Call(emitter::EC_INDIR_ARD,
-                    methHnd
-                    DEBUGARG(sigInfo),
-                    nullptr,
-                    argSizeForEmitter,
-                    retSize
-                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                    gcInfo.gcVarPtrSetCur,
-                    gcInfo.gcRegGCrefSetCur,
-                    gcInfo.gcRegByrefSetCur,
-                    ilOffset,
-                    (base != nullptr) ? base->GetRegNum() : REG_NA,
-                    (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA,
-                    indir->Scale(),
-                    indir->Offset(),
-                    false);
-                // clang-format on
+                amBaseReg     = (base != nullptr) ? base->GetRegNum() : REG_NA;
+                amIndexReg    = (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA;
+                amIndexScale  = indir->Scale();
+                amOffset      = indir->Offset();
             }
         }
         else
@@ -5124,47 +5092,16 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // We just need to emit "call reg" in this case.
             assert(genIsValidIntReg(target->GetRegNum()));
 
-            // clang-format off
-            GetEmitter()->emitIns_Call(emitter::EC_INDIR_R,
-                methHnd
-                DEBUGARG(sigInfo),
-                nullptr,
-                argSizeForEmitter,
-                retSize
-                MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                gcInfo.gcVarPtrSetCur,
-                gcInfo.gcRegGCrefSetCur,
-                gcInfo.gcRegByrefSetCur,
-                ilOffset,
-                genConsumeReg(target),
-                REG_NA,
-                0,
-                0,
-                false);
-            // clang-format on
+            emitCallType = emitter::EC_INDIR_R;
+            amBaseReg    = genConsumeReg(target);
         }
     }
 #ifdef FEATURE_READYTORUN_COMPILER
     else if (call->gtEntryPoint.addr != nullptr)
     {
-        // clang-format off
-        GetEmitter()->emitIns_Call(call->gtEntryPoint.accessType == IAT_VALUE ? emitter::EC_FUNC_TOKEN : emitter::EC_FUNC_TOKEN_INDIR,
-            methHnd
-            DEBUGARG(sigInfo),
-            call->gtEntryPoint.addr,
-            argSizeForEmitter,
-            retSize
-            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-            gcInfo.gcVarPtrSetCur,
-            gcInfo.gcRegGCrefSetCur,
-            gcInfo.gcRegByrefSetCur,
-            ilOffset,
-            REG_NA,
-            REG_NA,
-            0,
-            0,
-            false);
-        // clang-format on
+        emitCallType =
+            call->gtEntryPoint.accessType == IAT_VALUE ? emitter::EC_FUNC_TOKEN : emitter::EC_FUNC_TOKEN_INDIR;
+        callAddr = call->gtEntryPoint.addr;
     }
 #endif
     else
@@ -5172,7 +5109,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         // Generate a direct call to a non-virtual user defined or helper method
         assert(callType == CT_HELPER || callType == CT_USER_FUNC);
 
-        void* addr = nullptr;
         if (callType == CT_HELPER)
         {
             // Direct call to a helper method.
@@ -5180,38 +5116,41 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             noway_assert(helperNum != CORINFO_HELP_UNDEF);
 
             void* pAddr = nullptr;
-            addr        = compiler->compGetHelperFtn(helperNum, (void**)&pAddr);
+            callAddr    = compiler->compGetHelperFtn(helperNum, (void**)&pAddr);
             assert(pAddr == nullptr);
         }
         else
         {
             // Direct call to a non-virtual user function.
-            addr = call->gtDirectCallAddress;
+            callAddr = call->gtDirectCallAddress;
         }
 
-        assert(addr != nullptr);
+        assert(callAddr != nullptr);
 
         // Non-virtual direct calls to known addresses
 
-        // clang-format off
-        GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN,
-            methHnd
-            DEBUGARG(sigInfo),
-            addr,
-            argSizeForEmitter,
-            retSize
-            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-            gcInfo.gcVarPtrSetCur,
-            gcInfo.gcRegGCrefSetCur,
-            gcInfo.gcRegByrefSetCur,
-            ilOffset,
-            REG_NA,
-            REG_NA,
-            0,
-            0,
-            false);
-        // clang-format on
+        emitCallType = emitter::EC_FUNC_TOKEN;
     }
+
+    // clang-format off
+    GetEmitter()->emitIns_Call(
+        emitCallType,
+        methHnd
+        DEBUGARG(sigInfo),
+        callAddr,
+        argSizeForEmitter,
+        retSize
+        MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
+        gcInfo.gcVarPtrSetCur,
+        gcInfo.gcRegGCrefSetCur,
+        gcInfo.gcRegByrefSetCur,
+        ilOffset,
+        amBaseReg,
+        amIndexReg,
+        amIndexScale,
+        amOffset,
+        false);
+    // clang-format on
 
     // if it was a pinvoke or intrinsic we may have needed to get the address of a label
     if (genPendingCallLabel)
