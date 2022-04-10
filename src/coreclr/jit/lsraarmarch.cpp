@@ -73,11 +73,10 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
 
     if (addr->isContained())
     {
-        if (addr->OperGet() == GT_LEA)
+        if (GenTreeAddrMode* lea = addr->IsAddrMode())
         {
-            GenTreeAddrMode* lea = addr->AsAddrMode();
-            index                = lea->Index();
-            cns                  = lea->Offset();
+            index = lea->GetIndex();
+            cns   = lea->GetOffset();
 
             // On ARM we may need a single internal register
             // (when both conditions are true then we still only need a single internal register)
@@ -570,7 +569,7 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
         }
         else if (dstAddr->IsAddrMode())
         {
-            useCount += BuildAddrUses(dstAddr->AsAddrMode()->Base());
+            useCount += BuildAddrUses(dstAddr->AsAddrMode()->GetBase());
         }
     }
 
@@ -593,7 +592,7 @@ int LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayo
         }
         else if (srcAddrOrFill->IsAddrMode())
         {
-            useCount += BuildAddrUses(srcAddrOrFill->AsAddrMode()->Base());
+            useCount += BuildAddrUses(srcAddrOrFill->AsAddrMode()->GetBase());
         }
     }
 

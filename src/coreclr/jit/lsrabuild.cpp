@@ -2850,10 +2850,9 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
 // Notes:
 //    This method may only be used if the candidates are the same for all sources.
 //
-int LinearScan::BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates)
+int LinearScan::BuildIndirUses(GenTreeIndir* indir, regMaskTP candidates)
 {
-    GenTree* const addr = indirTree->gtOp1;
-    return BuildAddrUses(addr, candidates);
+    return BuildAddrUses(indir->GetAddr(), candidates);
 }
 
 int LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
@@ -2863,24 +2862,30 @@ int LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
         BuildUse(addr, candidates);
         return 1;
     }
-    if (!addr->OperIs(GT_LEA))
+
+    int srcCount = 0;
+
+    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
     {
-        return 0;
+        if (GenTree* base = addrMode->GetBase())
+        {
+            if (!base->isContained())
+            {
+                BuildUse(base, candidates);
+                srcCount++;
+            }
+        }
+
+        if (GenTree* index = addrMode->GetIndex())
+        {
+            if (!index->isContained())
+            {
+                BuildUse(index, candidates);
+                srcCount++;
+            }
+        }
     }
 
-    GenTreeAddrMode* const addrMode = addr->AsAddrMode();
-
-    unsigned srcCount = 0;
-    if ((addrMode->Base() != nullptr) && !addrMode->Base()->isContained())
-    {
-        BuildUse(addrMode->Base(), candidates);
-        srcCount++;
-    }
-    if ((addrMode->Index() != nullptr) && !addrMode->Index()->isContained())
-    {
-        BuildUse(addrMode->Index(), candidates);
-        srcCount++;
-    }
     return srcCount;
 }
 
@@ -3018,24 +3023,33 @@ int LinearScan::BuildDelayFreeUses(GenTree* node, GenTree* rmwNode, regMaskTP ca
     GenTreeAddrMode* const addrMode = addr->AsAddrMode();
 
     unsigned srcCount = 0;
-    if ((addrMode->Base() != nullptr) && !addrMode->Base()->isContained())
+
+    if (GenTree* base = addrMode->GetBase())
     {
-        use = BuildUse(addrMode->Base(), candidates);
-        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+        if (!base->isContained())
         {
-            setDelayFree(use);
+            use = BuildUse(base, candidates);
+            if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+            {
+                setDelayFree(use);
+            }
+            srcCount++;
         }
-        srcCount++;
     }
-    if ((addrMode->Index() != nullptr) && !addrMode->Index()->isContained())
+
+    if (GenTree* index = addrMode->GetIndex())
     {
-        use = BuildUse(addrMode->Index(), candidates);
-        if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+        if (!index->isContained())
         {
-            setDelayFree(use);
+            use = BuildUse(index, candidates);
+            if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
+            {
+                setDelayFree(use);
+            }
+            srcCount++;
         }
-        srcCount++;
     }
+
     return srcCount;
 }
 

@@ -5434,8 +5434,8 @@ GenTree* Compiler::gtCloneExpr(
             {
                 GenTreeAddrMode* addrModeOp = tree->AsAddrMode();
                 copy                        = new (this, GT_LEA)
-                    GenTreeAddrMode(addrModeOp->TypeGet(), addrModeOp->Base(), addrModeOp->Index(), addrModeOp->gtScale,
-                                    static_cast<unsigned>(addrModeOp->Offset()));
+                    GenTreeAddrMode(addrModeOp->TypeGet(), addrModeOp->GetBase(), addrModeOp->GetIndex(),
+                                    addrModeOp->GetScale(), static_cast<unsigned>(addrModeOp->GetOffset()));
             }
             break;
 
@@ -6766,17 +6766,16 @@ void Compiler::gtDispNodeName(GenTree* tree)
         }
         SimpleSprintf_s(bufp, buf, sizeof(buf), "]");
     }
-    else if (tree->gtOper == GT_LEA)
+    else if (GenTreeAddrMode* lea = tree->IsAddrMode())
     {
-        GenTreeAddrMode* lea = tree->AsAddrMode();
         bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s(", name);
-        if (lea->Base() != nullptr)
+        if (lea->GetBase() != nullptr)
         {
             bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "b+");
         }
-        if (lea->Index() != nullptr)
+        if (lea->GetIndex() != nullptr)
         {
-            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "(i*%d)+", lea->gtScale);
+            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "(i*%d)+", lea->GetScale());
         }
         bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->Offset());
     }

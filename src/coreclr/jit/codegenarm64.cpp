@@ -8662,9 +8662,9 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
         }
         else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
         {
-            if (addrMode->HasBase())
+            if (GenTree* base = addrMode->GetBase())
             {
-                m_base = codeGen->genConsumeReg(addrMode->Base());
+                m_base = codeGen->genConsumeReg(base);
             }
 
             // ARM does have indexed address modes but this code is used currently

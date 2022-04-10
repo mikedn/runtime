@@ -525,15 +525,15 @@ int LinearScan::BuildNode(GenTree* tree)
             // be contained, but we may be instantiating an address, in which case we set them here.
             srcCount = 0;
             assert(dstCount == 1);
-            if (tree->AsAddrMode()->HasBase())
+            if (GenTree* base = tree->AsAddrMode()->GetBase())
             {
                 srcCount++;
-                BuildUse(tree->AsAddrMode()->Base());
+                BuildUse(base);
             }
-            if (tree->AsAddrMode()->HasIndex())
+            if (GenTree* index = tree->AsAddrMode()->GetIndex())
             {
                 srcCount++;
-                BuildUse(tree->AsAddrMode()->Index());
+                BuildUse(index);
             }
             BuildDef(tree);
             break;
