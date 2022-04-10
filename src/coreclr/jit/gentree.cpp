@@ -2126,14 +2126,25 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     {
         switch (oper)
         {
-#ifdef TARGET_ARM
+            // Note that CNS_STR does not normally reach gtSetEvalOrder, it's morphed to IND/CNS_INT/CALL.
+            // Give it some costs, just in case gtSetEvalOrder is called before morphing.
             case GT_CNS_STR:
-                // Uses movw/movt
+#if defined(TARGET_ARMARCH)
                 costSz = 8;
                 costEx = 2;
-                level  = 0;
+#elif defined(TARGET_AMD64)
+                costSz = 10;
+                costEx = 2;
+#elif defined(TARGET_X86)
+                costSz = 4;
+                costEx = 1;
+#else
+#error Unknown TARGET
+#endif
+                level = 0;
                 break;
 
+#ifdef TARGET_ARM
             case GT_CNS_LNG:
             {
                 GenTreeIntConCommon* con = tree->AsIntConCommon();
@@ -2212,17 +2223,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
 
 #elif defined TARGET_XARCH
-            case GT_CNS_STR:
-#ifdef TARGET_AMD64
-                costSz = 10;
-                costEx = 2;
-#else // TARGET_X86
-                costSz = 4;
-                costEx = 1;
-#endif
-                level  = 0;
-                break;
-
             case GT_CNS_LNG:
             case GT_CNS_INT:
             {
@@ -2281,7 +2281,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
 
 #elif defined(TARGET_ARM64)
-            case GT_CNS_STR:
             case GT_CNS_LNG:
             case GT_CNS_INT:
             {
