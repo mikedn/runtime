@@ -2803,15 +2803,22 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
     // clang-format off
-    genEmitCall(
+    GetEmitter()->emitIns_Call(
         emitCallType,
         methHnd
         DEBUGARG(sigInfo),
         callAddr,
+        0,
         retSize
         MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
+        gcInfo.gcVarPtrSetCur,
+        gcInfo.gcRegGCrefSetCur,
+        gcInfo.gcRegByrefSetCur,
         ilOffset,
         callReg,
+        REG_NA,
+        0,
+        0,
         false);
     // clang-format on
 

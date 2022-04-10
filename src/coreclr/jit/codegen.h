@@ -435,19 +435,6 @@ protected:
     void genProfilingLeaveCallback(unsigned helper);
 #endif // PROFILING_SUPPORTED
 
-    // clang-format off
-    void genEmitCall(emitter::EmitCallType callType,
-                     CORINFO_METHOD_HANDLE methHnd
-                     DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                     void*                 addr
-                     X86_ARG(int  argSize),
-                     emitAttr              retSize
-                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                     IL_OFFSETX            ilOffset,
-                     regNumber             base,
-                     bool                  isJump);
-// clang-format on
-
 #if defined(TARGET_ARM)
     bool genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog);
 #endif

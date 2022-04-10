@@ -1913,36 +1913,6 @@ void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)
     }
 }
 
-// clang-format off
-void CodeGen::genEmitCall(emitter::EmitCallType                   callType,
-                          CORINFO_METHOD_HANDLE methHnd
-                          DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                          void*                 addr
-                          X86_ARG(int argSize),
-                          emitAttr              retSize
-                          MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                          IL_OFFSETX            ilOffset,
-                          regNumber             base,
-                          bool                  isJump)
-{
-#ifndef TARGET_X86
-    int argSize = 0;
-#endif
-
-    GetEmitter()->emitIns_Call(callType,
-                               methHnd
-                               DEBUGARG(sigInfo),
-                               addr,
-                               argSize,
-                               retSize
-                               MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                               gcInfo.gcVarPtrSetCur,
-                               gcInfo.gcRegGCrefSetCur,
-                               gcInfo.gcRegByrefSetCur,
-                               ilOffset, base, REG_NA, 0, 0, isJump);
-}
-// clang-format on
-
 //------------------------------------------------------------------------
 // genCodeForCast: Generates the code for GT_CAST.
 //
