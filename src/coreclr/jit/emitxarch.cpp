@@ -3119,34 +3119,36 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
         return;
     }
 
-    assert(!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) || !addr->isContained());
-
-    GenTree*  memBase   = indir->Base();
-    regNumber amBaseReg = REG_NA;
-    if (memBase != nullptr)
-    {
-        assert(!memBase->isContained());
-        amBaseReg = memBase->GetRegNum();
-        assert(amBaseReg != REG_NA);
-    }
-
-    regNumber amIndxReg = REG_NA;
-    if (GenTree* index = indir->Index())
-    {
-        assert(!index->isContained());
-        amIndxReg = index->GetRegNum();
-        assert(amIndxReg != REG_NA);
-    }
-
-    assert((amBaseReg != REG_NA) || (amIndxReg != REG_NA) || (indir->Offset() != 0)); // At least one should be set.
-    id->idAddr()->iiaAddrMode.amBaseReg = amBaseReg;
-    id->idAddr()->iiaAddrMode.amIndxReg = amIndxReg;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(indir->Scale());
+    GenTreeAddrMode* addrMode = addr->AsAddrMode();
 
     id->idInsFmt(emitMapFmtForIns(fmt, ins));
 
+    if (GenTree* base = addrMode->GetBase())
+    {
+        regNumber baseReg = base->GetRegNum();
+        assert(baseReg != REG_NA);
+        id->idAddr()->iiaAddrMode.amBaseReg = baseReg;
+    }
+    else
+    {
+        id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
+    }
+
+    if (GenTree* index = addrMode->GetIndex())
+    {
+        regNumber indexReg = index->GetRegNum();
+        assert(indexReg != REG_NA);
+        id->idAddr()->iiaAddrMode.amIndxReg = indexReg;
+        id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(addrMode->GetScale());
+    }
+    else
+    {
+        id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+        id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1;
+    }
+
     // disp must have already been set in the instrDesc constructor.
-    assert(emitGetInsAmdAny(id) == indir->Offset()); // make sure "disp" is stored properly
+    assert(emitGetInsAmdAny(id) == addrMode->GetOffset());
 }
 
 // Takes care of storing all incoming register parameters
