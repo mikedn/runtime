@@ -5045,7 +5045,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             GetEmitter()->emitIns_Nop(3);
 
             // clang-format off
-            GetEmitter()->emitIns_Call(emitter::EmitCallType(emitter::EC_INDIR_ARD),
+            GetEmitter()->emitIns_Call(emitter::EC_INDIR_ARD,
                                        methHnd
                                        DEBUGARG(sigInfo),
                                        nullptr,
@@ -5072,7 +5072,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 genEmitCall(emitter::EC_FUNC_TOKEN_INDIR,
                             methHnd
                             DEBUGARG(sigInfo),
-                            (void*) target->AsIndir()->Base()->AsIntConCommon()->IconValue()
+                            reinterpret_cast<void*>(target->AsIndir()->Base()->AsIntCon()->GetValue())
                             X86_ARG(argSizeForEmitter),
                             retSize
                             MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
@@ -5120,7 +5120,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                                                                  : emitter::EC_FUNC_TOKEN_INDIR,
                     methHnd
                     DEBUGARG(sigInfo),
-                    (void*) call->gtEntryPoint.addr
+                    call->gtEntryPoint.addr
                     X86_ARG(argSizeForEmitter),
                     retSize
                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),

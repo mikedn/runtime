@@ -436,7 +436,7 @@ protected:
 #endif // PROFILING_SUPPORTED
 
     // clang-format off
-    void genEmitCall(int                   callType,
+    void genEmitCall(emitter::EmitCallType callType,
                      CORINFO_METHOD_HANDLE methHnd
                      DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                      void*                 addr
@@ -449,7 +449,7 @@ protected:
     // clang-format on
 
     // clang-format off
-    void genEmitCall(int                   callType,
+    void genEmitCall(emitter::EmitCallType callType,
                      CORINFO_METHOD_HANDLE methHnd
                      DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                      GenTreeIndir*         indir

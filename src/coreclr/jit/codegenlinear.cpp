@@ -1919,7 +1919,7 @@ void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)
 //     retSize - emitter type of return for GC purposes, should be EA_BYREF, EA_GCREF, or EA_PTRSIZE(not GC)
 //
 // clang-format off
-void CodeGen::genEmitCall(int                   callType,
+void CodeGen::genEmitCall(emitter::EmitCallType                   callType,
                           CORINFO_METHOD_HANDLE methHnd
                           DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                           void*                 addr
@@ -1933,7 +1933,7 @@ void CodeGen::genEmitCall(int                   callType,
 #if !defined(TARGET_X86)
     int argSize = 0;
 #endif // !defined(TARGET_X86)
-    GetEmitter()->emitIns_Call(emitter::EmitCallType(callType),
+    GetEmitter()->emitIns_Call(callType,
                                methHnd
                                DEBUGARG(sigInfo),
                                addr,
@@ -1952,7 +1952,7 @@ void CodeGen::genEmitCall(int                   callType,
 //     retSize - emitter type of return for GC purposes, should be EA_BYREF, EA_GCREF, or EA_PTRSIZE(not GC)
 //
 // clang-format off
-void CodeGen::genEmitCall(int                   callType,
+void CodeGen::genEmitCall(emitter::EmitCallType callType,
                           CORINFO_METHOD_HANDLE methHnd
                           DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                           GenTreeIndir*         indir
@@ -1966,7 +1966,7 @@ void CodeGen::genEmitCall(int                   callType,
 #endif // !defined(TARGET_X86)
     genConsumeAddress(indir->Addr());
 
-    GetEmitter()->emitIns_Call(emitter::EmitCallType(callType),
+    GetEmitter()->emitIns_Call(callType,
                                methHnd
                                DEBUGARG(sigInfo),
                                nullptr,
