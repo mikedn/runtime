@@ -3060,11 +3060,11 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
 {
     assert(fmt != IF_NONE);
 
-    GenTree* memBase = indir->Base();
+    GenTree* addr = indir->GetAddr();
 
-    if ((memBase != nullptr) && memBase->isContained() && (memBase->OperGet() == GT_CLS_VAR_ADDR))
+    if (addr->isContained() && addr->IsClsVar())
     {
-        CORINFO_FIELD_HANDLE fldHnd = memBase->AsClsVar()->gtClsVarHnd;
+        CORINFO_FIELD_HANDLE fldHnd = addr->AsClsVar()->GetFieldHandle();
 
         // Static always need relocs
         if (!jitStaticFldIsGlobAddr(fldHnd))
@@ -3083,10 +3083,10 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
         id->idAddr()->iiaFieldHnd = fldHnd;
         id->idInsFmt(emitMapFmtForIns(emitMapFmtAtoM(fmt), ins));
     }
-    else if ((memBase != nullptr) && memBase->IsCnsIntOrI() && memBase->isContained())
+    else if (addr->isContained() && addr->IsIntCon())
     {
         // Absolute addresses marked as contained should fit within the base of addr mode.
-        assert(memBase->AsIntConCommon()->FitsInAddrBase(emitComp));
+        assert(addr->AsIntCon()->FitsInAddrBase(emitComp));
 
         // If we reach here, either:
         // - we are not generating relocatable code, (typically the non-AOT JIT case)
@@ -3096,10 +3096,10 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
         //   This last case is captured in the FitsInAddrBase method which is used by Lowering to determine that it can
         //   be contained.
         //
-        assert(!emitComp->opts.compReloc || memBase->IsIconHandle() || memBase->IsIntegralConst(0) ||
-               memBase->AsIntConCommon()->FitsInAddrBase(emitComp));
+        assert(!emitComp->opts.compReloc || addr->IsIconHandle() || addr->IsIntegralConst(0) ||
+               addr->AsIntCon()->FitsInAddrBase(emitComp));
 
-        if (memBase->AsIntConCommon()->AddrNeedsReloc(emitComp))
+        if (addr->AsIntCon()->AddrNeedsReloc(emitComp))
         {
             id->idSetIsDspReloc();
         }
@@ -3111,12 +3111,13 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
         id->idInsFmt(emitMapFmtForIns(fmt, ins));
 
         // Absolute address must have already been set in the instrDesc constructor.
-        assert(emitGetInsAmdAny(id) == memBase->AsIntConCommon()->IconValue());
+        assert(emitGetInsAmdAny(id) == addr->AsIntCon()->GetValue());
     }
     else
     {
-        assert(!indir->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) || !indir->GetAddr()->isContained());
+        assert(!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) || !addr->isContained());
 
+        GenTree*  memBase   = indir->Base();
         regNumber amBaseReg = REG_NA;
         if (memBase != nullptr)
         {
