@@ -12380,12 +12380,7 @@ GenTree* GenTreeIndir::Base()
 {
     if (GenTreeAddrMode* am = HasAddrMode())
     {
-        GenTree* result = am->GetBase();
-        if (result != nullptr)
-        {
-            result = result->gtEffectiveVal();
-        }
-        return result;
+        return am->GetBase();
     }
     else
     {
@@ -12397,12 +12392,7 @@ GenTree* GenTreeIndir::Index()
 {
     if (GenTreeAddrMode* am = HasAddrMode())
     {
-        GenTree* result = am->GetIndex();
-        if (result != nullptr)
-        {
-            result = result->gtEffectiveVal();
-        }
-        return result;
+        return am->GetIndex();
     }
     else
     {
