@@ -12404,7 +12404,7 @@ unsigned GenTreeIndir::Scale()
 {
     if (Index() != nullptr)
     {
-        return Addr()->AsAddrMode()->gtScale;
+        return Addr()->AsAddrMode()->GetScale();
     }
     else
     {

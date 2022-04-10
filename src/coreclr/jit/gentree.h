@@ -5920,6 +5920,11 @@ struct GenTreeArrOffs : public GenTreeTernaryOp
 
 struct GenTreeAddrMode : public GenTreeOp
 {
+private:
+    unsigned m_scale;
+    ssize_t  m_offset;
+
+public:
     // Address is Base + Index*Scale + Offset.
     // These are the legal patterns:
     //
@@ -5937,7 +5942,18 @@ struct GenTreeAddrMode : public GenTreeOp
     //      3. If Scale==1, then we should have "Base" instead of "Index*Scale", and "Base + Offset" instead of
     //         "Index*Scale + Offset".
 
-    // First operand is base address/pointer
+    GenTreeAddrMode(GenTree* base, ssize_t offset)
+        : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base, nullptr), m_scale(0), m_offset(offset)
+    {
+        assert(base != nullptr);
+    }
+
+    GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, ssize_t offset)
+        : GenTreeOp(GT_LEA, type, base, index), m_scale(scale), m_offset(offset)
+    {
+        assert((base != nullptr) || (index != nullptr));
+    }
+
     bool HasBase() const
     {
         return gtOp1 != nullptr;
@@ -5953,7 +5969,6 @@ struct GenTreeAddrMode : public GenTreeOp
         gtOp1 = base;
     }
 
-    // Second operand is scaled index value
     bool HasIndex() const
     {
         return gtOp2 != nullptr;
@@ -5971,42 +5986,22 @@ struct GenTreeAddrMode : public GenTreeOp
 
     unsigned GetScale() const
     {
-        return gtScale;
+        return m_scale;
     }
 
     void SetScale(unsigned scale)
     {
-        gtScale = scale;
+        m_scale = scale;
     }
 
     int GetOffset() const
     {
-        return static_cast<int>(gtOffset);
+        return static_cast<int>(m_offset);
     }
 
     void SetOffset(int offset)
     {
-        gtOffset = offset;
-    }
-
-    unsigned gtScale; // The scale factor
-
-private:
-    ssize_t gtOffset; // The offset to add
-
-public:
-    GenTreeAddrMode(GenTree* base, ssize_t offset)
-        : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base, nullptr), gtScale(0), gtOffset(offset)
-    {
-        assert(base != nullptr);
-    }
-
-    GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, ssize_t offset)
-        : GenTreeOp(GT_LEA, type, base, index)
-    {
-        assert(base != nullptr || index != nullptr);
-        gtScale  = scale;
-        gtOffset = offset;
+        m_offset = offset;
     }
 
 #if DEBUGGABLE_GENTREE
