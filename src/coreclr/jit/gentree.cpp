@@ -12418,7 +12418,7 @@ ssize_t GenTreeIndir::Offset()
 }
 
 //------------------------------------------------------------------------
-// GenTreeIntConCommon::ImmedValNeedsReloc: does this immediate value needs recording a relocation with the VM?
+// GenTreeIntCon::ImmedValNeedsReloc: does this immediate value needs recording a relocation with the VM?
 //
 // Arguments:
 //    comp - Compiler instance
@@ -12426,9 +12426,9 @@ ssize_t GenTreeIndir::Offset()
 // Return Value:
 //    True if this immediate value requires us to record a relocation for it; false otherwise.
 
-bool GenTreeIntConCommon::ImmedValNeedsReloc(Compiler* comp)
+bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp)
 {
-    return comp->opts.compReloc && (gtOper == GT_CNS_INT) && IsIconHandle();
+    return comp->opts.compReloc && IsIconHandle();
 }
 
 //------------------------------------------------------------------------
@@ -12446,7 +12446,7 @@ bool GenTreeIntConCommon::ImmedValCanBeFolded(Compiler* comp, genTreeOps op)
     // In general, immediate values that need relocations can't be folded.
     // There are cases where we do want to allow folding of handle comparisons
     // (e.g., typeof(T) == typeof(int)).
-    return !ImmedValNeedsReloc(comp) || (op == GT_EQ) || (op == GT_NE);
+    return IsLngCon() || !IsIntCon()->ImmedValNeedsReloc(comp) || (op == GT_EQ) || (op == GT_NE);
 }
 
 #ifdef TARGET_AMD64
