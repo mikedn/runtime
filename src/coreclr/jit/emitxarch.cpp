@@ -3201,11 +3201,11 @@ void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, G
 {
     assert(mem->OperIs(GT_IND, GT_NULLCHECK));
 
-    GenTree* addr = mem->Addr();
+    GenTree* addr = mem->GetAddr();
 
-    if (addr->OperGet() == GT_CLS_VAR_ADDR)
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_R_C(ins, attr, dstReg, addr->AsClsVar()->gtClsVarHnd, 0);
+        emitIns_R_C(ins, attr, dstReg, clsAddr->GetFieldHandle(), 0);
         return;
     }
 
@@ -3238,9 +3238,9 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
 
     GenTree* addr = indir->GetAddr();
 
-    if (addr->OperIs(GT_CLS_VAR_ADDR))
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_C(ins, attr, addr->AsClsVar()->gtClsVarHnd, 0);
+        emitIns_C(ins, attr, clsAddr->GetFieldHandle(), 0);
         return;
     }
 
@@ -3284,16 +3284,16 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
     GenTree* addr = mem->GetAddr();
     GenTree* data = mem->GetValue();
 
-    if (addr->OperGet() == GT_CLS_VAR_ADDR)
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        if (data->isContainedIntOrIImmed())
+        if (GenTreeIntCon* intCon = data->IsContainedIntCon())
         {
-            emitIns_C_I(ins, attr, addr->AsClsVar()->gtClsVarHnd, 0, (int)data->AsIntConCommon()->IconValue());
+            emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), 0, intCon->GetInt32Value());
         }
         else
         {
             assert(!data->isContained());
-            emitIns_C_R(ins, attr, addr->AsClsVar()->gtClsVarHnd, data->GetRegNum(), 0);
+            emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), data->GetRegNum(), 0);
         }
         return;
     }
@@ -3771,16 +3771,11 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
     instrDesc*     id = nullptr;
     UNATIVE_OFFSET sz;
 
-    ssize_t offset = 0;
-    if (addr->OperGet() != GT_CLS_VAR_ADDR)
-    {
-        offset = storeInd->Offset();
-    }
+    ssize_t offset = storeInd->Offset();
 
-    if (src->isContainedIntOrIImmed())
+    if (GenTreeIntCon* intCon = src->IsContainedIntCon())
     {
-        GenTreeIntConCommon* intConst = src->AsIntConCommon();
-        int                  iconVal  = (int)intConst->IconValue();
+        int iconVal = intCon->GetInt32Value();
         switch (ins)
         {
             case INS_rcl_N:
@@ -3847,11 +3842,7 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
     addr          = addr->gtSkipReloadOrCopy();
     assert(addr->OperIs(GT_LCL_VAR, GT_CLS_VAR_ADDR, GT_LEA, GT_CNS_INT));
 
-    ssize_t offset = 0;
-    if (addr->OperGet() != GT_CLS_VAR_ADDR)
-    {
-        offset = storeInd->Offset();
-    }
+    ssize_t offset = storeInd->Offset();
 
     instrDesc* id = emitNewInstrAmd(attr, offset);
     emitHandleMemOp(storeInd, id, IF_ARW, ins);

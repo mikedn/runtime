@@ -12367,10 +12367,6 @@ ssize_t GenTreeIndir::Offset()
     {
         return am->GetOffset();
     }
-    else if (Addr()->gtOper == GT_CLS_VAR_ADDR)
-    {
-        return static_cast<ssize_t>(reinterpret_cast<intptr_t>(Addr()->AsClsVar()->gtClsVarHnd));
-    }
     else if (Addr()->IsIntCon() && Addr()->isContained())
     {
         return Addr()->AsIntCon()->GetValue();
