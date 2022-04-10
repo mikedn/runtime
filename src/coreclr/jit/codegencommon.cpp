@@ -7109,8 +7109,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
             // clang-format off
             GetEmitter()->emitIns_Call(callType,
-                                       methHnd,
-                                       INDEBUG_LDISASM_COMMA(nullptr)
+                                       methHnd
+                                       DEBUGARG(nullptr),
                                        addr,
                                        0,          // argSize
                                        EA_UNKNOWN, // retSize
@@ -7150,8 +7150,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 assert(call->gtCallMethHnd != nullptr);
                 // clang-format off
                 GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN,
-                                           call->gtCallMethHnd,
-                                           INDEBUG_LDISASM_COMMA(nullptr)
+                                           call->gtCallMethHnd
+                                           DEBUGARG(nullptr),
                                            call->gtDirectCallAddress,
                                            0,          // argSize
                                            EA_UNKNOWN  // retSize
@@ -7551,8 +7551,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
             // clang-format off
             GetEmitter()->emitIns_Call(callType,
-                                       methHnd,
-                                       INDEBUG_LDISASM_COMMA(nullptr)
+                                       methHnd
+                                       DEBUGARG(nullptr),
                                        addr,
                                        0,                                                      // argSize
                                        EA_UNKNOWN                                              // retSize
@@ -7587,8 +7587,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 // clang-format off
                 GetEmitter()->emitIns_Call(
                         emitter::EC_FUNC_TOKEN,
-                        call->gtCallMethHnd,
-                        INDEBUG_LDISASM_COMMA(nullptr)
+                        call->gtCallMethHnd
+                        DEBUGARG(nullptr),
                         call->gtDirectCallAddress,
                         0,                                              // argSize
                         EA_UNKNOWN                                      // retSize

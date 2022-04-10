@@ -2717,8 +2717,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         //
         assert(genIsValidIntReg(target->GetRegNum()));
 
-        genEmitCall(emitter::EC_INDIR_R, methHnd,
-                    INDEBUG_LDISASM_COMMA(sigInfo) nullptr, // addr
+        genEmitCall(emitter::EC_INDIR_R, methHnd DEBUGARG(sigInfo), nullptr, // addr
                     retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset, target->GetRegNum());
     }
     else if (call->IsR2ROrVirtualStubRelativeIndir())
@@ -2740,8 +2739,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         //
         assert(genIsValidIntReg(tmpReg));
 
-        genEmitCall(emitter::EC_INDIR_R, methHnd,
-                    INDEBUG_LDISASM_COMMA(sigInfo) nullptr, // addr
+        genEmitCall(emitter::EC_INDIR_R, methHnd DEBUGARG(sigInfo), nullptr, // addr
                     retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset, tmpReg);
     }
     else
@@ -2781,12 +2779,12 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             regNumber tmpReg = call->GetSingleTempReg();
             instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, tmpReg, (ssize_t)addr);
-            genEmitCall(emitter::EC_INDIR_R, methHnd, INDEBUG_LDISASM_COMMA(sigInfo) NULL, retSize, ilOffset, tmpReg);
+            genEmitCall(emitter::EC_INDIR_R, methHnd DEBUGARG(sigInfo), nullptr, retSize, ilOffset, tmpReg);
         }
         else
 #endif // TARGET_ARM
         {
-            genEmitCall(emitter::EC_FUNC_TOKEN, methHnd, INDEBUG_LDISASM_COMMA(sigInfo) addr,
+            genEmitCall(emitter::EC_FUNC_TOKEN, methHnd DEBUGARG(sigInfo), addr,
                         retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize), ilOffset);
         }
 
@@ -2800,8 +2798,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
         // indirect call to constant address in IP0
         genEmitCall(emitter::EC_INDIR_R,
-                    methHnd,
-                    INDEBUG_LDISASM_COMMA(sigInfo)
+                    methHnd
+                    DEBUGARG(sigInfo),
                     nullptr, //addr
                     retSize,
                     secondRetSize,

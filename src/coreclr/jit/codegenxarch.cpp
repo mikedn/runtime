@@ -5046,8 +5046,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
             // clang-format off
             GetEmitter()->emitIns_Call(emitter::EmitCallType(emitter::EC_INDIR_ARD),
-                                       methHnd,
-                                       INDEBUG_LDISASM_COMMA(sigInfo)
+                                       methHnd
+                                       DEBUGARG(sigInfo),
                                        nullptr,
                                        argSizeForEmitter,
                                        retSize
@@ -5070,8 +5070,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
                 // clang-format off
                 genEmitCall(emitter::EC_FUNC_TOKEN_INDIR,
-                            methHnd,
-                            INDEBUG_LDISASM_COMMA(sigInfo)
+                            methHnd
+                            DEBUGARG(sigInfo),
                             (void*) target->AsIndir()->Base()->AsIntConCommon()->IconValue()
                             X86_ARG(argSizeForEmitter),
                             retSize
@@ -5083,8 +5083,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             {
                 // clang-format off
                 genEmitCall(emitter::EC_INDIR_ARD,
-                            methHnd,
-                            INDEBUG_LDISASM_COMMA(sigInfo)
+                            methHnd
+                            DEBUGARG(sigInfo),
                             target->AsIndir()
                             X86_ARG(argSizeForEmitter),
                             retSize
@@ -5101,8 +5101,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
             // clang-format off
             genEmitCall(emitter::EC_INDIR_R,
-                        methHnd,
-                        INDEBUG_LDISASM_COMMA(sigInfo)
+                        methHnd
+                        DEBUGARG(sigInfo),
                         nullptr // addr
                         X86_ARG(argSizeForEmitter),
                         retSize
@@ -5118,8 +5118,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         // clang-format off
         genEmitCall((call->gtEntryPoint.accessType == IAT_VALUE) ? emitter::EC_FUNC_TOKEN
                                                                  : emitter::EC_FUNC_TOKEN_INDIR,
-                    methHnd,
-                    INDEBUG_LDISASM_COMMA(sigInfo)
+                    methHnd
+                    DEBUGARG(sigInfo),
                     (void*) call->gtEntryPoint.addr
                     X86_ARG(argSizeForEmitter),
                     retSize
@@ -5156,8 +5156,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
         // clang-format off
         genEmitCall(emitter::EC_FUNC_TOKEN,
-                    methHnd,
-                    INDEBUG_LDISASM_COMMA(sigInfo)
+                    methHnd
+                    DEBUGARG(sigInfo),
                     addr
                     X86_ARG(argSizeForEmitter),
                     retSize
@@ -8197,8 +8197,8 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 
     // clang-format off
     GetEmitter()->emitIns_Call(callType,
-                               compiler->eeFindHelper(helper),
-                               INDEBUG_LDISASM_COMMA(nullptr) addr,
+                               compiler->eeFindHelper(helper)
+                               DEBUGARG(nullptr), addr,
                                argSize,
                                retSize
                                MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),

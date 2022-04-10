@@ -437,8 +437,8 @@ protected:
 
     // clang-format off
     void genEmitCall(int                   callType,
-                     CORINFO_METHOD_HANDLE methHnd,
-                     INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
+                     CORINFO_METHOD_HANDLE methHnd
+                     DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                      void*                 addr
                      X86_ARG(int  argSize),
                      emitAttr              retSize
@@ -450,8 +450,8 @@ protected:
 
     // clang-format off
     void genEmitCall(int                   callType,
-                     CORINFO_METHOD_HANDLE methHnd,
-                     INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
+                     CORINFO_METHOD_HANDLE methHnd
+                     DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                      GenTreeIndir*         indir
                      X86_ARG(int  argSize),
                      emitAttr              retSize

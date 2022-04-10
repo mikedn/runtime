@@ -1920,8 +1920,8 @@ void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)
 //
 // clang-format off
 void CodeGen::genEmitCall(int                   callType,
-                          CORINFO_METHOD_HANDLE methHnd,
-                          INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
+                          CORINFO_METHOD_HANDLE methHnd
+                          DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                           void*                 addr
                           X86_ARG(int argSize),
                           emitAttr              retSize
@@ -1934,8 +1934,8 @@ void CodeGen::genEmitCall(int                   callType,
     int argSize = 0;
 #endif // !defined(TARGET_X86)
     GetEmitter()->emitIns_Call(emitter::EmitCallType(callType),
-                               methHnd,
-                               INDEBUG_LDISASM_COMMA(sigInfo)
+                               methHnd
+                               DEBUGARG(sigInfo),
                                addr,
                                argSize,
                                retSize
@@ -1953,8 +1953,8 @@ void CodeGen::genEmitCall(int                   callType,
 //
 // clang-format off
 void CodeGen::genEmitCall(int                   callType,
-                          CORINFO_METHOD_HANDLE methHnd,
-                          INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
+                          CORINFO_METHOD_HANDLE methHnd
+                          DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                           GenTreeIndir*         indir
                           X86_ARG(int argSize),
                           emitAttr              retSize
@@ -1967,8 +1967,8 @@ void CodeGen::genEmitCall(int                   callType,
     genConsumeAddress(indir->Addr());
 
     GetEmitter()->emitIns_Call(emitter::EmitCallType(callType),
-                               methHnd,
-                               INDEBUG_LDISASM_COMMA(sigInfo)
+                               methHnd
+                               DEBUGARG(sigInfo),
                                nullptr,
                                argSize,
                                retSize

@@ -4644,8 +4644,8 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
  */
 
 void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd,                   // used for pretty printing
-                           INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo) // used to report call sites to the EE
+                           CORINFO_METHOD_HANDLE methHnd        // used for pretty printing
+                           DEBUGARG(CORINFO_SIG_INFO* sigInfo), // used to report call sites to the EE
                            void*            addr,
                            int              argSize,
                            emitAttr         retSize,

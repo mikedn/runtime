@@ -7367,8 +7367,8 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 
 // clang-format off
 void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd,
-                           INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo) // used to report call sites to the EE
+                           CORINFO_METHOD_HANDLE methHnd
+                           DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                            void*                 addr,
                            ssize_t               argSize,
                            emitAttr              retSize

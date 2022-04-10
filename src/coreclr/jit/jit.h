@@ -192,12 +192,6 @@
 #define DEBUGARG(x)
 #endif
 
-#if defined(DEBUG) || defined(LATE_DISASM)
-#define INDEBUG_LDISASM_COMMA(x) x,
-#else
-#define INDEBUG_LDISASM_COMMA(x)
-#endif
-
 #if defined(UNIX_AMD64_ABI)
 #define UNIX_AMD64_ABI_ONLY_ARG(x) , x
 #define UNIX_AMD64_ABI_ONLY(x) x
