@@ -5065,18 +5065,19 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             if (target->isContained())
         {
             GenTreeIndir* indir = target->AsIndir();
+            GenTree*      base  = indir->Base();
 
-            if (indir->HasBase() && indir->Base()->isContainedIntOrIImmed())
+            if ((base != nullptr) && base->isContainedIntOrIImmed())
             {
                 // Note that if gtControlExpr is an indir of an absolute address, we mark it as
                 // contained only if it can be encoded as PC-relative offset.
-                assert(indir->Base()->AsIntConCommon()->FitsInAddrBase(compiler));
+                assert(base->AsIntConCommon()->FitsInAddrBase(compiler));
 
                 // clang-format off
                 genEmitCall(emitter::EC_FUNC_TOKEN_INDIR,
                             methHnd
                             DEBUGARG(sigInfo),
-                            reinterpret_cast<void*>(indir->Base()->AsIntCon()->GetValue())
+                            reinterpret_cast<void*>(base->AsIntCon()->GetValue())
                             X86_ARG(argSizeForEmitter),
                             retSize
                             MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
@@ -5101,7 +5102,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                     gcInfo.gcRegGCrefSetCur,
                     gcInfo.gcRegByrefSetCur,
                     ilOffset,
-                    (indir->Base() != nullptr) ? indir->Base()->GetRegNum() : REG_NA,
+                    (base != nullptr) ? base->GetRegNum() : REG_NA,
                     (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA,
                     indir->Scale(),
                     indir->Offset());
@@ -6688,7 +6689,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
 
                     // Ensure that all the GenTreeIndir values are set to their defaults.
                     assert(memBase->GetRegNum() == REG_NA);
-                    assert(!memIndir->HasIndex());
+                    assert(memIndir->Index() == nullptr);
                     assert(memIndir->Scale() == 1);
                     assert(memIndir->Offset() == 0);
 

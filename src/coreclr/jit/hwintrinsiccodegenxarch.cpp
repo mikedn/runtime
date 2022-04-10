@@ -2140,7 +2140,7 @@ void CodeGen::genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins)
             sourceReg1 = memBase->GetRegNum();
         }
 
-        if (indir->HasIndex())
+        if (indir->Index() != nullptr)
         {
             sourceReg2 = indir->Index()->GetRegNum();
         }

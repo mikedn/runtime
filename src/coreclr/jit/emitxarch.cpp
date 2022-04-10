@@ -3126,9 +3126,8 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
         }
 
         regNumber amIndxReg = REG_NA;
-        if (indir->HasIndex())
+        if (GenTree* index = indir->Index())
         {
-            GenTree* index = indir->Index();
             assert(!index->isContained());
             amIndxReg = index->GetRegNum();
             assert(amIndxReg != REG_NA);
@@ -3461,7 +3460,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                     offset = memBase->AsLclVarCommon()->GetLclOffs();
 
                     // Ensure that all the GenTreeIndir values are set to their defaults.
-                    assert(!memIndir->HasIndex());
+                    assert(memIndir->Index() == nullptr);
                     assert(memIndir->Scale() == 1);
                     assert(memIndir->Offset() == 0);
 

@@ -7883,11 +7883,9 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
 
         GenTree* memBase = indir->Base();
 
-        if (indir->HasIndex())
+        if (GenTree* index = indir->Index())
         {
             assert(addr->OperGet() == GT_LEA);
-
-            GenTree* index = indir->Index();
 
             if (offset != 0)
             {

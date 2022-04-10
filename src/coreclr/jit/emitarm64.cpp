@@ -13329,10 +13329,8 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
 
         GenTree* memBase = indir->Base();
 
-        if (indir->HasIndex())
+        if (GenTree* index = indir->Index())
         {
-            GenTree* index = indir->Index();
-
             if (offset != 0)
             {
                 regNumber tmpReg = indir->GetSingleTempReg();

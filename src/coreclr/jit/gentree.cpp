@@ -12376,16 +12376,6 @@ bool GenTree::isIndirAddrMode()
     return OperIsIndir() && AsIndir()->GetAddr()->IsAddrMode() && AsIndir()->GetAddr()->isContained();
 }
 
-bool GenTreeIndir::HasBase()
-{
-    return Base() != nullptr;
-}
-
-bool GenTreeIndir::HasIndex()
-{
-    return Index() != nullptr;
-}
-
 GenTree* GenTreeIndir::Base()
 {
     GenTree* addr = Addr();
@@ -12424,7 +12414,7 @@ GenTree* GenTreeIndir::Index()
 
 unsigned GenTreeIndir::Scale()
 {
-    if (HasIndex())
+    if (Index() != nullptr)
     {
         return Addr()->AsAddrMode()->gtScale;
     }
