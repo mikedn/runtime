@@ -1941,38 +1941,6 @@ void CodeGen::genEmitCall(emitter::EmitCallType                   callType,
                                gcInfo.gcRegByrefSetCur,
                                ilOffset, base, REG_NA, 0, 0, isJump);
 }
-
-void CodeGen::genEmitCall(emitter::EmitCallType callType,
-                          CORINFO_METHOD_HANDLE methHnd
-                          DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                          GenTreeIndir*         indir
-                          X86_ARG(int argSize),
-                          emitAttr              retSize
-                          MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                          IL_OFFSETX            ilOffset)
-{
-#ifndef TARGET_X86
-    int argSize = 0;
-#endif
-
-    genConsumeAddress(indir->Addr());
-
-    GetEmitter()->emitIns_Call(callType,
-                               methHnd
-                               DEBUGARG(sigInfo),
-                               nullptr,
-                               argSize,
-                               retSize
-                               MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                               gcInfo.gcVarPtrSetCur,
-                               gcInfo.gcRegGCrefSetCur,
-                               gcInfo.gcRegByrefSetCur,
-                               ilOffset,
-                               (indir->Base()  != nullptr) ? indir->Base()->GetRegNum()  : REG_NA,
-                               (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA,
-                               indir->Scale(),
-                               indir->Offset());
-}
 // clang-format on
 
 //------------------------------------------------------------------------

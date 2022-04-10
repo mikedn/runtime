@@ -446,23 +446,7 @@ protected:
                      IL_OFFSETX            ilOffset,
                      regNumber             base,
                      bool                  isJump);
-    // clang-format on
-
-    // clang-format off
-    void genEmitCall(emitter::EmitCallType callType,
-                     CORINFO_METHOD_HANDLE methHnd
-                     DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                     GenTreeIndir*         indir
-                     X86_ARG(int  argSize),
-                     emitAttr              retSize
-                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                     IL_OFFSETX            ilOffset);
-    // clang-format on
-
-    //
-    // Epilog functions
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
+// clang-format on
 
 #if defined(TARGET_ARM)
     bool genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog);

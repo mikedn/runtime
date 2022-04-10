@@ -4998,6 +4998,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     {
         argSizeForEmitter = -stackArgBytes;
     }
+#else
+    target_ssize_t argSizeForEmitter = 0;
 #endif
 
     // When it's a PInvoke call and the call type is USER function, we issue VZEROUPPER here
@@ -5062,17 +5064,19 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
             if (target->isContained())
         {
-            if (target->AsIndir()->HasBase() && target->AsIndir()->Base()->isContainedIntOrIImmed())
+            GenTreeIndir* indir = target->AsIndir();
+
+            if (indir->HasBase() && indir->Base()->isContainedIntOrIImmed())
             {
                 // Note that if gtControlExpr is an indir of an absolute address, we mark it as
                 // contained only if it can be encoded as PC-relative offset.
-                assert(target->AsIndir()->Base()->AsIntConCommon()->FitsInAddrBase(compiler));
+                assert(indir->Base()->AsIntConCommon()->FitsInAddrBase(compiler));
 
                 // clang-format off
                 genEmitCall(emitter::EC_FUNC_TOKEN_INDIR,
                             methHnd
                             DEBUGARG(sigInfo),
-                            reinterpret_cast<void*>(target->AsIndir()->Base()->AsIntCon()->GetValue())
+                            reinterpret_cast<void*>(indir->Base()->AsIntCon()->GetValue())
                             X86_ARG(argSizeForEmitter),
                             retSize
                             MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
@@ -5083,15 +5087,24 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             }
             else
             {
+                genConsumeAddress(indir->GetAddr());
+
                 // clang-format off
-                genEmitCall(emitter::EC_INDIR_ARD,
-                            methHnd
-                            DEBUGARG(sigInfo),
-                            target->AsIndir()
-                            X86_ARG(argSizeForEmitter),
-                            retSize
-                            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                            ilOffset);
+                GetEmitter()->emitIns_Call(emitter::EC_INDIR_ARD,
+                    methHnd
+                    DEBUGARG(sigInfo),
+                    nullptr,
+                    argSizeForEmitter,
+                    retSize
+                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
+                    gcInfo.gcVarPtrSetCur,
+                    gcInfo.gcRegGCrefSetCur,
+                    gcInfo.gcRegByrefSetCur,
+                    ilOffset,
+                    (indir->Base() != nullptr) ? indir->Base()->GetRegNum() : REG_NA,
+                    (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA,
+                    indir->Scale(),
+                    indir->Offset());
                 // clang-format on
             }
         }
