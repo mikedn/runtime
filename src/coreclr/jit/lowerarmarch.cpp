@@ -1038,7 +1038,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         {
             if (indirNode->OperGet() == GT_STOREIND)
             {
-                if (varTypeIsFloating(indirNode->AsStoreInd()->Data()))
+                if (varTypeIsFloating(indirNode->AsStoreInd()->GetValue()))
                 {
                     makeContained = false;
                 }

@@ -12,7 +12,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitpch.h"
 #ifdef _MSC_VER
 #pragma hdrstop
-#pragma warning(disable : 4310) // cast truncates constant value - happens for (int8_t)0xb1
+#pragma warning(disable : 4310) // cast truncates constant shift - happens for (int8_t)0xb1
 #endif
 
 #ifdef TARGET_XARCH
@@ -55,7 +55,7 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFla
 // Arguments:
 //     initReg        - register to use as a scratch register
 //     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                      this call sets 'initReg' to a non-zero value.
+//                      this call sets 'initReg' to a non-zero shift.
 //
 // Return Value:
 //     None
@@ -178,8 +178,8 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
 #if defined(TARGET_AMD64)
-        // If GS cookie value fits within 32-bits we can use 'cmp mem64, imm32'.
-        // Otherwise, load the value into a reg and use 'cmp mem64, reg64'.
+        // If GS cookie shift fits within 32-bits we can use 'cmp mem64, imm32'.
+        // Otherwise, load the shift into a reg and use 'cmp mem64, reg64'.
         if ((int)compiler->gsGlobalSecurityCookieVal != (ssize_t)compiler->gsGlobalSecurityCookieVal)
         {
             genSetRegToIcon(regGSCheck, compiler->gsGlobalSecurityCookieVal, TYP_I_IMPL);
@@ -195,7 +195,7 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     }
     else
     {
-        // Ngen case - GS cookie value needs to be accessed through an indirection.
+        // Ngen case - GS cookie shift needs to be accessed through an indirection.
 
         pushedRegs = genPushRegs(regMaskGSCheck, &byrefPushedRegs, &norefPushedRegs);
 
@@ -221,7 +221,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     //      jmp         finally-return                  // Only for non-retless finally calls
     // The jmp can be a NOP if we're going to the next block.
     // If we're generating code for the main function (not a funclet), and there is no localloc,
-    // then RSP at this point is the same value as that stored in the PSPSym. So just copy RSP
+    // then RSP at this point is the same shift as that stored in the PSPSym. So just copy RSP
     // instead of loading the PSPSym in this case, or if PSPSym is not used (CoreRT ABI).
 
     if ((compiler->lvaPSPSym == BAD_VAR_NUM) ||
@@ -380,14 +380,14 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
     {
         assert(block->bbJumpKind == BBJ_EHFILTERRET);
 
-        // The return value has already been computed.
+        // The return shift has already been computed.
         instGen_Return(0);
     }
 }
 
 #endif // !FEATURE_EH_FUNCLETS
 
-//  Move an immediate value into an integer register
+//  Move an immediate shift into an integer register
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
@@ -428,7 +428,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
 
 /***********************************************************************************
  *
- * Generate code to set a register 'targetReg' of type 'targetType' to the constant
+ * Generate code to set a register 'targetReg' of type 'type' to the constant
  * specified by the constant (GT_CNS_INT or GT_CNS_DBL) in 'tree'. This does not call
  * genProduceReg() on the target register.
  */
@@ -768,7 +768,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
         gcInfo.gcMarkRegSetNpt(RBM_RDX);
     }
 
-    // Perform the 'targetType' (64-bit or 32-bit) divide instruction
+    // Perform the 'type' (64-bit or 32-bit) divide instruction
     instruction ins;
     if (oper == GT_UMOD || oper == GT_UDIV)
     {
@@ -1101,7 +1101,7 @@ void CodeGen::genFloatReturn(GenTree* src)
     emitAttr  srcSize = emitTypeSize(srcType);
     regNumber srcReg  = UseReg(src);
 
-    // Spill the return value register from an XMM register to the stack, then load it on the x87 stack.
+    // Spill the return shift register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
 
     if (IsRegCandidateLclVar(src) && compiler->lvaGetDesc(src->AsLclVar())->lvOnFrame)
@@ -1117,7 +1117,7 @@ void CodeGen::genFloatReturn(GenTree* src)
     }
     else
     {
-        // Spill the value, which should be in a register, then load it to the fp stack.
+        // Spill the shift, which should be in a register, then load it to the fp stack.
         // TODO-X86-CQ: Deal with things that are already spilled or in memory.
 
         src->SetRegSpill(0, true);
@@ -1239,7 +1239,7 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 //
 // Arguments:
 //   condition - The condition
-//   type      - The type of the value to be produced
+//   type      - The type of the shift to be produced
 //   dstReg    - The destination register to be set to 1 or 0
 //
 void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
@@ -1276,7 +1276,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     assert(tree->OperGet() == GT_RETURNTRAP);
 
     // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
-    // based on the contents of 'data'
+    // based on the contents of 'shift'
 
     GenTree* data = tree->gtOp1;
     genConsumeRegs(data);
@@ -1331,7 +1331,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
     }
 #endif // DEBUG
 
-    // Is this a node whose value is already in a register?  LSRA denotes this by
+    // Is this a node whose shift is already in a register?  LSRA denotes this by
     // setting the GTF_REUSE_REG_VAL flag.
     if (treeNode->IsReuseRegVal())
     {
@@ -1369,7 +1369,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             noway_assert(compiler->compIsProfilerHookNeeded());
 
             // Right now this node is used only for tail calls. In future if
-            // we intend to use it for Enter or Leave hooks, add a data member
+            // we intend to use it for Enter or Leave hooks, add a shift member
             // to this node indicating the kind of profiler hook. For example,
             // helper number can be used.
             genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
@@ -1771,10 +1771,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 //      frameSize         - the size of the stack frame being allocated.
 //      initReg           - register to use as a scratch register.
 //      pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                          this call sets 'initReg' to a non-zero value.
+//                          this call sets 'initReg' to a non-zero shift.
 //      maskArgRegsLiveIn - incoming argument registers that are currently live.
 //
-// Return value:
+// Return shift:
 //      None
 //
 void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
@@ -1871,11 +1871,11 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
 }
 
 //------------------------------------------------------------------------
-// genStackPointerConstantAdjustment: add a specified constant value to the stack pointer.
+// genStackPointerConstantAdjustment: add a specified constant shift to the stack pointer.
 // No probe is done.
 //
 // Arguments:
-//    spDelta                 - the value to add to SP. Must be negative or zero.
+//    spDelta                 - the shift to add to SP. Must be negative or zero.
 //    regTmp                  - x86 only: an available temporary register. If not REG_NA, hide the SP
 //                              adjustment from the emitter, using this register.
 //
@@ -1910,12 +1910,12 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
 }
 
 //------------------------------------------------------------------------
-// genStackPointerConstantAdjustmentWithProbe: add a specified constant value to the stack pointer,
+// genStackPointerConstantAdjustmentWithProbe: add a specified constant shift to the stack pointer,
 // and probe the stack as appropriate. Should only be called as a helper for
 // genStackPointerConstantAdjustmentLoopWithProbe.
 //
 // Arguments:
-//    spDelta                 - the value to add to SP. Must be negative or zero. If zero, the probe happens,
+//    spDelta                 - the shift to add to SP. Must be negative or zero. If zero, the probe happens,
 //                              but the stack pointer doesn't move.
 //    regTmp                  - x86 only: an available temporary register. If not REG_NA, hide the SP
 //                              adjustment from the emitter, using this register.
@@ -1930,7 +1930,7 @@ void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNum
 }
 
 //------------------------------------------------------------------------
-// genStackPointerConstantAdjustmentLoopWithProbe: Add a specified constant value to the stack pointer,
+// genStackPointerConstantAdjustmentLoopWithProbe: Add a specified constant shift to the stack pointer,
 // and probe the stack as appropriate. Generates one probe per page, up to the total amount required.
 // This will generate a sequence of probes in-line. It is required for the case where we need to expose
 // (not hide) the stack level adjustment. We can't use the dynamic loop in that case, because the total
@@ -1939,7 +1939,7 @@ void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNum
 // version in genStackPointerDynamicAdjustmentWithProbe instead).
 //
 // Arguments:
-//    spDelta                 - the value to add to SP. Must be negative.
+//    spDelta                 - the shift to add to SP. Must be negative.
 //    regTmp                  - x86 only: an available temporary register. If not REG_NA, hide the SP
 //                              adjustment from the emitter, using this register.
 //
@@ -1980,14 +1980,14 @@ target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t s
 }
 
 //------------------------------------------------------------------------
-// genStackPointerDynamicAdjustmentWithProbe: add a register value to the stack pointer,
+// genStackPointerDynamicAdjustmentWithProbe: add a register shift to the stack pointer,
 // and probe the stack as appropriate.
 //
 // Note that for x86, we hide the ESP adjustment from the emitter. To do that, currently,
 // requires a temporary register and extra code.
 //
 // Arguments:
-//    regSpDelta              - the register value to add to SP. The value in this register must be negative.
+//    regSpDelta              - the register shift to add to SP. The shift in this register must be negative.
 //                              This register might be trashed.
 //    regTmp                  - an available temporary register. Will be trashed.
 //
@@ -2032,8 +2032,8 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
 
     genDefineTempLabel(loop);
 
-    // Tickle the decremented value. Note that it must be done BEFORE the update of ESP since ESP might already
-    // be on the guard page. It is OK to leave the final value of ESP on the guard page.
+    // Tickle the decremented shift. Note that it must be done BEFORE the update of ESP since ESP might already
+    // be on the guard page. It is OK to leave the final shift of ESP on the guard page.
     GetEmitter()->emitIns_AR_R(INS_test, EA_4BYTE, REG_SPBASE, REG_SPBASE, 0);
 
     // Subtract a page from ESP. This is a trick to avoid the emitter trying to track the
@@ -2045,7 +2045,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     inst_RV_RV(INS_cmp, REG_SPBASE, regSpDelta, TYP_I_IMPL);
     inst_JMP(EJ_jae, loop);
 
-    // Move the final value to ESP
+    // Move the final shift to ESP
     inst_Mov(TYP_I_IMPL, REG_SPBASE, regSpDelta, /* canSkip */ false);
 }
 
@@ -2117,7 +2117,7 @@ void CodeGen::genLclHeap(GenTree* tree)
     {
         // The localloc requested memory size is non-constant.
 
-        // Put the size value in targetReg. If it is zero, bail out by returning null in targetReg.
+        // Put the size shift in targetReg. If it is zero, bail out by returning null in targetReg.
         genConsumeReg(size);
         genCopyRegIfNeeded(size, targetReg);
         endLabel = genCreateTempLabel();
@@ -2306,7 +2306,7 @@ void CodeGen::genLclHeap(GenTree* tree)
     else
     {
         // At this point 'regCnt' is set to the total number of bytes to localloc.
-        // Negate this value before calling the function to adjust the stack (which
+        // Negate this shift before calling the function to adjust the stack (which
         // adds to ESP).
 
         inst_RV(INS_neg, regCnt, TYP_I_IMPL);
@@ -3301,9 +3301,9 @@ void CodeGen::genJumpTable(GenTree* treeNode)
 
     GetEmitter()->emitDataGenEnd();
 
-    // Access to inline data is 'abstracted' by a special type of static member
+    // Access to inline shift is 'abstracted' by a special type of static member
     // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
-    // to constant data, not a real static field.
+    // to constant shift, not a real static field.
     GetEmitter()->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), treeNode->GetRegNum(),
                               compiler->eeFindJitDataOffs(jmpTabBase), 0);
     genProduceReg(treeNode);
@@ -3362,8 +3362,8 @@ void CodeGen::genLockedInstructions(GenTreeOp* node)
     regNumber dataReg = UseReg(data);
     regNumber dstReg  = node->GetRegNum();
 
-    // If the destination register is different from the data register then we need
-    // to first move the data to the target register. Make sure we don't overwrite
+    // If the destination register is different from the shift register then we need
+    // to first move the shift to the target register. Make sure we don't overwrite
     // the address, the register allocator should have taken care of this.
     assert((dstReg != addrReg) || (dstReg == dataReg));
 
@@ -3498,7 +3498,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 // Arguments
 //    tree - the GT_PHYSREG node
 //
-// Return value:
+// Return shift:
 //    None
 //
 void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
@@ -3520,7 +3520,7 @@ void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
 // Arguments
 //    tree - the GT_NULLCHECK node
 //
-// Return value:
+// Return shift:
 //    None
 //
 void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
@@ -3651,10 +3651,10 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
     }
     regNumber indexReg = UseReg(indexNode);
     // Although arrReg may not be used in the constant-index case, if we have generated
-    // the value into a register, we must consume it, otherwise we will fail to end the
+    // the shift into a register, we must consume it, otherwise we will fail to end the
     // live range of the gc ptr.
     // TODO-CQ: Currently arrObj will always have a register allocated to it.
-    // We could avoid allocating a register for it, which would be of value if the arrObj
+    // We could avoid allocating a register for it, which would be of shift if the arrObj
     // is an on-stack lclVar.
     regNumber arrReg = UseReg(arrObj);
 
@@ -3919,58 +3919,6 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     DefReg(tree);
 }
 #endif
-
-//------------------------------------------------------------------------
-// genCodeForShiftRMW: Generates the code sequence for a GT_STOREIND GenTree node that
-// represents a RMW bit shift or rotate operation (<<, >>, >>>, rol, ror), for example:
-//      GT_STOREIND( AddressTree, GT_SHL( Ind ( AddressTree ), Operand ) )
-//
-// Arguments:
-//    storeIndNode: the GT_STOREIND node.
-//
-void CodeGen::genCodeForShiftRMW(GenTreeStoreInd* storeInd)
-{
-    GenTree* data = storeInd->Data();
-
-    assert(data->OperIsShift() || data->OperIsRotate());
-
-    // This function only handles the RMW case.
-    assert(data->AsOp()->gtOp1->isUsedFromMemory());
-    assert(data->AsOp()->gtOp1->isIndir());
-    assert(Lowering::IndirsAreEquivalent(data->AsOp()->gtOp1, storeInd));
-    assert(data->GetRegNum() == REG_NA);
-
-    var_types   targetType = data->TypeGet();
-    genTreeOps  oper       = data->OperGet();
-    instruction ins        = genGetInsForOper(oper, targetType);
-    emitAttr    attr       = EA_ATTR(genTypeSize(targetType));
-
-    GenTree* shiftBy = data->AsOp()->gtOp2;
-    if (shiftBy->isContainedIntOrIImmed())
-    {
-        int shiftByValue = (int)shiftBy->AsIntConCommon()->IconValue();
-        ins              = genMapShiftInsToShiftByConstantIns(ins, shiftByValue);
-        if (shiftByValue == 1)
-        {
-            // There is no source in this case, as the shift by count is embedded in the instruction opcode itself.
-            GetEmitter()->emitInsRMW(ins, attr, storeInd);
-        }
-        else
-        {
-            GetEmitter()->emitInsRMW(ins, attr, storeInd, shiftBy);
-        }
-    }
-    else
-    {
-        // We must have the number of bits to shift stored in ECX, since we constrained this node to
-        // sit in ECX. In case this didn't happen, LSRA expects the code generator to move it since it's a single
-        // register destination requirement.
-        genCopyRegIfNeeded(shiftBy, REG_RCX);
-
-        // The shiftBy operand is implicit, so call the unary version of emitInsRMW.
-        GetEmitter()->emitInsRMW(ins, attr, storeInd);
-    }
-}
 
 //------------------------------------------------------------------------
 // genCodeForLclFld: Produce code for a GT_LCL_FLD node.
@@ -4265,8 +4213,8 @@ void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
 
     UseRegs(src);
 
-    // This is used to store a Vector3/4 call return value, on UNIX_AMD64_ABI
-    // such a value is returned into 2 XMM registers and we need to pack it
+    // This is used to store a Vector3/4 call return shift, on UNIX_AMD64_ABI
+    // such a shift is returned into 2 XMM registers and we need to pack it
     // into the XMM destination register.
     // This also handles the case of Vector2 being returned in 2 GPRs on x86.
 
@@ -4386,17 +4334,17 @@ void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, 
     {
         int imm = src->AsIntCon()->GetInt32Value();
 
-        if (isShift)
-        {
-            ins = genMapShiftInsToShiftByConstantIns(ins, imm);
-        }
-
         if (isShift && (imm == 1))
         {
-            GetEmitter()->emitIns_S(ins, attr, lclNum, lclOffs);
+            GetEmitter()->emitIns_S(MapShiftInsToShiftBy1Ins(ins), attr, lclNum, lclOffs);
         }
         else
         {
+            if (isShift)
+            {
+                ins = MapShiftInsToShiftByImmIns(ins);
+            }
+
             GetEmitter()->emitIns_S_I(ins, attr, lclNum, lclOffs, imm);
         }
 
@@ -4553,150 +4501,142 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     genProduceReg(tree);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreInd: Produce code for a GT_STOREIND node.
-//
-// Arguments:
-//    tree - the GT_STOREIND node
-//
-void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
+void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
 {
-    assert(tree->OperIs(GT_STOREIND));
+    assert(store->OperIs(GT_STOREIND));
 
 #ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(tree, tree->GetValue());
+        genStoreSIMD12(store, store->GetValue());
         return;
     }
 #endif
 
-    GenTree*  addr       = tree->GetAddr();
-    GenTree*  data       = tree->GetValue();
-    var_types targetType = tree->GetType();
+    GenTree*  addr  = store->GetAddr();
+    GenTree*  value = store->GetValue();
+    var_types type  = store->GetType();
 
-    assert(IsValidSourceType(targetType, data->GetType()));
+    assert(IsValidSourceType(type, value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
+    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(store);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
         regNumber addrReg = UseReg(addr);
-        regNumber dataReg = UseReg(data);
+        regNumber dataReg = UseReg(value);
 
-        if (!genEmitOptimizedGCWriteBarrier(writeBarrierForm, addr, data))
+        if (!genEmitOptimizedGCWriteBarrier(writeBarrierForm, addr, value))
         {
             // At this point, we should not have any interference.
-            // That is, 'data' must not be in REG_ARG_0, as that is where 'addr' must go.
+            // That is, 'shift' must not be in REG_ARG_0, as that is where 'addr' must go.
             noway_assert(dataReg != REG_ARG_0);
 
             inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
-            inst_Mov(data->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
-            genGCWriteBarrier(tree, writeBarrierForm);
+            inst_Mov(value->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
+            genGCWriteBarrier(store, writeBarrierForm);
         }
 
         return;
     }
 
-    bool     dataIsUnary   = false;
-    bool     isRMWMemoryOp = tree->IsRMWMemoryOp();
-    GenTree* rmwSrc        = nullptr;
+    emitAttr attr = emitTypeSize(type);
 
-    // We must consume the operands in the proper execution order, so that liveness is
-    // updated appropriately.
     genConsumeAddress(addr);
 
-    // If tree represents a RMW memory op then its data is a non-leaf node marked as contained
-    // and non-indir operand of data is the source of RMW memory op.
-    if (isRMWMemoryOp)
+    if (!value->isContained() || !value->OperIsRMWMemOp())
     {
-        assert(data->isContained() && !data->OperIsLeaf());
+        genConsumeRegs(value);
+        GetEmitter()->emitInsStoreInd(ins_Store(value->GetType()), attr, store);
 
-        GenTree* rmwDst = nullptr;
+        return;
+    }
 
-        dataIsUnary = (GenTree::OperIsUnary(data->OperGet()) != 0);
-        if (!dataIsUnary)
-        {
-            if (tree->IsRMWDstOp1())
-            {
-                rmwDst = data->gtGetOp1();
-                rmwSrc = data->gtGetOp2();
-            }
-            else
-            {
-                assert(tree->IsRMWDstOp2());
-                rmwDst = data->gtGetOp2();
-                rmwSrc = data->gtGetOp1();
-            }
+    if (value->OperIsUnary())
+    {
+        INDEBUG(GenTreeIndir* load = value->AsUnOp()->GetOp(0)->AsIndir());
+        assert(load->isUsedFromMemory() && load->isContained());
 
-            genConsumeRegs(rmwSrc);
-        }
-        else
-        {
-            // *(p) = oper *(p): Here addr = p, rmwsrc=rmwDst = *(p) i.e. GT_IND(p)
-            // For unary RMW ops, src and dst of RMW memory op is the same.  Lower
-            // clears operand counts on rmwSrc and we don't need to perform a
-            // genConsumeReg() on it.
-            assert(tree->IsRMWDstOp1());
-            rmwSrc = data->gtGetOp1();
-            rmwDst = data->gtGetOp1();
-            assert(rmwSrc->isUsedFromMemory());
-        }
+        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, store);
 
-        assert(rmwSrc != nullptr);
-        assert(rmwDst != nullptr);
-        assert(Lowering::IndirsAreEquivalent(rmwDst, tree));
+        return;
+    }
+
+    GenTree* load = value->AsOp()->GetOp(0);
+    GenTree* src  = value->AsOp()->GetOp(1);
+
+    assert(load->isUsedFromMemory() && load->isContained());
+
+    genConsumeRegs(src);
+
+    if (value->OperIs(GT_ADD) && (src->IsIntCon(1) || src->IsIntCon(-1)))
+    {
+        assert(src->isContained());
+
+        GetEmitter()->emitInsRMW(src->IsIntCon(1) ? INS_inc : INS_dec, attr, store);
+    }
+    else if (value->OperIsShiftOrRotate())
+    {
+        assert(src == value->AsOp()->GetOp(1));
+
+        GenStoreIndRMWShift(store, value->AsOp(), src);
     }
     else
     {
-        genConsumeRegs(data);
+        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, store, src);
     }
+}
 
-    if (isRMWMemoryOp)
+void CodeGen::GenStoreIndRMWShift(GenTreeStoreInd* store, GenTreeOp* shift, GenTree* shiftBy)
+{
+    instruction ins  = genGetInsForOper(shift->GetOper(), shift->GetType());
+    emitAttr    attr = emitTypeSize(shift->GetType());
+
+    if (shiftBy->isUsedFromReg())
     {
-        if (dataIsUnary)
-        {
-            // generate code for unary RMW memory ops like neg/not
-            GetEmitter()->emitInsRMW(genGetInsForOper(data->OperGet(), data->TypeGet()), emitTypeSize(tree), tree);
-        }
-        else
-        {
-            if (data->OperIsShiftOrRotate())
-            {
-                // Generate code for shift RMW memory ops.
-                // The data address needs to be op1 (it must be [addr] = [addr] <shift> <amount>, not [addr] =
-                // <amount> <shift> [addr]).
-                assert(tree->IsRMWDstOp1());
-                assert(rmwSrc == data->gtGetOp2());
-                genCodeForShiftRMW(tree);
-            }
-            else if (data->OperGet() == GT_ADD && (rmwSrc->IsIntegralConst(1) || rmwSrc->IsIntegralConst(-1)))
-            {
-                // Generate "inc/dec [mem]" instead of "add/sub [mem], 1".
-                //
-                // Notes:
-                //  1) Global morph transforms GT_SUB(x, +/-1) into GT_ADD(x, -/+1).
-                //  2) TODO-AMD64: Debugger routine NativeWalker::Decode() runs into
-                //     an assert while decoding ModR/M byte of "inc dword ptr [rax]".
-                //     It is not clear whether Decode() can handle all possible
-                //     addr modes with inc/dec.  For this reason, inc/dec [mem]
-                //     is not generated while generating debuggable code.  Update
-                //     the above if condition once Decode() routine is fixed.
-                assert(rmwSrc->isContainedIntOrIImmed());
-                instruction ins = rmwSrc->IsIntegralConst(1) ? INS_inc : INS_dec;
-                GetEmitter()->emitInsRMW(ins, emitTypeSize(tree), tree);
-            }
-            else
-            {
-                // generate code for remaining binary RMW memory ops like add/sub/and/or/xor
-                GetEmitter()->emitInsRMW(genGetInsForOper(data->OperGet(), data->TypeGet()), emitTypeSize(tree), tree,
-                                         rmwSrc);
-            }
-        }
+        genCopyRegIfNeeded(shiftBy, REG_RCX);
+        // The shiftBy operand is implicit, so call the unary version of emitInsRMW.
+        GetEmitter()->emitInsRMW(ins, attr, store);
+    }
+    else if (shiftBy->AsIntCon()->GetInt32Value() == 1)
+    {
+        GetEmitter()->emitInsRMW(MapShiftInsToShiftBy1Ins(ins), attr, store);
     }
     else
     {
-        GetEmitter()->emitInsStoreInd(ins_Store(data->TypeGet()), emitTypeSize(tree), tree);
+        GetEmitter()->emitInsRMW(MapShiftInsToShiftByImmIns(ins), attr, store, shiftBy);
     }
+}
+
+instruction CodeGen::MapShiftInsToShiftBy1Ins(instruction ins)
+{
+    assert(ins == INS_rcl || ins == INS_rcr || ins == INS_rol || ins == INS_ror || ins == INS_shl || ins == INS_shr ||
+           ins == INS_sar);
+
+    assert(INS_rcl + 1 == INS_rcl_1);
+    assert(INS_rcr + 1 == INS_rcr_1);
+    assert(INS_rol + 1 == INS_rol_1);
+    assert(INS_ror + 1 == INS_ror_1);
+    assert(INS_shl + 1 == INS_shl_1);
+    assert(INS_shr + 1 == INS_shr_1);
+    assert(INS_sar + 1 == INS_sar_1);
+
+    return static_cast<instruction>(ins + 1);
+}
+
+instruction CodeGen::MapShiftInsToShiftByImmIns(instruction ins)
+{
+    assert(ins == INS_rcl || ins == INS_rcr || ins == INS_rol || ins == INS_ror || ins == INS_shl || ins == INS_shr ||
+           ins == INS_sar);
+
+    assert(INS_rcl + 2 == INS_rcl_N);
+    assert(INS_rcr + 2 == INS_rcr_N);
+    assert(INS_rol + 2 == INS_rol_N);
+    assert(INS_ror + 2 == INS_ror_N);
+    assert(INS_shl + 2 == INS_shl_N);
+    assert(INS_shr + 2 == INS_shr_N);
+    assert(INS_sar + 2 == INS_sar_N);
+
+    return static_cast<instruction>(ins + 2);
 }
 
 //------------------------------------------------------------------------
@@ -4763,7 +4703,7 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
 // Arguments:
 //    writeBarrierForm - the write barrier form to use
 //    addr - the address at which to do the store
-//    data - the data to store
+//    shift - the shift to store
 //
 // Return Value:
 //    true if an optimized write barrier form was used, false if not. If this
@@ -4991,7 +4931,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         genDefineTempLabel(genCreateTempLabel());
     }
 
-    // Determine return value size(s).
+    // Determine return shift size(s).
     emitAttr retSize       = EA_PTRSIZE;
     emitAttr secondRetSize = EA_UNKNOWN;
 
@@ -5038,7 +4978,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     CorInfoHelpFunc helperNum               = CORINFO_HELP_UNDEF;
 
     // We need to propagate the IL offset information to the call instruction, so we can emit
-    // an IL to native mapping record for the call, to support managed return value debugging.
+    // an IL to native mapping record for the call, to support managed return shift debugging.
     // We don't want tail call helper calls that were converted from normal calls to get a record,
     // so we skip this hash table lookup logic in that case.
     if (compiler->opts.compDbgInfo && compiler->genCallSite2ILOffsetMap != nullptr && !call->IsTailCall())
@@ -5049,9 +4989,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_X86
     bool fCallerPop = call->CallerPop();
 
-    // If the callee pops the arguments, we pass a positive value as the argSize, and the emitter will
+    // If the callee pops the arguments, we pass a positive shift as the argSize, and the emitter will
     // adjust its stack level accordingly.
-    // If the caller needs to explicitly pop its arguments, we must pass a negative value, and then do the
+    // If the caller needs to explicitly pop its arguments, we must pass a negative shift, and then do the
     // pop when we're done.
     target_ssize_t argSizeForEmitter = stackArgBytes;
     if (fCallerPop)
@@ -5272,7 +5212,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 }
 
 #ifdef FEATURE_SIMD
-                // A Vector3 return value is stored in xmm0 and xmm1.
+                // A Vector3 return shift is stored in xmm0 and xmm1.
                 // RyuJIT assumes that the upper unused bits of xmm1 are cleared but
                 // the native compiler doesn't guarantee it.
                 if (call->IsUnmanaged() && (returnType == TYP_SIMD12))
@@ -5316,8 +5256,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
     }
 
-    // If there is nothing next, that means the result is thrown away, so this value is not live.
-    // However, for minopts or debuggable code, we keep it live to support managed return value debugging.
+    // If there is nothing next, that means the result is thrown away, so this shift is not live.
+    // However, for minopts or debuggable code, we keep it live to support managed return shift debugging.
     if ((call->gtNext == nullptr) && compiler->opts.OptimizationEnabled())
     {
         gcInfo.gcMarkRegSetNpt(RBM_INTRET);
@@ -5331,7 +5271,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                      compiler->lvaTable[compiler->lvaCallSpCheck].lvOnFrame);
         if (!fCallerPop && (stackArgBytes != 0))
         {
-            // ECX is trashed, so can be used to compute the expected SP. We saved the value of SP
+            // ECX is trashed, so can be used to compute the expected SP. We saved the shift of SP
             // after pushing all the stack arguments, but the caller popped the arguments, so we need
             // to do some math to figure a good comparison.
             GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
@@ -5786,7 +5726,7 @@ void CodeGen::genCompareInt(GenTree* treeNode)
         ins = INS_test;
 
         // Unlike many xarch instructions TEST doesn't have a form with a 16/32/64 bit first operand and
-        // an 8 bit immediate second operand. But if the immediate value fits in 8 bits then we can simply
+        // an 8 bit immediate second operand. But if the immediate shift fits in 8 bits then we can simply
         // emit a 8 bit TEST instruction, unless we're targeting x86 and the first operand is a non-byteable
         // register.
         // Note that lowering does something similar but its main purpose is to allow memory operands to be
@@ -5980,7 +5920,7 @@ void CodeGen::genLongToIntCast(GenTree* cast)
 // Arguments:
 //    cast - The GT_CAST node
 //    desc - The cast description
-//    reg  - The register containing the value to check
+//    reg  - The register containing the shift to check
 //
 void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg)
 {
@@ -5994,7 +5934,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
 #ifdef TARGET_64BIT
         case GenIntCastDesc::CHECK_UINT_RANGE:
         {
-            // We need to check if the value is not greater than 0xFFFFFFFF but this value
+            // We need to check if the shift is not greater than 0xFFFFFFFF but this shift
             // cannot be encoded in an immediate operand. Use a right shift to test if the
             // upper 32 bits are zero. This requires a temporary register.
             const regNumber tempReg = cast->GetSingleTempReg();
@@ -6223,7 +6163,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     assert((srcReg == REG_NA) || genIsValidIntReg(srcReg));
     assert(genIsValidFloatReg(dstReg));
 
-    // The source value is never a small int but it may be produced by a small int typed
+    // The source shift is never a small int but it may be produced by a small int typed
     // IND or other memory node and in that case the source must not be contained.
     assert(!varTypeIsSmall(src->GetType()) || (srcReg != REG_NA));
 
@@ -6244,7 +6184,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 
 #ifdef TARGET_64BIT
     // Handle the case of srcType = TYP_ULONG. SSE2 conversion instruction
-    // will interpret ULONG value as LONG.  Hence we need to adjust the
+    // will interpret ULONG shift as LONG.  Hence we need to adjust the
     // result if sign-bit of srcType is set.
     if (srcType == TYP_ULONG)
     {
@@ -6368,8 +6308,8 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
 #ifdef TARGET_64BIT
 
-    // Copy the floating-point value to an integer register. If we copied a float to a long, then
-    // right-shift the value so the high 32 bits of the floating-point value sit in the low 32
+    // Copy the floating-point shift to an integer register. If we copied a float to a long, then
+    // right-shift the shift so the high 32 bits of the floating-point shift sit in the low 32
     // bits of the integer register.
     regNumber srcReg        = op1->GetRegNum();
     var_types targetIntType = ((targetType == TYP_FLOAT) ? TYP_INT : TYP_LONG);
@@ -6387,7 +6327,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     // If exponent is all 1's, throw ArithmeticException
     genJumpToThrowHlpBlk(EJ_je, SCK_ARITH_EXCPN);
 
-    // if it is a finite value copy it to targetReg
+    // if it is a finite shift copy it to targetReg
     inst_Mov(targetType, targetReg, op1->GetRegNum(), /* canSkip */ true);
 
 #else // !TARGET_64BIT
@@ -6395,7 +6335,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     // If the target type is TYP_DOUBLE, we want to extract the high 32 bits into the register.
     // There is no easy way to do this. To not require an extra register, we'll use shuffles
     // to move the high 32 bits into the low 32 bits, then shuffle it back, since we
-    // need to produce the value into the target register.
+    // need to produce the shift into the target register.
     //
     // For TYP_DOUBLE, we'll generate (for targetReg != op1->GetRegNum()):
     //    movaps targetReg, op1->GetRegNum()
@@ -6404,7 +6344,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     //    and tmpReg, <mask>
     //    cmp tmpReg, <mask>
     //    je <throw block>
-    //    movaps targetReg, op1->GetRegNum()   // copy the value again, instead of un-shuffling it
+    //    movaps targetReg, op1->GetRegNum()   // copy the shift again, instead of un-shuffling it
     //
     // For TYP_DOUBLE with (targetReg == op1->GetRegNum()):
     //    shufps targetReg, targetReg, 0xB1    // WZYX => ZWXY
@@ -6435,7 +6375,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     }
 
     // Copy only the low 32 bits. This will be the high order 32 bits of the floating-point
-    // value, no matter the floating-point type.
+    // shift, no matter the floating-point type.
     inst_Mov(TYP_INT, tmpReg, copyToTmpSrcReg, /* canSkip */ false, emitActualTypeSize(TYP_FLOAT));
 
     // Mask exponent with all 1's and check if the exponent is all 1's
@@ -6512,7 +6452,7 @@ int CodeGenInterface::genSPtoFPdelta() const
 // callee-saved register size, etc. For AMD64, this does not include the caller-pushed
 // return address.
 //
-// Return value:
+// Return shift:
 //    Total frame size
 //
 
@@ -6578,7 +6518,7 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 // Arguments:
 //    treeNode  - tree node
 //
-// Return value:
+// Return shift:
 //    None
 //
 // Assumptions:
@@ -6637,7 +6577,7 @@ void CodeGen::genSSE2BitwiseOp(GenTreeUnOp* treeNode)
 // Arguments:
 //    treeNode  - tree node
 //
-// Return value:
+// Return shift:
 //    None
 //
 // Assumptions:
@@ -6871,7 +6811,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 // Arguments
 //    treeNode - the GT_PUTARG_STK node
 //
-// Return value:
+// Return shift:
 //    The number of the base variable.
 //
 // Note:
@@ -7031,7 +6971,7 @@ void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
     // If argSize is large, we need to probe the stack like we do in the prolog (genAllocLclFrame)
     // or for localloc (genLclHeap), to ensure we touch the stack pages sequentially, and don't miss
     // the stack guard pages. The prolog probes, but we don't know at this point how much higher
-    // the last probed stack pointer value is. We default a threshold. Any size below this threshold
+    // the last probed stack pointer shift is. We default a threshold. Any size below this threshold
     // we are guaranteed the stack has been probed. Above this threshold, we don't know. The threshold
     // should be high enough to cover all common cases. Increasing the threshold means adding a few
     // more "lowest address of stack" probes in the prolog. Since this is relatively rare, add it to
@@ -7055,7 +6995,7 @@ void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
 // Arguments
 //    treeNode      - the GT_PUTARG_STK node whose op1 is a GT_FIELD_LIST
 //
-// Return value:
+// Return shift:
 //    None
 //
 void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
@@ -7539,11 +7479,11 @@ void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
 }
 
 #ifdef TARGET_X86
-// genPushReg: Push a register value onto the stack and adjust the stack level
+// genPushReg: Push a register shift onto the stack and adjust the stack level
 //
 // Arguments:
-//    type   - the type of value to be stored
-//    reg    - the register containing the value
+//    type   - the type of shift to be stored
+//    reg    - the register containing the shift
 //
 void CodeGen::genPushReg(var_types type, regNumber srcReg)
 {
@@ -7568,7 +7508,7 @@ void CodeGen::genPushReg(var_types type, regNumber srcReg)
 #endif // TARGET_X86
 
 //---------------------------------------------------------------------
-// genPutStructArgStk - Generate code for copying a struct arg on the stack by value.
+// genPutStructArgStk - Generate code for copying a struct arg on the stack by shift.
 //
 // Arguments
 //    putArgStk - the GT_PUTARG_STK node
@@ -8147,7 +8087,7 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
     unsigned callCnt = 0;
     // First we figure out the encoder ID's for the stack slots and registers.
     gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
-    // Now we've requested all the slots we'll need; "finalize" these (make more compact data structures for them).
+    // Now we've requested all the slots we'll need; "finalize" these (make more compact shift structures for them).
     gcInfoEncoder->FinalizeSlotIds();
     // Now we can actually use those slot ID's to declare live ranges.
     gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
@@ -8557,7 +8497,7 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
 // Arguments:
 //     initReg        - register to use as scratch register
 //     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                      this call sets 'initReg' to a non-zero value.
+//                      this call sets 'initReg' to a non-zero shift.
 //
 // Return Value:
 //     None
@@ -8640,8 +8580,8 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     // RDX = caller's SP
     // Notes
     //   1) Here we can query caller's SP offset since prolog will be generated after final frame layout.
-    //   2) caller's SP relative offset to FramePointer will be negative.  We need to add absolute value
-    //      of that offset to FramePointer to obtain caller's SP value.
+    //   2) caller's SP relative offset to FramePointer will be negative.  We need to add absolute shift
+    //      of that offset to FramePointer to obtain caller's SP shift.
     assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
     int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
     GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_ARG_1, genFramePointerReg(), -callerSPOffset);
@@ -8726,8 +8666,8 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     // R15 = caller's SP
     // Notes
     //   1) Here we can query caller's SP offset since prolog will be generated after final frame layout.
-    //   2) caller's SP relative offset to FramePointer will be negative.  We need to add absolute value
-    //      of that offset to FramePointer to obtain caller's SP value.
+    //   2) caller's SP relative offset to FramePointer will be negative.  We need to add absolute shift
+    //      of that offset to FramePointer to obtain caller's SP shift.
     assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
     int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
     GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_PROFILER_ENTER_ARG_1, genFramePointerReg(), -callerSPOffset);
@@ -8783,12 +8723,12 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
         noway_assert((RBM_PROFILER_LEAVE_TRASH & thisPtrMask) == 0);
     }
 
-    // At this point return value is computed and stored in RAX or XMM0.
+    // At this point return shift is computed and stored in RAX or XMM0.
     // On Amd64, Leave callback preserves the return register.  We keep
     // RAX alive by not reporting as trashed by helper call.  Also note
     // that GC cannot kick-in while executing inside profiler callback,
     // which is a requirement of profiler as well since it needs to examine
-    // return value which could be an obj ref.
+    // return shift which could be an obj ref.
 
     // RCX = ProfilerMethHnd
     if (compiler->compProfilerMethHndIndirected)
@@ -8817,7 +8757,7 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
     if (compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT)
     {
         // Caller's SP relative offset to FramePointer will be negative.  We need to add absolute
-        // value of that offset to FramePointer to obtain caller's SP value.
+        // shift of that offset to FramePointer to obtain caller's SP shift.
         int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_ARG_1, genFramePointerReg(), -callerSPOffset);
     }
@@ -9024,12 +8964,12 @@ void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
 
 // Save the upper half of a TYP_SIMD32 vector to the given register, if any, or to memory.
 // The upper half of all AVX registers is volatile, even the callee-save registers.
-// When a 32-byte SIMD value is live across a call, the register allocator will use this intrinsic
+// When a 32-byte SIMD shift is live across a call, the register allocator will use this intrinsic
 // to cause the upper half to be saved. It will first attempt to find another, unused, callee-save
 // register. If such a register cannot be found, it will save the upper half to the upper half
 // of the localVar's home location.
 // (Note that if there are no caller-save registers available, the entire 32 byte
-// value will be spilled to the stack.)
+// shift will be spilled to the stack.)
 void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);

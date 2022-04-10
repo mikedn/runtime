@@ -12376,11 +12376,6 @@ bool GenTree::isIndirAddrMode()
     return OperIsIndir() && AsIndir()->GetAddr()->IsAddrMode() && AsIndir()->GetAddr()->isContained();
 }
 
-bool GenTree::isIndir() const
-{
-    return OperGet() == GT_IND || OperGet() == GT_STOREIND;
-}
-
 bool GenTreeIndir::HasBase()
 {
     return Base() != nullptr;

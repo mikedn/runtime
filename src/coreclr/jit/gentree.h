@@ -750,14 +750,12 @@ struct GenTree
         RegSpillSet m_defRegsSpillSet;
     };
 
-    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
-    unsigned char gtLIRFlags = 0;
-
-#if ASSERTION_PROP
-    AssertionInfo gtAssertionInfo;
-#endif
-
 private:
+    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
+    uint8_t m_LIRFlags = 0;
+#if ASSERTION_PROP
+    AssertionInfo m_assertionInfo;
+#endif
     uint8_t m_costEx; // estimate of expression execution cost
     uint8_t m_costSz; // estimate of expression code size cost
 
@@ -861,22 +859,22 @@ public:
 #if ASSERTION_PROP
     bool GeneratesAssertion() const
     {
-        return gtAssertionInfo.HasAssertion();
+        return m_assertionInfo.HasAssertion();
     }
 
     void ClearAssertion()
     {
-        gtAssertionInfo.Clear();
+        m_assertionInfo.Clear();
     }
 
     AssertionInfo GetAssertionInfo() const
     {
-        return gtAssertionInfo;
+        return m_assertionInfo;
     }
 
     void SetAssertionInfo(AssertionInfo info)
     {
-        gtAssertionInfo = info;
+        m_assertionInfo = info;
     }
 #endif
 
@@ -926,11 +924,6 @@ public:
 
     bool isIndirAddrMode();
 
-    // This returns true only for GT_IND and GT_STOREIND, and is used in contexts where a "true"
-    // indirection is expected (i.e. either a load to or a store from a single register).
-    // OperIsIndir() returns true also for indirection nodes such as GT_BLK, etc. as well as GT_NULLCHECK.
-    bool isIndir() const;
-
     bool isContainedIntOrIImmed() const
     {
         return isContained() && IsCnsIntOrI() && !isUsedFromSpillTemp();
@@ -948,8 +941,11 @@ public:
 
     bool isUsedFromSpillTemp() const;
 
-    // Indicates whether it is a memory op.
-    // Right now it includes Indir and LclField ops.
+    bool isIndir() const
+    {
+        return OperGet() == GT_IND || OperGet() == GT_STOREIND;
+    }
+
     bool isMemoryOp() const
     {
         return isIndir() || isLclField();
@@ -959,16 +955,6 @@ public:
     {
         return ((isContained() && (isMemoryOp() || (OperGet() == GT_LCL_VAR) || (OperGet() == GT_CNS_DBL))) ||
                 isUsedFromSpillTemp());
-    }
-
-    bool isLclVarUsedFromMemory() const
-    {
-        return (OperGet() == GT_LCL_VAR) && (isContained() || isUsedFromSpillTemp());
-    }
-
-    bool isLclFldUsedFromMemory() const
-    {
-        return isLclField() && (isContained() || isUsedFromSpillTemp());
     }
 
     bool isUsedFromReg() const
@@ -1236,13 +1222,17 @@ public:
     //   These helper methods, along with the flag values they manipulate, are defined in lir.h
     //
     // UnusedValue indicates that, although this node produces a value, it is unused.
-    inline void SetUnusedValue();
-    inline void ClearUnusedValue();
-    inline bool IsUnusedValue() const;
+    void SetUnusedValue();
+    void ClearUnusedValue();
+    bool IsUnusedValue() const;
     // RegOptional indicates that codegen can still generate code even if it isn't allocated a register.
-    inline bool IsRegOptional() const;
-    inline void SetRegOptional();
-    inline void ClearRegOptional();
+    bool IsRegOptional() const;
+    void SetRegOptional();
+    void ClearRegOptional();
+
+    void SetLIRMark();
+    bool HasLIRMark() const;
+    void ClearLIRMark();
 
     bool TypeIs(var_types type) const
     {
@@ -1474,8 +1464,8 @@ public:
     static bool OperIsRMWMemOp(genTreeOps gtOper)
     {
         // Return if binary op is one of the supported operations for RMW of memory.
-        return (gtOper == GT_ADD || gtOper == GT_SUB || gtOper == GT_AND || gtOper == GT_OR || gtOper == GT_XOR ||
-                gtOper == GT_NOT || gtOper == GT_NEG || OperIsShiftOrRotate(gtOper));
+        return gtOper == GT_ADD || gtOper == GT_SUB || gtOper == GT_AND || gtOper == GT_OR || gtOper == GT_XOR ||
+               gtOper == GT_NOT || gtOper == GT_NEG || OperIsShift(gtOper) || OperIsRotate(gtOper);
     }
     bool OperIsRMWMemOp() const
     {
@@ -1698,6 +1688,8 @@ public:
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
+    bool IsIntCon(ssize_t value) const;
+
     inline GenTree* gtGetOp1() const;
 
     // Directly return op2. Asserts the node is binary. Might return nullptr if the binary node allows
@@ -1852,11 +1844,6 @@ public:
     // Determine whether this is an assignment tree of the form X = X (op) Y,
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
-
-    static bool IsContained(unsigned flags)
-    {
-        return ((flags & GTF_CONTAINED) != 0);
-    }
 
     void SetContained()
     {
@@ -6345,118 +6332,15 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
 #endif
 };
 
-// Read-modify-write status of a RMW memory op rooted at a storeInd
-enum RMWStatus
-{
-    STOREIND_RMW_STATUS_UNKNOWN, // RMW status of storeInd unknown
-                                 // Default status unless modified by IsRMWMemOpRootedAtStoreInd()
-
-    // One of these denote storeind is a RMW memory operation.
-    STOREIND_RMW_DST_IS_OP1, // StoreInd is known to be a RMW memory op and dst candidate is op1
-    STOREIND_RMW_DST_IS_OP2, // StoreInd is known to be a RMW memory op and dst candidate is op2
-
-    // One of these denote the reason for storeind is marked as non-RMW operation
-    STOREIND_RMW_UNSUPPORTED_ADDR, // Addr mode is not yet supported for RMW memory
-    STOREIND_RMW_UNSUPPORTED_OPER, // Operation is not supported for RMW memory
-    STOREIND_RMW_UNSUPPORTED_TYPE, // Type is not supported for RMW memory
-    STOREIND_RMW_INDIR_UNEQUAL     // Indir to read value is not equivalent to indir that writes the value
-};
-
-#ifdef DEBUG
-inline const char* RMWStatusDescription(RMWStatus status)
-{
-    switch (status)
-    {
-        case STOREIND_RMW_STATUS_UNKNOWN:
-            return "RMW status unknown";
-        case STOREIND_RMW_DST_IS_OP1:
-            return "dst candidate is op1";
-        case STOREIND_RMW_DST_IS_OP2:
-            return "dst candidate is op2";
-        case STOREIND_RMW_UNSUPPORTED_ADDR:
-            return "address mode is not supported";
-        case STOREIND_RMW_UNSUPPORTED_OPER:
-            return "oper is not supported";
-        case STOREIND_RMW_UNSUPPORTED_TYPE:
-            return "type is not supported";
-        case STOREIND_RMW_INDIR_UNEQUAL:
-            return "read indir is not equivalent to write indir";
-        default:
-            unreached();
-    }
-}
-#endif
-
-// StoreInd is just a BinOp, with additional RMW status
 struct GenTreeStoreInd : public GenTreeIndir
 {
-#if !CPU_LOAD_STORE_ARCH
-    // The below flag is set and used during lowering
-    RMWStatus gtRMWStatus;
-
-    bool IsRMWStatusUnknown()
+    GenTreeStoreInd(var_types type, GenTree* addr, GenTree* value) : GenTreeIndir(GT_STOREIND, type, addr, value)
     {
-        return gtRMWStatus == STOREIND_RMW_STATUS_UNKNOWN;
-    }
-    bool IsNonRMWMemoryOp()
-    {
-        return gtRMWStatus == STOREIND_RMW_UNSUPPORTED_ADDR || gtRMWStatus == STOREIND_RMW_UNSUPPORTED_OPER ||
-               gtRMWStatus == STOREIND_RMW_UNSUPPORTED_TYPE || gtRMWStatus == STOREIND_RMW_INDIR_UNEQUAL;
-    }
-    bool IsRMWMemoryOp()
-    {
-        return gtRMWStatus == STOREIND_RMW_DST_IS_OP1 || gtRMWStatus == STOREIND_RMW_DST_IS_OP2;
-    }
-    bool IsRMWDstOp1()
-    {
-        return gtRMWStatus == STOREIND_RMW_DST_IS_OP1;
-    }
-    bool IsRMWDstOp2()
-    {
-        return gtRMWStatus == STOREIND_RMW_DST_IS_OP2;
-    }
-#endif //! CPU_LOAD_STORE_ARCH
-
-    RMWStatus GetRMWStatus()
-    {
-#if !CPU_LOAD_STORE_ARCH
-        return gtRMWStatus;
-#else
-        return STOREIND_RMW_STATUS_UNKNOWN;
-#endif
-    }
-
-    void SetRMWStatusDefault()
-    {
-#if !CPU_LOAD_STORE_ARCH
-        gtRMWStatus = STOREIND_RMW_STATUS_UNKNOWN;
-#endif
-    }
-
-    void SetRMWStatus(RMWStatus status)
-    {
-#if !CPU_LOAD_STORE_ARCH
-        gtRMWStatus = status;
-#endif
-    }
-
-    GenTree*& Data()
-    {
-        return gtOp2;
-    }
-
-    GenTreeStoreInd(var_types type, GenTree* destPtr, GenTree* data) : GenTreeIndir(GT_STOREIND, type, destPtr, data)
-    {
-        SetRMWStatusDefault();
     }
 
 #if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
-    // Used only for GenTree::GetVtableForOper()
     GenTreeStoreInd() : GenTreeIndir()
     {
-        SetRMWStatusDefault();
     }
 #endif
 };
@@ -7480,7 +7364,6 @@ inline bool GenTree::IsHWIntrinsicZero() const
 //    long constants in a target-independent way.
 
 inline bool GenTree::IsIntegralConst(ssize_t constVal) const
-
 {
     if ((gtOper == GT_CNS_INT) && (AsIntConCommon()->IconValue() == constVal))
     {
@@ -7493,6 +7376,11 @@ inline bool GenTree::IsIntegralConst(ssize_t constVal) const
     }
 
     return false;
+}
+
+inline bool GenTree::IsIntCon(ssize_t value) const
+{
+    return (gtOper == GT_CNS_INT) && (AsIntCon()->GetValue() == value);
 }
 
 inline GenTree* GenTree::gtGetOp1() const

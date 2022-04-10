@@ -933,8 +933,6 @@ public:
     // Used by Lowering when considering whether to split Longs, as well as by identifyCandidates().
     bool isRegCandidate(LclVarDsc* varDsc);
 
-    bool isContainableMemoryOp(GenTree* node);
-
 private:
     // Determine which locals are candidates for allocation
     void identifyCandidates();
@@ -1848,7 +1846,12 @@ private:
     int BuildStoreLclVar(GenTreeLclVar* store, int* dstCount);
     int BuildStoreLclFld(GenTreeLclFld* store);
     int BuildStoreLcl(GenTreeLclVarCommon* store);
+#ifdef TARGET_XARCH
+    int BuildLoadInd(GenTreeIndir* load);
+    int BuildStoreInd(GenTreeIndir* store);
+#else
     int BuildIndir(GenTreeIndir* indirTree);
+#endif
     int BuildGCWriteBarrier(GenTreeStoreInd* store);
     int BuildCast(GenTreeCast* cast);
 
@@ -1858,28 +1861,6 @@ private:
     int BuildMul(GenTree* tree);
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
 #endif // defined(TARGET_XARCH)
-
-#if defined(TARGET_X86)
-    // Move the last use bit, if any, from 'fromTree' to 'toTree'; 'fromTree' must be contained.
-    void CheckAndMoveRMWLastUse(GenTree* fromTree, GenTree* toTree)
-    {
-        // If 'fromTree' is not a last-use lclVar, there's nothing to do.
-        if ((fromTree == nullptr) || !fromTree->OperIs(GT_LCL_VAR) || ((fromTree->gtFlags & GTF_VAR_DEATH) == 0))
-        {
-            return;
-        }
-        // If 'fromTree' was a lclVar, it must be contained and 'toTree' must match.
-        if (!fromTree->isContained() || (toTree == nullptr) || !toTree->OperIs(GT_LCL_VAR) ||
-            (fromTree->AsLclVarCommon()->GetLclNum() != toTree->AsLclVarCommon()->GetLclNum()))
-        {
-            assert(!"Unmatched RMW indirections");
-            return;
-        }
-        // This is probably not necessary, but keeps things consistent.
-        fromTree->gtFlags &= ~GTF_VAR_DEATH;
-        toTree->gtFlags |= GTF_VAR_DEATH;
-    }
-#endif // TARGET_X86
 
 #ifdef FEATURE_HW_INTRINSICS
     int BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree);

@@ -7,7 +7,6 @@
 #endif
 
 // clang-format off
-  #define CPU_LOAD_STORE_ARCH      0
   #define ROUND_FLOAT              1       // round intermed float expression results
   #define CPU_HAS_BYTE_REGS        1
 

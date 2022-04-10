@@ -138,8 +138,6 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
         case GT_IND:
             assignment->ChangeOper(GT_STOREIND);
             assignment->SetType(location->GetType());
-            assignment->AsStoreInd()->SetRMWStatus(STOREIND_RMW_STATUS_UNKNOWN);
-
             assignment->AsIndir()->SetAddr(location->AsIndir()->GetAddr());
             assignment->AsIndir()->SetValue(value);
             assignment->gtFlags |= location->gtFlags & GTF_IND_FLAGS;

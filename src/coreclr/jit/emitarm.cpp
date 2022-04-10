@@ -7817,7 +7817,7 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
     {
         if (indir->OperGet() == GT_STOREIND)
         {
-            var_types type = indir->AsStoreInd()->Data()->TypeGet();
+            var_types type = indir->AsStoreInd()->GetValue()->TypeGet();
             if (type == TYP_FLOAT)
             {
                 regNumber tmpReg = indir->GetSingleTempReg();

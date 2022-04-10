@@ -231,59 +231,10 @@ private:
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     GenTree* PreferredRegOptionalOperand(GenTree* tree);
-
-    // ------------------------------------------------------------------
-    // SetRegOptionalBinOp - Indicates which of the operands of a bin-op
-    // register requirement is optional. Xarch instruction set allows
-    // either of op1 or op2 of binary operation (e.g. add, mul etc) to be
-    // a memory operand.  This routine provides info to register allocator
-    // which of its operands optionally require a register.  Lsra might not
-    // allocate a register to RefTypeUse positions of such operands if it
-    // is beneficial. In such a case codegen will treat them as memory
-    // operands.
-    //
-    // Arguments:
-    //     tree  -             Gentree of a binary operation.
-    //     isSafeToMarkOp1     True if it's safe to mark op1 as register optional
-    //     isSafeToMarkOp2     True if it's safe to mark op2 as register optional
-    //
-    // Returns
-    //     The caller is expected to get isSafeToMarkOp1 and isSafeToMarkOp2
-    //     by calling IsSafeToContainMem.
-    //
-    // Note: On xarch at most only one of the operands will be marked as
-    // reg optional, even when both operands could be considered register
-    // optional.
-    void SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2)
-    {
-        assert(GenTree::OperIsBinary(tree->OperGet()));
-
-        GenTree* const op1 = tree->gtGetOp1();
-        GenTree* const op2 = tree->gtGetOp2();
-
-        const unsigned operatorSize = genTypeSize(tree->TypeGet());
-
-        const bool op1Legal =
-            isSafeToMarkOp1 && tree->OperIsCommutative() && (operatorSize == genTypeSize(op1->TypeGet()));
-        const bool op2Legal = isSafeToMarkOp2 && (operatorSize == genTypeSize(op2->TypeGet()));
-
-        GenTree* regOptionalOperand = nullptr;
-        if (op1Legal)
-        {
-            regOptionalOperand = op2Legal ? PreferredRegOptionalOperand(tree) : op1;
-        }
-        else if (op2Legal)
-        {
-            regOptionalOperand = op2;
-        }
-        if (regOptionalOperand != nullptr)
-        {
-            regOptionalOperand->SetRegOptional();
-        }
-    }
-#endif // defined(TARGET_XARCH)
+    void SetRegOptionalForBinOp(GenTree* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
+#endif
 
     void LowerIndir(GenTreeIndir* ind);
     void LowerStoreIndir(GenTreeStoreInd* store);
@@ -331,11 +282,14 @@ private:
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);
 
-#if !CPU_LOAD_STORE_ARCH
-    bool IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd);
-    bool IsBinOpInRMWStoreInd(GenTree* tree);
-    bool IsRMWMemOpRootedAtStoreInd(GenTree* storeIndTree, GenTree** indirCandidate, GenTree** indirOpSource);
-    bool LowerRMWMemOp(GenTreeIndir* storeInd);
+#ifdef TARGET_XARCH
+    bool IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src);
+    GenTreeIndir* IsStoreIndRMW(GenTreeStoreInd* store);
+    void LowerStoreIndRMW(GenTreeStoreInd* store);
+    static bool IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
+    static bool NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2);
+
+private:
 #endif
 
     void WidenSIMD12IfNecessary(GenTreeLclVarCommon* node);
@@ -398,18 +352,13 @@ private:
 
     // Utility functions
 public:
-    static bool IndirsAreEquivalent(GenTree* pTreeA, GenTree* pTreeB);
-
     // return true if 'childNode' is an immediate that can be contained
     //  by the 'parentNode' (i.e. folded into an instruction)
     //  for example small enough and non-relocatable
     bool IsContainableImmed(GenTree* parentNode, GenTree* childNode) const;
 
     // Return true if 'node' is a containable memory op.
-    bool IsContainableMemoryOp(GenTree* node)
-    {
-        return m_lsra->isContainableMemoryOp(node);
-    }
+    bool IsContainableMemoryOp(GenTree* node);
 
 #ifdef FEATURE_HW_INTRINSICS
     // Return true if 'node' is a containable HWIntrinsic op.
@@ -419,8 +368,6 @@ public:
     static void TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, BasicBlock* block);
 
 private:
-    static bool NodesAreEquivalentLeaves(GenTree* candidate, GenTree* storeInd);
-
     bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
 
     // Makes 'childNode' contained in the 'parentNode'
@@ -431,7 +378,12 @@ private:
 
     // Checks for memory conflicts in the instructions between childNode and parentNode, and returns true if childNode
     // can be contained.
-    bool IsSafeToContainMem(GenTree* parentNode, GenTree* childNode);
+    bool IsSafeToContainMem(GenTree* parentNode, GenTree* childNode)
+    {
+        return IsSafeToMoveForward(childNode, parentNode);
+    }
+
+    bool IsSafeToMoveForward(GenTree* move, GenTree* before);
 
     inline LIR::Range& BlockRange() const
     {

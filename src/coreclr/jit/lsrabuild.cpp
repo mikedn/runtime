@@ -666,42 +666,6 @@ RefPosition* LinearScan::newUseRefPosition(Interval* theInterval,
 }
 
 //------------------------------------------------------------------------
-// IsContainableMemoryOp: Checks whether this is a memory op that can be contained.
-//
-// Arguments:
-//    node        - the node of interest.
-//
-// Return value:
-//    True if this will definitely be a memory reference that could be contained.
-//
-// Notes:
-//    This differs from the isMemoryOp() method on GenTree because it checks for
-//    the case of doNotEnregister local. This won't include locals that
-//    for some other reason do not become register candidates, nor those that get
-//    spilled.
-//    Also, because we usually call this before we redo dataflow, any new lclVars
-//    introduced after the last dataflow analysis will not yet be marked lvTracked,
-//    so we don't use that.
-//
-bool LinearScan::isContainableMemoryOp(GenTree* node)
-{
-    if (node->isMemoryOp())
-    {
-        return true;
-    }
-    if (node->IsLocal())
-    {
-        if (!enregisterLocalVars)
-        {
-            return true;
-        }
-        LclVarDsc* varDsc = &compiler->lvaTable[node->AsLclVar()->GetLclNum()];
-        return varDsc->lvDoNotEnregister;
-    }
-    return false;
-}
-
-//------------------------------------------------------------------------
 // addRefsForPhysRegMask: Adds RefPositions of the given type for all the registers in 'mask'.
 //
 // Arguments:
@@ -744,7 +708,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
 {
     regMaskTP killMask = RBM_NONE;
 
-    GenTree* data = tree->Data();
+    GenTree* data = tree->GetValue();
 
     GCInfo::WriteBarrierForm writeBarrierForm = compiler->codeGen->gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
