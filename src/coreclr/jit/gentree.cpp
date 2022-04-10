@@ -2281,15 +2281,13 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
 
 #elif defined(TARGET_ARM64)
-            case GT_CNS_LNG:
             case GT_CNS_INT:
             {
-                GenTreeIntConCommon* con            = tree->AsIntConCommon();
-                bool                 iconNeedsReloc = con->ImmedValNeedsReloc(this);
-                INT64                imm            = con->LngValue();
-                emitAttr             size           = EA_SIZE(emitActualTypeSize(tree));
+                GenTreeIntCon* con  = tree->AsIntCon();
+                ssize_t        imm  = con->GetValue();
+                emitAttr       size = EA_SIZE(emitActualTypeSize(tree->GetType()));
 
-                if (iconNeedsReloc)
+                if (con->ImmedValNeedsReloc(this))
                 {
                     costSz = 8;
                     costEx = 2;
