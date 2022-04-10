@@ -1913,11 +1913,6 @@ void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)
     }
 }
 
-// generates an ip-relative call or indirect call via reg ('call reg')
-//     pass in 'addr' for a relative call or 'base' for a indirect register call
-//     methHnd - optional, only used for pretty printing
-//     retSize - emitter type of return for GC purposes, should be EA_BYREF, EA_GCREF, or EA_PTRSIZE(not GC)
-//
 // clang-format off
 void CodeGen::genEmitCall(emitter::EmitCallType                   callType,
                           CORINFO_METHOD_HANDLE methHnd
@@ -1930,9 +1925,10 @@ void CodeGen::genEmitCall(emitter::EmitCallType                   callType,
                           regNumber             base,
                           bool                  isJump)
 {
-#if !defined(TARGET_X86)
+#ifndef TARGET_X86
     int argSize = 0;
-#endif // !defined(TARGET_X86)
+#endif
+
     GetEmitter()->emitIns_Call(callType,
                                methHnd
                                DEBUGARG(sigInfo),
@@ -1945,13 +1941,7 @@ void CodeGen::genEmitCall(emitter::EmitCallType                   callType,
                                gcInfo.gcRegByrefSetCur,
                                ilOffset, base, REG_NA, 0, 0, isJump);
 }
-// clang-format on
 
-// generates an indirect call via addressing mode (call []) given an indir node
-//     methHnd - optional, only used for pretty printing
-//     retSize - emitter type of return for GC purposes, should be EA_BYREF, EA_GCREF, or EA_PTRSIZE(not GC)
-//
-// clang-format off
 void CodeGen::genEmitCall(emitter::EmitCallType callType,
                           CORINFO_METHOD_HANDLE methHnd
                           DEBUGARG(CORINFO_SIG_INFO* sigInfo),
@@ -1961,9 +1951,10 @@ void CodeGen::genEmitCall(emitter::EmitCallType callType,
                           MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
                           IL_OFFSETX            ilOffset)
 {
-#if !defined(TARGET_X86)
+#ifndef TARGET_X86
     int argSize = 0;
-#endif // !defined(TARGET_X86)
+#endif
+
     genConsumeAddress(indir->Addr());
 
     GetEmitter()->emitIns_Call(callType,

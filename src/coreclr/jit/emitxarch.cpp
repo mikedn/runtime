@@ -7376,12 +7376,12 @@ void emitter::emitIns_Call(EmitCallType          callType,
                            VARSET_VALARG_TP      ptrVars,
                            regMaskTP             gcrefRegs,
                            regMaskTP             byrefRegs,
-                           IL_OFFSETX            ilOffset, // = BAD_IL_OFFSET
-                           regNumber             ireg,     // = REG_NA
-                           regNumber             xreg,     // = REG_NA
-                           unsigned              xmul,     // = 0
-                           ssize_t               disp,     // = 0
-                           bool                  isJump)   // = false
+                           IL_OFFSETX            ilOffset, 
+                           regNumber             ireg,     
+                           regNumber             xreg,     
+                           unsigned              xmul,     
+                           ssize_t               disp,     
+                           bool                  isJump)
 // clang-format on
 {
     /* Sanity check the arguments depending on callType */
