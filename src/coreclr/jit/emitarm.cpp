@@ -7863,53 +7863,53 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
 
 void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset)
 {
-    GenTree* addr = indir->Addr();
+    GenTree* addr = indir->GetAddr();
 
     if (addr->isContained())
     {
         assert(addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA));
 
-        DWORD lsl = 0;
+        GenTree* base  = addr;
+        GenTree* index = nullptr;
+        unsigned lsl   = 0;
 
         if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
         {
-            offset += addrMode->GetOffset();
-            if (addrMode->GetScale() > 0)
+            base  = addrMode->GetBase();
+            index = addrMode->GetIndex();
+
+            if (index != nullptr)
             {
                 assert(isPow2(addrMode->GetScale()));
-                BitScanForward(&lsl, addrMode->GetScale());
+                lsl = genLog2(addrMode->GetScale());
             }
+
+            offset += addrMode->GetOffset();
         }
 
-        GenTree* memBase = indir->Base();
-
-        if (GenTree* index = indir->Index())
+        if (index != nullptr)
         {
-            assert(addr->OperGet() == GT_LEA);
-
             if (offset != 0)
             {
                 regNumber tmpReg = indir->GetSingleTempReg();
 
                 // If the LEA produces a GCREF or BYREF, we need to be careful to mark any temp register
                 // computed with the base register as a BYREF.
-                GenTreeAddrMode* lea                    = addr->AsAddrMode();
-                emitAttr         leaAttr                = emitTypeSize(lea);
-                emitAttr         leaBasePartialAddrAttr = EA_IS_GCREF_OR_BYREF(leaAttr) ? EA_BYREF : EA_PTRSIZE;
+                emitAttr leaAttr                = emitTypeSize(addr->GetType());
+                emitAttr leaBasePartialAddrAttr = EA_IS_GCREF_OR_BYREF(leaAttr) ? EA_BYREF : EA_PTRSIZE;
 
                 if (emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
                 {
                     if (lsl > 0)
                     {
                         // Generate code to set tmpReg = base + index*scale
-                        emitIns_R_R_R_I(INS_add, leaBasePartialAddrAttr, tmpReg, memBase->GetRegNum(),
-                                        index->GetRegNum(), lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+                        emitIns_R_R_R_I(INS_add, leaBasePartialAddrAttr, tmpReg, base->GetRegNum(), index->GetRegNum(),
+                                        lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
                     }
                     else // no scale
                     {
                         // Generate code to set tmpReg = base + index
-                        emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, memBase->GetRegNum(),
-                                      index->GetRegNum());
+                        emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, base->GetRegNum(), index->GetRegNum());
                     }
 
                     noway_assert(emitInsIsLoad(ins) || (tmpReg != dataReg));
@@ -7923,7 +7923,7 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
                     codeGen->instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
                     // Then add the base register
                     //      rd = rd + base
-                    emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, tmpReg, memBase->GetRegNum());
+                    emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, tmpReg, base->GetRegNum());
 
                     noway_assert(emitInsIsLoad(ins) || (tmpReg != dataReg));
                     noway_assert(tmpReg != index->GetRegNum());
@@ -7938,13 +7938,13 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
                 if (lsl > 0)
                 {
                     // Then load/store dataReg from/to [memBase + index*scale]
-                    emitIns_R_R_R_I(ins, attr, dataReg, memBase->GetRegNum(), index->GetRegNum(), lsl,
-                                    INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+                    emitIns_R_R_R_I(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum(), lsl, INS_FLAGS_DONT_CARE,
+                                    INS_OPTS_LSL);
                 }
                 else // no scale
                 {
                     // Then load/store dataReg from/to [memBase + index]
-                    emitIns_R_R_R(ins, attr, dataReg, memBase->GetRegNum(), index->GetRegNum());
+                    emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum());
                 }
             }
         }
@@ -7967,7 +7967,7 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
             else if (emitIns_valid_imm_for_ldst_offset(offset, attr))
             {
                 // Then load/store dataReg from/to [memBase + offset]
-                emitIns_R_R_I(ins, attr, dataReg, memBase->GetRegNum(), offset);
+                emitIns_R_R_I(ins, attr, dataReg, base->GetRegNum(), offset);
             }
             else
             {
@@ -7978,7 +7978,7 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
                 codeGen->instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
 
                 // Then load/store dataReg from/to [memBase + tmpReg]
-                emitIns_R_R_R(ins, attr, dataReg, memBase->GetRegNum(), tmpReg);
+                emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), tmpReg);
             }
         }
     }
