@@ -1213,7 +1213,7 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
     GenTree* lastNode  = nullptr;
     for (;;)
     {
-        if ((firstNode->gtLIRFlags & LIR::Flags::Mark) != 0)
+        if (firstNode->HasLIRMark())
         {
             if (lastNode == nullptr)
             {
@@ -1228,13 +1228,13 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
                     return GenTree::VisitResult::Continue;
                 }
 
-                operand->gtLIRFlags |= LIR::Flags::Mark;
+                operand->SetLIRMark();
                 markCount++;
                 return GenTree::VisitResult::Continue;
             });
 
             // Unmark the the node and update `firstNode`
-            firstNode->gtLIRFlags &= ~LIR::Flags::Mark;
+            firstNode->ClearLIRMark();
             markCount--;
         }
         else if (lastNode != nullptr)
@@ -1307,7 +1307,7 @@ LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed, unsig
 
     // Mark the root of the tree
     const unsigned markCount = 1;
-    root->gtLIRFlags |= LIR::Flags::Mark;
+    root->SetLIRMark();
 
     return GetMarkedRange(markCount, root, isClosed, sideEffects);
 }

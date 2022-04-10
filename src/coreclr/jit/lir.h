@@ -23,7 +23,7 @@ public:
         Flags() = delete;
 
     public:
-        enum : unsigned char
+        enum : uint8_t
         {
             None = 0x00,
 
@@ -311,50 +311,50 @@ public:
 
 inline void GenTree::SetUnusedValue()
 {
-    gtLIRFlags |= LIR::Flags::UnusedValue;
+    m_LIRFlags |= LIR::Flags::UnusedValue;
     ClearContained();
 }
 
 inline void GenTree::ClearUnusedValue()
 {
-    gtLIRFlags &= ~LIR::Flags::UnusedValue;
+    m_LIRFlags &= ~LIR::Flags::UnusedValue;
 }
 
 inline bool GenTree::IsUnusedValue() const
 {
-    return (gtLIRFlags & LIR::Flags::UnusedValue) != 0;
+    return (m_LIRFlags & LIR::Flags::UnusedValue) != 0;
 }
 
 inline void GenTree::SetRegOptional()
 {
-    gtLIRFlags |= LIR::Flags::RegOptional;
+    m_LIRFlags |= LIR::Flags::RegOptional;
 }
 
 inline void GenTree::ClearRegOptional()
 {
-    gtLIRFlags &= ~LIR::Flags::RegOptional;
+    m_LIRFlags &= ~LIR::Flags::RegOptional;
 }
 
 inline bool GenTree::IsRegOptional() const
 {
-    return (gtLIRFlags & LIR::Flags::RegOptional) != 0;
+    return (m_LIRFlags & LIR::Flags::RegOptional) != 0;
 }
 
 inline void GenTree::SetLIRMark()
 {
-    assert((gtLIRFlags & LIR::Flags::Mark) == 0);
-    gtLIRFlags |= LIR::Flags::Mark;
+    assert((m_LIRFlags & LIR::Flags::Mark) == 0);
+    m_LIRFlags |= LIR::Flags::Mark;
 }
 
 inline bool GenTree::HasLIRMark() const
 {
-    return (gtLIRFlags & LIR::Flags::Mark) != 0;
+    return (m_LIRFlags & LIR::Flags::Mark) != 0;
 }
 
 inline void GenTree::ClearLIRMark()
 {
-    assert((gtLIRFlags & LIR::Flags::Mark) != 0);
-    gtLIRFlags &= ~LIR::Flags::Mark;
+    assert((m_LIRFlags & LIR::Flags::Mark) != 0);
+    m_LIRFlags &= ~LIR::Flags::Mark;
 }
 
 #endif // _LIR_H_

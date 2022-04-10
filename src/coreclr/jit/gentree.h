@@ -750,14 +750,12 @@ struct GenTree
         RegSpillSet m_defRegsSpillSet;
     };
 
-    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
-    unsigned char gtLIRFlags = 0;
-
-#if ASSERTION_PROP
-    AssertionInfo gtAssertionInfo;
-#endif
-
 private:
+    // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
+    uint8_t m_LIRFlags = 0;
+#if ASSERTION_PROP
+    AssertionInfo m_assertionInfo;
+#endif
     uint8_t m_costEx; // estimate of expression execution cost
     uint8_t m_costSz; // estimate of expression code size cost
 
@@ -861,22 +859,22 @@ public:
 #if ASSERTION_PROP
     bool GeneratesAssertion() const
     {
-        return gtAssertionInfo.HasAssertion();
+        return m_assertionInfo.HasAssertion();
     }
 
     void ClearAssertion()
     {
-        gtAssertionInfo.Clear();
+        m_assertionInfo.Clear();
     }
 
     AssertionInfo GetAssertionInfo() const
     {
-        return gtAssertionInfo;
+        return m_assertionInfo;
     }
 
     void SetAssertionInfo(AssertionInfo info)
     {
-        gtAssertionInfo = info;
+        m_assertionInfo = info;
     }
 #endif
 
