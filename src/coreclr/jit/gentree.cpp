@@ -2131,7 +2131,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 // Uses movw/movt
                 costSz = 8;
                 costEx = 2;
-                goto COMMON_CNS;
+                level  = 0;
+                break;
 
             case GT_CNS_LNG:
             {
@@ -2169,7 +2170,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         costEx += 1;
                     }
                 }
-                goto COMMON_CNS;
+                level = 0;
+                break;
             }
 
             case GT_CNS_INT:
@@ -2205,11 +2207,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 8;
                     costEx = 2;
                 }
-                goto COMMON_CNS;
+                level = 0;
+                break;
             }
 
 #elif defined TARGET_XARCH
-
             case GT_CNS_STR:
 #ifdef TARGET_AMD64
                 costSz = 10;
@@ -2218,7 +2220,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 costSz = 4;
                 costEx = 1;
 #endif
-                goto COMMON_CNS;
+                level  = 0;
+                break;
 
             case GT_CNS_LNG:
             case GT_CNS_INT:
@@ -2273,11 +2276,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
 #endif // TARGET_X86
 
-                goto COMMON_CNS;
+                level = 0;
+                break;
             }
 
 #elif defined(TARGET_ARM64)
-
             case GT_CNS_STR:
             case GT_CNS_LNG:
             case GT_CNS_INT:
@@ -2336,28 +2339,12 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costEx = instructionCount;
                     costSz = 4 * instructionCount;
                 }
-            }
-                goto COMMON_CNS;
-
-#else
-            case GT_CNS_STR:
-            case GT_CNS_LNG:
-            case GT_CNS_INT:
-#error "Unknown TARGET"
-#endif
-
-            COMMON_CNS:
-                /*
-                    Note that some code below depends on constants always getting
-                    moved to be the second operand of a binary operator. This is
-                    easily accomplished by giving constants a level of 0, which
-                    we do on the next line. If you ever decide to change this, be
-                    aware that unless you make other arrangements for integer
-                    constants to be moved, stuff will break.
-                 */
-
                 level = 0;
                 break;
+            }
+#else
+#error "Unknown TARGET"
+#endif
 
             case GT_CNS_DBL:
             {
