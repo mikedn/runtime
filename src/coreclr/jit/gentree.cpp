@@ -7651,9 +7651,11 @@ void Compiler::gtDispConst(GenTree* tree)
                         case GTF_ICON_TOKEN_HDL:
                             printf("token");
                             break;
+#ifdef WINDOWS_X86_ABI
                         case GTF_ICON_TLS_HDL:
                             printf("tls");
                             break;
+#endif
                         case GTF_ICON_FTN_ADDR:
                             printf("ftn");
                             break;

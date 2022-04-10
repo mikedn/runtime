@@ -1381,9 +1381,9 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CNS_INT:
-#ifdef TARGET_X86
+#ifdef WINDOWS_X86_ABI
             assert(!treeNode->IsIconHandle(GTF_ICON_TLS_HDL));
-#endif // TARGET_X86
+#endif
             FALLTHROUGH;
 
         case GT_CNS_DBL:
@@ -4484,15 +4484,16 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
 
     var_types targetType = tree->TypeGet();
     emitter*  emit       = GetEmitter();
+    GenTree*  addr       = tree->GetAddr();
 
-    GenTree* addr = tree->Addr();
-    if (addr->IsCnsIntOrI() && addr->IsIconHandle(GTF_ICON_TLS_HDL))
+#ifdef WINDOWS_X86_ABI
+    if (addr->IsIntCon() && addr->IsIconHandle(GTF_ICON_TLS_HDL))
     {
-        noway_assert(EA_ATTR(genTypeSize(targetType)) == EA_PTRSIZE);
-        emit->emitIns_R_C(ins_Load(TYP_I_IMPL), EA_PTRSIZE, tree->GetRegNum(), FLD_GLOBAL_FS,
-                          (int)addr->AsIntCon()->gtIconVal);
+        noway_assert(targetType == TYP_I_IMPL);
+        emit->emitIns_R_C(INS_mov, EA_PTRSIZE, tree->GetRegNum(), FLD_GLOBAL_FS, addr->AsIntCon()->GetInt32Value());
     }
     else
+#endif
     {
         genConsumeAddress(addr);
         emit->emitInsLoadInd(ins_Load(targetType), emitTypeSize(tree), tree->GetRegNum(), tree);

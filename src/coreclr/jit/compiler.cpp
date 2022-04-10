@@ -7855,12 +7855,11 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
 
                         chars += printf("[ICON_TOKEN_HDL]");
                         break;
-
+#ifdef WINDOWS_X86_ABI
                     case GTF_ICON_TLS_HDL:
-
                         chars += printf("[ICON_TLD_HDL]");
                         break;
-
+#endif
                     case GTF_ICON_FTN_ADDR:
 
                         chars += printf("[ICON_FTN_ADDR]");
