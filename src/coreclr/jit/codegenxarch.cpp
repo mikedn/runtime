@@ -5074,16 +5074,22 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 assert(addr->AsIntCon()->FitsInAddrBase(compiler));
 
                 // clang-format off
-                genEmitCall(emitter::EC_FUNC_TOKEN_INDIR,
-                            methHnd
-                            DEBUGARG(sigInfo),
-                            reinterpret_cast<void*>(addr->AsIntCon()->GetValue())
-                            X86_ARG(argSizeForEmitter),
-                            retSize
-                            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                            ilOffset,
-                            REG_NA,
-                            false);
+                GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN_INDIR,
+                    methHnd
+                    DEBUGARG(sigInfo),
+                    reinterpret_cast<void*>(addr->AsIntCon()->GetValue()),
+                    argSizeForEmitter,
+                    retSize
+                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
+                    gcInfo.gcVarPtrSetCur,
+                    gcInfo.gcRegGCrefSetCur,
+                    gcInfo.gcRegByrefSetCur,
+                    ilOffset,
+                    REG_NA,
+                    REG_NA,
+                    0,
+                    0,
+                    false);
                 // clang-format on
             }
             else
@@ -5107,7 +5113,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                     (base != nullptr) ? base->GetRegNum() : REG_NA,
                     (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA,
                     indir->Scale(),
-                    indir->Offset());
+                    indir->Offset(),
+                    false);
                 // clang-format on
             }
         }
@@ -5118,16 +5125,22 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             assert(genIsValidIntReg(target->GetRegNum()));
 
             // clang-format off
-            genEmitCall(emitter::EC_INDIR_R,
-                        methHnd
-                        DEBUGARG(sigInfo),
-                        nullptr // addr
-                        X86_ARG(argSizeForEmitter),
-                        retSize
-                        MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                        ilOffset,
-                        genConsumeReg(target),
-                        false);
+            GetEmitter()->emitIns_Call(emitter::EC_INDIR_R,
+                methHnd
+                DEBUGARG(sigInfo),
+                nullptr,
+                argSizeForEmitter,
+                retSize
+                MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
+                gcInfo.gcVarPtrSetCur,
+                gcInfo.gcRegGCrefSetCur,
+                gcInfo.gcRegByrefSetCur,
+                ilOffset,
+                genConsumeReg(target),
+                REG_NA,
+                0,
+                0,
+                false);
             // clang-format on
         }
     }
@@ -5135,17 +5148,22 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     else if (call->gtEntryPoint.addr != nullptr)
     {
         // clang-format off
-        genEmitCall((call->gtEntryPoint.accessType == IAT_VALUE) ? emitter::EC_FUNC_TOKEN
-                                                                 : emitter::EC_FUNC_TOKEN_INDIR,
-                    methHnd
-                    DEBUGARG(sigInfo),
-                    call->gtEntryPoint.addr
-                    X86_ARG(argSizeForEmitter),
-                    retSize
-                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                    ilOffset,
-                    REG_NA,
-                    false);
+        GetEmitter()->emitIns_Call(call->gtEntryPoint.accessType == IAT_VALUE ? emitter::EC_FUNC_TOKEN : emitter::EC_FUNC_TOKEN_INDIR,
+            methHnd
+            DEBUGARG(sigInfo),
+            call->gtEntryPoint.addr,
+            argSizeForEmitter,
+            retSize
+            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
+            gcInfo.gcVarPtrSetCur,
+            gcInfo.gcRegGCrefSetCur,
+            gcInfo.gcRegByrefSetCur,
+            ilOffset,
+            REG_NA,
+            REG_NA,
+            0,
+            0,
+            false);
         // clang-format on
     }
 #endif
@@ -5176,16 +5194,22 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         // Non-virtual direct calls to known addresses
 
         // clang-format off
-        genEmitCall(emitter::EC_FUNC_TOKEN,
-                    methHnd
-                    DEBUGARG(sigInfo),
-                    addr
-                    X86_ARG(argSizeForEmitter),
-                    retSize
-                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                    ilOffset,
-                    REG_NA,
-                    false);
+        GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN,
+            methHnd
+            DEBUGARG(sigInfo),
+            addr,
+            argSizeForEmitter,
+            retSize
+            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
+            gcInfo.gcVarPtrSetCur,
+            gcInfo.gcRegGCrefSetCur,
+            gcInfo.gcRegByrefSetCur,
+            ilOffset,
+            REG_NA,
+            REG_NA,
+            0,
+            0,
+            false);
         // clang-format on
     }
 
