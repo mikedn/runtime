@@ -3062,9 +3062,20 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
 
     GenTree* addr = indir->GetAddr();
 
-    if (addr->isContained() && addr->IsClsVar())
+    if (!addr->isContained())
     {
-        CORINFO_FIELD_HANDLE fldHnd = addr->AsClsVar()->GetFieldHandle();
+        id->idInsFmt(emitMapFmtForIns(fmt, ins));
+        id->idAddr()->iiaAddrMode.amBaseReg = addr->GetRegNum();
+        id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+        id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1;
+        assert(emitGetInsAmdAny(id) == 0);
+
+        return;
+    }
+
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        CORINFO_FIELD_HANDLE fldHnd = clsAddr->GetFieldHandle();
 
         // Static always need relocs
         if (!jitStaticFldIsGlobAddr(fldHnd))
@@ -3082,11 +3093,14 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
 
         id->idAddr()->iiaFieldHnd = fldHnd;
         id->idInsFmt(emitMapFmtForIns(emitMapFmtAtoM(fmt), ins));
+
+        return;
     }
-    else if (addr->isContained() && addr->IsIntCon())
+
+    if (GenTreeIntCon* intConAddr = addr->IsIntCon())
     {
         // Absolute addresses marked as contained should fit within the base of addr mode.
-        assert(addr->AsIntCon()->FitsInAddrBase(emitComp));
+        assert(intConAddr->FitsInAddrBase(emitComp));
 
         // If we reach here, either:
         // - we are not generating relocatable code, (typically the non-AOT JIT case)
@@ -3097,9 +3111,9 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
         //   be contained.
         //
         assert(!emitComp->opts.compReloc || addr->IsIconHandle() || addr->IsIntegralConst(0) ||
-               addr->AsIntCon()->FitsInAddrBase(emitComp));
+            intConAddr->FitsInAddrBase(emitComp));
 
-        if (addr->AsIntCon()->AddrNeedsReloc(emitComp))
+        if (intConAddr->AddrNeedsReloc(emitComp))
         {
             id->idSetIsDspReloc();
         }
@@ -3111,39 +3125,39 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
         id->idInsFmt(emitMapFmtForIns(fmt, ins));
 
         // Absolute address must have already been set in the instrDesc constructor.
-        assert(emitGetInsAmdAny(id) == addr->AsIntCon()->GetValue());
+        assert(emitGetInsAmdAny(id) == intConAddr->GetValue());
+
+        return;
     }
-    else
+
+    assert(!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) || !addr->isContained());
+
+    GenTree*  memBase   = indir->Base();
+    regNumber amBaseReg = REG_NA;
+    if (memBase != nullptr)
     {
-        assert(!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) || !addr->isContained());
-
-        GenTree*  memBase   = indir->Base();
-        regNumber amBaseReg = REG_NA;
-        if (memBase != nullptr)
-        {
-            assert(!memBase->isContained());
-            amBaseReg = memBase->GetRegNum();
-            assert(amBaseReg != REG_NA);
-        }
-
-        regNumber amIndxReg = REG_NA;
-        if (GenTree* index = indir->Index())
-        {
-            assert(!index->isContained());
-            amIndxReg = index->GetRegNum();
-            assert(amIndxReg != REG_NA);
-        }
-
-        assert((amBaseReg != REG_NA) || (amIndxReg != REG_NA) || (indir->Offset() != 0)); // At least one should be set.
-        id->idAddr()->iiaAddrMode.amBaseReg = amBaseReg;
-        id->idAddr()->iiaAddrMode.amIndxReg = amIndxReg;
-        id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(indir->Scale());
-
-        id->idInsFmt(emitMapFmtForIns(fmt, ins));
-
-        // disp must have already been set in the instrDesc constructor.
-        assert(emitGetInsAmdAny(id) == indir->Offset()); // make sure "disp" is stored properly
+        assert(!memBase->isContained());
+        amBaseReg = memBase->GetRegNum();
+        assert(amBaseReg != REG_NA);
     }
+
+    regNumber amIndxReg = REG_NA;
+    if (GenTree* index = indir->Index())
+    {
+        assert(!index->isContained());
+        amIndxReg = index->GetRegNum();
+        assert(amIndxReg != REG_NA);
+    }
+
+    assert((amBaseReg != REG_NA) || (amIndxReg != REG_NA) || (indir->Offset() != 0)); // At least one should be set.
+    id->idAddr()->iiaAddrMode.amBaseReg = amBaseReg;
+    id->idAddr()->iiaAddrMode.amIndxReg = amIndxReg;
+    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(indir->Scale());
+
+    id->idInsFmt(emitMapFmtForIns(fmt, ins));
+
+    // disp must have already been set in the instrDesc constructor.
+    assert(emitGetInsAmdAny(id) == indir->Offset()); // make sure "disp" is stored properly
 }
 
 // Takes care of storing all incoming register parameters
