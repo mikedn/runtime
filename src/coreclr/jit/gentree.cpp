@@ -2223,35 +2223,43 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
 
 #elif defined TARGET_XARCH
-            case GT_CNS_LNG:
-            case GT_CNS_INT:
-            {
-                GenTreeIntConCommon* con       = tree->AsIntConCommon();
-                ssize_t              conVal    = (oper == GT_CNS_LNG) ? (ssize_t)con->LngValue() : con->IconValue();
-                bool                 fitsInVal = true;
-
 #ifdef TARGET_X86
-                if (oper == GT_CNS_LNG)
+            case GT_CNS_LNG:
+            {
+                GenTreeLngCon* con    = tree->AsLngCon();
+                int64_t        lngVal = con->LngValue();
+                // TODO-MIKE-Review: This truncates to 32 bits only when running on a 32 bit host.
+                ssize_t conVal    = (ssize_t)lngVal; // truncate to 32-bits
+                bool    fitsInVal = (int64_t)conVal == lngVal;
+
+                if (fitsInVal && GenTreeIntConCommon::FitsInI8(conVal))
                 {
-                    INT64 lngVal = con->LngValue();
-
-                    conVal = (ssize_t)lngVal; // truncate to 32-bits
-
-                    fitsInVal = ((INT64)conVal == lngVal);
+                    costSz = 1;
+                    costEx = 1;
                 }
-#endif // TARGET_X86
-
-                // If the constant is a handle then it will need to have a relocation
-                //  applied to it.
-                //
-                bool iconNeedsReloc = con->ImmedValNeedsReloc(this);
-
-                if (iconNeedsReloc)
+                else
                 {
                     costSz = 4;
                     costEx = 1;
                 }
-                else if (fitsInVal && GenTreeIntConCommon::FitsInI8(conVal))
+
+                costSz += fitsInVal ? 1 : 4;
+                costEx += 1;
+                level = 0;
+                break;
+            }
+#endif // TARGET_X86
+            case GT_CNS_INT:
+            {
+                GenTreeIntCon* con    = tree->AsIntCon();
+                ssize_t        conVal = con->GetValue();
+
+                if (con->ImmedValNeedsReloc(this))
+                {
+                    costSz = 4;
+                    costEx = 1;
+                }
+                else if (GenTreeIntConCommon::FitsInI8(conVal))
                 {
                     costSz = 1;
                     costEx = 1;
@@ -2268,13 +2276,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 4;
                     costEx = 1;
                 }
-#ifdef TARGET_X86
-                if (oper == GT_CNS_LNG)
-                {
-                    costSz += fitsInVal ? 1 : 4;
-                    costEx += 1;
-                }
-#endif // TARGET_X86
 
                 level = 0;
                 break;
