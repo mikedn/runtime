@@ -440,8 +440,8 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
         {
             // relocatable values tend to come down as a CNS_INT of native int type
             // so the line between these two opcodes is kind of blurry
-            GenTreeIntConCommon* con    = tree->AsIntConCommon();
-            ssize_t              cnsVal = con->IconValue();
+            GenTreeIntCon* con    = tree->AsIntCon();
+            ssize_t        cnsVal = con->GetValue();
 
             if (con->ImmedValNeedsReloc(compiler))
             {
@@ -5067,11 +5067,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             GenTreeIndir* indir = target->AsIndir();
             GenTree*      base  = indir->Base();
 
-            if ((base != nullptr) && base->isContainedIntOrIImmed())
+            if ((base != nullptr) && base->IsContainedIntCon())
             {
                 // Note that if gtControlExpr is an indir of an absolute address, we mark it as
                 // contained only if it can be encoded as PC-relative offset.
-                assert(base->AsIntConCommon()->FitsInAddrBase(compiler));
+                assert(base->AsIntCon()->FitsInAddrBase(compiler));
 
                 // clang-format off
                 genEmitCall(emitter::EC_FUNC_TOKEN_INDIR,

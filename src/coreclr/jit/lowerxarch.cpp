@@ -3119,19 +3119,7 @@ bool Lowering::IsCallTargetInRange(void* addr)
 // return true if the immediate can be folded into an instruction, for example small enough and non-relocatable
 bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 {
-    if (!childNode->IsIntCnsFitsInI32())
-    {
-        return false;
-    }
-
-    // At this point we know that it is an int const fits within 4-bytes and hence can safely cast to IntConCommon.
-    // Icons that need relocation should never be marked as contained immed
-    if (childNode->AsIntConCommon()->ImmedValNeedsReloc(comp))
-    {
-        return false;
-    }
-
-    return true;
+    return childNode->IsIntCnsFitsInI32() && !childNode->AsIntCon()->ImmedValNeedsReloc(comp);
 }
 
 //-----------------------------------------------------------------------
@@ -4572,7 +4560,7 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
     assert((addr->TypeGet() == TYP_I_IMPL) || (addr->TypeGet() == TYP_BYREF));
     TryCreateAddrMode(addr, true);
     if ((addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA) ||
-         (addr->IsCnsIntOrI() && addr->AsIntConCommon()->FitsInAddrBase(comp))) &&
+         (addr->IsIntCon() && addr->AsIntCon()->FitsInAddrBase(comp))) &&
         IsSafeToContainMem(node, addr))
     {
         MakeSrcContained(node, addr);

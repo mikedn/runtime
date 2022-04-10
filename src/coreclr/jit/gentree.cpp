@@ -2178,8 +2178,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 //  applied to it.
                 // Any constant that requires a reloc must use the movw/movt sequence
                 //
-                GenTreeIntConCommon* con    = tree->AsIntConCommon();
-                target_ssize_t       conVal = (target_ssize_t)con->IconValue();
+                GenTreeIntCon* con    = tree->AsIntCon();
+                target_ssize_t conVal = (target_ssize_t)con->IconValue();
 
                 if (con->ImmedValNeedsReloc(this))
                 {
@@ -12422,9 +12422,9 @@ ssize_t GenTreeIndir::Offset()
     {
         return static_cast<ssize_t>(reinterpret_cast<intptr_t>(Addr()->AsClsVar()->gtClsVarHnd));
     }
-    else if (Addr()->IsCnsIntOrI() && Addr()->isContained())
+    else if (Addr()->IsIntCon() && Addr()->isContained())
     {
-        return Addr()->AsIntConCommon()->IconValue();
+        return Addr()->AsIntCon()->GetValue();
     }
     else
     {
@@ -12468,7 +12468,7 @@ bool GenTreeIntConCommon::ImmedValCanBeFolded(Compiler* comp, genTreeOps op)
 // Returns true if this absolute address fits within the base of an addr mode.
 // On Amd64 this effectively means, whether an absolute indirect address can
 // be encoded as 32-bit offset relative to IP or zero.
-bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
+bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 {
 #ifdef DEBUG
     // Early out if PC-rel encoding of absolute addr is disabled.
@@ -12508,7 +12508,7 @@ bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
 }
 
 // Returns true if this icon value is encoded as addr needs recording a relocation with VM
-bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
+bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 {
     if (comp->opts.compReloc)
     {
@@ -12525,7 +12525,7 @@ bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
 #elif defined(TARGET_X86)
 // Returns true if this absolute address fits within the base of an addr mode.
 // On x86 all addresses are 4-bytes and can be directly encoded in an addr mode.
-bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
+bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 {
 #ifdef DEBUG
     // Early out if PC-rel encoding of absolute addr is disabled.
@@ -12535,11 +12535,11 @@ bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
     }
 #endif
 
-    return IsCnsIntOrI();
+    return true;
 }
 
 // Returns true if this icon value is encoded as addr needs recording a relocation with VM
-bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
+bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 {
     // If generating relocatable code, icons should be reported for recording relocatons.
     return comp->opts.compReloc && IsIconHandle();

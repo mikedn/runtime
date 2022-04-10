@@ -924,7 +924,12 @@ public:
 
     bool isContainedIntOrIImmed() const
     {
-        return isContained() && IsCnsIntOrI() && !isUsedFromSpillTemp();
+        return IsContainedIntCon();
+    }
+
+    bool IsContainedIntCon() const
+    {
+        return isContained() && IsIntCon() && !isUsedFromSpillTemp();
     }
 
     bool isContainedFltOrDblImmed() const
@@ -2903,11 +2908,6 @@ struct GenTreeIntConCommon : public GenTree
     bool ImmedValNeedsReloc(Compiler* comp);
     bool ImmedValCanBeFolded(Compiler* comp, genTreeOps op);
 
-#ifdef TARGET_XARCH
-    bool FitsInAddrBase(Compiler* comp);
-    bool AddrNeedsReloc(Compiler* comp);
-#endif
-
 #if DEBUGGABLE_GENTREE
     GenTreeIntConCommon() : GenTree()
     {
@@ -3062,6 +3062,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     {
         m_fieldSeq = fieldSeq;
     }
+
+#ifdef TARGET_XARCH
+    bool AddrNeedsReloc(Compiler* comp);
+    bool FitsInAddrBase(Compiler* comp);
+#endif
 
 #ifdef TARGET_64BIT
     void TruncateOrSignExtend32()

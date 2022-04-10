@@ -54,86 +54,82 @@ bool Lowering::IsCallTargetInRange(void* addr)
 //
 bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 {
-    if (!varTypeIsFloating(parentNode->TypeGet()))
+    if (!childNode->IsIntCon() || childNode->AsIntCon()->ImmedValNeedsReloc(comp))
     {
-        // Make sure we have an actual immediate
-        if (!childNode->IsCnsIntOrI())
-            return false;
-        if (childNode->AsIntCon()->ImmedValNeedsReloc(comp))
-            return false;
+        return false;
+    }
 
-        // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t type.
-        target_ssize_t immVal = (target_ssize_t)childNode->AsIntCon()->gtIconVal;
-        emitAttr       attr   = emitActualTypeSize(childNode->TypeGet());
-        emitAttr       size   = EA_SIZE(attr);
+    // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t type.
+    target_ssize_t immVal = (target_ssize_t)childNode->AsIntCon()->gtIconVal;
+    emitAttr       attr   = emitActualTypeSize(childNode->TypeGet());
+    emitAttr       size   = EA_SIZE(attr);
 #ifdef TARGET_ARM
-        insFlags flags = ((parentNode->gtFlags & GTF_SET_FLAGS) != 0) ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE;
+    insFlags flags = ((parentNode->gtFlags & GTF_SET_FLAGS) != 0) ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE;
 #endif
 
-        switch (parentNode->OperGet())
-        {
-            case GT_ADD:
-            case GT_SUB:
+    switch (parentNode->OperGet())
+    {
+        case GT_ADD:
+        case GT_SUB:
 #ifdef TARGET_ARM64
-            case GT_CMPXCHG:
-            case GT_LOCKADD:
-            case GT_XORR:
-            case GT_XAND:
-            case GT_XADD:
-                return comp->compOpportunisticallyDependsOn(InstructionSet_Atomics)
-                           ? false
-                           : emitter::emitIns_valid_imm_for_add(immVal, size);
+        case GT_CMPXCHG:
+        case GT_LOCKADD:
+        case GT_XORR:
+        case GT_XAND:
+        case GT_XADD:
+            return comp->compOpportunisticallyDependsOn(InstructionSet_Atomics)
+                       ? false
+                       : emitter::emitIns_valid_imm_for_add(immVal, size);
 #elif defined(TARGET_ARM)
-                return emitter::emitIns_valid_imm_for_add(immVal, flags);
+            return emitter::emitIns_valid_imm_for_add(immVal, flags);
 #endif
-                break;
+            break;
 
 #ifdef TARGET_ARM64
-            case GT_EQ:
-            case GT_NE:
-            case GT_LT:
-            case GT_LE:
-            case GT_GE:
-            case GT_GT:
-            case GT_ARR_BOUNDS_CHECK:
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GE:
+        case GT_GT:
+        case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
+        case GT_HW_INTRINSIC_CHK:
 #endif
-                return emitter::emitIns_valid_imm_for_cmp(immVal, size);
-            case GT_AND:
-            case GT_OR:
-            case GT_XOR:
-            case GT_TEST_EQ:
-            case GT_TEST_NE:
-                return emitter::emitIns_valid_imm_for_alu(immVal, size);
-            case GT_JCMP:
-                assert(((parentNode->gtFlags & GTF_JCMP_TST) == 0) ? (immVal == 0) : isPow2(immVal));
-                return true;
+            return emitter::emitIns_valid_imm_for_cmp(immVal, size);
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        case GT_TEST_EQ:
+        case GT_TEST_NE:
+            return emitter::emitIns_valid_imm_for_alu(immVal, size);
+        case GT_JCMP:
+            assert(((parentNode->gtFlags & GTF_JCMP_TST) == 0) ? (immVal == 0) : isPow2(immVal));
+            return true;
 #elif defined(TARGET_ARM)
-            case GT_EQ:
-            case GT_NE:
-            case GT_LT:
-            case GT_LE:
-            case GT_GE:
-            case GT_GT:
-            case GT_CMP:
-            case GT_AND:
-            case GT_OR:
-            case GT_XOR:
-                return emitter::emitIns_valid_imm_for_alu(immVal);
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GE:
+        case GT_GT:
+        case GT_CMP:
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+            return emitter::emitIns_valid_imm_for_alu(immVal);
 #endif // TARGET_ARM
 
 #ifdef TARGET_ARM64
-            case GT_STORE_LCL_FLD:
-            case GT_STORE_LCL_VAR:
-                if (immVal == 0)
-                    return true;
-                break;
+        case GT_STORE_LCL_FLD:
+        case GT_STORE_LCL_VAR:
+            if (immVal == 0)
+                return true;
+            break;
 #endif
 
-            default:
-                break;
-        }
+        default:
+            break;
     }
 
     return false;
