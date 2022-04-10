@@ -12371,18 +12371,16 @@ bool GenTree::isContained() const
     return true;
 }
 
-bool GenTree::isIndirAddrMode()
+GenTreeAddrMode* GenTreeIndir::HasAddrMode()
 {
-    return OperIsIndir() && AsIndir()->GetAddr()->IsAddrMode() && AsIndir()->GetAddr()->isContained();
+    return GetAddr()->IsAddrMode() && GetAddr()->isContained() ? GetAddr()->AsAddrMode() : nullptr;
 }
 
 GenTree* GenTreeIndir::Base()
 {
-    GenTree* addr = Addr();
-
-    if (isIndirAddrMode())
+    if (GenTreeAddrMode* am = HasAddrMode())
     {
-        GenTree* result = addr->AsAddrMode()->Base();
+        GenTree* result = am->GetBase();
         if (result != nullptr)
         {
             result = result->gtEffectiveVal();
@@ -12391,15 +12389,15 @@ GenTree* GenTreeIndir::Base()
     }
     else
     {
-        return addr; // TODO: why do we return 'addr' here, but we return 'nullptr' in the equivalent Index() case?
+        return GetAddr();
     }
 }
 
 GenTree* GenTreeIndir::Index()
 {
-    if (isIndirAddrMode())
+    if (GenTreeAddrMode* am = HasAddrMode())
     {
-        GenTree* result = Addr()->AsAddrMode()->Index();
+        GenTree* result = am->GetIndex();
         if (result != nullptr)
         {
             result = result->gtEffectiveVal();
@@ -12426,9 +12424,9 @@ unsigned GenTreeIndir::Scale()
 
 ssize_t GenTreeIndir::Offset()
 {
-    if (isIndirAddrMode())
+    if (GenTreeAddrMode* am = HasAddrMode())
     {
-        return Addr()->AsAddrMode()->Offset();
+        return am->GetOffset();
     }
     else if (Addr()->gtOper == GT_CLS_VAR_ADDR)
     {

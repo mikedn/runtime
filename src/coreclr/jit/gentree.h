@@ -922,8 +922,6 @@ public:
     // for codegen purposes, is this node a subnode of its parent
     bool isContained() const;
 
-    bool isIndirAddrMode();
-
     bool isContainedIntOrIImmed() const
     {
         return isContained() && IsCnsIntOrI() && !isUsedFromSpillTemp();
@@ -6063,11 +6061,11 @@ struct GenTreeIndir : public GenTreeOp
         gtOp2 = value;
     }
 
-    // these methods provide an interface to the indirection node which
-    GenTree* Base();
-    GenTree* Index();
-    unsigned Scale();
-    ssize_t  Offset();
+    GenTreeAddrMode* HasAddrMode();
+    GenTree*         Base();
+    GenTree*         Index();
+    unsigned         Scale();
+    ssize_t          Offset();
 
     GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
         : GenTreeOp(oper, type, addr, value)
