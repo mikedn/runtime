@@ -6049,9 +6049,6 @@ struct GenTreeIndir : public GenTreeOp
         gtOp2 = value;
     }
 
-    GenTreeAddrMode* HasAddrMode();
-    ssize_t          Offset();
-
     GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
         : GenTreeOp(oper, type, addr, value)
     {

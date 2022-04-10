@@ -1727,6 +1727,9 @@ private:
     void emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* mem);
     insFormat emitMapFmtForIns(insFormat fmt, instruction ins);
     insFormat emitMapFmtAtoM(insFormat fmt);
+#ifdef TARGET_XARCH
+    ssize_t GetAddrModeDisp(GenTreeIndir* indir);
+#endif
     void emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt, instruction ins);
     void spillIntArgRegsToShadowSlots();
 

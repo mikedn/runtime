@@ -12356,27 +12356,6 @@ bool GenTree::isContained() const
     return true;
 }
 
-GenTreeAddrMode* GenTreeIndir::HasAddrMode()
-{
-    return GetAddr()->IsAddrMode() && GetAddr()->isContained() ? GetAddr()->AsAddrMode() : nullptr;
-}
-
-ssize_t GenTreeIndir::Offset()
-{
-    if (GenTreeAddrMode* am = HasAddrMode())
-    {
-        return am->GetOffset();
-    }
-    else if (Addr()->IsIntCon() && Addr()->isContained())
-    {
-        return Addr()->AsIntCon()->GetValue();
-    }
-    else
-    {
-        return 0;
-    }
-}
-
 //------------------------------------------------------------------------
 // GenTreeIntCon::ImmedValNeedsReloc: does this immediate value needs recording a relocation with the VM?
 //
