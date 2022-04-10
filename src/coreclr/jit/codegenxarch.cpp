@@ -6676,25 +6676,16 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
         else if (srcNode->isIndir())
         {
             GenTreeIndir* memIndir = srcNode->AsIndir();
-            GenTree*      memBase  = memIndir->gtOp1;
+            GenTree*      memBase  = memIndir->GetAddr();
 
             switch (memBase->OperGet())
             {
                 case GT_LCL_VAR_ADDR:
                 case GT_LCL_FLD_ADDR:
-                {
                     assert(memBase->isContained());
                     varNum = memBase->AsLclVarCommon()->GetLclNum();
                     offset = memBase->AsLclVarCommon()->GetLclOffs();
-
-                    // Ensure that all the GenTreeIndir values are set to their defaults.
-                    assert(memBase->GetRegNum() == REG_NA);
-                    assert(memIndir->Index() == nullptr);
-                    assert(memIndir->Scale() == 1);
-                    assert(memIndir->Offset() == 0);
-
                     break;
-                }
 
                 case GT_CLS_VAR_ADDR:
                 {
