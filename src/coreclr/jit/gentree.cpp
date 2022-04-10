@@ -12361,42 +12361,6 @@ GenTreeAddrMode* GenTreeIndir::HasAddrMode()
     return GetAddr()->IsAddrMode() && GetAddr()->isContained() ? GetAddr()->AsAddrMode() : nullptr;
 }
 
-GenTree* GenTreeIndir::Base()
-{
-    if (GenTreeAddrMode* am = HasAddrMode())
-    {
-        return am->GetBase();
-    }
-    else
-    {
-        return GetAddr();
-    }
-}
-
-GenTree* GenTreeIndir::Index()
-{
-    if (GenTreeAddrMode* am = HasAddrMode())
-    {
-        return am->GetIndex();
-    }
-    else
-    {
-        return nullptr;
-    }
-}
-
-unsigned GenTreeIndir::Scale()
-{
-    if (Index() != nullptr)
-    {
-        return Addr()->AsAddrMode()->GetScale();
-    }
-    else
-    {
-        return 1;
-    }
-}
-
 ssize_t GenTreeIndir::Offset()
 {
     if (GenTreeAddrMode* am = HasAddrMode())

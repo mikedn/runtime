@@ -2130,19 +2130,25 @@ void CodeGen::genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins)
     {
         sourceReg1 = op1->GetRegNum();
     }
-    else if (op1->isIndir())
+    else if (GenTreeIndir* indir = op1->IsIndir())
     {
-        GenTreeIndir* indir   = op1->AsIndir();
-        GenTree*      memBase = indir->Base();
+        GenTree* addr = indir->GetAddr();
 
-        if (memBase != nullptr)
+        if (!addr->isContained())
         {
-            sourceReg1 = memBase->GetRegNum();
+            sourceReg1 = addr->GetRegNum();
         }
-
-        if (indir->Index() != nullptr)
+        else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
         {
-            sourceReg2 = indir->Index()->GetRegNum();
+            if (GenTree* base = addrMode->GetBase())
+            {
+                sourceReg1 = base->GetRegNum();
+            }
+
+            if (GenTree* index = addrMode->GetIndex())
+            {
+                sourceReg2 = index->GetRegNum();
+            }
         }
     }
 
