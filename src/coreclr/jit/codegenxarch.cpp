@@ -5065,19 +5065,19 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             if (target->isContained())
         {
             GenTreeIndir* indir = target->AsIndir();
-            GenTree*      base  = indir->Base();
+            GenTree*      addr  = indir->GetAddr();
 
-            if ((base != nullptr) && base->IsContainedIntCon())
+            if (addr->IsContainedIntCon())
             {
                 // Note that if gtControlExpr is an indir of an absolute address, we mark it as
                 // contained only if it can be encoded as PC-relative offset.
-                assert(base->AsIntCon()->FitsInAddrBase(compiler));
+                assert(addr->AsIntCon()->FitsInAddrBase(compiler));
 
                 // clang-format off
                 genEmitCall(emitter::EC_FUNC_TOKEN_INDIR,
                             methHnd
                             DEBUGARG(sigInfo),
-                            reinterpret_cast<void*>(base->AsIntCon()->GetValue())
+                            reinterpret_cast<void*>(addr->AsIntCon()->GetValue())
                             X86_ARG(argSizeForEmitter),
                             retSize
                             MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
@@ -5089,6 +5089,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             else
             {
                 genConsumeAddress(indir->GetAddr());
+
+                GenTree* base = indir->Base();
 
                 // clang-format off
                 GetEmitter()->emitIns_Call(emitter::EC_INDIR_ARD,
