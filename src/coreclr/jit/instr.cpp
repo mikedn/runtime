@@ -608,11 +608,6 @@ void CodeGen::inst_RV_RV_TT(
                     varNum = addr->AsLclVarCommon()->GetLclNum();
                     offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
-
-                case GT_CLS_VAR_ADDR:
-                    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, addr->AsClsVar()->gtClsVarHnd);
-                    return;
-
                 default:
                     GetEmitter()->emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
                     return;

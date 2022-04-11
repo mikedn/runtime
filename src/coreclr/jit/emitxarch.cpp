@@ -5622,7 +5622,11 @@ void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber targe
 
 void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr)
 {
-    if (UseVEXEncoding())
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_SIMD_R_R_C(ins, attr, targetReg, op1Reg, clsAddr->GetFieldHandle());
+    }
+    else if (UseVEXEncoding())
     {
         emitIns_R_R_A(ins, attr, targetReg, op1Reg, addr);
     }

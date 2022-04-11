@@ -212,10 +212,6 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                                                              addr->AsLclVarCommon()->GetLclNum(),
                                                              addr->AsLclVarCommon()->GetLclOffs());
                             break;
-                        case GT_CLS_VAR_ADDR:
-                            GetEmitter()->emitIns_SIMD_R_R_C(ins, simdSize, targetReg, otherReg,
-                                                             addr->AsClsVar()->gtClsVarHnd);
-                            break;
                         default:
                             GetEmitter()->emitIns_SIMD_R_R_A(ins, simdSize, targetReg, otherReg, addr);
                             break;
