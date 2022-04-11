@@ -28,12 +28,12 @@ static bool isDoubleReg(regNumber reg)
 static constexpr CORINFO_FIELD_HANDLE FS_SEG_FIELD = reinterpret_cast<CORINFO_FIELD_HANDLE>(-8);
 #endif
 
-static bool jitStaticFldIsGlobAddr(CORINFO_FIELD_HANDLE fldHnd)
+static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE fldHnd)
 {
 #ifdef WINDOWS_X86_ABI
-    return fldHnd == FS_SEG_FIELD;
+    return fldHnd != FS_SEG_FIELD;
 #else
-    return false;
+    return true;
 #endif
 }
 

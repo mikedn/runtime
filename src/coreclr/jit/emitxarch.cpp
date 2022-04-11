@@ -3096,23 +3096,11 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         CORINFO_FIELD_HANDLE fldHnd = clsAddr->GetFieldHandle();
+        assert(FieldDispRequiresRelocation(fldHnd));
 
-        // Static always need relocs
-        if (!jitStaticFldIsGlobAddr(fldHnd))
-        {
-            // Contract:
-            // fgMorphField() changes any statics that won't fit into 32-bit addresses into
-            // constants with an indir, rather than GT_CLS_VAR_ADDR, based on reloc type hint
-            // given by VM. Hence emitter should always mark GT_CLS_VAR_ADDR as relocatable.
-            //
-            // Data section constants: these get allocated close to code block of the method and
-            // always addressable IP relative.  These too should be marked as relocatable.
-
-            id->idSetIsDspReloc();
-        }
-
-        id->idAddr()->iiaFieldHnd = fldHnd;
         id->idInsFmt(emitMapFmtForIns(emitMapFmtAtoM(fmt), ins));
+        id->idAddr()->iiaFieldHnd = fldHnd;
+        id->idSetIsDspReloc();
 
         return;
     }
@@ -4202,16 +4190,13 @@ void emitter::emitIns_IJ(emitAttr attr, regNumber reg, unsigned base)
 
 void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs)
 {
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
+    assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrDsp(attr, offs);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeMR(ins));
 
@@ -4788,14 +4773,9 @@ void emitter::emitIns_R_AR_I(instruction ins, emitAttr attr, regNumber reg1, reg
 void emitter::emitIns_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int offs, int ival)
 {
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
-
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins));
+    assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, ival, offs);
 
@@ -4803,6 +4783,7 @@ void emitter::emitIns_R_C_I(
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -4949,12 +4930,7 @@ void emitter::emitIns_R_R_C(
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
-
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
+    assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrDsp(attr, offs);
 
@@ -4963,6 +4939,7 @@ void emitter::emitIns_R_R_C(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -5068,12 +5045,7 @@ void emitter::emitIns_R_R_C_I(
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
-
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
+    assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, ival, offs);
 
@@ -5082,6 +5054,7 @@ void emitter::emitIns_R_R_C_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -5299,12 +5272,7 @@ void emitter::emitIns_R_R_C_R(instruction          ins,
 {
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
-
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
+    assert(FieldDispRequiresRelocation(fldHnd));
 
     int        ival = encodeXmmRegAsIval(op3Reg);
     instrDesc* id   = emitNewInstrCnsDsp(attr, ival, offs);
@@ -5315,6 +5283,7 @@ void emitter::emitIns_R_R_C_R(instruction          ins,
 
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -5387,11 +5356,11 @@ void emitter::emitIns_R_R_R_R(
 
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
 {
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
+#ifdef WINDOWS_X86_ABI
+    assert(FieldDispRequiresRelocation(fldHnd) || (fldHnd == FS_SEG_FIELD));
+#else
+    assert(FieldDispRequiresRelocation(fldHnd));
+#endif
 
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
@@ -5400,6 +5369,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
     id->idReg1(reg);
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     UNATIVE_OFFSET sz;
 
@@ -5421,6 +5391,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
 #ifdef WINDOWS_X86_ABI
     if (fldHnd == FS_SEG_FIELD)
     {
+        id->idSetIsDspReloc(false);
         sz += 1;
     }
 #endif
@@ -5438,15 +5409,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
 
 void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs)
 {
-#ifdef WINDOWS_X86_ABI
-    assert(fldHnd != FS_SEG_FIELD);
-#endif
-
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
+    assert(FieldDispRequiresRelocation(fldHnd));
 
     emitAttr size = EA_SIZE(attr);
 
@@ -5495,6 +5458,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idCodeSize(sz);
 
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     dispIns(id);
     emitCurIGsize += sz;
@@ -5507,11 +5471,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
 void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs, int val)
 {
-    // Static always need relocs
-    if (!jitStaticFldIsGlobAddr(fldHnd))
-    {
-        attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
-    }
+    assert(FieldDispRequiresRelocation(fldHnd));
 
     insFormat fmt;
 
@@ -5538,6 +5498,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idAddr()->iiaFieldHnd = fldHnd;
+    id->idSetIsDspReloc();
 
     code_t         code = insCodeMI(ins);
     UNATIVE_OFFSET sz   = emitInsSizeCV(id, code, val);
@@ -11178,10 +11139,8 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 
 BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 {
-    BYTE*                addr;
     CORINFO_FIELD_HANDLE fldh;
     ssize_t              offs;
-    int                  doff;
 
     emitAttr    size      = id->idOpSize();
     size_t      opsz      = EA_SIZE_IN_BYTES(size);
@@ -11403,8 +11362,9 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         }
     }
 
+    BYTE* addr;
     // Do we have a constant or a static data member?
-    doff = Compiler::eeGetJitDataOffs(fldh);
+    int doff = Compiler::eeGetJitDataOffs(fldh);
     if (doff >= 0)
     {
         addr = emitConsBlock + doff;
@@ -11434,20 +11394,18 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
                (((size_t)addr & (byteSize - 1)) == 0));
 #endif // DEBUG
     }
+#ifdef WINDOWS_X86_ABI
+    else if (fldh == FS_SEG_FIELD)
+    {
+        addr = nullptr;
+    }
+#endif
     else
     {
-        // Special case: mov reg, fs:[ddd] or mov reg, [ddd]
-        if (jitStaticFldIsGlobAddr(fldh))
+        addr = (BYTE*)emitComp->info.compCompHnd->getFieldAddress(fldh, nullptr);
+        if (addr == nullptr)
         {
-            addr = nullptr;
-        }
-        else
-        {
-            addr = (BYTE*)emitComp->info.compCompHnd->getFieldAddress(fldh, nullptr);
-            if (addr == nullptr)
-            {
-                NO_WAY("could not obtain address of static field");
-            }
+            NO_WAY("could not obtain address of static field");
         }
     }
 
