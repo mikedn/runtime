@@ -6675,7 +6675,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
 
                 default:
                 {
-                    emit->emitIns_R_A_I(ins, size, dstReg, memIndir, ival);
+                    emit->emitIns_R_A_I(ins, size, dstReg, memIndir->GetAddr(), ival);
                     return;
                 }
             }

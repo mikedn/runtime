@@ -464,19 +464,8 @@ void CodeGen::genHWIntrinsic_R_RM(
                 }
 
                 default:
-                {
-                    GenTreeIndir load = indirForm(rmOp->TypeGet(), addr);
-
-                    if (memIndir == nullptr)
-                    {
-                        // This is the HW intrinsic load case.
-                        // Until we improve the handling of addressing modes in the emitter, we'll create a
-                        // temporary GT_IND to generate code with.
-                        memIndir = &load;
-                    }
-                    emit->emitIns_R_A(ins, attr, reg, memIndir);
+                    emit->emitIns_R_A(ins, attr, reg, addr);
                     return;
-                }
             }
         }
         else

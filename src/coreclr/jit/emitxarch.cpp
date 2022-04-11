@@ -4638,14 +4638,14 @@ void emitter::emitIns_AR_R_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTreeIndir* indir)
+void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr)
 {
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir->GetAddr()));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
 
     id->idIns(ins);
     id->idReg1(reg1);
 
-    SetInstrAddrMode(id, IF_RRW_ARD, ins, indir->GetAddr());
+    SetInstrAddrMode(id, IF_RRW_ARD, ins, addr);
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -4654,17 +4654,17 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTre
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTreeIndir* indir, int ival)
+void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int ival)
 {
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins));
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), ival);
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), ival);
 
     id->idIns(ins);
     id->idReg1(reg1);
 
-    SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, indir->GetAddr());
+    SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, addr);
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -4718,18 +4718,18 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTreeIndir* indir)
+void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir->GetAddr()));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
 
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    SetInstrAddrMode(id, IF_RWR_RRD_ARD, ins, indir->GetAddr());
+    SetInstrAddrMode(id, IF_RWR_RRD_ARD, ins, addr);
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -5712,12 +5712,12 @@ void emitter::emitIns_SIMD_R_R_A(
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_A(ins, attr, targetReg, op1Reg, indir);
+        emitIns_R_R_A(ins, attr, targetReg, op1Reg, indir->GetAddr());
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A(ins, attr, targetReg, indir);
+        emitIns_R_A(ins, attr, targetReg, indir->GetAddr());
     }
 }
 
@@ -5832,7 +5832,7 @@ void emitter::emitIns_SIMD_R_R_A_I(
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A_I(ins, attr, targetReg, indir, ival);
+        emitIns_R_A_I(ins, attr, targetReg, indir->GetAddr(), ival);
     }
 }
 
@@ -5946,7 +5946,7 @@ void emitter::emitIns_SIMD_R_R_R_A(
     assert((op2Reg != targetReg) || (op1Reg == targetReg));
 
     emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-    emitIns_R_R_A(ins, attr, targetReg, op2Reg, indir);
+    emitIns_R_R_A(ins, attr, targetReg, op2Reg, indir->GetAddr());
 }
 
 //------------------------------------------------------------------------
@@ -6135,7 +6135,7 @@ void emitter::emitIns_SIMD_R_R_A_R(
         assert(targetReg != REG_XMM0);
 
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A(ins, attr, targetReg, indir);
+        emitIns_R_A(ins, attr, targetReg, indir->GetAddr());
     }
 }
 
