@@ -7386,28 +7386,6 @@ void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
 
 /*****************************************************************************
  *
- *  Add an instruction with a static data member operand. If 'size' is 0, the
- *  instruction operates on the address of the static member instead of its
- *  value (e.g. "push offset clsvar", rather than "push dword ptr [clsvar]").
- */
-
-void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs)
-{
-    NYI("emitIns_C");
-}
-
-/*****************************************************************************
- *
- *  Add an instruction referencing stack-based local variable.
- */
-
-void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
-{
-    NYI("emitIns_S");
-}
-
-/*****************************************************************************
- *
  *  Add an instruction referencing a register and a stack-based local variable.
  */
 void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs)
@@ -7994,26 +7972,6 @@ void emitter::emitIns_R_C(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a static member + constant.
- */
-
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, ssize_t val)
-{
-    NYI("emitIns_C_I");
-}
-
-/*****************************************************************************
- *
- *  Add an instruction with a static member + register operands.
- */
-
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs)
-{
-    assert(!"emitIns_C_R not supported for RyuJIT backend");
-}
-
 void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs)
 {
     NYI("emitIns_R_AR");
@@ -8078,27 +8036,6 @@ void emitter::emitIns_R_AI(instruction ins,
         dispIns(id);
         appendToCurIG(id);
     }
-}
-
-void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs)
-{
-    NYI("emitIns_AR_R");
-}
-
-void emitter::emitIns_R_ARR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp)
-{
-    NYI("emitIns_R_ARR");
-}
-
-void emitter::emitIns_ARR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp)
-{
-    NYI("emitIns_R_ARR");
-}
-
-void emitter::emitIns_R_ARX(
-    instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, unsigned mul, int disp)
-{
-    NYI("emitIns_R_ARR");
 }
 
 /*****************************************************************************
@@ -8206,16 +8143,6 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 
     dispIns(id);
     appendToCurIG(id);
-}
-
-/*****************************************************************************
- *
- *  Add a data label instruction.
- */
-
-void emitter::emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg)
-{
-    NYI("emitIns_R_D");
 }
 
 void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)

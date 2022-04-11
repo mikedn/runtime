@@ -367,8 +367,6 @@ void emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int varx, int
 
 void emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTreeIndir* indir);
 
-void emitIns_R_R_AR(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int offs);
-
 void emitIns_R_AR_R(instruction ins,
                     emitAttr    attr,
                     regNumber   reg1,
@@ -387,8 +385,6 @@ void emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg
 
 void emitIns_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTreeIndir* indir, int ival, insFormat fmt);
-void emitIns_R_R_AR_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int offs, int ival);
 void emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int ival);
 
 void emitIns_A_R_I(instruction ins, emitAttr attr, GenTreeIndir* indir, regNumber reg, int imm);
@@ -402,9 +398,6 @@ void emitIns_R_R_S_I(instruction ins, emitAttr attr, regNumber reg1, regNumber r
 
 void emitIns_R_R_A_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTreeIndir* indir);
-
-void emitIns_R_R_AR_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, regNumber base, int offs);
 
 void emitIns_R_R_C_R(instruction          ins,
                      emitAttr             attr,
@@ -433,17 +426,9 @@ void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, re
 
 void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, int offs, int val);
 
-void emitIns_IJ(emitAttr attr, regNumber reg, unsigned base);
-
-void emitIns_J_S(instruction ins, emitAttr attr, BasicBlock* dst, int varx, int offs);
-
 void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
-void emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg);
-
 void emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int offs);
-
-void emitIns_I_AI(instruction ins, emitAttr attr, int val, ssize_t disp);
 
 void emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int disp);
 
@@ -451,13 +436,7 @@ void emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp);
 
 void emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, cnsval_ssize_t disp);
 
-void emitIns_AI_R(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp);
-
-void emitIns_I_ARR(instruction ins, emitAttr attr, int val, regNumber reg, regNumber rg2, int disp);
-
 void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int disp);
-
-void emitIns_ARR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int disp);
 
 void emitIns_I_ARX(instruction ins, emitAttr attr, int val, regNumber reg, regNumber rg2, unsigned mul, int disp);
 
@@ -472,17 +451,9 @@ void emitIns_ARX_R(instruction    ins,
                    unsigned       scale,
                    cnsval_ssize_t disp);
 
-void emitIns_I_AX(instruction ins, emitAttr attr, int val, regNumber reg, unsigned mul, int disp);
-
-void emitIns_R_AX(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, unsigned mul, int disp);
-
-void emitIns_AX_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, unsigned mul, int disp);
-
 void emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, int ival);
 
 void emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTreeIndir* indir);
-void emitIns_SIMD_R_R_AR(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber base, int offset);
 void emitIns_SIMD_R_R_C(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, CORINFO_FIELD_HANDLE fldHnd, int offs);
 void emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg);
@@ -491,8 +462,6 @@ void emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber targetReg, reg
 #ifdef FEATURE_HW_INTRINSICS
 void emitIns_SIMD_R_R_A_I(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTreeIndir* indir, int ival);
-void emitIns_SIMD_R_R_AR_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber base, int ival);
 void emitIns_SIMD_R_R_C_I(instruction          ins,
                           emitAttr             attr,
                           regNumber            targetReg,
@@ -507,8 +476,6 @@ void emitIns_SIMD_R_R_S_I(
 
 void emitIns_SIMD_R_R_R_A(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTreeIndir* indir);
-void emitIns_SIMD_R_R_R_AR(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, regNumber base);
 void emitIns_SIMD_R_R_R_C(instruction          ins,
                           emitAttr             attr,
                           regNumber            targetReg,
@@ -523,8 +490,6 @@ void emitIns_SIMD_R_R_R_S(
 
 void emitIns_SIMD_R_R_A_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTreeIndir* indir);
-void emitIns_SIMD_R_R_AR_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, regNumber base);
 void emitIns_SIMD_R_R_C_R(instruction          ins,
                           emitAttr             attr,
                           regNumber            targetReg,

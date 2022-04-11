@@ -805,10 +805,6 @@ void emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitIns_BARR(instruction ins, insBarrier barrier);
 
-void emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, int offs);
-
-void emitIns_S(instruction ins, emitAttr attr, int varx, int offs);
-
 void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
 
 void emitIns_S_S_R_R(
@@ -824,19 +820,11 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 void emitIns_R_C(
     instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd, int offs);
 
-void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs);
-
-void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, ssize_t offs, ssize_t val);
-
 void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
-
-void emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg);
 
 void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
 void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg, int imm);
-
-void emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int offs);
 
 void emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
 
@@ -844,15 +832,6 @@ void emitIns_R_AI(instruction ins,
                   emitAttr    attr,
                   regNumber   ireg,
                   ssize_t disp DEBUGARG(size_t targetHandle = 0) DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
-
-void emitIns_AR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
-
-void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp);
-
-void emitIns_ARR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp);
-
-void emitIns_R_ARX(
-    instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, unsigned mul, int disp);
 
 enum EmitCallType
 {

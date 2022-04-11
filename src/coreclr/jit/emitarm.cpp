@@ -3601,28 +3601,6 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a static data member operand. If 'size' is 0, the
- *  instruction operates on the address of the static member instead of its
- *  value (e.g. "push offset clsvar", rather than "push dword ptr [clsvar]").
- */
-
-void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs)
-{
-    NYI("emitIns_C");
-}
-
-/*****************************************************************************
- *
- *  Add an instruction referencing stack-based local variable.
- */
-
-void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
-{
-    NYI("emitIns_S");
-}
-
 //-------------------------------------------------------------------------------------
 // emitIns_R_S: Add an instruction referencing a register and a stack-based local variable.
 //
@@ -3948,15 +3926,6 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
 
 /*****************************************************************************
  *
- *  Add an instruction referencing stack-based local variable and an immediate
- */
-void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val)
-{
-    NYI("emitIns_S_I");
-}
-
-/*****************************************************************************
- *
  *  Add an instruction with a register + static member operands.
  */
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
@@ -4002,36 +3971,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     {
         emitIns_R_R_I(ins, attr, reg, regTmp, offs);
     }
-}
-
-/*****************************************************************************
- *
- *  Add an instruction with a static member + register operands.
- */
-
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs)
-{
-    assert(!"emitIns_C_R not supported");
-}
-
-/*****************************************************************************
- *
- *  Add an instruction with a static member + constant.
- */
-
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs, ssize_t val)
-{
-    NYI("emitIns_C_I");
-}
-
-/*****************************************************************************
- *
- *  The following adds instructions referencing address modes.
- */
-
-void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int offs)
-{
-    NYI("emitIns_I_AR");
 }
 
 void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs)
@@ -4101,55 +4040,6 @@ void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber ireg, regNu
         assert(!"Please use ins_Store() to select the correct instruction");
     }
     emitIns_R_R_I(ins, attr, ireg, reg, offs);
-}
-
-void emitter::emitIns_R_ARR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp)
-{
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Load() to select the correct instruction");
-    }
-
-    if (ins == INS_lea)
-    {
-        emitIns_R_R_R(INS_add, attr, ireg, reg, rg2);
-        if (disp != 0)
-        {
-            emitIns_R_R_I(INS_add, attr, ireg, ireg, disp);
-        }
-        return;
-    }
-    else if (emitInsIsLoad(ins))
-    {
-        if (disp == 0)
-        {
-            emitIns_R_R_R_I(ins, attr, ireg, reg, rg2, 0, INS_FLAGS_DONT_CARE, INS_OPTS_NONE);
-            return;
-        }
-    }
-    assert(!"emitIns_R_ARR: Unexpected instruction");
-}
-
-void emitter::emitIns_ARR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp)
-{
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Store() to select the correct instruction");
-    }
-    if (emitInsIsStore(ins))
-    {
-        if (disp == 0)
-        {
-            emitIns_R_R_R(ins, attr, ireg, reg, rg2);
-        }
-        else
-        {
-            emitIns_R_R_R(INS_add, attr, ireg, reg, rg2);
-            emitIns_R_R_I(ins, attr, ireg, ireg, disp);
-        }
-        return;
-    }
-    assert(!"emitIns_ARR_R: Unexpected instruction");
 }
 
 void emitter::emitIns_R_ARX(

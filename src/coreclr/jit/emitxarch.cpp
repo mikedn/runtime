@@ -4153,41 +4153,6 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
     emitAdjustStackDepthPushPop(ins);
 }
 
-/*****************************************************************************
- *
- *  Add a "jump through a table" instruction.
- */
-
-void emitter::emitIns_IJ(emitAttr attr, regNumber reg, unsigned base)
-{
-    assert(EA_SIZE(attr) == EA_4BYTE);
-
-    UNATIVE_OFFSET    sz  = 3 + 4;
-    const instruction ins = INS_i_jmp;
-
-    if (IsExtendedReg(reg, attr))
-    {
-        sz += emitGetRexPrefixSize(ins);
-    }
-
-    instrDesc* id = emitNewInstrAmd(attr, base);
-
-    id->idIns(ins);
-    id->idInsFmt(IF_ARD);
-    id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-    id->idAddr()->iiaAddrMode.amIndxReg = reg;
-    id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZP;
-
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = base;
-#endif
-
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs)
 {
     assert(FieldDispRequiresRelocation(fldHnd));
@@ -4749,27 +4714,6 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_AR_I(instruction ins, emitAttr attr, regNumber reg1, regNumber base, int offs, int ival)
-{
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
-    assert(IsSSEOrAVXInstruction(ins));
-
-    instrDesc* id = emitNewInstrAmdCns(attr, offs, ival);
-
-    id->idIns(ins);
-    id->idReg1(reg1);
-
-    id->idInsFmt(IF_RRW_ARD_CNS);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 void emitter::emitIns_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int offs, int ival)
 {
@@ -4827,28 +4771,6 @@ void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg2(reg2);
 
     emitHandleMemOp(indir, id, IF_RWR_RRD_ARD, ins);
-
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitIns_R_R_AR(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int offs)
-{
-    assert(IsSSEOrAVXInstruction(ins));
-    assert(IsThreeOperandAVXInstruction(ins));
-
-    instrDesc* id = emitNewInstrAmd(attr, offs);
-
-    id->idIns(ins);
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-
-    id->idInsFmt(IF_RWR_RRD_ARD);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -5017,29 +4939,6 @@ void emitter::emitIns_R_R_A_I(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_AR_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int offs, int ival)
-{
-    assert(IsSSEOrAVXInstruction(ins));
-    assert(IsThreeOperandAVXInstruction(ins));
-
-    instrDesc* id = emitNewInstrAmdCns(attr, offs, ival);
-
-    id->idIns(ins);
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-
-    id->idInsFmt(IF_RWR_RRD_ARD_CNS);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 void emitter::emitIns_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd, int offs, int ival)
 {
@@ -5198,46 +5097,6 @@ void emitter::emitIns_R_R_A_R(
     id->idReg2(op1Reg);
 
     emitHandleMemOp(indir, id, IF_RWR_RRD_ARD_RRD, ins);
-
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-//------------------------------------------------------------------------
-// emitIns_R_R_AR_R: emits the code for an instruction that takes a register operand, a base memory
-//                   register, another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operands
-//    op3Reg    -- The register of the third operand
-//    base      -- The base register used for the memory address
-//    offs      -- The offset added to the memory address from base
-//
-// Remarks:
-//    op2 is built from base + offs
-//
-void emitter::emitIns_R_R_AR_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, regNumber base, int offs)
-{
-    assert(isAvxBlendv(ins));
-    assert(UseVEXEncoding());
-
-    int        ival = encodeXmmRegAsIval(op3Reg);
-    instrDesc* id   = emitNewInstrAmdCns(attr, offs, ival);
-
-    id->idIns(ins);
-    id->idReg1(targetReg);
-    id->idReg2(op1Reg);
-
-    id->idInsFmt(IF_RWR_RRD_ARD_RRD);
-    id->idAddr()->iiaAddrMode.amBaseReg = base;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -5509,61 +5368,6 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_J_S(instruction ins, emitAttr attr, BasicBlock* dst, int varx, int offs)
-{
-    assert(ins == INS_mov);
-    assert(dst->bbFlags & BBF_HAS_LABEL);
-
-    instrDescLbl* id = emitNewInstrLbl();
-
-    id->idIns(ins);
-    id->idInsFmt(IF_SWR_LABEL);
-    id->idAddr()->iiaBBlabel = dst;
-
-    /* The label reference is always long */
-
-    id->idjShort    = 0;
-    id->idjKeepLong = 1;
-
-    /* Record the current IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this instruction to this IG's jump list */
-
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
-
-    UNATIVE_OFFSET sz = sizeof(INT32) + emitInsSizeSV(id, insCodeMI(ins), varx, offs);
-    id->dstLclVar.initLclVarAddr(varx, offs);
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idVarRefOffs = emitVarRefOffs;
-#endif
-
-#if EMITTER_STATS
-    emitTotalIGjmps++;
-#endif
-
-#ifndef TARGET_AMD64
-    // Storing the address of a basicBlock will need a reloc
-    // as the instruction uses the absolute address,
-    // not a relative address.
-    //
-    // On Amd64, Absolute code addresses should always go through a reloc to
-    // to be encoded as RIP rel32 offset.
-    if (emitComp->opts.compReloc)
-#endif
-    {
-        id->idSetIsDspReloc();
-    }
-
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 /*****************************************************************************
  *
  *  Add a label instruction.
@@ -5682,62 +5486,6 @@ void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber re
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_I_AI(instruction ins, emitAttr attr, int val, ssize_t disp)
-{
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
-
-    insFormat fmt;
-
-    switch (ins)
-    {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(val != 1);
-            fmt = IF_ARW_SHF;
-            val &= 0x7F;
-            break;
-
-        default:
-            fmt = emitInsModeFormat(ins, IF_ARD_CNS);
-            break;
-    }
-
-    /*
-    Useful if you want to trap moves with 0 constant
-    if (ins == INS_mov && val == 0 && EA_SIZE(attr) >= EA_4BYTE)
-    {
-        printf("MOV 0\n");
-    }
-    */
-
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmdCns(attr, disp, val);
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-
-    id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMI(ins), val);
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int disp)
 {
     emitIns_R_ARX(ins, attr, reg, base, REG_NA, 1, disp);
@@ -5823,100 +5571,9 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTreeIndir* indir,
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_AI_R(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp)
-{
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmd(attr, disp);
-    insFormat      fmt;
-
-    if (ireg == REG_NA)
-    {
-        fmt = emitInsModeFormat(ins, IF_ARD);
-    }
-    else
-    {
-        fmt = emitInsModeFormat(ins, IF_ARD_RRD);
-
-        assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-        noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
-
-        id->idReg1(ireg);
-    }
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-
-    id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMR(ins));
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-
-    emitAdjustStackDepthPushPop(ins);
-}
-
-void emitter::emitIns_I_ARR(instruction ins, emitAttr attr, int val, regNumber reg, regNumber rg2, int disp)
-{
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
-
-    insFormat fmt;
-
-    switch (ins)
-    {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(val != 1);
-            fmt = IF_ARW_SHF;
-            val &= 0x7F;
-            break;
-
-        default:
-            fmt = emitInsModeFormat(ins, IF_ARD_CNS);
-            break;
-    }
-
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmdCns(attr, disp, val);
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-
-    id->idAddr()->iiaAddrMode.amBaseReg = reg;
-    id->idAddr()->iiaAddrMode.amIndxReg = rg2;
-    id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1;
-
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMI(ins), val);
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 void emitter::emitIns_R_ARR(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int disp)
 {
     emitIns_R_ARX(ins, attr, reg, base, index, 1, disp);
-}
-
-void emitter::emitIns_ARR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int disp)
-{
-    emitIns_ARX_R(ins, attr, reg, base, index, 1, disp);
 }
 
 void emitter::emitIns_I_ARX(
@@ -6049,118 +5706,6 @@ void emitter::emitIns_ARX_R(
     emitAdjustStackDepthPushPop(ins);
 }
 
-void emitter::emitIns_I_AX(instruction ins, emitAttr attr, int val, regNumber reg, unsigned mul, int disp)
-{
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-
-#ifdef TARGET_AMD64
-    // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
-    // all other opcodes take a sign-extended 4-byte immediate
-    noway_assert(EA_SIZE(attr) < EA_8BYTE || !EA_IS_CNS_RELOC(attr));
-#endif
-
-    insFormat fmt;
-
-    switch (ins)
-    {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(val != 1);
-            fmt = IF_ARW_SHF;
-            val &= 0x7F;
-            break;
-
-        default:
-            fmt = emitInsModeFormat(ins, IF_ARD_CNS);
-            break;
-    }
-
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmdCns(attr, disp, val);
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-
-    id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-    id->idAddr()->iiaAddrMode.amIndxReg = reg;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(mul);
-
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMI(ins), val);
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitIns_R_AX(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, unsigned mul, int disp)
-{
-    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE) && (ireg != REG_NA));
-    noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
-
-    UNATIVE_OFFSET sz;
-    instrDesc*     id  = emitNewInstrAmd(attr, disp);
-    insFormat      fmt = emitInsModeFormat(ins, IF_RRD_ARD);
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idReg1(ireg);
-
-    id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-    id->idAddr()->iiaAddrMode.amIndxReg = reg;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(mul);
-
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeRM(ins));
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitIns_AX_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, unsigned mul, int disp)
-{
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmd(attr, disp);
-    insFormat      fmt;
-
-    if (ireg == REG_NA)
-    {
-        fmt = emitInsModeFormat(ins, IF_ARD);
-    }
-    else
-    {
-        fmt = emitInsModeFormat(ins, IF_ARD_RRD);
-        noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
-        assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
-
-        id->idReg1(ireg);
-    }
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-
-    id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
-    id->idAddr()->iiaAddrMode.amIndxReg = reg;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(mul);
-
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMR(ins));
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-
-    emitAdjustStackDepthPushPop(ins);
-}
-
 //------------------------------------------------------------------------
 // emitIns_SIMD_R_R_I: emits the code for an instruction that takes a register operand, an immediate operand
 //                     and that returns a value in register
@@ -6214,32 +5759,6 @@ void emitter::emitIns_SIMD_R_R_A(
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
         emitIns_R_A(ins, attr, targetReg, indir);
-    }
-}
-
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_AR: emits the code for a SIMD instruction that takes a register operand, a base memory register,
-//                      and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    base      -- The base register used for the memory address
-//    offset    -- The memory offset
-//
-void emitter::emitIns_SIMD_R_R_AR(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber base, int offset)
-{
-    if (UseVEXEncoding())
-    {
-        emitIns_R_R_AR(ins, attr, targetReg, op1Reg, base, offset);
-    }
-    else
-    {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_AR(ins, attr, targetReg, base, offset);
     }
 }
 
@@ -6359,32 +5878,6 @@ void emitter::emitIns_SIMD_R_R_A_I(
 }
 
 //------------------------------------------------------------------------
-// emitIns_SIMD_R_R_AR_I: emits the code for a SIMD instruction that takes a register operand, a base memory register,
-//                        an immediate operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    base      -- The base register used for the memory address
-//    ival      -- The immediate value
-//
-void emitter::emitIns_SIMD_R_R_AR_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber base, int ival)
-{
-    if (UseVEXEncoding())
-    {
-        emitIns_R_R_AR_I(ins, attr, targetReg, op1Reg, base, 0, ival);
-    }
-    else
-    {
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_AR_I(ins, attr, targetReg, base, 0, ival);
-    }
-}
-
-//------------------------------------------------------------------------
 // emitIns_SIMD_R_R_C_I: emits the code for a SIMD instruction that takes a register operand, a field handle + offset,
 //                       an immediate operand, and that returns a value in register
 //
@@ -6495,31 +5988,6 @@ void emitter::emitIns_SIMD_R_R_R_A(
 
     emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
     emitIns_R_R_A(ins, attr, targetReg, op2Reg, indir);
-}
-
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_R_AR: emits the code for a SIMD instruction that takes two register operands, a base memory
-//                        register, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operands
-//    op2Reg    -- The register of the second operand
-//    base      -- The base register used for the memory address
-//
-void emitter::emitIns_SIMD_R_R_R_AR(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, regNumber base)
-{
-    assert(IsFMAInstruction(ins));
-    assert(UseVEXEncoding());
-
-    // Ensure we aren't overwriting op2
-    assert((op2Reg != targetReg) || (op1Reg == targetReg));
-
-    emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-    emitIns_R_R_AR(ins, attr, targetReg, op2Reg, base, 0);
 }
 
 //------------------------------------------------------------------------
@@ -6709,72 +6177,6 @@ void emitter::emitIns_SIMD_R_R_A_R(
 
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
         emitIns_R_A(ins, attr, targetReg, indir);
-    }
-}
-
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_AR_R: emits the code for a SIMD instruction that takes a register operand, a base memory
-//                        register, another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operands
-//    op3Reg    -- The register of the third operand
-//    base      -- The base register used for the memory address
-//
-void emitter::emitIns_SIMD_R_R_AR_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, regNumber base)
-{
-    if (UseVEXEncoding())
-    {
-        assert(isAvxBlendv(ins) || isSse41Blendv(ins));
-
-        // convert SSE encoding of SSE4.1 instructions to VEX encoding
-        switch (ins)
-        {
-            case INS_blendvps:
-            {
-                ins = INS_vblendvps;
-                break;
-            }
-
-            case INS_blendvpd:
-            {
-                ins = INS_vblendvpd;
-                break;
-            }
-
-            case INS_pblendvb:
-            {
-                ins = INS_vpblendvb;
-                break;
-            }
-
-            default:
-            {
-                break;
-            }
-        }
-
-        emitIns_R_R_AR_R(ins, attr, targetReg, op1Reg, op3Reg, base, 0);
-    }
-    else
-    {
-        assert(isSse41Blendv(ins));
-
-        // Ensure we aren't overwriting op1
-        assert(op1Reg != REG_XMM0);
-
-        // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, op3Reg, /* canSkip */ true);
-
-        // Ensure we aren't overwriting op3 (which should be REG_XMM0)
-        assert(targetReg != REG_XMM0);
-
-        emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_AR(ins, attr, targetReg, base, 0);
     }
 }
 

@@ -5523,6 +5523,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
             JITDUMP("---OSR--- V%02u (reg) old rbp offset %d old frame %d this frame sp-fp %d new offset %d (%02xH)\n",
                     varNum, stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
 
+            // TODO-MIKE-Review: Is this called on ARM64? emitIns_R_AR is not implemented...
             GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, varDsc->GetRegNum(), genFramePointerReg(), offset);
         }
     }

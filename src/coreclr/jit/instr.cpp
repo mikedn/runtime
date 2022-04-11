@@ -389,6 +389,7 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
 #endif // !TARGET_ARM
 }
 
+#ifdef TARGET_XARCH
 void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
 {
     assert(node->OperIs(GT_LCL_VAR));
@@ -400,6 +401,7 @@ void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
     assert(lclNum < compiler->lvaCount);
     GetEmitter()->emitIns_S(ins, emitActualTypeSize(node->GetType()), lclNum, 0);
 }
+#endif
 
 void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* node)
 {
