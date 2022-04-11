@@ -5027,21 +5027,6 @@ static int encodeXmmRegAsIval(regNumber opReg)
     return (int8_t)ival;
 }
 
-//------------------------------------------------------------------------
-// emitIns_R_R_A_R: emits the code for an instruction that takes a register operand, a GenTreeIndir address,
-//                  another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op3Reg    -- The register of the third operand
-//    indir     -- The GenTreeIndir used for the memory address
-//
-// Remarks:
-//    op2 is built from indir
-//
 void emitter::emitIns_R_R_A_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTree* addr)
 {
@@ -5696,28 +5681,16 @@ void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber targe
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_A: emits the code for a SIMD instruction that takes a register operand, a GenTreeIndir address,
-//                     and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    indir     -- The GenTreeIndir used for the memory address
-//
-void emitter::emitIns_SIMD_R_R_A(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTreeIndir* indir)
+void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_A(ins, attr, targetReg, op1Reg, indir->GetAddr());
+        emitIns_R_R_A(ins, attr, targetReg, op1Reg, addr);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A(ins, attr, targetReg, indir->GetAddr());
+        emitIns_R_A(ins, attr, targetReg, addr);
     }
 }
 
@@ -5810,29 +5783,18 @@ void emitter::emitIns_SIMD_R_R_S(
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_A_I: emits the code for a SIMD instruction that takes a register operand, a GenTreeIndir address,
-//                       an immediate operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    indir     -- The GenTreeIndir used for the memory address
-//    ival      -- The immediate value
-//
+
 void emitter::emitIns_SIMD_R_R_A_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTreeIndir* indir, int ival)
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr, int ival)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_A_I(ins, attr, targetReg, op1Reg, indir->GetAddr(), ival, IF_RWR_RRD_ARD_CNS);
+        emitIns_R_R_A_I(ins, attr, targetReg, op1Reg, addr, ival, IF_RWR_RRD_ARD_CNS);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A_I(ins, attr, targetReg, indir->GetAddr(), ival);
+        emitIns_R_A_I(ins, attr, targetReg, addr, ival);
     }
 }
 
@@ -5924,20 +5886,8 @@ void emitter::emitIns_SIMD_R_R_S_I(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_R_A: emits the code for a SIMD instruction that takes two register operands, a GenTreeIndir address,
-//                       and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op2Reg    -- The register of the second operand
-//    indir     -- The GenTreeIndir used for the memory address
-//
 void emitter::emitIns_SIMD_R_R_R_A(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTreeIndir* indir)
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTree* addr)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(UseVEXEncoding());
@@ -5946,7 +5896,7 @@ void emitter::emitIns_SIMD_R_R_R_A(
     assert((op2Reg != targetReg) || (op1Reg == targetReg));
 
     emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-    emitIns_R_R_A(ins, attr, targetReg, op2Reg, indir->GetAddr());
+    emitIns_R_R_A(ins, attr, targetReg, op2Reg, addr);
 }
 
 //------------------------------------------------------------------------
@@ -6073,20 +6023,8 @@ void emitter::emitIns_SIMD_R_R_R_S(
     emitIns_R_R_S(ins, attr, targetReg, op2Reg, varx, offs);
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_A_R: emits the code for a SIMD instruction that takes a register operand, a GenTreeIndir address,
-//                       another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op3Reg    -- The register of the third operand
-//    indir     -- The GenTreeIndir used for the memory address
-//
 void emitter::emitIns_SIMD_R_R_A_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTreeIndir* indir)
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTree* addr)
 {
     if (UseVEXEncoding())
     {
@@ -6119,7 +6057,7 @@ void emitter::emitIns_SIMD_R_R_A_R(
             }
         }
 
-        emitIns_R_R_A_R(ins, attr, targetReg, op1Reg, op3Reg, indir->GetAddr());
+        emitIns_R_R_A_R(ins, attr, targetReg, op1Reg, op3Reg, addr);
     }
     else
     {
@@ -6135,7 +6073,7 @@ void emitter::emitIns_SIMD_R_R_A_R(
         assert(targetReg != REG_XMM0);
 
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A(ins, attr, targetReg, indir->GetAddr());
+        emitIns_R_A(ins, attr, targetReg, addr);
     }
 }
 
