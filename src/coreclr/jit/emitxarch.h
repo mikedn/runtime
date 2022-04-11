@@ -423,6 +423,9 @@ void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int o
 
 void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 
+#ifdef WINDOWS_X86_ABI
+void emitInsMov_R_FS(regNumber reg, int offs);
+#endif
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs);
 
 void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg);

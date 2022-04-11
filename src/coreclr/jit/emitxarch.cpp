@@ -5092,14 +5092,27 @@ void emitter::emitIns_R_R_R_R(
     emitCurIGsize += sz;
 }
 
+#ifdef WINDOWS_X86_ABI
+void emitter::emitInsMov_R_FS(regNumber reg, int offs)
+{
+    assert(genIsValidIntReg(reg));
+
+    instrDesc* id = emitNewInstrDsp(EA_4BYTE, offs);
+    id->idIns(INS_mov);
+    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
+    id->idReg1(reg);
+    id->idAddr()->iiaFieldHnd = FS_SEG_FIELD;
+
+    UNATIVE_OFFSET sz = 1 + ((reg == REG_EAX) ? 4 : emitInsSizeCV(id, insCodeRM(INS_mov)));
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+#endif // WINDOWS_X86_ABI
+
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
 {
-#ifdef WINDOWS_X86_ABI
-    assert(FieldDispRequiresRelocation(fldHnd) || (fldHnd == FS_SEG_FIELD));
-#else
     assert(FieldDispRequiresRelocation(fldHnd));
-#endif
-
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     instrDesc* id = emitNewInstrDsp(attr, offs);
@@ -5126,16 +5139,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
         sz = emitInsSizeCV(id, insCodeRM(ins));
     }
 
-#ifdef WINDOWS_X86_ABI
-    if (fldHnd == FS_SEG_FIELD)
-    {
-        id->idSetIsDspReloc(false);
-        sz += 1;
-    }
-#endif
-
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
