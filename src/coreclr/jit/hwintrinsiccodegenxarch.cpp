@@ -468,11 +468,8 @@ void CodeGen::genHWIntrinsic_R_RM(
                 }
 
                 case GT_CLS_VAR_ADDR:
-                {
-                    emit->emitIns_R_C(ins, attr, reg, addr->AsClsVar()->gtClsVarHnd, 0);
+                    emit->emitIns_R_C(ins, attr, reg, addr->AsClsVar()->gtClsVarHnd);
                     return;
-                }
-
                 default:
                     emit->emitIns_R_A(ins, attr, reg, addr);
                     return;
@@ -1040,7 +1037,7 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     emit->emitDataGenEnd();
 
     // Compute and jump to the appropriate offset in the switch table
-    emit->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, compiler->eeFindJitDataOffs(jmpTableBase), 0);
+    emit->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, compiler->eeFindJitDataOffs(jmpTableBase));
 
     emit->emitIns_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
     emit->emitIns_R_L(INS_lea, EA_PTR_DSP_RELOC, compiler->fgFirstBB, baseReg);

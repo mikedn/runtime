@@ -477,7 +477,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             else
             {
                 CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(constValue, size);
-                emit->emitIns_R_C(ins_Load(targetType), size, targetReg, hnd, 0);
+                emit->emitIns_R_C(ins_Load(targetType), size, targetReg, hnd);
             }
         }
         break;
@@ -1738,7 +1738,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CLS_VAR_ADDR:
-            emit->emitIns_R_C(INS_lea, EA_PTRSIZE, targetReg, treeNode->AsClsVar()->gtClsVarHnd, 0);
+            emit->emitIns_R_C(INS_lea, EA_PTRSIZE, targetReg, treeNode->AsClsVar()->gtClsVarHnd);
             genProduceReg(treeNode);
             break;
 
@@ -3305,7 +3305,7 @@ void CodeGen::genJumpTable(GenTree* treeNode)
     // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
     // to constant shift, not a real static field.
     GetEmitter()->emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), treeNode->GetRegNum(),
-                              compiler->eeFindJitDataOffs(jmpTabBase), 0);
+                              compiler->eeFindJitDataOffs(jmpTabBase));
     genProduceReg(treeNode);
 }
 
@@ -6206,7 +6206,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
                 u8ToDblBitmask =
                     GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), EA_8BYTE);
             }
-            GetEmitter()->emitIns_R_C(INS_addsd, EA_8BYTE, dstReg, u8ToDblBitmask, 0);
+            GetEmitter()->emitIns_R_C(INS_addsd, EA_8BYTE, dstReg, u8ToDblBitmask);
         }
         else
         {
@@ -6214,7 +6214,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
             {
                 u8ToFltBitmask = GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<float>(0x5f800000U), EA_4BYTE);
             }
-            GetEmitter()->emitIns_R_C(INS_addss, EA_4BYTE, dstReg, u8ToFltBitmask, 0);
+            GetEmitter()->emitIns_R_C(INS_addss, EA_4BYTE, dstReg, u8ToFltBitmask);
         }
 
         genDefineTempLabel(label);

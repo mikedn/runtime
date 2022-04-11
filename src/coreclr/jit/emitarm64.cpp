@@ -7883,12 +7883,8 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
  *  No relocation is needed. PC-relative offset will be encoded directly into instruction.
  *
  */
-void emitter::emitIns_R_C(
-    instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, CORINFO_FIELD_HANDLE fldHnd, int offs)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, CORINFO_FIELD_HANDLE fldHnd)
 {
-    assert(offs >= 0);
-    assert(instrDesc::fitsInSmallCns(offs));
-
     emitAttr      size = EA_SIZE(attr);
     insFormat     fmt  = IF_NONE;
     instrDescJmp* id   = emitNewInstrJmp();
@@ -7929,7 +7925,7 @@ void emitter::emitIns_R_C(
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(INS_OPTS_NONE);
-    id->idSmallCns(offs);
+    id->idSmallCns(0);
     id->idOpSize(size);
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsBound(); // We won't patch address since we will know the exact distance once JIT code and data are
@@ -13325,7 +13321,7 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
         {
             // Get a temp integer register to compute long address.
             regNumber addrReg = indir->GetSingleTempReg();
-            emitIns_R_C(ins, attr, dataReg, addrReg, addr->AsClsVar()->gtClsVarHnd, 0);
+            emitIns_R_C(ins, attr, dataReg, addrReg, addr->AsClsVar()->gtClsVarHnd);
         }
         else if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {

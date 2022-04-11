@@ -3189,7 +3189,7 @@ void emitter::emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenT
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_R_C(ins, attr, dstReg, clsAddr->GetFieldHandle(), 0);
+        emitIns_R_C(ins, attr, dstReg, clsAddr->GetFieldHandle());
         return;
     }
 
@@ -3448,7 +3448,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         {
                             // src is a class static variable
                             // dst is a register
-                            emitIns_R_C(ins, attr, dst->GetRegNum(), addr->AsClsVar()->gtClsVarHnd, 0);
+                            emitIns_R_C(ins, attr, dst->GetRegNum(), addr->AsClsVar()->gtClsVarHnd);
                         }
                     }
                     else
@@ -3683,7 +3683,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
             GenTreeDblCon* dblCns = src->AsDblCon();
 
             CORINFO_FIELD_HANDLE hnd = emitFltOrDblConst(dblCns->gtDconVal, emitTypeSize(dblCns));
-            emitIns_R_C(ins, attr, dst->GetRegNum(), hnd, 0);
+            emitIns_R_C(ins, attr, dst->GetRegNum(), hnd);
         }
     }
     else // reg, reg
@@ -5110,12 +5110,12 @@ void emitter::emitInsMov_R_FS(regNumber reg, int offs)
 }
 #endif // WINDOWS_X86_ABI
 
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd)
 {
     assert(FieldDispRequiresRelocation(fldHnd));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
-    instrDesc* id = emitNewInstrDsp(attr, offs);
+    instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
     id->idReg1(reg);
@@ -5643,7 +5643,7 @@ void emitter::emitIns_SIMD_R_R_C(
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C(ins, attr, targetReg, fldHnd, 0);
+        emitIns_R_C(ins, attr, targetReg, fldHnd);
     }
 }
 
@@ -6026,7 +6026,7 @@ void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
         assert(targetReg != REG_XMM0);
 
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C(ins, attr, targetReg, fldHnd, 0);
+        emitIns_R_C(ins, attr, targetReg, fldHnd);
     }
 }
 

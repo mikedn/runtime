@@ -279,7 +279,7 @@ void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int o
 
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs, regNumber* pBaseReg = nullptr);
 
-void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs);
+void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd);
 
 void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 

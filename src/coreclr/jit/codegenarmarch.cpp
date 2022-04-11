@@ -528,9 +528,9 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_CLS_VAR_ADDR:
 #ifdef TARGET_ARM
-            emit->emitIns_R_C(INS_lea, EA_4BYTE, targetReg, treeNode->AsClsVar()->GetFieldHandle(), 0);
+            emit->emitIns_R_C(INS_lea, EA_4BYTE, targetReg, treeNode->AsClsVar()->GetFieldHandle());
 #else
-            emit->emitIns_R_C(INS_adr, EA_8BYTE, targetReg, REG_NA, treeNode->AsClsVar()->GetFieldHandle(), 0);
+            emit->emitIns_R_C(INS_adr, EA_8BYTE, targetReg, REG_NA, treeNode->AsClsVar()->GetFieldHandle());
 #endif
             genProduceReg(treeNode);
             break;

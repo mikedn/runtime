@@ -1742,7 +1742,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
                 CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(constValue, size);
                 // For long address (default): `adrp + ldr + fmov` will be emitted.
                 // For short address (proven later), `ldr` will be emitted.
-                emit->emitIns_R_C(INS_ldr, size, targetReg, addrReg, hnd, 0);
+                emit->emitIns_R_C(INS_ldr, size, targetReg, addrReg, hnd);
             }
         }
         break;
@@ -2568,7 +2568,7 @@ void CodeGen::genJumpTable(GenTree* treeNode)
     // (produced by eeFindJitDataOffs) which the emitter recognizes as being a reference
     // to constant data, not a real static field.
     GetEmitter()->emitIns_R_C(INS_adr, emitActualTypeSize(TYP_I_IMPL), treeNode->GetRegNum(), REG_NA,
-                              compiler->eeFindJitDataOffs(jmpTabBase), 0);
+                              compiler->eeFindJitDataOffs(jmpTabBase));
     genProduceReg(treeNode);
 }
 

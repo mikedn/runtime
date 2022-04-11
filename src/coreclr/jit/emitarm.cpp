@@ -3928,7 +3928,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
  *
  *  Add an instruction with a register + static member operands.
  */
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd)
 {
     if (ins == INS_mov)
     {
@@ -3967,9 +3967,9 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     // Load address of CLS_VAR_ADDR into a register
     codeGen->instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regTmp, addr);
 
-    if ((ins != INS_add) || (offs != 0) || (reg != regTmp))
+    if ((ins != INS_add) || (reg != regTmp))
     {
-        emitIns_R_R_I(ins, attr, reg, regTmp, offs);
+        emitIns_R_R_I(ins, attr, reg, regTmp, 0);
     }
 }
 
