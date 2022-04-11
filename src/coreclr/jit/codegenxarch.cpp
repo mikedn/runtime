@@ -7403,7 +7403,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         else if (src->OperIs(GT_IND))
         {
             genConsumeRegs(src);
-            GetEmitter()->emitIns_A(INS_push, attr, src->AsIndir());
+            GetEmitter()->emitIns_A(INS_push, attr, src->AsIndir()->GetAddr());
         }
         else if (src->IsIconHandle())
         {

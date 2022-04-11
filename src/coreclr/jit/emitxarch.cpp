@@ -3216,12 +3216,8 @@ void emitter::emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenT
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
+void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 {
-    assert(indir->OperIs(GT_IND));
-
-    GenTree* addr = indir->GetAddr();
-
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         emitIns_C(ins, attr, clsAddr->GetFieldHandle(), 0);
@@ -3241,9 +3237,9 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
     }
 
     assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir->GetAddr()));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
-    SetInstrAddrMode(id, IF_ARD, ins, indir->GetAddr());
+    SetInstrAddrMode(id, IF_ARD, ins, addr);
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
