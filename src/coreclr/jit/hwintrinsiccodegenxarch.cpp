@@ -204,17 +204,15 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                         otherReg = op1Reg;
                     }
 
-                    switch (addr->GetOper())
+                    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
                     {
-                        case GT_LCL_VAR_ADDR:
-                        case GT_LCL_FLD_ADDR:
-                            GetEmitter()->emitIns_SIMD_R_R_S(ins, simdSize, targetReg, otherReg,
-                                                             addr->AsLclVarCommon()->GetLclNum(),
-                                                             addr->AsLclVarCommon()->GetLclOffs());
-                            break;
-                        default:
-                            GetEmitter()->emitIns_SIMD_R_R_A(ins, simdSize, targetReg, otherReg, addr);
-                            break;
+                        GetEmitter()->emitIns_SIMD_R_R_S(ins, simdSize, targetReg, otherReg,
+                                                         addr->AsLclVarCommon()->GetLclNum(),
+                                                         addr->AsLclVarCommon()->GetLclOffs());
+                    }
+                    else
+                    {
+                        GetEmitter()->emitIns_SIMD_R_R_A(ins, simdSize, targetReg, otherReg, addr);
                     }
                 }
                 else if (HWIntrinsicInfo::isImmOp(intrinsicId, op2))
@@ -437,8 +435,21 @@ void CodeGen::genHWIntrinsic_R_RM(
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (rmOp->OperIs(GT_IND) || rmOp->OperIsHWIntrinsic())
+        else if (rmOp->OperIs(GT_LCL_FLD))
         {
+            varNum = rmOp->AsLclFld()->GetLclNum();
+            offset = rmOp->AsLclFld()->GetLclOffs();
+        }
+        else if (rmOp->OperIs(GT_LCL_VAR))
+        {
+            assert(rmOp->IsRegOptional() || !compiler->lvaGetDesc(rmOp->AsLclVar())->lvIsRegCandidate());
+            varNum = rmOp->AsLclVar()->GetLclNum();
+            offset = 0;
+        }
+        else
+        {
+            noway_assert(rmOp->OperIs(GT_IND, GT_HWINTRINSIC));
+
             GenTree* addr;
 
             if (rmOp->OperIs(GT_IND))
@@ -452,42 +463,15 @@ void CodeGen::genHWIntrinsic_R_RM(
                 addr = rmOp->AsHWIntrinsic()->GetOp(0);
             }
 
-            switch (addr->OperGet())
+            if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
             {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-                default:
-                    emit->emitIns_R_A(ins, attr, reg, addr);
-                    return;
+                emit->emitIns_R_A(ins, attr, reg, addr);
+                return;
             }
-        }
-        else
-        {
-            switch (rmOp->OperGet())
-            {
-                case GT_LCL_FLD:
-                    varNum = rmOp->AsLclFld()->GetLclNum();
-                    offset = rmOp->AsLclFld()->GetLclOffs();
-                    break;
 
-                case GT_LCL_VAR:
-                {
-                    assert(rmOp->IsRegOptional() || !compiler->lvaGetDesc(rmOp->AsLclVar())->lvIsRegCandidate());
-                    varNum = rmOp->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-                }
-
-                default:
-                {
-                    unreached();
-                    break;
-                }
-            }
+            assert(addr->isContained());
+            varNum = addr->AsLclVarCommon()->GetLclNum();
+            offset = addr->AsLclVarCommon()->GetLclOffs();
         }
 
         // Ensure we got a good varNum and offset.
@@ -662,8 +646,21 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic())
+        else if (op2->OperIs(GT_LCL_FLD))
         {
+            varNum = op2->AsLclFld()->GetLclNum();
+            offset = op2->AsLclFld()->GetLclOffs();
+        }
+        else if (op2->OperIs(GT_LCL_VAR))
+        {
+            assert(op2->IsRegOptional() || !compiler->lvaTable[op2->AsLclVar()->GetLclNum()].lvIsRegCandidate());
+            varNum = op2->AsLclVar()->GetLclNum();
+            offset = 0;
+        }
+        else
+        {
+            noway_assert(op2->OperIs(GT_IND, GT_HWINTRINSIC));
+
             GenTree* addr;
 
             if (op2->OperIs(GT_IND))
@@ -677,41 +674,15 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
                 addr = op2->AsHWIntrinsic()->GetOp(0);
             }
 
-            switch (addr->OperGet())
+            if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
             {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-                default:
-                    emit->emitIns_SIMD_R_R_A_I(ins, simdSize, targetReg, op1Reg, addr, ival);
-                    return;
+                emit->emitIns_SIMD_R_R_A_I(ins, simdSize, targetReg, op1Reg, addr, ival);
+                return;
             }
-        }
-        else
-        {
-            switch (op2->OperGet())
-            {
-                case GT_LCL_FLD:
-                    varNum = op2->AsLclFld()->GetLclNum();
-                    offset = op2->AsLclFld()->GetLclOffs();
-                    break;
 
-                case GT_LCL_VAR:
-                {
-                    assert(op2->IsRegOptional() ||
-                           !compiler->lvaTable[op2->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-                    varNum = op2->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-                }
-
-                default:
-                    unreached();
-                    break;
-            }
+            assert(addr->isContained());
+            varNum = addr->AsLclVarCommon()->GetLclNum();
+            offset = addr->AsLclVarCommon()->GetLclOffs();
         }
 
         // Ensure we got a good varNum and offset.
@@ -789,8 +760,21 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic())
+        else if (op2->OperIs(GT_LCL_FLD))
         {
+            varNum = op2->AsLclFld()->GetLclNum();
+            offset = op2->AsLclFld()->GetLclOffs();
+        }
+        else if (op2->OperIs(GT_LCL_VAR))
+        {
+            assert(op2->IsRegOptional() || !compiler->lvaTable[op2->AsLclVar()->GetLclNum()].lvIsRegCandidate());
+            varNum = op2->AsLclVar()->GetLclNum();
+            offset = 0;
+        }
+        else
+        {
+            noway_assert(op2->OperIs(GT_IND, GT_HWINTRINSIC));
+
             GenTree* addr;
 
             if (op2->OperIs(GT_IND))
@@ -804,41 +788,15 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
                 addr = op2->AsHWIntrinsic()->GetOp(0);
             }
 
-            switch (addr->OperGet())
+            if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
             {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-                default:
-                    emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
-                    return;
+                emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
+                return;
             }
-        }
-        else
-        {
-            switch (op2->OperGet())
-            {
-                case GT_LCL_FLD:
-                    varNum = op2->AsLclFld()->GetLclNum();
-                    offset = op2->AsLclFld()->GetLclOffs();
-                    break;
 
-                case GT_LCL_VAR:
-                {
-                    assert(op2->IsRegOptional() ||
-                           !compiler->lvaTable[op2->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-                    varNum = op2->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-                }
-
-                default:
-                    unreached();
-                    break;
-            }
+            assert(addr->isContained());
+            varNum = addr->AsLclVarCommon()->GetLclNum();
+            offset = addr->AsLclVarCommon()->GetLclOffs();
         }
 
         // Ensure we got a good varNum and offset.
@@ -894,8 +852,21 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (op3->OperIs(GT_IND) || op3->OperIsHWIntrinsic())
+        else if (op3->OperIs(GT_LCL_FLD))
         {
+            varNum = op3->AsLclFld()->GetLclNum();
+            offset = op3->AsLclFld()->GetLclOffs();
+        }
+        else if (op3->OperIs(GT_LCL_VAR))
+        {
+            assert(op3->IsRegOptional() || !compiler->lvaTable[op3->AsLclVar()->GetLclNum()].lvIsRegCandidate());
+            varNum = op3->AsLclVar()->GetLclNum();
+            offset = 0;
+        }
+        else
+        {
+            noway_assert(op3->OperIs(GT_IND, GT_HWINTRINSIC));
+
             GenTree* addr;
 
             if (op3->OperIs(GT_IND))
@@ -909,41 +880,15 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
                 addr = op3->AsHWIntrinsic()->GetOp(0);
             }
 
-            switch (addr->OperGet())
+            if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
             {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-                default:
-                    emit->emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
-                    return;
+                emit->emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
+                return;
             }
-        }
-        else
-        {
-            switch (op3->OperGet())
-            {
-                case GT_LCL_FLD:
-                    varNum = op3->AsLclFld()->GetLclNum();
-                    offset = op3->AsLclFld()->GetLclOffs();
-                    break;
 
-                case GT_LCL_VAR:
-                {
-                    assert(op3->IsRegOptional() ||
-                           !compiler->lvaTable[op3->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-                    varNum = op3->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-                }
-
-                default:
-                    unreached();
-                    break;
-            }
+            assert(addr->isContained());
+            varNum = addr->AsLclVarCommon()->GetLclNum();
+            offset = addr->AsLclVarCommon()->GetLclOffs();
         }
 
         // Ensure we got a good varNum and offset.
