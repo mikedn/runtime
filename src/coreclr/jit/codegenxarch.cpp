@@ -6653,7 +6653,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (srcNode->isIndir())
+        else if (srcNode->OperIs(GT_IND))
         {
             GenTreeIndir* memIndir = srcNode->AsIndir();
             GenTree*      memBase  = memIndir->GetAddr();

@@ -3418,7 +3418,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
 
             codeGen->regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (memOp->isIndir())
+        else if (memOp->OperIs(GT_IND))
         {
             GenTreeIndir* memIndir = memOp->AsIndir();
             GenTree*      memBase  = memIndir->GetAddr();

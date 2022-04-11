@@ -1044,7 +1044,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
             //
             // Where EAX is also used as an argument to the stub dispatch helper. Make
             // sure that the call target address is computed into EAX in this case.
-            assert(ctrlExpr->isIndir() && ctrlExpr->isContained());
+            assert(ctrlExpr->OperIs(GT_IND) && ctrlExpr->isContained());
             ctrlExprCandidates = RBM_VIRTUAL_STUB_TARGET;
         }
 #endif // TARGET_X86

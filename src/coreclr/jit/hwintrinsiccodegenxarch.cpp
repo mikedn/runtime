@@ -428,15 +428,15 @@ void CodeGen::genHWIntrinsic_R_RM(
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (rmOp->isIndir() || rmOp->OperIsHWIntrinsic())
+        else if (rmOp->OperIs(GT_IND) || rmOp->OperIsHWIntrinsic())
         {
             GenTree*      addr;
             GenTreeIndir* memIndir = nullptr;
 
-            if (rmOp->isIndir())
+            if (rmOp->OperIs(GT_IND))
             {
                 memIndir = rmOp->AsIndir();
-                addr     = memIndir->Addr();
+                addr     = memIndir->GetAddr();
             }
             else
             {
@@ -664,15 +664,15 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (op2->isIndir() || op2->OperIsHWIntrinsic())
+        else if (op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic())
         {
             GenTree*      addr;
             GenTreeIndir* memIndir = nullptr;
 
-            if (op2->isIndir())
+            if (op2->OperIs(GT_IND))
             {
                 memIndir = op2->AsIndir();
-                addr     = memIndir->Addr();
+                addr     = memIndir->GetAddr();
             }
             else
             {
@@ -803,15 +803,15 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (op2->isIndir() || op2->OperIsHWIntrinsic())
+        else if (op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic())
         {
             GenTree*      addr;
             GenTreeIndir* memIndir = nullptr;
 
-            if (op2->isIndir())
+            if (op2->OperIs(GT_IND))
             {
                 memIndir = op2->AsIndir();
-                addr     = memIndir->Addr();
+                addr     = memIndir->GetAddr();
             }
             else
             {
@@ -920,14 +920,14 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
 
             regSet.tmpRlsTemp(tmpDsc);
         }
-        else if (op3->isIndir() || op3->OperIsHWIntrinsic())
+        else if (op3->OperIs(GT_IND) || op3->OperIsHWIntrinsic())
         {
             GenTree*      addr;
             GenTreeIndir* memIndir = nullptr;
-            if (op3->isIndir())
+            if (op3->OperIs(GT_IND))
             {
                 memIndir = op3->AsIndir();
-                addr     = memIndir->Addr();
+                addr     = memIndir->GetAddr();
             }
             else
             {

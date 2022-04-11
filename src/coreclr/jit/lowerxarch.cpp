@@ -3271,12 +3271,12 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
             // sure that the call target address is computed into EAX in this case.
             if (call->IsVirtualStub() && (call->gtCallType == CT_INDIRECT))
             {
-                assert(ctrlExpr->isIndir());
+                assert(ctrlExpr->OperIs(GT_IND));
                 MakeSrcContained(call, ctrlExpr);
             }
             else
 #endif // TARGET_X86
-                if (ctrlExpr->isIndir())
+                if (ctrlExpr->OperIs(GT_IND))
             {
                 // We may have cases where we have set a register target on the ctrlExpr, but if it
                 // contained we must clear it.
