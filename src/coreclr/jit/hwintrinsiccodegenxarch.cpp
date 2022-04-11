@@ -154,8 +154,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                         ins  = HWIntrinsicInfo::lookupIns(extract->GetIntrinsic(), extract->GetSimdBaseType());
                         ival = static_cast<int>(extract->GetOp(1)->AsIntCon()->IconValue());
 
-                        GenTreeIndir indir = indirForm(TYP_SIMD16, op1);
-                        emit->emitIns_A_R_I(ins, EA_32BYTE, &indir, regData, ival);
+                        emit->emitIns_A_R_I(ins, EA_32BYTE, op1, regData, ival);
                     }
                     else
                     {

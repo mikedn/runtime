@@ -4878,18 +4878,18 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
 }
 
 void emitter::emitIns_R_R_A_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTreeIndir* indir, int ival, insFormat fmt)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int ival, insFormat fmt)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), ival);
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), ival);
 
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    SetInstrAddrMode(id, fmt, ins, indir->GetAddr());
+    SetInstrAddrMode(id, fmt, ins, addr);
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -5043,19 +5043,19 @@ static int encodeXmmRegAsIval(regNumber opReg)
 //    op2 is built from indir
 //
 void emitter::emitIns_R_R_A_R(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTreeIndir* indir)
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTree* addr)
 {
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
 
     int        ival = encodeXmmRegAsIval(op3Reg);
-    instrDesc* id   = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), ival);
+    instrDesc* id   = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), ival);
 
     id->idIns(ins);
     id->idReg1(targetReg);
     id->idReg2(op1Reg);
 
-    SetInstrAddrMode(id, IF_RWR_RRD_ARD_RRD, ins, indir->GetAddr());
+    SetInstrAddrMode(id, IF_RWR_RRD_ARD_RRD, ins, addr);
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -5514,16 +5514,16 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTreeIndir* indir, regNumber reg, int imm)
+void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg, int imm)
 {
     assert((ins == INS_vextracti128) || (ins == INS_vextractf128));
     assert(attr == EA_32BYTE);
     assert(reg != REG_NA);
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), imm);
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
     id->idReg1(reg);
-    SetInstrAddrMode(id, IF_AWR_RRD_CNS, ins, indir->GetAddr());
+    SetInstrAddrMode(id, IF_AWR_RRD_CNS, ins, addr);
     UNATIVE_OFFSET size = emitInsSizeAM(id, insCodeMR(ins), imm);
     id->idCodeSize(size);
     dispIns(id);
@@ -5827,7 +5827,7 @@ void emitter::emitIns_SIMD_R_R_A_I(
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_A_I(ins, attr, targetReg, op1Reg, indir, ival, IF_RWR_RRD_ARD_CNS);
+        emitIns_R_R_A_I(ins, attr, targetReg, op1Reg, indir->GetAddr(), ival, IF_RWR_RRD_ARD_CNS);
     }
     else
     {
@@ -6119,7 +6119,7 @@ void emitter::emitIns_SIMD_R_R_A_R(
             }
         }
 
-        emitIns_R_R_A_R(ins, attr, targetReg, op1Reg, op3Reg, indir);
+        emitIns_R_R_A_R(ins, attr, targetReg, op1Reg, op3Reg, indir->GetAddr());
     }
     else
     {
