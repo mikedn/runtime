@@ -5438,6 +5438,10 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
 
 void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs)
 {
+#ifdef WINDOWS_X86_ABI
+    assert(fldHnd != FS_SEG_FIELD);
+#endif
+
     // Static always need relocs
     if (!jitStaticFldIsGlobAddr(fldHnd))
     {
@@ -5487,13 +5491,6 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     {
         sz = emitInsSizeCV(id, insCodeMR(ins));
     }
-
-#ifdef WINDOWS_X86_ABI
-    if (fldHnd == FS_SEG_FIELD)
-    {
-        sz += 1;
-    }
-#endif
 
     id->idCodeSize(sz);
 
