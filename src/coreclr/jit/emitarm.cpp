@@ -3978,13 +3978,8 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     {
         NYI_ARM("JitDataOffset static fields");
     }
-    else if (fldHnd == FLD_GLOBAL_FS)
-    {
-        NYI_ARM("Thread-Local-Storage static fields");
-    }
     else
     {
-        assert(!jitStaticFldIsGlobAddr(fldHnd));
         addr = (ssize_t)emitComp->info.compCompHnd->getFieldAddress(fldHnd, NULL);
         if (addr == NULL)
             NO_WAY("could not obtain address of static field");

@@ -3208,11 +3208,6 @@ inline bool Compiler::IsGcSafePoint(GenTree* tree)
     return false;
 }
 
-inline bool jitStaticFldIsGlobAddr(CORINFO_FIELD_HANDLE fldHnd)
-{
-    return (fldHnd == FLD_GLOBAL_FS);
-}
-
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
 
 inline bool Compiler::eeIsNativeMethod(CORINFO_METHOD_HANDLE method)

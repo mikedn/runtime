@@ -8,19 +8,33 @@
 /************************************************************************/
 
 public:
-inline static bool isGeneralRegister(regNumber reg)
+static bool isGeneralRegister(regNumber reg)
 {
     return (reg <= REG_INT_LAST);
 }
 
-inline static bool isFloatReg(regNumber reg)
+static bool isFloatReg(regNumber reg)
 {
     return (reg >= REG_FP_FIRST && reg <= REG_FP_LAST);
 }
 
-inline static bool isDoubleReg(regNumber reg)
+static bool isDoubleReg(regNumber reg)
 {
     return isFloatReg(reg);
+}
+
+#ifdef WINDOWS_X86_ABI
+// Special CORINFO_FIELD_HANDLE that references the FS segment, for x86 TLS access.
+static constexpr CORINFO_FIELD_HANDLE FS_SEG_FIELD = reinterpret_cast<CORINFO_FIELD_HANDLE>(-8);
+#endif
+
+static bool jitStaticFldIsGlobAddr(CORINFO_FIELD_HANDLE fldHnd)
+{
+#ifdef WINDOWS_X86_ABI
+    return fldHnd == FS_SEG_FIELD;
+#else
+    return false;
+#endif
 }
 
 /************************************************************************/

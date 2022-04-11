@@ -4490,7 +4490,8 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     if (addr->IsIntCon() && addr->IsIconHandle(GTF_ICON_TLS_HDL))
     {
         noway_assert(targetType == TYP_I_IMPL);
-        emit->emitIns_R_C(INS_mov, EA_PTRSIZE, tree->GetRegNum(), FLD_GLOBAL_FS, addr->AsIntCon()->GetInt32Value());
+        emit->emitIns_R_C(INS_mov, EA_PTRSIZE, tree->GetRegNum(), emitter::FS_SEG_FIELD,
+                          addr->AsIntCon()->GetInt32Value());
     }
     else
 #endif

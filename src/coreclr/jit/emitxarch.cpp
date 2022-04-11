@@ -5418,11 +5418,12 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
         sz = emitInsSizeCV(id, insCodeRM(ins));
     }
 
-    // Special case: mov reg, fs:[ddd]
-    if (fldHnd == FLD_GLOBAL_FS)
+#ifdef WINDOWS_X86_ABI
+    if (fldHnd == FS_SEG_FIELD)
     {
         sz += 1;
     }
+#endif
 
     id->idCodeSize(sz);
 
@@ -5487,11 +5488,12 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
         sz = emitInsSizeCV(id, insCodeMR(ins));
     }
 
-    // Special case: mov reg, fs:[ddd]
-    if (fldHnd == FLD_GLOBAL_FS)
+#ifdef WINDOWS_X86_ABI
+    if (fldHnd == FS_SEG_FIELD)
     {
         sz += 1;
     }
+#endif
 
     id->idCodeSize(sz);
 
@@ -8000,11 +8002,13 @@ void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool rel
         }
     }
 
-    if (fldHnd == FLD_GLOBAL_FS)
+#ifdef WINDOWS_X86_ABI
+    if (fldHnd == FS_SEG_FIELD)
     {
-        printf("FS:[0x%04X]", offs);
+        printf("fs:[0x%04X]", offs);
         return;
     }
+#endif
 
     printf("[");
 
@@ -11191,11 +11195,12 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     fldh = id->idAddr()->iiaFieldHnd;
     offs = emitGetInsDsp(id);
 
-    // Special case: mov reg, fs:[ddd]
-    if (fldh == FLD_GLOBAL_FS)
+#ifdef WINDOWS_X86_ABI
+    if (fldh == FS_SEG_FIELD)
     {
         dst += emitOutputByte(dst, 0x64);
     }
+#endif
 
     // Compute VEX prefix
     // Some of its callers already add VEX prefix and then call this routine.
