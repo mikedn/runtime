@@ -103,9 +103,6 @@ private:
         }
     }
 
-    GenTreeIndir indirForm(var_types type, GenTree* base);
-    GenTreeStoreInd storeIndirForm(var_types type, GenTree* base, GenTree* data);
-
     GenTreeIntCon intForm(var_types type, ssize_t value);
 
     void genRangeCheck(GenTreeBoundsChk* bndsChk);
