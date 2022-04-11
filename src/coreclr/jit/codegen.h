@@ -1093,7 +1093,7 @@ protected:
 #endif
 
 #ifdef TARGET_XARCH
-    void GenStoreIndRMWShift(GenTreeStoreInd* store, GenTreeOp* shift, GenTree* shiftBy);
+    void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
 #endif // TARGET_XARCH
 

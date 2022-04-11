@@ -3707,35 +3707,13 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
     return dst->GetRegNum();
 }
 
-//------------------------------------------------------------------------
-// emitInsRMW: Emit logic for Read-Modify-Write binary instructions.
-//
-// Responsible for emitting a single instruction that will perform an operation of the form:
-//      *addr = *addr <BinOp> src
-// For example:
-//      ADD [RAX], RCX
-//
-// Arguments:
-//    ins - instruction to generate
-//    attr - emitter attribute for instruction
-//    storeInd - indir for RMW addressing mode
-//    src - source operand of instruction
-//
-// Assumptions:
-//    Lowering has taken care of recognizing the StoreInd pattern of:
-//          StoreInd( AddressTree, BinOp( Ind ( AddressTree ), Operand ) )
-//    The address to store is already sitting in a register.
-//
-// Notes:
-//    This is a no-produce operation, meaning that no register output will
-//    be produced for future use in the code stream.
-//
-void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeInd, GenTree* src)
+// Emits a binary RMW operation (e.g. add dword ptr [rsi+42], ecx)
+void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTree* addr, GenTree* src)
 {
     instrDesc*     id = nullptr;
     UNATIVE_OFFSET sz;
 
-    ssize_t offset = GetAddrModeDisp(storeInd->GetAddr());
+    ssize_t offset = GetAddrModeDisp(addr);
 
     if (GenTreeIntCon* intCon = src->IsContainedIntCon())
     {
@@ -3756,7 +3734,7 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
         }
 
         id = emitNewInstrAmdCns(attr, offset, iconVal);
-        SetInstrAddrMode(id, IF_ARW_CNS, ins, storeInd->GetAddr());
+        SetInstrAddrMode(id, IF_ARW_CNS, ins, addr);
         id->idIns(ins);
         sz = emitInsSizeAM(id, insCodeMI(ins), iconVal);
     }
@@ -3766,7 +3744,7 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
 
         // ind, reg
         id = emitNewInstrAmd(attr, offset);
-        SetInstrAddrMode(id, IF_ARW_RRD, ins, storeInd->GetAddr());
+        SetInstrAddrMode(id, IF_ARW_RRD, ins, addr);
         id->idReg1(src->GetRegNum());
         id->idIns(ins);
         sz = emitInsSizeAM(id, insCodeMR(ins));
@@ -3778,32 +3756,11 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
     emitCurIGsize += sz;
 }
 
-//------------------------------------------------------------------------
-// emitInsRMW: Emit logic for Read-Modify-Write unary instructions.
-//
-// Responsible for emitting a single instruction that will perform an operation of the form:
-//      *addr = UnaryOp *addr
-// For example:
-//      NOT [RAX]
-//
-// Arguments:
-//    ins - instruction to generate
-//    attr - emitter attribute for instruction
-//    storeInd - indir for RMW addressing mode
-//
-// Assumptions:
-//    Lowering has taken care of recognizing the StoreInd pattern of:
-//          StoreInd( AddressTree, UnaryOp( Ind ( AddressTree ) ) )
-//    The address to store is already sitting in a register.
-//
-// Notes:
-//    This is a no-produce operation, meaning that no register output will
-//    be produced for future use in the code stream.
-//
-void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeInd)
+// Emits an unary RMW operation (e.g. not dword ptr [rsi+42])
+void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTree* addr)
 {
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(storeInd->GetAddr()));
-    SetInstrAddrMode(id, IF_ARW, ins, storeInd->GetAddr());
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
+    SetInstrAddrMode(id, IF_ARW, ins, addr);
     id->idIns(ins);
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);

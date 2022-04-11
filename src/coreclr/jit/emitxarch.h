@@ -332,9 +332,9 @@ void emitIns(instruction ins);
 
 void emitIns(instruction ins, emitAttr attr);
 
-void emitInsRMW(instruction inst, emitAttr attr, GenTreeStoreInd* storeInd, GenTree* src);
+void emitInsRMW(instruction inst, emitAttr attr, GenTree* addr, GenTree* src);
 
-void emitInsRMW(instruction inst, emitAttr attr, GenTreeStoreInd* storeInd);
+void emitInsRMW(instruction inst, emitAttr attr, GenTree* addr);
 
 void emitIns_Nop(unsigned size);
 

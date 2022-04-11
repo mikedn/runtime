@@ -4558,7 +4558,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
         INDEBUG(GenTreeIndir* load = value->AsUnOp()->GetOp(0)->AsIndir());
         assert(load->isUsedFromMemory() && load->isContained());
 
-        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, store);
+        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr);
 
         return;
     }
@@ -4574,21 +4574,21 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     {
         assert(src->isContained());
 
-        GetEmitter()->emitInsRMW(src->IsIntCon(1) ? INS_inc : INS_dec, attr, store);
+        GetEmitter()->emitInsRMW(src->IsIntCon(1) ? INS_inc : INS_dec, attr, addr);
     }
     else if (value->OperIsShiftOrRotate())
     {
         assert(src == value->AsOp()->GetOp(1));
 
-        GenStoreIndRMWShift(store, value->AsOp(), src);
+        GenStoreIndRMWShift(addr, value->AsOp(), src);
     }
     else
     {
-        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, store, src);
+        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr, src);
     }
 }
 
-void CodeGen::GenStoreIndRMWShift(GenTreeStoreInd* store, GenTreeOp* shift, GenTree* shiftBy)
+void CodeGen::GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy)
 {
     instruction ins  = genGetInsForOper(shift->GetOper(), shift->GetType());
     emitAttr    attr = emitTypeSize(shift->GetType());
@@ -4597,15 +4597,15 @@ void CodeGen::GenStoreIndRMWShift(GenTreeStoreInd* store, GenTreeOp* shift, GenT
     {
         genCopyRegIfNeeded(shiftBy, REG_RCX);
         // The shiftBy operand is implicit, so call the unary version of emitInsRMW.
-        GetEmitter()->emitInsRMW(ins, attr, store);
+        GetEmitter()->emitInsRMW(ins, attr, addr);
     }
     else if (shiftBy->AsIntCon()->GetInt32Value() == 1)
     {
-        GetEmitter()->emitInsRMW(MapShiftInsToShiftBy1Ins(ins), attr, store);
+        GetEmitter()->emitInsRMW(MapShiftInsToShiftBy1Ins(ins), attr, addr);
     }
     else
     {
-        GetEmitter()->emitInsRMW(MapShiftInsToShiftByImmIns(ins), attr, store, shiftBy);
+        GetEmitter()->emitInsRMW(MapShiftInsToShiftByImmIns(ins), attr, addr, shiftBy);
     }
 }
 
