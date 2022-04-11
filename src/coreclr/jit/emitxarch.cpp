@@ -3420,16 +3420,15 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
         }
         else if (memOp->OperIs(GT_IND))
         {
-            GenTreeIndir* memIndir = memOp->AsIndir();
-            GenTree*      memBase  = memIndir->GetAddr();
+            GenTree* addr = memOp->AsIndir()->GetAddr();
 
-            switch (memBase->OperGet())
+            switch (addr->GetOper())
             {
                 case GT_LCL_VAR_ADDR:
                 case GT_LCL_FLD_ADDR:
-                    assert(memBase->isContained());
-                    varNum = memBase->AsLclVarCommon()->GetLclNum();
-                    offset = memBase->AsLclVarCommon()->GetLclOffs();
+                    assert(addr->isContained());
+                    varNum = addr->AsLclVarCommon()->GetLclNum();
+                    offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
 
                 case GT_CLS_VAR_ADDR:
@@ -3443,13 +3442,13 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         {
                             // src is a class static variable
                             // dst is implicit - RDX:RAX
-                            emitIns_C(ins, attr, memBase->AsClsVar()->gtClsVarHnd);
+                            emitIns_C(ins, attr, addr->AsClsVar()->gtClsVarHnd);
                         }
                         else
                         {
                             // src is a class static variable
                             // dst is a register
-                            emitIns_R_C(ins, attr, dst->GetRegNum(), memBase->AsClsVar()->gtClsVarHnd, 0);
+                            emitIns_R_C(ins, attr, dst->GetRegNum(), addr->AsClsVar()->gtClsVarHnd, 0);
                         }
                     }
                     else
@@ -3464,7 +3463,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
 
                             // src is an contained immediate
                             // dst is a class static variable
-                            emitIns_C_I(ins, attr, memBase->AsClsVar()->gtClsVarHnd,
+                            emitIns_C_I(ins, attr, addr->AsClsVar()->gtClsVarHnd,
                                         (int)src->AsIntConCommon()->IconValue());
                         }
                         else
@@ -3473,7 +3472,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
 
                             // src is a register
                             // dst is a class static variable
-                            emitIns_C_R(ins, attr, memBase->AsClsVar()->gtClsVarHnd, src->GetRegNum());
+                            emitIns_C_R(ins, attr, addr->AsClsVar()->gtClsVarHnd, src->GetRegNum());
                         }
                     }
 
@@ -3491,13 +3490,11 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         assert(otherOp == nullptr);
                         assert(src->IsCnsIntOrI());
 
-                        id = emitNewInstrAmdCns(attr, GetAddrModeDisp(memIndir->GetAddr()),
-                                                (int)src->AsIntConCommon()->IconValue());
+                        id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), (int)src->AsIntConCommon()->IconValue());
                     }
                     else
                     {
-                        ssize_t offset = GetAddrModeDisp(memIndir->GetAddr());
-                        id             = emitNewInstrAmd(attr, offset);
+                        id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
                         id->idIns(ins);
 
                         GenTree* regTree = (memOp == src) ? dst : src;
@@ -3546,7 +3543,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         }
                     }
                     assert(fmt != IF_NONE);
-                    SetInstrAddrMode(id, fmt, ins, memIndir->GetAddr());
+                    SetInstrAddrMode(id, fmt, ins, addr);
 
                     // Determine the instruction size
                     UNATIVE_OFFSET sz = 0;
