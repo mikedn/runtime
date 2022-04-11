@@ -206,7 +206,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     // Until we improve the handling of addressing modes in the emitter, we'll create a
                     // temporary GT_IND to generate code with.
                     GenTreeIndir load = indirForm(node->TypeGet(), addr);
-                    genHWIntrinsic_R_R_RM(node, ins, simdSize, targetReg, otherReg, &load);
+                    inst_RV_RV_TT(ins, simdSize, targetReg, otherReg, &load, node->isRMWHWIntrinsic(compiler));
                 }
                 else if (HWIntrinsicInfo::isImmOp(intrinsicId, op2))
                 {
