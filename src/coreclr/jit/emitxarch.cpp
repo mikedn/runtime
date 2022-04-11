@@ -5806,6 +5806,12 @@ void emitter::emitIns_SIMD_R_R_S_I(
 void emitter::emitIns_SIMD_R_R_R_A(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTree* addr)
 {
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, clsAddr->GetFieldHandle());
+        return;
+    }
+
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(UseVEXEncoding());
 
