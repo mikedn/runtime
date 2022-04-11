@@ -203,10 +203,23 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                         addr     = op2;
                         otherReg = op1Reg;
                     }
-                    // Until we improve the handling of addressing modes in the emitter, we'll create a
-                    // temporary GT_IND to generate code with.
-                    GenTreeIndir load = indirForm(node->TypeGet(), addr);
-                    inst_RV_RV_TT(ins, simdSize, targetReg, otherReg, &load, node->isRMWHWIntrinsic(compiler));
+
+                    switch (addr->GetOper())
+                    {
+                        case GT_LCL_VAR_ADDR:
+                        case GT_LCL_FLD_ADDR:
+                            GetEmitter()->emitIns_SIMD_R_R_S(ins, simdSize, targetReg, otherReg,
+                                                             addr->AsLclVarCommon()->GetLclNum(),
+                                                             addr->AsLclVarCommon()->GetLclOffs());
+                            break;
+                        case GT_CLS_VAR_ADDR:
+                            GetEmitter()->emitIns_SIMD_R_R_C(ins, simdSize, targetReg, otherReg,
+                                                             addr->AsClsVar()->gtClsVarHnd, 0);
+                            break;
+                        default:
+                            GetEmitter()->emitIns_SIMD_R_R_A(ins, simdSize, targetReg, otherReg, addr);
+                            break;
+                    }
                 }
                 else if (HWIntrinsicInfo::isImmOp(intrinsicId, op2))
                 {
