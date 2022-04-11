@@ -456,16 +456,10 @@ void CodeGen::genHWIntrinsic_R_RM(
             {
                 case GT_LCL_VAR_ADDR:
                 case GT_LCL_FLD_ADDR:
-                {
                     assert(addr->isContained());
                     varNum = addr->AsLclVarCommon()->GetLclNum();
                     offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
-                }
-
-                case GT_CLS_VAR_ADDR:
-                    emit->emitIns_R_C(ins, attr, reg, addr->AsClsVar()->gtClsVarHnd);
-                    return;
                 default:
                     emit->emitIns_R_A(ins, attr, reg, addr);
                     return;

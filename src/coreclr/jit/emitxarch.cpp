@@ -4594,6 +4594,12 @@ void emitter::emitIns_AR_R_R(
 
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr)
 {
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_R_C(ins, attr, reg1, clsAddr->GetFieldHandle());
+        return;
+    }
+
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
 
     id->idIns(ins);
