@@ -3982,11 +3982,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     {
         NYI_ARM("Thread-Local-Storage static fields");
     }
-    else if (fldHnd == FLD_GLOBAL_DS)
-    {
-        addr = (ssize_t)offs;
-        offs = 0;
-    }
     else
     {
         assert(!jitStaticFldIsGlobAddr(fldHnd));

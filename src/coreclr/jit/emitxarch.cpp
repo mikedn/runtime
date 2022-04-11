@@ -8006,12 +8006,6 @@ void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool rel
         return;
     }
 
-    if (fldHnd == FLD_GLOBAL_DS)
-    {
-        printf("[0x%04X]", offs);
-        return;
-    }
-
     printf("[");
 
     doffs = Compiler::eeGetJitDataOffs(fldHnd);
