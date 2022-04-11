@@ -3030,10 +3030,8 @@ emitter::insFormat emitter::emitMapFmtAtoM(insFormat fmt)
     }
 }
 
-ssize_t emitter::GetAddrModeDisp(GenTreeIndir* indir)
+ssize_t emitter::GetAddrModeDisp(GenTree* addr)
 {
-    GenTree* addr = indir->GetAddr();
-
     if (addr->isContained())
     {
         if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
@@ -3051,14 +3049,7 @@ ssize_t emitter::GetAddrModeDisp(GenTreeIndir* indir)
 }
 
 //------------------------------------------------------------------------
-// emitHandleMemOp: For a memory operand, fill in the relevant fields of the instrDesc.
-//
-// Arguments:
-//    indir - the memory operand.
-//    id - the instrDesc to fill in.
-//    fmt - the instruction format to use. This must be one of the ARD, AWR, or ARW formats. If necessary (such as for
-//          GT_CLS_VAR_ADDR), this function will map it to the correct format.
-//    ins - the instruction we are generating. This might affect the instruction format we choose.
+// Fill in the address mode fields of the instrDesc.
 //
 // Assumptions:
 //    The correctly sized instrDesc must already be created, e.g., via emitNewInstrAmd() or emitNewInstrAmdCns();
@@ -3076,11 +3067,9 @@ ssize_t emitter::GetAddrModeDisp(GenTreeIndir* indir)
 //
 //    idSetIsDspReloc() is called if necessary.
 //
-void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt, instruction ins)
+void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr)
 {
     assert(fmt != IF_NONE);
-
-    GenTree* addr = indir->GetAddr();
 
     if (!addr->isContained())
     {
@@ -3230,10 +3219,10 @@ void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, G
     }
 
     assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(mem));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(mem->GetAddr()));
     id->idIns(ins);
     id->idReg1(dstReg);
-    emitHandleMemOp(mem, id, IF_RWR_ARD, ins);
+    SetInstrAddrMode(id, IF_RWR_ARD, ins, mem->GetAddr());
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
@@ -3265,9 +3254,9 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
     }
 
     assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir->GetAddr()));
     id->idIns(ins);
-    emitHandleMemOp(indir, id, IF_ARD, ins);
+    SetInstrAddrMode(id, IF_ARD, ins, indir->GetAddr());
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
@@ -3326,7 +3315,7 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
         return;
     }
 
-    ssize_t        offset = GetAddrModeDisp(mem);
+    ssize_t        offset = GetAddrModeDisp(mem->GetAddr());
     UNATIVE_OFFSET sz;
     instrDesc*     id;
 
@@ -3335,7 +3324,7 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
         int icon = (int)data->AsIntConCommon()->IconValue();
         id       = emitNewInstrAmdCns(attr, offset, icon);
         id->idIns(ins);
-        emitHandleMemOp(mem, id, IF_AWR_CNS, ins);
+        SetInstrAddrMode(id, IF_AWR_CNS, ins, mem->GetAddr());
         sz = emitInsSizeAM(id, insCodeMI(ins), icon);
         id->idCodeSize(sz);
     }
@@ -3344,7 +3333,7 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
         assert(!data->isContained());
         id = emitNewInstrAmd(attr, offset);
         id->idIns(ins);
-        emitHandleMemOp(mem, id, IF_AWR_RRD, ins);
+        SetInstrAddrMode(id, IF_AWR_RRD, ins, mem->GetAddr());
         id->idReg1(data->GetRegNum());
         sz = emitInsSizeAM(id, insCodeMR(ins));
         id->idCodeSize(sz);
@@ -3532,12 +3521,12 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         assert(otherOp == nullptr);
                         assert(src->IsCnsIntOrI());
 
-                        id = emitNewInstrAmdCns(attr, GetAddrModeDisp(memIndir),
+                        id = emitNewInstrAmdCns(attr, GetAddrModeDisp(memIndir->GetAddr()),
                                                 (int)src->AsIntConCommon()->IconValue());
                     }
                     else
                     {
-                        ssize_t offset = GetAddrModeDisp(memIndir);
+                        ssize_t offset = GetAddrModeDisp(memIndir->GetAddr());
                         id             = emitNewInstrAmd(attr, offset);
                         id->idIns(ins);
 
@@ -3587,7 +3576,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         }
                     }
                     assert(fmt != IF_NONE);
-                    emitHandleMemOp(memIndir, id, fmt, ins);
+                    SetInstrAddrMode(id, fmt, ins, memIndir->GetAddr());
 
                     // Determine the instruction size
                     UNATIVE_OFFSET sz = 0;
@@ -3776,7 +3765,7 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
     instrDesc*     id = nullptr;
     UNATIVE_OFFSET sz;
 
-    ssize_t offset = GetAddrModeDisp(storeInd);
+    ssize_t offset = GetAddrModeDisp(storeInd->GetAddr());
 
     if (GenTreeIntCon* intCon = src->IsContainedIntCon())
     {
@@ -3797,7 +3786,7 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
         }
 
         id = emitNewInstrAmdCns(attr, offset, iconVal);
-        emitHandleMemOp(storeInd, id, IF_ARW_CNS, ins);
+        SetInstrAddrMode(id, IF_ARW_CNS, ins, storeInd->GetAddr());
         id->idIns(ins);
         sz = emitInsSizeAM(id, insCodeMI(ins), iconVal);
     }
@@ -3807,7 +3796,7 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
 
         // ind, reg
         id = emitNewInstrAmd(attr, offset);
-        emitHandleMemOp(storeInd, id, IF_ARW_RRD, ins);
+        SetInstrAddrMode(id, IF_ARW_RRD, ins, storeInd->GetAddr());
         id->idReg1(src->GetRegNum());
         id->idIns(ins);
         sz = emitInsSizeAM(id, insCodeMR(ins));
@@ -3843,8 +3832,8 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
 //
 void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeInd)
 {
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(storeInd));
-    emitHandleMemOp(storeInd, id, IF_ARW, ins);
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(storeInd->GetAddr()));
+    SetInstrAddrMode(id, IF_ARW, ins, storeInd->GetAddr());
     id->idIns(ins);
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -4681,12 +4670,12 @@ void emitter::emitIns_AR_R_R(
 
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTreeIndir* indir)
 {
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir->GetAddr()));
 
     id->idIns(ins);
     id->idReg1(reg1);
 
-    emitHandleMemOp(indir, id, IF_RRW_ARD, ins);
+    SetInstrAddrMode(id, IF_RRW_ARD, ins, indir->GetAddr());
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -4700,12 +4689,12 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins));
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir), ival);
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), ival);
 
     id->idIns(ins);
     id->idReg1(reg1);
 
-    emitHandleMemOp(indir, id, IF_RRW_ARD_CNS, ins);
+    SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, indir->GetAddr());
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -4764,13 +4753,13 @@ void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regN
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(indir->GetAddr()));
 
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    emitHandleMemOp(indir, id, IF_RWR_RRD_ARD, ins);
+    SetInstrAddrMode(id, IF_RWR_RRD_ARD, ins, indir->GetAddr());
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -4924,13 +4913,13 @@ void emitter::emitIns_R_R_A_I(
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir), ival);
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), ival);
 
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    emitHandleMemOp(indir, id, fmt, ins);
+    SetInstrAddrMode(id, fmt, ins, indir->GetAddr());
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -5090,13 +5079,13 @@ void emitter::emitIns_R_R_A_R(
     assert(UseVEXEncoding());
 
     int        ival = encodeXmmRegAsIval(op3Reg);
-    instrDesc* id   = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir), ival);
+    instrDesc* id   = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), ival);
 
     id->idIns(ins);
     id->idReg1(targetReg);
     id->idReg2(op1Reg);
 
-    emitHandleMemOp(indir, id, IF_RWR_RRD_ARD_RRD, ins);
+    SetInstrAddrMode(id, IF_RWR_RRD_ARD_RRD, ins, indir->GetAddr());
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
@@ -5561,10 +5550,10 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTreeIndir* indir,
     assert(attr == EA_32BYTE);
     assert(reg != REG_NA);
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir), imm);
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(indir->GetAddr()), imm);
     id->idIns(ins);
     id->idReg1(reg);
-    emitHandleMemOp(indir, id, IF_AWR_RRD_CNS, ins);
+    SetInstrAddrMode(id, IF_AWR_RRD_CNS, ins, indir->GetAddr());
     UNATIVE_OFFSET size = emitInsSizeAM(id, insCodeMR(ins), imm);
     id->idCodeSize(size);
     dispIns(id);

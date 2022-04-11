@@ -249,6 +249,8 @@ const char* emitYMMregName(unsigned reg);
 /************************************************************************/
 
 private:
+ssize_t GetAddrModeDisp(GenTree* addr);
+void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
 void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int cns);
