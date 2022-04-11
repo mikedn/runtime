@@ -5716,16 +5716,20 @@ void emitter::emitIns_SIMD_R_R_S(
 #ifdef FEATURE_HW_INTRINSICS
 
 void emitter::emitIns_SIMD_R_R_A_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr, int ival)
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr, int imm)
 {
-    if (UseVEXEncoding())
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_R_R_A_I(ins, attr, targetReg, op1Reg, addr, ival, IF_RWR_RRD_ARD_CNS);
+        emitIns_SIMD_R_R_C_I(ins, attr, targetReg, op1Reg, clsAddr->GetFieldHandle(), imm);
+    }
+    else if (UseVEXEncoding())
+    {
+        emitIns_R_R_A_I(ins, attr, targetReg, op1Reg, addr, imm, IF_RWR_RRD_ARD_CNS);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A_I(ins, attr, targetReg, addr, ival);
+        emitIns_R_A_I(ins, attr, targetReg, addr, imm);
     }
 }
 

@@ -467,7 +467,7 @@ void emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber targetReg, reg
 
 #ifdef FEATURE_HW_INTRINSICS
 void emitIns_SIMD_R_R_A_I(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr, int ival);
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* addr, int imm);
 void emitIns_SIMD_R_R_C_I(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, CORINFO_FIELD_HANDLE fldHnd, int imm);
 void emitIns_SIMD_R_R_R_I(
