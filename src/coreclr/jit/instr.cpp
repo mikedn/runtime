@@ -464,38 +464,53 @@ void CodeGen::inst_RV_RV_IV(instruction ins, emitAttr size, regNumber reg1, regN
     GetEmitter()->emitIns_R_R_I(ins, size, reg1, reg2, ival);
 }
 
+bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
+{
+    if (op->isUsedFromSpillTemp())
+    {
+        assert(op->IsRegOptional());
+
+        TempDsc* tmpDsc = getSpillTempDsc(op);
+        *lclNum         = tmpDsc->tdTempNum();
+        *lclOffs        = 0;
+        regSet.tmpRlsTemp(tmpDsc);
+
+        return true;
+    }
+
+    assert(op->isContained());
+
+    if (op->OperIs(GT_LCL_FLD))
+    {
+        *lclNum  = op->AsLclFld()->GetLclNum();
+        *lclOffs = op->AsLclFld()->GetLclOffs();
+
+        return true;
+    }
+
+    if (op->OperIs(GT_LCL_VAR))
+    {
+        assert(op->IsRegOptional() || !compiler->lvaGetDesc(op->AsLclVar())->IsRegCandidate());
+
+        *lclNum  = op->AsLclVar()->GetLclNum();
+        *lclOffs = 0;
+
+        return true;
+    }
+
+    return false;
+}
+
 void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival)
 {
     noway_assert(GetEmitter()->emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
     if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
     {
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned lclNum;
+        unsigned lclOffs;
 
-        if (rmOp->isUsedFromSpillTemp())
-        {
-            assert(rmOp->IsRegOptional());
-
-            tmpDsc = getSpillTempDsc(rmOp);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (rmOp->OperIs(GT_LCL_FLD))
-        {
-            varNum = rmOp->AsLclFld()->GetLclNum();
-            offset = rmOp->AsLclFld()->GetLclOffs();
-        }
-        else if (rmOp->OperIs(GT_LCL_VAR))
-        {
-            assert(rmOp->IsRegOptional() || !compiler->lvaGetDesc(rmOp->AsLclVar()->GetLclNum())->lvIsRegCandidate());
-            varNum = rmOp->AsLclVar()->GetLclNum();
-            offset = 0;
-        }
-        else
+        if (!IsLocalMemoryOperand(rmOp, &lclNum, &lclOffs))
         {
             noway_assert(rmOp->OperIs(GT_IND) || rmOp->OperIsHWIntrinsic());
 
@@ -523,17 +538,11 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
             }
 
             assert(addr->isContained());
-            varNum = addr->AsLclVarCommon()->GetLclNum();
-            offset = addr->AsLclVarCommon()->GetLclOffs();
+            lclNum  = addr->AsLclVarCommon()->GetLclNum();
+            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
         }
 
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        GetEmitter()->emitIns_R_S_I(ins, attr, reg1, varNum, offset, ival);
+        GetEmitter()->emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
     }
     else
     {
@@ -552,30 +561,11 @@ void CodeGen::inst_RV_RV_TT(
 
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned lclNum;
+        unsigned lclOffs;
 
-        if (op2->isUsedFromSpillTemp())
+        if (IsLocalMemoryOperand(op2, &lclNum, &lclOffs))
         {
-            assert(op2->IsRegOptional());
-
-            tmpDsc = getSpillTempDsc(op2);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (op2->OperIs(GT_LCL_FLD))
-        {
-            varNum = op2->AsLclFld()->GetLclNum();
-            offset = op2->AsLclFld()->GetLclOffs();
-        }
-        else if (op2->OperIs(GT_LCL_VAR))
-        {
-            assert(op2->IsRegOptional() || !compiler->lvaGetDesc(op2->AsLclVar()->GetLclNum())->lvIsRegCandidate());
-            varNum = op2->AsLclVar()->GetLclNum();
-            offset = 0;
         }
         else if (op2->OperIs(GT_CNS_DBL))
         {
@@ -612,17 +602,11 @@ void CodeGen::inst_RV_RV_TT(
             }
 
             assert(addr->isContained());
-            varNum = addr->AsLclVarCommon()->GetLclNum();
-            offset = addr->AsLclVarCommon()->GetLclOffs();
+            lclNum  = addr->AsLclVarCommon()->GetLclNum();
+            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
         }
 
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        GetEmitter()->emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, varNum, offset);
+        GetEmitter()->emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
     }
     else
     {

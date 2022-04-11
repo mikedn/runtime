@@ -1303,6 +1303,8 @@ public:
     void inst_RV_RV_TT(instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW);
 #endif
 
+    bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
+
     void inst_set_SV_var(GenTreeLclVar* node);
 
     class GenAddrMode

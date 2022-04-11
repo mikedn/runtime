@@ -421,32 +421,10 @@ void CodeGen::genHWIntrinsic_R_RM(
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
         assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, rmOp));
 
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned lclNum;
+        unsigned lclOffs;
 
-        if (rmOp->isUsedFromSpillTemp())
-        {
-            assert(rmOp->IsRegOptional());
-
-            tmpDsc = getSpillTempDsc(rmOp);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (rmOp->OperIs(GT_LCL_FLD))
-        {
-            varNum = rmOp->AsLclFld()->GetLclNum();
-            offset = rmOp->AsLclFld()->GetLclOffs();
-        }
-        else if (rmOp->OperIs(GT_LCL_VAR))
-        {
-            assert(rmOp->IsRegOptional() || !compiler->lvaGetDesc(rmOp->AsLclVar())->lvIsRegCandidate());
-            varNum = rmOp->AsLclVar()->GetLclNum();
-            offset = 0;
-        }
-        else
+        if (!IsLocalMemoryOperand(rmOp, &lclNum, &lclOffs))
         {
             noway_assert(rmOp->OperIs(GT_IND, GT_HWINTRINSIC));
 
@@ -470,17 +448,11 @@ void CodeGen::genHWIntrinsic_R_RM(
             }
 
             assert(addr->isContained());
-            varNum = addr->AsLclVarCommon()->GetLclNum();
-            offset = addr->AsLclVarCommon()->GetLclOffs();
+            lclNum  = addr->AsLclVarCommon()->GetLclNum();
+            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
         }
 
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        emit->emitIns_R_S(ins, attr, reg, varNum, offset);
+        emit->emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
     }
     else if (emit->IsMovInstruction(ins))
     {
@@ -632,32 +604,10 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
         assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
 
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned lclNum;
+        unsigned lclOffs;
 
-        if (op2->isUsedFromSpillTemp())
-        {
-            assert(op2->IsRegOptional());
-
-            tmpDsc = getSpillTempDsc(op2);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (op2->OperIs(GT_LCL_FLD))
-        {
-            varNum = op2->AsLclFld()->GetLclNum();
-            offset = op2->AsLclFld()->GetLclOffs();
-        }
-        else if (op2->OperIs(GT_LCL_VAR))
-        {
-            assert(op2->IsRegOptional() || !compiler->lvaTable[op2->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-            varNum = op2->AsLclVar()->GetLclNum();
-            offset = 0;
-        }
-        else
+        if (!IsLocalMemoryOperand(op2, &lclNum, &lclOffs))
         {
             noway_assert(op2->OperIs(GT_IND, GT_HWINTRINSIC));
 
@@ -681,17 +631,11 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
             }
 
             assert(addr->isContained());
-            varNum = addr->AsLclVarCommon()->GetLclNum();
-            offset = addr->AsLclVarCommon()->GetLclOffs();
+            lclNum  = addr->AsLclVarCommon()->GetLclNum();
+            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
         }
 
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        emit->emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, varNum, offset, ival);
+        emit->emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, lclNum, lclOffs, ival);
     }
     else
     {
@@ -744,34 +688,10 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
         assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
 
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned lclNum;
+        unsigned lclOffs;
 
-        if (op2->isUsedFromSpillTemp())
-        {
-            assert(op2->IsRegOptional());
-
-            // TODO-XArch-Cleanup: The getSpillTempDsc...tempRlsTemp code is a fairly common
-            //                     pattern. It could probably be extracted to its own method.
-            tmpDsc = getSpillTempDsc(op2);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (op2->OperIs(GT_LCL_FLD))
-        {
-            varNum = op2->AsLclFld()->GetLclNum();
-            offset = op2->AsLclFld()->GetLclOffs();
-        }
-        else if (op2->OperIs(GT_LCL_VAR))
-        {
-            assert(op2->IsRegOptional() || !compiler->lvaTable[op2->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-            varNum = op2->AsLclVar()->GetLclNum();
-            offset = 0;
-        }
-        else
+        if (!IsLocalMemoryOperand(op2, &lclNum, &lclOffs))
         {
             noway_assert(op2->OperIs(GT_IND, GT_HWINTRINSIC));
 
@@ -795,17 +715,11 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
             }
 
             assert(addr->isContained());
-            varNum = addr->AsLclVarCommon()->GetLclNum();
-            offset = addr->AsLclVarCommon()->GetLclOffs();
+            lclNum  = addr->AsLclVarCommon()->GetLclNum();
+            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
         }
 
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        emit->emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, varNum, offset);
+        emit->emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
     }
     else
     {
@@ -836,34 +750,10 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
 
     if (op3->isContained() || op3->isUsedFromSpillTemp())
     {
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned lclNum;
+        unsigned lclOffs;
 
-        if (op3->isUsedFromSpillTemp())
-        {
-            assert(op3->IsRegOptional());
-
-            // TODO-XArch-Cleanup: The getSpillTempDsc...tempRlsTemp code is a fairly common
-            //                     pattern. It could probably be extracted to its own method.
-            tmpDsc = getSpillTempDsc(op3);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (op3->OperIs(GT_LCL_FLD))
-        {
-            varNum = op3->AsLclFld()->GetLclNum();
-            offset = op3->AsLclFld()->GetLclOffs();
-        }
-        else if (op3->OperIs(GT_LCL_VAR))
-        {
-            assert(op3->IsRegOptional() || !compiler->lvaTable[op3->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-            varNum = op3->AsLclVar()->GetLclNum();
-            offset = 0;
-        }
-        else
+        if (!IsLocalMemoryOperand(op3, &lclNum, &lclOffs))
         {
             noway_assert(op3->OperIs(GT_IND, GT_HWINTRINSIC));
 
@@ -887,17 +777,11 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
             }
 
             assert(addr->isContained());
-            varNum = addr->AsLclVarCommon()->GetLclNum();
-            offset = addr->AsLclVarCommon()->GetLclOffs();
+            lclNum  = addr->AsLclVarCommon()->GetLclNum();
+            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
         }
 
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        emit->emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, varNum, offset);
+        emit->emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, lclNum, lclOffs);
     }
     else
     {
