@@ -511,11 +511,6 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
                     varNum = addr->AsLclVarCommon()->GetLclNum();
                     offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
-
-                case GT_CLS_VAR_ADDR:
-                    GetEmitter()->emitIns_R_C_I(ins, attr, reg1, addr->AsClsVar()->gtClsVarHnd, ival);
-                    return;
-
                 default:
                     GetEmitter()->emitIns_R_A_I(ins, attr, reg1, addr, ival);
                     return;

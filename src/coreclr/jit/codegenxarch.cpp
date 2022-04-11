@@ -6664,9 +6664,6 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
                     varNum = addr->AsLclVarCommon()->GetLclNum();
                     offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
-                case GT_CLS_VAR_ADDR:
-                    emit->emitIns_R_C_I(ins, size, dstReg, addr->AsClsVar()->gtClsVarHnd, ival);
-                    return;
                 default:
                     emit->emitIns_R_A_I(ins, size, dstReg, addr, ival);
                     return;

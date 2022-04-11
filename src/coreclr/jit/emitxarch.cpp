@@ -4614,19 +4614,25 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTre
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int ival)
+void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int imm)
 {
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_R_C_I(ins, attr, reg1, clsAddr->GetFieldHandle(), imm);
+        return;
+    }
+
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins));
 
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), ival);
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
 
     id->idIns(ins);
     id->idReg1(reg1);
 
     SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
 
     dispIns(id);
