@@ -3184,22 +3184,9 @@ void emitter::spillIntArgRegsToShadowSlots()
     }
 }
 
-//------------------------------------------------------------------------
-// emitInsLoadInd: Emits a "mov reg, [mem]" (or a variant such as "movzx" or "movss")
-// instruction for a GT_IND node.
-//
-// Arguments:
-//    ins - the instruction to emit
-//    attr - the instruction operand size
-//    dstReg - the destination register
-//    mem - the GT_IND node
-//
-void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, GenTreeIndir* mem)
+// Emits a "mov reg, [mem]" (or a variant such as "movzx" or "movss") instruction.
+void emitter::emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenTree* addr)
 {
-    assert(mem->OperIs(GT_IND, GT_NULLCHECK));
-
-    GenTree* addr = mem->GetAddr();
-
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         emitIns_R_C(ins, attr, dstReg, clsAddr->GetFieldHandle(), 0);
@@ -3219,10 +3206,10 @@ void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, G
     }
 
     assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(mem->GetAddr()));
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idReg1(dstReg);
-    SetInstrAddrMode(id, IF_RWR_ARD, ins, mem->GetAddr());
+    SetInstrAddrMode(id, IF_RWR_ARD, ins, addr);
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
@@ -3265,22 +3252,9 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
     emitAdjustStackDepthPushPop(ins);
 }
 
-//------------------------------------------------------------------------
-// emitInsStoreInd: Emits a "mov [mem], reg/imm" (or a variant such as "movss")
-// instruction for a GT_STOREIND node.
-//
-// Arguments:
-//    ins - the instruction to emit
-//    attr - the instruction operand size
-//    mem - the GT_STOREIND node
-//
-void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* mem)
+// Emits a "mov [mem], reg/imm" (or a variant such as "movss") instruction.
+void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
 {
-    assert(mem->OperIs(GT_STOREIND));
-
-    GenTree* addr = mem->GetAddr();
-    GenTree* data = mem->GetValue();
-
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
         if (GenTreeIntCon* intCon = data->IsContainedIntCon())
@@ -3315,7 +3289,7 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
         return;
     }
 
-    ssize_t        offset = GetAddrModeDisp(mem->GetAddr());
+    ssize_t        offset = GetAddrModeDisp(addr);
     UNATIVE_OFFSET sz;
     instrDesc*     id;
 
@@ -3324,7 +3298,7 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
         int icon = (int)data->AsIntConCommon()->IconValue();
         id       = emitNewInstrAmdCns(attr, offset, icon);
         id->idIns(ins);
-        SetInstrAddrMode(id, IF_AWR_CNS, ins, mem->GetAddr());
+        SetInstrAddrMode(id, IF_AWR_CNS, ins, addr);
         sz = emitInsSizeAM(id, insCodeMI(ins), icon);
         id->idCodeSize(sz);
     }
@@ -3333,7 +3307,7 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
         assert(!data->isContained());
         id = emitNewInstrAmd(attr, offset);
         id->idIns(ins);
-        SetInstrAddrMode(id, IF_AWR_RRD, ins, mem->GetAddr());
+        SetInstrAddrMode(id, IF_AWR_RRD, ins, addr);
         id->idReg1(data->GetRegNum());
         sz = emitInsSizeAM(id, insCodeMR(ins));
         id->idCodeSize(sz);

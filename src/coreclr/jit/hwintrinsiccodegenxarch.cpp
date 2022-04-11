@@ -103,10 +103,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 if (node->OperIsMemoryLoad())
                 {
                     genConsumeAddress(op1);
-                    // Until we improve the handling of addressing modes in the emitter, we'll create a
-                    // temporary GT_IND to generate code with.
-                    GenTreeIndir load = indirForm(node->TypeGet(), op1);
-                    emit->emitInsLoadInd(ins, simdSize, node->GetRegNum(), &load);
+                    emit->emitInsLoad(ins, simdSize, node->GetRegNum(), op1);
                 }
                 else
                 {
@@ -163,10 +160,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     else
                     {
                         genConsumeReg(op2);
-                        // Until we improve the handling of addressing modes in the emitter, we'll create a
-                        // temporary GT_STORE_IND to generate code with.
-                        GenTreeStoreInd store = storeIndirForm(node->TypeGet(), op1, op2);
-                        emit->emitInsStoreInd(ins, simdSize, &store);
+                        emit->emitInsStore(ins, simdSize, op1, op2);
                     }
                     break;
                 }
@@ -1548,9 +1542,8 @@ void CodeGen::genSSE2Intrinsic(GenTreeHWIntrinsic* node)
             assert(op1 != nullptr);
             assert(op2 != nullptr);
 
-            instruction     ins   = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-            GenTreeStoreInd store = storeIndirForm(node->TypeGet(), op1, op2);
-            emit->emitInsStoreInd(ins, emitTypeSize(baseType), &store);
+            instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
+            emit->emitInsStore(ins, emitTypeSize(baseType), op1, op2);
             break;
         }
 
@@ -1590,10 +1583,7 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
 
             if (!varTypeIsSIMD(op1->gtType))
             {
-                // Until we improve the handling of addressing modes in the emitter, we'll create a
-                // temporary GT_IND to generate code with.
-                GenTreeIndir load = indirForm(node->TypeGet(), op1);
-                emit->emitInsLoadInd(ins, emitTypeSize(TYP_SIMD16), node->GetRegNum(), &load);
+                emit->emitInsLoad(ins, emitTypeSize(TYP_SIMD16), node->GetRegNum(), op1);
             }
             else
             {
@@ -1739,10 +1729,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
 
             if (!varTypeIsSIMD(op1->gtType))
             {
-                // Until we improve the handling of addressing modes in the emitter, we'll create a
-                // temporary GT_IND to generate code with.
-                GenTreeIndir load = indirForm(node->TypeGet(), op1);
-                emit->emitInsLoadInd(ins, emitTypeSize(TYP_SIMD32), node->GetRegNum(), &load);
+                emit->emitInsLoad(ins, emitTypeSize(TYP_SIMD32), node->GetRegNum(), op1);
             }
             else
             {
