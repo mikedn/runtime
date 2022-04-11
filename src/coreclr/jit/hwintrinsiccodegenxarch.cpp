@@ -443,13 +443,11 @@ void CodeGen::genHWIntrinsic_R_RM(
         }
         else if (rmOp->OperIs(GT_IND) || rmOp->OperIsHWIntrinsic())
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
+            GenTree* addr;
 
             if (rmOp->OperIs(GT_IND))
             {
-                memIndir = rmOp->AsIndir();
-                addr     = memIndir->GetAddr();
+                addr = rmOp->AsIndir()->GetAddr();
             }
             else
             {
@@ -679,13 +677,11 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
         }
         else if (op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic())
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
+            GenTree* addr;
 
             if (op2->OperIs(GT_IND))
             {
-                memIndir = op2->AsIndir();
-                addr     = memIndir->GetAddr();
+                addr = op2->AsIndir()->GetAddr();
             }
             else
             {
@@ -818,13 +814,11 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
         }
         else if (op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic())
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
+            GenTree* addr;
 
             if (op2->OperIs(GT_IND))
             {
-                memIndir = op2->AsIndir();
-                addr     = memIndir->GetAddr();
+                addr = op2->AsIndir()->GetAddr();
             }
             else
             {
@@ -935,12 +929,11 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
         }
         else if (op3->OperIs(GT_IND) || op3->OperIsHWIntrinsic())
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
+            GenTree* addr;
+
             if (op3->OperIs(GT_IND))
             {
-                memIndir = op3->AsIndir();
-                addr     = memIndir->GetAddr();
+                addr = op3->AsIndir()->GetAddr();
             }
             else
             {

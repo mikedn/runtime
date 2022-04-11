@@ -6655,29 +6655,22 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
         }
         else if (srcNode->OperIs(GT_IND))
         {
-            GenTreeIndir* memIndir = srcNode->AsIndir();
-            GenTree*      memBase  = memIndir->GetAddr();
+            GenTree* addr = srcNode->AsIndir()->GetAddr();
 
-            switch (memBase->OperGet())
+            switch (addr->GetOper())
             {
                 case GT_LCL_VAR_ADDR:
                 case GT_LCL_FLD_ADDR:
-                    assert(memBase->isContained());
-                    varNum = memBase->AsLclVarCommon()->GetLclNum();
-                    offset = memBase->AsLclVarCommon()->GetLclOffs();
+                    assert(addr->isContained());
+                    varNum = addr->AsLclVarCommon()->GetLclNum();
+                    offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
-
                 case GT_CLS_VAR_ADDR:
-                {
-                    emit->emitIns_R_C_I(ins, size, dstReg, memBase->AsClsVar()->gtClsVarHnd, 0, ival);
+                    emit->emitIns_R_C_I(ins, size, dstReg, addr->AsClsVar()->gtClsVarHnd, 0, ival);
                     return;
-                }
-
                 default:
-                {
-                    emit->emitIns_R_A_I(ins, size, dstReg, memIndir->GetAddr(), ival);
+                    emit->emitIns_R_A_I(ins, size, dstReg, addr, ival);
                     return;
-                }
             }
         }
         else

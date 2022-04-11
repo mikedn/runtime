@@ -486,13 +486,11 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
         }
         else if (rmOp->OperIs(GT_IND) || rmOp->OperIsHWIntrinsic())
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
+            GenTree* addr;
 
             if (rmOp->OperIs(GT_IND))
             {
-                memIndir = rmOp->AsIndir();
-                addr     = memIndir->Addr();
+                addr = rmOp->AsIndir()->Addr();
             }
             else
             {
@@ -585,13 +583,11 @@ void CodeGen::inst_RV_RV_TT(
         }
         else if (op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic())
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
+            GenTree* addr;
 
             if (op2->OperIs(GT_IND))
             {
-                memIndir = op2->AsIndir();
-                addr     = memIndir->Addr();
+                addr = op2->AsIndir()->GetAddr();
             }
             else
             {
