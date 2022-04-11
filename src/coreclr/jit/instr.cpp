@@ -1111,7 +1111,7 @@ void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
     if (barrierKind == BARRIER_FULL)
     {
         instGen(INS_lock);
-        GetEmitter()->emitIns_I_AR(INS_or, EA_4BYTE, 0, REG_SPBASE, 0);
+        GetEmitter()->emitIns_AR_I(INS_or, EA_4BYTE, REG_SPBASE, 0, 0);
     }
 #elif defined(TARGET_ARM)
     // ARM has only full barriers, so all barriers need to be emitted as full.

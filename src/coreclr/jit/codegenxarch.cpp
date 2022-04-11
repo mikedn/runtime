@@ -2632,7 +2632,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            emit->emitIns_I_ARX(INS_mov, EA_1BYTE, 0, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
+            emit->emitIns_ARX_I(INS_mov, EA_1BYTE, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset, 0);
         }
 
         return;
@@ -3334,7 +3334,7 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
     {
         int imm = static_cast<int>(data->AsIntCon()->IconValue());
         assert(imm == data->AsIntCon()->IconValue());
-        GetEmitter()->emitIns_I_AR(INS_add, size, imm, addrReg, 0);
+        GetEmitter()->emitIns_AR_I(INS_add, size, addrReg, 0, imm);
     }
     else
     {

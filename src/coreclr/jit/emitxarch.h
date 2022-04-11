@@ -352,7 +352,7 @@ void emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 
 void emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int ival);
 
-void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int offs);
+void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int disp);
 
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int disp);
 
@@ -433,7 +433,7 @@ void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, in
 
 void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
-void emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int offs);
+void emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int disp, int imm);
 
 void emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int disp);
 
@@ -443,7 +443,7 @@ void emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base,
 
 void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, int disp);
 
-void emitIns_I_ARX(instruction ins, emitAttr attr, int val, regNumber reg, regNumber rg2, unsigned mul, int disp);
+void emitIns_ARX_I(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int disp, int imm);
 
 void emitIns_R_ARX(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int disp);

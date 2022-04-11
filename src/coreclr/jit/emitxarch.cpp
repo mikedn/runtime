@@ -117,7 +117,7 @@ regNumber emitter::getSseShiftRegNumber(instruction ins)
 
         default:
         {
-            assert(!"Invalid instruction for SSE2 instruction of the form: opcode reg, immed8");
+            assert(!"Invalid instruction for SSE2 instruction of the form: opcode base, immed8");
             return REG_NA;
         }
     }
@@ -4583,11 +4583,11 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int offs)
+void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int disp)
 {
     assert(ins == INS_prefetcht0 || ins == INS_prefetcht1 || ins == INS_prefetcht2 || ins == INS_prefetchnta);
 
-    instrDesc* id = emitNewInstrAmd(attr, offs);
+    instrDesc* id = emitNewInstrAmd(attr, disp);
 
     id->idIns(ins);
 
@@ -5374,7 +5374,7 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
  *  The following adds instructions referencing address modes.
  */
 
-void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int disp)
+void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int disp, int imm)
 {
     assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
@@ -5395,9 +5395,9 @@ void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber re
         case INS_shl_N:
         case INS_shr_N:
         case INS_sar_N:
-            assert(val != 1);
+            assert(imm != 1);
             fmt = IF_ARW_SHF;
-            val &= 0x7F;
+            imm &= 0x7F;
             break;
 
         default:
@@ -5414,16 +5414,16 @@ void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber re
     */
 
     UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmdCns(attr, disp, val);
+    instrDesc*     id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
 
-    id->idAddr()->iiaAddrMode.amBaseReg = reg;
+    id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
     assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
 
-    sz = emitInsSizeAM(id, insCodeMI(ins), val);
+    sz = emitInsSizeAM(id, insCodeMI(ins), imm);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -5520,8 +5520,8 @@ void emitter::emitIns_R_ARR(instruction ins, emitAttr attr, regNumber reg, regNu
     emitIns_R_ARX(ins, attr, reg, base, index, 1, disp);
 }
 
-void emitter::emitIns_I_ARX(
-    instruction ins, emitAttr attr, int val, regNumber reg, regNumber rg2, unsigned mul, int disp)
+void emitter::emitIns_ARX_I(
+    instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int disp, int imm)
 {
     assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
@@ -5542,9 +5542,9 @@ void emitter::emitIns_I_ARX(
         case INS_shl_N:
         case INS_shr_N:
         case INS_sar_N:
-            assert(val != 1);
+            assert(imm != 1);
             fmt = IF_ARW_SHF;
-            val &= 0x7F;
+            imm &= 0x7F;
             break;
 
         default:
@@ -5553,18 +5553,18 @@ void emitter::emitIns_I_ARX(
     }
 
     UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmdCns(attr, disp, val);
+    instrDesc*     id = emitNewInstrAmdCns(attr, disp, imm);
 
     id->idIns(ins);
     id->idInsFmt(fmt);
 
-    id->idAddr()->iiaAddrMode.amBaseReg = reg;
-    id->idAddr()->iiaAddrMode.amIndxReg = rg2;
-    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(mul);
+    id->idAddr()->iiaAddrMode.amBaseReg = base;
+    id->idAddr()->iiaAddrMode.amIndxReg = index;
+    id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
 
     assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
 
-    sz = emitInsSizeAM(id, insCodeMI(ins), val);
+    sz = emitInsSizeAM(id, insCodeMI(ins), imm);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -11445,7 +11445,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 #ifdef DEBUG
                         emitDispIns(id, false, false, false);
 #endif
-                        assert(!"unexpected GC reg update instruction");
+                        assert(!"unexpected GC base update instruction");
                 }
 
                 break;
