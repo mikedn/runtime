@@ -214,7 +214,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                             break;
                         case GT_CLS_VAR_ADDR:
                             GetEmitter()->emitIns_SIMD_R_R_C(ins, simdSize, targetReg, otherReg,
-                                                             addr->AsClsVar()->gtClsVarHnd, 0);
+                                                             addr->AsClsVar()->gtClsVarHnd);
                             break;
                         default:
                             GetEmitter()->emitIns_SIMD_R_R_A(ins, simdSize, targetReg, otherReg, addr);
@@ -652,7 +652,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
             else
             {
                 CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
-                emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, hnd, 0, ival);
+                emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, hnd, ival);
             }
 
             return;
@@ -703,8 +703,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
                 case GT_CLS_VAR_ADDR:
                 {
-                    emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, addr->AsClsVar()->gtClsVarHnd, 0,
-                                               ival);
+                    emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, addr->AsClsVar()->gtClsVarHnd, ival);
                     return;
                 }
 
@@ -839,12 +838,8 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
                 }
 
                 case GT_CLS_VAR_ADDR:
-                {
-                    emit->emitIns_SIMD_R_R_C_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr->AsClsVar()->gtClsVarHnd,
-                                               0);
+                    emit->emitIns_SIMD_R_R_C_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr->AsClsVar()->gtClsVarHnd);
                     return;
-                }
-
                 default:
                     emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
                     return;
@@ -954,11 +949,8 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
                 }
 
                 case GT_CLS_VAR_ADDR:
-                {
-                    emit->emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, addr->AsClsVar()->gtClsVarHnd, 0);
+                    emit->emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, addr->AsClsVar()->gtClsVarHnd);
                     return;
-                }
-
                 default:
                     emit->emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
                     return;

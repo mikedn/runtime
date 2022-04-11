@@ -6569,7 +6569,7 @@ void CodeGen::genSSE2BitwiseOp(GenTreeUnOp* treeNode)
         *maskFld          = GetEmitter()->emitBlkConst(&maskPack, 16, 16, treeNode->TypeGet());
     }
 
-    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, operandReg, *maskFld, 0);
+    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, operandReg, *maskFld);
 }
 
 //-----------------------------------------------------------------------------------------
@@ -6666,7 +6666,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
                     offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
                 case GT_CLS_VAR_ADDR:
-                    emit->emitIns_R_C_I(ins, size, dstReg, addr->AsClsVar()->gtClsVarHnd, 0, ival);
+                    emit->emitIns_R_C_I(ins, size, dstReg, addr->AsClsVar()->gtClsVarHnd, ival);
                     return;
                 default:
                     emit->emitIns_R_A_I(ins, size, dstReg, addr, ival);
@@ -6682,7 +6682,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
                     GenTreeDblCon*       dblConst = srcNode->AsDblCon();
                     CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(dblConst->gtDconVal, emitTypeSize(dblConst));
 
-                    emit->emitIns_R_C_I(ins, size, dstReg, hnd, 0, ival);
+                    emit->emitIns_R_C_I(ins, size, dstReg, hnd, ival);
                     return;
                 }
 

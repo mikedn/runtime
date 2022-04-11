@@ -3220,7 +3220,7 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        emitIns_C(ins, attr, clsAddr->GetFieldHandle(), 0);
+        emitIns_C(ins, attr, clsAddr->GetFieldHandle());
         return;
     }
 
@@ -3255,12 +3255,12 @@ void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTre
     {
         if (GenTreeIntCon* intCon = data->IsContainedIntCon())
         {
-            emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), 0, intCon->GetInt32Value());
+            emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), intCon->GetInt32Value());
         }
         else
         {
             assert(!data->isContained());
-            emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), data->GetRegNum(), 0);
+            emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), data->GetRegNum());
         }
         return;
     }
@@ -3443,7 +3443,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         {
                             // src is a class static variable
                             // dst is implicit - RDX:RAX
-                            emitIns_C(ins, attr, memBase->AsClsVar()->gtClsVarHnd, 0);
+                            emitIns_C(ins, attr, memBase->AsClsVar()->gtClsVarHnd);
                         }
                         else
                         {
@@ -3464,7 +3464,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
 
                             // src is an contained immediate
                             // dst is a class static variable
-                            emitIns_C_I(ins, attr, memBase->AsClsVar()->gtClsVarHnd, 0,
+                            emitIns_C_I(ins, attr, memBase->AsClsVar()->gtClsVarHnd,
                                         (int)src->AsIntConCommon()->IconValue());
                         }
                         else
@@ -3473,7 +3473,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
 
                             // src is a register
                             // dst is a class static variable
-                            emitIns_C_R(ins, attr, memBase->AsClsVar()->gtClsVarHnd, src->GetRegNum(), 0);
+                            emitIns_C_R(ins, attr, memBase->AsClsVar()->gtClsVarHnd, src->GetRegNum());
                         }
                     }
 
@@ -4069,11 +4069,11 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
     emitAdjustStackDepthPushPop(ins);
 }
 
-void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs)
+void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd)
 {
     assert(FieldDispRequiresRelocation(fldHnd));
 
-    instrDesc* id = emitNewInstrDsp(attr, offs);
+    instrDesc* id = emitNewInstrDsp(attr, 0);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
     id->idAddr()->iiaFieldHnd = fldHnd;
@@ -4630,14 +4630,13 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C_I(
-    instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int offs, int ival)
+void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE fldHnd, int imm)
 {
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
     assert(IsSSEOrAVXInstruction(ins));
     assert(FieldDispRequiresRelocation(fldHnd));
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, ival, offs);
+    instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
 
     id->idIns(ins);
     id->idInsFmt(IF_RRW_MRD_CNS);
@@ -4645,7 +4644,7 @@ void emitter::emitIns_R_C_I(
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), ival);
+    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -4763,14 +4762,13 @@ void emitter::emitIns_R_AR_R(instruction ins,
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd, int offs)
+void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
     assert(FieldDispRequiresRelocation(fldHnd));
 
-    instrDesc* id = emitNewInstrDsp(attr, offs);
+    instrDesc* id = emitNewInstrDsp(attr, 0);
 
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_MRD);
@@ -4856,13 +4854,13 @@ void emitter::emitIns_R_R_A_I(
 }
 
 void emitter::emitIns_R_R_C_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd, int offs, int ival)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd, int imm)
 {
     assert(IsSSEOrAVXInstruction(ins));
     assert(IsThreeOperandAVXInstruction(ins));
     assert(FieldDispRequiresRelocation(fldHnd));
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, ival, offs);
+    instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
 
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
@@ -4871,7 +4869,7 @@ void emitter::emitIns_R_R_C_I(
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), ival);
+    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -5006,36 +5004,19 @@ void emitter::emitIns_R_R_A_R(
     emitCurIGsize += sz;
 }
 
-//------------------------------------------------------------------------
-// emitIns_R_R_C_R: emits the code for an instruction that takes a register operand, a field handle +
-//                  offset,  another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op3Reg    -- The register of the third operand
-//    fldHnd    -- The CORINFO_FIELD_HANDLE used for the memory address
-//    offs      -- The offset added to the memory address from fldHnd
-//
-// Remarks:
-//    op2 is built from fldHnd + offs
-//
 void emitter::emitIns_R_R_C_R(instruction          ins,
                               emitAttr             attr,
                               regNumber            targetReg,
                               regNumber            op1Reg,
                               regNumber            op3Reg,
-                              CORINFO_FIELD_HANDLE fldHnd,
-                              int                  offs)
+                              CORINFO_FIELD_HANDLE fldHnd)
 {
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
     assert(FieldDispRequiresRelocation(fldHnd));
 
-    int        ival = encodeXmmRegAsIval(op3Reg);
-    instrDesc* id   = emitNewInstrCnsDsp(attr, ival, offs);
+    int        imm = encodeXmmRegAsIval(op3Reg);
+    instrDesc* id  = emitNewInstrCnsDsp(attr, imm, 0);
 
     id->idIns(ins);
     id->idReg1(targetReg);
@@ -5045,7 +5026,7 @@ void emitter::emitIns_R_R_C_R(instruction          ins,
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), ival);
+    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -5167,7 +5148,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
  *  Add an instruction with a static member + register operands.
  */
 
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs)
+void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg)
 {
     assert(FieldDispRequiresRelocation(fldHnd));
 
@@ -5182,7 +5163,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
-    instrDesc* id  = emitNewInstrDsp(attr, offs);
+    instrDesc* id  = emitNewInstrDsp(attr, 0);
     insFormat  fmt = emitInsModeFormat(ins, IF_MRD_RRD);
 
     id->idIns(ins);
@@ -5229,7 +5210,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
  *  Add an instruction with a static member + constant.
  */
 
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs, int val)
+void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int imm)
 {
     assert(FieldDispRequiresRelocation(fldHnd));
 
@@ -5244,9 +5225,9 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
         case INS_shl_N:
         case INS_shr_N:
         case INS_sar_N:
-            assert(val != 1);
+            assert(imm != 1);
             fmt = IF_MRW_SHF;
-            val &= 0x7F;
+            imm &= 0x7F;
             break;
 
         default:
@@ -5254,14 +5235,14 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
             break;
     }
 
-    instrDesc* id = emitNewInstrCnsDsp(attr, val, offs);
+    instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
     code_t         code = insCodeMI(ins);
-    UNATIVE_OFFSET sz   = emitInsSizeCV(id, code, val);
+    UNATIVE_OFFSET sz   = emitInsSizeCV(id, code, imm);
 
     id->idCodeSize(sz);
 
@@ -5651,29 +5632,17 @@ void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber targe
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_C: emits the code for a SIMD instruction that takes a register operand, a field handle + offset,
-//                     and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    fldHnd    -- The CORINFO_FIELD_HANDLE used for the memory address
-//    offs      -- The offset added to the memory address from fldHnd
-//
 void emitter::emitIns_SIMD_R_R_C(
-    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, CORINFO_FIELD_HANDLE fldHnd)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C(ins, attr, targetReg, op1Reg, fldHnd, offs);
+        emitIns_R_R_C(ins, attr, targetReg, op1Reg, fldHnd);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C(ins, attr, targetReg, fldHnd, offs);
+        emitIns_R_C(ins, attr, targetReg, fldHnd, 0);
     }
 }
 
@@ -5755,35 +5724,17 @@ void emitter::emitIns_SIMD_R_R_A_I(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_C_I: emits the code for a SIMD instruction that takes a register operand, a field handle + offset,
-//                       an immediate operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    fldHnd    -- The CORINFO_FIELD_HANDLE used for the memory address
-//    offs      -- The offset added to the memory address from fldHnd
-//    ival      -- The immediate value
-//
-void emitter::emitIns_SIMD_R_R_C_I(instruction          ins,
-                                   emitAttr             attr,
-                                   regNumber            targetReg,
-                                   regNumber            op1Reg,
-                                   CORINFO_FIELD_HANDLE fldHnd,
-                                   int                  offs,
-                                   int                  ival)
+void emitter::emitIns_SIMD_R_R_C_I(
+    instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, CORINFO_FIELD_HANDLE fldHnd, int imm)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C_I(ins, attr, targetReg, op1Reg, fldHnd, offs, ival);
+        emitIns_R_R_C_I(ins, attr, targetReg, op1Reg, fldHnd, imm);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C_I(ins, attr, targetReg, fldHnd, offs, ival);
+        emitIns_R_C_I(ins, attr, targetReg, fldHnd, imm);
     }
 }
 
@@ -5856,26 +5807,12 @@ void emitter::emitIns_SIMD_R_R_R_A(
     emitIns_R_R_A(ins, attr, targetReg, op2Reg, addr);
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_R_C: emits the code for a SIMD instruction that takes two register operands, a field handle +
-//                       offset, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op2Reg    -- The register of the second operand
-//    fldHnd    -- The CORINFO_FIELD_HANDLE used for the memory address
-//    offs      -- The offset added to the memory address from fldHnd
-//
 void emitter::emitIns_SIMD_R_R_R_C(instruction          ins,
                                    emitAttr             attr,
                                    regNumber            targetReg,
                                    regNumber            op1Reg,
                                    regNumber            op2Reg,
-                                   CORINFO_FIELD_HANDLE fldHnd,
-                                   int                  offs)
+                                   CORINFO_FIELD_HANDLE fldHnd)
 {
     assert(IsFMAInstruction(ins));
     assert(UseVEXEncoding());
@@ -5884,7 +5821,7 @@ void emitter::emitIns_SIMD_R_R_R_C(instruction          ins,
     assert((op2Reg != targetReg) || (op1Reg == targetReg));
 
     emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-    emitIns_R_R_C(ins, attr, targetReg, op2Reg, fldHnd, offs);
+    emitIns_R_R_C(ins, attr, targetReg, op2Reg, fldHnd);
 }
 
 //------------------------------------------------------------------------
@@ -6034,26 +5971,12 @@ void emitter::emitIns_SIMD_R_R_A_R(
     }
 }
 
-//------------------------------------------------------------------------
-// emitIns_SIMD_R_R_C_R: emits the code for a SIMD instruction that takes a register operand, a field handle +
-//                       offset,  another register operand, and that returns a value in register
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    targetReg -- The target register
-//    op1Reg    -- The register of the first operand
-//    op3Reg    -- The register of the third operand
-//    fldHnd    -- The CORINFO_FIELD_HANDLE used for the memory address
-//    offs      -- The offset added to the memory address from fldHnd
-//
 void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
                                    emitAttr             attr,
                                    regNumber            targetReg,
                                    regNumber            op1Reg,
                                    regNumber            op3Reg,
-                                   CORINFO_FIELD_HANDLE fldHnd,
-                                   int                  offs)
+                                   CORINFO_FIELD_HANDLE fldHnd)
 {
     if (UseVEXEncoding())
     {
@@ -6086,7 +6009,7 @@ void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
             }
         }
 
-        emitIns_R_R_C_R(ins, attr, targetReg, op1Reg, op3Reg, fldHnd, offs);
+        emitIns_R_R_C_R(ins, attr, targetReg, op1Reg, op3Reg, fldHnd);
     }
     else
     {
@@ -6102,7 +6025,7 @@ void emitter::emitIns_SIMD_R_R_C_R(instruction          ins,
         assert(targetReg != REG_XMM0);
 
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_C(ins, attr, targetReg, fldHnd, offs);
+        emitIns_R_C(ins, attr, targetReg, fldHnd, 0);
     }
 }
 

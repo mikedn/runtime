@@ -513,7 +513,7 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
                     break;
 
                 case GT_CLS_VAR_ADDR:
-                    GetEmitter()->emitIns_R_C_I(ins, attr, reg1, addr->AsClsVar()->gtClsVarHnd, 0, ival);
+                    GetEmitter()->emitIns_R_C_I(ins, attr, reg1, addr->AsClsVar()->gtClsVarHnd, ival);
                     return;
 
                 default:
@@ -610,7 +610,7 @@ void CodeGen::inst_RV_RV_TT(
                     break;
 
                 case GT_CLS_VAR_ADDR:
-                    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, addr->AsClsVar()->gtClsVarHnd, 0);
+                    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, addr->AsClsVar()->gtClsVarHnd);
                     return;
 
                 default:
@@ -638,7 +638,7 @@ void CodeGen::inst_RV_RV_TT(
                 {
                     CORINFO_FIELD_HANDLE cnsDblHnd =
                         GetEmitter()->emitFltOrDblConst(op2->AsDblCon()->GetValue(), emitTypeSize(op2->GetType()));
-                    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, cnsDblHnd, 0);
+                    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, cnsDblHnd);
                     return;
                 }
 
