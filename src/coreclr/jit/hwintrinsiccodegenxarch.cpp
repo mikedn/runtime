@@ -814,16 +814,10 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
             {
                 case GT_LCL_VAR_ADDR:
                 case GT_LCL_FLD_ADDR:
-                {
                     assert(addr->isContained());
                     varNum = addr->AsLclVarCommon()->GetLclNum();
                     offset = addr->AsLclVarCommon()->GetLclOffs();
                     break;
-                }
-
-                case GT_CLS_VAR_ADDR:
-                    emit->emitIns_SIMD_R_R_C_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr->AsClsVar()->gtClsVarHnd);
-                    return;
                 default:
                     emit->emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
                     return;

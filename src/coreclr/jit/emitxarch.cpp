@@ -5935,7 +5935,11 @@ void emitter::emitIns_SIMD_R_R_R_S(
 void emitter::emitIns_SIMD_R_R_A_R(
     instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op3Reg, GenTree* addr)
 {
-    if (UseVEXEncoding())
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_SIMD_R_R_C_R(ins, attr, targetReg, op1Reg, op3Reg, clsAddr->GetFieldHandle());
+    }
+    else if (UseVEXEncoding())
     {
         assert(isAvxBlendv(ins) || isSse41Blendv(ins));
 
