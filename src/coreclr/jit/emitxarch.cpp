@@ -3313,352 +3313,183 @@ void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTre
     emitCurIGsize += sz;
 }
 
-//------------------------------------------------------------------------
-// emitInsBinary: Emits an instruction for a node which takes two operands
-//
-// Arguments:
-//    ins - the instruction to emit
-//    attr - the instruction operand size
-//    dst - the destination and first source operand
-//    src - the second source operand
-//
-// Assumptions:
-//  i) caller of this routine needs to call genConsumeReg()
-// ii) caller of this routine needs to call genProduceReg()
 regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
 {
     assert(!instrHasImplicitRegPairDest(ins));
 
-    // We can only have one memory operand and only src can be a constant operand
-    // However, the handling for a given operand type (mem, cns, or other) is fairly
-    // consistent regardless of whether they are src or dst. As such, we will find
-    // the type of each operand and only check them against src/dst where relevant.
-
-    GenTree* memOp   = nullptr;
-    GenTree* cnsOp   = nullptr;
-    GenTree* otherOp = nullptr;
+    GenTree* memOp = nullptr;
+    GenTree* immOp = nullptr;
+    GenTree* regOp = nullptr;
 
     if (dst->isContained() || (dst->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD) && (dst->GetRegNum() == REG_NA)) ||
         dst->isUsedFromSpillTemp())
     {
-        // dst can only be a modrm
-        // dst on 3opImul isn't really the dst
         assert(dst->isUsedFromMemory() || (dst->GetRegNum() == REG_NA) || instrIs3opImul(ins));
-        assert(!src->isUsedFromMemory());
 
         memOp = dst;
 
         if (src->isContained())
         {
-            assert(src->IsCnsIntOrI());
-            cnsOp = src;
+            assert(src->IsIntCon());
+
+            immOp = src;
         }
         else
         {
-            otherOp = src;
+            assert(src->isUsedFromReg());
+
+            regOp = src;
         }
     }
     else if (src->isContained() || src->isUsedFromSpillTemp())
     {
-        assert(!dst->isUsedFromMemory());
-        otherOp = dst;
+        assert(dst->isUsedFromReg());
 
-        if ((src->IsCnsIntOrI() || src->IsCnsFltOrDbl()) && !src->isUsedFromSpillTemp())
+        regOp = dst;
+
+        if ((src->IsIntCon() || src->IsDblCon()) && !src->isUsedFromSpillTemp())
         {
-            assert(!src->isUsedFromMemory() || src->IsCnsFltOrDbl());
-            cnsOp = src;
+            assert(!src->isUsedFromMemory() || src->IsDblCon());
+
+            immOp = src;
         }
         else
         {
             assert(src->isUsedFromMemory());
+
             memOp = src;
         }
     }
-
-    // At this point, we either have a memory operand or we don't.
-    //
-    // If we don't then the logic is very simple and  we will either be emitting a
-    // `reg, immed` instruction (if src is a cns) or a `reg, reg` instruction otherwise.
-    //
-    // If we do have a memory operand, the logic is a bit more complicated as we need
-    // to do different things depending on the type of memory operand. These types include:
-    //  * Spill temp
-    //  * Indirect access
-    //    * Local variable
-    //    * Class variable
-    //    * Addressing mode [base + index * scale + offset]
-    //  * Local field
-    //  * Local variable
-    //
-    // Most of these types (except Indirect: Class variable and Indirect: Addressing mode)
-    // give us a a local variable number and an offset and access memory on the stack
-    //
-    // Indirect: Class variable is used for access static class variables and gives us a handle
-    // to the memory location we read from
-    //
-    // Indirect: Addressing mode is used for the remaining memory accesses and will give us
-    // a base address, an index, a scale, and an offset. These are combined to let us easily
-    // access the given memory location.
-    //
-    // In all of the memory access cases, we determine which form to emit (e.g. `reg, [mem]`
-    // or `[mem], reg`) by comparing memOp to src to determine which `emitIns_*` method needs
-    // to be called. The exception is for the `[mem], immed` case (for Indirect: Class variable)
-    // where only src can be the immediate.
-
-    if (memOp != nullptr)
+    else
     {
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        assert(dst->isUsedFromReg() && src->isUsedFromReg());
 
-        if (memOp->isUsedFromSpillTemp())
+        emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
+
+        return dst->GetRegNum();
+    }
+
+    if (memOp == nullptr)
+    {
+        if (GenTreeDblCon* dblCon = immOp->IsDblCon())
         {
-            assert(memOp->IsRegOptional());
-
-            tmpDsc = codeGen->getSpillTempDsc(memOp);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            codeGen->regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (memOp->OperIs(GT_IND))
-        {
-            GenTree* addr = memOp->AsIndir()->GetAddr();
-
-            switch (addr->GetOper())
-            {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-
-                case GT_CLS_VAR_ADDR:
-                {
-                    if (memOp == src)
-                    {
-                        assert(otherOp == dst);
-                        assert(cnsOp == nullptr);
-
-                        emitIns_R_C(ins, attr, dst->GetRegNum(), addr->AsClsVar()->gtClsVarHnd);
-                    }
-                    else
-                    {
-                        assert(memOp == dst);
-
-                        if (cnsOp != nullptr)
-                        {
-                            assert(cnsOp == src);
-                            assert(otherOp == nullptr);
-                            assert(src->IsCnsIntOrI());
-
-                            // src is an contained immediate
-                            // dst is a class static variable
-                            emitIns_C_I(ins, attr, addr->AsClsVar()->gtClsVarHnd,
-                                        (int)src->AsIntConCommon()->IconValue());
-                        }
-                        else
-                        {
-                            assert(otherOp == src);
-
-                            // src is a register
-                            // dst is a class static variable
-                            emitIns_C_R(ins, attr, addr->AsClsVar()->gtClsVarHnd, src->GetRegNum());
-                        }
-                    }
-
-                    return dst->GetRegNum();
-                }
-
-                default: // Addressing mode [base + index * scale + offset]
-                {
-                    instrDesc* id = nullptr;
-
-                    if (cnsOp != nullptr)
-                    {
-                        assert(memOp == dst);
-                        assert(cnsOp == src);
-                        assert(otherOp == nullptr);
-                        assert(src->IsCnsIntOrI());
-
-                        id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), (int)src->AsIntConCommon()->IconValue());
-                    }
-                    else
-                    {
-                        id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-                        id->idIns(ins);
-
-                        GenTree* regTree = (memOp == src) ? dst : src;
-
-                        // there must be one non-contained op
-                        assert(!regTree->isContained());
-                        id->idReg1(regTree->GetRegNum());
-                    }
-                    assert(id != nullptr);
-
-                    id->idIns(ins); // Set the instruction.
-
-                    // Determine the instruction format
-                    insFormat fmt = IF_NONE;
-
-                    if (memOp == src)
-                    {
-                        assert(cnsOp == nullptr);
-                        assert(otherOp == dst);
-
-                        fmt = emitInsModeFormat(ins, IF_RRD_ARD);
-                    }
-                    else
-                    {
-                        assert(memOp == dst);
-
-                        if (cnsOp != nullptr)
-                        {
-                            assert(cnsOp == src);
-                            assert(otherOp == nullptr);
-                            assert(src->IsCnsIntOrI());
-
-                            fmt = emitInsModeFormat(ins, IF_ARD_CNS);
-                        }
-                        else
-                        {
-                            assert(otherOp == src);
-                            fmt = emitInsModeFormat(ins, IF_ARD_RRD);
-                        }
-                    }
-                    assert(fmt != IF_NONE);
-                    SetInstrAddrMode(id, fmt, ins, addr);
-
-                    // Determine the instruction size
-                    UNATIVE_OFFSET sz = 0;
-
-                    if (memOp == src)
-                    {
-                        assert(otherOp == dst);
-                        assert(cnsOp == nullptr);
-
-                        sz = emitInsSizeAM(id, insCodeRM(ins));
-                    }
-                    else
-                    {
-                        assert(memOp == dst);
-
-                        if (cnsOp != nullptr)
-                        {
-                            assert(memOp == dst);
-                            assert(cnsOp == src);
-                            assert(otherOp == nullptr);
-
-                            sz = emitInsSizeAM(id, insCodeMI(ins), (int)src->AsIntConCommon()->IconValue());
-                        }
-                        else
-                        {
-                            assert(otherOp == src);
-                            sz = emitInsSizeAM(id, insCodeMR(ins));
-                        }
-                    }
-                    assert(sz != 0);
-
-                    id->idCodeSize(sz);
-
-                    dispIns(id);
-                    emitCurIGsize += sz;
-
-                    return (memOp == src) ? dst->GetRegNum() : REG_NA;
-                }
-            }
+            CORINFO_FIELD_HANDLE field = emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+            emitIns_R_C(ins, attr, regOp->GetRegNum(), field);
         }
         else
         {
-            switch (memOp->OperGet())
+            assert(!dst->isContained());
+
+            emitIns_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
+        }
+
+        return regOp->GetRegNum();
+    }
+
+    unsigned lclNum;
+    unsigned lclOffs;
+
+    if (memOp->isUsedFromSpillTemp())
+    {
+        TempDsc* tmpDsc = codeGen->getSpillTempDsc(memOp);
+
+        lclNum  = tmpDsc->tdTempNum();
+        lclOffs = 0;
+
+        codeGen->regSet.tmpRlsTemp(tmpDsc);
+    }
+    else if (memOp->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+    {
+        lclNum  = memOp->AsLclFld()->GetLclNum();
+        lclOffs = memOp->AsLclFld()->GetLclOffs();
+    }
+    else if (memOp->OperIs(GT_LCL_VAR))
+    {
+        assert(memOp->IsRegOptional() || !emitComp->lvaGetDesc(memOp->AsLclVar())->IsRegCandidate());
+
+        lclNum  = memOp->AsLclVar()->GetLclNum();
+        lclOffs = 0;
+    }
+    else
+    {
+        GenTree* addr = memOp->AsIndir()->GetAddr();
+
+        if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+        {
+            if (memOp == src)
             {
-                case GT_LCL_FLD:
-                case GT_STORE_LCL_FLD:
-                    varNum = memOp->AsLclFld()->GetLclNum();
-                    offset = memOp->AsLclFld()->GetLclOffs();
-                    break;
-
-                case GT_LCL_VAR:
-                {
-                    assert(memOp->IsRegOptional() ||
-                           !emitComp->lvaTable[memOp->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-                    varNum = memOp->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-                }
-
-                default:
-                    unreached();
-                    break;
+                emitIns_R_C(ins, attr, regOp->GetRegNum(), clsAddr->GetFieldHandle());
             }
-        }
-
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        if (memOp == src)
-        {
-            assert(otherOp == dst);
-            assert(cnsOp == nullptr);
-
-            emitIns_R_S(ins, attr, dst->GetRegNum(), varNum, offset);
-        }
-        else
-        {
-            assert(memOp == dst);
-            assert((dst->GetRegNum() == REG_NA) || dst->IsRegOptional());
-
-            if (cnsOp != nullptr)
+            else if (immOp != nullptr)
             {
-                assert(cnsOp == src);
-                assert(otherOp == nullptr);
-                assert(src->IsCnsIntOrI());
-
-                // src is an contained immediate
-                // dst is a stack based local variable
-                emitIns_S_I(ins, attr, varNum, offset, (int)src->AsIntConCommon()->IconValue());
+                emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), immOp->AsIntCon()->GetInt32Value());
             }
             else
             {
-                assert(otherOp == src);
-                assert(!src->isContained());
-
-                // src is a register
-                // dst is a stack based local variable
-                emitIns_S_R(ins, attr, src->GetRegNum(), varNum, offset);
+                emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), regOp->GetRegNum());
             }
-        }
-    }
-    else if (cnsOp != nullptr) // reg, immed
-    {
-        assert(cnsOp == src);
-        assert(otherOp == dst);
 
-        if (src->IsCnsIntOrI())
+            return dst->GetRegNum();
+        }
+
+        if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
-            assert(!dst->isContained());
-            GenTreeIntConCommon* intCns = src->AsIntConCommon();
-            emitIns_R_I(ins, attr, dst->GetRegNum(), intCns->IconValue());
-        }
-        else
-        {
-            assert(src->IsCnsFltOrDbl());
-            GenTreeDblCon* dblCns = src->AsDblCon();
+            instrDesc* id;
 
-            CORINFO_FIELD_HANDLE hnd = emitFltOrDblConst(dblCns->gtDconVal, emitTypeSize(dblCns));
-            emitIns_R_C(ins, attr, dst->GetRegNum(), hnd);
+            if (immOp != nullptr)
+            {
+                id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), src->AsIntCon()->GetInt32Value());
+            }
+            else
+            {
+                id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
+                id->idReg1(regOp->GetRegNum());
+            }
+
+            id->idIns(ins);
+
+            UNATIVE_OFFSET sz = 0;
+
+            if (memOp == src)
+            {
+                SetInstrAddrMode(id, emitInsModeFormat(ins, IF_RRD_ARD), ins, addr);
+                sz = emitInsSizeAM(id, insCodeRM(ins));
+            }
+            else if (immOp != nullptr)
+            {
+                SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_CNS), ins, addr);
+                sz = emitInsSizeAM(id, insCodeMI(ins), immOp->AsIntCon()->GetInt32Value());
+            }
+            else
+            {
+                SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_RRD), ins, addr);
+                sz = emitInsSizeAM(id, insCodeMR(ins));
+            }
+
+            id->idCodeSize(sz);
+            dispIns(id);
+            emitCurIGsize += sz;
+
+            return (memOp == src) ? dst->GetRegNum() : REG_NA;
         }
+
+        assert(addr->isContained());
+
+        lclNum  = addr->AsLclVarCommon()->GetLclNum();
+        lclOffs = addr->AsLclVarCommon()->GetLclOffs();
     }
-    else // reg, reg
-    {
-        assert(otherOp == nullptr);
-        assert(!src->isContained() && !dst->isContained());
 
-        emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
+    if (memOp == src)
+    {
+        emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+    }
+    else if (immOp != nullptr)
+    {
+        emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
+    }
+    else
+    {
+        emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
     }
 
     return dst->GetRegNum();
@@ -8719,7 +8550,7 @@ void emitter::emitDispIns(
 
         case IF_RWR_MRD_OFF:
 
-            printf("%s, %s", emitRegName(id->idReg1(), attr), "offset");
+            printf("%s, %s", emitRegName(id->idReg1(), attr), "lclOffs");
             offs = emitGetInsDsp(id);
             emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
             break;
@@ -8775,7 +8606,7 @@ void emitter::emitDispIns(
 
         case IF_MRD_OFF:
 
-            printf("offset ");
+            printf("lclOffs ");
             offs = emitGetInsDsp(id);
             emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
             break;
