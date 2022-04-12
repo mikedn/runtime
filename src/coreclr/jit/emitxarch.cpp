@@ -3236,10 +3236,10 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
         return;
     }
 
-    assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     id->idIns(ins);
-    SetInstrAddrMode(id, IF_ARD, ins, addr);
+    SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD), ins, addr);
+
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
@@ -3533,31 +3533,9 @@ void emitter::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
     }
     else
     {
-        GenTree* addr = src->AsIndir()->GetAddr();
+        emitIns_A(ins, attr, src->AsIndir()->GetAddr());
 
-        if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-        {
-            emitIns_C(ins, attr, clsAddr->GetFieldHandle());
-            return;
-        }
-
-        if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-        {
-            instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-            id->idIns(ins);
-            SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD), ins, addr);
-
-            UNATIVE_OFFSET sz = emitInsSizeAM(id, insCode(ins));
-            id->idCodeSize(sz);
-            dispIns(id);
-            emitCurIGsize += sz;
-
-            return;
-        }
-
-        assert(addr->isContained());
-        lclNum  = addr->AsLclVarCommon()->GetLclNum();
-        lclOffs = addr->AsLclVarCommon()->GetLclOffs();
+        return;
     }
 
     emitIns_S(ins, attr, lclNum, lclOffs);
