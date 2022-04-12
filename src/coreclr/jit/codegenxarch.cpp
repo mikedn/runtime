@@ -605,16 +605,7 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
     // Setup targetReg when neither of the source operands was a matching register
     inst_Mov(targetType, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
 
-    instruction ins;
-    if ((treeNode->gtFlags & GTF_UNSIGNED) == 0)
-    {
-        ins = INS_imulEAX;
-    }
-    else
-    {
-        ins = INS_mulEAX;
-    }
-    emit->emitInsBinary(ins, size, treeNode, rmOp);
+    emit->emitInsUnary(treeNode->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
 
     // Move the result to the desired register, if necessary
     if (treeNode->OperGet() == GT_MULHI)
@@ -768,18 +759,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
         gcInfo.gcMarkRegSetNpt(RBM_RDX);
     }
 
-    // Perform the 'type' (64-bit or 32-bit) divide instruction
-    instruction ins;
-    if (oper == GT_UMOD || oper == GT_UDIV)
-    {
-        ins = INS_div;
-    }
-    else
-    {
-        ins = INS_idiv;
-    }
-
-    emit->emitInsBinary(ins, size, treeNode, divisor);
+    emit->emitInsUnary((oper == GT_UMOD) || (oper == GT_UDIV) ? INS_div : INS_idiv, size, divisor);
 
     // DIV/IDIV instructions always store the quotient in RAX and the remainder in RDX.
     // Move the result to the desired register, if necessary
@@ -1071,12 +1051,14 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
         // Setup targetReg when neither of the source operands was a matching register
         inst_Mov(targetType, mulTargetReg, regOp->GetRegNum(), /* canSkip */ true);
 
-        emit->emitInsBinary(ins, size, treeNode, rmOp);
-
-        // Move the result to the desired register, if necessary
         if (ins == INS_mulEAX)
         {
+            emit->emitInsUnary(ins, size, rmOp);
             inst_Mov(targetType, targetReg, REG_RAX, /* canSkip */ true);
+        }
+        else
+        {
+            emit->emitInsBinary(ins, size, treeNode, rmOp);
         }
     }
 
