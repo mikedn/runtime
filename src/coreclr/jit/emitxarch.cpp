@@ -3336,7 +3336,8 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
     GenTree* cnsOp   = nullptr;
     GenTree* otherOp = nullptr;
 
-    if (dst->isContained() || (dst->isLclField() && (dst->GetRegNum() == REG_NA)) || dst->isUsedFromSpillTemp())
+    if (dst->isContained() || (dst->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD) && (dst->GetRegNum() == REG_NA)) ||
+        dst->isUsedFromSpillTemp())
     {
         // dst can only be a modrm
         // dst on 3opImul isn't really the dst

@@ -939,16 +939,11 @@ public:
         return isContained() && (OperGet() == GT_CNS_DBL);
     }
 
-    bool isLclField() const
-    {
-        return OperGet() == GT_LCL_FLD || OperGet() == GT_STORE_LCL_FLD;
-    }
-
     bool isUsedFromSpillTemp() const;
 
     bool isMemoryOp() const
     {
-        return OperIs(GT_IND, GT_STOREIND) || isLclField();
+        return OperIs(GT_IND, GT_STOREIND, GT_LCL_FLD, GT_STORE_LCL_FLD);
     }
 
     bool isUsedFromMemory() const
