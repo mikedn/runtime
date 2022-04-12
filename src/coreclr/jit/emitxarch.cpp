@@ -3441,18 +3441,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         assert(otherOp == dst);
                         assert(cnsOp == nullptr);
 
-                        if (instrHasImplicitRegPairDest(ins))
-                        {
-                            // src is a class static variable
-                            // dst is implicit - RDX:RAX
-                            emitIns_C(ins, attr, addr->AsClsVar()->gtClsVarHnd);
-                        }
-                        else
-                        {
-                            // src is a class static variable
-                            // dst is a register
-                            emitIns_R_C(ins, attr, dst->GetRegNum(), addr->AsClsVar()->gtClsVarHnd);
-                        }
+                        emitIns_R_C(ins, attr, dst->GetRegNum(), addr->AsClsVar()->gtClsVarHnd);
                     }
                     else
                     {
@@ -3518,14 +3507,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         assert(cnsOp == nullptr);
                         assert(otherOp == dst);
 
-                        if (instrHasImplicitRegPairDest(ins))
-                        {
-                            fmt = emitInsModeFormat(ins, IF_ARD);
-                        }
-                        else
-                        {
-                            fmt = emitInsModeFormat(ins, IF_RRD_ARD);
-                        }
+                        fmt = emitInsModeFormat(ins, IF_RRD_ARD);
                     }
                     else
                     {
@@ -3556,14 +3538,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                         assert(otherOp == dst);
                         assert(cnsOp == nullptr);
 
-                        if (instrHasImplicitRegPairDest(ins))
-                        {
-                            sz = emitInsSizeAM(id, insCode(ins));
-                        }
-                        else
-                        {
-                            sz = emitInsSizeAM(id, insCodeRM(ins));
-                        }
+                        sz = emitInsSizeAM(id, insCodeRM(ins));
                     }
                     else
                     {
@@ -3630,18 +3605,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
             assert(otherOp == dst);
             assert(cnsOp == nullptr);
 
-            if (instrHasImplicitRegPairDest(ins))
-            {
-                // src is a stack based local variable
-                // dst is implicit - RDX:RAX
-                emitIns_S(ins, attr, varNum, offset);
-            }
-            else
-            {
-                // src is a stack based local variable
-                // dst is a register
-                emitIns_R_S(ins, attr, dst->GetRegNum(), varNum, offset);
-            }
+            emitIns_R_S(ins, attr, dst->GetRegNum(), varNum, offset);
         }
         else
         {
@@ -3694,14 +3658,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
         assert(otherOp == nullptr);
         assert(!src->isContained() && !dst->isContained());
 
-        if (instrHasImplicitRegPairDest(ins))
-        {
-            emitIns_R(ins, attr, src->GetRegNum());
-        }
-        else
-        {
-            emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
-        }
+        emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
     }
 
     return dst->GetRegNum();
