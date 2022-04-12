@@ -103,11 +103,6 @@ inline regNumber emitter::inst3opImulReg(instruction ins)
 
 #ifdef TARGET_XARCH
 
-inline ssize_t emitter::emitGetInsAmd(instrDesc* id)
-{
-    return id->idIsLargeDsp() ? ((instrDescAmd*)id)->idaAmdVal : id->idAddr()->iiaAddrMode.amDisp;
-}
-
 inline int emitter::emitGetInsCDinfo(instrDesc* id)
 {
     if (id->idIsLargeCall())
