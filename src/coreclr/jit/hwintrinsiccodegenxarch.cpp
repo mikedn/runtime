@@ -38,7 +38,7 @@ static bool IsContainableHWIntrinsicOp(Lowering* lowering, GenTreeHWIntrinsic* n
 
     bool supportsRegOptional = false;
     bool isContainable       = lowering->IsContainableHWIntrinsicOp(node, op, &supportsRegOptional);
-    return isContainable || supportsRegOptional;
+    return isContainable || supportsRegOptional || op->OperIs(GT_IND);
 }
 #endif // DEBUG
 
