@@ -572,20 +572,12 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
-        if (GenTreeDblCon* dblCon = op2->IsDblCon())
+        if (op2->IsDblConPositiveZero())
         {
             assert(ins == INS_insertps);
 
-            if (dblCon->IsPositiveZero())
-            {
-                ival |= 1 << ((ival >> 4) & 0b11);
-                emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival);
-            }
-            else
-            {
-                CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
-                emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, hnd, ival);
-            }
+            ival |= 1 << ((ival >> 4) & 0b11);
+            emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival);
 
             return;
         }
