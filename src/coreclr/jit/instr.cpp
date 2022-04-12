@@ -501,48 +501,90 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
     return false;
 }
 
+bool CodeGen::IsMemoryOperand(
+    GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field)
+{
+    if (IsLocalMemoryOperand(op, lclNum, lclOffs))
+    {
+        *addr  = nullptr;
+        *field = nullptr;
+
+        return true;
+    }
+
+    if (GenTreeDblCon* dblCon = op->IsDblCon())
+    {
+        *addr  = nullptr;
+        *field = GetEmitter()->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+
+        return true;
+    }
+
+    GenTree* loadAddr;
+
+    if (op->OperIs(GT_IND))
+    {
+        loadAddr = op->AsIndir()->GetAddr();
+    }
+#ifdef FEATURE_HW_INTRINSICS
+    else if (GenTreeHWIntrinsic* intrin = op->IsHWIntrinsic())
+    {
+        assert(intrin->OperIsMemoryLoad());
+        assert(intrin->IsUnary());
+
+        loadAddr = intrin->GetOp(0);
+    }
+#endif
+    else
+    {
+        return false;
+    }
+
+    if (loadAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        assert(loadAddr->isContained());
+
+        *lclNum  = loadAddr->AsLclVarCommon()->GetLclNum();
+        *lclOffs = loadAddr->AsLclVarCommon()->GetLclOffs();
+        *addr    = nullptr;
+        *field   = nullptr;
+    }
+    else
+    {
+        *addr  = loadAddr;
+        *field = nullptr;
+    }
+
+    return true;
+}
+
 void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival)
 {
     noway_assert(GetEmitter()->emitVerifyEncodable(ins, EA_SIZE(attr), reg1));
 
     if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
     {
-        unsigned lclNum;
-        unsigned lclOffs;
+        unsigned             lclNum;
+        unsigned             lclOffs;
+        GenTree*             addr;
+        CORINFO_FIELD_HANDLE field;
 
-        if (!IsLocalMemoryOperand(rmOp, &lclNum, &lclOffs))
+        if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
         {
-            noway_assert(rmOp->OperIs(GT_IND) || rmOp->OperIsHWIntrinsic());
-
-            GenTree* addr;
-
-            if (rmOp->OperIs(GT_IND))
-            {
-                addr = rmOp->AsIndir()->Addr();
-            }
-            else
-            {
-#if defined(FEATURE_HW_INTRINSICS)
-                assert(rmOp->AsHWIntrinsic()->OperIsMemoryLoad());
-                assert(rmOp->AsHWIntrinsic()->IsUnary());
-                addr = rmOp->AsHWIntrinsic()->GetOp(0);
-#else
-                unreached();
-#endif
-            }
-
-            if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-            {
-                GetEmitter()->emitIns_R_A_I(ins, attr, reg1, addr, ival);
-                return;
-            }
-
-            assert(addr->isContained());
-            lclNum  = addr->AsLclVarCommon()->GetLclNum();
-            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
+            unreached();
         }
-
-        GetEmitter()->emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
+        else if (addr != nullptr)
+        {
+            GetEmitter()->emitIns_R_A_I(ins, attr, reg1, addr, ival);
+        }
+        else if (field != nullptr)
+        {
+            GetEmitter()->emitIns_R_C_I(ins, attr, reg1, field, ival);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
+        }
     }
     else
     {
@@ -561,52 +603,27 @@ void CodeGen::inst_RV_RV_TT(
 
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
-        unsigned lclNum;
-        unsigned lclOffs;
+        unsigned             lclNum;
+        unsigned             lclOffs;
+        GenTree*             addr;
+        CORINFO_FIELD_HANDLE field;
 
-        if (IsLocalMemoryOperand(op2, &lclNum, &lclOffs))
+        if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
         {
+            unreached();
         }
-        else if (op2->OperIs(GT_CNS_DBL))
+        else if (addr != nullptr)
         {
-            CORINFO_FIELD_HANDLE cnsDblHnd =
-                GetEmitter()->emitFltOrDblConst(op2->AsDblCon()->GetValue(), emitTypeSize(op2->GetType()));
-            GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, cnsDblHnd);
-            return;
+            GetEmitter()->emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
+        }
+        else if (field != nullptr)
+        {
+            GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, field);
         }
         else
         {
-            noway_assert(op2->OperIs(GT_IND) || op2->OperIsHWIntrinsic());
-
-            GenTree* addr;
-
-            if (op2->OperIs(GT_IND))
-            {
-                addr = op2->AsIndir()->GetAddr();
-            }
-            else
-            {
-#if defined(FEATURE_HW_INTRINSICS)
-                assert(op2->AsHWIntrinsic()->OperIsMemoryLoad());
-                assert(op2->AsHWIntrinsic()->IsUnary());
-                addr = op2->AsHWIntrinsic()->GetOp(0);
-#else
-                unreached();
-#endif // FEATURE_HW_INTRINSICS
-            }
-
-            if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-            {
-                GetEmitter()->emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
-                return;
-            }
-
-            assert(addr->isContained());
-            lclNum  = addr->AsLclVarCommon()->GetLclNum();
-            lclOffs = addr->AsLclVarCommon()->GetLclOffs();
+            GetEmitter()->emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
         }
-
-        GetEmitter()->emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
     }
     else
     {
