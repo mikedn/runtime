@@ -3505,81 +3505,62 @@ void emitter::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
 
     assert(src->isUsedFromMemory());
 
-    TempDsc* tmpDsc = nullptr;
-    unsigned varNum = BAD_VAR_NUM;
-    unsigned offset = (unsigned)-1;
+    unsigned lclNum;
+    unsigned lclOffs;
 
     if (src->isUsedFromSpillTemp())
     {
         assert(src->IsRegOptional());
 
-        tmpDsc = codeGen->getSpillTempDsc(src);
-        varNum = tmpDsc->tdTempNum();
-        offset = 0;
+        TempDsc* tmpDsc = codeGen->getSpillTempDsc(src);
+
+        lclNum  = tmpDsc->tdTempNum();
+        lclOffs = 0;
 
         codeGen->regSet.tmpRlsTemp(tmpDsc);
     }
-    else if (src->OperIs(GT_IND))
+    else if (src->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
     {
-        GenTree* addr = src->AsIndir()->GetAddr();
+        lclNum  = src->AsLclFld()->GetLclNum();
+        lclOffs = src->AsLclFld()->GetLclOffs();
+    }
+    else if (src->OperIs(GT_LCL_VAR))
+    {
+        assert(src->IsRegOptional() || !emitComp->lvaGetDesc(src->AsLclVar())->IsRegCandidate());
 
-        switch (addr->GetOper())
-        {
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
-                assert(addr->isContained());
-                varNum = addr->AsLclVarCommon()->GetLclNum();
-                offset = addr->AsLclVarCommon()->GetLclOffs();
-                break;
-
-            case GT_CLS_VAR_ADDR:
-                emitIns_C(ins, attr, addr->AsClsVar()->gtClsVarHnd);
-                return;
-
-            default:
-            {
-                instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-                id->idIns(ins);
-                SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD), ins, addr);
-
-                UNATIVE_OFFSET sz = emitInsSizeAM(id, insCode(ins));
-                id->idCodeSize(sz);
-                dispIns(id);
-                emitCurIGsize += sz;
-
-                return;
-            }
-        }
+        lclNum  = src->AsLclVar()->GetLclNum();
+        lclOffs = 0;
     }
     else
     {
-        switch (src->OperGet())
+        GenTree* addr = src->AsIndir()->GetAddr();
+
+        if (GenTreeClsVar* clsAddr = addr->IsClsVar())
         {
-            case GT_LCL_FLD:
-            case GT_STORE_LCL_FLD:
-                varNum = src->AsLclFld()->GetLclNum();
-                offset = src->AsLclFld()->GetLclOffs();
-                break;
-
-            case GT_LCL_VAR:
-                assert(src->IsRegOptional() || !emitComp->lvaGetDesc(src->AsLclVar())->IsRegCandidate());
-                varNum = src->AsLclVar()->GetLclNum();
-                offset = 0;
-                break;
-
-            default:
-                unreached();
-                break;
+            emitIns_C(ins, attr, clsAddr->GetFieldHandle());
+            return;
         }
+
+        if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        {
+            instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
+            id->idIns(ins);
+            SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD), ins, addr);
+
+            UNATIVE_OFFSET sz = emitInsSizeAM(id, insCode(ins));
+            id->idCodeSize(sz);
+            dispIns(id);
+            emitCurIGsize += sz;
+
+            return;
+        }
+
+        assert(addr->isContained());
+        lclNum  = addr->AsLclVarCommon()->GetLclNum();
+        lclOffs = addr->AsLclVarCommon()->GetLclOffs();
     }
 
-    // Ensure we got a good varNum and offset.
-    // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-    // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-    assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-    assert(offset != (unsigned)-1);
-
-    emitIns_S(ins, attr, varNum, offset);
+    emitIns_S(ins, attr, lclNum, lclOffs);
 }
 
 // Emits a binary RMW operation (e.g. add dword ptr [rsi+42], ecx)
