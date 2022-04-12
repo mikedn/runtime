@@ -946,14 +946,9 @@ public:
 
     bool isUsedFromSpillTemp() const;
 
-    bool isIndir() const
-    {
-        return OperGet() == GT_IND || OperGet() == GT_STOREIND;
-    }
-
     bool isMemoryOp() const
     {
-        return isIndir() || isLclField();
+        return OperIs(GT_IND, GT_STOREIND) || isLclField();
     }
 
     bool isUsedFromMemory() const
