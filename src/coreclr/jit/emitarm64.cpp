@@ -13356,37 +13356,6 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
     }
 }
 
-// The callee must call genConsumeReg() for any non-contained srcs
-// and genProduceReg() for any non-contained dsts.
-
-void emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
-{
-    // dst can only be a reg
-    assert(!dst->isContained());
-
-    // src can be immed or reg
-    assert(!src->isContained() || src->isContainedIntOrIImmed());
-
-    // find immed (if any) - it cannot be a dst
-    GenTreeIntConCommon* intConst = nullptr;
-    if (src->isContainedIntOrIImmed())
-    {
-        intConst = src->AsIntConCommon();
-    }
-
-    if (intConst)
-    {
-        emitIns_R_I(ins, attr, dst->GetRegNum(), intConst->IconValue());
-    }
-    else
-    {
-        emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
-    }
-}
-
-// The callee must call genConsumeReg() for any non-contained srcs
-// and genProduceReg() for any non-contained dsts.
-
 regNumber emitter::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)
 {
     // dst can only be a reg

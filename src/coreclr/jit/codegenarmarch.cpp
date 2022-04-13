@@ -1209,30 +1209,42 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* node)
     GenTree*  length = node->GetLength();
     var_types type   = varActualType(index->GetType());
 
-    assert((type == TYP_INT) || (type == TYP_LONG));
     assert(type == varActualType(length->GetType()));
+#ifdef TARGET_64BIT
+    assert((type == TYP_INT) || (type == TYP_LONG));
+#else
+    assert(type == TYP_INT);
+#endif
 
-    if (index->isUsedFromReg())
-    {
-        UseReg(index);
-    }
-
-    if (length->isUsedFromReg())
-    {
-        UseReg(length);
-    }
-
-    GenTree*     src1    = index;
-    GenTree*     src2    = length;
+    emitAttr     attr    = emitTypeSize(type);
     emitJumpKind jmpKind = EJ_hs;
 
-    if (src1->IsContainedIntCon())
+    if (index->isUsedFromReg() && length->isUsedFromReg())
     {
-        std::swap(src1, src2);
-        jmpKind = EJ_ls;
+        regNumber indexReg  = UseReg(index);
+        regNumber lengthReg = UseReg(length);
+
+        GetEmitter()->emitIns_R_R(INS_cmp, attr, indexReg, lengthReg);
+    }
+    else
+    {
+        GenTree*       regOp = index;
+        GenTreeIntCon* immOp = length->IsContainedIntCon();
+
+        if (immOp == nullptr)
+        {
+            regOp   = length;
+            immOp   = index->AsIntCon();
+            jmpKind = EJ_ls;
+        }
+
+#ifdef TARGET_64BIT
+        GetEmitter()->emitIns_R_I(INS_cmp, attr, UseReg(regOp), immOp->GetValue());
+#else
+        GetEmitter()->emitIns_R_I(INS_cmp, attr, UseReg(regOp), immOp->GetInt32Value());
+#endif
     }
 
-    GetEmitter()->emitInsBinary(INS_cmp, emitTypeSize(type), src1, src2);
     genJumpToThrowHlpBlk(jmpKind, node->GetThrowKind(), node->GetThrowBlock());
 }
 
