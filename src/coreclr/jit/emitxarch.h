@@ -324,6 +324,7 @@ public:
 void emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenTree* addr);
 void emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* value);
 void emitInsUnary(instruction ins, emitAttr attr, GenTree* src);
+void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
 
 void emitLoopAlign(unsigned short paddingBytes);
 

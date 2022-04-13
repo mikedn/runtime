@@ -1052,11 +1052,13 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
         // vmrs with register 0xf has special meaning of transferring flags
         emit->emitIns_R(INS_vmrs, EA_4BYTE, REG_R15);
     }
+    else if (GenTreeIntCon* imm = op2->IsContainedIntCon())
+    {
+        emit->emitIns_R_I(INS_cmp, EA_4BYTE, op1->GetRegNum(), imm->GetInt32Value());
+    }
     else
     {
-        assert(!varTypeIsFloating(op2Type));
-        var_types cmpType = (op1Type == op2Type) ? op1Type : TYP_INT;
-        emit->emitInsBinary(INS_cmp, emitTypeSize(cmpType), op1, op2);
+        emit->emitIns_R_R(INS_cmp, EA_4BYTE, op1->GetRegNum(), op2->GetRegNum());
     }
 
     // Are we evaluating this into a register?

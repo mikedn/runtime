@@ -1721,7 +1721,6 @@ public:
 
 private:
     CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
-    void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
     insFormat emitMapFmtForIns(insFormat fmt, instruction ins);
     insFormat emitMapFmtAtoM(insFormat fmt);
