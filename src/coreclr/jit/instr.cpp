@@ -423,23 +423,16 @@ void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
     GetEmitter()->emitIns_S(ins, emitActualTypeSize(node->GetType()), lclNum, 0);
 }
 
-void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* node)
+void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVar* node)
 {
     assert(ins == INS_mov);
     assert(reg != REG_STK);
-    assert(size != EA_UNKNOWN);
     assert(!node->IsRegSpilled(0));
+    assert(node->OperIs(GT_LCL_VAR));
 
-    if (node->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR))
-    {
-        inst_set_SV_var(node->AsLclVar());
-    }
-    else
-    {
-        assert(node->OperIs(GT_LCL_FLD, GT_LCL_FLD_ADDR));
-    }
+    inst_set_SV_var(node);
 
-    GetEmitter()->emitIns_R_S(ins, size, reg, node->GetLclNum(), node->GetLclOffs());
+    GetEmitter()->emitIns_R_S(ins, size, reg, node->GetLclNum(), 0);
 }
 
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
