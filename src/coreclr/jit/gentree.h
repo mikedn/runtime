@@ -939,7 +939,11 @@ public:
         return isContained() && (OperGet() == GT_CNS_DBL);
     }
 
-    bool isUsedFromSpillTemp() const;
+    bool isUsedFromSpillTemp() const
+    {
+        // If spilled and no reg at use, then it is used from the spill temp location rather than being reloaded.
+        return IsAnyRegSpilled() && ((gtFlags & GTF_NOREG_AT_USE) != 0);
+    }
 
     bool isMemoryOp() const
     {
@@ -7736,12 +7740,6 @@ inline var_types GenTree::CastFromType()
 inline var_types& GenTree::CastToType()
 {
     return this->AsCast()->gtCastType;
-}
-
-inline bool GenTree::isUsedFromSpillTemp() const
-{
-    // If spilled and no reg at use, then it is used from the spill temp location rather than being reloaded.
-    return IsAnyRegSpilled() && ((gtFlags & GTF_NOREG_AT_USE) != 0);
 }
 
 /*****************************************************************************/

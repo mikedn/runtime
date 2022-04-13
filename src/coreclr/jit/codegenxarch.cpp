@@ -798,13 +798,21 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
 
     if (!op1->isUsedFromReg())
     {
+        // The first operand must be a register, it can't be memory as that would
+        // imply that this is a RMW operation and those are handled elsewhere.
+        // For commutative operators we may need to swap the operands to get the
+        // reg operand to be first.
+
+        // TODO-MIKE-Cleanup: Why doesn't lowering swap the operands? Leaving this
+        // to codegen would make sense if we could mark both operands reg-optional
+        // but since we cannot this is just added complication.
         assert(node->OperIsCommutative());
-        assert(op1->isMemoryOp() || op1->IsLocal() || op1->IsIntCnsFitsInI32() || op1->IsRegOptional());
+        assert(op2->isUsedFromReg());
 
         std::swap(op1, op2);
     }
 
-    regNumber op1reg = op1->isUsedFromReg() ? op1->GetRegNum() : REG_NA;
+    regNumber op1reg = op1->GetRegNum();
     regNumber op2reg = op2->isUsedFromReg() ? op2->GetRegNum() : REG_NA;
     regNumber dstReg = node->GetRegNum();
     emitter*  emit   = GetEmitter();
@@ -827,7 +835,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
     else
     {
         if (node->OperIs(GT_ADD) && !node->gtOverflow() && ((node->gtFlags & GTF_SET_FLAGS) == 0) &&
-            (op2->IsContainedIntCon() || op2->isUsedFromReg()))
+            (op2->IsContainedIntCon() || (op2reg != REG_NA)))
         {
             if (GenTreeIntCon* imm = op2->IsContainedIntCon())
             {
@@ -850,6 +858,15 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
 
         dst = node;
         src = op2;
+
+        // TODO-MIKE-Review: This seems a bit dodgy, emitInsBinary will try to determine
+        // if dst is a register by using isUsedFromSpillTemp(). This works even if the
+        // node will be spilled, obviously because we haven't spilled it yet. But sill,
+        // functions like isUsedFromSpillTemp() are primarily intended for users of the
+        // node, not for the node itself. It may be better to pass only the register to
+        // emitInsBinary, but unfortunately that requires a new version of emitInsBinary
+        // as the current one still needs to support an in-memory first operand for CMPs.
+        assert(dst->isUsedFromReg());
     }
 
     if (node->OperIs(GT_ADD) && src->IsContainedIntCon() && !node->gtOverflow())
@@ -869,9 +886,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
         }
     }
 
-    instruction ins = genGetInsForOper(node->GetOper(), node->GetType());
-    regNumber   r   = emit->emitInsBinary(ins, attr, dst, src);
-    noway_assert(r == dstReg);
+    emit->emitInsBinary(genGetInsForOper(node->GetOper(), node->GetType()), attr, dst, src);
 
     if (node->gtOverflowEx())
     {

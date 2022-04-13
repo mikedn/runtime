@@ -3133,6 +3133,11 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 // guess whether it is likely to be beneficial to mark op1 or op2 as
 // reg optional.
 //
+// TODO-MIKE-Review: It's not clear why only one operand can be marked
+// reg-optional. With some exceptions like CMP, the binary operator
+// will get a destination register anyway so if both operands end up
+// being spilled we can simply load the first into the destination reg
+// and use the second as a memory operand.
 //
 // Arguments:
 //     tree  -  a binary-op tree node that is either commutative
