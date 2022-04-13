@@ -7754,11 +7754,7 @@ void emitter::emitDispIns(
     /* Now see what instruction format we've got */
 
     // First print the implicit register usage
-    if (instrHasImplicitRegPairDest(ins))
-    {
-        printf("%s:%s, ", emitRegName(REG_EDX, id->idOpSize()), emitRegName(REG_EAX, id->idOpSize()));
-    }
-    else if (instrIs3opImul(ins))
+    if (instrIs3opImul(ins))
     {
         regNumber tgtReg = inst3opImulReg(ins);
         printf("%s, ", emitRegName(tgtReg, id->idOpSize()));
