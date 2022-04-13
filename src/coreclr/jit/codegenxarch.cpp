@@ -776,132 +776,115 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
+void CodeGen::genCodeForBinary(GenTreeOp* node)
 {
-    assert(varTypeIsIntegralOrI(treeNode->GetType()));
+    assert(varTypeIsIntegralOrI(node->GetType()));
 #ifdef DEBUG
-    bool isValidOper = treeNode->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR);
+    bool isValidOper = node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR);
 #ifndef TARGET_64BIT
-    isValidOper |= treeNode->OperIs(GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI);
+    isValidOper |= node->OperIs(GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI);
 #endif
     assert(isValidOper);
 #endif
 
-    const genTreeOps oper       = treeNode->OperGet();
-    regNumber        targetReg  = treeNode->GetRegNum();
-    var_types        targetType = treeNode->TypeGet();
-    emitter*         emit       = GetEmitter();
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
 
-    GenTree* op1 = treeNode->gtGetOp1();
-    GenTree* op2 = treeNode->gtGetOp2();
+    assert(IsValidSourceType(node->GetType(), op1->GetType()));
+    assert(IsValidSourceType(node->GetType(), op2->GetType()));
 
     genConsumeRegs(op1);
     genConsumeRegs(op2);
 
-    assert(IsValidSourceType(targetType, op1->GetType()));
-    assert(IsValidSourceType(targetType, op2->GetType()));
-
-    // Commutative operations can mark op1 as contained or reg-optional to generate "op reg, memop/immed"
     if (!op1->isUsedFromReg())
     {
-        assert(treeNode->OperIsCommutative());
+        assert(node->OperIsCommutative());
         assert(op1->isMemoryOp() || op1->IsLocal() || op1->IsIntCnsFitsInI32() || op1->IsRegOptional());
 
-        op1 = treeNode->gtGetOp2();
-        op2 = treeNode->gtGetOp1();
+        std::swap(op1, op2);
     }
-
-    instruction ins = genGetInsForOper(treeNode->OperGet(), targetType);
-
-    // The arithmetic node must be sitting in a register (since it's not contained)
-    noway_assert(targetReg != REG_NA);
 
     regNumber op1reg = op1->isUsedFromReg() ? op1->GetRegNum() : REG_NA;
     regNumber op2reg = op2->isUsedFromReg() ? op2->GetRegNum() : REG_NA;
+    regNumber dstReg = node->GetRegNum();
+    emitter*  emit   = GetEmitter();
+    emitAttr  attr   = emitTypeSize(node->GetType());
+    GenTree*  dst;
+    GenTree*  src;
 
-    GenTree* dst;
-    GenTree* src;
-
-    // This is the case of reg1 = reg1 op reg2
-    // We're ready to emit the instruction without any moves
-    if (op1reg == targetReg)
+    if (op1reg == dstReg)
     {
         dst = op1;
         src = op2;
     }
-    // We have reg1 = reg2 op reg1
-    // In order for this operation to be correct
-    // we need that op is a commutative operation so
-    // we can convert it into reg1 = reg1 op reg2 and emit
-    // the same code as above
-    else if (op2reg == targetReg)
+    else if (op2reg == dstReg)
     {
-        noway_assert(GenTree::OperIsCommutative(oper));
+        assert(node->OperIsCommutative());
+
         dst = op2;
         src = op1;
     }
-    // now we know there are 3 different operands so attempt to use LEA
-    else if (oper == GT_ADD && !treeNode->gtOverflowEx() // LEA does not set flags
-             && (op2->isContainedIntOrIImmed() || op2->isUsedFromReg()) && ((treeNode->gtFlags & GTF_SET_FLAGS) == 0))
-    {
-        if (op2->isContainedIntOrIImmed())
-        {
-            emit->emitIns_R_AR(INS_lea, emitTypeSize(treeNode), targetReg, op1reg,
-                               (int)op2->AsIntConCommon()->IconValue());
-        }
-        else
-        {
-            assert(op2reg != REG_NA);
-            emit->emitIns_R_ARX(INS_lea, emitTypeSize(treeNode), targetReg, op1reg, op2reg, 1, 0);
-        }
-        genProduceReg(treeNode);
-        return;
-    }
-    // dest, op1 and op2 registers are different:
-    // reg3 = reg1 op reg2
-    // We can implement this by issuing a mov:
-    // reg3 = reg1
-    // reg3 = reg3 op reg2
     else
     {
-        var_types op1Type = op1->TypeGet();
-        inst_Mov(op1Type, targetReg, op1reg, /* canSkip */ false);
-        regSet.verifyRegUsed(targetReg);
-        gcInfo.gcMarkRegPtrVal(targetReg, op1Type);
-        dst = treeNode;
+        if (node->OperIs(GT_ADD) && !node->gtOverflow() && ((node->gtFlags & GTF_SET_FLAGS) == 0) &&
+            (op2->IsContainedIntCon() || op2->isUsedFromReg()))
+        {
+            if (GenTreeIntCon* imm = op2->IsContainedIntCon())
+            {
+                emit->emitIns_R_AR(INS_lea, attr, dstReg, op1reg, imm->GetInt32Value());
+            }
+            else
+            {
+                emit->emitIns_R_ARX(INS_lea, attr, dstReg, op1reg, op2reg, 1, 0);
+            }
+
+            DefReg(node);
+
+            return;
+        }
+
+        inst_Mov(op1->GetType(), dstReg, op1reg, /* canSkip */ false);
+
+        regSet.verifyRegUsed(dstReg);
+        gcInfo.gcMarkRegPtrVal(dstReg, op1->GetType());
+
+        dst = node;
         src = op2;
     }
 
-    // try to use an inc or dec
-    if (oper == GT_ADD && src->isContainedIntOrIImmed() && !treeNode->gtOverflowEx())
+    if (node->OperIs(GT_ADD) && src->IsContainedIntCon() && !node->gtOverflow())
     {
-        if (src->IsIntegralConst(1))
+        if (src->IsIntCon(1))
         {
-            emit->emitIns_R(INS_inc, emitTypeSize(treeNode), targetReg);
-            genProduceReg(treeNode);
+            emit->emitIns_R(INS_inc, attr, dstReg);
+            DefReg(node);
             return;
         }
-        else if (src->IsIntegralConst(-1))
+
+        if (src->IsIntCon(-1))
         {
-            emit->emitIns_R(INS_dec, emitTypeSize(treeNode), targetReg);
-            genProduceReg(treeNode);
+            emit->emitIns_R(INS_dec, attr, dstReg);
+            DefReg(node);
             return;
         }
     }
-    regNumber r = emit->emitInsBinary(ins, emitTypeSize(treeNode), dst, src);
-    noway_assert(r == targetReg);
 
-    if (treeNode->gtOverflowEx())
+    instruction ins = genGetInsForOper(node->GetOper(), node->GetType());
+    regNumber   r   = emit->emitInsBinary(ins, attr, dst, src);
+    noway_assert(r == dstReg);
+
+    if (node->gtOverflowEx())
     {
-#if !defined(TARGET_64BIT)
-        assert(oper == GT_ADD || oper == GT_SUB || oper == GT_ADD_HI || oper == GT_SUB_HI);
+#ifdef TARGET_64BIT
+        assert(node->OperIs(GT_ADD, GT_SUB));
 #else
-        assert(oper == GT_ADD || oper == GT_SUB);
+        assert(node->OperIs(GT_ADD, GT_SUB, GT_ADD_HI, GT_SUB_HI));
 #endif
-        genCheckOverflow(treeNode);
+
+        genCheckOverflow(node);
     }
 
-    DefReg(treeNode);
+    DefReg(node);
 }
 
 void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
