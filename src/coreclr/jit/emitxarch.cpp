@@ -3313,7 +3313,7 @@ void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTre
     emitCurIGsize += sz;
 }
 
-regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
+void emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
 {
     assert(!instrHasImplicitRegPairDest(ins));
 
@@ -3365,7 +3365,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
 
         emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
 
-        return dst->GetRegNum();
+        return;
     }
 
     if (memOp == nullptr)
@@ -3382,7 +3382,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
             emitIns_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
         }
 
-        return regOp->GetRegNum();
+        return;
     }
 
     unsigned lclNum;
@@ -3428,7 +3428,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
                 emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), regOp->GetRegNum());
             }
 
-            return dst->GetRegNum();
+            return;
         }
 
         if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
@@ -3469,7 +3469,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
             dispIns(id);
             emitCurIGsize += sz;
 
-            return (memOp == src) ? dst->GetRegNum() : REG_NA;
+            return;
         }
 
         assert(addr->isContained());
@@ -3490,8 +3490,6 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
     {
         emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
     }
-
-    return dst->GetRegNum();
 }
 
 void emitter::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)

@@ -7878,7 +7878,7 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
 // The callee must call genConsumeReg() for any non-contained srcs
 // and genProduceReg() for any non-contained dsts.
 
-regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
+void emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
 {
     regNumber result = REG_NA;
 
@@ -7898,12 +7898,10 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
     if (intConst)
     {
         emitIns_R_I(ins, attr, dst->GetRegNum(), (target_ssize_t)intConst->IconValue());
-        return dst->GetRegNum();
     }
     else
     {
         emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
-        return dst->GetRegNum();
     }
 }
 
