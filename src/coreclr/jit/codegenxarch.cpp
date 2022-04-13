@@ -735,7 +735,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
     emitter*   emit       = GetEmitter();
 
     // Node's type must be int/native int, small integer types are not
-    // supported and floating point types are handled by genCodeForBinary.
+    // supported and floating point types are handled by GenFloatBinaryOp.
     assert(varTypeIsIntOrI(targetType));
     // dividend is in a register.
     assert(dividend->isUsedFromReg());
@@ -776,34 +776,14 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-//------------------------------------------------------------------------
-// genCodeForBinary: Generate code for many binary arithmetic operators
-//
-// Arguments:
-//    treeNode - The binary operation for which we are generating code.
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    Integer MUL and DIV variants have special constraints on x64 so are not handled here.
-//    See the assert below for the operators that are handled.
-
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 {
+    assert(varTypeIsIntegralOrI(treeNode->GetType()));
 #ifdef DEBUG
-    bool isValidOper = treeNode->OperIs(GT_ADD, GT_SUB);
-    if (varTypeIsFloating(treeNode->TypeGet()))
-    {
-        isValidOper |= treeNode->OperIs(GT_MUL, GT_DIV);
-    }
-    else
-    {
-        isValidOper |= treeNode->OperIs(GT_AND, GT_OR, GT_XOR);
+    bool isValidOper = treeNode->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR);
 #ifndef TARGET_64BIT
-        isValidOper |= treeNode->OperIs(GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI);
+    isValidOper |= treeNode->OperIs(GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI);
 #endif
-    }
     assert(isValidOper);
 #endif
 
@@ -825,8 +805,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     if (!op1->isUsedFromReg())
     {
         assert(treeNode->OperIsCommutative());
-        assert(op1->isMemoryOp() || op1->IsLocal() || op1->IsCnsNonZeroFltOrDbl() || op1->IsIntCnsFitsInI32() ||
-               op1->IsRegOptional());
+        assert(op1->isMemoryOp() || op1->IsLocal() || op1->IsIntCnsFitsInI32() || op1->IsRegOptional());
 
         op1 = treeNode->gtGetOp2();
         op2 = treeNode->gtGetOp1();
@@ -839,18 +818,6 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 
     regNumber op1reg = op1->isUsedFromReg() ? op1->GetRegNum() : REG_NA;
     regNumber op2reg = op2->isUsedFromReg() ? op2->GetRegNum() : REG_NA;
-
-    if (varTypeIsFloating(treeNode->TypeGet()))
-    {
-        // floating-point addition, subtraction, multiplication, and division
-        // all have RMW semantics if VEX support is not available
-
-        bool isRMW = !compiler->canUseVexEncoding();
-        inst_RV_RV_TT(ins, emitTypeSize(treeNode), targetReg, op1reg, op2, isRMW);
-
-        genProduceReg(treeNode);
-        return;
-    }
 
     GenTree* dst;
     GenTree* src;
@@ -874,7 +841,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
         src = op1;
     }
     // now we know there are 3 different operands so attempt to use LEA
-    else if (oper == GT_ADD && !varTypeIsFloating(treeNode) && !treeNode->gtOverflowEx() // LEA does not set flags
+    else if (oper == GT_ADD && !treeNode->gtOverflowEx() // LEA does not set flags
              && (op2->isContainedIntOrIImmed() || op2->isUsedFromReg()) && ((treeNode->gtFlags & GTF_SET_FLAGS) == 0))
     {
         if (op2->isContainedIntOrIImmed())
@@ -906,7 +873,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     }
 
     // try to use an inc or dec
-    if (oper == GT_ADD && !varTypeIsFloating(treeNode) && src->isContainedIntOrIImmed() && !treeNode->gtOverflowEx())
+    if (oper == GT_ADD && src->isContainedIntOrIImmed() && !treeNode->gtOverflowEx())
     {
         if (src->IsIntegralConst(1))
         {
@@ -937,6 +904,43 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
+void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_DIV));
+    assert(varTypeIsFloating(node->GetType()));
+    assert(node->GetRegNum() != REG_NA);
+
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+
+    assert(node->GetType() == op1->GetType());
+    assert(node->GetType() == op2->GetType());
+
+    regNumber op1Reg;
+
+    if (op1->isUsedFromReg())
+    {
+        op1Reg = UseReg(op1);
+        genConsumeRegs(op2);
+    }
+    else
+    {
+        assert(node->OperIs(GT_ADD, GT_SUB, GT_MUL));
+        assert(op2->isUsedFromReg());
+
+        genConsumeRegs(op1);
+        op1Reg = UseReg(op2);
+        op2    = op1;
+    }
+
+    instruction ins   = genGetInsForOper(node->GetOper(), node->GetType());
+    bool        isRMW = !compiler->canUseVexEncoding();
+
+    inst_RV_RV_TT(ins, emitTypeSize(node->GetType()), node->GetRegNum(), op1Reg, op2, isRMW);
+
+    DefReg(node);
+}
+
 //------------------------------------------------------------------------
 // genCodeForMul: Generate code for a MUL operation.
 //
@@ -952,7 +956,7 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
     emitter*  emit       = GetEmitter();
 
     // Node's type must be int or long (only on x64), small integer types are not
-    // supported and floating point types are handled by genCodeForBinary.
+    // supported and floating point types are handled by GenFloatBinaryOp.
     assert(varTypeIsIntOrI(targetType));
 
     instruction ins;
@@ -1383,10 +1387,19 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genCodeForBswap(treeNode);
             break;
 
-        case GT_DIV:
-            if (varTypeIsFloating(treeNode->TypeGet()))
+        case GT_MUL:
+            if (varTypeIsFloating(treeNode->GetType()))
             {
-                genCodeForBinary(treeNode->AsOp());
+                GenFloatBinaryOp(treeNode->AsOp());
+                break;
+            }
+            genCodeForMul(treeNode->AsOp());
+            break;
+
+        case GT_DIV:
+            if (varTypeIsFloating(treeNode->GetType()))
+            {
+                GenFloatBinaryOp(treeNode->AsOp());
                 break;
             }
             FALLTHROUGH;
@@ -1396,32 +1409,24 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genCodeForDivMod(treeNode->AsOp());
             break;
 
+        case GT_ADD:
+        case GT_SUB:
+            if (varTypeIsFloating(treeNode->GetType()))
+            {
+                GenFloatBinaryOp(treeNode->AsOp());
+                break;
+            }
+            FALLTHROUGH;
         case GT_OR:
         case GT_XOR:
         case GT_AND:
-            assert(varTypeIsIntegralOrI(treeNode));
-
-            FALLTHROUGH;
-
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
         case GT_SUB_HI:
-#endif // !defined(TARGET_64BIT)
-
-        case GT_ADD:
-        case GT_SUB:
+#endif
             genCodeForBinary(treeNode->AsOp());
-            break;
-
-        case GT_MUL:
-            if (varTypeIsFloating(treeNode->TypeGet()))
-            {
-                genCodeForBinary(treeNode->AsOp());
-                break;
-            }
-            genCodeForMul(treeNode->AsOp());
             break;
 
         case GT_LSH:
