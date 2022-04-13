@@ -799,14 +799,14 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 
     if (oper == GT_LSH_HI)
     {
-        inst_RV_SH(ins, EA_4BYTE, dstReg, count);
+        GetEmitter()->emitIns_R_I(ins, EA_4BYTE, dstReg, count & 31);
         GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regLo, 32 - count, INS_FLAGS_DONT_CARE,
                                       INS_OPTS_LSR);
     }
     else
     {
         assert(oper == GT_RSH_LO);
-        inst_RV_SH(INS_lsr, EA_4BYTE, dstReg, count);
+        GetEmitter()->emitIns_R_I(ins, EA_4BYTE, dstReg, count & 31);
         GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regHi, 32 - count, INS_FLAGS_DONT_CARE,
                                       INS_OPTS_LSL);
     }
