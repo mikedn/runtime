@@ -3986,12 +3986,17 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     {
         GenStoreLclRMW(type, store->GetLclNum(), store->GetLclOffs(), src);
     }
+    else if (GenTreeIntCon* imm = src->IsContainedIntCon())
+    {
+        GetEmitter()->emitIns_S_I(ins_Store(type), emitTypeSize(type), store->GetLclNum(), store->GetLclOffs(),
+                                  imm->GetInt32Value());
+    }
     else
     {
         assert(IsValidSourceType(type, src->GetType()));
 
-        genConsumeRegs(src);
-        GetEmitter()->emitInsBinary(ins_Store(type), emitTypeSize(type), store, src);
+        regNumber srcReg = UseReg(src);
+        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, store->GetLclNum(), store->GetLclOffs());
     }
 
     genUpdateLife(store);

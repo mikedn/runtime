@@ -3321,8 +3321,7 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
     GenTree* immOp = nullptr;
     GenTree* regOp = nullptr;
 
-    if (dst->isContained() || (dst->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD) && (dst->GetRegNum() == REG_NA)) ||
-        dst->isUsedFromSpillTemp())
+    if (dst->isContained() || (dst->OperIs(GT_LCL_FLD) && (dst->GetRegNum() == REG_NA)) || dst->isUsedFromSpillTemp())
     {
         assert(dst->isUsedFromMemory() || (dst->GetRegNum() == REG_NA) || instrIs3opImul(ins));
 
