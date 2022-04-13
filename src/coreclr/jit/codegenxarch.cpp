@@ -3885,18 +3885,10 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     unsigned int count = (unsigned int)shiftBy->AsIntConCommon()->IconValue();
 
     regNumber regResult = (oper == GT_LSH_HI) ? regHi : regLo;
+    regNumber reg2      = (oper == GT_LSH_HI) ? regLo : regHi;
 
     inst_Mov(targetType, dstReg, regResult, /* canSkip */ true);
-
-    if (oper == GT_LSH_HI)
-    {
-        inst_RV_RV_IV(ins, emitTypeSize(targetType), dstReg, regLo, count);
-    }
-    else
-    {
-        assert(oper == GT_RSH_LO);
-        inst_RV_RV_IV(ins, emitTypeSize(targetType), dstReg, regHi, count);
-    }
+    GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(targetType), dstReg, reg2, count);
 
     DefReg(tree);
 }
@@ -6348,7 +6340,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     if (targetType == TYP_DOUBLE)
     {
         inst_Mov(targetType, targetReg, op1->GetRegNum(), /* canSkip */ true);
-        inst_RV_RV_IV(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
         copyToTmpSrcReg = targetReg;
     }
     else
@@ -6370,7 +6362,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     if ((targetType == TYP_DOUBLE) && (targetReg == op1->GetRegNum()))
     {
         // We need to re-shuffle the targetReg to get the correct result.
-        inst_RV_RV_IV(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
     }
     else
     {
@@ -6616,10 +6608,10 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
             unreached();
     }
 
+    emitter* emit = GetEmitter();
+
     if (srcNode->isContained() || srcNode->isUsedFromSpillTemp())
     {
-        emitter* emit = GetEmitter();
-
         TempDsc* tmpDsc = nullptr;
         unsigned varNum = BAD_VAR_NUM;
         unsigned offset = (unsigned)-1;
@@ -6695,7 +6687,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
     }
     else
     {
-        inst_RV_RV_IV(ins, size, dstReg, srcNode->GetRegNum(), ival);
+        emit->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), ival);
     }
 }
 

@@ -455,15 +455,6 @@ void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned
 }
 
 #ifdef TARGET_XARCH
-void CodeGen::inst_RV_RV_IV(instruction ins, emitAttr size, regNumber reg1, regNumber reg2, unsigned ival)
-{
-    assert(ins == INS_shld || ins == INS_shrd || ins == INS_shufps || ins == INS_shufpd || ins == INS_pshufd ||
-           ins == INS_cmpps || ins == INS_cmppd || ins == INS_dppd || ins == INS_dpps || ins == INS_insertps ||
-           ins == INS_roundps || ins == INS_roundss || ins == INS_roundpd || ins == INS_roundsd);
-
-    GetEmitter()->emitIns_R_R_I(ins, size, reg1, reg2, ival);
-}
-
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
 {
     if (op->isUsedFromSpillTemp())
