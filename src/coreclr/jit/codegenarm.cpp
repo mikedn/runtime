@@ -1048,7 +1048,7 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
     {
         assert(op1Type == op2Type);
         assert(!tree->OperIs(GT_CMP));
-        emit->emitInsBinary(INS_vcmp, emitTypeSize(op1Type), op1, op2);
+        emit->emitIns_R_R(INS_vcmp, emitTypeSize(op1Type), op1->GetRegNum(), op2->GetRegNum());
         // vmrs with register 0xf has special meaning of transferring flags
         emit->emitIns_R(INS_vmrs, EA_4BYTE, REG_R15);
     }
@@ -1080,11 +1080,8 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
     // based on the contents of 'data'
 
-    GenTree* data = tree->gtOp1;
-    genConsumeIfReg(data);
-    GenTreeIntCon cns = intForm(TYP_INT, 0);
-    cns.SetContained();
-    GetEmitter()->emitInsBinary(INS_cmp, emitTypeSize(TYP_INT), data, &cns);
+    GenTree* data = tree->GetOp(0);
+    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, UseReg(data), 0);
 
     BasicBlock* skipLabel = genCreateTempLabel();
 
