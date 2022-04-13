@@ -1203,53 +1203,37 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 }
 #endif // FEATURE_ARG_SPLIT
 
-void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
+void CodeGen::genRangeCheck(GenTreeBoundsChk* node)
 {
-    GenTree* arrIndex  = bndsChk->GetIndex();
-    GenTree* arrLen    = bndsChk->GetLength();
-    GenTree* arrRef    = nullptr;
-    int      lenOffset = 0;
+    GenTree*  index  = node->GetIndex();
+    GenTree*  length = node->GetLength();
+    var_types type   = varActualType(index->GetType());
 
-    if (arrIndex->isUsedFromReg())
+    assert((type == TYP_INT) || (type == TYP_LONG));
+    assert(type == varActualType(length->GetType()));
+
+    if (index->isUsedFromReg())
     {
-        UseReg(arrIndex);
+        UseReg(index);
     }
 
-    if (arrLen->isUsedFromReg())
+    if (length->isUsedFromReg())
     {
-        UseReg(arrLen);
+        UseReg(length);
     }
 
-    GenTree*     src1;
-    GenTree*     src2;
-    emitJumpKind jmpKind;
+    GenTree*     src1    = index;
+    GenTree*     src2    = length;
+    emitJumpKind jmpKind = EJ_hs;
 
-    if (arrIndex->isContainedIntOrIImmed())
+    if (src1->IsContainedIntCon())
     {
-        // To encode using a cmp immediate, we place the
-        //  constant operand in the second position
-        src1    = arrLen;
-        src2    = arrIndex;
+        std::swap(src1, src2);
         jmpKind = EJ_ls;
     }
-    else
-    {
-        src1    = arrIndex;
-        src2    = arrLen;
-        jmpKind = EJ_hs;
-    }
 
-    var_types bndsChkType = genActualType(src2->TypeGet());
-#if DEBUG
-    // Bounds checks can only be 32 or 64 bit sized comparisons.
-    assert(bndsChkType == TYP_INT || bndsChkType == TYP_LONG);
-
-    // The type of the bounds check should always wide enough to compare against the index.
-    assert(emitTypeSize(bndsChkType) >= emitActualTypeSize(src1->TypeGet()));
-#endif // DEBUG
-
-    GetEmitter()->emitInsBinary(INS_cmp, emitActualTypeSize(bndsChkType), src1, src2);
-    genJumpToThrowHlpBlk(jmpKind, bndsChk->GetThrowKind(), bndsChk->GetThrowBlock());
+    GetEmitter()->emitInsBinary(INS_cmp, emitTypeSize(type), src1, src2);
+    genJumpToThrowHlpBlk(jmpKind, node->GetThrowKind(), node->GetThrowBlock());
 }
 
 //---------------------------------------------------------------------
