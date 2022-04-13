@@ -2274,8 +2274,11 @@ void CodeGen::genCodeForLclAddr(GenTreeLclVarCommon* node)
     assert(node->OperIs(GT_LCL_FLD_ADDR, GT_LCL_VAR_ADDR));
     assert(node->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-    inst_RV_TT(INS_lea, emitTypeSize(node->GetType()), node->GetRegNum(), node);
-    genProduceReg(node);
+    // TODO-MIKE-Review: Shouldn't this simply be EA_PTRSIZE?
+    emitAttr attr = emitTypeSize(node->GetType());
+
+    GetEmitter()->emitIns_R_S(INS_lea, attr, node->GetRegNum(), node->GetLclNum(), node->GetLclOffs());
+    DefReg(node);
 }
 
 #ifdef DEBUG

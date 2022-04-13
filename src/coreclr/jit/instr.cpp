@@ -401,13 +401,10 @@ void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
     assert(lclNum < compiler->lvaCount);
     GetEmitter()->emitIns_S(ins, emitActualTypeSize(node->GetType()), lclNum, 0);
 }
-#endif
 
 void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* node)
 {
-#ifdef TARGET_ARMARCH
-    assert(ins == INS_lea);
-#endif
+    assert(ins == INS_mov);
     assert(reg != REG_STK);
     assert(size != EA_UNKNOWN);
     assert(!node->IsRegSpilled(0));
@@ -423,6 +420,7 @@ void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeL
 
     GetEmitter()->emitIns_R_S(ins, size, reg, node->GetLclNum(), node->GetLclOffs());
 }
+#endif // TARGET_XARCH
 
 void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val)
 {
