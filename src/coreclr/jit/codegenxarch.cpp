@@ -6608,86 +6608,15 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
             unreached();
     }
 
-    emitter* emit = GetEmitter();
-
-    if (srcNode->isContained() || srcNode->isUsedFromSpillTemp())
+    // TODO-MIKE-Cleanup: This shouldn't be needed but emitIns_SIMD_R_R_I is messed up.
+    if (srcNode->isUsedFromReg())
     {
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
-
-        if (srcNode->isUsedFromSpillTemp())
-        {
-            assert(srcNode->IsRegOptional());
-
-            tmpDsc = getSpillTempDsc(srcNode);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
-        }
-        else if (srcNode->OperIs(GT_IND))
-        {
-            GenTree* addr = srcNode->AsIndir()->GetAddr();
-
-            switch (addr->GetOper())
-            {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-                default:
-                    emit->emitIns_R_A_I(ins, size, dstReg, addr, ival);
-                    return;
-            }
-        }
-        else
-        {
-            switch (srcNode->OperGet())
-            {
-                case GT_CNS_DBL:
-                {
-                    GenTreeDblCon*       dblConst = srcNode->AsDblCon();
-                    CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(dblConst->gtDconVal, emitTypeSize(dblConst));
-
-                    emit->emitIns_R_C_I(ins, size, dstReg, hnd, ival);
-                    return;
-                }
-
-                case GT_LCL_FLD:
-                    varNum = srcNode->AsLclFld()->GetLclNum();
-                    offset = srcNode->AsLclFld()->GetLclOffs();
-                    break;
-
-                case GT_LCL_VAR:
-                {
-                    assert(srcNode->IsRegOptional() ||
-                           !compiler->lvaTable[srcNode->AsLclVar()->GetLclNum()].lvIsRegCandidate());
-
-                    varNum = srcNode->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-                }
-
-                default:
-                    unreached();
-                    break;
-            }
-        }
-
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        emit->emitIns_R_S_I(ins, size, dstReg, varNum, offset, ival);
+        GetEmitter()->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), ival);
     }
     else
     {
-        emit->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), ival);
+        // TODO-MIKE-CQ: Remove false dependency.
+        inst_RV_TT_IV(ins, size, dstReg, srcNode, ival);
     }
 }
 
