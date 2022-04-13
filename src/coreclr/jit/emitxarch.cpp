@@ -3519,7 +3519,7 @@ void emitter::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
 
         codeGen->regSet.tmpRlsTemp(tmpDsc);
     }
-    else if (src->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+    else if (src->OperIs(GT_LCL_FLD))
     {
         lclNum  = src->AsLclFld()->GetLclNum();
         lclOffs = src->AsLclFld()->GetLclOffs();
