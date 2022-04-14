@@ -952,13 +952,12 @@ public:
 
     bool isUsedFromMemory() const
     {
-        return ((isContained() && (isMemoryOp() || (OperGet() == GT_LCL_VAR) || (OperGet() == GT_CNS_DBL))) ||
-                isUsedFromSpillTemp());
+        return isUsedFromSpillTemp() || (isContained() && (isMemoryOp() || OperIs(GT_LCL_VAR, GT_CNS_DBL)));
     }
 
     bool isUsedFromReg() const
     {
-        return !isContained() && !isUsedFromSpillTemp();
+        return !isUsedFromSpillTemp() && !isContained();
     }
 
 #ifdef DEBUG

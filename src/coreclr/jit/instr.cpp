@@ -520,49 +520,21 @@ void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
 void CodeGen::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
 {
     emitter* emit = GetEmitter();
+    unsigned lclNum;
+    unsigned lclOffs;
 
     if (src->isUsedFromReg())
     {
         emit->emitIns_R(ins, attr, src->GetRegNum());
-        return;
     }
-
-    assert(src->isUsedFromMemory());
-
-    unsigned lclNum;
-    unsigned lclOffs;
-
-    if (src->isUsedFromSpillTemp())
+    else if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
     {
-        assert(src->IsRegOptional());
-
-        TempDsc* tmpDsc = getSpillTempDsc(src);
-
-        lclNum  = tmpDsc->tdTempNum();
-        lclOffs = 0;
-
-        regSet.tmpRlsTemp(tmpDsc);
-    }
-    else if (src->OperIs(GT_LCL_FLD))
-    {
-        lclNum  = src->AsLclFld()->GetLclNum();
-        lclOffs = src->AsLclFld()->GetLclOffs();
-    }
-    else if (src->OperIs(GT_LCL_VAR))
-    {
-        assert(src->IsRegOptional() || !compiler->lvaGetDesc(src->AsLclVar())->IsRegCandidate());
-
-        lclNum  = src->AsLclVar()->GetLclNum();
-        lclOffs = 0;
+        emit->emitIns_S(ins, attr, lclNum, lclOffs);
     }
     else
     {
         emit->emitIns_A(ins, attr, src->AsIndir()->GetAddr());
-
-        return;
     }
-
-    emit->emitIns_S(ins, attr, lclNum, lclOffs);
 }
 
 void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
