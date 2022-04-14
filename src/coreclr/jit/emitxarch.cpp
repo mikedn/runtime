@@ -1231,6 +1231,22 @@ void emitter::emitMarkStackLvl(unsigned stackLevel)
 }
 #endif
 
+#ifdef WINDOWS_X86_ABI
+// Special CORINFO_FIELD_HANDLE that references the FS segment, for x86 TLS access.
+static const CORINFO_FIELD_HANDLE FS_SEG_FIELD = reinterpret_cast<CORINFO_FIELD_HANDLE>(-8);
+#endif
+
+#ifdef DEBUG
+static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE fldHnd)
+{
+#ifdef WINDOWS_X86_ABI
+    return fldHnd != FS_SEG_FIELD;
+#else
+    return true;
+#endif
+}
+#endif
+
 /*****************************************************************************
  *
  *  Get hold of the address mode displacement value for an indirect call.
