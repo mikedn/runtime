@@ -3248,6 +3248,32 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
     emitAdjustStackDepthPushPop(ins);
 }
 
+void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm)
+{
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), imm);
+        return;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
+        emitIns_S_I(ins, attr, lclNode->GetLclNum(), lclNode->GetLclOffs(), imm);
+        return;
+    }
+
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
+    id->idIns(ins);
+    SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_CNS), ins, addr);
+
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMI(ins), imm);
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
 // Emits a "mov [mem], reg/imm" (or a variant such as "movss") instruction.
 void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
 {
@@ -3413,15 +3439,17 @@ void emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
     {
         GenTree* addr = memOp->AsIndir()->GetAddr();
 
+        if (immOp != nullptr)
+        {
+            emitIns_A_I(ins, attr, addr, immOp->AsIntCon()->GetInt32Value());
+            return;
+        }
+
         if (GenTreeClsVar* clsAddr = addr->IsClsVar())
         {
             if (memOp == src)
             {
                 emitIns_R_C(ins, attr, regOp->GetRegNum(), clsAddr->GetFieldHandle());
-            }
-            else if (immOp != nullptr)
-            {
-                emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), immOp->AsIntCon()->GetInt32Value());
             }
             else
             {
@@ -3433,19 +3461,9 @@ void emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
 
         if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
-            instrDesc* id;
-
-            if (immOp != nullptr)
-            {
-                id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), src->AsIntCon()->GetInt32Value());
-            }
-            else
-            {
-                id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-                id->idReg1(regOp->GetRegNum());
-            }
-
+            instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
             id->idIns(ins);
+            id->idReg1(regOp->GetRegNum());
 
             UNATIVE_OFFSET sz = 0;
 
@@ -3453,11 +3471,6 @@ void emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
             {
                 SetInstrAddrMode(id, emitInsModeFormat(ins, IF_RRD_ARD), ins, addr);
                 sz = emitInsSizeAM(id, insCodeRM(ins));
-            }
-            else if (immOp != nullptr)
-            {
-                SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_CNS), ins, addr);
-                sz = emitInsSizeAM(id, insCodeMI(ins), immOp->AsIntCon()->GetInt32Value());
             }
             else
             {
