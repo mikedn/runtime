@@ -613,26 +613,20 @@ void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
     unsigned lclNum;
     unsigned lclOffs;
 
-    if (memOp->isUsedFromSpillTemp())
+    if (IsLocalMemoryOperand(memOp, &lclNum, &lclOffs))
     {
-        TempDsc* tmpDsc = getSpillTempDsc(memOp);
-
-        lclNum  = tmpDsc->tdTempNum();
-        lclOffs = 0;
-
-        regSet.tmpRlsTemp(tmpDsc);
-    }
-    else if (memOp->OperIs(GT_LCL_FLD))
-    {
-        lclNum  = memOp->AsLclFld()->GetLclNum();
-        lclOffs = memOp->AsLclFld()->GetLclOffs();
-    }
-    else if (memOp->OperIs(GT_LCL_VAR))
-    {
-        assert(memOp->IsRegOptional() || !compiler->lvaGetDesc(memOp->AsLclVar())->IsRegCandidate());
-
-        lclNum  = memOp->AsLclVar()->GetLclNum();
-        lclOffs = 0;
+        if (memOp == src)
+        {
+            emit->emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+        }
+        else if (immOp != nullptr)
+        {
+            emit->emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
+        }
+        else
+        {
+            emit->emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+        }
     }
     else
     {
@@ -650,21 +644,6 @@ void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
         {
             emit->emitIns_A_R(ins, attr, addr, regOp->GetRegNum());
         }
-
-        return;
-    }
-
-    if (memOp == src)
-    {
-        emit->emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
-    }
-    else if (immOp != nullptr)
-    {
-        emit->emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
-    }
-    else
-    {
-        emit->emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
     }
 }
 
