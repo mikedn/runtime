@@ -9876,17 +9876,6 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 #endif // defined(LATE_DISASM)
 /*****************************************************************************/
 
-//------------------------------------------------------------------------
-// intForm: Make a temporary int we can feed to pattern matching routines
-//    in cases where we don't want to instantiate.
-//
-GenTreeIntCon CodeGen::intForm(var_types type, ssize_t value)
-{
-    GenTreeIntCon i(type, value);
-    i.SetRegNum(REG_NA);
-    return i;
-}
-
 void CodeGen::genRetFilt(GenTree* retfilt)
 {
     assert(retfilt->OperIs(GT_RETFILT));

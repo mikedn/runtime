@@ -1265,9 +1265,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     GenTreeIndir* data = tree->GetOp(0)->AsIndir();
     assert(data->isContained());
     genConsumeAddress(data->GetAddr());
-    GenTreeIntCon cns = intForm(TYP_INT, 0);
-    cns.SetContained();
-    GetEmitter()->emitInsBinary(INS_cmp, emitTypeSize(TYP_INT), data, &cns);
+    GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, data->GetAddr(), 0);
 
     BasicBlock* skipLabel = genCreateTempLabel();
 

@@ -103,8 +103,6 @@ private:
         }
     }
 
-    GenTreeIntCon intForm(var_types type, ssize_t value);
-
     void genRangeCheck(GenTreeBoundsChk* bndsChk);
 
     void genLockedInstructions(GenTreeOp* node);
