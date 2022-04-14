@@ -1298,6 +1298,8 @@ public:
     void inst_TT(instruction ins, GenTreeLclVar* node);
     void emitInsUnary(instruction ins, emitAttr attr, GenTree* src);
     void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr);
+    void emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* value);
     void inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVar* tree);
     void inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival);
     void inst_RV_RV_TT(instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW);

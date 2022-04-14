@@ -321,9 +321,6 @@ inline emitAttr emitDecodeScale(unsigned ensz)
 /************************************************************************/
 
 public:
-void emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenTree* addr);
-void emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* value);
-
 void emitLoopAlign(unsigned short paddingBytes);
 
 void emitLongLoopAlign(unsigned short alignmentBoundary);

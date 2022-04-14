@@ -602,6 +602,25 @@ void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
     }
 }
 
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
+{
+    assert(emitter::emitInsModeFormat(ins, emitter::IF_RRD_ARD) == emitter::IF_RWR_ARD);
+
+    GetEmitter()->emitIns_R_A(ins, attr, reg, addr);
+}
+
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
+{
+    if (GenTreeIntCon* imm = data->IsContainedIntCon())
+    {
+        GetEmitter()->emitIns_A_I(ins, attr, addr, imm->GetInt32Value());
+    }
+    else
+    {
+        GetEmitter()->emitIns_A_R(ins, attr, addr, data->GetRegNum());
+    }
+}
+
 void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVar* node)
 {
     assert(ins == INS_mov);

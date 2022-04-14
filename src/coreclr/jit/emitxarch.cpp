@@ -1298,13 +1298,20 @@ unsigned const emitter::emitInsModeFmtCnt = _countof(emitInsModeFmtTab);
  *  Combine the given base format with the update mode of the instuction.
  */
 
-inline emitter::insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
+emitter::insFormat emitter::emitInsModeFormat(instruction ins, insFormat base)
 {
     assert(IF_RRD + IUM_RD == IF_RRD);
     assert(IF_RRD + IUM_WR == IF_RWR);
     assert(IF_RRD + IUM_RW == IF_RRW);
 
     return (insFormat)(base + emitInsUpdateMode(ins));
+}
+
+insUpdateModes emitter::emitInsUpdateMode(instruction ins)
+{
+    assert((unsigned)ins < emitInsModeFmtCnt);
+
+    return (insUpdateModes)emitInsModeFmtTab[ins];
 }
 
 // This is a helper we need due to Vs Whidbey #254016 in order to distinguish
@@ -3269,19 +3276,6 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
     emitCurIGsize += sz;
 }
 
-// Emits a "mov [mem], reg/imm" (or a variant such as "movss") instruction.
-void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
-{
-    if (GenTreeIntCon* imm = data->IsContainedIntCon())
-    {
-        emitIns_A_I(ins, attr, addr, imm->GetInt32Value());
-    }
-    else
-    {
-        emitIns_A_R(ins, attr, addr, data->GetRegNum());
-    }
-}
-
 // Emits a binary RMW operation (e.g. add dword ptr [rsi+42], ecx)
 void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTree* addr, GenTree* src)
 {
@@ -4190,14 +4184,6 @@ void emitter::emitIns_RRW_A(instruction ins, emitAttr attr, regNumber reg1, GenT
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
-}
-
-// Emits a "mov reg, [mem]" (or a variant such as "movzx" or "movss") instruction.
-void emitter::emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenTree* addr)
-{
-    assert(emitInsModeFormat(ins, IF_RRD_ARD) == IF_RWR_ARD);
-
-    emitIns_R_A(ins, attr, dstReg, addr);
 }
 
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)

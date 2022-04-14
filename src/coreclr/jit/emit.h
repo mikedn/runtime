@@ -1455,8 +1455,8 @@ protected:
 
 #endif // TARGET_ARM
 
-    insUpdateModes emitInsUpdateMode(instruction ins);
-    insFormat emitInsModeFormat(instruction ins, insFormat base);
+    static insUpdateModes emitInsUpdateMode(instruction ins);
+    static insFormat emitInsModeFormat(instruction ins, insFormat base);
 
     static const BYTE emitInsModeFmtTab[];
 #ifdef DEBUG
@@ -2419,14 +2419,6 @@ inline bool emitter::emitIsScnsInsDsc(instrDesc* id)
  *
  *  Given an instruction, return its "update mode" (RD/WR/RW).
  */
-
-inline insUpdateModes emitter::emitInsUpdateMode(instruction ins)
-{
-#ifdef DEBUG
-    assert((unsigned)ins < emitInsModeFmtCnt);
-#endif
-    return (insUpdateModes)emitInsModeFmtTab[ins];
-}
 
 /*****************************************************************************
  *

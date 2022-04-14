@@ -4476,7 +4476,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
 #endif
     {
         genConsumeAddress(addr);
-        emit->emitInsLoad(ins_Load(targetType), emitTypeSize(tree), tree->GetRegNum(), tree->GetAddr());
+        emitInsLoad(ins_Load(targetType), emitTypeSize(tree), tree->GetRegNum(), tree->GetAddr());
     }
 
     genProduceReg(tree);
@@ -4527,7 +4527,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     if (!value->isContained() || !value->OperIsRMWMemOp())
     {
         genConsumeRegs(value);
-        GetEmitter()->emitInsStore(ins_Store(value->GetType()), attr, store->GetAddr(), store->GetValue());
+        emitInsStore(ins_Store(value->GetType()), attr, store->GetAddr(), store->GetValue());
 
         return;
     }
