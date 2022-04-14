@@ -24,6 +24,40 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+static bool IsShiftCL(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_rcl:
+        case INS_rcr:
+        case INS_rol:
+        case INS_ror:
+        case INS_shl:
+        case INS_shr:
+        case INS_sar:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool IsShiftImm(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_rcl_N:
+        case INS_rcr_N:
+        case INS_rol_N:
+        case INS_ror_N:
+        case INS_shl_N:
+        case INS_shr_N:
+        case INS_sar_N:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool emitter::IsSSEInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_SSE_INSTRUCTION);
@@ -208,40 +242,16 @@ bool emitter::IsFlagsAlwaysModified(instrDesc* id)
         }
         else if (id->idSmallCns() == 0)
         {
-            switch (ins)
-            {
-                // If shift-amount for below instructions is 0, then flags are unaffected.
-                case INS_rcl_N:
-                case INS_rcr_N:
-                case INS_rol_N:
-                case INS_ror_N:
-                case INS_shl_N:
-                case INS_shr_N:
-                case INS_sar_N:
-                    return false;
-                default:
-                    return true;
-            }
+            // If shift-amount is 0, then flags are unaffected.
+            return !IsShiftImm(ins);
         }
     }
     else if (fmt == IF_RRW)
     {
-        switch (ins)
-        {
-            // If shift-amount for below instructions is 0, then flags are unaffected.
-            // So, to be conservative, do not optimize if the instruction has register
-            // as the shift-amount operand.
-            case INS_rcl:
-            case INS_rcr:
-            case INS_rol:
-            case INS_ror:
-            case INS_shl:
-            case INS_shr:
-            case INS_sar:
-                return false;
-            default:
-                return true;
-        }
+        // If shift-amount for is 0, then flags are unaffected.
+        // So, to be conservative, do not optimize if the instruction has register
+        // as the shift-amount operand.
+        return !IsShiftCL(ins);
     }
 
     return true;
@@ -2961,34 +2971,24 @@ void emitter::emitIns(instruction ins, emitAttr attr)
 //
 emitter::insFormat emitter::emitMapFmtForIns(insFormat fmt, instruction ins)
 {
-    switch (ins)
+    if (IsShiftImm(ins))
     {
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
+        switch (fmt)
         {
-            switch (fmt)
-            {
-                case IF_RRW_CNS:
-                    return IF_RRW_SHF;
-                case IF_MRW_CNS:
-                    return IF_MRW_SHF;
-                case IF_SRW_CNS:
-                    return IF_SRW_SHF;
-                case IF_ARW_CNS:
-                    return IF_ARW_SHF;
-                default:
-                    unreached();
-            }
+            case IF_RRW_CNS:
+                return IF_RRW_SHF;
+            case IF_MRW_CNS:
+                return IF_MRW_SHF;
+            case IF_SRW_CNS:
+                return IF_SRW_SHF;
+            case IF_ARW_CNS:
+                return IF_ARW_SHF;
+            default:
+                unreached();
         }
-
-        default:
-            return fmt;
     }
+
+    return fmt;
 }
 
 //------------------------------------------------------------------------
@@ -3306,19 +3306,9 @@ void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 
 void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm)
 {
-    switch (ins)
+    if (IsShiftImm(ins))
     {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            imm &= 0x7F;
-            break;
-        default:
-            break;
+        imm &= 0x7F;
     }
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
@@ -3472,97 +3462,90 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     assert(ins != INS_bt);
 
     // Figure out the size of the instruction
-    switch (ins)
+    if (IsShiftImm(ins))
     {
-        case INS_mov:
+        assert(val != 1);
+        fmt = IF_RRW_SHF;
+        sz  = 3;
+        val &= 0x7F;
+        valInByte = true; // shift amount always placed in a byte
+    }
+    else if (ins == INS_mov)
+    {
 #ifdef TARGET_AMD64
-            // mov reg, imm64 is equivalent to mov reg, imm32 if the high order bits are all 0
-            // and this isn't a reloc constant.
-            if (((size > EA_4BYTE) && (0 == (val & 0xFFFFFFFF00000000LL))) && !EA_IS_CNS_RELOC(attr))
-            {
-                attr = size = EA_4BYTE;
-            }
+        // mov reg, imm64 is equivalent to mov reg, imm32 if the high order bits are all 0
+        // and this isn't a reloc constant.
+        if (((size > EA_4BYTE) && (0 == (val & 0xFFFFFFFF00000000LL))) && !EA_IS_CNS_RELOC(attr))
+        {
+            attr = size = EA_4BYTE;
+        }
 
-            if (size > EA_4BYTE)
-            {
-                sz = 9; // Really it is 10, but we'll add one more later
-                break;
-            }
+        if (size > EA_4BYTE)
+        {
+            sz = 9; // Really it is 10, but we'll add one more later
+        }
+        else
 #endif // TARGET_AMD64
+        {
             sz = 5;
-            break;
+        }
+    }
+    else
+    {
+        if (EA_IS_CNS_RELOC(attr))
+        {
+            valInByte = false; // relocs can't be placed in a byte
+        }
 
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(val != 1);
-            fmt = IF_RRW_SHF;
-            sz  = 3;
-            val &= 0x7F;
-            valInByte = true; // shift amount always placed in a byte
-            break;
-
-        default:
-
-            if (EA_IS_CNS_RELOC(attr))
+        if (valInByte)
+        {
+            if (IsSSEOrAVXInstruction(ins))
             {
-                valInByte = false; // relocs can't be placed in a byte
+                bool includeRexPrefixSize = true;
+                // Do not get the RexSize() but just decide if it will be included down further and if yes,
+                // do not include it again.
+                if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size) || instrIsExtendedReg3opImul(ins))
+                {
+                    includeRexPrefixSize = false;
+                }
+
+                sz = emitInsSize(insCodeMI(ins), includeRexPrefixSize);
+                sz += 1;
             }
-
-            if (valInByte)
+            else if (size == EA_1BYTE && reg == REG_EAX && !instrIs3opImul(ins))
             {
-                if (IsSSEOrAVXInstruction(ins))
-                {
-                    bool includeRexPrefixSize = true;
-                    // Do not get the RexSize() but just decide if it will be included down further and if yes,
-                    // do not include it again.
-                    if (IsExtendedReg(reg, attr) || TakesRexWPrefix(ins, size) || instrIsExtendedReg3opImul(ins))
-                    {
-                        includeRexPrefixSize = false;
-                    }
-
-                    sz = emitInsSize(insCodeMI(ins), includeRexPrefixSize);
-                    sz += 1;
-                }
-                else if (size == EA_1BYTE && reg == REG_EAX && !instrIs3opImul(ins))
-                {
-                    sz = 2;
-                }
-                else
-                {
-                    sz = 3;
-                }
+                sz = 2;
             }
             else
             {
-                assert(!IsSSEOrAVXInstruction(ins));
+                sz = 3;
+            }
+        }
+        else
+        {
+            assert(!IsSSEOrAVXInstruction(ins));
 
-                if (reg == REG_EAX && !instrIs3opImul(ins))
-                {
-                    sz = 1;
-                }
-                else
-                {
-                    sz = 2;
-                }
+            if (reg == REG_EAX && !instrIs3opImul(ins))
+            {
+                sz = 1;
+            }
+            else
+            {
+                sz = 2;
+            }
 
 #ifdef TARGET_AMD64
-                if (size > EA_4BYTE)
-                {
-                    // We special-case anything that takes a full 8-byte constant.
-                    sz += 4;
-                }
-                else
-#endif // TARGET_AMD64
-                {
-                    sz += EA_SIZE_IN_BYTES(attr);
-                }
+            if (size > EA_4BYTE)
+            {
+                // We special-case anything that takes a full 8-byte constant.
+                sz += 4;
             }
-            break;
+            else
+#endif // TARGET_AMD64
+            {
+                sz += EA_SIZE_IN_BYTES(attr);
+            }
+        }
     }
 
     sz += emitGetAdjustedSize(ins, attr, insCodeMI(ins));
@@ -4834,23 +4817,15 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
 
     insFormat fmt;
 
-    switch (ins)
+    if (IsShiftImm(ins))
     {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(imm != 1);
-            fmt = IF_MRW_SHF;
-            imm &= 0x7F;
-            break;
-
-        default:
-            fmt = emitInsModeFormat(ins, IF_MRD_CNS);
-            break;
+        assert(imm != 1);
+        fmt = IF_MRW_SHF;
+        imm &= 0x7F;
+    }
+    else
+    {
+        fmt = emitInsModeFormat(ins, IF_MRD_CNS);
     }
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
@@ -4942,23 +4917,15 @@ void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int d
 
     insFormat fmt;
 
-    switch (ins)
+    if (IsShiftImm(ins))
     {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(imm != 1);
-            fmt = IF_ARW_SHF;
-            imm &= 0x7F;
-            break;
-
-        default:
-            fmt = emitInsModeFormat(ins, IF_ARD_CNS);
-            break;
+        assert(imm != 1);
+        fmt = IF_ARW_SHF;
+        imm &= 0x7F;
+    }
+    else
+    {
+        fmt = emitInsModeFormat(ins, IF_ARD_CNS);
     }
 
     /*
@@ -5089,23 +5056,15 @@ void emitter::emitIns_ARX_I(
 
     insFormat fmt;
 
-    switch (ins)
+    if (IsShiftImm(ins))
     {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(imm != 1);
-            fmt = IF_ARW_SHF;
-            imm &= 0x7F;
-            break;
-
-        default:
-            fmt = emitInsModeFormat(ins, IF_ARD_CNS);
-            break;
+        assert(imm != 1);
+        fmt = IF_ARW_SHF;
+        imm &= 0x7F;
+    }
+    else
+    {
+        fmt = emitInsModeFormat(ins, IF_ARD_CNS);
     }
 
     UNATIVE_OFFSET sz;
@@ -5821,23 +5780,15 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
 
     insFormat fmt;
 
-    switch (ins)
+    if (IsShiftImm(ins))
     {
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            assert(val != 1);
-            fmt = IF_SRW_SHF;
-            val &= 0x7F;
-            break;
-
-        default:
-            fmt = emitInsModeFormat(ins, IF_SRD_CNS);
-            break;
+        assert(val != 1);
+        fmt = IF_SRW_SHF;
+        val &= 0x7F;
+    }
+    else
+    {
+        fmt = emitInsModeFormat(ins, IF_SRD_CNS);
     }
 
     instrDesc* id = emitNewInstrCns(attr, val);
@@ -7173,40 +7124,13 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
 
 void emitter::emitDispShift(instruction ins, int cnt)
 {
-    switch (ins)
+    if (IsShiftCL(ins))
     {
-        case INS_rcl_1:
-        case INS_rcr_1:
-        case INS_rol_1:
-        case INS_ror_1:
-        case INS_shl_1:
-        case INS_shr_1:
-        case INS_sar_1:
-            printf(", 1");
-            break;
-
-        case INS_rcl:
-        case INS_rcr:
-        case INS_rol:
-        case INS_ror:
-        case INS_shl:
-        case INS_shr:
-        case INS_sar:
-            printf(", cl");
-            break;
-
-        case INS_rcl_N:
-        case INS_rcr_N:
-        case INS_rol_N:
-        case INS_ror_N:
-        case INS_shl_N:
-        case INS_shr_N:
-        case INS_sar_N:
-            printf(", %d", cnt);
-            break;
-
-        default:
-            break;
+        printf(", cl");
+    }
+    else if (IsShiftImm(ins))
+    {
+        printf(", %d", cnt);
     }
 }
 
