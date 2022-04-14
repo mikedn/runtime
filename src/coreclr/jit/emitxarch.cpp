@@ -3272,38 +3272,14 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 // Emits a "mov [mem], reg/imm" (or a variant such as "movss") instruction.
 void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
 {
-    GenTreeIntCon* imm = data->IsContainedIntCon();
-
-    if (imm == nullptr)
+    if (GenTreeIntCon* imm = data->IsContainedIntCon())
+    {
+        emitIns_A_I(ins, attr, addr, imm->GetInt32Value());
+    }
+    else
     {
         emitIns_A_R(ins, attr, addr, data->GetRegNum());
-        return;
     }
-
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), imm->GetInt32Value());
-        return;
-    }
-
-    // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address is nonsense.
-
-    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-    {
-        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
-        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
-        emitIns_S_I(ins, attr, lclNode->GetLclNum(), lclNode->GetLclOffs(), imm->GetInt32Value());
-        return;
-    }
-
-    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm->GetInt32Value());
-    id->idIns(ins);
-    SetInstrAddrMode(id, IF_AWR_CNS, ins, addr);
-
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMI(ins), imm->GetInt32Value());
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
 }
 
 // Emits a binary RMW operation (e.g. add dword ptr [rsi+42], ecx)
