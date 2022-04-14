@@ -3274,6 +3274,33 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm
     emitCurIGsize += sz;
 }
 
+void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
+{
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), reg);
+        return;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
+        emitIns_S_R(ins, attr, reg, lclNode->GetLclNum(), lclNode->GetLclOffs());
+        return;
+    }
+
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
+    id->idIns(ins);
+    id->idReg1(reg);
+    SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_RRD), ins, addr);
+
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
 // Emits a "mov [mem], reg/imm" (or a variant such as "movss") instruction.
 void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
 {
@@ -4439,7 +4466,10 @@ void emitter::emitIns_AR_R_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr)
+// TODO-MIKE-Cleanup: Reconcile this with emitIns_R_A, this one always uses IF_RRW_ARD
+// instead of using emitInsModeFormat. It also doesn't handle local addresses but that
+// is unlikely to be an issue.
+void emitter::emitIns_RRW_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr)
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
@@ -4457,6 +4487,33 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTre
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
 
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
+void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
+{
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    {
+        emitIns_R_C(ins, attr, reg, clsAddr->GetFieldHandle());
+        return;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
+        emitIns_R_S(ins, attr, reg, lclNode->GetLclNum(), lclNode->GetLclOffs());
+        return;
+    }
+
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
+    id->idIns(ins);
+    id->idReg1(reg);
+    SetInstrAddrMode(id, emitInsModeFormat(ins, IF_RRD_ARD), ins, addr);
+
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
+    id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -5492,7 +5549,7 @@ void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber targe
     else
     {
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A(ins, attr, targetReg, addr);
+        emitIns_RRW_A(ins, attr, targetReg, addr);
     }
 }
 
@@ -5845,7 +5902,7 @@ void emitter::emitIns_SIMD_R_R_A_R(
         assert(targetReg != REG_XMM0);
 
         emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-        emitIns_R_A(ins, attr, targetReg, addr);
+        emitIns_RRW_A(ins, attr, targetReg, addr);
     }
 }
 
