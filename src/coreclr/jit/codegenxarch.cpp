@@ -4537,7 +4537,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
         INDEBUG(GenTreeIndir* load = value->AsUnOp()->GetOp(0)->AsIndir());
         assert(load->isUsedFromMemory() && load->isContained());
 
-        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr);
+        GetEmitter()->emitInsRMW_A(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr);
 
         return;
     }
@@ -4549,11 +4549,13 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
 
     genConsumeRegs(src);
 
+    emitter* emit = GetEmitter();
+
     if (value->OperIs(GT_ADD) && (src->IsIntCon(1) || src->IsIntCon(-1)))
     {
         assert(src->isContained());
 
-        GetEmitter()->emitInsRMW(src->IsIntCon(1) ? INS_inc : INS_dec, attr, addr);
+        emit->emitInsRMW_A(src->IsIntCon(1) ? INS_inc : INS_dec, attr, addr);
     }
     else if (value->OperIsShiftOrRotate())
     {
@@ -4561,9 +4563,13 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
 
         GenStoreIndRMWShift(addr, value->AsOp(), src);
     }
+    else if (GenTreeIntCon* imm = src->IsContainedIntCon())
+    {
+        emit->emitInsRMW_A_I(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr, imm->GetInt32Value());
+    }
     else
     {
-        GetEmitter()->emitInsRMW(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr, src);
+        emit->emitInsRMW_A_R(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr, src->GetRegNum());
     }
 }
 
@@ -4571,20 +4577,25 @@ void CodeGen::GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shif
 {
     instruction ins  = genGetInsForOper(shift->GetOper(), shift->GetType());
     emitAttr    attr = emitTypeSize(shift->GetType());
+    emitter*    emit = GetEmitter();
 
     if (shiftBy->isUsedFromReg())
     {
         genCopyRegIfNeeded(shiftBy, REG_RCX);
         // The shiftBy operand is implicit, so call the unary version of emitInsRMW.
-        GetEmitter()->emitInsRMW(ins, attr, addr);
+        emit->emitInsRMW_A(ins, attr, addr);
     }
     else if (shiftBy->AsIntCon()->GetInt32Value() == 1)
     {
-        GetEmitter()->emitInsRMW(MapShiftInsToShiftBy1Ins(ins), attr, addr);
+        emit->emitInsRMW_A(MapShiftInsToShiftBy1Ins(ins), attr, addr);
+    }
+    else if (GenTreeIntCon* imm = shiftBy->IsContainedIntCon())
+    {
+        emit->emitInsRMW_A_I(MapShiftInsToShiftByImmIns(ins), attr, addr, imm->GetInt32Value());
     }
     else
     {
-        GetEmitter()->emitInsRMW(MapShiftInsToShiftByImmIns(ins), attr, addr, shiftBy);
+        emit->emitInsRMW_A_R(MapShiftInsToShiftByImmIns(ins), attr, addr, shiftBy->GetRegNum());
     }
 }
 

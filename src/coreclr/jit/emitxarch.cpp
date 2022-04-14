@@ -3276,64 +3276,54 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
     emitCurIGsize += sz;
 }
 
-// Emits a binary RMW operation (e.g. add dword ptr [rsi+42], ecx)
-void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTree* addr, GenTree* src)
-{
-    instrDesc*     id = nullptr;
-    UNATIVE_OFFSET sz;
-
-    ssize_t offset = GetAddrModeDisp(addr);
-
-    if (GenTreeIntCon* intCon = src->IsContainedIntCon())
-    {
-        int iconVal = intCon->GetInt32Value();
-        switch (ins)
-        {
-            case INS_rcl_N:
-            case INS_rcr_N:
-            case INS_rol_N:
-            case INS_ror_N:
-            case INS_shl_N:
-            case INS_shr_N:
-            case INS_sar_N:
-                iconVal &= 0x7F;
-                break;
-            default:
-                break;
-        }
-
-        id = emitNewInstrAmdCns(attr, offset, iconVal);
-        SetInstrAddrMode(id, IF_ARW_CNS, ins, addr);
-        id->idIns(ins);
-        sz = emitInsSizeAM(id, insCodeMI(ins), iconVal);
-    }
-    else
-    {
-        assert(!src->isContained()); // there must be one non-contained src
-
-        // ind, reg
-        id = emitNewInstrAmd(attr, offset);
-        SetInstrAddrMode(id, IF_ARW_RRD, ins, addr);
-        id->idReg1(src->GetRegNum());
-        id->idIns(ins);
-        sz = emitInsSizeAM(id, insCodeMR(ins));
-    }
-
-    id->idCodeSize(sz);
-
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-// Emits an unary RMW operation (e.g. not dword ptr [rsi+42])
-void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTree* addr)
+void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 {
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
     SetInstrAddrMode(id, IF_ARW, ins, addr);
     id->idIns(ins);
+
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
 
+void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm)
+{
+    switch (ins)
+    {
+        case INS_rcl_N:
+        case INS_rcr_N:
+        case INS_rol_N:
+        case INS_ror_N:
+        case INS_shl_N:
+        case INS_shr_N:
+        case INS_sar_N:
+            imm &= 0x7F;
+            break;
+        default:
+            break;
+    }
+
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
+    SetInstrAddrMode(id, IF_ARW_CNS, ins, addr);
+    id->idIns(ins);
+
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMI(ins), imm);
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
+void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
+{
+    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
+    SetInstrAddrMode(id, IF_ARW_RRD, ins, addr);
+    id->idReg1(reg);
+    id->idIns(ins);
+
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
 }
