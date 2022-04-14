@@ -1262,8 +1262,9 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
     // based on the contents of 'shift'
 
-    GenTree* data = tree->gtOp1;
-    genConsumeRegs(data);
+    GenTreeIndir* data = tree->GetOp(0)->AsIndir();
+    assert(data->isContained());
+    genConsumeAddress(data->GetAddr());
     GenTreeIntCon cns = intForm(TYP_INT, 0);
     cns.SetContained();
     GetEmitter()->emitInsBinary(INS_cmp, emitTypeSize(TYP_INT), data, &cns);
