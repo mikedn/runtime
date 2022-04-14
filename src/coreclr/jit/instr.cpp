@@ -622,7 +622,7 @@ void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
 
         regSet.tmpRlsTemp(tmpDsc);
     }
-    else if (memOp->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+    else if (memOp->OperIs(GT_LCL_FLD))
     {
         lclNum  = memOp->AsLclFld()->GetLclNum();
         lclOffs = memOp->AsLclFld()->GetLclOffs();
