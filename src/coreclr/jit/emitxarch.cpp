@@ -3272,64 +3272,36 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 // Emits a "mov [mem], reg/imm" (or a variant such as "movss") instruction.
 void emitter::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
 {
+    GenTreeIntCon* imm = data->IsContainedIntCon();
+
+    if (imm == nullptr)
+    {
+        emitIns_A_R(ins, attr, addr, data->GetRegNum());
+        return;
+    }
+
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        if (GenTreeIntCon* intCon = data->IsContainedIntCon())
-        {
-            emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), intCon->GetInt32Value());
-        }
-        else
-        {
-            assert(!data->isContained());
-            emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), data->GetRegNum());
-        }
+        emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), imm->GetInt32Value());
         return;
     }
 
     // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address is nonsense.
 
-    if (addr->OperIsLocalAddr())
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
         GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
         assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
-
-        if (data->isContainedIntOrIImmed())
-        {
-            emitIns_S_I(ins, attr, lclNode->GetLclNum(), lclNode->GetLclOffs(), data->AsIntCon()->GetInt32Value());
-        }
-        else
-        {
-            assert(!data->isContained());
-            emitIns_S_R(ins, attr, data->GetRegNum(), lclNode->GetLclNum(), lclNode->GetLclOffs());
-        }
-
+        emitIns_S_I(ins, attr, lclNode->GetLclNum(), lclNode->GetLclOffs(), imm->GetInt32Value());
         return;
     }
 
-    ssize_t        offset = GetAddrModeDisp(addr);
-    UNATIVE_OFFSET sz;
-    instrDesc*     id;
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm->GetInt32Value());
+    id->idIns(ins);
+    SetInstrAddrMode(id, IF_AWR_CNS, ins, addr);
 
-    if (data->isContainedIntOrIImmed())
-    {
-        int icon = (int)data->AsIntConCommon()->IconValue();
-        id       = emitNewInstrAmdCns(attr, offset, icon);
-        id->idIns(ins);
-        SetInstrAddrMode(id, IF_AWR_CNS, ins, addr);
-        sz = emitInsSizeAM(id, insCodeMI(ins), icon);
-        id->idCodeSize(sz);
-    }
-    else
-    {
-        assert(!data->isContained());
-        id = emitNewInstrAmd(attr, offset);
-        id->idIns(ins);
-        SetInstrAddrMode(id, IF_AWR_RRD, ins, addr);
-        id->idReg1(data->GetRegNum());
-        sz = emitInsSizeAM(id, insCodeMR(ins));
-        id->idCodeSize(sz);
-    }
-
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMI(ins), imm->GetInt32Value());
+    id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
 }
