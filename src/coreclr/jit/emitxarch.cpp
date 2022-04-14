@@ -3466,56 +3466,20 @@ void emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTre
     {
         GenTree* addr = memOp->AsIndir()->GetAddr();
 
-        if (immOp != nullptr)
+        if (memOp == src)
+        {
+            emitIns_R_A(ins, attr, regOp->GetRegNum(), addr);
+        }
+        else if (immOp != nullptr)
         {
             emitIns_A_I(ins, attr, addr, immOp->AsIntCon()->GetInt32Value());
-            return;
         }
-
-        if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+        else
         {
-            if (memOp == src)
-            {
-                emitIns_R_C(ins, attr, regOp->GetRegNum(), clsAddr->GetFieldHandle());
-            }
-            else
-            {
-                emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), regOp->GetRegNum());
-            }
-
-            return;
+            emitIns_A_R(ins, attr, addr, regOp->GetRegNum());
         }
 
-        if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-        {
-            instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-            id->idIns(ins);
-            id->idReg1(regOp->GetRegNum());
-
-            UNATIVE_OFFSET sz = 0;
-
-            if (memOp == src)
-            {
-                SetInstrAddrMode(id, emitInsModeFormat(ins, IF_RRD_ARD), ins, addr);
-                sz = emitInsSizeAM(id, insCodeRM(ins));
-            }
-            else
-            {
-                SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_RRD), ins, addr);
-                sz = emitInsSizeAM(id, insCodeMR(ins));
-            }
-
-            id->idCodeSize(sz);
-            dispIns(id);
-            emitCurIGsize += sz;
-
-            return;
-        }
-
-        assert(addr->isContained());
-
-        lclNum  = addr->AsLclVarCommon()->GetLclNum();
-        lclOffs = addr->AsLclVarCommon()->GetLclOffs();
+        return;
     }
 
     if (memOp == src)
