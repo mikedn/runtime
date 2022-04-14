@@ -3184,38 +3184,6 @@ void emitter::spillIntArgRegsToShadowSlots()
     }
 }
 
-// Emits a "mov reg, [mem]" (or a variant such as "movzx" or "movss") instruction.
-void emitter::emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenTree* addr)
-{
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitIns_R_C(ins, attr, dstReg, clsAddr->GetFieldHandle());
-        return;
-    }
-
-    // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address is nonsense.
-
-    if (addr->OperIsLocalAddr())
-    {
-        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
-        assert(emitComp->lvaGetDesc(lclNode)->IsAddressExposed());
-
-        emitIns_R_S(ins, attr, dstReg, lclNode->GetLclNum(), lclNode->GetLclOffs());
-
-        return;
-    }
-
-    assert(addr->IsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
-    instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-    id->idIns(ins);
-    id->idReg1(dstReg);
-    SetInstrAddrMode(id, IF_RWR_ARD, ins, addr);
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
 void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 {
     if (GenTreeClsVar* clsAddr = addr->IsClsVar())
@@ -4266,17 +4234,22 @@ void emitter::emitIns_RRW_A(instruction ins, emitAttr attr, regNumber reg1, GenT
     }
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-
     id->idIns(ins);
     id->idReg1(reg1);
-
     SetInstrAddrMode(id, IF_RRW_ARD, ins, addr);
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
+}
+
+// Emits a "mov reg, [mem]" (or a variant such as "movzx" or "movss") instruction.
+void emitter::emitInsLoad(instruction ins, emitAttr attr, regNumber dstReg, GenTree* addr)
+{
+    assert(emitInsModeFormat(ins, IF_RRD_ARD) == IF_RWR_ARD);
+
+    emitIns_R_A(ins, attr, dstReg, addr);
 }
 
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
