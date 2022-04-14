@@ -87,11 +87,6 @@ static bool emitInsIsLoadOrStore(instruction ins);
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
 
-// Generate code for a load or store operation and handle the case
-// of contained GT_LEA op1 with [base + index<<scale + offset]
-void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
-void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
-
 static bool IsMovInstruction(instruction ins);
 static bool isModImmConst(int imm);
 static int encodeModImmConst(int imm);

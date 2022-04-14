@@ -1293,6 +1293,7 @@ public:
     void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
     void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
+
 #ifdef TARGET_XARCH
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
     void inst_TT(instruction ins, GenTreeLclVar* node);
@@ -1305,6 +1306,17 @@ public:
     void inst_RV_RV_TT(instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW);
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
     bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
+#endif
+
+#ifdef TARGET_ARM
+    void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
+    void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
+    regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
+#endif
+
+#ifdef TARGET_ARM64
+    void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
+    regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
 
     void inst_set_SV_var(GenTreeLclVar* node);

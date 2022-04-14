@@ -325,7 +325,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     }
     else
     {
-        regNumber r = emit->emitInsTernary(ins, emitTypeSize(treeNode), treeNode, op1, op2);
+        regNumber r = emitInsTernary(ins, emitTypeSize(treeNode), treeNode, op1, op2);
         assert(r == targetReg);
     }
 
@@ -1138,7 +1138,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         instGen_MemoryBarrier();
     }
 
-    GetEmitter()->emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
+    emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
 }
 
 // genLongToIntCast: Generate code for long to int casts.
@@ -1642,6 +1642,340 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
     unreached();
+}
+
+void CodeGen::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir)
+{
+    emitter* emit = GetEmitter();
+
+    // Handle unaligned floating point loads/stores
+    if ((indir->gtFlags & GTF_IND_UNALIGNED))
+    {
+        if (indir->OperGet() == GT_STOREIND)
+        {
+            var_types type = indir->AsStoreInd()->GetValue()->TypeGet();
+            if (type == TYP_FLOAT)
+            {
+                regNumber tmpReg = indir->GetSingleTempReg();
+                emit->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tmpReg, dataReg, /* canSkip */ false);
+                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg, indir, 0);
+                return;
+            }
+            else if (type == TYP_DOUBLE)
+            {
+                regNumber tmpReg1 = indir->ExtractTempReg();
+                regNumber tmpReg2 = indir->GetSingleTempReg();
+                emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tmpReg1, tmpReg2, dataReg);
+                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg1, indir, 0);
+                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg2, indir, 4);
+                return;
+            }
+        }
+        else if (indir->OperGet() == GT_IND)
+        {
+            var_types type = indir->TypeGet();
+            if (type == TYP_FLOAT)
+            {
+                regNumber tmpReg = indir->GetSingleTempReg();
+                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg, indir, 0);
+                emit->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dataReg, tmpReg, /* canSkip */ false);
+                return;
+            }
+            else if (type == TYP_DOUBLE)
+            {
+                regNumber tmpReg1 = indir->ExtractTempReg();
+                regNumber tmpReg2 = indir->GetSingleTempReg();
+                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg1, indir, 0);
+                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg2, indir, 4);
+                emit->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dataReg, tmpReg1, tmpReg2);
+                return;
+            }
+        }
+    }
+
+    // Proceed with ordinary loads/stores
+    emitInsLoadStoreOp(ins, attr, dataReg, indir, 0);
+}
+
+void CodeGen::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset)
+{
+    emitter* emit = GetEmitter();
+    GenTree* addr = indir->GetAddr();
+
+    if (!addr->isContained())
+    {
+        if (offset != 0)
+        {
+            assert(emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE));
+            emit->emitIns_R_R_I(ins, attr, dataReg, addr->GetRegNum(), offset);
+        }
+        else
+        {
+            emit->emitIns_R_R(ins, attr, dataReg, addr->GetRegNum());
+        }
+
+        return;
+    }
+
+    assert(addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA));
+
+    GenTree* base  = addr;
+    GenTree* index = nullptr;
+    unsigned lsl   = 0;
+
+    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+    {
+        base  = addrMode->GetBase();
+        index = addrMode->GetIndex();
+
+        if (index != nullptr)
+        {
+            assert(isPow2(addrMode->GetScale()));
+            lsl = genLog2(addrMode->GetScale());
+        }
+
+        offset += addrMode->GetOffset();
+    }
+
+    if (index != nullptr)
+    {
+        if (offset != 0)
+        {
+            regNumber tmpReg = indir->GetSingleTempReg();
+
+            // If the LEA produces a GCREF or BYREF, we need to be careful to mark any temp register
+            // computed with the base register as a BYREF.
+            emitAttr leaAttr                = emitTypeSize(addr->GetType());
+            emitAttr leaBasePartialAddrAttr = EA_IS_GCREF_OR_BYREF(leaAttr) ? EA_BYREF : EA_PTRSIZE;
+
+            if (emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
+            {
+                if (lsl > 0)
+                {
+                    // Generate code to set tmpReg = base + index*scale
+                    emit->emitIns_R_R_R_I(INS_add, leaBasePartialAddrAttr, tmpReg, base->GetRegNum(),
+                                          index->GetRegNum(), lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+                }
+                else // no scale
+                {
+                    // Generate code to set tmpReg = base + index
+                    emit->emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, base->GetRegNum(), index->GetRegNum());
+                }
+
+                noway_assert(emitter::emitInsIsLoad(ins) || (tmpReg != dataReg));
+
+                // Then load/store dataReg from/to [tmpReg + offset]
+                emit->emitIns_R_R_I(ins, attr, dataReg, tmpReg, offset);
+            }
+            else // large offset
+            {
+                // First load/store tmpReg with the large offset constant
+                instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
+                // Then add the base register
+                //      rd = rd + base
+                emit->emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, tmpReg, base->GetRegNum());
+
+                noway_assert(emit->emitInsIsLoad(ins) || (tmpReg != dataReg));
+                noway_assert(tmpReg != index->GetRegNum());
+
+                // Then load/store dataReg from/to [tmpReg + index*scale]
+                emit->emitIns_R_R_R_I(ins, attr, dataReg, tmpReg, index->GetRegNum(), lsl, INS_FLAGS_DONT_CARE,
+                                      INS_OPTS_LSL);
+            }
+        }
+        else // (offset == 0)
+        {
+            if (lsl > 0)
+            {
+                // Then load/store dataReg from/to [memBase + index*scale]
+                emit->emitIns_R_R_R_I(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum(), lsl,
+                                      INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+            }
+            else // no scale
+            {
+                // Then load/store dataReg from/to [memBase + index]
+                emit->emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum());
+            }
+        }
+    }
+    else // no Index
+    {
+        if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        {
+            GenTreeLclVarCommon* varNode = addr->AsLclVarCommon();
+            unsigned             lclNum  = varNode->GetLclNum();
+            unsigned             offset  = varNode->GetLclOffs();
+            if (emit->emitInsIsStore(ins))
+            {
+                emit->emitIns_S_R(ins, attr, dataReg, lclNum, offset);
+            }
+            else
+            {
+                emit->emitIns_R_S(ins, attr, dataReg, lclNum, offset);
+            }
+        }
+        else if (emitter::emitIns_valid_imm_for_ldst_offset(offset, attr))
+        {
+            // Then load/store dataReg from/to [memBase + offset]
+            emit->emitIns_R_R_I(ins, attr, dataReg, base->GetRegNum(), offset);
+        }
+        else
+        {
+            // We require a tmpReg to hold the offset
+            regNumber tmpReg = indir->GetSingleTempReg();
+
+            // First load/store tmpReg with the large offset constant
+            instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
+
+            // Then load/store dataReg from/to [memBase + tmpReg]
+            emit->emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), tmpReg);
+        }
+    }
+}
+
+regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)
+{
+    // dst can only be a reg
+    assert(!dst->isContained());
+
+    // find immed (if any) - it cannot be a dst
+    // Only one src can be an int.
+    GenTreeIntConCommon* intConst  = nullptr;
+    GenTree*             nonIntReg = nullptr;
+
+    if (varTypeIsFloating(dst))
+    {
+        // src1 can only be a reg
+        assert(!src1->isContained());
+        // src2 can only be a reg
+        assert(!src2->isContained());
+    }
+    else // not floating point
+    {
+        // src2 can be immed or reg
+        assert(!src2->isContained() || src2->isContainedIntOrIImmed());
+
+        // Check src2 first as we can always allow it to be a contained immediate
+        if (src2->isContainedIntOrIImmed())
+        {
+            intConst  = src2->AsIntConCommon();
+            nonIntReg = src1;
+        }
+        // Only for commutative operations do we check src1 and allow it to be a contained immediate
+        else if (dst->OperIsCommutative())
+        {
+            // src1 can be immed or reg
+            assert(!src1->isContained() || src1->isContainedIntOrIImmed());
+
+            // Check src1 and allow it to be a contained immediate
+            if (src1->isContainedIntOrIImmed())
+            {
+                assert(!src2->isContainedIntOrIImmed());
+                intConst  = src1->AsIntConCommon();
+                nonIntReg = src2;
+            }
+        }
+        else
+        {
+            // src1 can only be a reg
+            assert(!src1->isContained());
+        }
+    }
+
+    insFlags flags         = INS_FLAGS_DONT_CARE;
+    bool     isMulOverflow = false;
+    if (dst->gtOverflowEx())
+    {
+        if ((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc))
+        {
+            flags = INS_FLAGS_SET;
+        }
+        else if (ins == INS_mul)
+        {
+            isMulOverflow = true;
+            assert(intConst == nullptr); // overflow format doesn't support an int constant operand
+        }
+        else
+        {
+            assert(!"Invalid ins for overflow check");
+        }
+    }
+
+    emitter* emit = GetEmitter();
+
+    if ((dst->gtFlags & GTF_SET_FLAGS) != 0)
+    {
+        assert((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc) || (ins == INS_and) ||
+               (ins == INS_orr) || (ins == INS_eor) || (ins == INS_orn));
+        flags = INS_FLAGS_SET;
+    }
+
+    if (intConst != nullptr)
+    {
+        emit->emitIns_R_R_I(ins, attr, dst->GetRegNum(), nonIntReg->GetRegNum(), (target_ssize_t)intConst->IconValue(),
+                            flags);
+    }
+    else
+    {
+        if (isMulOverflow)
+        {
+            regNumber extraReg = dst->GetSingleTempReg();
+            assert(extraReg != dst->GetRegNum());
+
+            if ((dst->gtFlags & GTF_UNSIGNED) != 0)
+            {
+                // Compute 8 byte result from 4 byte by 4 byte multiplication.
+                emit->emitIns_R_R_R_R(INS_umull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(),
+                                      src2->GetRegNum());
+
+                // Overflow exists if the result's high word is non-zero.
+                emit->emitIns_R_I(INS_cmp, attr, extraReg, 0);
+            }
+            else
+            {
+                // Compute 8 byte result from 4 byte by 4 byte multiplication.
+                emit->emitIns_R_R_R_R(INS_smull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(),
+                                      src2->GetRegNum());
+
+                // Overflow exists if the result's high word is not merely a sign bit.
+                emit->emitIns_R_R_I(INS_cmp, attr, extraReg, dst->GetRegNum(), 31, INS_FLAGS_DONT_CARE, INS_OPTS_ASR);
+            }
+        }
+        else
+        {
+            // We can just do the arithmetic, setting the flags if needed.
+            emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum(), flags);
+        }
+    }
+
+    if (dst->gtOverflowEx())
+    {
+        assert(!varTypeIsFloating(dst));
+
+        emitJumpKind jumpKind;
+
+        if (dst->OperGet() == GT_MUL)
+        {
+            jumpKind = EJ_ne;
+        }
+        else
+        {
+            bool isUnsignedOverflow = ((dst->gtFlags & GTF_UNSIGNED) != 0);
+            jumpKind                = isUnsignedOverflow ? EJ_lo : EJ_vs;
+            if (jumpKind == EJ_lo)
+            {
+                if ((dst->OperGet() != GT_SUB) && (dst->OperGet() != GT_SUB_HI))
+                {
+                    jumpKind = EJ_hs;
+                }
+            }
+        }
+
+        // Jump to the block which will throw the exception.
+        genJumpToThrowHlpBlk(jumpKind, SCK_OVERFLOW);
+    }
+
+    return dst->GetRegNum();
 }
 
 #endif // TARGET_ARM

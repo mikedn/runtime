@@ -1866,7 +1866,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
         assert(IsValidSourceType(targetType, op2->GetType()));
     }
 
-    regNumber r = emit->emitInsTernary(ins, attr, treeNode, op1, op2);
+    regNumber r = emitInsTernary(ins, attr, treeNode, op1, op2);
     assert(r == targetReg);
 
     DefReg(treeNode);
@@ -3028,7 +3028,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         }
     }
 
-    GetEmitter()->emitInsLoadStoreOp(ins, emitActualTypeSize(type), dataReg, tree);
+    emitInsLoadStoreOp(ins, emitActualTypeSize(type), dataReg, tree);
 }
 
 //------------------------------------------------------------------------
@@ -8708,6 +8708,292 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
     {
         GetEmitter()->emitIns_R_R_I(ins, attr, reg, addrMode.Base(), addrMode.Disp(offset));
     }
+}
+
+// Generate code for a load or store operation with a potentially complex addressing mode
+// This method handles the case of a GT_IND with contained GT_LEA op1 of the x86 form [base + index*sccale + offset]
+// Since Arm64 does not directly support this complex of an addressing mode
+// we may generates up to three instructions for this for Arm64
+//
+void CodeGen::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir)
+{
+    emitter* emit = GetEmitter();
+    GenTree* addr = indir->GetAddr();
+
+    if (!addr->isContained())
+    {
+        emit->emitIns_R_R(ins, attr, dataReg, addr->GetRegNum());
+        return;
+    }
+
+    assert(addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA));
+
+    GenTree* base   = addr;
+    GenTree* index  = nullptr;
+    unsigned lsl    = 0;
+    int      offset = 0;
+
+    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+    {
+        base  = addrMode->GetBase();
+        index = addrMode->GetIndex();
+
+        if (index != nullptr)
+        {
+            assert(isPow2(addrMode->GetScale()));
+            lsl = genLog2(addrMode->GetScale());
+        }
+
+        offset = addrMode->GetOffset();
+    }
+
+    if (index != nullptr)
+    {
+        if (offset != 0)
+        {
+            regNumber tmpReg = indir->GetSingleTempReg();
+
+            emitAttr addType = varTypeIsGC(base) ? EA_BYREF : EA_PTRSIZE;
+
+            if (emitter::emitIns_valid_imm_for_add(offset, EA_8BYTE))
+            {
+                if (lsl > 0)
+                {
+                    // Generate code to set tmpReg = base + index*scale
+                    emit->emitIns_R_R_R_I(INS_add, addType, tmpReg, base->GetRegNum(), index->GetRegNum(), lsl,
+                                          INS_OPTS_LSL);
+                }
+                else // no scale
+                {
+                    // Generate code to set tmpReg = base + index
+                    emit->emitIns_R_R_R(INS_add, addType, tmpReg, base->GetRegNum(), index->GetRegNum());
+                }
+
+                noway_assert(emit->emitInsIsLoad(ins) || (tmpReg != dataReg));
+
+                // Then load/store dataReg from/to [tmpReg + offset]
+                emit->emitIns_R_R_I(ins, attr, dataReg, tmpReg, offset);
+            }
+            else // large offset
+            {
+                // First load/store tmpReg with the large offset constant
+                instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
+                // Then add the base register
+                //      rd = rd + base
+                emit->emitIns_R_R_R(INS_add, addType, tmpReg, tmpReg, base->GetRegNum());
+
+                noway_assert(emit->emitInsIsLoad(ins) || (tmpReg != dataReg));
+                noway_assert(tmpReg != index->GetRegNum());
+
+                // Then load/store dataReg from/to [tmpReg + index*scale]
+                emit->emitIns_R_R_R_I(ins, attr, dataReg, tmpReg, index->GetRegNum(), lsl, INS_OPTS_LSL);
+            }
+        }
+        else // (offset == 0)
+        {
+            if (lsl > 0)
+            {
+                // Then load/store dataReg from/to [memBase + index*scale]
+                emit->emitIns_R_R_R_I(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum(), lsl, INS_OPTS_LSL);
+            }
+            else // no scale
+            {
+                // Then load/store dataReg from/to [memBase + index]
+                emit->emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum());
+            }
+        }
+    }
+    else // no Index register
+    {
+        if (addr->OperGet() == GT_CLS_VAR_ADDR)
+        {
+            // Get a temp integer register to compute long address.
+            regNumber addrReg = indir->GetSingleTempReg();
+            emit->emitIns_R_C(ins, attr, dataReg, addrReg, addr->AsClsVar()->gtClsVarHnd);
+        }
+        else if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        {
+            GenTreeLclVarCommon* varNode = addr->AsLclVarCommon();
+            unsigned             lclNum  = varNode->GetLclNum();
+            unsigned             offset  = varNode->GetLclOffs();
+            if (emit->emitInsIsStore(ins))
+            {
+                emit->emitIns_S_R(ins, attr, dataReg, lclNum, offset);
+            }
+            else
+            {
+                emit->emitIns_R_S(ins, attr, dataReg, lclNum, offset);
+            }
+        }
+        else if (emitter::emitIns_valid_imm_for_ldst_offset(offset, emitTypeSize(indir->TypeGet())))
+        {
+            // Then load/store dataReg from/to [memBase + offset]
+            emit->emitIns_R_R_I(ins, attr, dataReg, base->GetRegNum(), offset);
+        }
+        else
+        {
+            // We require a tmpReg to hold the offset
+            regNumber tmpReg = indir->GetSingleTempReg();
+
+            // First load/store tmpReg with the large offset constant
+            instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
+
+            // Then load/store dataReg from/to [memBase + tmpReg]
+            emit->emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), tmpReg);
+        }
+    }
+}
+
+regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)
+{
+    // dst can only be a reg
+    assert(!dst->isContained());
+
+    // find immed (if any) - it cannot be a dst
+    // Only one src can be an int.
+    GenTreeIntConCommon* intConst  = nullptr;
+    GenTree*             nonIntReg = nullptr;
+
+    if (varTypeIsFloating(dst))
+    {
+        // src1 can only be a reg
+        assert(!src1->isContained());
+        // src2 can only be a reg
+        assert(!src2->isContained());
+    }
+    else // not floating point
+    {
+        // src2 can be immed or reg
+        assert(!src2->isContained() || src2->isContainedIntOrIImmed());
+
+        // Check src2 first as we can always allow it to be a contained immediate
+        if (src2->isContainedIntOrIImmed())
+        {
+            intConst  = src2->AsIntConCommon();
+            nonIntReg = src1;
+        }
+        // Only for commutative operations do we check src1 and allow it to be a contained immediate
+        else if (dst->OperIsCommutative())
+        {
+            // src1 can be immed or reg
+            assert(!src1->isContained() || src1->isContainedIntOrIImmed());
+
+            // Check src1 and allow it to be a contained immediate
+            if (src1->isContainedIntOrIImmed())
+            {
+                assert(!src2->isContainedIntOrIImmed());
+                intConst  = src1->AsIntConCommon();
+                nonIntReg = src2;
+            }
+        }
+        else
+        {
+            // src1 can only be a reg
+            assert(!src1->isContained());
+        }
+    }
+
+    bool isMulOverflow = false;
+    if (dst->gtOverflowEx())
+    {
+        if ((ins == INS_add) || (ins == INS_adds))
+        {
+            ins = INS_adds;
+        }
+        else if ((ins == INS_sub) || (ins == INS_subs))
+        {
+            ins = INS_subs;
+        }
+        else if (ins == INS_mul)
+        {
+            isMulOverflow = true;
+            assert(intConst == nullptr); // overflow format doesn't support an int constant operand
+        }
+        else
+        {
+            assert(!"Invalid ins for overflow check");
+        }
+    }
+
+    emitter* emit = GetEmitter();
+
+    if (intConst != nullptr)
+    {
+        emit->emitIns_R_R_I(ins, attr, dst->GetRegNum(), nonIntReg->GetRegNum(), intConst->IconValue());
+    }
+    else
+    {
+        if (isMulOverflow)
+        {
+            regNumber extraReg = dst->GetSingleTempReg();
+            assert(extraReg != dst->GetRegNum());
+
+            if ((dst->gtFlags & GTF_UNSIGNED) != 0)
+            {
+                if (attr == EA_4BYTE)
+                {
+                    // Compute 8 byte results from 4 byte by 4 byte multiplication.
+                    emit->emitIns_R_R_R(INS_umull, EA_8BYTE, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
+
+                    // Get the high result by shifting dst.
+                    emit->emitIns_R_R_I(INS_lsr, EA_8BYTE, extraReg, dst->GetRegNum(), 32);
+                }
+                else
+                {
+                    assert(attr == EA_8BYTE);
+                    // Compute the high result.
+                    emit->emitIns_R_R_R(INS_umulh, attr, extraReg, src1->GetRegNum(), src2->GetRegNum());
+
+                    // Now multiply without skewing the high result.
+                    emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
+                }
+
+                // zero-sign bit comparison to detect overflow.
+                emit->emitIns_R_I(INS_cmp, attr, extraReg, 0);
+            }
+            else
+            {
+                int bitShift = 0;
+                if (attr == EA_4BYTE)
+                {
+                    // Compute 8 byte results from 4 byte by 4 byte multiplication.
+                    emit->emitIns_R_R_R(INS_smull, EA_8BYTE, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
+
+                    // Get the high result by shifting dst.
+                    emit->emitIns_R_R_I(INS_lsr, EA_8BYTE, extraReg, dst->GetRegNum(), 32);
+
+                    bitShift = 31;
+                }
+                else
+                {
+                    assert(attr == EA_8BYTE);
+                    // Save the high result in a temporary register.
+                    emit->emitIns_R_R_R(INS_smulh, attr, extraReg, src1->GetRegNum(), src2->GetRegNum());
+
+                    // Now multiply without skewing the high result.
+                    emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
+
+                    bitShift = 63;
+                }
+
+                // Sign bit comparison to detect overflow.
+                emit->emitIns_R_R_I(INS_cmp, attr, extraReg, dst->GetRegNum(), bitShift, INS_OPTS_ASR);
+            }
+        }
+        else
+        {
+            // We can just multiply.
+            emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
+        }
+    }
+
+    if (dst->gtOverflowEx())
+    {
+        assert(!varTypeIsFloating(dst));
+        genCheckOverflow(dst);
+    }
+
+    return dst->GetRegNum();
 }
 
 #endif // TARGET_ARM64

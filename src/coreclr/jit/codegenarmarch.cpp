@@ -1290,7 +1290,7 @@ void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
     genConsumeAddress(op1);
     regNumber targetReg = REG_ZR;
 
-    GetEmitter()->emitInsLoadStoreOp(INS_ldr, EA_4BYTE, targetReg, tree);
+    emitInsLoadStoreOp(INS_ldr, EA_4BYTE, targetReg, tree);
 #endif
 }
 
@@ -1650,7 +1650,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
         }
     }
 
-    GetEmitter()->emitInsLoadStoreOp(ins, emitActualTypeSize(type), targetReg, tree);
+    emitInsLoadStoreOp(ins, emitActualTypeSize(type), targetReg, tree);
 
     if (emitBarrier)
     {
@@ -3413,7 +3413,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 
         if (src->OperIs(GT_IND))
         {
-            GetEmitter()->emitInsLoadStoreOp(ins, EA_ATTR(insSize), dstReg, src->AsIndir());
+            emitInsLoadStoreOp(ins, EA_ATTR(insSize), dstReg, src->AsIndir());
         }
         else
         {
