@@ -423,6 +423,185 @@ void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
     GetEmitter()->emitIns_S(ins, emitActualTypeSize(node->GetType()), lclNum, 0);
 }
 
+void CodeGen::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
+{
+    emitter* emit = GetEmitter();
+
+    if (src->isUsedFromReg())
+    {
+        emit->emitIns_R(ins, attr, src->GetRegNum());
+        return;
+    }
+
+    assert(src->isUsedFromMemory());
+
+    unsigned lclNum;
+    unsigned lclOffs;
+
+    if (src->isUsedFromSpillTemp())
+    {
+        assert(src->IsRegOptional());
+
+        TempDsc* tmpDsc = getSpillTempDsc(src);
+
+        lclNum  = tmpDsc->tdTempNum();
+        lclOffs = 0;
+
+        regSet.tmpRlsTemp(tmpDsc);
+    }
+    else if (src->OperIs(GT_LCL_FLD))
+    {
+        lclNum  = src->AsLclFld()->GetLclNum();
+        lclOffs = src->AsLclFld()->GetLclOffs();
+    }
+    else if (src->OperIs(GT_LCL_VAR))
+    {
+        assert(src->IsRegOptional() || !compiler->lvaGetDesc(src->AsLclVar())->IsRegCandidate());
+
+        lclNum  = src->AsLclVar()->GetLclNum();
+        lclOffs = 0;
+    }
+    else
+    {
+        emit->emitIns_A(ins, attr, src->AsIndir()->GetAddr());
+
+        return;
+    }
+
+    emit->emitIns_S(ins, attr, lclNum, lclOffs);
+}
+
+void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
+{
+    assert(!emitter::instrHasImplicitRegPairDest(ins));
+
+    emitter* emit  = GetEmitter();
+    GenTree* memOp = nullptr;
+    GenTree* immOp = nullptr;
+    GenTree* regOp = nullptr;
+
+    if (dst->isContained() || (dst->OperIs(GT_LCL_FLD) && (dst->GetRegNum() == REG_NA)) || dst->isUsedFromSpillTemp())
+    {
+        assert(dst->isUsedFromMemory() || (dst->GetRegNum() == REG_NA) || emitter::instrIs3opImul(ins));
+
+        memOp = dst;
+
+        if (src->isContained())
+        {
+            assert(src->IsIntCon());
+
+            immOp = src;
+        }
+        else
+        {
+            assert(src->isUsedFromReg());
+
+            regOp = src;
+        }
+    }
+    else if (src->isContained() || src->isUsedFromSpillTemp())
+    {
+        assert(dst->isUsedFromReg());
+
+        regOp = dst;
+
+        if ((src->IsIntCon() || src->IsDblCon()) && !src->isUsedFromSpillTemp())
+        {
+            assert(!src->isUsedFromMemory() || src->IsDblCon());
+
+            immOp = src;
+        }
+        else
+        {
+            assert(src->isUsedFromMemory());
+
+            memOp = src;
+        }
+    }
+    else
+    {
+        assert(dst->isUsedFromReg() && src->isUsedFromReg());
+
+        emit->emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
+
+        return;
+    }
+
+    if (memOp == nullptr)
+    {
+        if (GenTreeDblCon* dblCon = immOp->IsDblCon())
+        {
+            CORINFO_FIELD_HANDLE field = emit->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+            emit->emitIns_R_C(ins, attr, regOp->GetRegNum(), field);
+        }
+        else
+        {
+            assert(!dst->isContained());
+
+            emit->emitIns_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
+        }
+
+        return;
+    }
+
+    unsigned lclNum;
+    unsigned lclOffs;
+
+    if (memOp->isUsedFromSpillTemp())
+    {
+        TempDsc* tmpDsc = getSpillTempDsc(memOp);
+
+        lclNum  = tmpDsc->tdTempNum();
+        lclOffs = 0;
+
+        regSet.tmpRlsTemp(tmpDsc);
+    }
+    else if (memOp->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+    {
+        lclNum  = memOp->AsLclFld()->GetLclNum();
+        lclOffs = memOp->AsLclFld()->GetLclOffs();
+    }
+    else if (memOp->OperIs(GT_LCL_VAR))
+    {
+        assert(memOp->IsRegOptional() || !compiler->lvaGetDesc(memOp->AsLclVar())->IsRegCandidate());
+
+        lclNum  = memOp->AsLclVar()->GetLclNum();
+        lclOffs = 0;
+    }
+    else
+    {
+        GenTree* addr = memOp->AsIndir()->GetAddr();
+
+        if (memOp == src)
+        {
+            emit->emitIns_R_A(ins, attr, regOp->GetRegNum(), addr);
+        }
+        else if (immOp != nullptr)
+        {
+            emit->emitIns_A_I(ins, attr, addr, immOp->AsIntCon()->GetInt32Value());
+        }
+        else
+        {
+            emit->emitIns_A_R(ins, attr, addr, regOp->GetRegNum());
+        }
+
+        return;
+    }
+
+    if (memOp == src)
+    {
+        emit->emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+    }
+    else if (immOp != nullptr)
+    {
+        emit->emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
+    }
+    else
+    {
+        emit->emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+    }
+}
+
 void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVar* node)
 {
     assert(ins == INS_mov);

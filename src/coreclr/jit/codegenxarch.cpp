@@ -581,7 +581,6 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 
     regNumber targetReg  = treeNode->GetRegNum();
     var_types targetType = treeNode->TypeGet();
-    emitter*  emit       = GetEmitter();
     emitAttr  size       = emitTypeSize(treeNode);
     GenTree*  op1        = treeNode->AsOp()->gtOp1;
     GenTree*  op2        = treeNode->AsOp()->gtOp2;
@@ -605,7 +604,7 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
     // Setup targetReg when neither of the source operands was a matching register
     inst_Mov(targetType, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
 
-    emit->emitInsUnary(treeNode->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
+    emitInsUnary(treeNode->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
 
     // Move the result to the desired register, if necessary
     if (treeNode->OperGet() == GT_MULHI)
@@ -759,7 +758,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
         gcInfo.gcMarkRegSetNpt(RBM_RDX);
     }
 
-    emit->emitInsUnary((oper == GT_UMOD) || (oper == GT_UDIV) ? INS_div : INS_idiv, size, divisor);
+    emitInsUnary((oper == GT_UMOD) || (oper == GT_UDIV) ? INS_div : INS_idiv, size, divisor);
 
     // DIV/IDIV instructions always store the quotient in RAX and the remainder in RDX.
     // Move the result to the desired register, if necessary
@@ -886,7 +885,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
         }
     }
 
-    emit->emitInsBinary(genGetInsForOper(node->GetOper(), node->GetType()), attr, dst, src);
+    emitInsBinary(genGetInsForOper(node->GetOper(), node->GetType()), attr, dst, src);
 
     if (node->gtOverflowEx())
     {
@@ -1004,7 +1003,7 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
             // We will use the LEA instruction to perform this multiply
             // Note that an LEA with base=x, index=x and scale=(imm-1) computes x*imm when imm=3,5 or 9.
             unsigned int scale = (unsigned int)(imm - 1);
-            GetEmitter()->emitIns_R_ARX(INS_lea, size, targetReg, rmOp->GetRegNum(), rmOp->GetRegNum(), scale, 0);
+            emit->emitIns_R_ARX(INS_lea, size, targetReg, rmOp->GetRegNum(), rmOp->GetRegNum(), scale, 0);
         }
         else if (!requiresOverflowCheck && rmOp->isUsedFromReg() && (imm == genFindLowestBit(imm)) && (imm != 0))
         {
@@ -1020,8 +1019,8 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
         else
         {
             // use the 3-op form with immediate
-            ins = GetEmitter()->inst3opImulForReg(targetReg);
-            emit->emitInsBinary(ins, size, rmOp, immOp);
+            ins = emit->inst3opImulForReg(targetReg);
+            emitInsBinary(ins, size, rmOp, immOp);
         }
     }
     else // we have no contained immediate operand
@@ -1055,12 +1054,12 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
 
         if (ins == INS_mulEAX)
         {
-            emit->emitInsUnary(ins, size, rmOp);
+            emitInsUnary(ins, size, rmOp);
             inst_Mov(targetType, targetReg, REG_RAX, /* canSkip */ true);
         }
         else
         {
-            emit->emitInsBinary(ins, size, treeNode, rmOp);
+            emitInsBinary(ins, size, treeNode, rmOp);
         }
     }
 
@@ -3472,7 +3471,7 @@ void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
     assert(emitTypeSize(bndsChkType) >= emitTypeSize(src1->TypeGet()));
 #endif // DEBUG
 
-    GetEmitter()->emitInsBinary(cmpKind, emitTypeSize(bndsChkType), src1, src2);
+    emitInsBinary(cmpKind, emitTypeSize(bndsChkType), src1, src2);
     genJumpToThrowHlpBlk(jmpKind, bndsChk->GetThrowKind(), bndsChk->GetThrowBlock());
 }
 
@@ -5652,7 +5651,7 @@ void CodeGen::genCompareFloat(GenTree* treeNode)
     ins     = ins_FloatCompare(op1Type);
     cmpAttr = emitTypeSize(op1Type);
 
-    GetEmitter()->emitInsBinary(ins, cmpAttr, op1, op2);
+    emitInsBinary(ins, cmpAttr, op1, op2);
 
     // Are we evaluating this into a register?
     if (targetReg != REG_NA)
@@ -5802,7 +5801,7 @@ void CodeGen::genCompareInt(GenTree* treeNode)
     }
     else
     {
-        emit->emitInsBinary(ins, emitTypeSize(type), op1, op2);
+        emitInsBinary(ins, emitTypeSize(type), op1, op2);
     }
 
     // Are we evaluating this into a register?
@@ -6010,7 +6009,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
         // register will be written only in genProduceReg, after the actual cast is
         // performed.
 
-        GetEmitter()->emitInsBinary(ins, EA_ATTR(desc.LoadSrcSize()), cast, src);
+        emitInsBinary(ins, EA_ATTR(desc.LoadSrcSize()), cast, src);
 
         srcReg = dstReg;
     }
@@ -6103,7 +6102,7 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 
     if (ins != INS_none)
     {
-        GetEmitter()->emitInsBinary(ins, insSize, cast, src);
+        emitInsBinary(ins, insSize, cast, src);
     }
 
     genProduceReg(cast);
@@ -6161,7 +6160,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     instruction ins     = (dstType == TYP_FLOAT) ? INS_cvtsi2ss : INS_cvtsi2sd;
     emitAttr    insSize = emitTypeSize(srcType);
 
-    GetEmitter()->emitInsBinary(ins, insSize, cast, src);
+    emitInsBinary(ins, insSize, cast, src);
 
 #ifdef TARGET_64BIT
     // Handle the case of srcType = TYP_ULONG. SSE2 conversion instruction
@@ -6253,7 +6252,7 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     instruction ins     = (srcType == TYP_FLOAT) ? INS_cvttss2si : INS_cvttsd2si;
     emitAttr    insSize = emitTypeSize(dstType);
 
-    GetEmitter()->emitInsBinary(ins, insSize, cast, src);
+    emitInsBinary(ins, insSize, cast, src);
 
     genProduceReg(cast);
 }
@@ -6648,7 +6647,7 @@ void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
             GenTree* src = node->GetOp(0);
             assert(src->GetType() == node->GetType());
             genConsumeRegs(src);
-            GetEmitter()->emitInsBinary(ins_FloatSqrt(node->GetType()), emitTypeSize(node->GetType()), node, src);
+            emitInsBinary(ins_FloatSqrt(node->GetType()), emitTypeSize(node->GetType()), node, src);
             break;
         }
 
