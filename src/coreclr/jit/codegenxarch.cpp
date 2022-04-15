@@ -7298,20 +7298,19 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
         if (src->isUsedFromSpillTemp())
         {
-            genConsumeRegs(src);
             TempDsc* tmp = getSpillTempDsc(src);
             GetEmitter()->emitIns_S(INS_push, attr, tmp->tdTempNum(), 0);
             regSet.tmpRlsTemp(tmp);
         }
         else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            genConsumeRegs(src);
+            genUpdateLife(src->AsLclVarCommon());
             unsigned lclOffs = src->OperIs(GT_LCL_VAR) ? 0 : src->AsLclFld()->GetLclOffs();
             GetEmitter()->emitIns_S(INS_push, attr, src->AsLclVarCommon()->GetLclNum(), lclOffs);
         }
         else if (src->OperIs(GT_IND))
         {
-            genConsumeRegs(src);
+            genConsumeAddress(src->AsIndir()->GetAddr());
             GetEmitter()->emitIns_A(INS_push, attr, src->AsIndir()->GetAddr());
         }
         else if (src->IsIconHandle())
