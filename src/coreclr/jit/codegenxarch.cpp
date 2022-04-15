@@ -4118,8 +4118,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         instruction ins  = ins_Store(lclRegType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
         emitAttr    attr = emitTypeSize(lclRegType);
 
-        inst_set_SV_var(store);
-
         if (src->isContained())
         {
             if (src->OperIsRMWMemOp())

@@ -334,13 +334,6 @@ void CodeGen::inst_IV(instruction ins, cnsval_ssize_t val)
     GetEmitter()->emitIns_I(ins, EA_PTRSIZE, val);
 }
 
-void CodeGen::inst_set_SV_var(GenTreeLclVar* node)
-{
-    assert(node->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_STORE_LCL_VAR));
-
-    INDEBUG(GetEmitter()->emitVarRefOffs = node->gtLclILoffs;)
-}
-
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
 {
 #if !defined(TARGET_64BIT)
@@ -510,8 +503,6 @@ void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
     assert(node->OperIs(GT_LCL_VAR));
     assert(!node->IsRegSpilled(0));
 
-    inst_set_SV_var(node);
-
     unsigned lclNum = node->GetLclNum();
     assert(lclNum < compiler->lvaCount);
     GetEmitter()->emitIns_S(ins, emitActualTypeSize(node->GetType()), lclNum, 0);
@@ -672,8 +663,6 @@ void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeL
     assert(reg != REG_STK);
     assert(!node->IsRegSpilled(0));
     assert(node->OperIs(GT_LCL_VAR));
-
-    inst_set_SV_var(node);
 
     GetEmitter()->emitIns_R_S(ins, size, reg, node->GetLclNum(), 0);
 }

@@ -378,8 +378,9 @@ struct emitLclVarAddr
     // Constructor
     void initLclVarAddr(int varNum, unsigned offset);
 
-    int lvaVarNum(); // Returns the variable to access. Note that it returns a negative number for compiler spill temps.
-    unsigned lvaOffset(); // returns the offset into the variable to access
+    int lvaVarNum() const; // Returns the variable to access. Note that it returns a negative number for compiler spill
+                           // temps.
+    unsigned lvaOffset() const; // returns the offset into the variable to access
 
     // This struct should be 32 bits in size for the release build.
     // We have this constraint because this type is used in a union
@@ -418,11 +419,6 @@ public:
     // Constructor.
     emitter()
     {
-#ifdef DEBUG
-        // There seem to be some cases where this is used without being initialized via CodeGen::inst_set_SV_var().
-        emitVarRefOffs = 0;
-#endif // DEBUG
-
 #ifdef TARGET_XARCH
         SetUseVEXEncoding(false);
 #endif // TARGET_XARCH
@@ -538,7 +534,6 @@ protected:
     {
         unsigned          idNum;
         size_t            idSize;        // size of the instruction descriptor
-        unsigned          idVarRefOffs;  // IL offset for LclVar reference
         size_t            idMemCookie;   // for display of method name  (also used by switch table)
         GenTreeFlags      idFlags;       // for determining type of handle in idMemCookie
         bool              idFinallyCall; // Branch instruction is a call to finally
@@ -1504,11 +1499,7 @@ protected:
 #endif // defined(DEBUG) || EMITTER_STATS
 
 #ifdef DEBUG
-
-    unsigned emitVarRefOffs;
-
-    const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE, bool varName = true);
-    const char* emitFloatRegName(regNumber reg, emitAttr size = EA_PTRSIZE, bool varName = true);
+    const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
     // GC Info changes are not readily available at each instruction.
     // We use debug-only sets to track the per-instruction state, and to remember
@@ -1529,7 +1520,11 @@ protected:
     void emitDispIGlist(bool verbose = false);
     void emitDispGCinfo();
     void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
-    void emitDispFrameRef(int varx, int disp, int offs, bool asmfm);
+#ifdef TARGET_XARCH
+    void emitDispFrameRef(const emitLclVarAddr& lcl, bool asmfm);
+#else
+    void emitDispFrameRef(const emitLclVarAddr& lcl);
+#endif
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
     void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);

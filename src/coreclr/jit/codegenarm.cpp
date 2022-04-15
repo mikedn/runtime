@@ -929,10 +929,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (dstReg == REG_NA)
     {
         unsigned lclNum = store->GetLclNum();
-        inst_set_SV_var(store);
-
         GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lclNum, 0);
-
         genUpdateLife(store);
         lcl->SetRegNum(REG_STK);
 

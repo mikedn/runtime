@@ -7363,7 +7363,6 @@ public:
         bool dspInstrs;                // Display the IL instructions intermixed with the native code output
         bool dspLines;                 // Display source-code lines intermixed with native code output
         bool dmpHex;                   // Display raw bytes in hex of native code output
-        bool varNames;                 // Display variables names in native code output
         bool disAsm;                   // Display native code as it is generated
         bool disAsmSpilled;            // Display native code when any register spilling occurs
         bool disasmWithGC;             // Display GC info interleaved with disassembly.
@@ -8001,13 +8000,7 @@ public:
 #ifdef DEBUG
     // Get the default fill char value we randomize this value when JitStress is enabled.
     static unsigned char compGetJitDefaultFill(Compiler* comp);
-
-    const char* compLocalVarName(unsigned varNum, unsigned offs);
-    VarName compVarName(regNumber reg, bool isFloatReg = false);
-    const char* compRegVarName(regNumber reg, bool displayVar = false, bool isFloatReg = false);
-    void compDspSrcLinesByNativeIP(UNATIVE_OFFSET curIP);
-    void compDspSrcLinesByLineNum(unsigned line, bool seek = false);
-#endif // DEBUG
+#endif
 
     //-------------------------------------------------------------------------
 

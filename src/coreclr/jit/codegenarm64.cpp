@@ -2018,7 +2018,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (dstReg == REG_NA)
     {
         unsigned lclNum = store->GetLclNum();
-        inst_set_SV_var(store);
 
         if ((srcReg == REG_ZR) && (lclRegType == TYP_SIMD16))
         {

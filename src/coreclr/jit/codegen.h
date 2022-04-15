@@ -1319,8 +1319,6 @@ public:
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
 
-    void inst_set_SV_var(GenTreeLclVar* node);
-
     class GenAddrMode
     {
         regNumber m_base;

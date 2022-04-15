@@ -276,7 +276,7 @@ void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     regNumber reg  = node->GetRegNum(regIndex);
     TempDsc*  temp = AllocSpillTemp(node, reg, regType);
 
-    JITDUMP("Spilling register %s after [%06u]\n", m_rsCompiler->compRegVarName(reg), node->GetID());
+    JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
 
     regType          = temp->GetType();
     instruction ins  = m_rsCompiler->codeGen->ins_Store(regType);
@@ -320,7 +320,7 @@ void RegSet::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 
     node->SetRegSpilled(regIndex, false);
 
-    JITDUMP("Unspilling register %s from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
+    JITDUMP("Unspilling register %s from [%06u]\n", getRegName(oldReg), node->GetID());
 
     var_types   regType = temp->GetType();
     instruction ins     = m_rsCompiler->codeGen->ins_Load(regType);
@@ -343,7 +343,7 @@ void RegSet::UnspillST0(GenTree* node)
 
     node->SetRegSpilled(0, false);
 
-    JITDUMP("Unspilling ST0 from [%06u]\n", m_rsCompiler->compRegVarName(oldReg), node->GetID());
+    JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
 
     var_types regType = temp->GetType();
     m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetTempNum(), 0);

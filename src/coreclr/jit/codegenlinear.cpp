@@ -1185,7 +1185,6 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     regNumber dstReg = node->GetRegNum();
     unsigned  lclNum = node->GetLclNum();
 
-    inst_set_SV_var(node);
     instruction ins = ins_Load(regType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
 

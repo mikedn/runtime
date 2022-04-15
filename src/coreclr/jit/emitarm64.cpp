@@ -1314,18 +1314,7 @@ static const char * const  bRegNames[] =
 };
 // clang-format on
 
-//------------------------------------------------------------------------
-// emitRegName: Returns a general-purpose register name or SIMD and floating-point scalar register name.
-//
-// Arguments:
-//    reg - A general-purpose register or SIMD and floating-point register.
-//    size - A register size.
-//    varName - unused parameter.
-//
-// Return value:
-//    A string that represents a general-purpose register name or SIMD and floating-point scalar register name.
-//
-const char* emitter::emitRegName(regNumber reg, emitAttr size, bool varName)
+const char* emitter::emitRegName(regNumber reg, emitAttr size)
 {
     assert(reg < REG_COUNT);
 
@@ -7532,10 +7521,6 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int va
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
     id->idSetIsLclVar();
 
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idVarRefOffs = emitVarRefOffs;
-#endif
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7626,10 +7611,6 @@ void emitter::emitIns_R_R_S_S(
     id->idReg3(reg3);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
     id->idSetIsLclVar();
-
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idVarRefOffs = emitVarRefOffs;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -7763,10 +7744,6 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
     id->idSetIsLclVar();
 
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idVarRefOffs = emitVarRefOffs;
-#endif
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7858,10 +7835,6 @@ void emitter::emitIns_S_S_R_R(
     id->idReg3(reg3);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
     id->idSetIsLclVar();
-
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idVarRefOffs = emitVarRefOffs;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -13168,11 +13141,10 @@ void emitter::emitDispIns(
             break;
     }
 
-    if (id->idDebugOnlyInfo()->idVarRefOffs)
+    if (id->idIsLclVar())
     {
         printf("\t// ");
-        emitDispFrameRef(id->idAddr()->iiaLclVar.lvaVarNum(), id->idAddr()->iiaLclVar.lvaOffset(),
-                         id->idDebugOnlyInfo()->idVarRefOffs, asmfm);
+        emitDispFrameRef(id->idAddr()->iiaLclVar);
     }
 
     printf("\n");
@@ -13183,9 +13155,12 @@ void emitter::emitDispIns(
  *  Display a stack frame reference.
  */
 
-void emitter::emitDispFrameRef(int varx, int disp, int offs, bool asmfm)
+void emitter::emitDispFrameRef(const emitLclVarAddr& lcl)
 {
     printf("[");
+
+    int varx = lcl.lvaVarNum();
+    int disp = static_cast<int>(lcl.lvaOffset());
 
     if (varx < 0)
         printf("TEMP_%02u", -varx);
@@ -13198,28 +13173,6 @@ void emitter::emitDispFrameRef(int varx, int disp, int offs, bool asmfm)
         printf("+0x%02x", +disp);
 
     printf("]");
-
-    if (varx >= 0 && emitComp->opts.varNames)
-    {
-        LclVarDsc*  varDsc;
-        const char* varName;
-
-        assert((unsigned)varx < emitComp->lvaCount);
-        varDsc  = emitComp->lvaTable + varx;
-        varName = emitComp->compLocalVarName(varx, offs);
-
-        if (varName)
-        {
-            printf("'%s", varName);
-
-            if (disp < 0)
-                printf("-%d", -disp);
-            else if (disp > 0)
-                printf("+%d", +disp);
-
-            printf("'");
-        }
-    }
 }
 
 #endif // DEBUG

@@ -1306,11 +1306,6 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             AsFieldList()->SetContained();
             break;
 
-        case GT_LCL_VAR:
-        case GT_LCL_VAR_ADDR:
-            INDEBUG(AsLclVar()->gtLclILoffs = BAD_IL_OFFSET;)
-            break;
-
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
             AsLclFld()->SetLayoutNum(0);

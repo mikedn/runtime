@@ -47,9 +47,9 @@ void emitDispAddrRI(regNumber reg, insOpts opt, ssize_t imm);
 void emitDispAddrRRExt(regNumber reg1, regNumber reg2, insOpts opt, bool isScaled, emitAttr size);
 
 void emitDispIns(instrDesc* id,
-                 bool       isNew,
-                 bool       doffs,
-                 bool       asmfm,
+                 bool       isNew = false,
+                 bool       doffs = false,
+                 bool       asmfm = false,
                  unsigned   offs  = 0,
                  BYTE*      pCode = 0,
                  size_t     sz    = 0,

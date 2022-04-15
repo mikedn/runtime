@@ -3311,9 +3311,6 @@ public:
 // GenTreeLclVar - load/store/addr of local variable
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
-    INDEBUG(IL_OFFSET gtLclILoffs;) // instr offset of ref (only for JIT dumps)
-
-    // Multireg support
     bool IsMultiReg() const
     {
         return ((gtFlags & GTF_VAR_MULTIREG) != 0);
@@ -3334,7 +3331,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(genTreeOps oper,
                   var_types  type,
                   unsigned lclNum DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode)) DEBUGARG(gtLclILoffs(ilOffs))
+        : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode))
     {
         assert(OperIsLocal(oper) || OperIsLocalAddr(oper));
     }
@@ -3342,17 +3339,13 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(var_types type,
                   unsigned  lclNum,
                   GenTree* value DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode)) DEBUGARG(gtLclILoffs(ilOffs))
+        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
         gtFlags |= GTF_ASG | GTF_VAR_DEF;
         SetOp(0, value);
     }
 
-    GenTreeLclVar(GenTreeLclVar* copyFrom)
-        : GenTreeLclVarCommon(copyFrom)
-#ifdef DEBUG
-        , gtLclILoffs(copyFrom->gtLclILoffs)
-#endif
+    GenTreeLclVar(GenTreeLclVar* copyFrom) : GenTreeLclVarCommon(copyFrom)
     {
     }
 

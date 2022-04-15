@@ -565,7 +565,7 @@ void emitLclVarAddr::initLclVarAddr(int varNum, unsigned offset)
 }
 
 // Returns the variable to access. Note that it returns a negative number for compiler spill temps.
-int emitLclVarAddr::lvaVarNum()
+int emitLclVarAddr::lvaVarNum() const
 {
     switch (_lvaTag)
     {
@@ -579,7 +579,7 @@ int emitLclVarAddr::lvaVarNum()
     }
 }
 
-unsigned emitLclVarAddr::lvaOffset() // returns the offset into the variable to access
+unsigned emitLclVarAddr::lvaOffset() const // returns the offset into the variable to access
 {
     switch (_lvaTag)
     {
@@ -1267,7 +1267,7 @@ void emitter::dispIns(instrDesc* id)
 
     if (emitComp->opts.dspCode)
     {
-        emitDispIns(id, true, false, false);
+        emitDispIns(id, true);
     }
 
 #if EMIT_TRACK_STACK_DEPTH
@@ -1445,7 +1445,6 @@ void* emitter::emitAllocAnyInstr(size_t sz, emitAttr opsz)
 
     info->idNum         = emitInsCount;
     info->idSize        = sz;
-    info->idVarRefOffs  = 0;
     info->idMemCookie   = 0;
     info->idFinallyCall = false;
     info->idCatchRet    = false;
@@ -4301,7 +4300,7 @@ AGAIN:
             if (EMITVERBOSE)
             {
                 printf("Binding: ");
-                emitDispIns(jmp, false, false, false);
+                emitDispIns(jmp);
                 printf("Binding L_M%03u_" FMT_BB, emitComp->compMethodID, jmp->idAddr()->iiaBBlabel->bbNum);
             }
 #endif // DEBUG

@@ -8656,14 +8656,14 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
 
     if (argInfo->GetRegCount() == 1)
     {
-        int len = sprintf_s(buf, bufLength, " %s", compRegVarName(argInfo->GetRegNum()));
+        int len = sprintf_s(buf, bufLength, " %s", getRegName(argInfo->GetRegNum()));
         buf += len;
         bufLength -= len;
     }
     else if (argInfo->GetRegCount() > 1)
     {
-        int len = sprintf_s(buf, bufLength, " %s-%s", compRegVarName(argInfo->GetRegNum(0)),
-                            compRegVarName(argInfo->GetRegNum(argInfo->GetRegCount() - 1)));
+        int len = sprintf_s(buf, bufLength, " %s-%s", getRegName(argInfo->GetRegNum(0)),
+                            getRegName(argInfo->GetRegNum(argInfo->GetRegCount() - 1)));
         buf += len;
         bufLength -= len;
     }
@@ -8780,7 +8780,7 @@ void Compiler::gtDispLIRNode(GenTree* node)
 
             if (op->GetRegNum() != REG_NA)
             {
-                printf(" @%s", compRegVarName(op->GetRegNum()));
+                printf(" @%s", getRegName(op->GetRegNum()));
             }
 
             if (i != instr->GetNumOps() - 1)

@@ -217,13 +217,13 @@ void emitDispAddrMode(instrDesc* id, bool noDetail = false);
 void emitDispShift(instruction ins, int cnt = 0);
 
 void emitDispIns(instrDesc* id,
-                 bool       isNew,
-                 bool       doffs,
-                 bool       asmfm,
-                 unsigned   offs = 0,
-                 BYTE*      code = nullptr,
-                 size_t     sz   = 0,
-                 insGroup*  ig   = nullptr);
+                 bool       isNew = false,
+                 bool       doffs = false,
+                 bool       asmfm = false,
+                 unsigned   offs  = 0,
+                 BYTE*      code  = nullptr,
+                 size_t     sz    = 0,
+                 insGroup*  ig    = nullptr);
 
 const char* emitXMMregName(unsigned reg);
 const char* emitYMMregName(unsigned reg);
