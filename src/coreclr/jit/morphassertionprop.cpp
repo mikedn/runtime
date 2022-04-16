@@ -49,9 +49,8 @@ void Compiler::morphAssertionInit()
             new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(CMK_AssertionProp), max(1, lvaCount));
     }
 
-    apTraits            = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
-    optAssertionCount   = 0;
-    bbJtrueAssertionOut = nullptr;
+    apTraits          = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
+    optAssertionCount = 0;
 }
 
 #if LOCAL_ASSERTION_PROP
