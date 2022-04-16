@@ -8056,7 +8056,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 #if LOCAL_ASSERTION_PROP
     if (optLocalAssertionProp && (destLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
     {
-        fgKillDependentAssertions(destLclNum DEBUGARG(asg));
+        morphAssertionKill(destLclNum DEBUGARG(asg));
     }
 #endif
 
@@ -8937,7 +8937,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 #if LOCAL_ASSERTION_PROP
         if (optLocalAssertionProp && (optAssertionCount > 0))
         {
-            fgKillDependentAssertions(destLclNum DEBUGARG(asg));
+            morphAssertionKill(destLclNum DEBUGARG(asg));
         }
 #endif
     }
@@ -13245,96 +13245,6 @@ DONE:
     return tree;
 }
 
-#if LOCAL_ASSERTION_PROP
-//------------------------------------------------------------------------
-// fgKillDependentAssertionsSingle: Kill all assertions specific to lclNum
-//
-// Arguments:
-//    lclNum - The varNum of the lclVar for which we're killing assertions.
-//    tree   - (DEBUG only) the tree responsible for killing its assertions.
-//
-void Compiler::fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree* tree))
-{
-    /* All dependent assertions are killed here */
-
-    ASSERT_TP killed = BitVecOps::MakeCopy(apTraits, GetAssertionDep(lclNum));
-
-    if (killed)
-    {
-        AssertionIndex index = optAssertionCount;
-        while (killed && (index > 0))
-        {
-            if (BitVecOps::IsMember(apTraits, killed, index - 1))
-            {
-#ifdef DEBUG
-                AssertionDsc* curAssertion = morphGetAssertion(index);
-                noway_assert((curAssertion->op1.lcl.lclNum == lclNum) ||
-                             ((curAssertion->op2.kind == O2K_LCLVAR_COPY) && (curAssertion->op2.lcl.lclNum == lclNum)));
-                if (verbose)
-                {
-                    printf("\nThe assignment ");
-                    printTreeID(tree);
-                    printf(" using V%02u removes: ", curAssertion->op1.lcl.lclNum);
-                    morphPrintAssertion(curAssertion);
-                }
-#endif
-                // Remove this bit from the killed mask
-                BitVecOps::RemoveElemD(apTraits, killed, index - 1);
-
-                morphAssertionRemove(index);
-            }
-
-            index--;
-        }
-
-        // killed mask should now be zero
-        noway_assert(BitVecOps::IsEmpty(apTraits, killed));
-    }
-}
-//------------------------------------------------------------------------
-// fgKillDependentAssertions: Kill all dependent assertions with regard to lclNum.
-//
-// Arguments:
-//    lclNum - The varNum of the lclVar for which we're killing assertions.
-//    tree   - (DEBUG only) the tree responsible for killing its assertions.
-//
-// Notes:
-//    For structs and struct fields, it will invalidate the children and parent
-//    respectively.
-//    Calls fgKillDependentAssertionsSingle to kill the assertions for a single lclVar.
-//
-void Compiler::fgKillDependentAssertions(unsigned lclNum DEBUGARG(GenTree* tree))
-{
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
-    if (varDsc->lvPromoted)
-    {
-        noway_assert(varTypeIsStruct(varDsc));
-
-        // Kill the field locals.
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
-        {
-            fgKillDependentAssertionsSingle(i DEBUGARG(tree));
-        }
-
-        // Kill the struct local itself.
-        fgKillDependentAssertionsSingle(lclNum DEBUGARG(tree));
-    }
-    else if (varDsc->lvIsStructField)
-    {
-        // Kill the field local.
-        fgKillDependentAssertionsSingle(lclNum DEBUGARG(tree));
-
-        // Kill the parent struct.
-        fgKillDependentAssertionsSingle(varDsc->lvParentLcl DEBUGARG(tree));
-    }
-    else
-    {
-        fgKillDependentAssertionsSingle(lclNum DEBUGARG(tree));
-    }
-}
-#endif // LOCAL_ASSERTION_PROP
-
 /*****************************************************************************
  *
  *  This function is called to complete the morphing of a tree node
@@ -13392,7 +13302,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
-            fgKillDependentAssertions(lclNode->GetLclNum() DEBUGARG(tree));
+            morphAssertionKill(lclNode->GetLclNum() DEBUGARG(tree));
         }
         else
         {

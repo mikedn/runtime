@@ -4884,8 +4884,8 @@ public:
 
 private:
 #if LOCAL_ASSERTION_PROP
-    void fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree* tree));
-    void fgKillDependentAssertions(unsigned lclNum DEBUGARG(GenTree* tree));
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
+    void morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree));
 #endif
     void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
 
