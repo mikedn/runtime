@@ -467,13 +467,9 @@ Compiler::AssertionDsc* Compiler::morphGetAssertion(AssertionIndex assertIndex)
 //    Assertion creation may fail either because the provided assertion
 //    operands aren't supported or because the assertion table is full.
 //
-AssertionIndex Compiler::morphCreateAssertion(GenTree*         op1,
-                                              GenTree*         op2,
-                                              optAssertionKind assertionKind,
-                                              bool             helperCallArgs)
+AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind)
 {
     assert(op1 != nullptr);
-    assert(!helperCallArgs || (op2 != nullptr));
 
     AssertionDsc assertion;
     memset(&assertion, 0, sizeof(AssertionDsc));
@@ -586,51 +582,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree*         op1,
             goto DONE_ASSERTION; // Don't make an assertion
         }
 
-        if (helperCallArgs)
-        {
-            //
-            // Must either be an OAK_EQUAL or an OAK_NOT_EQUAL assertion
-            //
-            if ((assertionKind != OAK_EQUAL) && (assertionKind != OAK_NOT_EQUAL))
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
-            if (op2->gtOper == GT_IND)
-            {
-                op2                = op2->AsOp()->gtOp1;
-                assertion.op2.kind = O2K_IND_CNS_INT;
-            }
-            else
-            {
-                assertion.op2.kind = O2K_CONST_INT;
-            }
-
-            if (op2->gtOper != GT_CNS_INT)
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
-            //
-            // TODO-CQ: Check for Sealed class and change kind to O1K_EXACT_TYPE
-            //          And consider the special cases, like CORINFO_FLG_SHAREDINST or CORINFO_FLG_VARIANCE
-            //          where a class can be sealed, but they don't behave as exact types because casts to
-            //          non-base types sometimes still succeed.
-            //
-            assertion.op1.kind         = O1K_SUBTYPE;
-            assertion.op1.lcl.lclNum   = lclNum;
-            assertion.op1.vn           = vnStore->VNConservativeNormalValue(op1->gtVNPair);
-            assertion.op1.lcl.ssaNum   = op1->AsLclVarCommon()->GetSsaNum();
-            assertion.op2.u1.iconVal   = op2->AsIntCon()->gtIconVal;
-            assertion.op2.vn           = vnStore->VNConservativeNormalValue(op2->gtVNPair);
-            assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
-
-            //
-            // Ok everything has been set and the assertion looks good
-            //
-            assertion.assertionKind = assertionKind;
-        }
-        else // !helperCallArgs
         {
             op2 = op2->SkipComma();
 
