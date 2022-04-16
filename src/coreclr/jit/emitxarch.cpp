@@ -1288,7 +1288,7 @@ const char* insName(instruction ins)
 #define INST3(id, nm, um, mr, mi, rm,         flags) nm,
 #define INST4(id, nm, um, mr, mi, rm, a4,     flags) nm,
 #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) nm,
-#include "instrs.h"
+#include "instrsxarch.h"
     };
     // clang-format on
 
@@ -1307,13 +1307,7 @@ const insFlags emitter::instInfo[]
     #define INST3(id, nm, um, mr, mi, rm,         flags) static_cast<insFlags>(flags),
     #define INST4(id, nm, um, mr, mi, rm, a4,     flags) static_cast<insFlags>(flags),
     #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) static_cast<insFlags>(flags),
-    #include "instrs.h"
-    #undef  INST0
-    #undef  INST1
-    #undef  INST2
-    #undef  INST3
-    #undef  INST4
-    #undef  INST5
+    #include "instrsxarch.h"
 };
 // clang-format on
 
@@ -1326,13 +1320,7 @@ const BYTE emitter::emitInsModeFmtTab[] =
     #define INST3(id, nm, um, mr, mi, rm,         flags) um,
     #define INST4(id, nm, um, mr, mi, rm, a4,     flags) um,
     #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) um,
-    #include "instrs.h"
-    #undef  INST0
-    #undef  INST1
-    #undef  INST2
-    #undef  INST3
-    #undef  INST4
-    #undef  INST5
+    #include "instrsxarch.h"
 };
 // clang-format on
 
@@ -1428,13 +1416,7 @@ inline size_t insCode(instruction ins)
         #define INST3(id, nm, um, mr, mi, rm,         flags) mr,
         #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mr,
         #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mr,
-        #include "instrs.h"
-        #undef  INST0
-        #undef  INST1
-        #undef  INST2
-        #undef  INST3
-        #undef  INST4
-        #undef  INST5
+        #include "instrsxarch.h"
     };
     // clang-format on
 
@@ -1461,13 +1443,7 @@ inline size_t insCodeACC(instruction ins)
         #define INST3(id, nm, um, mr, mi, rm,         flags)
         #define INST4(id, nm, um, mr, mi, rm, a4,     flags) a4,
         #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) a4,
-        #include "instrs.h"
-        #undef  INST0
-        #undef  INST1
-        #undef  INST2
-        #undef  INST3
-        #undef  INST4
-        #undef  INST5
+        #include "instrsxarch.h"
     };
     // clang-format on
 
@@ -1494,13 +1470,7 @@ inline size_t insCodeRR(instruction ins)
         #define INST3(id, nm, um, mr, mi, rm,         flags)
         #define INST4(id, nm, um, mr, mi, rm, a4,     flags)
         #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rr,
-        #include "instrs.h"
-        #undef  INST0
-        #undef  INST1
-        #undef  INST2
-        #undef  INST3
-        #undef  INST4
-        #undef  INST5
+        #include "instrsxarch.h"
     };
     // clang-format on
 
@@ -1520,13 +1490,7 @@ size_t          insCodesRM[] =
     #define INST3(id, nm, um, mr, mi, rm,         flags) rm,
     #define INST4(id, nm, um, mr, mi, rm, a4,     flags) rm,
     #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rm,
-    #include "instrs.h"
-    #undef  INST0
-    #undef  INST1
-    #undef  INST2
-    #undef  INST3
-    #undef  INST4
-    #undef  INST5
+    #include "instrsxarch.h"
 };
 // clang-format on
 
@@ -1560,13 +1524,7 @@ size_t          insCodesMI[] =
     #define INST3(id, nm, um, mr, mi, rm,         flags) mi,
     #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mi,
     #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mi,
-    #include "instrs.h"
-    #undef  INST0
-    #undef  INST1
-    #undef  INST2
-    #undef  INST3
-    #undef  INST4
-    #undef  INST5
+    #include "instrsxarch.h"
 };
 // clang-format on
 
@@ -1600,13 +1558,7 @@ size_t          insCodesMR[] =
     #define INST3(id, nm, um, mr, mi, rm,         flags) mr,
     #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mr,
     #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mr,
-    #include "instrs.h"
-    #undef  INST0
-    #undef  INST1
-    #undef  INST2
-    #undef  INST3
-    #undef  INST4
-    #undef  INST5
+    #include "instrsxarch.h"
 };
 // clang-format on
 

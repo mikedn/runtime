@@ -666,7 +666,7 @@ const char* insName(instruction ins)
 #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
 #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8     ) nm,
 #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
-#include "instrs.h"
+#include "instrsarm.h"
     };
     // clang-format on
 
@@ -694,7 +694,7 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) fmt,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) fmt,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) fmt,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     // clang-format on
 
@@ -720,7 +720,7 @@ const uint8_t emitter::instInfo[] =
     #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) ldst | INST_FP*fp,
     #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) ldst | INST_FP*fp,
     #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) ldst | INST_FP*fp,
-    #include "instrs.h"
+    #include "instrsarm.h"
 };
 // clang-format on
 
@@ -776,7 +776,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e1,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e1,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e1,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes2[] =
     {
@@ -788,7 +788,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e2,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e2,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e2,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes3[] =
     {
@@ -800,7 +800,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e3,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e3,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e3,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes4[] =
     {
@@ -812,7 +812,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e4,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e4,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e4,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes5[] =
     {
@@ -824,7 +824,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e5,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e5,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e5,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes6[] =
     {
@@ -836,7 +836,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e6,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e6,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e6,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes7[] =
     {
@@ -848,7 +848,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            )
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e7,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e7,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes8[] =
     {
@@ -860,7 +860,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            )
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e8,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e8,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes9[] =
     {
@@ -872,7 +872,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            )
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    )
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e9,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static insFormat formatEncode9[9]  = { IF_T1_D0, IF_T1_H,  IF_T1_J0, IF_T1_G,  IF_T2_L0, IF_T2_C0, IF_T1_F,  IF_T1_J2, IF_T1_J3 };
     const static insFormat formatEncode8[8]  = { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4, IF_T1_J2, IF_T1_J3 };
