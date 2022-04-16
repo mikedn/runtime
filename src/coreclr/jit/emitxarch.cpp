@@ -2908,16 +2908,15 @@ void emitter::emitIns(instruction ins)
 // (Only CDQ/CQO currently)
 void emitter::emitIns(instruction ins, emitAttr attr)
 {
-    UNATIVE_OFFSET sz;
-    instrDesc*     id   = emitNewInstr(attr);
-    code_t         code = insCodeMR(ins);
     assert(ins == INS_cdq);
+
+    instrDesc* id   = emitNewInstr(attr);
+    code_t     code = insCodeMR(ins);
     assert((code & 0xFFFFFF00) == 0);
-    sz = 1;
 
     insFormat fmt = IF_NONE;
 
-    sz += emitGetAdjustedSize(ins, attr, code);
+    unsigned sz = 1 + emitGetAdjustedSize(ins, attr, code);
     if (TakesRexWPrefix(ins, attr))
     {
         sz += emitGetRexPrefixSize(ins);
@@ -3196,7 +3195,7 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
     id->idIns(ins);
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD), ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3224,7 +3223,7 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int imm
     id->idIns(ins);
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_CNS), ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMI(ins), imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins), imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3251,7 +3250,7 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
     id->idReg1(reg);
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_ARD_RRD), ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3263,7 +3262,7 @@ void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
     SetInstrAddrMode(id, IF_ARW, ins, addr);
     id->idIns(ins);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3280,7 +3279,7 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int 
     SetInstrAddrMode(id, IF_ARW_CNS, ins, addr);
     id->idIns(ins);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMI(ins), imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins), imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3293,7 +3292,7 @@ void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regN
     id->idReg1(reg);
     id->idIns(ins);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -3311,8 +3310,8 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     assert(size <= EA_PTRSIZE);
     noway_assert(emitVerifyEncodable(ins, size, reg));
 
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrSmall(attr);
+    unsigned   sz;
+    instrDesc* id = emitNewInstrSmall(attr);
 
     switch (ins)
     {
@@ -3417,10 +3416,10 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     noway_assert(size < EA_8BYTE || ins == INS_mov || ((int)val == val && !EA_IS_CNS_RELOC(attr)));
 #endif
 
-    UNATIVE_OFFSET sz;
-    instrDesc*     id;
-    insFormat      fmt       = emitInsModeFormat(ins, IF_RRD_CNS);
-    bool           valInByte = ((signed char)val == (target_ssize_t)val) && (ins != INS_mov) && (ins != INS_test);
+    unsigned   sz;
+    instrDesc* id;
+    insFormat  fmt       = emitInsModeFormat(ins, IF_RRD_CNS);
+    bool       valInByte = ((signed char)val == (target_ssize_t)val) && (ins != INS_mov) && (ins != INS_test);
 
     // BT reg,imm might be useful but it requires special handling of the immediate value
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
@@ -3546,9 +3545,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
 void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
 {
-    UNATIVE_OFFSET sz;
-    instrDesc*     id;
-    bool           valInByte = ((signed char)val == (target_ssize_t)val);
+    bool valInByte = ((signed char)val == (target_ssize_t)val);
 
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
@@ -3560,6 +3557,8 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
     {
         valInByte = false; // relocs can't be placed in a byte
     }
+
+    unsigned sz;
 
     switch (ins)
     {
@@ -3581,7 +3580,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
             NO_WAY("unexpected instruction");
     }
 
-    id = emitNewInstrSC(attr, val);
+    instrDesc* id = emitNewInstrSC(attr, val);
     id->idIns(ins);
     id->idInsFmt(IF_CNS);
     id->idCodeSize(sz);
@@ -3602,7 +3601,7 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fld
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
 
     if (TakesRexWPrefix(ins, attr))
     {
@@ -3951,8 +3950,8 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     assert(size <= EA_32BYTE);
     noway_assert(emitVerifyEncodable(ins, size, dstReg, srcReg));
 
-    UNATIVE_OFFSET sz  = emitInsSizeRR(ins, dstReg, srcReg, attr);
-    insFormat      fmt = emitInsModeFormat(ins, IF_RRD_RRD);
+    unsigned  sz  = emitInsSizeRR(ins, dstReg, srcReg, attr);
+    insFormat fmt = emitInsModeFormat(ins, IF_RRD_RRD);
 
     if (IsRedundantMov(ins, fmt, attr, dstReg, srcReg, canSkip))
     {
@@ -3988,8 +3987,6 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
     assert(size <= EA_32BYTE);
     noway_assert(emitVerifyEncodable(ins, size, reg1, reg2));
 
-    UNATIVE_OFFSET sz = emitInsSizeRR(ins, reg1, reg2, attr);
-
     /* Special case: "XCHG" uses a different format */
     insFormat fmt = (ins == INS_xchg) ? IF_RRW_RRW : emitInsModeFormat(ins, IF_RRD_RRD);
 
@@ -3998,8 +3995,9 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
     id->idInsFmt(fmt);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idCodeSize(sz);
 
+    unsigned sz = emitInsSizeRR(ins, reg1, reg2, attr);
+    id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4056,9 +4054,8 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
         }
     }
 
-    UNATIVE_OFFSET sz = emitInsSizeRR(id, code, ival);
+    unsigned sz = emitInsSizeRR(id, code, ival);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4068,16 +4065,13 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int dis
     assert(ins == INS_prefetcht0 || ins == INS_prefetcht1 || ins == INS_prefetcht2 || ins == INS_prefetchnta);
 
     instrDesc* id = emitNewInstrAmd(attr, disp);
-
     id->idIns(ins);
-
     id->idInsFmt(IF_ARD);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4102,18 +4096,15 @@ void emitter::emitIns_AR_R_R(
     assert(IsThreeOperandAVXInstruction(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, offs);
-
     id->idIns(ins);
     id->idReg1(op2Reg);
     id->idReg2(op3Reg);
-
     id->idInsFmt(IF_AWR_RRD_RRD);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4134,7 +4125,7 @@ void emitter::emitIns_RRW_A(instruction ins, emitAttr attr, regNumber reg1, GenT
     id->idReg1(reg1);
     SetInstrAddrMode(id, IF_RRW_ARD, ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4161,7 +4152,7 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
     id->idReg1(reg);
     SetInstrAddrMode(id, emitInsModeFormat(ins, IF_RRD_ARD), ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4179,15 +4170,12 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     assert(IsSSEOrAVXInstruction(ins));
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
-
     id->idIns(ins);
     id->idReg1(reg1);
-
     SetInstrAddrMode(id, IF_RRW_ARD_CNS, ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), imm);
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4199,16 +4187,14 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
-
     id->idIns(ins);
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), imm);
+    unsigned sz = emitInsSizeCV(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4219,13 +4205,12 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     assert(IsSSEOrAVXInstruction(ins));
 
     instrDesc* id = emitNewInstrCns(attr, ival);
-
     id->idIns(ins);
     id->idInsFmt(IF_RRW_SRD_CNS);
     id->idReg1(reg1);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4237,16 +4222,13 @@ void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regN
     assert(IsThreeOperandAVXInstruction(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, GetAddrModeDisp(addr));
-
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
-
     SetInstrAddrMode(id, IF_RWR_RRD_ARD, ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4302,19 +4284,16 @@ void emitter::emitIns_R_AR_R(instruction ins,
     assert(IsAVX2GatherInstruction(ins));
 
     instrDesc* id = emitNewInstrAmd(attr, offs);
-
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
-
     id->idInsFmt(IF_RWR_ARD_RRD);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
     id->idAddr()->iiaAddrMode.amScale   = emitEncodeSize((emitAttr)scale);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4326,7 +4305,6 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrDsp(attr, 0);
-
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_MRD);
     id->idReg1(reg1);
@@ -4334,9 +4312,8 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeCV(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4358,9 +4335,8 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber targetReg,
     id->idReg2(reg1);
     id->idReg3(reg2);
 
-    UNATIVE_OFFSET sz = emitInsSizeRR(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeRR(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4377,7 +4353,7 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg2(reg2);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4390,16 +4366,14 @@ void emitter::emitIns_R_R_A_I(
     assert(IsThreeOperandAVXInstruction(ins));
 
     instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), ival);
-
     id->idIns(ins);
     id->idReg1(reg1);
     id->idReg2(reg2);
 
     SetInstrAddrMode(id, fmt, ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4412,7 +4386,6 @@ void emitter::emitIns_R_R_C_I(
     assert(FieldDispRequiresRelocation(fldHnd));
 
     instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
-
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
     id->idReg1(reg1);
@@ -4420,9 +4393,8 @@ void emitter::emitIns_R_R_C_I(
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), imm);
+    unsigned sz = emitInsSizeCV(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4482,9 +4454,8 @@ void emitter::emitIns_R_R_R_I(
         }
     }
 
-    UNATIVE_OFFSET sz = emitInsSizeRR(id, code, ival);
+    unsigned sz = emitInsSizeRR(id, code, ival);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4502,7 +4473,7 @@ void emitter::emitIns_R_R_S_I(
     id->idReg2(reg2);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4533,18 +4504,17 @@ void emitter::emitIns_R_R_A_R(
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
 
-    int        ival = encodeXmmRegAsIval(op3Reg);
-    instrDesc* id   = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), ival);
+    int imm = encodeXmmRegAsIval(op3Reg);
 
+    instrDesc* id = emitNewInstrAmdCns(attr, GetAddrModeDisp(addr), imm);
     id->idIns(ins);
     id->idReg1(targetReg);
     id->idReg2(op1Reg);
 
     SetInstrAddrMode(id, IF_RWR_RRD_ARD_RRD, ins, addr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins), ival);
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4560,20 +4530,18 @@ void emitter::emitIns_R_R_C_R(instruction          ins,
     assert(UseVEXEncoding());
     assert(FieldDispRequiresRelocation(fldHnd));
 
-    int        imm = encodeXmmRegAsIval(op3Reg);
-    instrDesc* id  = emitNewInstrCnsDsp(attr, imm, 0);
+    int imm = encodeXmmRegAsIval(op3Reg);
 
+    instrDesc* id = emitNewInstrCnsDsp(attr, imm, 0);
     id->idIns(ins);
     id->idReg1(targetReg);
     id->idReg2(op1Reg);
-
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins), imm);
+    unsigned sz = emitInsSizeCV(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4600,9 +4568,9 @@ void emitter::emitIns_R_R_S_R(
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
 
-    int        ival = encodeXmmRegAsIval(op3Reg);
-    instrDesc* id   = emitNewInstrCns(attr, ival);
+    int imm = encodeXmmRegAsIval(op3Reg);
 
+    instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idReg1(targetReg);
     id->idReg2(op1Reg);
@@ -4610,9 +4578,8 @@ void emitter::emitIns_R_R_S_R(
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4623,9 +4590,9 @@ void emitter::emitIns_R_R_R_R(
     assert(isAvxBlendv(ins));
     assert(UseVEXEncoding());
 
-    int        ival = encodeXmmRegAsIval(reg3);
-    instrDesc* id   = emitNewInstrCns(attr, ival);
+    int imm = encodeXmmRegAsIval(reg3);
 
+    instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_RRD_RRD);
     id->idReg1(targetReg);
@@ -4633,7 +4600,7 @@ void emitter::emitIns_R_R_R_R(
     id->idReg3(reg2);
     id->idReg4(reg3);
 
-    UNATIVE_OFFSET sz = emitInsSizeRR(id, insCodeRM(ins), ival);
+    unsigned sz = emitInsSizeRR(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -4651,7 +4618,7 @@ void emitter::emitInsMov_R_FS(regNumber reg, int offs)
     id->idReg1(reg);
     id->idAddr()->iiaFieldHnd = FS_SEG_FIELD;
 
-    UNATIVE_OFFSET sz = 1 + ((reg == REG_EAX) ? 4 : emitInsSizeCV(id, insCodeRM(INS_mov)));
+    unsigned sz = 1 + ((reg == REG_EAX) ? 4 : emitInsSizeCV(id, insCodeRM(INS_mov)));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4670,7 +4637,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    UNATIVE_OFFSET sz;
+    unsigned sz;
 
 #ifdef TARGET_X86
     // Special case: "mov eax, [addr]" is smaller.
@@ -4719,7 +4686,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idInsFmt(fmt);
     id->idReg1(reg);
 
-    UNATIVE_OFFSET sz;
+    unsigned sz;
 
 #ifdef TARGET_X86
     // Special case: "mov [addr], EAX" is smaller.
@@ -4782,11 +4749,8 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idAddr()->iiaFieldHnd = fldHnd;
     id->idSetIsDspReloc();
 
-    code_t         code = insCodeMI(ins);
-    UNATIVE_OFFSET sz   = emitInsSizeCV(id, code, imm);
-
+    unsigned sz = emitInsSizeCV(id, insCodeMI(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4841,9 +4805,8 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     // Note the relocation flags influence the size estimate.
     id->idSetRelocFlags(attr);
 
-    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4940,7 +4903,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
     id->idReg1(reg);
     id->idAddr()->iiaLclVar.initLclVarAddr(varNum, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeMR(ins), varNum, offs, ival);
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varNum, offs, ival);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4956,7 +4919,8 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNu
     id->idIns(ins);
     id->idReg1(reg);
     SetInstrAddrMode(id, IF_AWR_RRD_CNS, ins, addr);
-    UNATIVE_OFFSET size = emitInsSizeAM(id, insCodeMR(ins), imm);
+
+    unsigned size = emitInsSizeAM(id, insCodeMR(ins), imm);
     id->idCodeSize(size);
     dispIns(id);
     emitCurIGsize += size;
@@ -5610,7 +5574,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD));
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5633,7 +5597,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idReg1(ireg);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5649,7 +5613,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idReg1(ireg);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5681,7 +5645,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     id->idInsFmt(fmt);
     id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
 
-    UNATIVE_OFFSET sz = emitInsSizeSV(id, insCodeMI(ins), varx, offs, val);
+    unsigned sz = emitInsSizeSV(id, insCodeMI(ins), varx, offs, val);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5711,8 +5675,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
 
 void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 */)
 {
-    UNATIVE_OFFSET sz;
-    instrDescJmp*  id = emitNewInstrJmp();
+    instrDescJmp* id = emitNewInstrJmp();
 
     if (dst != nullptr)
     {
@@ -5769,6 +5732,8 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
 #endif
 
     /* Figure out the max. size of the jump/call instruction */
+
+    unsigned sz;
 
     if (ins == INS_call)
     {
@@ -6093,7 +6058,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
     id->idSetIsNoGC(emitNoGChelper(methHnd));
 
-    UNATIVE_OFFSET sz;
+    unsigned sz;
 
     // Record the address: method, indirection, or funcptr
     if (callType >= EC_FUNC_VIRTUAL)
