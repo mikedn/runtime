@@ -198,10 +198,8 @@ protected:
 
 #ifdef DEBUG
     // Last instr we have displayed for dspInstrs
-    unsigned genCurDispOffset;
-
-    const char* genInsDisplayName(emitter::instrDesc* id);
-#endif // DEBUG
+    unsigned genCurDispOffset;    
+#endif
 
     //-------------------------------------------------------------------------
 

@@ -7239,7 +7239,7 @@ void emitter::emitDispIns(
 
     /* Display the instruction name */
 
-    sstr = codeGen->genInsDisplayName(id);
+    sstr = genInsDisplayName(id);
     printf(" %-9s", sstr);
 
 #ifndef HOST_UNIX

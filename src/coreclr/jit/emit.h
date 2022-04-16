@@ -1492,6 +1492,8 @@ protected:
 /*           A few routines used for debug display purposes             */
 /************************************************************************/
 
+    INDEBUG(const char* genInsDisplayName(instrDesc* id);)
+
 #if defined(DEBUG) || EMITTER_STATS
 
     static const char* emitIfName(unsigned f);

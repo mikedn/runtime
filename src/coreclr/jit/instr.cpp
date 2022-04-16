@@ -6,42 +6,6 @@
 #include "instr.h"
 #include "emit.h"
 
-#ifdef DEBUG
-
-//-----------------------------------------------------------------------------
-// genInsDisplayName: Get a fully-formed instruction display name. This only handles
-// the xarch case of prepending a "v", not the arm case of appending an "s".
-// This can be called up to four times in a single 'printf' before the static buffers
-// get reused.
-//
-// Returns:
-//    String with instruction name
-//
-const char* CodeGen::genInsDisplayName(emitter::instrDesc* id)
-{
-    instruction ins  = id->idIns();
-    const char* name = insName(ins);
-
-#ifdef TARGET_XARCH
-    const int       TEMP_BUFFER_LEN = 40;
-    static unsigned curBuf          = 0;
-    static char     buf[4][TEMP_BUFFER_LEN];
-    const char*     retbuf;
-
-    if (GetEmitter()->IsAVXInstruction(ins) && !GetEmitter()->IsBMIInstruction(ins))
-    {
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
-        return retbuf;
-    }
-#endif // TARGET_XARCH
-
-    return name;
-}
-
-#endif
-
 void CodeGen::instGen(instruction ins)
 {
     GetEmitter()->emitIns(ins);
