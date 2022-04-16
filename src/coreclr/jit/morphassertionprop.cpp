@@ -21,7 +21,7 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 {
     assert(lclNum < lvaCount);
 
-    JitExpandArray<ASSERT_TP>& dep = *optAssertionDep;
+    JitExpandArray<ASSERT_TP>& dep = *morphAssertionDep;
     if (dep[lclNum] == nullptr)
     {
         dep[lclNum] = BitVecOps::MakeEmpty(apTraits);
@@ -44,9 +44,9 @@ void Compiler::morphAssertionInit()
         new (this, CMK_AssertionProp) AssertionIndex[optMaxAssertionCount + 1](); // zero-inited (NO_ASSERTION_INDEX)
     assert(NO_ASSERTION_INDEX == 0);
 
-    if (optAssertionDep == nullptr)
+    if (morphAssertionDep == nullptr)
     {
-        optAssertionDep =
+        morphAssertionDep =
             new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(CMK_AssertionProp), max(1, lvaCount));
     }
 
@@ -122,12 +122,12 @@ void Compiler::morphAssertionRemove(AssertionIndex index)
 
     //  Two cases to consider if (index == optAssertionCount) then the last
     //  entry in the table is to be removed and that happens automatically when
-    //  optAssertionCount is decremented and we can just clear the optAssertionDep bits
+    //  optAssertionCount is decremented and we can just clear the morphAssertionDep bits
     //  The other case is when index < optAssertionCount and here we overwrite the
     //  index-th entry in the table with the data found at the end of the table
-    //  Since we are reordering the rable the optAssertionDep bits need to be recreated
+    //  Since we are reordering the rable the morphAssertionDep bits need to be recreated
     //  using optAssertionReset(0) and optAssertionReset(newAssertionCount) will
-    //  correctly update the optAssertionDep bits
+    //  correctly update the morphAssertionDep bits
     //
     if (index == optAssertionCount)
     {

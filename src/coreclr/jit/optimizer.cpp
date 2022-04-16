@@ -37,7 +37,7 @@ void Compiler::optInit()
     optIndirectCallCount = 0;
     optNativeCallCount   = 0;
     optAssertionCount    = 0;
-    optAssertionDep      = nullptr;
+    morphAssertionDep    = nullptr;
     optCSEstart          = UINT_MAX;
     optCSEcount          = 0;
 }

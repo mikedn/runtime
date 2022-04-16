@@ -6165,10 +6165,10 @@ protected:
     GenTree* optAssertionPropCurrentTree;
 #endif
     AssertionIndex*            optComplementaryAssertionMap;
-    JitExpandArray<ASSERT_TP>* optAssertionDep; // table that holds dependent assertions (assertions
-                                                // using the value of a local var) for each local var
-    AssertionDsc*  optAssertionTabPrivate;      // table that holds info about value assignments
-    AssertionIndex optAssertionCount;           // total number of assertions in the assertion table
+    JitExpandArray<ASSERT_TP>* morphAssertionDep; // table that holds dependent assertions (assertions
+                                                  // using the value of a local var) for each local var
+    AssertionDsc*  optAssertionTabPrivate;        // table that holds info about value assignments
+    AssertionIndex optAssertionCount;             // total number of assertions in the assertion table
     AssertionIndex optMaxAssertionCount;
 
 public:
