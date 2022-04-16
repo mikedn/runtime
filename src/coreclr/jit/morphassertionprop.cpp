@@ -2016,6 +2016,7 @@ AssertionIndex Compiler::morphAssertionIsNonNullInternal(GenTree* op DEBUGARG(bo
     }
     return NO_ASSERTION_INDEX;
 }
+
 /*****************************************************************************
  *
  *  Given a tree consisting of a call and a set of available assertions, we
@@ -2023,7 +2024,7 @@ AssertionIndex Compiler::morphAssertionIsNonNullInternal(GenTree* op DEBUGARG(bo
  *  Returns the modified tree, or nullptr if no assertion prop took place.
  *
  */
-GenTree* Compiler::morphNonNullAssertionProp_Call(GenTreeCall* call)
+GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
 {
     if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
     {
@@ -2055,28 +2056,6 @@ GenTree* Compiler::morphNonNullAssertionProp_Call(GenTreeCall* call)
         noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
         return call;
     }
-    return nullptr;
-}
-
-/*****************************************************************************
- *
- *  Given a tree consisting of a call and a set of available assertions, we
- *  try to propagate an assertion and modify the Call tree if we can. Our
- *  current modifications are limited to removing the nullptrCHECK flag from
- *  the call.
- *  We pass in the root of the tree via 'stmt', for local copy prop 'stmt'
- *  will be nullptr. Returns the modified tree, or nullptr if no assertion prop
- *  took place.
- *
- */
-
-GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
-{
-    if (morphNonNullAssertionProp_Call(call))
-    {
-        return call;
-    }
-
     return nullptr;
 }
 
