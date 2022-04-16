@@ -8778,138 +8778,113 @@ void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, Ge
     emitInsIndir(ins, attr, dataReg, store);
 }
 
-// Generate code for a load or store operation with a potentially complex addressing mode
-// This method handles the case of a GT_IND with contained GT_LEA op1 of the x86 form [base + index*sccale + offset]
-// Since Arm64 does not directly support this complex of an addressing mode
-// we may generates up to three instructions for this for Arm64
-//
-void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir)
+void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, GenTreeIndir* indir)
 {
     emitter* emit = GetEmitter();
     GenTree* addr = indir->GetAddr();
 
     if (!addr->isContained())
     {
-        emit->emitIns_R_R(ins, attr, dataReg, addr->GetRegNum());
+        emit->emitIns_R_R(ins, attr, valueReg, addr->GetRegNum());
+
         return;
     }
 
-    assert(addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA));
-
-    GenTree* base   = addr;
-    GenTree* index  = nullptr;
-    unsigned lsl    = 0;
-    int      offset = 0;
-
-    if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
     {
-        base  = addrMode->GetBase();
-        index = addrMode->GetIndex();
+        regNumber tmpReg = indir->GetSingleTempReg();
+        emit->emitIns_R_C(ins, attr, valueReg, tmpReg, addr->AsClsVar()->GetFieldHandle());
 
-        if (index != nullptr)
-        {
-            assert(isPow2(addrMode->GetScale()));
-            lsl = genLog2(addrMode->GetScale());
-        }
-
-        offset = addrMode->GetOffset();
+        return;
     }
 
-    if (index != nullptr)
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
-        if (offset != 0)
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        unsigned             lclNum  = lclNode->GetLclNum();
+        unsigned             offset  = lclNode->GetLclOffs();
+
+        if (emitter::emitInsIsStore(ins))
         {
-            regNumber tmpReg = indir->GetSingleTempReg();
-
-            emitAttr addType = varTypeIsGC(base) ? EA_BYREF : EA_PTRSIZE;
-
-            if (emitter::emitIns_valid_imm_for_add(offset, EA_8BYTE))
-            {
-                if (lsl > 0)
-                {
-                    // Generate code to set tmpReg = base + index*scale
-                    emit->emitIns_R_R_R_I(INS_add, addType, tmpReg, base->GetRegNum(), index->GetRegNum(), lsl,
-                                          INS_OPTS_LSL);
-                }
-                else // no scale
-                {
-                    // Generate code to set tmpReg = base + index
-                    emit->emitIns_R_R_R(INS_add, addType, tmpReg, base->GetRegNum(), index->GetRegNum());
-                }
-
-                noway_assert(emit->emitInsIsLoad(ins) || (tmpReg != dataReg));
-
-                // Then load/store dataReg from/to [tmpReg + offset]
-                emit->emitIns_R_R_I(ins, attr, dataReg, tmpReg, offset);
-            }
-            else // large offset
-            {
-                // First load/store tmpReg with the large offset constant
-                instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-                // Then add the base register
-                //      rd = rd + base
-                emit->emitIns_R_R_R(INS_add, addType, tmpReg, tmpReg, base->GetRegNum());
-
-                noway_assert(emit->emitInsIsLoad(ins) || (tmpReg != dataReg));
-                noway_assert(tmpReg != index->GetRegNum());
-
-                // Then load/store dataReg from/to [tmpReg + index*scale]
-                emit->emitIns_R_R_R_I(ins, attr, dataReg, tmpReg, index->GetRegNum(), lsl, INS_OPTS_LSL);
-            }
-        }
-        else // (offset == 0)
-        {
-            if (lsl > 0)
-            {
-                // Then load/store dataReg from/to [memBase + index*scale]
-                emit->emitIns_R_R_R_I(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum(), lsl, INS_OPTS_LSL);
-            }
-            else // no scale
-            {
-                // Then load/store dataReg from/to [memBase + index]
-                emit->emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), index->GetRegNum());
-            }
-        }
-    }
-    else // no Index register
-    {
-        if (addr->OperGet() == GT_CLS_VAR_ADDR)
-        {
-            // Get a temp integer register to compute long address.
-            regNumber addrReg = indir->GetSingleTempReg();
-            emit->emitIns_R_C(ins, attr, dataReg, addrReg, addr->AsClsVar()->gtClsVarHnd);
-        }
-        else if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-        {
-            GenTreeLclVarCommon* varNode = addr->AsLclVarCommon();
-            unsigned             lclNum  = varNode->GetLclNum();
-            unsigned             offset  = varNode->GetLclOffs();
-            if (emit->emitInsIsStore(ins))
-            {
-                emit->emitIns_S_R(ins, attr, dataReg, lclNum, offset);
-            }
-            else
-            {
-                emit->emitIns_R_S(ins, attr, dataReg, lclNum, offset);
-            }
-        }
-        else if (emitter::emitIns_valid_imm_for_ldst_offset(offset, emitTypeSize(indir->TypeGet())))
-        {
-            // Then load/store dataReg from/to [memBase + offset]
-            emit->emitIns_R_R_I(ins, attr, dataReg, base->GetRegNum(), offset);
+            emit->emitIns_S_R(ins, attr, valueReg, lclNum, offset);
         }
         else
         {
-            // We require a tmpReg to hold the offset
-            regNumber tmpReg = indir->GetSingleTempReg();
-
-            // First load/store tmpReg with the large offset constant
-            instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-
-            // Then load/store dataReg from/to [memBase + tmpReg]
-            emit->emitIns_R_R_R(ins, attr, dataReg, base->GetRegNum(), tmpReg);
+            emit->emitIns_R_S(ins, attr, valueReg, lclNum, offset);
         }
+
+        return;
     }
+
+    GenTreeAddrMode* addrMode = addr->AsAddrMode();
+    GenTree*         base     = addrMode->GetBase();
+    GenTree*         index    = addrMode->GetIndex();
+    int              offset   = addrMode->GetOffset();
+
+    if (index == nullptr)
+    {
+        if (emitter::emitIns_valid_imm_for_ldst_offset(offset, emitTypeSize(indir->GetType())))
+        {
+            emit->emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
+        }
+        else
+        {
+            regNumber offsetReg = indir->GetSingleTempReg();
+            instGen_Set_Reg_To_Imm(EA_8BYTE, offsetReg, offset);
+            emit->emitIns_R_R_R(ins, attr, valueReg, base->GetRegNum(), offsetReg);
+        }
+
+        return;
+    }
+
+    assert(isPow2(addrMode->GetScale()));
+
+    regNumber baseReg  = base->GetRegNum();
+    regNumber indexReg = index->GetRegNum();
+    unsigned  lsl      = genLog2(addrMode->GetScale());
+
+    if (offset == 0)
+    {
+        if (lsl > 0)
+        {
+            emit->emitIns_R_R_R_I(ins, attr, valueReg, baseReg, indexReg, lsl, INS_OPTS_LSL);
+        }
+        else
+        {
+            emit->emitIns_R_R_R(ins, attr, valueReg, baseReg, indexReg);
+        }
+
+        return;
+    }
+
+    // TODO-MIKE-Cleanup: Remove all this idiocy.
+
+    regNumber tmpReg  = indir->GetSingleTempReg();
+    emitAttr  tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_8BYTE;
+
+    noway_assert(emitter::emitInsIsLoad(ins) || (tmpReg != valueReg));
+
+    if (!emitter::emitIns_valid_imm_for_add(offset, EA_8BYTE))
+    {
+        noway_assert(tmpReg != indexReg);
+
+        instGen_Set_Reg_To_Imm(EA_8BYTE, tmpReg, offset);
+        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, tmpReg, baseReg);
+        emit->emitIns_R_R_R_I(ins, attr, valueReg, tmpReg, indexReg, lsl, INS_OPTS_LSL);
+
+        return;
+    }
+
+    if (lsl > 0)
+    {
+        emit->emitIns_R_R_R_I(INS_add, tmpAttr, tmpReg, baseReg, indexReg, lsl, INS_OPTS_LSL);
+    }
+    else
+    {
+        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, baseReg, indexReg);
+    }
+
+    emit->emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
 }
 
 regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)

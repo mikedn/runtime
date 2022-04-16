@@ -81,14 +81,14 @@ instrDesc* emitNewInstrCallInd(int              argCnt,
 /************************************************************************/
 
 private:
-bool emitInsIsCompare(instruction ins);
-bool emitInsIsLoad(instruction ins);
-bool emitInsIsStore(instruction ins);
-bool emitInsIsLoadOrStore(instruction ins);
-bool emitInsIsVectorRightShift(instruction ins);
-bool emitInsIsVectorLong(instruction ins);
-bool emitInsIsVectorNarrow(instruction ins);
-bool emitInsIsVectorWide(instruction ins);
+static bool emitInsIsCompare(instruction ins);
+static bool emitInsIsLoad(instruction ins);
+static bool emitInsIsStore(instruction ins);
+static bool emitInsIsLoadOrStore(instruction ins);
+static bool emitInsIsVectorRightShift(instruction ins);
+static bool emitInsIsVectorLong(instruction ins);
+static bool emitInsIsVectorNarrow(instruction ins);
+static bool emitInsIsVectorWide(instruction ins);
 emitAttr emitInsTargetRegSize(instrDesc* id);
 emitAttr emitInsLoadStoreSize(instrDesc* id);
 
