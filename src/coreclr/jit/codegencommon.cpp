@@ -605,7 +605,7 @@ regNumber CodeGenInterface::genGetThisArgReg(GenTreeCall* call) const
 //
 // Return Value:
 //   TempDsc corresponding to tree
-TempDsc* CodeGenInterface::getSpillTempDsc(GenTree* tree)
+TempDsc* CodeGen::getSpillTempDsc(GenTree* tree)
 {
     assert(tree->IsRegSpilled(0));
 

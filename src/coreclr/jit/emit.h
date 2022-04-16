@@ -1488,9 +1488,9 @@ protected:
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
     unsigned emitInsCount;
 
-/************************************************************************/
-/*           A few routines used for debug display purposes             */
-/************************************************************************/
+    /************************************************************************/
+    /*           A few routines used for debug display purposes             */
+    /************************************************************************/
 
     INDEBUG(const char* genInsDisplayName(instrDesc* id);)
 

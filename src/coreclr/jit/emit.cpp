@@ -110,14 +110,14 @@ void emitLocation::Print(LONG compMethodID) const
 //
 const char* emitter::genInsDisplayName(instrDesc* id)
 {
-    instruction ins = id->idIns();
+    instruction ins  = id->idIns();
     const char* name = insName(ins);
 
 #ifdef TARGET_XARCH
     const int       TEMP_BUFFER_LEN = 40;
-    static unsigned curBuf = 0;
+    static unsigned curBuf          = 0;
     static char     buf[4][TEMP_BUFFER_LEN];
-    const char* retbuf;
+    const char*     retbuf;
 
     if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
     {
@@ -1256,8 +1256,7 @@ float emitter::insEvaluateExecutionCost(instrDesc* id)
 void emitter::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
-    printf("PerfScore: unhandled instruction: %s, format %s", genInsDisplayName(id),
-           emitIfName(id->idInsFmt()));
+    printf("PerfScore: unhandled instruction: %s, format %s", genInsDisplayName(id), emitIfName(id->idInsFmt()));
     assert(!"PerfScore: unhandled instruction");
 #endif
     pResult->insThroughput = PERFSCORE_THROUGHPUT_1C;
@@ -6210,8 +6209,8 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
                         unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & alignBoundaryMask);
                         if (bytesCrossedBoundary != 0)
                         {
-                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)",
-                                   genInsDisplayName(curInstrDesc), bytesCrossedBoundary);
+                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", genInsDisplayName(curInstrDesc),
+                                   bytesCrossedBoundary);
                         }
                         else
                         {
