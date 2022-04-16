@@ -3307,7 +3307,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
                     var_types type = varTypeToUnsigned(field->GetType());
 
                     if (!optLocalAssertionProp ||
-                        (morphAssertionIsSubrange(field, TYP_INT, type, apFull) == NO_ASSERTION_INDEX))
+                        (morphAssertionIsSubrange(field, TYP_INT, type) == NO_ASSERTION_INDEX))
                     {
                         field->SetType(TYP_INT);
                         field = gtNewCastNode(TYP_INT, field, false, type);
@@ -5020,7 +5020,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     }
 
 #if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && morphAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType(), apFull))
+    if (optLocalAssertionProp && morphAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType()))
     {
         return lclVar;
     }
@@ -5251,7 +5251,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
             INDEBUG(AssertionIndex assertionIndex;)
 
             if ((nullCheckAddr == nullptr) || !optLocalAssertionProp || (optAssertionCount == 0) ||
-                !morphAssertionIsNonNull(nullCheckAddr, apFull DEBUGARG(&vnBased) DEBUGARG(&assertionIndex)))
+                !morphAssertionIsNonNull(nullCheckAddr DEBUGARG(&vnBased) DEBUGARG(&assertionIndex)))
 #endif
             {
                 addr->SetDoNotCSE();
@@ -13038,7 +13038,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
                 {
                     tree = newTree;
                     /* newTree is non-Null if we propagated an assertion */
-                    newTree = morphAssertionProp(apFull, tree);
+                    newTree = morphAssertionProp(tree);
                 }
                 assert(tree != nullptr);
             }

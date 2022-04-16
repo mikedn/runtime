@@ -6194,28 +6194,26 @@ public:
                                         bool             helperCallArgs = false);
     AssertionIndex morphAddAssertion(AssertionDsc* assertion);
     AssertionDsc* morphGetAssertion(AssertionIndex assertIndex);
-    GenTree* morphAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree);
-    AssertionIndex morphAssertionIsSubrange(GenTree*         tree,
-                                            var_types        fromType,
-                                            var_types        toType,
-                                            ASSERT_VALARG_TP assertions);
+    GenTree* morphAssertionProp(GenTree* tree);
+    AssertionIndex morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
     bool morphIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
-    bool morphAssertionIsNonNull(GenTree*         op,
-                                 ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex));
+    bool morphAssertionIsNonNull(GenTree* op DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex));
     void morphAssertionReset(AssertionIndex limit);
     void morphAssertionRemove(AssertionIndex index);
     void morphAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
 
-    AssertionIndex morphAssertionIsNonNullInternal(GenTree* op, ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased));
-    GenTree* morphAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree);
-    GenTree* morphAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree);
-    GenTree* morphAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree);
-    GenTree* morphAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call);
-    GenTree* morphNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call);
-    GenTree* morphAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree);
-    GenTree* morphAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree);
-    AssertionIndex morphLocalAssertionIsEqualOrNotEqual(
-        optOp1Kind op1Kind, unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal, ASSERT_VALARG_TP assertions);
+    AssertionIndex morphAssertionIsNonNullInternal(GenTree* op DEBUGARG(bool* pVnBased));
+    GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
+    GenTree* morphAssertionProp_Ind(GenTree* tree);
+    GenTree* morphAssertionProp_Cast(GenTree* tree);
+    GenTree* morphAssertionProp_Call(GenTreeCall* call);
+    GenTree* morphNonNullAssertionProp_Call(GenTreeCall* call);
+    GenTree* morphAssertionProp_RelOp(GenTree* tree);
+    GenTree* morphAssertionPropLocal_RelOp(GenTree* tree);
+    AssertionIndex morphLocalAssertionIsEqualOrNotEqual(optOp1Kind op1Kind,
+                                                        unsigned   lclNum,
+                                                        optOp2Kind op2Kind,
+                                                        ssize_t    cnsVal);
     GenTree* morphConstantAssertionProp(AssertionDsc*        curAssertion,
                                         GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index));
     bool morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
