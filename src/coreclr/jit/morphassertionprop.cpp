@@ -1248,9 +1248,8 @@ GenTree* Compiler::morphCopyAssertionProp(AssertionDsc*        curAssertion,
         return nullptr;
     }
 
-    // Extract the matching lclNum and ssaNum.
+    // Extract the matching lclNum.
     const unsigned copyLclNum = (op1.lcl.lclNum == lclNum) ? op2.lcl.lclNum : op1.lcl.lclNum;
-    unsigned       copySsaNum = SsaConfig::RESERVED_SSA_NUM;
 
     LclVarDsc* const copyVarDsc = lvaGetDesc(copyLclNum);
     LclVarDsc* const lclVarDsc  = lvaGetDesc(lclNum);
@@ -1271,7 +1270,6 @@ GenTree* Compiler::morphCopyAssertionProp(AssertionDsc*        curAssertion,
     }
 
     tree->SetLclNum(copyLclNum);
-    tree->SetSsaNum(copySsaNum);
 
 #ifdef DEBUG
     if (verbose)
