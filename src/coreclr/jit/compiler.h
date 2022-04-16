@@ -6192,7 +6192,7 @@ public:
     void morphAddAssertion(AssertionDsc* assertion);
     AssertionDsc* morphGetAssertion(AssertionIndex assertIndex);
     GenTree* morphAssertionProp(GenTree* tree);
-    AssertionIndex morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
+    AssertionDsc* morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
     AssertionDsc* morphAssertionIsNonNull(GenTree* op);
     void morphAssertionReset(AssertionIndex limit);
     void morphAssertionRemove(AssertionIndex index);

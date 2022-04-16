@@ -864,7 +864,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
  *  if one such assertion could not be found in "assertions."
  */
 
-AssertionIndex Compiler::morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType)
+Compiler::AssertionDsc* Compiler::morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType)
 {
     for (AssertionIndex index = 1; index <= optAssertionCount; index++)
     {
@@ -913,10 +913,12 @@ AssertionIndex Compiler::morphAssertionIsSubrange(GenTree* tree, var_types fromT
                 default:
                     continue;
             }
-            return index;
+
+            return curAssertion;
         }
     }
-    return NO_ASSERTION_INDEX;
+
+    return nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -1424,8 +1426,7 @@ GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
         return nullptr;
     }
 
-    AssertionIndex index = morphAssertionIsSubrange(lcl, fromType, toType);
-    if (index != NO_ASSERTION_INDEX)
+    if (AssertionDsc* assertion = morphAssertionIsSubrange(lcl, fromType, toType))
     {
         LclVarDsc* varDsc = &lvaTable[lcl->AsLclVarCommon()->GetLclNum()];
         assert(!varDsc->IsAddressExposed());
@@ -1446,7 +1447,8 @@ GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
 #ifdef DEBUG
                     if (verbose)
                     {
-                        printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+                        printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
+                               compCurBB->bbNum);
                         gtDispTree(tree, nullptr, nullptr, true);
                     }
 #endif
@@ -1483,7 +1485,8 @@ GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+            printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
+                   compCurBB->bbNum);
             gtDispTree(tree, nullptr, nullptr, true);
         }
 #endif
