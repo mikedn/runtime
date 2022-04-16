@@ -122,6 +122,7 @@ set( JIT_SOURCES
   lsra.cpp
   lsrabuild.cpp
   morph.cpp
+  morphassertionprop.cpp
   morphblock.cpp
   objectalloc.cpp
   optcse.cpp
