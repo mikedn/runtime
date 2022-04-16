@@ -1325,8 +1325,7 @@ AssertionIndex Compiler::morphAssertionIsSubrange(GenTree*         tree,
 //    stmt may be nullptr during local assertion prop
 //
 GenTree* Compiler::morphConstantAssertionProp(AssertionDsc*        curAssertion,
-                                              GenTreeLclVarCommon* tree,
-                                              Statement* stmt DEBUGARG(AssertionIndex index))
+                                              GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index))
 {
     const unsigned lclNum = tree->GetLclNum();
 
@@ -1523,8 +1522,7 @@ bool Compiler::morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclV
 //    stmt may be nullptr during local assertion prop
 //
 GenTree* Compiler::morphCopyAssertionProp(AssertionDsc*        curAssertion,
-                                          GenTreeLclVarCommon* tree,
-                                          Statement* stmt DEBUGARG(AssertionIndex index))
+                                          GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index))
 {
     const AssertionDsc::AssertionDscOp1& op1 = curAssertion->op1;
     const AssertionDsc::AssertionDscOp2& op2 = curAssertion->op2;
@@ -1590,7 +1588,7 @@ GenTree* Compiler::morphCopyAssertionProp(AssertionDsc*        curAssertion,
 // Notes:
 //   stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::morphAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree)
 {
     assert(tree->OperIs(GT_LCL_VAR));
 
@@ -1622,7 +1620,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTre
         if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
         {
             // Perform copy assertion prop.
-            GenTree* newTree = morphCopyAssertionProp(curAssertion, tree, stmt DEBUGARG(assertionIndex));
+            GenTree* newTree = morphCopyAssertionProp(curAssertion, tree DEBUGARG(assertionIndex));
             if (newTree != nullptr)
             {
                 return newTree;
@@ -1644,7 +1642,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTre
             // Verify types match
             if (tree->TypeGet() == lclDsc->lvType)
             {
-                return morphConstantAssertionProp(curAssertion, tree, stmt DEBUGARG(assertionIndex));
+                return morphConstantAssertionProp(curAssertion, tree DEBUGARG(assertionIndex));
             }
         }
     }
@@ -1695,7 +1693,7 @@ AssertionIndex Compiler::morphLocalAssertionIsEqualOrNotEqual(
  *  Returns the modified tree, or nullptr if no assertion prop took place
  */
 
-GenTree* Compiler::morphAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree)
 {
     assert(tree->OperIsCompare());
 
@@ -1709,7 +1707,7 @@ GenTree* Compiler::morphAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree
     }
 
     // If local assertion prop then use variable based prop.
-    return morphAssertionPropLocal_RelOp(assertions, tree, stmt);
+    return morphAssertionPropLocal_RelOp(assertions, tree);
 }
 
 /*************************************************************************************
@@ -1718,7 +1716,7 @@ GenTree* Compiler::morphAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree
  *  perform local variable name based relop assertion propagation on the tree.
  *
  */
-GenTree* Compiler::morphAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree)
 {
     assert(tree->OperGet() == GT_EQ || tree->OperGet() == GT_NE);
 
@@ -1814,7 +1812,7 @@ GenTree* Compiler::morphAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, Ge
  *
  *  Returns the modified tree, or nullptr if no assertion prop took place.
  */
-GenTree* Compiler::morphAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree)
 {
     assert(tree->gtOper == GT_CAST);
 
@@ -1924,7 +1922,7 @@ GenTree* Compiler::morphAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree*
 // Notes:
 //   stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::morphAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree)
 {
     assert(tree->OperIsIndir());
 
@@ -2098,7 +2096,7 @@ GenTree* Compiler::morphNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, G
  *
  */
 
-GenTree* Compiler::morphAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call)
 {
     if (morphNonNullAssertionProp_Call(assertions, call))
     {
@@ -2122,33 +2120,28 @@ GenTree* Compiler::morphAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeC
 // Arguments:
 //   assertions  - set of live assertions
 //   tree        - tree to possibly optimize
-//   stmt        - statement containing the tree
-//   block       - block containing the statement
 //
 // Returns:
 //   The modified tree, or nullptr if no assertion prop took place.
 //
-// Notes:
-//   stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::morphAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block)
+GenTree* Compiler::morphAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree)
 {
     switch (tree->gtOper)
     {
         case GT_LCL_VAR:
-            return morphAssertionProp_LclVar(assertions, tree->AsLclVar(), stmt);
+            return morphAssertionProp_LclVar(assertions, tree->AsLclVar());
 
         case GT_OBJ:
         case GT_BLK:
         case GT_IND:
         case GT_NULLCHECK:
-            return morphAssertionProp_Ind(assertions, tree, stmt);
+            return morphAssertionProp_Ind(assertions, tree);
 
         case GT_CAST:
-            return morphAssertionProp_Cast(assertions, tree, stmt);
+            return morphAssertionProp_Cast(assertions, tree);
 
         case GT_CALL:
-            return morphAssertionProp_Call(assertions, tree->AsCall(), stmt);
+            return morphAssertionProp_Call(assertions, tree->AsCall());
 
         case GT_EQ:
         case GT_NE:
@@ -2156,7 +2149,7 @@ GenTree* Compiler::morphAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree
         case GT_LE:
         case GT_GT:
         case GT_GE:
-            return morphAssertionProp_RelOp(assertions, tree, stmt);
+            return morphAssertionProp_RelOp(assertions, tree);
 
         default:
             return nullptr;
