@@ -6186,8 +6186,8 @@ public:
 #if LOCAL_ASSERTION_PROP
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);
-    AssertionIndex morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
-    AssertionIndex morphAddAssertion(AssertionDsc* assertion);
+    void morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
+    void morphAddAssertion(AssertionDsc* assertion);
     AssertionDsc* morphGetAssertion(AssertionIndex assertIndex);
     GenTree* morphAssertionProp(GenTree* tree);
     AssertionIndex morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);

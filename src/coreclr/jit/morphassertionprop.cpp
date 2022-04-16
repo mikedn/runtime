@@ -396,15 +396,12 @@ Compiler::AssertionDsc* Compiler::morphGetAssertion(AssertionIndex assertIndex)
 //    helperCallArgs - when true this indicates that the assertion operands
 //                     are the arguments of a type cast helper call such as
 //                     CORINFO_HELP_ISINSTANCEOFCLASS
-// Return Value:
-//    The new assertion index or NO_ASSERTION_INDEX if a new assertion
-//    was not created.
 //
 // Notes:
 //    Assertion creation may fail either because the provided assertion
 //    operands aren't supported or because the assertion table is full.
 //
-AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAssertionKind assertionKind)
+void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAssertionKind assertionKind)
 {
     assert(op1 != nullptr);
     assert((op2 != nullptr) || (assertionKind == OAK_NOT_EQUAL));
@@ -735,15 +732,12 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const 
     }
 
 DONE_ASSERTION:
-    if (assertion.assertionKind == OAK_INVALID)
+    if (assertion.assertionKind != OAK_INVALID)
     {
-        return NO_ASSERTION_INDEX;
+        noway_assert(assertion.op1.kind != O1K_INVALID);
+        noway_assert(assertion.op2.kind != O2K_INVALID);
+        morphAddAssertion(&assertion);
     }
-
-    // Now add the assertion to our assertion table
-    noway_assert(assertion.op1.kind != O1K_INVALID);
-    noway_assert(assertion.op2.kind != O2K_INVALID);
-    return morphAddAssertion(&assertion);
 }
 
 /*****************************************************************************
@@ -756,7 +750,7 @@ DONE_ASSERTION:
  *  we use to refer to this element.
  *  If we need to add to the table and the table is full return the value zero
  */
-AssertionIndex Compiler::morphAddAssertion(AssertionDsc* newAssertion)
+void Compiler::morphAddAssertion(AssertionDsc* newAssertion)
 {
     noway_assert(newAssertion->assertionKind != OAK_INVALID);
 
@@ -766,14 +760,14 @@ AssertionIndex Compiler::morphAddAssertion(AssertionDsc* newAssertion)
         AssertionDsc* curAssertion = morphGetAssertion(index);
         if (curAssertion->Equals(newAssertion, false))
         {
-            return index;
+            return;
         }
     }
 
     // Check if we are within max count.
     if (optAssertionCount >= optMaxAssertionCount)
     {
-        return NO_ASSERTION_INDEX;
+        return;
     }
 
     optAssertionTabPrivate[optAssertionCount] = *newAssertion;
@@ -804,7 +798,7 @@ AssertionIndex Compiler::morphAddAssertion(AssertionDsc* newAssertion)
 #ifdef DEBUG
     morphDebugCheckAssertions(optAssertionCount);
 #endif
-    return optAssertionCount;
+    return;
 }
 
 #ifdef DEBUG
@@ -909,12 +903,11 @@ void Compiler::morphAssertionGen(GenTree* tree)
 
     // For most of the assertions that we create below
     // the assertion is true after the tree is processed
-    bool          assertionProven = true;
-    AssertionInfo assertionInfo;
+    bool assertionProven = true;
     switch (tree->gtOper)
     {
         case GT_ASG:
-            assertionInfo = morphCreateAssertion(tree->AsOp()->gtOp1, tree->AsOp()->gtOp2, OAK_EQUAL);
+            morphCreateAssertion(tree->AsOp()->gtOp1, tree->AsOp()->gtOp2, OAK_EQUAL);
             break;
 
         case GT_BLK:
@@ -924,16 +917,16 @@ void Compiler::morphAssertionGen(GenTree* tree)
         case GT_IND:
         case GT_NULLCHECK:
             // All indirections create non-null assertions
-            assertionInfo = morphCreateAssertion(tree->AsIndir()->Addr(), nullptr, OAK_NOT_EQUAL);
+            morphCreateAssertion(tree->AsIndir()->Addr(), nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_ARR_LENGTH:
-            assertionInfo = morphCreateAssertion(tree->AsArrLen()->GetArray(), nullptr, OAK_NOT_EQUAL);
+            morphCreateAssertion(tree->AsArrLen()->GetArray(), nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_ARR_ELEM:
             // An array element reference can create a non-null assertion
-            assertionInfo = morphCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr, OAK_NOT_EQUAL);
+            morphCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_CALL:
@@ -944,7 +937,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                assertionInfo = morphCreateAssertion(call->GetThisArg(), nullptr, OAK_NOT_EQUAL);
+                morphCreateAssertion(call->GetThisArg(), nullptr, OAK_NOT_EQUAL);
             }
         }
         break;
