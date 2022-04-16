@@ -485,7 +485,7 @@ void Compiler::optAddCopies()
  *  Initialize the assertion prop tracking logic.
  */
 
-void Compiler::optAssertionInit(bool isLocalProp)
+void Compiler::optAssertionInit()
 {
     // Use a function countFunc to determine a proper maximum assertion count for the
     // method being compiled. The function is linear to the IL size for small and
@@ -5084,7 +5084,7 @@ void Compiler::optVNAssertionProp()
     }
 #endif
 
-    optAssertionInit(false);
+    optAssertionInit();
 
     noway_assert(optAssertionCount == 0);
 

@@ -6229,7 +6229,7 @@ public:
     // Assertion prop helpers.
     ASSERT_TP& GetAssertionDep(unsigned lclNum);
     AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
-    void optAssertionInit(bool isLocalProp);
+    void optAssertionInit();
 
     // Assertion prop data flow functions.
     void optVNAssertionProp();
