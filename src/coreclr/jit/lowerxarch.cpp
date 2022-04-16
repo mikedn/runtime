@@ -168,7 +168,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
     // up to 16 bytes lower than offset + size. But offsets large enough to hit this case are likely
     // to be extremely rare for this to ever be a CQ issue.
     // On x86 this shouldn't be needed but then again, offsets large enough to hit this are rare.
-    if (addrMode->Offset() > (INT32_MAX - static_cast<int>(size)))
+    if (addrMode->GetOffset() > (INT32_MAX - static_cast<int>(size)))
     {
         return;
     }
@@ -185,7 +185,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
             // than Unroll because it copies only 4 bytes at a time. Besides, if we need to push a lot of slots
             // the cost of the extra LEA is likely to be irrelevant.
 
-            if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->Offset() > 128 - 16) && (size > 16)))
+            if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->GetOffset() > 128 - 16) && (size > 16)))
             {
                 return;
             }
@@ -198,7 +198,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
             // size treshold as on x64 we copy 8 and even 16 bytes at a time. Not that RepInstr/RepInstr also
             // do unlimited unroll but unlike GCUnroll/GCUnrollXMM they use the address mode only once.
 
-            if ((addrMode->HasIndex() && (size > 64)) || ((addrMode->Offset() > 128 - 32) && (size > 32)))
+            if ((addrMode->HasIndex() && (size > 64)) || ((addrMode->GetOffset() > 128 - 32) && (size > 32)))
             {
                 return;
             }
@@ -3119,19 +3119,7 @@ bool Lowering::IsCallTargetInRange(void* addr)
 // return true if the immediate can be folded into an instruction, for example small enough and non-relocatable
 bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 {
-    if (!childNode->IsIntCnsFitsInI32())
-    {
-        return false;
-    }
-
-    // At this point we know that it is an int const fits within 4-bytes and hence can safely cast to IntConCommon.
-    // Icons that need relocation should never be marked as contained immed
-    if (childNode->AsIntConCommon()->ImmedValNeedsReloc(comp))
-    {
-        return false;
-    }
-
-    return true;
+    return childNode->IsIntCnsFitsInI32() && !childNode->AsIntCon()->ImmedValNeedsReloc(comp);
 }
 
 //-----------------------------------------------------------------------
@@ -3145,6 +3133,11 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
 // guess whether it is likely to be beneficial to mark op1 or op2 as
 // reg optional.
 //
+// TODO-MIKE-Review: It's not clear why only one operand can be marked
+// reg-optional. With some exceptions like CMP, the binary operator
+// will get a destination register anyway so if both operands end up
+// being spilled we can simply load the first into the destination reg
+// and use the second as a memory operand.
 //
 // Arguments:
 //     tree  -  a binary-op tree node that is either commutative
@@ -3283,12 +3276,12 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
             // sure that the call target address is computed into EAX in this case.
             if (call->IsVirtualStub() && (call->gtCallType == CT_INDIRECT))
             {
-                assert(ctrlExpr->isIndir());
+                assert(ctrlExpr->OperIs(GT_IND));
                 MakeSrcContained(call, ctrlExpr);
             }
             else
 #endif // TARGET_X86
-                if (ctrlExpr->isIndir())
+                if (ctrlExpr->OperIs(GT_IND))
             {
                 // We may have cases where we have set a register target on the ctrlExpr, but if it
                 // contained we must clear it.
@@ -4559,6 +4552,50 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
     }
 }
 
+void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
+{
+    var_types intrinsicLoadType = TYP_UNDEF;
+    GenTree*  intrinsicLoadAddr = nullptr;
+
+    if (GenTreeHWIntrinsic* hwi = op->IsHWIntrinsic())
+    {
+        switch (hwi->GetIntrinsic())
+        {
+            case NI_SSE_LoadScalarVector128:
+                assert(hwi->GetSimdBaseType() == TYP_FLOAT);
+                intrinsicLoadType = TYP_FLOAT;
+                intrinsicLoadAddr = hwi->GetOp(0);
+                break;
+            case NI_SSE2_LoadScalarVector128:
+                // TODO-MIKE-Review: This likely needs only DOUBLE.
+                intrinsicLoadType = hwi->GetSimdBaseType();
+                intrinsicLoadAddr = hwi->GetOp(0);
+                break;
+            case NI_SSE_LoadAlignedVector128:
+            case NI_SSE2_LoadAlignedVector128:
+            case NI_AVX_LoadAlignedVector256:
+            case NI_SSE_LoadVector128:
+            case NI_SSE2_LoadVector128:
+            case NI_AVX_LoadVector256:
+                assert(hwi->TypeIs(TYP_SIMD16, TYP_SIMD32));
+                intrinsicLoadType = hwi->GetType();
+                intrinsicLoadAddr = hwi->GetOp(0);
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (intrinsicLoadType != TYP_UNDEF)
+    {
+        op->ChangeOper(GT_IND);
+        op->SetType(intrinsicLoadType);
+        op->AsIndir()->SetAddr(intrinsicLoadAddr);
+    }
+
+    op->SetContained();
+}
+
 //----------------------------------------------------------------------------------------------
 // ContainCheckHWIntrinsicAddr: Perform containment analysis for an address operand of a hardware
 //                              intrinsic node.
@@ -4572,7 +4609,7 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
     assert((addr->TypeGet() == TYP_I_IMPL) || (addr->TypeGet() == TYP_BYREF));
     TryCreateAddrMode(addr, true);
     if ((addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA) ||
-         (addr->IsCnsIntOrI() && addr->AsIntConCommon()->FitsInAddrBase(comp))) &&
+         (addr->IsIntCon() && addr->AsIntCon()->FitsInAddrBase(comp))) &&
         IsSafeToContainMem(node, addr))
     {
         MakeSrcContained(node, addr);
@@ -4598,7 +4635,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         // AVX2 gather are not containable and always have constant IMM argument
         if (HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsicId))
         {
-            MakeSrcContained(node, node->GetLastOp());
+            node->GetLastOp()->SetContained();
         }
         // Exit early if containment isn't supported
         return;
@@ -4615,9 +4652,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         GenTree* lastOp = node->GetLastOp();
         assert(lastOp != nullptr);
 
-        if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && lastOp->IsCnsIntOrI())
+        if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && lastOp->IsIntCon())
         {
-            MakeSrcContained(node, lastOp);
+            lastOp->SetContained();
         }
     }
 
@@ -4714,7 +4751,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (IsContainableHWIntrinsicOp(node, node->GetOp(0), &supportsRegOptional))
                 {
-                    MakeSrcContained(node, node->GetOp(0));
+                    ContainHWIntrinsicOperand(node, node->GetOp(0));
                 }
                 else if (supportsRegOptional)
                 {
@@ -4756,9 +4793,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     if (((intrinsicId == NI_SSE_Store) || (intrinsicId == NI_SSE2_Store)) && op2->OperIsHWIntrinsic() &&
                         ((op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX_ExtractVector128) ||
                          (op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX2_ExtractVector128)) &&
-                        op2->gtGetOp2()->IsIntegralConst())
+                        op2->AsHWIntrinsic()->GetOp(1)->IsIntCon())
                     {
-                        MakeSrcContained(node, op2);
+                        ContainHWIntrinsicOperand(node, op2);
                     }
                     break;
 
@@ -4771,13 +4808,13 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     if (IsContainableHWIntrinsicOp(node, op2, &op2SupportsRegOptional))
                     {
-                        MakeSrcContained(node, op2);
+                        ContainHWIntrinsicOperand(node, op2);
                     }
                     else if ((isCommutative || (intrinsicId == NI_BMI2_MultiplyNoFlags) ||
                               (intrinsicId == NI_BMI2_X64_MultiplyNoFlags)) &&
                              IsContainableHWIntrinsicOp(node, op1, &op1SupportsRegOptional))
                     {
-                        MakeSrcContained(node, op1);
+                        ContainHWIntrinsicOperand(node, op1);
 
                         // Swap the operands here to make the containment checks in codegen significantly simpler
                         node->SetOp(0, op2);
@@ -4823,7 +4860,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             {
                                 if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
                                 {
-                                    MakeSrcContained(node, op2);
+                                    ContainHWIntrinsicOperand(node, op2);
                                 }
                                 else if (supportsRegOptional)
                                 {
@@ -4845,7 +4882,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                             if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
                             {
-                                MakeSrcContained(node, op1);
+                                ContainHWIntrinsicOperand(node, op1);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4872,7 +4909,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             {
                                 if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
                                 {
-                                    MakeSrcContained(node, op1);
+                                    ContainHWIntrinsicOperand(node, op1);
                                 }
                                 else if (supportsRegOptional)
                                 {
@@ -4881,7 +4918,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             }
                             else if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
                             {
-                                MakeSrcContained(node, op2);
+                                ContainHWIntrinsicOperand(node, op2);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4894,7 +4931,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         {
                             if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
                             {
-                                MakeSrcContained(node, op1);
+                                ContainHWIntrinsicOperand(node, op1);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4970,12 +5007,12 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         if (IsContainableHWIntrinsicOp(node, op3, &supportsRegOptional))
                         {
                             // 213 form: op1 = (op2 * op1) + [op3]
-                            MakeSrcContained(node, op3);
+                            ContainHWIntrinsicOperand(node, op3);
                         }
                         else if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
                         {
                             // 132 form: op1 = (op1 * op3) + [op2]
-                            MakeSrcContained(node, op2);
+                            ContainHWIntrinsicOperand(node, op2);
                         }
                         else if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
                         {
@@ -4984,7 +5021,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             if (!HWIntrinsicInfo::CopiesUpperBits(intrinsicId))
                             {
                                 // 231 form: op3 = (op2 * op3) + [op1]
-                                MakeSrcContained(node, op1);
+                                ContainHWIntrinsicOperand(node, op1);
                             }
                         }
                         else
@@ -5012,7 +5049,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             {
                                 if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
                                 {
-                                    MakeSrcContained(node, op2);
+                                    ContainHWIntrinsicOperand(node, op2);
                                 }
                                 else if (supportsRegOptional)
                                 {
@@ -5025,7 +5062,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             {
                                 if (IsContainableHWIntrinsicOp(node, op3, &supportsRegOptional))
                                 {
-                                    MakeSrcContained(node, op3);
+                                    ContainHWIntrinsicOperand(node, op3);
                                 }
                                 else if (supportsRegOptional)
                                 {
@@ -5038,11 +5075,11 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             {
                                 if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
                                 {
-                                    MakeSrcContained(node, op2);
+                                    ContainHWIntrinsicOperand(node, op2);
                                 }
                                 else if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
                                 {
-                                    MakeSrcContained(node, op1);
+                                    ContainHWIntrinsicOperand(node, op1);
                                     // MultiplyNoFlags is a Commutative operation, so swap the first two operands here
                                     // to make the containment checks in codegen significantly simpler
                                     node->SetOp(0, op2);
@@ -5098,7 +5135,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         {
                             if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
                             {
-                                MakeSrcContained(node, op2);
+                                ContainHWIntrinsicOperand(node, op2);
                             }
                             else if (supportsRegOptional)
                             {

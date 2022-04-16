@@ -146,11 +146,6 @@ inline unsigned getCurTime()
 
 /*****************************************************************************/
 #ifdef DEBUG
-/*****************************************************************************/
-
-static FILE* jitSrcFilePtr;
-
-static unsigned jitCurSrcLine;
 
 void Compiler::JitLogEE(unsigned level, const char* fmt, ...)
 {
@@ -168,128 +163,6 @@ void Compiler::JitLogEE(unsigned level, const char* fmt, ...)
     va_end(args);
 }
 
-void Compiler::compDspSrcLinesByLineNum(unsigned line, bool seek)
-{
-    if (!jitSrcFilePtr)
-    {
-        return;
-    }
-
-    if (jitCurSrcLine == line)
-    {
-        return;
-    }
-
-    if (jitCurSrcLine > line)
-    {
-        if (!seek)
-        {
-            return;
-        }
-
-        if (fseek(jitSrcFilePtr, 0, SEEK_SET) != 0)
-        {
-            printf("Compiler::compDspSrcLinesByLineNum:  fseek returned an error.\n");
-        }
-        jitCurSrcLine = 0;
-    }
-
-    if (!seek)
-    {
-        printf(";\n");
-    }
-
-    do
-    {
-        char   temp[128];
-        size_t llen;
-
-        if (!fgets(temp, sizeof(temp), jitSrcFilePtr))
-        {
-            return;
-        }
-
-        if (seek)
-        {
-            continue;
-        }
-
-        llen = strlen(temp);
-        if (llen && temp[llen - 1] == '\n')
-        {
-            temp[llen - 1] = 0;
-        }
-
-        printf(";   %s\n", temp);
-    } while (++jitCurSrcLine < line);
-
-    if (!seek)
-    {
-        printf(";\n");
-    }
-}
-
-/*****************************************************************************/
-
-void Compiler::compDspSrcLinesByNativeIP(UNATIVE_OFFSET curIP)
-{
-    static IPmappingDsc* nextMappingDsc;
-    static unsigned      lastLine;
-
-    if (!opts.dspLines)
-    {
-        return;
-    }
-
-    if (curIP == 0)
-    {
-        if (genIPmappingList)
-        {
-            nextMappingDsc = genIPmappingList;
-            lastLine       = jitGetILoffs(nextMappingDsc->ipmdILoffsx);
-
-            unsigned firstLine = jitGetILoffs(nextMappingDsc->ipmdILoffsx);
-
-            unsigned earlierLine = (firstLine < 5) ? 0 : firstLine - 5;
-
-            compDspSrcLinesByLineNum(earlierLine, true); // display previous 5 lines
-            compDspSrcLinesByLineNum(firstLine, false);
-        }
-        else
-        {
-            nextMappingDsc = nullptr;
-        }
-
-        return;
-    }
-
-    if (nextMappingDsc)
-    {
-        UNATIVE_OFFSET offset = nextMappingDsc->ipmdNativeLoc.CodeOffset(GetEmitter());
-
-        if (offset <= curIP)
-        {
-            IL_OFFSET nextOffs = jitGetILoffs(nextMappingDsc->ipmdILoffsx);
-
-            if (lastLine < nextOffs)
-            {
-                compDspSrcLinesByLineNum(nextOffs);
-            }
-            else
-            {
-                // This offset corresponds to a previous line. Rewind to that line
-
-                compDspSrcLinesByLineNum(nextOffs - 2, true);
-                compDspSrcLinesByLineNum(nextOffs);
-            }
-
-            lastLine       = nextOffs;
-            nextMappingDsc = nextMappingDsc->ipmdNext;
-        }
-    }
-}
-
-/*****************************************************************************/
 #endif // DEBUG
 
 /*****************************************************************************/
@@ -1364,108 +1237,6 @@ unsigned char Compiler::compGetJitDefaultFill(Compiler* comp)
 
 #endif // DEBUG
 
-/*****************************************************************************/
-#ifdef DEBUG
-/*****************************************************************************/
-
-VarName Compiler::compVarName(regNumber reg, bool isFloatReg)
-{
-    if (isFloatReg)
-    {
-        assert(genIsValidFloatReg(reg));
-    }
-    else
-    {
-        assert(genIsValidReg(reg));
-    }
-
-    if ((info.compVarScopesCount > 0) && compCurBB && opts.varNames)
-    {
-        unsigned   lclNum;
-        LclVarDsc* varDsc;
-
-        /* Look for the matching register */
-        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
-        {
-            /* If the variable is not in a register, or not in the register we're looking for, quit. */
-            /* Also, if it is a compiler generated variable (i.e. slot# > info.compVarScopesCount), don't bother. */
-            if ((varDsc->lvRegister != 0) && (varDsc->GetRegNum() == reg) &&
-                (varDsc->IsFloatRegType() || !isFloatReg) && (varDsc->lvSlotNum < info.compVarScopesCount))
-            {
-                /* check if variable in that register is live */
-                if ((codeGen != nullptr) && VarSetOps::IsMember(this, codeGen->GetLiveSet(), varDsc->lvVarIndex))
-                {
-                    /* variable is live - find the corresponding slot */
-                    VarScopeDsc* varScope =
-                        compFindLocalVar(varDsc->lvSlotNum, compCurBB->bbCodeOffs, compCurBB->bbCodeOffsEnd);
-                    if (varScope)
-                    {
-                        return varScope->vsdName;
-                    }
-                }
-            }
-        }
-    }
-
-    return nullptr;
-}
-
-const char* Compiler::compRegVarName(regNumber reg, bool displayVar, bool isFloatReg)
-{
-
-#ifdef TARGET_ARM
-    isFloatReg = genIsValidFloatReg(reg);
-#endif
-
-    if (displayVar && (reg != REG_NA))
-    {
-        VarName varName = compVarName(reg, isFloatReg);
-
-        if (varName)
-        {
-            const int   NAME_VAR_REG_BUFFER_LEN = 4 + 256 + 1;
-            static char nameVarReg[2][NAME_VAR_REG_BUFFER_LEN]; // to avoid overwriting the buffer when have 2
-                                                                // consecutive calls before printing
-            static int index = 0;                               // for circular index into the name array
-
-            index = (index + 1) % 2; // circular reuse of index
-            sprintf_s(nameVarReg[index], NAME_VAR_REG_BUFFER_LEN, "%s'%s'", getRegName(reg), VarNameToStr(varName));
-
-            return nameVarReg[index];
-        }
-    }
-
-    /* no debug info required or no variable in that register
-       -> return standard name */
-
-    return getRegName(reg);
-}
-
-const char* Compiler::compLocalVarName(unsigned varNum, unsigned offs)
-{
-    unsigned     i;
-    VarScopeDsc* t;
-
-    for (i = 0, t = info.compVarScopes; i < info.compVarScopesCount; i++, t++)
-    {
-        if (t->vsdVarNum != varNum)
-        {
-            continue;
-        }
-
-        if (offs >= t->vsdLifeBeg && offs < t->vsdLifeEnd)
-        {
-            return VarNameToStr(t->vsdName);
-        }
-    }
-
-    return nullptr;
-}
-
-/*****************************************************************************/
-#endif // DEBUG
-/*****************************************************************************/
-
 void Compiler::compSetProcessor()
 {
     //
@@ -2125,7 +1896,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #ifdef DEBUG
     opts.dspInstrs       = false;
     opts.dspLines        = false;
-    opts.varNames        = false;
     opts.dmpHex          = false;
     opts.disAsm          = false;
     opts.disAsmSpilled   = false;
@@ -7855,12 +7625,11 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
 
                         chars += printf("[ICON_TOKEN_HDL]");
                         break;
-
+#ifdef WINDOWS_X86_ABI
                     case GTF_ICON_TLS_HDL:
-
                         chars += printf("[ICON_TLD_HDL]");
                         break;
-
+#endif
                     case GTF_ICON_FTN_ADDR:
 
                         chars += printf("[ICON_FTN_ADDR]");

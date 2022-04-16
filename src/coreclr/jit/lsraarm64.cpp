@@ -599,9 +599,9 @@ int LinearScan::BuildNode(GenTree* tree)
         {
             GenTreeAddrMode* lea = tree->AsAddrMode();
 
-            GenTree* base  = lea->Base();
-            GenTree* index = lea->Index();
-            int      cns   = lea->Offset();
+            GenTree* base  = lea->GetBase();
+            GenTree* index = lea->GetIndex();
+            int      cns   = lea->GetOffset();
 
             // This LEA is instantiating an address, so we set up the srcCount here.
             srcCount = 0;

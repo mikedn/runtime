@@ -233,8 +233,8 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
         {
             // relocatable values tend to come down as a CNS_INT of native int type
             // so the line between these two opcodes is kind of blurry
-            GenTreeIntConCommon* con    = tree->AsIntConCommon();
-            ssize_t              cnsVal = con->IconValue();
+            GenTreeIntCon* con    = tree->AsIntCon();
+            ssize_t        cnsVal = con->GetValue();
 
             if (con->ImmedValNeedsReloc(compiler))
             {
@@ -325,7 +325,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     }
     else
     {
-        regNumber r = emit->emitInsTernary(ins, emitTypeSize(treeNode), treeNode, op1, op2);
+        regNumber r = emitInsTernary(ins, emitTypeSize(treeNode), treeNode, op1, op2);
         assert(r == targetReg);
     }
 
@@ -799,14 +799,14 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 
     if (oper == GT_LSH_HI)
     {
-        inst_RV_SH(ins, EA_4BYTE, dstReg, count);
+        GetEmitter()->emitIns_R_I(ins, EA_4BYTE, dstReg, count & 31);
         GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regLo, 32 - count, INS_FLAGS_DONT_CARE,
                                       INS_OPTS_LSR);
     }
     else
     {
         assert(oper == GT_RSH_LO);
-        inst_RV_SH(INS_lsr, EA_4BYTE, dstReg, count);
+        GetEmitter()->emitIns_R_I(ins, EA_4BYTE, dstReg, count & 31);
         GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regHi, 32 - count, INS_FLAGS_DONT_CARE,
                                       INS_OPTS_LSL);
     }
@@ -929,10 +929,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (dstReg == REG_NA)
     {
         unsigned lclNum = store->GetLclNum();
-        inst_set_SV_var(store);
-
         GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lclNum, 0);
-
         genUpdateLife(store);
         lcl->SetRegNum(REG_STK);
 
@@ -1048,15 +1045,17 @@ void CodeGen::genCodeForCompare(GenTreeOp* tree)
     {
         assert(op1Type == op2Type);
         assert(!tree->OperIs(GT_CMP));
-        emit->emitInsBinary(INS_vcmp, emitTypeSize(op1Type), op1, op2);
+        emit->emitIns_R_R(INS_vcmp, emitTypeSize(op1Type), op1->GetRegNum(), op2->GetRegNum());
         // vmrs with register 0xf has special meaning of transferring flags
         emit->emitIns_R(INS_vmrs, EA_4BYTE, REG_R15);
     }
+    else if (GenTreeIntCon* imm = op2->IsContainedIntCon())
+    {
+        emit->emitIns_R_I(INS_cmp, EA_4BYTE, op1->GetRegNum(), imm->GetInt32Value());
+    }
     else
     {
-        assert(!varTypeIsFloating(op2Type));
-        var_types cmpType = (op1Type == op2Type) ? op1Type : TYP_INT;
-        emit->emitInsBinary(INS_cmp, emitTypeSize(cmpType), op1, op2);
+        emit->emitIns_R_R(INS_cmp, EA_4BYTE, op1->GetRegNum(), op2->GetRegNum());
     }
 
     // Are we evaluating this into a register?
@@ -1080,11 +1079,8 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     // this is nothing but a conditional call to CORINFO_HELP_STOP_FOR_GC
     // based on the contents of 'data'
 
-    GenTree* data = tree->gtOp1;
-    genConsumeIfReg(data);
-    GenTreeIntCon cns = intForm(TYP_INT, 0);
-    cns.SetContained();
-    GetEmitter()->emitInsBinary(INS_cmp, emitTypeSize(TYP_INT), data, &cns);
+    GenTree* data = tree->GetOp(0);
+    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, UseReg(data), 0);
 
     BasicBlock* skipLabel = genCreateTempLabel();
 
@@ -1096,12 +1092,27 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     genDefineTempLabel(skipLabel);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreInd: Produce code for a GT_STOREIND node.
-//
-// Arguments:
-//    tree - the GT_STOREIND node
-//
+void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
+{
+    assert(tree->OperIs(GT_NULLCHECK));
+    assert(!"GT_NULLCHECK isn't supported for Arm32; use GT_IND.");
+}
+
+void CodeGen::genCodeForIndir(GenTreeIndir* load)
+{
+    assert(load->OperIs(GT_IND));
+
+    genConsumeAddress(load->GetAddr());
+    emitInsLoad(ins_Load(load->GetType()), emitActualTypeSize(load->GetType()), load->GetRegNum(), load);
+
+    if (load->IsVolatile())
+    {
+        instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
+    }
+
+    DefReg(load);
+}
+
 void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 {
     GenTree*  addr = tree->GetAddr();
@@ -1139,7 +1150,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         instGen_MemoryBarrier();
     }
 
-    GetEmitter()->emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
+    emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
 }
 
 // genLongToIntCast: Generate code for long to int casts.
@@ -1344,8 +1355,8 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
             regSet.verifyRegUsed(callTargetReg);
         }
 
-        GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, compiler->eeFindHelper(helper),
-                                   INDEBUG_LDISASM_COMMA(nullptr) NULL, // addr
+        GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, compiler->eeFindHelper(helper) DEBUGARG(nullptr),
+                                   nullptr, // addr
                                    argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
                                    gcInfo.gcRegByrefSetCur,
                                    BAD_IL_OFFSET, // ilOffset
@@ -1356,9 +1367,9 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
     }
     else
     {
-        GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN, compiler->eeFindHelper(helper),
-                                   INDEBUG_LDISASM_COMMA(nullptr) addr, argSize, retSize, gcInfo.gcVarPtrSetCur,
-                                   gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, REG_NA, REG_NA, 0,
+        GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN, compiler->eeFindHelper(helper) DEBUGARG(nullptr), addr,
+                                   argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
+                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, REG_NA, REG_NA, 0,
                                    0,    /* ilOffset, ireg, xreg, xmul, disp */
                                    false /* isJump */
                                    );
@@ -1643,6 +1654,324 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
     unreached();
+}
+
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* load)
+{
+    assert(load->OperIs(GT_IND));
+
+    if (load->IsUnaligned() && varTypeIsFloating(load->GetType()))
+    {
+        emitter* emit = GetEmitter();
+
+        if (load->TypeIs(TYP_FLOAT))
+        {
+            regNumber tmpReg = load->GetSingleTempReg();
+            emitInsIndir(INS_ldr, EA_4BYTE, tmpReg, load, 0);
+            emit->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dataReg, tmpReg, /* canSkip */ false);
+        }
+        else
+        {
+            assert(load->TypeIs(TYP_DOUBLE));
+
+            regNumber tmpReg1 = load->ExtractTempReg();
+            regNumber tmpReg2 = load->GetSingleTempReg();
+            emitInsIndir(INS_ldr, EA_4BYTE, tmpReg1, load, 0);
+            emitInsIndir(INS_ldr, EA_4BYTE, tmpReg2, load, 4);
+            emit->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dataReg, tmpReg1, tmpReg2);
+        }
+
+        return;
+    }
+
+    emitInsIndir(ins, attr, dataReg, load, 0);
+}
+
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeStoreInd* store)
+{
+    assert(store->OperIs(GT_STOREIND));
+
+    if (store->IsUnaligned() && varTypeIsFloating(store->GetType()))
+    {
+        emitter* emit = GetEmitter();
+
+        if (store->TypeIs(TYP_FLOAT))
+        {
+            regNumber tmpReg = store->GetSingleTempReg();
+            emit->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tmpReg, dataReg, /* canSkip */ false);
+            emitInsIndir(INS_str, EA_4BYTE, tmpReg, store, 0);
+        }
+        else
+        {
+            assert(store->TypeIs(TYP_DOUBLE));
+
+            regNumber tmpReg1 = store->ExtractTempReg();
+            regNumber tmpReg2 = store->GetSingleTempReg();
+            emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tmpReg1, tmpReg2, dataReg);
+            emitInsIndir(INS_str, EA_4BYTE, tmpReg1, store, 0);
+            emitInsIndir(INS_str, EA_4BYTE, tmpReg2, store, 4);
+        }
+
+        return;
+    }
+
+    emitInsIndir(ins, attr, dataReg, store, 0);
+}
+
+void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, GenTreeIndir* indir, int offset)
+{
+    emitter* emit = GetEmitter();
+    GenTree* addr = indir->GetAddr();
+
+    if (!addr->isContained())
+    {
+        if (offset != 0)
+        {
+            assert(emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE));
+
+            emit->emitIns_R_R_I(ins, attr, valueReg, addr->GetRegNum(), offset);
+        }
+        else
+        {
+            emit->emitIns_R_R(ins, attr, valueReg, addr->GetRegNum());
+        }
+
+        return;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
+        unsigned             lclNum  = lclNode->GetLclNum();
+        unsigned             offset  = lclNode->GetLclOffs();
+
+        if (emitter::emitInsIsStore(ins))
+        {
+            emit->emitIns_S_R(ins, attr, valueReg, lclNum, offset);
+        }
+        else
+        {
+            emit->emitIns_R_S(ins, attr, valueReg, lclNum, offset);
+        }
+
+        return;
+    }
+
+    GenTreeAddrMode* addrMode = addr->AsAddrMode();
+    GenTree*         base     = addrMode->GetBase();
+    GenTree*         index    = addrMode->GetIndex();
+
+    offset += addrMode->GetOffset();
+
+    if (index == nullptr)
+    {
+        if (emitter::emitIns_valid_imm_for_ldst_offset(offset, attr))
+        {
+            emit->emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
+        }
+        else
+        {
+            regNumber offsetReg = indir->GetSingleTempReg();
+            instGen_Set_Reg_To_Imm(EA_4BYTE, offsetReg, offset);
+            emit->emitIns_R_R_R(ins, attr, valueReg, base->GetRegNum(), offsetReg);
+        }
+
+        return;
+    }
+
+    assert(isPow2(addrMode->GetScale()));
+
+    regNumber baseReg  = base->GetRegNum();
+    regNumber indexReg = index->GetRegNum();
+    unsigned  lsl      = genLog2(addrMode->GetScale());
+
+    if (offset == 0)
+    {
+        if (lsl > 0)
+        {
+            emit->emitIns_R_R_R_I(ins, attr, valueReg, baseReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+        }
+        else
+        {
+            emit->emitIns_R_R_R(ins, attr, valueReg, baseReg, indexReg);
+        }
+
+        return;
+    }
+
+    // TODO-MIKE-Cleanup: Remove all this idiocy.
+
+    regNumber tmpReg  = indir->GetSingleTempReg();
+    emitAttr  tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_4BYTE;
+
+    noway_assert(emitter::emitInsIsLoad(ins) || (tmpReg != valueReg));
+
+    if (!emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
+    {
+        noway_assert(tmpReg != indexReg);
+
+        instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, offset);
+        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, tmpReg, baseReg);
+        emit->emitIns_R_R_R_I(ins, attr, valueReg, tmpReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+
+        return;
+    }
+
+    if (lsl > 0)
+    {
+        emit->emitIns_R_R_R_I(INS_add, tmpAttr, tmpReg, baseReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+    }
+    else
+    {
+        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, baseReg, indexReg);
+    }
+
+    emit->emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
+}
+
+regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)
+{
+    // dst can only be a reg
+    assert(!dst->isContained());
+
+    // find immed (if any) - it cannot be a dst
+    // Only one src can be an int.
+    GenTreeIntConCommon* intConst  = nullptr;
+    GenTree*             nonIntReg = nullptr;
+
+    if (varTypeIsFloating(dst))
+    {
+        // src1 can only be a reg
+        assert(!src1->isContained());
+        // src2 can only be a reg
+        assert(!src2->isContained());
+    }
+    else // not floating point
+    {
+        // src2 can be immed or reg
+        assert(!src2->isContained() || src2->isContainedIntOrIImmed());
+
+        // Check src2 first as we can always allow it to be a contained immediate
+        if (src2->isContainedIntOrIImmed())
+        {
+            intConst  = src2->AsIntConCommon();
+            nonIntReg = src1;
+        }
+        // Only for commutative operations do we check src1 and allow it to be a contained immediate
+        else if (dst->OperIsCommutative())
+        {
+            // src1 can be immed or reg
+            assert(!src1->isContained() || src1->isContainedIntOrIImmed());
+
+            // Check src1 and allow it to be a contained immediate
+            if (src1->isContainedIntOrIImmed())
+            {
+                assert(!src2->isContainedIntOrIImmed());
+                intConst  = src1->AsIntConCommon();
+                nonIntReg = src2;
+            }
+        }
+        else
+        {
+            // src1 can only be a reg
+            assert(!src1->isContained());
+        }
+    }
+
+    insFlags flags         = INS_FLAGS_DONT_CARE;
+    bool     isMulOverflow = false;
+    if (dst->gtOverflowEx())
+    {
+        if ((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc))
+        {
+            flags = INS_FLAGS_SET;
+        }
+        else if (ins == INS_mul)
+        {
+            isMulOverflow = true;
+            assert(intConst == nullptr); // overflow format doesn't support an int constant operand
+        }
+        else
+        {
+            assert(!"Invalid ins for overflow check");
+        }
+    }
+
+    emitter* emit = GetEmitter();
+
+    if ((dst->gtFlags & GTF_SET_FLAGS) != 0)
+    {
+        assert((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc) || (ins == INS_and) ||
+               (ins == INS_orr) || (ins == INS_eor) || (ins == INS_orn));
+        flags = INS_FLAGS_SET;
+    }
+
+    if (intConst != nullptr)
+    {
+        emit->emitIns_R_R_I(ins, attr, dst->GetRegNum(), nonIntReg->GetRegNum(), (target_ssize_t)intConst->IconValue(),
+                            flags);
+    }
+    else
+    {
+        if (isMulOverflow)
+        {
+            regNumber extraReg = dst->GetSingleTempReg();
+            assert(extraReg != dst->GetRegNum());
+
+            if ((dst->gtFlags & GTF_UNSIGNED) != 0)
+            {
+                // Compute 8 byte result from 4 byte by 4 byte multiplication.
+                emit->emitIns_R_R_R_R(INS_umull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(),
+                                      src2->GetRegNum());
+
+                // Overflow exists if the result's high word is non-zero.
+                emit->emitIns_R_I(INS_cmp, attr, extraReg, 0);
+            }
+            else
+            {
+                // Compute 8 byte result from 4 byte by 4 byte multiplication.
+                emit->emitIns_R_R_R_R(INS_smull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(),
+                                      src2->GetRegNum());
+
+                // Overflow exists if the result's high word is not merely a sign bit.
+                emit->emitIns_R_R_I(INS_cmp, attr, extraReg, dst->GetRegNum(), 31, INS_FLAGS_DONT_CARE, INS_OPTS_ASR);
+            }
+        }
+        else
+        {
+            // We can just do the arithmetic, setting the flags if needed.
+            emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum(), flags);
+        }
+    }
+
+    if (dst->gtOverflowEx())
+    {
+        assert(!varTypeIsFloating(dst));
+
+        emitJumpKind jumpKind;
+
+        if (dst->OperGet() == GT_MUL)
+        {
+            jumpKind = EJ_ne;
+        }
+        else
+        {
+            bool isUnsignedOverflow = ((dst->gtFlags & GTF_UNSIGNED) != 0);
+            jumpKind                = isUnsignedOverflow ? EJ_lo : EJ_vs;
+            if (jumpKind == EJ_lo)
+            {
+                if ((dst->OperGet() != GT_SUB) && (dst->OperGet() != GT_SUB_HI))
+                {
+                    jumpKind = EJ_hs;
+                }
+            }
+        }
+
+        // Jump to the block which will throw the exception.
+        genJumpToThrowHlpBlk(jumpKind, SCK_OVERFLOW);
+    }
+
+    return dst->GetRegNum();
 }
 
 #endif // TARGET_ARM

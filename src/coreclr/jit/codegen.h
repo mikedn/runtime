@@ -103,11 +103,6 @@ private:
         }
     }
 
-    GenTreeIndir indirForm(var_types type, GenTree* base);
-    GenTreeStoreInd storeIndirForm(var_types type, GenTree* base, GenTree* data);
-
-    GenTreeIntCon intForm(var_types type, ssize_t value);
-
     void genRangeCheck(GenTreeBoundsChk* bndsChk);
 
     void genLockedInstructions(GenTreeOp* node);
@@ -204,9 +199,7 @@ protected:
 #ifdef DEBUG
     // Last instr we have displayed for dspInstrs
     unsigned genCurDispOffset;
-
-    const char* genInsDisplayName(emitter::instrDesc* id);
-#endif // DEBUG
+#endif
 
     //-------------------------------------------------------------------------
 
@@ -434,35 +427,6 @@ protected:
     void genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
     void genProfilingLeaveCallback(unsigned helper);
 #endif // PROFILING_SUPPORTED
-
-    // clang-format off
-    void genEmitCall(int                   callType,
-                     CORINFO_METHOD_HANDLE methHnd,
-                     INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
-                     void*                 addr
-                     X86_ARG(int  argSize),
-                     emitAttr              retSize
-                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                     IL_OFFSETX            ilOffset,
-                     regNumber             base   = REG_NA,
-                     bool                  isJump = false);
-    // clang-format on
-
-    // clang-format off
-    void genEmitCall(int                   callType,
-                     CORINFO_METHOD_HANDLE methHnd,
-                     INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
-                     GenTreeIndir*         indir
-                     X86_ARG(int  argSize),
-                     emitAttr              retSize
-                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                     IL_OFFSETX            ilOffset);
-    // clang-format on
-
-    //
-    // Epilog functions
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
 #if defined(TARGET_ARM)
     bool genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog);
@@ -822,6 +786,7 @@ protected:
     void genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree);
     void genCodeForTreeNode(GenTree* treeNode);
     void genCodeForBinary(GenTreeOp* treeNode);
+    void GenFloatBinaryOp(GenTreeOp* treeNode);
 
 #if defined(TARGET_X86)
     void genCodeForLongUMod(GenTreeOp* node);
@@ -1125,7 +1090,7 @@ protected:
 #endif
 
 #ifdef TARGET_XARCH
-    void GenStoreIndRMWShift(GenTreeStoreInd* store, GenTreeOp* shift, GenTree* shiftBy);
+    void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
 #endif // TARGET_XARCH
 
@@ -1326,16 +1291,35 @@ public:
     void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
     void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
-    void inst_TT(instruction ins, GenTreeLclVar* node);
-    void inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* tree);
+
+    // The following method is used by xarch emitter for handling contained tree temps.
+    TempDsc* getSpillTempDsc(GenTree* node);
+    bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
+
+#ifdef TARGET_XARCH
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
-#if defined(TARGET_XARCH)
-    void inst_RV_RV_IV(instruction ins, emitAttr size, regNumber reg1, regNumber reg2, unsigned ival);
+    bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
+    void emitInsUnary(instruction ins, emitAttr attr, GenTree* src);
+    void emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src);
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr);
+    void emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* value);
     void inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival);
     void inst_RV_RV_TT(instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW);
 #endif
 
-    void inst_set_SV_var(GenTreeLclVar* node);
+#ifdef TARGET_ARM
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
+    regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
+#endif
+
+#ifdef TARGET_ARM64
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
+    regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
+#endif
 
     class GenAddrMode
     {

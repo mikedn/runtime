@@ -605,7 +605,7 @@ regNumber CodeGenInterface::genGetThisArgReg(GenTreeCall* call) const
 //
 // Return Value:
 //   TempDsc corresponding to tree
-TempDsc* CodeGenInterface::getSpillTempDsc(GenTree* tree)
+TempDsc* CodeGen::getSpillTempDsc(GenTree* tree)
 {
     assert(tree->IsRegSpilled(0));
 
@@ -755,6 +755,42 @@ bool CodeGenInterface::genCodeAddrNeedsReloc(size_t addr)
 #endif // TARGET_X86
 }
 #endif // TARGET_XARCH
+
+//------------------------------------------------------------------------
+// genOffsetOfMDArrayLowerBound: Returns the offset from the Array object to the
+//   lower bound for the given dimension.
+//
+// Arguments:
+//    elemType  - the element type of the array
+//    rank      - the rank of the array
+//    dimension - the dimension for which the lower bound offset will be returned.
+//
+// Return Value:
+//    The offset.
+
+unsigned CodeGen::genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension)
+{
+    // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
+    return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * (dimension + rank);
+}
+
+//------------------------------------------------------------------------
+// genOffsetOfMDArrayLength: Returns the offset from the Array object to the
+//   attr for the given dimension.
+//
+// Arguments:
+//    elemType  - the element type of the array
+//    rank      - the rank of the array
+//    dimension - the dimension for which the lower bound offset will be returned.
+//
+// Return Value:
+//    The offset.
+
+unsigned CodeGen::genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension)
+{
+    // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
+    return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * dimension;
+}
 
 /*****************************************************************************
  *
@@ -5523,6 +5559,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
             JITDUMP("---OSR--- V%02u (reg) old rbp offset %d old frame %d this frame sp-fp %d new offset %d (%02xH)\n",
                     varNum, stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
 
+            // TODO-MIKE-Review: Is this called on ARM64? emitIns_R_AR is not implemented...
             GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, varDsc->GetRegNum(), genFramePointerReg(), offset);
         }
     }
@@ -7109,8 +7146,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
             // clang-format off
             GetEmitter()->emitIns_Call(callType,
-                                       methHnd,
-                                       INDEBUG_LDISASM_COMMA(nullptr)
+                                       methHnd
+                                       DEBUGARG(nullptr),
                                        addr,
                                        0,          // argSize
                                        EA_UNKNOWN, // retSize
@@ -7150,8 +7187,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 assert(call->gtCallMethHnd != nullptr);
                 // clang-format off
                 GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN,
-                                           call->gtCallMethHnd,
-                                           INDEBUG_LDISASM_COMMA(nullptr)
+                                           call->gtCallMethHnd
+                                           DEBUGARG(nullptr),
                                            call->gtDirectCallAddress,
                                            0,          // argSize
                                            EA_UNKNOWN  // retSize
@@ -7551,8 +7588,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
             // clang-format off
             GetEmitter()->emitIns_Call(callType,
-                                       methHnd,
-                                       INDEBUG_LDISASM_COMMA(nullptr)
+                                       methHnd
+                                       DEBUGARG(nullptr),
                                        addr,
                                        0,                                                      // argSize
                                        EA_UNKNOWN                                              // retSize
@@ -7587,8 +7624,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 // clang-format off
                 GetEmitter()->emitIns_Call(
                         emitter::EC_FUNC_TOKEN,
-                        call->gtCallMethHnd,
-                        INDEBUG_LDISASM_COMMA(nullptr)
+                        call->gtCallMethHnd
+                        DEBUGARG(nullptr),
                         call->gtDirectCallAddress,
                         0,                                              // argSize
                         EA_UNKNOWN                                      // retSize
@@ -9874,40 +9911,6 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 #endif // !defined(DEBUG)
 #endif // defined(LATE_DISASM)
 /*****************************************************************************/
-
-//------------------------------------------------------------------------
-// indirForm: Make a temporary indir we can feed to pattern matching routines
-//    in cases where we don't want to instantiate all the indirs that happen.
-//
-GenTreeIndir CodeGen::indirForm(var_types type, GenTree* base)
-{
-    GenTreeIndir i(GT_IND, type, base, nullptr);
-    i.SetRegNum(REG_NA);
-    i.SetContained();
-    return i;
-}
-
-//------------------------------------------------------------------------
-// indirForm: Make a temporary indir we can feed to pattern matching routines
-//    in cases where we don't want to instantiate all the indirs that happen.
-//
-GenTreeStoreInd CodeGen::storeIndirForm(var_types type, GenTree* base, GenTree* data)
-{
-    GenTreeStoreInd i(type, base, data);
-    i.SetRegNum(REG_NA);
-    return i;
-}
-
-//------------------------------------------------------------------------
-// intForm: Make a temporary int we can feed to pattern matching routines
-//    in cases where we don't want to instantiate.
-//
-GenTreeIntCon CodeGen::intForm(var_types type, ssize_t value)
-{
-    GenTreeIntCon i(type, value);
-    i.SetRegNum(REG_NA);
-    return i;
-}
 
 void CodeGen::genRetFilt(GenTree* retfilt)
 {

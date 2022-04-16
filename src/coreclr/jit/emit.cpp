@@ -91,12 +91,46 @@ bool emitLocation::IsPreviousInsNum(emitter* emit) const
 }
 
 #ifdef DEBUG
+
 void emitLocation::Print(LONG compMethodID) const
 {
     unsigned insNum = emitGetInsNumFromCodePos(codePos);
     unsigned insOfs = emitGetInsOfsFromCodePos(codePos);
     printf("(G_M%03u_IG%02u,ins#%d,ofs#%d)", compMethodID, ig->igNum, insNum, insOfs);
 }
+
+//-----------------------------------------------------------------------------
+// genInsDisplayName: Get a fully-formed instruction display name. This only handles
+// the xarch case of prepending a "v", not the arm case of appending an "s".
+// This can be called up to four times in a single 'printf' before the static buffers
+// get reused.
+//
+// Returns:
+//    String with instruction name
+//
+const char* emitter::genInsDisplayName(instrDesc* id)
+{
+    instruction ins  = id->idIns();
+    const char* name = insName(ins);
+
+#ifdef TARGET_XARCH
+    const int       TEMP_BUFFER_LEN = 40;
+    static unsigned curBuf          = 0;
+    static char     buf[4][TEMP_BUFFER_LEN];
+    const char*     retbuf;
+
+    if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
+    {
+        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
+        retbuf = buf[curBuf];
+        curBuf = (curBuf + 1) % 4;
+        return retbuf;
+    }
+#endif // TARGET_XARCH
+
+    return name;
+}
+
 #endif // DEBUG
 
 /*****************************************************************************
@@ -565,7 +599,7 @@ void emitLclVarAddr::initLclVarAddr(int varNum, unsigned offset)
 }
 
 // Returns the variable to access. Note that it returns a negative number for compiler spill temps.
-int emitLclVarAddr::lvaVarNum()
+int emitLclVarAddr::lvaVarNum() const
 {
     switch (_lvaTag)
     {
@@ -579,7 +613,7 @@ int emitLclVarAddr::lvaVarNum()
     }
 }
 
-unsigned emitLclVarAddr::lvaOffset() // returns the offset into the variable to access
+unsigned emitLclVarAddr::lvaOffset() const // returns the offset into the variable to access
 {
     switch (_lvaTag)
     {
@@ -1222,8 +1256,7 @@ float emitter::insEvaluateExecutionCost(instrDesc* id)
 void emitter::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
-    printf("PerfScore: unhandled instruction: %s, format %s", codeGen->genInsDisplayName(id),
-           emitIfName(id->idInsFmt()));
+    printf("PerfScore: unhandled instruction: %s, format %s", genInsDisplayName(id), emitIfName(id->idInsFmt()));
     assert(!"PerfScore: unhandled instruction");
 #endif
     pResult->insThroughput = PERFSCORE_THROUGHPUT_1C;
@@ -1267,7 +1300,7 @@ void emitter::dispIns(instrDesc* id)
 
     if (emitComp->opts.dspCode)
     {
-        emitDispIns(id, true, false, false);
+        emitDispIns(id, true);
     }
 
 #if EMIT_TRACK_STACK_DEPTH
@@ -1445,7 +1478,6 @@ void* emitter::emitAllocAnyInstr(size_t sz, emitAttr opsz)
 
     info->idNum         = emitInsCount;
     info->idSize        = sz;
-    info->idVarRefOffs  = 0;
     info->idMemCookie   = 0;
     info->idFinallyCall = false;
     info->idCatchRet    = false;
@@ -4301,7 +4333,7 @@ AGAIN:
             if (EMITVERBOSE)
             {
                 printf("Binding: ");
-                emitDispIns(jmp, false, false, false);
+                emitDispIns(jmp);
                 printf("Binding L_M%03u_" FMT_BB, emitComp->compMethodID, jmp->idAddr()->iiaBBlabel->bbNum);
             }
 #endif // DEBUG
@@ -6158,7 +6190,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
                         unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & jccAlignBoundaryMask);
                         printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d ; jcc erratum) %dB boundary "
                                "...............................\n",
-                               codeGen->genInsDisplayName(curInstrDesc), bytesCrossedBoundary, jccAlignBoundary);
+                               genInsDisplayName(curInstrDesc), bytesCrossedBoundary, jccAlignBoundary);
                     }
                 }
 
@@ -6177,8 +6209,8 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
                         unsigned bytesCrossedBoundary = (unsigned)(afterInstrAddr & alignBoundaryMask);
                         if (bytesCrossedBoundary != 0)
                         {
-                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)",
-                                   codeGen->genInsDisplayName(curInstrDesc), bytesCrossedBoundary);
+                            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", genInsDisplayName(curInstrDesc),
+                                   bytesCrossedBoundary);
                         }
                         else
                         {

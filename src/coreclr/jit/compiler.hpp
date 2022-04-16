@@ -1306,11 +1306,6 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             AsFieldList()->SetContained();
             break;
 
-        case GT_LCL_VAR:
-        case GT_LCL_VAR_ADDR:
-            INDEBUG(AsLclVar()->gtLclILoffs = BAD_IL_OFFSET;)
-            break;
-
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
             AsLclFld()->SetLayoutNum(0);
@@ -3206,18 +3201,6 @@ inline bool Compiler::IsGcSafePoint(GenTree* tree)
     }
 
     return false;
-}
-
-//
-// Note that we want to have two special FIELD_HANDLES that will both
-// be considered non-Data Offset handles
-//
-// The special values that we use are FLD_GLOBAL_DS and FLD_GLOBAL_FS
-//
-
-inline bool jitStaticFldIsGlobAddr(CORINFO_FIELD_HANDLE fldHnd)
-{
-    return (fldHnd == FLD_GLOBAL_DS || fldHnd == FLD_GLOBAL_FS);
 }
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)

@@ -6,90 +6,6 @@
 #include "instr.h"
 #include "emit.h"
 
-#ifdef DEBUG
-
-// Returns the string representation of the given CPU instruction.
-const char* insName(instruction ins)
-{
-    // clang-format off
-    static const char* const insNames[] =
-    {
-#if defined(TARGET_XARCH)
-#define INST0(id, nm, um, mr,                 flags) nm,
-#define INST1(id, nm, um, mr,                 flags) nm,
-#define INST2(id, nm, um, mr, mi,             flags) nm,
-#define INST3(id, nm, um, mr, mi, rm,         flags) nm,
-#define INST4(id, nm, um, mr, mi, rm, a4,     flags) nm,
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) nm,
-#include "instrs.h"
-
-#elif defined(TARGET_ARM)
-#define INST1(id, nm, fp, ldst, fmt, e1                                 ) nm,
-#define INST2(id, nm, fp, ldst, fmt, e1, e2                             ) nm,
-#define INST3(id, nm, fp, ldst, fmt, e1, e2, e3                         ) nm,
-#define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4                     ) nm,
-#define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
-#define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
-#define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8     ) nm,
-#define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
-#include "instrs.h"
-
-#elif defined(TARGET_ARM64)
-#define INST1(id, nm, ldst, fmt, e1                                 ) nm,
-#define INST2(id, nm, ldst, fmt, e1, e2                             ) nm,
-#define INST3(id, nm, ldst, fmt, e1, e2, e3                         ) nm,
-#define INST4(id, nm, ldst, fmt, e1, e2, e3, e4                     ) nm,
-#define INST5(id, nm, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
-#define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
-#define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
-#include "instrs.h"
-
-#else
-#error "Unknown TARGET"
-#endif
-    };
-    // clang-format on
-
-    assert(ins < _countof(insNames));
-    assert(insNames[ins] != nullptr);
-
-    return insNames[ins];
-}
-
-//-----------------------------------------------------------------------------
-// genInsDisplayName: Get a fully-formed instruction display name. This only handles
-// the xarch case of prepending a "v", not the arm case of appending an "s".
-// This can be called up to four times in a single 'printf' before the static buffers
-// get reused.
-//
-// Returns:
-//    String with instruction name
-//
-const char* CodeGen::genInsDisplayName(emitter::instrDesc* id)
-{
-    instruction ins  = id->idIns();
-    const char* name = insName(ins);
-
-#ifdef TARGET_XARCH
-    const int       TEMP_BUFFER_LEN = 40;
-    static unsigned curBuf          = 0;
-    static char     buf[4][TEMP_BUFFER_LEN];
-    const char*     retbuf;
-
-    if (GetEmitter()->IsAVXInstruction(ins) && !GetEmitter()->IsBMIInstruction(ins))
-    {
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "v%s", name);
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
-        return retbuf;
-    }
-#endif // TARGET_XARCH
-
-    return name;
-}
-
-#endif
-
 void CodeGen::instGen(instruction ins)
 {
     GetEmitter()->emitIns(ins);
@@ -334,13 +250,6 @@ void CodeGen::inst_IV(instruction ins, cnsval_ssize_t val)
     GetEmitter()->emitIns_I(ins, EA_PTRSIZE, val);
 }
 
-void CodeGen::inst_set_SV_var(GenTreeLclVar* node)
-{
-    assert(node->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR, GT_STORE_LCL_VAR));
-
-    INDEBUG(GetEmitter()->emitVarRefOffs = node->gtLclILoffs;)
-}
-
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
 {
 #if !defined(TARGET_64BIT)
@@ -389,47 +298,47 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
 #endif // !TARGET_ARM
 }
 
-void CodeGen::inst_TT(instruction ins, GenTreeLclVar* node)
+bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
 {
-    assert(node->OperIs(GT_LCL_VAR));
-    assert(!node->IsRegSpilled(0));
-
-    inst_set_SV_var(node);
-
-    unsigned lclNum = node->GetLclNum();
-    assert(lclNum < compiler->lvaCount);
-    GetEmitter()->emitIns_S(ins, emitActualTypeSize(node->GetType()), lclNum, 0);
-}
-
-void CodeGen::inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* node)
-{
-#ifdef TARGET_ARMARCH
-    assert(ins == INS_lea);
-#endif
-    assert(reg != REG_STK);
-    assert(size != EA_UNKNOWN);
-    assert(!node->IsRegSpilled(0));
-
-    if (node->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR))
+    if (op->isUsedFromSpillTemp())
     {
-        inst_set_SV_var(node->AsLclVar());
-    }
-    else
-    {
-        assert(node->OperIs(GT_LCL_FLD, GT_LCL_FLD_ADDR));
+        assert(op->IsRegOptional());
+
+        TempDsc* tmpDsc = getSpillTempDsc(op);
+        *lclNum         = tmpDsc->tdTempNum();
+        *lclOffs        = 0;
+        regSet.tmpRlsTemp(tmpDsc);
+
+        return true;
     }
 
-    GetEmitter()->emitIns_R_S(ins, size, reg, node->GetLclNum(), node->GetLclOffs());
+    assert(op->isContained());
+
+    if (op->OperIs(GT_LCL_FLD))
+    {
+        *lclNum  = op->AsLclFld()->GetLclNum();
+        *lclOffs = op->AsLclFld()->GetLclOffs();
+
+        return true;
+    }
+
+    if (op->OperIs(GT_LCL_VAR))
+    {
+        assert(op->IsRegOptional() || !compiler->lvaGetDesc(op->AsLclVar())->IsRegCandidate());
+
+        *lclNum  = op->AsLclVar()->GetLclNum();
+        *lclOffs = 0;
+
+        return true;
+    }
+
+    return false;
 }
+
+#ifdef TARGET_XARCH
 
 void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val)
 {
-#if defined(TARGET_ARM)
-
-    GetEmitter()->emitIns_R_I(ins, size, reg, val & 31);
-
-#elif defined(TARGET_XARCH)
-
 #ifdef TARGET_AMD64
     // X64 JB BE insures only encodable values make it here.
     // x86 can encode 8 bits, though it masks down to 5 or 6
@@ -446,20 +355,212 @@ void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned
     {
         GetEmitter()->emitIns_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, val);
     }
-
-#else
-    NYI("inst_RV_SH - unknown target");
-#endif // TARGET*
 }
 
-#ifdef TARGET_XARCH
-void CodeGen::inst_RV_RV_IV(instruction ins, emitAttr size, regNumber reg1, regNumber reg2, unsigned ival)
+bool CodeGen::IsMemoryOperand(
+    GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field)
 {
-    assert(ins == INS_shld || ins == INS_shrd || ins == INS_shufps || ins == INS_shufpd || ins == INS_pshufd ||
-           ins == INS_cmpps || ins == INS_cmppd || ins == INS_dppd || ins == INS_dpps || ins == INS_insertps ||
-           ins == INS_roundps || ins == INS_roundss || ins == INS_roundpd || ins == INS_roundsd);
+    if (IsLocalMemoryOperand(op, lclNum, lclOffs))
+    {
+        *addr  = nullptr;
+        *field = nullptr;
 
-    GetEmitter()->emitIns_R_R_I(ins, size, reg1, reg2, ival);
+        return true;
+    }
+
+    if (GenTreeDblCon* dblCon = op->IsDblCon())
+    {
+        *addr  = nullptr;
+        *field = GetEmitter()->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+
+        return true;
+    }
+
+    GenTree* loadAddr;
+
+    if (op->OperIs(GT_IND))
+    {
+        loadAddr = op->AsIndir()->GetAddr();
+    }
+#ifdef FEATURE_HW_INTRINSICS
+    else if (GenTreeHWIntrinsic* intrin = op->IsHWIntrinsic())
+    {
+        assert(intrin->OperIsMemoryLoad());
+        assert(intrin->IsUnary());
+
+        loadAddr = intrin->GetOp(0);
+    }
+#endif
+    else
+    {
+        return false;
+    }
+
+    if (loadAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        assert(loadAddr->isContained());
+
+        *lclNum  = loadAddr->AsLclVarCommon()->GetLclNum();
+        *lclOffs = loadAddr->AsLclVarCommon()->GetLclOffs();
+        *addr    = nullptr;
+        *field   = nullptr;
+    }
+    else
+    {
+        *addr  = loadAddr;
+        *field = nullptr;
+    }
+
+    return true;
+}
+
+void CodeGen::emitInsUnary(instruction ins, emitAttr attr, GenTree* src)
+{
+    emitter* emit = GetEmitter();
+    unsigned lclNum;
+    unsigned lclOffs;
+
+    if (src->isUsedFromReg())
+    {
+        emit->emitIns_R(ins, attr, src->GetRegNum());
+    }
+    else if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
+    {
+        emit->emitIns_S(ins, attr, lclNum, lclOffs);
+    }
+    else
+    {
+        emit->emitIns_A(ins, attr, src->AsIndir()->GetAddr());
+    }
+}
+
+void CodeGen::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
+{
+    assert(!emitter::instrHasImplicitRegPairDest(ins));
+
+    emitter* emit  = GetEmitter();
+    GenTree* memOp = nullptr;
+    GenTree* immOp = nullptr;
+    GenTree* regOp = nullptr;
+
+    if (dst->isContained() || (dst->OperIs(GT_LCL_FLD) && (dst->GetRegNum() == REG_NA)) || dst->isUsedFromSpillTemp())
+    {
+        assert(dst->isUsedFromMemory() || (dst->GetRegNum() == REG_NA) || emitter::instrIs3opImul(ins));
+
+        memOp = dst;
+
+        if (src->isContained())
+        {
+            assert(src->IsIntCon());
+
+            immOp = src;
+        }
+        else
+        {
+            assert(src->isUsedFromReg());
+
+            regOp = src;
+        }
+    }
+    else if (src->isContained() || src->isUsedFromSpillTemp())
+    {
+        assert(dst->isUsedFromReg());
+
+        regOp = dst;
+
+        if ((src->IsIntCon() || src->IsDblCon()) && !src->isUsedFromSpillTemp())
+        {
+            assert(!src->isUsedFromMemory() || src->IsDblCon());
+
+            immOp = src;
+        }
+        else
+        {
+            assert(src->isUsedFromMemory());
+
+            memOp = src;
+        }
+    }
+    else
+    {
+        assert(dst->isUsedFromReg() && src->isUsedFromReg());
+
+        emit->emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
+
+        return;
+    }
+
+    if (memOp == nullptr)
+    {
+        if (GenTreeDblCon* dblCon = immOp->IsDblCon())
+        {
+            CORINFO_FIELD_HANDLE field = emit->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+            emit->emitIns_R_C(ins, attr, regOp->GetRegNum(), field);
+        }
+        else
+        {
+            assert(!dst->isContained());
+
+            emit->emitIns_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
+        }
+
+        return;
+    }
+
+    unsigned lclNum;
+    unsigned lclOffs;
+
+    if (IsLocalMemoryOperand(memOp, &lclNum, &lclOffs))
+    {
+        if (memOp == src)
+        {
+            emit->emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+        }
+        else if (immOp != nullptr)
+        {
+            emit->emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
+        }
+        else
+        {
+            emit->emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+        }
+    }
+    else
+    {
+        GenTree* addr = memOp->AsIndir()->GetAddr();
+
+        if (memOp == src)
+        {
+            emit->emitIns_R_A(ins, attr, regOp->GetRegNum(), addr);
+        }
+        else if (immOp != nullptr)
+        {
+            emit->emitIns_A_I(ins, attr, addr, immOp->AsIntCon()->GetInt32Value());
+        }
+        else
+        {
+            emit->emitIns_A_R(ins, attr, addr, regOp->GetRegNum());
+        }
+    }
+}
+
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
+{
+    assert(emitter::emitInsModeFormat(ins, emitter::IF_RRD_ARD) == emitter::IF_RWR_ARD);
+
+    GetEmitter()->emitIns_R_A(ins, attr, reg, addr);
+}
+
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, GenTree* addr, GenTree* data)
+{
+    if (GenTreeIntCon* imm = data->IsContainedIntCon())
+    {
+        GetEmitter()->emitIns_A_I(ins, attr, addr, imm->GetInt32Value());
+    }
+    else
+    {
+        GetEmitter()->emitIns_A_R(ins, attr, addr, data->GetRegNum());
+    }
 }
 
 void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival)
@@ -468,98 +569,27 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
 
     if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
     {
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned             lclNum;
+        unsigned             lclOffs;
+        GenTree*             addr;
+        CORINFO_FIELD_HANDLE field;
 
-        if (rmOp->isUsedFromSpillTemp())
+        if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
         {
-            assert(rmOp->IsRegOptional());
-
-            tmpDsc = getSpillTempDsc(rmOp);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
+            unreached();
         }
-        else if (rmOp->isIndir() || rmOp->OperIsHWIntrinsic())
+        else if (addr != nullptr)
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
-
-            if (rmOp->isIndir())
-            {
-                memIndir = rmOp->AsIndir();
-                addr     = memIndir->Addr();
-            }
-            else
-            {
-#if defined(FEATURE_HW_INTRINSICS)
-                assert(rmOp->AsHWIntrinsic()->OperIsMemoryLoad());
-                assert(rmOp->AsHWIntrinsic()->IsUnary());
-                addr = rmOp->AsHWIntrinsic()->GetOp(0);
-#else
-                unreached();
-#endif
-            }
-
-            switch (addr->OperGet())
-            {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-
-                case GT_CLS_VAR_ADDR:
-                    GetEmitter()->emitIns_R_C_I(ins, attr, reg1, addr->AsClsVar()->gtClsVarHnd, 0, ival);
-                    return;
-
-                default:
-                {
-                    GenTreeIndir load = indirForm(rmOp->TypeGet(), addr);
-
-                    if (memIndir == nullptr)
-                    {
-                        // This is the HW intrinsic load case.
-                        // Until we improve the handling of addressing modes in the emitter, we'll create a
-                        // temporary GT_IND to generate code with.
-                        memIndir = &load;
-                    }
-                    GetEmitter()->emitIns_R_A_I(ins, attr, reg1, memIndir, ival);
-                    return;
-                }
-            }
+            GetEmitter()->emitIns_R_A_I(ins, attr, reg1, addr, ival);
+        }
+        else if (field != nullptr)
+        {
+            GetEmitter()->emitIns_R_C_I(ins, attr, reg1, field, ival);
         }
         else
         {
-            switch (rmOp->OperGet())
-            {
-                case GT_LCL_FLD:
-                    varNum = rmOp->AsLclFld()->GetLclNum();
-                    offset = rmOp->AsLclFld()->GetLclOffs();
-                    break;
-
-                case GT_LCL_VAR:
-                    assert(rmOp->IsRegOptional() ||
-                           !compiler->lvaGetDesc(rmOp->AsLclVar()->GetLclNum())->lvIsRegCandidate());
-                    varNum = rmOp->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-
-                default:
-                    unreached();
-            }
+            GetEmitter()->emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
         }
-
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        GetEmitter()->emitIns_R_S_I(ins, attr, reg1, varNum, offset, ival);
     }
     else
     {
@@ -578,106 +608,27 @@ void CodeGen::inst_RV_RV_TT(
 
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
-        TempDsc* tmpDsc = nullptr;
-        unsigned varNum = BAD_VAR_NUM;
-        unsigned offset = (unsigned)-1;
+        unsigned             lclNum;
+        unsigned             lclOffs;
+        GenTree*             addr;
+        CORINFO_FIELD_HANDLE field;
 
-        if (op2->isUsedFromSpillTemp())
+        if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
         {
-            assert(op2->IsRegOptional());
-
-            tmpDsc = getSpillTempDsc(op2);
-            varNum = tmpDsc->tdTempNum();
-            offset = 0;
-
-            regSet.tmpRlsTemp(tmpDsc);
+            unreached();
         }
-        else if (op2->isIndir() || op2->OperIsHWIntrinsic())
+        else if (addr != nullptr)
         {
-            GenTree*      addr;
-            GenTreeIndir* memIndir = nullptr;
-
-            if (op2->isIndir())
-            {
-                memIndir = op2->AsIndir();
-                addr     = memIndir->Addr();
-            }
-            else
-            {
-#if defined(FEATURE_HW_INTRINSICS)
-                assert(op2->AsHWIntrinsic()->OperIsMemoryLoad());
-                assert(op2->AsHWIntrinsic()->IsUnary());
-                addr = op2->AsHWIntrinsic()->GetOp(0);
-#else
-                unreached();
-#endif // FEATURE_HW_INTRINSICS
-            }
-
-            switch (addr->OperGet())
-            {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
-                    assert(addr->isContained());
-                    varNum = addr->AsLclVarCommon()->GetLclNum();
-                    offset = addr->AsLclVarCommon()->GetLclOffs();
-                    break;
-
-                case GT_CLS_VAR_ADDR:
-                    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, addr->AsClsVar()->gtClsVarHnd, 0);
-                    return;
-
-                default:
-                {
-                    GenTreeIndir load = indirForm(op2->TypeGet(), addr);
-
-                    if (memIndir == nullptr)
-                    {
-                        // This is the HW intrinsic load case.
-                        // Until we improve the handling of addressing modes in the emitter, we'll create a
-                        // temporary GT_IND to generate code with.
-                        memIndir = &load;
-                    }
-                    GetEmitter()->emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, memIndir);
-                    return;
-                }
-            }
+            GetEmitter()->emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
+        }
+        else if (field != nullptr)
+        {
+            GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, field);
         }
         else
         {
-            switch (op2->OperGet())
-            {
-                case GT_LCL_FLD:
-                    varNum = op2->AsLclFld()->GetLclNum();
-                    offset = op2->AsLclFld()->GetLclOffs();
-                    break;
-
-                case GT_LCL_VAR:
-                    assert(op2->IsRegOptional() ||
-                           !compiler->lvaGetDesc(op2->AsLclVar()->GetLclNum())->lvIsRegCandidate());
-                    varNum = op2->AsLclVar()->GetLclNum();
-                    offset = 0;
-                    break;
-
-                case GT_CNS_DBL:
-                {
-                    CORINFO_FIELD_HANDLE cnsDblHnd =
-                        GetEmitter()->emitFltOrDblConst(op2->AsDblCon()->GetValue(), emitTypeSize(op2->GetType()));
-                    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, cnsDblHnd, 0);
-                    return;
-                }
-
-                default:
-                    unreached();
-            }
+            GetEmitter()->emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
         }
-
-        // Ensure we got a good varNum and offset.
-        // We also need to check for `tmpDsc != nullptr` since spill temp numbers
-        // are negative and start with -1, which also happens to be BAD_VAR_NUM.
-        assert((varNum != BAD_VAR_NUM) || (tmpDsc != nullptr));
-        assert(offset != (unsigned)-1);
-
-        GetEmitter()->emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, varNum, offset);
     }
     else
     {
@@ -1131,7 +1082,7 @@ void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
     if (barrierKind == BARRIER_FULL)
     {
         instGen(INS_lock);
-        GetEmitter()->emitIns_I_AR(INS_or, EA_4BYTE, 0, REG_SPBASE, 0);
+        GetEmitter()->emitIns_AR_I(INS_or, EA_4BYTE, REG_SPBASE, 0, 0);
     }
 #elif defined(TARGET_ARM)
     // ARM has only full barriers, so all barriers need to be emitted as full.

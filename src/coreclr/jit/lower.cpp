@@ -5270,14 +5270,12 @@ void Lowering::ContainCheckNode(GenTree* node)
 //
 void Lowering::ContainCheckReturnTrap(GenTreeOp* node)
 {
-#ifdef TARGET_XARCH
     assert(node->OperIs(GT_RETURNTRAP));
-    // This just turns into a compare of its child with an int + a conditional call
-    if (node->gtOp1->isIndir())
-    {
-        MakeSrcContained(node, node->gtOp1);
-    }
-#endif // TARGET_XARCH
+    assert(node->GetOp(0)->OperIs(GT_IND));
+
+#ifdef TARGET_XARCH
+    node->GetOp(0)->SetContained();
+#endif
 }
 
 //------------------------------------------------------------------------

@@ -644,35 +644,37 @@ bool emitter::emitInsMayWriteMultipleRegs(instrDesc* id)
     }
 }
 
-/*****************************************************************************/
 #ifdef DEBUG
-/*****************************************************************************
- *
- *  Return a string that represents the given register.
- */
 
-const char* emitter::emitRegName(regNumber reg, emitAttr attr, bool varName)
+const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 {
-    assert(reg < REG_COUNT);
-
-    const char* rn = emitComp->compRegVarName(reg, varName, false);
-
-    assert(strlen(rn) >= 1);
-
-    return rn;
+    return getRegName(reg);
 }
 
-const char* emitter::emitFloatRegName(regNumber reg, emitAttr attr, bool varName)
+#endif
+
+const char* insName(instruction ins)
 {
-    assert(reg < REG_COUNT);
+    // clang-format off
+    static const char* const insNames[] =
+    {
+#define INST1(id, nm, fp, ldst, fmt, e1                                 ) nm,
+#define INST2(id, nm, fp, ldst, fmt, e1, e2                             ) nm,
+#define INST3(id, nm, fp, ldst, fmt, e1, e2, e3                         ) nm,
+#define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4                     ) nm,
+#define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
+#define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
+#define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8     ) nm,
+#define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
+#include "instrsarm.h"
+    };
+    // clang-format on
 
-    const char* rn = emitComp->compRegVarName(reg, varName, true);
+    assert(ins < _countof(insNames));
+    assert(insNames[ins] != nullptr);
 
-    assert(strlen(rn) >= 1);
-
-    return rn;
+    return insNames[ins];
 }
-#endif // DEBUG
 
 /*****************************************************************************
  *
@@ -692,7 +694,7 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) fmt,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) fmt,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) fmt,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     // clang-format on
 
@@ -718,7 +720,7 @@ const uint8_t emitter::instInfo[] =
     #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) ldst | INST_FP*fp,
     #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) ldst | INST_FP*fp,
     #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) ldst | INST_FP*fp,
-    #include "instrs.h"
+    #include "instrsarm.h"
 };
 // clang-format on
 
@@ -774,7 +776,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e1,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e1,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e1,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes2[] =
     {
@@ -786,7 +788,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e2,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e2,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e2,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes3[] =
     {
@@ -798,7 +800,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e3,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e3,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e3,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes4[] =
     {
@@ -810,7 +812,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e4,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e4,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e4,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes5[] =
     {
@@ -822,7 +824,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e5,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e5,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e5,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes6[] =
     {
@@ -834,7 +836,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            ) e6,
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e6,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e6,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes7[] =
     {
@@ -846,7 +848,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            )
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e7,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e7,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes8[] =
     {
@@ -858,7 +860,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            )
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    ) e8,
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e8,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static code_t insCodes9[] =
     {
@@ -870,7 +872,7 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
         #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6            )
         #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8    )
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e9,
-        #include "instrs.h"
+        #include "instrsarm.h"
     };
     const static insFormat formatEncode9[9]  = { IF_T1_D0, IF_T1_H,  IF_T1_J0, IF_T1_G,  IF_T2_L0, IF_T2_C0, IF_T1_F,  IF_T1_J2, IF_T1_J3 };
     const static insFormat formatEncode8[8]  = { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4, IF_T1_J2, IF_T1_J3 };
@@ -3601,28 +3603,6 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a static data member operand. If 'size' is 0, the
- *  instruction operates on the address of the static member instead of its
- *  value (e.g. "push offset clsvar", rather than "push dword ptr [clsvar]").
- */
-
-void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs)
-{
-    NYI("emitIns_C");
-}
-
-/*****************************************************************************
- *
- *  Add an instruction referencing stack-based local variable.
- */
-
-void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
-{
-    NYI("emitIns_S");
-}
-
 //-------------------------------------------------------------------------------------
 // emitIns_R_S: Add an instruction referencing a register and a stack-based local variable.
 //
@@ -3789,10 +3769,6 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int va
     if (reg2 == REG_FP)
         id->idSetIsLclFPBase();
 
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idVarRefOffs = emitVarRefOffs;
-#endif
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -3938,9 +3914,6 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
     id->idSetIsLclVar();
     if (reg2 == REG_FP)
         id->idSetIsLclFPBase();
-#ifdef DEBUG
-    id->idDebugOnlyInfo()->idVarRefOffs = emitVarRefOffs;
-#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -3948,18 +3921,9 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
 
 /*****************************************************************************
  *
- *  Add an instruction referencing stack-based local variable and an immediate
- */
-void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val)
-{
-    NYI("emitIns_S_I");
-}
-
-/*****************************************************************************
- *
  *  Add an instruction with a register + static member operands.
  */
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd)
 {
     if (ins == INS_mov)
     {
@@ -3978,18 +3942,8 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     {
         NYI_ARM("JitDataOffset static fields");
     }
-    else if (fldHnd == FLD_GLOBAL_FS)
-    {
-        NYI_ARM("Thread-Local-Storage static fields");
-    }
-    else if (fldHnd == FLD_GLOBAL_DS)
-    {
-        addr = (ssize_t)offs;
-        offs = 0;
-    }
     else
     {
-        assert(!jitStaticFldIsGlobAddr(fldHnd));
         addr = (ssize_t)emitComp->info.compCompHnd->getFieldAddress(fldHnd, NULL);
         if (addr == NULL)
             NO_WAY("could not obtain address of static field");
@@ -4008,40 +3962,10 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     // Load address of CLS_VAR_ADDR into a register
     codeGen->instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regTmp, addr);
 
-    if ((ins != INS_add) || (offs != 0) || (reg != regTmp))
+    if ((ins != INS_add) || (reg != regTmp))
     {
-        emitIns_R_R_I(ins, attr, reg, regTmp, offs);
+        emitIns_R_R_I(ins, attr, reg, regTmp, 0);
     }
-}
-
-/*****************************************************************************
- *
- *  Add an instruction with a static member + register operands.
- */
-
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs)
-{
-    assert(!"emitIns_C_R not supported");
-}
-
-/*****************************************************************************
- *
- *  Add an instruction with a static member + constant.
- */
-
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, int offs, ssize_t val)
-{
-    NYI("emitIns_C_I");
-}
-
-/*****************************************************************************
- *
- *  The following adds instructions referencing address modes.
- */
-
-void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int offs)
-{
-    NYI("emitIns_I_AR");
 }
 
 void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs)
@@ -4111,55 +4035,6 @@ void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber ireg, regNu
         assert(!"Please use ins_Store() to select the correct instruction");
     }
     emitIns_R_R_I(ins, attr, ireg, reg, offs);
-}
-
-void emitter::emitIns_R_ARR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp)
-{
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Load() to select the correct instruction");
-    }
-
-    if (ins == INS_lea)
-    {
-        emitIns_R_R_R(INS_add, attr, ireg, reg, rg2);
-        if (disp != 0)
-        {
-            emitIns_R_R_I(INS_add, attr, ireg, ireg, disp);
-        }
-        return;
-    }
-    else if (emitInsIsLoad(ins))
-    {
-        if (disp == 0)
-        {
-            emitIns_R_R_R_I(ins, attr, ireg, reg, rg2, 0, INS_FLAGS_DONT_CARE, INS_OPTS_NONE);
-            return;
-        }
-    }
-    assert(!"emitIns_R_ARR: Unexpected instruction");
-}
-
-void emitter::emitIns_ARR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp)
-{
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Store() to select the correct instruction");
-    }
-    if (emitInsIsStore(ins))
-    {
-        if (disp == 0)
-        {
-            emitIns_R_R_R(ins, attr, ireg, reg, rg2);
-        }
-        else
-        {
-            emitIns_R_R_R(INS_add, attr, ireg, reg, rg2);
-            emitIns_R_R_I(ins, attr, ireg, ireg, disp);
-        }
-        return;
-    }
-    assert(!"emitIns_ARR_R: Unexpected instruction");
 }
 
 void emitter::emitIns_R_ARX(
@@ -4644,20 +4519,20 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
  */
 
 void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd,                   // used for pretty printing
-                           INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo) // used to report call sites to the EE
+                           CORINFO_METHOD_HANDLE methHnd        // used for pretty printing
+                           DEBUGARG(CORINFO_SIG_INFO* sigInfo), // used to report call sites to the EE
                            void*            addr,
                            int              argSize,
                            emitAttr         retSize,
                            VARSET_VALARG_TP ptrVars,
                            regMaskTP        gcrefRegs,
                            regMaskTP        byrefRegs,
-                           IL_OFFSETX       ilOffset /* = BAD_IL_OFFSET */,
-                           regNumber        ireg /* = REG_NA */,
-                           regNumber        xreg /* = REG_NA */,
-                           unsigned         xmul /* = 0     */,
-                           ssize_t          disp /* = 0     */,
-                           bool             isJump /* = false */)
+                           IL_OFFSETX       ilOffset,
+                           regNumber        ireg,
+                           regNumber        xreg,
+                           unsigned         xmul,
+                           ssize_t          disp,
+                           bool             isJump)
 {
     /* Sanity check the arguments depending on callType */
 
@@ -6905,7 +6780,7 @@ void emitter::emitDispReg(regNumber reg, emitAttr attr, bool addComma)
     if (isFloatReg(reg))
     {
         const char* size = attr == EA_8BYTE ? "d" : "s";
-        printf("%s%s", size, emitFloatRegName(reg, attr) + 1);
+        printf("%s%s", size, emitRegName(reg, attr) + 1);
     }
     else
     {
@@ -7680,11 +7555,10 @@ void emitter::emitDispInsHelp(
             break;
     }
 
-    if (id->idDebugOnlyInfo()->idVarRefOffs)
+    if (id->idIsLclVar())
     {
         printf("\t// ");
-        emitDispFrameRef(id->idAddr()->iiaLclVar.lvaVarNum(), id->idAddr()->iiaLclVar.lvaOffset(),
-                         id->idDebugOnlyInfo()->idVarRefOffs, asmfm);
+        emitDispFrameRef(id->idAddr()->iiaLclVar);
     }
 
     printf("\n");
@@ -7769,9 +7643,12 @@ void emitter::emitDispIns(
  *  Display a stack frame reference.
  */
 
-void emitter::emitDispFrameRef(int varx, int disp, int offs, bool asmfm)
+void emitter::emitDispFrameRef(const emitLclVarAddr& lcl)
 {
     printf("[");
+
+    int varx = lcl.lvaVarNum();
+    int disp = static_cast<int>(lcl.lvaOffset());
 
     if (varx < 0)
         printf("TEMP_%02u", -varx);
@@ -7784,406 +7661,9 @@ void emitter::emitDispFrameRef(int varx, int disp, int offs, bool asmfm)
         printf("+0x%02x", +disp);
 
     printf("]");
-
-    if (varx >= 0 && emitComp->opts.varNames)
-    {
-        LclVarDsc*  varDsc;
-        const char* varName;
-
-        assert((unsigned)varx < emitComp->lvaCount);
-        varDsc  = emitComp->lvaTable + varx;
-        varName = emitComp->compLocalVarName(varx, offs);
-
-        if (varName)
-        {
-            printf("'%s", varName);
-
-            if (disp < 0)
-                printf("-%d", -disp);
-            else if (disp > 0)
-                printf("+%d", +disp);
-
-            printf("'");
-        }
-    }
 }
 
 #endif // DEBUG
-
-void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir)
-{
-    // Handle unaligned floating point loads/stores
-    if ((indir->gtFlags & GTF_IND_UNALIGNED))
-    {
-        if (indir->OperGet() == GT_STOREIND)
-        {
-            var_types type = indir->AsStoreInd()->GetValue()->TypeGet();
-            if (type == TYP_FLOAT)
-            {
-                regNumber tmpReg = indir->GetSingleTempReg();
-                emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tmpReg, dataReg, /* canSkip */ false);
-                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg, indir, 0);
-                return;
-            }
-            else if (type == TYP_DOUBLE)
-            {
-                regNumber tmpReg1 = indir->ExtractTempReg();
-                regNumber tmpReg2 = indir->GetSingleTempReg();
-                emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tmpReg1, tmpReg2, dataReg);
-                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg1, indir, 0);
-                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg2, indir, 4);
-                return;
-            }
-        }
-        else if (indir->OperGet() == GT_IND)
-        {
-            var_types type = indir->TypeGet();
-            if (type == TYP_FLOAT)
-            {
-                regNumber tmpReg = indir->GetSingleTempReg();
-                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg, indir, 0);
-                emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dataReg, tmpReg, /* canSkip */ false);
-                return;
-            }
-            else if (type == TYP_DOUBLE)
-            {
-                regNumber tmpReg1 = indir->ExtractTempReg();
-                regNumber tmpReg2 = indir->GetSingleTempReg();
-                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg1, indir, 0);
-                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg2, indir, 4);
-                emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dataReg, tmpReg1, tmpReg2);
-                return;
-            }
-        }
-    }
-
-    // Proceed with ordinary loads/stores
-    emitInsLoadStoreOp(ins, attr, dataReg, indir, 0);
-}
-
-void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset)
-{
-    GenTree* addr = indir->Addr();
-
-    if (addr->isContained())
-    {
-        assert(addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA));
-
-        DWORD lsl = 0;
-
-        if (addr->OperGet() == GT_LEA)
-        {
-            offset += addr->AsAddrMode()->Offset();
-            if (addr->AsAddrMode()->gtScale > 0)
-            {
-                assert(isPow2(addr->AsAddrMode()->gtScale));
-                BitScanForward(&lsl, addr->AsAddrMode()->gtScale);
-            }
-        }
-
-        GenTree* memBase = indir->Base();
-
-        if (indir->HasIndex())
-        {
-            assert(addr->OperGet() == GT_LEA);
-
-            GenTree* index = indir->Index();
-
-            if (offset != 0)
-            {
-                regNumber tmpReg = indir->GetSingleTempReg();
-
-                // If the LEA produces a GCREF or BYREF, we need to be careful to mark any temp register
-                // computed with the base register as a BYREF.
-                GenTreeAddrMode* lea                    = addr->AsAddrMode();
-                emitAttr         leaAttr                = emitTypeSize(lea);
-                emitAttr         leaBasePartialAddrAttr = EA_IS_GCREF_OR_BYREF(leaAttr) ? EA_BYREF : EA_PTRSIZE;
-
-                if (emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
-                {
-                    if (lsl > 0)
-                    {
-                        // Generate code to set tmpReg = base + index*scale
-                        emitIns_R_R_R_I(INS_add, leaBasePartialAddrAttr, tmpReg, memBase->GetRegNum(),
-                                        index->GetRegNum(), lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
-                    }
-                    else // no scale
-                    {
-                        // Generate code to set tmpReg = base + index
-                        emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, memBase->GetRegNum(),
-                                      index->GetRegNum());
-                    }
-
-                    noway_assert(emitInsIsLoad(ins) || (tmpReg != dataReg));
-
-                    // Then load/store dataReg from/to [tmpReg + offset]
-                    emitIns_R_R_I(ins, attr, dataReg, tmpReg, offset);
-                }
-                else // large offset
-                {
-                    // First load/store tmpReg with the large offset constant
-                    codeGen->instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-                    // Then add the base register
-                    //      rd = rd + base
-                    emitIns_R_R_R(INS_add, leaBasePartialAddrAttr, tmpReg, tmpReg, memBase->GetRegNum());
-
-                    noway_assert(emitInsIsLoad(ins) || (tmpReg != dataReg));
-                    noway_assert(tmpReg != index->GetRegNum());
-
-                    // Then load/store dataReg from/to [tmpReg + index*scale]
-                    emitIns_R_R_R_I(ins, attr, dataReg, tmpReg, index->GetRegNum(), lsl, INS_FLAGS_DONT_CARE,
-                                    INS_OPTS_LSL);
-                }
-            }
-            else // (offset == 0)
-            {
-                if (lsl > 0)
-                {
-                    // Then load/store dataReg from/to [memBase + index*scale]
-                    emitIns_R_R_R_I(ins, attr, dataReg, memBase->GetRegNum(), index->GetRegNum(), lsl,
-                                    INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
-                }
-                else // no scale
-                {
-                    // Then load/store dataReg from/to [memBase + index]
-                    emitIns_R_R_R(ins, attr, dataReg, memBase->GetRegNum(), index->GetRegNum());
-                }
-            }
-        }
-        else // no Index
-        {
-            if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-            {
-                GenTreeLclVarCommon* varNode = addr->AsLclVarCommon();
-                unsigned             lclNum  = varNode->GetLclNum();
-                unsigned             offset  = varNode->GetLclOffs();
-                if (emitInsIsStore(ins))
-                {
-                    emitIns_S_R(ins, attr, dataReg, lclNum, offset);
-                }
-                else
-                {
-                    emitIns_R_S(ins, attr, dataReg, lclNum, offset);
-                }
-            }
-            else if (emitIns_valid_imm_for_ldst_offset(offset, attr))
-            {
-                // Then load/store dataReg from/to [memBase + offset]
-                emitIns_R_R_I(ins, attr, dataReg, memBase->GetRegNum(), offset);
-            }
-            else
-            {
-                // We require a tmpReg to hold the offset
-                regNumber tmpReg = indir->GetSingleTempReg();
-
-                // First load/store tmpReg with the large offset constant
-                codeGen->instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-
-                // Then load/store dataReg from/to [memBase + tmpReg]
-                emitIns_R_R_R(ins, attr, dataReg, memBase->GetRegNum(), tmpReg);
-            }
-        }
-    }
-    else
-    {
-#ifdef DEBUG
-        if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-        {
-            // If the local var is a gcref or byref, the local var better be untracked, because we have
-            // no logic here to track local variable lifetime changes, like we do in the contained case
-            // above. E.g., for a `str r0,[r1]` for byref `r1` to local `V01`, we won't store the local
-            // `V01` and so the emitter can't update the GC lifetime for `V01` if this is a variable birth.
-            GenTreeLclVarCommon* varNode = addr->AsLclVarCommon();
-            unsigned             lclNum  = varNode->GetLclNum();
-            LclVarDsc*           varDsc  = emitComp->lvaGetDesc(lclNum);
-            assert(!varDsc->lvTracked);
-        }
-#endif // DEBUG
-
-        if (offset != 0)
-        {
-            assert(emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE));
-            emitIns_R_R_I(ins, attr, dataReg, addr->GetRegNum(), offset);
-        }
-        else
-        {
-            emitIns_R_R(ins, attr, dataReg, addr->GetRegNum());
-        }
-    }
-}
-
-// The callee must call genConsumeReg() for any non-contained srcs
-// and genProduceReg() for any non-contained dsts.
-
-regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src)
-{
-    regNumber result = REG_NA;
-
-    // dst can only be a reg
-    assert(!dst->isContained());
-
-    // src can be immed or reg
-    assert(!src->isContained() || src->isContainedIntOrIImmed());
-
-    // find immed (if any) - it cannot be a dst
-    GenTreeIntConCommon* intConst = nullptr;
-    if (src->isContainedIntOrIImmed())
-    {
-        intConst = src->AsIntConCommon();
-    }
-
-    if (intConst)
-    {
-        emitIns_R_I(ins, attr, dst->GetRegNum(), (target_ssize_t)intConst->IconValue());
-        return dst->GetRegNum();
-    }
-    else
-    {
-        emitIns_R_R(ins, attr, dst->GetRegNum(), src->GetRegNum());
-        return dst->GetRegNum();
-    }
-}
-
-regNumber emitter::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)
-{
-    // dst can only be a reg
-    assert(!dst->isContained());
-
-    // find immed (if any) - it cannot be a dst
-    // Only one src can be an int.
-    GenTreeIntConCommon* intConst  = nullptr;
-    GenTree*             nonIntReg = nullptr;
-
-    if (varTypeIsFloating(dst))
-    {
-        // src1 can only be a reg
-        assert(!src1->isContained());
-        // src2 can only be a reg
-        assert(!src2->isContained());
-    }
-    else // not floating point
-    {
-        // src2 can be immed or reg
-        assert(!src2->isContained() || src2->isContainedIntOrIImmed());
-
-        // Check src2 first as we can always allow it to be a contained immediate
-        if (src2->isContainedIntOrIImmed())
-        {
-            intConst  = src2->AsIntConCommon();
-            nonIntReg = src1;
-        }
-        // Only for commutative operations do we check src1 and allow it to be a contained immediate
-        else if (dst->OperIsCommutative())
-        {
-            // src1 can be immed or reg
-            assert(!src1->isContained() || src1->isContainedIntOrIImmed());
-
-            // Check src1 and allow it to be a contained immediate
-            if (src1->isContainedIntOrIImmed())
-            {
-                assert(!src2->isContainedIntOrIImmed());
-                intConst  = src1->AsIntConCommon();
-                nonIntReg = src2;
-            }
-        }
-        else
-        {
-            // src1 can only be a reg
-            assert(!src1->isContained());
-        }
-    }
-
-    insFlags flags         = INS_FLAGS_DONT_CARE;
-    bool     isMulOverflow = false;
-    if (dst->gtOverflowEx())
-    {
-        if ((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc))
-        {
-            flags = INS_FLAGS_SET;
-        }
-        else if (ins == INS_mul)
-        {
-            isMulOverflow = true;
-            assert(intConst == nullptr); // overflow format doesn't support an int constant operand
-        }
-        else
-        {
-            assert(!"Invalid ins for overflow check");
-        }
-    }
-
-    if ((dst->gtFlags & GTF_SET_FLAGS) != 0)
-    {
-        assert((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc) || (ins == INS_and) ||
-               (ins == INS_orr) || (ins == INS_eor) || (ins == INS_orn));
-        flags = INS_FLAGS_SET;
-    }
-
-    if (intConst != nullptr)
-    {
-        emitIns_R_R_I(ins, attr, dst->GetRegNum(), nonIntReg->GetRegNum(), (target_ssize_t)intConst->IconValue(),
-                      flags);
-    }
-    else
-    {
-        if (isMulOverflow)
-        {
-            regNumber extraReg = dst->GetSingleTempReg();
-            assert(extraReg != dst->GetRegNum());
-
-            if ((dst->gtFlags & GTF_UNSIGNED) != 0)
-            {
-                // Compute 8 byte result from 4 byte by 4 byte multiplication.
-                emitIns_R_R_R_R(INS_umull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(), src2->GetRegNum());
-
-                // Overflow exists if the result's high word is non-zero.
-                emitIns_R_I(INS_cmp, attr, extraReg, 0);
-            }
-            else
-            {
-                // Compute 8 byte result from 4 byte by 4 byte multiplication.
-                emitIns_R_R_R_R(INS_smull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(), src2->GetRegNum());
-
-                // Overflow exists if the result's high word is not merely a sign bit.
-                emitIns_R_R_I(INS_cmp, attr, extraReg, dst->GetRegNum(), 31, INS_FLAGS_DONT_CARE, INS_OPTS_ASR);
-            }
-        }
-        else
-        {
-            // We can just do the arithmetic, setting the flags if needed.
-            emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum(), flags);
-        }
-    }
-
-    if (dst->gtOverflowEx())
-    {
-        assert(!varTypeIsFloating(dst));
-
-        emitJumpKind jumpKind;
-
-        if (dst->OperGet() == GT_MUL)
-        {
-            jumpKind = EJ_ne;
-        }
-        else
-        {
-            bool isUnsignedOverflow = ((dst->gtFlags & GTF_UNSIGNED) != 0);
-            jumpKind                = isUnsignedOverflow ? EJ_lo : EJ_vs;
-            if (jumpKind == EJ_lo)
-            {
-                if ((dst->OperGet() != GT_SUB) && (dst->OperGet() != GT_SUB_HI))
-                {
-                    jumpKind = EJ_hs;
-                }
-            }
-        }
-
-        // Jump to the block which will throw the exception.
-        codeGen->genJumpToThrowHlpBlk(jumpKind, SCK_OVERFLOW);
-    }
-
-    return dst->GetRegNum();
-}
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 

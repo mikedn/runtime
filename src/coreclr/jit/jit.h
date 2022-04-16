@@ -192,12 +192,6 @@
 #define DEBUGARG(x)
 #endif
 
-#if defined(DEBUG) || defined(LATE_DISASM)
-#define INDEBUG_LDISASM_COMMA(x) x,
-#else
-#define INDEBUG_LDISASM_COMMA(x)
-#endif
-
 #if defined(UNIX_AMD64_ABI)
 #define UNIX_AMD64_ABI_ONLY_ARG(x) , x
 #define UNIX_AMD64_ABI_ONLY(x) x
@@ -313,12 +307,6 @@ typedef int NATIVE_OFFSET;
 typedef unsigned UNATIVE_OFFSET;
 
 typedef ptrdiff_t ssize_t;
-
-// For the following specially handled FIELD_HANDLES we need
-//   values that are negative and have the low two bits zero
-// See eeFindJitDataOffs and eeGetJitDataOffs in Compiler.hpp
-#define FLD_GLOBAL_DS ((CORINFO_FIELD_HANDLE)-4)
-#define FLD_GLOBAL_FS ((CORINFO_FIELD_HANDLE)-8)
 
 /*****************************************************************************/
 

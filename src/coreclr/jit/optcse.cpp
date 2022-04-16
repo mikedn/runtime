@@ -479,7 +479,7 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 
         // We don't share small offset constants when they require a reloc
         //
-        if (!tree->AsIntConCommon()->ImmedValNeedsReloc(this))
+        if (tree->IsLngCon() || !tree->AsIntCon()->ImmedValNeedsReloc(this))
         {
             // Here we make constants that have the same upper bits use the same key
             //

@@ -566,7 +566,9 @@ enum GenTreeFlags : unsigned int
     GTF_ICON_VARG_HDL           = 0x90000000, // GT_CNS_INT -- constant is a var arg cookie handle
     GTF_ICON_PINVKI_HDL         = 0xA0000000, // GT_CNS_INT -- constant is a pinvoke calli handle
     GTF_ICON_TOKEN_HDL          = 0xB0000000, // GT_CNS_INT -- constant is a token handle (other than class, method or field)
+#ifdef WINDOWS_X86_ABI
     GTF_ICON_TLS_HDL            = 0xC0000000, // GT_CNS_INT -- constant is a TLS ref with offset
+#endif
     GTF_ICON_FTN_ADDR           = 0xD0000000, // GT_CNS_INT -- constant is a function address
     GTF_ICON_CIDMID_HDL         = 0xE0000000, // GT_CNS_INT -- constant is a class ID or a module ID
     GTF_ICON_BBC_PTR            = 0xF0000000, // GT_CNS_INT -- constant is a basic block count pointer
@@ -922,11 +924,14 @@ public:
     // for codegen purposes, is this node a subnode of its parent
     bool isContained() const;
 
-    bool isIndirAddrMode();
-
-    bool isContainedIntOrIImmed() const
+    bool isContainedIntOrIImmed()
     {
-        return isContained() && IsCnsIntOrI() && !isUsedFromSpillTemp();
+        return IsContainedIntCon();
+    }
+
+    GenTreeIntCon* IsContainedIntCon()
+    {
+        return isContained() && IsIntCon() && !isUsedFromSpillTemp() ? AsIntCon() : nullptr;
     }
 
     bool isContainedFltOrDblImmed() const
@@ -934,32 +939,25 @@ public:
         return isContained() && (OperGet() == GT_CNS_DBL);
     }
 
-    bool isLclField() const
+    bool isUsedFromSpillTemp() const
     {
-        return OperGet() == GT_LCL_FLD || OperGet() == GT_STORE_LCL_FLD;
-    }
-
-    bool isUsedFromSpillTemp() const;
-
-    bool isIndir() const
-    {
-        return OperGet() == GT_IND || OperGet() == GT_STOREIND;
+        // If spilled and no reg at use, then it is used from the spill temp location rather than being reloaded.
+        return IsAnyRegSpilled() && ((gtFlags & GTF_NOREG_AT_USE) != 0);
     }
 
     bool isMemoryOp() const
     {
-        return isIndir() || isLclField();
+        return OperIs(GT_IND, GT_STOREIND, GT_LCL_FLD, GT_STORE_LCL_FLD);
     }
 
     bool isUsedFromMemory() const
     {
-        return ((isContained() && (isMemoryOp() || (OperGet() == GT_LCL_VAR) || (OperGet() == GT_CNS_DBL))) ||
-                isUsedFromSpillTemp());
+        return isUsedFromSpillTemp() || (isContained() && (isMemoryOp() || OperIs(GT_LCL_VAR, GT_CNS_DBL)));
     }
 
     bool isUsedFromReg() const
     {
-        return !isContained() && !isUsedFromSpillTemp();
+        return !isUsedFromSpillTemp() && !isContained();
     }
 
 #ifdef DEBUG
@@ -2902,13 +2900,7 @@ struct GenTreeIntConCommon : public GenTree
 #endif
     }
 
-    bool ImmedValNeedsReloc(Compiler* comp);
     bool ImmedValCanBeFolded(Compiler* comp, genTreeOps op);
-
-#ifdef TARGET_XARCH
-    bool FitsInAddrBase(Compiler* comp);
-    bool AddrNeedsReloc(Compiler* comp);
-#endif
 
 #if DEBUGGABLE_GENTREE
     GenTreeIntConCommon() : GenTree()
@@ -3064,6 +3056,13 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     {
         m_fieldSeq = fieldSeq;
     }
+
+    bool ImmedValNeedsReloc(Compiler* comp);
+
+#ifdef TARGET_XARCH
+    bool AddrNeedsReloc(Compiler* comp);
+    bool FitsInAddrBase(Compiler* comp);
+#endif
 
 #ifdef TARGET_64BIT
     void TruncateOrSignExtend32()
@@ -3312,9 +3311,6 @@ public:
 // GenTreeLclVar - load/store/addr of local variable
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
-    INDEBUG(IL_OFFSET gtLclILoffs;) // instr offset of ref (only for JIT dumps)
-
-    // Multireg support
     bool IsMultiReg() const
     {
         return ((gtFlags & GTF_VAR_MULTIREG) != 0);
@@ -3335,7 +3331,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(genTreeOps oper,
                   var_types  type,
                   unsigned lclNum DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode)) DEBUGARG(gtLclILoffs(ilOffs))
+        : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode))
     {
         assert(OperIsLocal(oper) || OperIsLocalAddr(oper));
     }
@@ -3343,17 +3339,13 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(var_types type,
                   unsigned  lclNum,
                   GenTree* value DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode)) DEBUGARG(gtLclILoffs(ilOffs))
+        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
         gtFlags |= GTF_ASG | GTF_VAR_DEF;
         SetOp(0, value);
     }
 
-    GenTreeLclVar(GenTreeLclVar* copyFrom)
-        : GenTreeLclVarCommon(copyFrom)
-#ifdef DEBUG
-        , gtLclILoffs(copyFrom->gtLclILoffs)
-#endif
+    GenTreeLclVar(GenTreeLclVar* copyFrom) : GenTreeLclVarCommon(copyFrom)
     {
     }
 
@@ -5922,6 +5914,11 @@ struct GenTreeArrOffs : public GenTreeTernaryOp
 
 struct GenTreeAddrMode : public GenTreeOp
 {
+private:
+    unsigned m_scale;
+    ssize_t  m_offset;
+
+public:
     // Address is Base + Index*Scale + Offset.
     // These are the legal patterns:
     //
@@ -5939,14 +5936,21 @@ struct GenTreeAddrMode : public GenTreeOp
     //      3. If Scale==1, then we should have "Base" instead of "Index*Scale", and "Base + Offset" instead of
     //         "Index*Scale + Offset".
 
-    // First operand is base address/pointer
+    GenTreeAddrMode(GenTree* base, ssize_t offset)
+        : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base, nullptr), m_scale(0), m_offset(offset)
+    {
+        assert(base != nullptr);
+    }
+
+    GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, ssize_t offset)
+        : GenTreeOp(GT_LEA, type, base, index), m_scale(scale), m_offset(offset)
+    {
+        assert((base != nullptr) || (index != nullptr));
+    }
+
     bool HasBase() const
     {
         return gtOp1 != nullptr;
-    }
-    GenTree*& Base()
-    {
-        return gtOp1;
     }
 
     GenTree* GetBase() const
@@ -5959,14 +5963,9 @@ struct GenTreeAddrMode : public GenTreeOp
         gtOp1 = base;
     }
 
-    // Second operand is scaled index value
     bool HasIndex() const
     {
         return gtOp2 != nullptr;
-    }
-    GenTree*& Index()
-    {
-        return gtOp2;
     }
 
     GenTree* GetIndex() const
@@ -5981,47 +5980,22 @@ struct GenTreeAddrMode : public GenTreeOp
 
     unsigned GetScale() const
     {
-        return gtScale;
+        return m_scale;
     }
 
     void SetScale(unsigned scale)
     {
-        gtScale = scale;
-    }
-
-    int Offset()
-    {
-        return static_cast<int>(gtOffset);
+        m_scale = scale;
     }
 
     int GetOffset() const
     {
-        return static_cast<int>(gtOffset);
+        return static_cast<int>(m_offset);
     }
 
     void SetOffset(int offset)
     {
-        gtOffset = offset;
-    }
-
-    unsigned gtScale; // The scale factor
-
-private:
-    ssize_t gtOffset; // The offset to add
-
-public:
-    GenTreeAddrMode(GenTree* base, ssize_t offset)
-        : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base, nullptr), gtScale(0), gtOffset(offset)
-    {
-        assert(base != nullptr);
-    }
-
-    GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, ssize_t offset)
-        : GenTreeOp(GT_LEA, type, base, index)
-    {
-        assert(base != nullptr || index != nullptr);
-        gtScale  = scale;
-        gtOffset = offset;
+        m_offset = offset;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -6062,14 +6036,6 @@ struct GenTreeIndir : public GenTreeOp
         assert(value != nullptr);
         gtOp2 = value;
     }
-
-    // these methods provide an interface to the indirection node which
-    bool     HasBase();
-    bool     HasIndex();
-    GenTree* Base();
-    GenTree* Index();
-    unsigned Scale();
-    ssize_t  Offset();
 
     GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
         : GenTreeOp(oper, type, addr, value)
@@ -7766,12 +7732,6 @@ inline var_types GenTree::CastFromType()
 inline var_types& GenTree::CastToType()
 {
     return this->AsCast()->gtCastType;
-}
-
-inline bool GenTree::isUsedFromSpillTemp() const
-{
-    // If spilled and no reg at use, then it is used from the spill temp location rather than being reloaded.
-    return IsAnyRegSpilled() && ((gtFlags & GTF_NOREG_AT_USE) != 0);
 }
 
 /*****************************************************************************/

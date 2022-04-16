@@ -47,9 +47,9 @@ void emitDispAddrRI(regNumber reg, insOpts opt, ssize_t imm);
 void emitDispAddrRRExt(regNumber reg1, regNumber reg2, insOpts opt, bool isScaled, emitAttr size);
 
 void emitDispIns(instrDesc* id,
-                 bool       isNew,
-                 bool       doffs,
-                 bool       asmfm,
+                 bool       isNew = false,
+                 bool       doffs = false,
+                 bool       asmfm = false,
                  unsigned   offs  = 0,
                  BYTE*      pCode = 0,
                  size_t     sz    = 0,
@@ -81,23 +81,19 @@ instrDesc* emitNewInstrCallInd(int              argCnt,
 /************************************************************************/
 
 private:
-bool emitInsIsCompare(instruction ins);
-bool emitInsIsLoad(instruction ins);
-bool emitInsIsStore(instruction ins);
-bool emitInsIsLoadOrStore(instruction ins);
-bool emitInsIsVectorRightShift(instruction ins);
-bool emitInsIsVectorLong(instruction ins);
-bool emitInsIsVectorNarrow(instruction ins);
-bool emitInsIsVectorWide(instruction ins);
+static bool emitInsIsCompare(instruction ins);
+static bool emitInsIsLoad(instruction ins);
+static bool emitInsIsStore(instruction ins);
+static bool emitInsIsLoadOrStore(instruction ins);
+static bool emitInsIsVectorRightShift(instruction ins);
+static bool emitInsIsVectorLong(instruction ins);
+static bool emitInsIsVectorNarrow(instruction ins);
+static bool emitInsIsVectorWide(instruction ins);
 emitAttr emitInsTargetRegSize(instrDesc* id);
 emitAttr emitInsLoadStoreSize(instrDesc* id);
 
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
-
-// Generate code for a load or store operation and handle the case of contained GT_LEA op1 with [base + index<<scale +
-// offset]
-void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
 
 //  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
 unsigned emitOutput_Instr(BYTE* dst, code_t code);
@@ -805,10 +801,6 @@ void emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitIns_BARR(instruction ins, insBarrier barrier);
 
-void emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, int offs);
-
-void emitIns_S(instruction ins, emitAttr attr, int varx, int offs);
-
 void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
 
 void emitIns_S_S_R_R(
@@ -821,22 +813,13 @@ void emitIns_R_R_S_S(
 
 void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 
-void emitIns_R_C(
-    instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd, int offs);
-
-void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs);
-
-void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, ssize_t offs, ssize_t val);
+void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd);
 
 void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
-
-void emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg);
 
 void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
 void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg, int imm);
-
-void emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int offs);
 
 void emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
 
@@ -845,41 +828,17 @@ void emitIns_R_AI(instruction ins,
                   regNumber   ireg,
                   ssize_t disp DEBUGARG(size_t targetHandle = 0) DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
 
-void emitIns_AR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
-
-void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp);
-
-void emitIns_ARR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp);
-
-void emitIns_R_ARX(
-    instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, unsigned mul, int disp);
-
 enum EmitCallType
 {
-
-    // I have included here, but commented out, all the values used by the x86 emitter.
-    // However, ARM has a much reduced instruction set, and so the ARM emitter only
-    // supports a subset of the x86 variants.  By leaving them commented out, it becomes
-    // a compile time error if code tries to use them (and hopefully see this comment
-    // and know why they are unavailible on ARM), while making it easier to stay
-    // in-sync with x86 and possibly add them back in if needed.
-
-    EC_FUNC_TOKEN, //   Direct call to a helper/static/nonvirtual/global method
-                   //  EC_FUNC_TOKEN_INDIR,    // Indirect call to a helper/static/nonvirtual/global method
+    EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
     EC_FUNC_ADDR,  // Direct call to an absolute address
-
-    //  EC_FUNC_VIRTUAL,        // Call to a virtual method (using the vtable)
-    EC_INDIR_R, // Indirect call via register
-                //  EC_INDIR_SR,            // Indirect call via stack-reference (local var)
-                //  EC_INDIR_C,             // Indirect call via static class var
-                //  EC_INDIR_ARD,           // Indirect call via an addressing mode
-
+    EC_INDIR_R,    // Indirect call via register
     EC_COUNT
 };
 
 void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd,
-                  INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo) // used to report call sites to the EE
+                  CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo), // used to report call sites to the
+                                                                                     // EE
                   void*            addr,
                   ssize_t          argSize,
                   emitAttr         retSize,

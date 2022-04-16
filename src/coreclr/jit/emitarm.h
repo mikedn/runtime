@@ -53,13 +53,13 @@ void emitDispInsHelp(instrDesc* id,
                      size_t     sz   = 0,
                      insGroup*  ig   = NULL);
 void emitDispIns(instrDesc* id,
-                 bool       isNew,
-                 bool       doffs,
-                 bool       asmfm,
-                 unsigned   offs = 0,
-                 BYTE*      code = 0,
-                 size_t     sz   = 0,
-                 insGroup*  ig   = NULL);
+                 bool       isNew = false,
+                 bool       doffs = false,
+                 bool       asmfm = false,
+                 unsigned   offs  = 0,
+                 BYTE*      code  = 0,
+                 size_t     sz    = 0,
+                 insGroup*  ig    = NULL);
 
 #endif // DEBUG
 
@@ -86,11 +86,6 @@ static bool emitInsIsLoadOrStore(instruction ins);
 
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
-
-// Generate code for a load or store operation and handle the case
-// of contained GT_LEA op1 with [base + index<<scale + offset]
-void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
-void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
 
 static bool IsMovInstruction(instruction ins);
 static bool isModImmConst(int imm);
@@ -273,23 +268,13 @@ void emitIns_R_R_R_I(instruction ins,
 
 void emitIns_R_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
 
-void emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, int offs);
-
-void emitIns_S(instruction ins, emitAttr attr, int varx, int offs);
-
 void emitIns_genStackOffset(regNumber r, int varx, int offs, bool isFloatUsage, regNumber* pBaseReg);
 
 void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
 
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs, regNumber* pBaseReg = nullptr);
 
-void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
-
-void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd, int offs);
-
-void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fldHnd, regNumber reg, int offs);
-
-void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fdlHnd, int offs, ssize_t val);
+void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd);
 
 void emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
@@ -297,47 +282,26 @@ void emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg);
 
 void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
 
-void emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int offs);
-
 void emitIns_R_AR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
 
 void emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp);
 
 void emitIns_AR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, int offs);
 
-void emitIns_R_ARR(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp);
-
-void emitIns_ARR_R(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, int disp);
-
 void emitIns_R_ARX(
     instruction ins, emitAttr attr, regNumber ireg, regNumber reg, regNumber rg2, unsigned mul, int disp);
 
 enum EmitCallType
 {
-
-    // I have included here, but commented out, all the values used by the x86 emitter.
-    // However, ARM has a much reduced instruction set, and so the ARM emitter only
-    // supports a subset of the x86 variants.  By leaving them commented out, it becomes
-    // a compile time error if code tries to use them (and hopefully see this comment
-    // and know why they are unavailible on ARM), while making it easier to stay
-    // in-sync with x86 and possibly add them back in if needed.
-
-    EC_FUNC_TOKEN, //   Direct call to a helper/static/nonvirtual/global method
-                   //  EC_FUNC_TOKEN_INDIR,    // Indirect call to a helper/static/nonvirtual/global method
+    EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
     EC_FUNC_ADDR,  // Direct call to an absolute address
-
-    //  EC_FUNC_VIRTUAL,        // Call to a virtual method (using the vtable)
-    EC_INDIR_R, // Indirect call via register
-                //  EC_INDIR_SR,            // Indirect call via stack-reference (local var)
-                //  EC_INDIR_C,             // Indirect call via static class var
-                //  EC_INDIR_ARD,           // Indirect call via an addressing mode
-
+    EC_INDIR_R,    // Indirect call via register
     EC_COUNT
 };
 
 void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd,                   // used for pretty printing
-                  INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo) // used to report call sites to the EE
+                  CORINFO_METHOD_HANDLE methHnd        // used for pretty printing
+                  DEBUGARG(CORINFO_SIG_INFO* sigInfo), // used to report call sites to the EE
                   void*            addr,
                   int              argSize,
                   emitAttr         retSize,

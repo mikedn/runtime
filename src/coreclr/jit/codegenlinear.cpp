@@ -1185,7 +1185,6 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     regNumber dstReg = node->GetRegNum();
     unsigned  lclNum = node->GetLclNum();
 
-    inst_set_SV_var(node);
     instruction ins = ins_Load(regType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
 
@@ -1913,77 +1912,6 @@ void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)
     }
 }
 
-// generates an ip-relative call or indirect call via reg ('call reg')
-//     pass in 'addr' for a relative call or 'base' for a indirect register call
-//     methHnd - optional, only used for pretty printing
-//     retSize - emitter type of return for GC purposes, should be EA_BYREF, EA_GCREF, or EA_PTRSIZE(not GC)
-//
-// clang-format off
-void CodeGen::genEmitCall(int                   callType,
-                          CORINFO_METHOD_HANDLE methHnd,
-                          INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
-                          void*                 addr
-                          X86_ARG(int argSize),
-                          emitAttr              retSize
-                          MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                          IL_OFFSETX            ilOffset,
-                          regNumber             base,
-                          bool                  isJump)
-{
-#if !defined(TARGET_X86)
-    int argSize = 0;
-#endif // !defined(TARGET_X86)
-    GetEmitter()->emitIns_Call(emitter::EmitCallType(callType),
-                               methHnd,
-                               INDEBUG_LDISASM_COMMA(sigInfo)
-                               addr,
-                               argSize,
-                               retSize
-                               MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                               gcInfo.gcVarPtrSetCur,
-                               gcInfo.gcRegGCrefSetCur,
-                               gcInfo.gcRegByrefSetCur,
-                               ilOffset, base, REG_NA, 0, 0, isJump);
-}
-// clang-format on
-
-// generates an indirect call via addressing mode (call []) given an indir node
-//     methHnd - optional, only used for pretty printing
-//     retSize - emitter type of return for GC purposes, should be EA_BYREF, EA_GCREF, or EA_PTRSIZE(not GC)
-//
-// clang-format off
-void CodeGen::genEmitCall(int                   callType,
-                          CORINFO_METHOD_HANDLE methHnd,
-                          INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo)
-                          GenTreeIndir*         indir
-                          X86_ARG(int argSize),
-                          emitAttr              retSize
-                          MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                          IL_OFFSETX            ilOffset)
-{
-#if !defined(TARGET_X86)
-    int argSize = 0;
-#endif // !defined(TARGET_X86)
-    genConsumeAddress(indir->Addr());
-
-    GetEmitter()->emitIns_Call(emitter::EmitCallType(callType),
-                               methHnd,
-                               INDEBUG_LDISASM_COMMA(sigInfo)
-                               nullptr,
-                               argSize,
-                               retSize
-                               MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-                               gcInfo.gcVarPtrSetCur,
-                               gcInfo.gcRegGCrefSetCur,
-                               gcInfo.gcRegByrefSetCur,
-                               ilOffset,
-                               (indir->Base()  != nullptr) ? indir->Base()->GetRegNum()  : REG_NA,
-                               (indir->Index() != nullptr) ? indir->Index()->GetRegNum() : REG_NA,
-                               indir->Scale(),
-                               indir->Offset());
-}
-// clang-format on
-
 //------------------------------------------------------------------------
 // genCodeForCast: Generates the code for GT_CAST.
 //
@@ -2345,8 +2273,11 @@ void CodeGen::genCodeForLclAddr(GenTreeLclVarCommon* node)
     assert(node->OperIs(GT_LCL_FLD_ADDR, GT_LCL_VAR_ADDR));
     assert(node->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-    inst_RV_TT(INS_lea, emitTypeSize(node->GetType()), node->GetRegNum(), node);
-    genProduceReg(node);
+    // TODO-MIKE-Review: Shouldn't this simply be EA_PTRSIZE?
+    emitAttr attr = emitTypeSize(node->GetType());
+
+    GetEmitter()->emitIns_R_S(INS_lea, attr, node->GetRegNum(), node->GetLclNum(), node->GetLclOffs());
+    DefReg(node);
 }
 
 #ifdef DEBUG

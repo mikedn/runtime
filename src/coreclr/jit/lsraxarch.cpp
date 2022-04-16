@@ -525,15 +525,15 @@ int LinearScan::BuildNode(GenTree* tree)
             // be contained, but we may be instantiating an address, in which case we set them here.
             srcCount = 0;
             assert(dstCount == 1);
-            if (tree->AsAddrMode()->HasBase())
+            if (GenTree* base = tree->AsAddrMode()->GetBase())
             {
                 srcCount++;
-                BuildUse(tree->AsAddrMode()->Base());
+                BuildUse(base);
             }
-            if (tree->AsAddrMode()->HasIndex())
+            if (GenTree* index = tree->AsAddrMode()->GetIndex())
             {
                 srcCount++;
-                BuildUse(tree->AsAddrMode()->Index());
+                BuildUse(index);
             }
             BuildDef(tree);
             break;
@@ -1044,7 +1044,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
             //
             // Where EAX is also used as an argument to the stub dispatch helper. Make
             // sure that the call target address is computed into EAX in this case.
-            assert(ctrlExpr->isIndir() && ctrlExpr->isContained());
+            assert(ctrlExpr->OperIs(GT_IND) && ctrlExpr->isContained());
             ctrlExprCandidates = RBM_VIRTUAL_STUB_TARGET;
         }
 #endif // TARGET_X86

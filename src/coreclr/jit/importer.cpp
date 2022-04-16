@@ -17263,7 +17263,7 @@ GenTree* Compiler::impImportTlsFieldAccess(OPCODE                    opcode,
 {
     assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
 
-#if !defined(TARGET_X86) || !defined(TARGET_WINDOWS)
+#ifndef WINDOWS_X86_ABI
     // Legacy TLS access is implemented as intrinsic on x86 only
     assert(fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS);
 
@@ -17320,7 +17320,7 @@ GenTree* Compiler::impImportTlsFieldAccess(OPCODE                    opcode,
         // for the field offset as it won't be recognized during value numbering.
         addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, gtNewIconNode(fieldInfo.offset, TYP_I_IMPL));
     }
-#endif // TARGET_X86 && TARGET_WINDOWS
+#endif // WINDOWS_X86_ABI
 
     if (opcode == CEE_LDSFLDA)
     {

@@ -15,7 +15,7 @@ enum instruction : unsigned
 #define INST3(id, nm, um, mr, mi, rm, flags) INS_##id,
 #define INST4(id, nm, um, mr, mi, rm, a4, flags) INS_##id,
 #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) INS_##id,
-#include "instrs.h"
+#include "instrsxarch.h"
 
 #elif defined(TARGET_ARM)
 #define INST1(id, nm, fp, ldst, fmt, e1) INS_##id,
@@ -26,7 +26,7 @@ enum instruction : unsigned
 #define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6) INS_##id,
 #define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8) INS_##id,
 #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
-#include "instrs.h"
+#include "instrsarm.h"
 
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
 
@@ -38,7 +38,7 @@ enum instruction : unsigned
 #define INST5(id, nm, ldst, fmt, e1, e2, e3, e4, e5) INS_##id,
 #define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6) INS_##id,
 #define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) INS_##id,
-#include "instrs.h"
+#include "instrsarm64.h"
 
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
 

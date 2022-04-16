@@ -1281,8 +1281,7 @@ void LinearScan::recordVarLocationsAtStartOfBB(BasicBlock* bb)
 
         if (oldRegNum != newRegNum)
         {
-            JITDUMP("  V%02u(%s->%s)", varNum, compiler->compRegVarName(oldRegNum),
-                    compiler->compRegVarName(newRegNum));
+            JITDUMP("  V%02u(%s->%s)", varNum, getRegName(oldRegNum), getRegName(newRegNum));
             varDsc->SetRegNum(newRegNum);
             count++;
 
@@ -1297,7 +1296,7 @@ void LinearScan::recordVarLocationsAtStartOfBB(BasicBlock* bb)
         }
         else if (newRegNum != REG_STK)
         {
-            JITDUMP("  V%02u(%s)", varNum, compiler->compRegVarName(newRegNum));
+            JITDUMP("  V%02u(%s)", varNum, getRegName(newRegNum));
             count++;
         }
     }

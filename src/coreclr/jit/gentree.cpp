@@ -1229,11 +1229,11 @@ AGAIN:
                     }
                     break;
                 case GT_LEA:
-                    if (op1->AsAddrMode()->gtScale != op2->AsAddrMode()->gtScale)
+                    if (op1->AsAddrMode()->GetScale() != op2->AsAddrMode()->GetScale())
                     {
                         return false;
                     }
-                    if (op1->AsAddrMode()->Offset() != op2->AsAddrMode()->Offset())
+                    if (op1->AsAddrMode()->GetOffset() != op2->AsAddrMode()->GetOffset())
                     {
                         return false;
                     }
@@ -1546,7 +1546,8 @@ AGAIN:
                     hash += tree->AsIntrinsic()->gtIntrinsicId;
                     break;
                 case GT_LEA:
-                    hash += static_cast<unsigned>(tree->AsAddrMode()->Offset() << 3) + tree->AsAddrMode()->gtScale;
+                    hash +=
+                        static_cast<unsigned>(tree->AsAddrMode()->GetOffset() << 3) + tree->AsAddrMode()->GetScale();
                     break;
 
                 case GT_STORE_BLK:
@@ -2125,13 +2126,25 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     {
         switch (oper)
         {
-#ifdef TARGET_ARM
+            // Note that CNS_STR does not normally reach gtSetEvalOrder, it's morphed to IND/CNS_INT/CALL.
+            // Give it some costs, just in case gtSetEvalOrder is called before morphing.
             case GT_CNS_STR:
-                // Uses movw/movt
+#if defined(TARGET_ARMARCH)
                 costSz = 8;
                 costEx = 2;
-                goto COMMON_CNS;
+#elif defined(TARGET_AMD64)
+                costSz = 10;
+                costEx = 2;
+#elif defined(TARGET_X86)
+                costSz = 4;
+                costEx = 1;
+#else
+#error Unknown TARGET
+#endif
+                level = 0;
+                break;
 
+#ifdef TARGET_ARM
             case GT_CNS_LNG:
             {
                 GenTreeIntConCommon* con = tree->AsIntConCommon();
@@ -2168,7 +2181,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         costEx += 1;
                     }
                 }
-                goto COMMON_CNS;
+                level = 0;
+                break;
             }
 
             case GT_CNS_INT:
@@ -2177,8 +2191,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 //  applied to it.
                 // Any constant that requires a reloc must use the movw/movt sequence
                 //
-                GenTreeIntConCommon* con    = tree->AsIntConCommon();
-                target_ssize_t       conVal = (target_ssize_t)con->IconValue();
+                GenTreeIntCon* con    = tree->AsIntCon();
+                target_ssize_t conVal = (target_ssize_t)con->IconValue();
 
                 if (con->ImmedValNeedsReloc(this))
                 {
@@ -2204,50 +2218,48 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 8;
                     costEx = 2;
                 }
-                goto COMMON_CNS;
+                level = 0;
+                break;
             }
 
 #elif defined TARGET_XARCH
-
-            case GT_CNS_STR:
-#ifdef TARGET_AMD64
-                costSz = 10;
-                costEx = 2;
-#else // TARGET_X86
-                costSz = 4;
-                costEx = 1;
-#endif
-                goto COMMON_CNS;
-
-            case GT_CNS_LNG:
-            case GT_CNS_INT:
-            {
-                GenTreeIntConCommon* con       = tree->AsIntConCommon();
-                ssize_t              conVal    = (oper == GT_CNS_LNG) ? (ssize_t)con->LngValue() : con->IconValue();
-                bool                 fitsInVal = true;
-
 #ifdef TARGET_X86
-                if (oper == GT_CNS_LNG)
+            case GT_CNS_LNG:
+            {
+                GenTreeLngCon* con    = tree->AsLngCon();
+                int64_t        lngVal = con->LngValue();
+                // TODO-MIKE-Review: This truncates to 32 bits only when running on a 32 bit host.
+                ssize_t conVal    = (ssize_t)lngVal; // truncate to 32-bits
+                bool    fitsInVal = (int64_t)conVal == lngVal;
+
+                if (fitsInVal && GenTreeIntConCommon::FitsInI8(conVal))
                 {
-                    INT64 lngVal = con->LngValue();
-
-                    conVal = (ssize_t)lngVal; // truncate to 32-bits
-
-                    fitsInVal = ((INT64)conVal == lngVal);
+                    costSz = 1;
+                    costEx = 1;
                 }
-#endif // TARGET_X86
-
-                // If the constant is a handle then it will need to have a relocation
-                //  applied to it.
-                //
-                bool iconNeedsReloc = con->ImmedValNeedsReloc(this);
-
-                if (iconNeedsReloc)
+                else
                 {
                     costSz = 4;
                     costEx = 1;
                 }
-                else if (fitsInVal && GenTreeIntConCommon::FitsInI8(conVal))
+
+                costSz += fitsInVal ? 1 : 4;
+                costEx += 1;
+                level = 0;
+                break;
+            }
+#endif // TARGET_X86
+            case GT_CNS_INT:
+            {
+                GenTreeIntCon* con    = tree->AsIntCon();
+                ssize_t        conVal = con->GetValue();
+
+                if (con->ImmedValNeedsReloc(this))
+                {
+                    costSz = 4;
+                    costEx = 1;
+                }
+                else if (GenTreeIntConCommon::FitsInI8(conVal))
                 {
                     costSz = 1;
                     costEx = 1;
@@ -2264,29 +2276,19 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 4;
                     costEx = 1;
                 }
-#ifdef TARGET_X86
-                if (oper == GT_CNS_LNG)
-                {
-                    costSz += fitsInVal ? 1 : 4;
-                    costEx += 1;
-                }
-#endif // TARGET_X86
 
-                goto COMMON_CNS;
+                level = 0;
+                break;
             }
 
 #elif defined(TARGET_ARM64)
-
-            case GT_CNS_STR:
-            case GT_CNS_LNG:
             case GT_CNS_INT:
             {
-                GenTreeIntConCommon* con            = tree->AsIntConCommon();
-                bool                 iconNeedsReloc = con->ImmedValNeedsReloc(this);
-                INT64                imm            = con->LngValue();
-                emitAttr             size           = EA_SIZE(emitActualTypeSize(tree));
+                GenTreeIntCon* con  = tree->AsIntCon();
+                ssize_t        imm  = con->GetValue();
+                emitAttr       size = EA_SIZE(emitActualTypeSize(tree->GetType()));
 
-                if (iconNeedsReloc)
+                if (con->ImmedValNeedsReloc(this))
                 {
                     costSz = 8;
                     costEx = 2;
@@ -2335,28 +2337,12 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costEx = instructionCount;
                     costSz = 4 * instructionCount;
                 }
-            }
-                goto COMMON_CNS;
-
-#else
-            case GT_CNS_STR:
-            case GT_CNS_LNG:
-            case GT_CNS_INT:
-#error "Unknown TARGET"
-#endif
-
-            COMMON_CNS:
-                /*
-                    Note that some code below depends on constants always getting
-                    moved to be the second operand of a binary operator. This is
-                    easily accomplished by giving constants a level of 0, which
-                    we do on the next line. If you ever decide to change this, be
-                    aware that unless you make other arrangements for integer
-                    constants to be moved, stuff will break.
-                 */
-
                 level = 0;
                 break;
+            }
+#else
+#error "Unknown TARGET"
+#endif
 
             case GT_CNS_DBL:
             {
@@ -5434,8 +5420,8 @@ GenTree* Compiler::gtCloneExpr(
             {
                 GenTreeAddrMode* addrModeOp = tree->AsAddrMode();
                 copy                        = new (this, GT_LEA)
-                    GenTreeAddrMode(addrModeOp->TypeGet(), addrModeOp->Base(), addrModeOp->Index(), addrModeOp->gtScale,
-                                    static_cast<unsigned>(addrModeOp->Offset()));
+                    GenTreeAddrMode(addrModeOp->TypeGet(), addrModeOp->GetBase(), addrModeOp->GetIndex(),
+                                    addrModeOp->GetScale(), static_cast<unsigned>(addrModeOp->GetOffset()));
             }
             break;
 
@@ -6766,19 +6752,18 @@ void Compiler::gtDispNodeName(GenTree* tree)
         }
         SimpleSprintf_s(bufp, buf, sizeof(buf), "]");
     }
-    else if (tree->gtOper == GT_LEA)
+    else if (GenTreeAddrMode* lea = tree->IsAddrMode())
     {
-        GenTreeAddrMode* lea = tree->AsAddrMode();
         bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s(", name);
-        if (lea->Base() != nullptr)
+        if (lea->GetBase() != nullptr)
         {
             bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "b+");
         }
-        if (lea->Index() != nullptr)
+        if (lea->GetIndex() != nullptr)
         {
-            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "(i*%d)+", lea->gtScale);
+            bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "(i*%d)+", lea->GetScale());
         }
-        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->Offset());
+        bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%d)", lea->GetOffset());
     }
     else if (tree->gtOper == GT_ARR_BOUNDS_CHECK)
     {
@@ -7666,9 +7651,11 @@ void Compiler::gtDispConst(GenTree* tree)
                         case GTF_ICON_TOKEN_HDL:
                             printf("token");
                             break;
+#ifdef WINDOWS_X86_ABI
                         case GTF_ICON_TLS_HDL:
                             printf("tls");
                             break;
+#endif
                         case GTF_ICON_FTN_ADDR:
                             printf("ftn");
                             break;
@@ -8669,14 +8656,14 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
 
     if (argInfo->GetRegCount() == 1)
     {
-        int len = sprintf_s(buf, bufLength, " %s", compRegVarName(argInfo->GetRegNum()));
+        int len = sprintf_s(buf, bufLength, " %s", getRegName(argInfo->GetRegNum()));
         buf += len;
         bufLength -= len;
     }
     else if (argInfo->GetRegCount() > 1)
     {
-        int len = sprintf_s(buf, bufLength, " %s-%s", compRegVarName(argInfo->GetRegNum(0)),
-                            compRegVarName(argInfo->GetRegNum(argInfo->GetRegCount() - 1)));
+        int len = sprintf_s(buf, bufLength, " %s-%s", getRegName(argInfo->GetRegNum(0)),
+                            getRegName(argInfo->GetRegNum(argInfo->GetRegCount() - 1)));
         buf += len;
         bufLength -= len;
     }
@@ -8793,7 +8780,7 @@ void Compiler::gtDispLIRNode(GenTree* node)
 
             if (op->GetRegNum() != REG_NA)
             {
-                printf(" @%s", compRegVarName(op->GetRegNum()));
+                printf(" @%s", getRegName(op->GetRegNum()));
             }
 
             if (i != instr->GetNumOps() - 1)
@@ -12371,91 +12358,8 @@ bool GenTree::isContained() const
     return true;
 }
 
-bool GenTree::isIndirAddrMode()
-{
-    return OperIsIndir() && AsIndir()->GetAddr()->IsAddrMode() && AsIndir()->GetAddr()->isContained();
-}
-
-bool GenTreeIndir::HasBase()
-{
-    return Base() != nullptr;
-}
-
-bool GenTreeIndir::HasIndex()
-{
-    return Index() != nullptr;
-}
-
-GenTree* GenTreeIndir::Base()
-{
-    GenTree* addr = Addr();
-
-    if (isIndirAddrMode())
-    {
-        GenTree* result = addr->AsAddrMode()->Base();
-        if (result != nullptr)
-        {
-            result = result->gtEffectiveVal();
-        }
-        return result;
-    }
-    else
-    {
-        return addr; // TODO: why do we return 'addr' here, but we return 'nullptr' in the equivalent Index() case?
-    }
-}
-
-GenTree* GenTreeIndir::Index()
-{
-    if (isIndirAddrMode())
-    {
-        GenTree* result = Addr()->AsAddrMode()->Index();
-        if (result != nullptr)
-        {
-            result = result->gtEffectiveVal();
-        }
-        return result;
-    }
-    else
-    {
-        return nullptr;
-    }
-}
-
-unsigned GenTreeIndir::Scale()
-{
-    if (HasIndex())
-    {
-        return Addr()->AsAddrMode()->gtScale;
-    }
-    else
-    {
-        return 1;
-    }
-}
-
-ssize_t GenTreeIndir::Offset()
-{
-    if (isIndirAddrMode())
-    {
-        return Addr()->AsAddrMode()->Offset();
-    }
-    else if (Addr()->gtOper == GT_CLS_VAR_ADDR)
-    {
-        return static_cast<ssize_t>(reinterpret_cast<intptr_t>(Addr()->AsClsVar()->gtClsVarHnd));
-    }
-    else if (Addr()->IsCnsIntOrI() && Addr()->isContained())
-    {
-        return Addr()->AsIntConCommon()->IconValue();
-    }
-    else
-    {
-        return 0;
-    }
-}
-
 //------------------------------------------------------------------------
-// GenTreeIntConCommon::ImmedValNeedsReloc: does this immediate value needs recording a relocation with the VM?
+// GenTreeIntCon::ImmedValNeedsReloc: does this immediate value needs recording a relocation with the VM?
 //
 // Arguments:
 //    comp - Compiler instance
@@ -12463,9 +12367,9 @@ ssize_t GenTreeIndir::Offset()
 // Return Value:
 //    True if this immediate value requires us to record a relocation for it; false otherwise.
 
-bool GenTreeIntConCommon::ImmedValNeedsReloc(Compiler* comp)
+bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp)
 {
-    return comp->opts.compReloc && (gtOper == GT_CNS_INT) && IsIconHandle();
+    return comp->opts.compReloc && IsIconHandle();
 }
 
 //------------------------------------------------------------------------
@@ -12483,14 +12387,14 @@ bool GenTreeIntConCommon::ImmedValCanBeFolded(Compiler* comp, genTreeOps op)
     // In general, immediate values that need relocations can't be folded.
     // There are cases where we do want to allow folding of handle comparisons
     // (e.g., typeof(T) == typeof(int)).
-    return !ImmedValNeedsReloc(comp) || (op == GT_EQ) || (op == GT_NE);
+    return IsLngCon() || !IsIntCon()->ImmedValNeedsReloc(comp) || (op == GT_EQ) || (op == GT_NE);
 }
 
 #ifdef TARGET_AMD64
 // Returns true if this absolute address fits within the base of an addr mode.
 // On Amd64 this effectively means, whether an absolute indirect address can
 // be encoded as 32-bit offset relative to IP or zero.
-bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
+bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 {
 #ifdef DEBUG
     // Early out if PC-rel encoding of absolute addr is disabled.
@@ -12530,7 +12434,7 @@ bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
 }
 
 // Returns true if this icon value is encoded as addr needs recording a relocation with VM
-bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
+bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 {
     if (comp->opts.compReloc)
     {
@@ -12547,7 +12451,7 @@ bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
 #elif defined(TARGET_X86)
 // Returns true if this absolute address fits within the base of an addr mode.
 // On x86 all addresses are 4-bytes and can be directly encoded in an addr mode.
-bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
+bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
 {
 #ifdef DEBUG
     // Early out if PC-rel encoding of absolute addr is disabled.
@@ -12557,11 +12461,11 @@ bool GenTreeIntConCommon::FitsInAddrBase(Compiler* comp)
     }
 #endif
 
-    return IsCnsIntOrI();
+    return true;
 }
 
 // Returns true if this icon value is encoded as addr needs recording a relocation with VM
-bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
+bool GenTreeIntCon::AddrNeedsReloc(Compiler* comp)
 {
     // If generating relocatable code, icons should be reported for recording relocatons.
     return comp->opts.compReloc && IsIconHandle();
