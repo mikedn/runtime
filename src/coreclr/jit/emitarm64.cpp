@@ -1369,6 +1369,28 @@ const char* emitter::emitVectorRegName(regNumber reg)
 
 #endif // DEBUG
 
+const char* insName(instruction ins)
+{
+    // clang-format off
+    static const char* const insNames[] =
+    {
+#define INST1(id, nm, ldst, fmt, e1                                 ) nm,
+#define INST2(id, nm, ldst, fmt, e1, e2                             ) nm,
+#define INST3(id, nm, ldst, fmt, e1, e2, e3                         ) nm,
+#define INST4(id, nm, ldst, fmt, e1, e2, e3, e4                     ) nm,
+#define INST5(id, nm, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
+#define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
+#define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
+#include "instrs.h"
+    };
+    // clang-format on
+
+    assert(ins < _countof(insNames));
+    assert(insNames[ins] != nullptr);
+
+    return insNames[ins];
+}
+
 /*****************************************************************************
  *
  *  Returns the base encoding of the given CPU instruction.

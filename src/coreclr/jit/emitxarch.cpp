@@ -1277,6 +1277,27 @@ inline ssize_t emitter::emitGetInsCIdisp(instrDesc* id)
     }
 }
 
+const char* insName(instruction ins)
+{
+    // clang-format off
+    static const char* const insNames[] =
+    {
+#define INST0(id, nm, um, mr,                 flags) nm,
+#define INST1(id, nm, um, mr,                 flags) nm,
+#define INST2(id, nm, um, mr, mi,             flags) nm,
+#define INST3(id, nm, um, mr, mi, rm,         flags) nm,
+#define INST4(id, nm, um, mr, mi, rm, a4,     flags) nm,
+#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) nm,
+#include "instrs.h"
+    };
+    // clang-format on
+
+    assert(ins < _countof(insNames));
+    assert(insNames[ins] != nullptr);
+
+    return insNames[ins];
+}
+
 // clang-format off
 const insFlags emitter::instInfo[]
 {

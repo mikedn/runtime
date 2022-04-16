@@ -8,54 +8,6 @@
 
 #ifdef DEBUG
 
-// Returns the string representation of the given CPU instruction.
-const char* insName(instruction ins)
-{
-    // clang-format off
-    static const char* const insNames[] =
-    {
-#if defined(TARGET_XARCH)
-#define INST0(id, nm, um, mr,                 flags) nm,
-#define INST1(id, nm, um, mr,                 flags) nm,
-#define INST2(id, nm, um, mr, mi,             flags) nm,
-#define INST3(id, nm, um, mr, mi, rm,         flags) nm,
-#define INST4(id, nm, um, mr, mi, rm, a4,     flags) nm,
-#define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) nm,
-#include "instrs.h"
-
-#elif defined(TARGET_ARM)
-#define INST1(id, nm, fp, ldst, fmt, e1                                 ) nm,
-#define INST2(id, nm, fp, ldst, fmt, e1, e2                             ) nm,
-#define INST3(id, nm, fp, ldst, fmt, e1, e2, e3                         ) nm,
-#define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4                     ) nm,
-#define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
-#define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
-#define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8     ) nm,
-#define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
-#include "instrs.h"
-
-#elif defined(TARGET_ARM64)
-#define INST1(id, nm, ldst, fmt, e1                                 ) nm,
-#define INST2(id, nm, ldst, fmt, e1, e2                             ) nm,
-#define INST3(id, nm, ldst, fmt, e1, e2, e3                         ) nm,
-#define INST4(id, nm, ldst, fmt, e1, e2, e3, e4                     ) nm,
-#define INST5(id, nm, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
-#define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
-#define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
-#include "instrs.h"
-
-#else
-#error "Unknown TARGET"
-#endif
-    };
-    // clang-format on
-
-    assert(ins < _countof(insNames));
-    assert(insNames[ins] != nullptr);
-
-    return insNames[ins];
-}
-
 //-----------------------------------------------------------------------------
 // genInsDisplayName: Get a fully-formed instruction display name. This only handles
 // the xarch case of prepending a "v", not the arm case of appending an "s".
