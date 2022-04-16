@@ -2944,12 +2944,67 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     genDefineTempLabel(skipLabel);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreInd: Produce code for a GT_STOREIND node.
-//
-// Arguments:
-//    tree - the GT_STOREIND node
-//
+void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
+{
+    assert(tree->OperIs(GT_NULLCHECK));
+
+    genConsumeAddress(tree->GetAddr());
+    emitInsLoad(INS_ldr, EA_4BYTE, REG_ZR, tree);
+}
+
+void CodeGen::genCodeForIndir(GenTreeIndir* load)
+{
+    assert(load->OperIs(GT_IND));
+
+    if (load->TypeIs(TYP_SIMD12))
+    {
+        LoadSIMD12(load);
+        genProduceReg(load);
+        return;
+    }
+
+    genConsumeAddress(load->Addr());
+
+    var_types   type        = load->GetType();
+    instruction ins         = ins_Load(type);
+    regNumber   dstReg      = load->GetRegNum();
+    bool        emitBarrier = false;
+
+    if (load->IsVolatile())
+    {
+        bool addrIsInReg   = load->Addr()->isUsedFromReg();
+        bool addrIsAligned = !load->IsUnaligned();
+
+        if ((ins == INS_ldrb) && addrIsInReg)
+        {
+            ins = INS_ldarb;
+        }
+        else if ((ins == INS_ldrh) && addrIsInReg && addrIsAligned)
+        {
+            ins = INS_ldarh;
+        }
+        else if ((ins == INS_ldr) && addrIsInReg && addrIsAligned && genIsValidIntReg(dstReg))
+        {
+            ins = INS_ldar;
+        }
+        else
+        {
+            emitBarrier = true;
+        }
+    }
+
+    emitInsLoad(ins, emitActualTypeSize(type), dstReg, load);
+
+    if (emitBarrier)
+    {
+        // when INS_ldar* could not be used for a volatile load,
+        // we use an ordinary load followed by a load barrier.
+        instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
+    }
+
+    DefReg(load);
+}
+
 void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 {
 #ifdef FEATURE_SIMD
@@ -3027,7 +3082,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         }
     }
 
-    emitInsLoadStoreOp(ins, emitActualTypeSize(type), dataReg, tree);
+    emitInsStore(ins, emitActualTypeSize(type), dataReg, tree);
 }
 
 //------------------------------------------------------------------------
@@ -8709,12 +8764,26 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
     }
 }
 
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* load)
+{
+    assert(load->OperIs(GT_IND, GT_NULLCHECK));
+
+    emitInsIndir(ins, attr, dataReg, load);
+}
+
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeStoreInd* store)
+{
+    assert(store->OperIs(GT_STOREIND));
+
+    emitInsIndir(ins, attr, dataReg, store);
+}
+
 // Generate code for a load or store operation with a potentially complex addressing mode
 // This method handles the case of a GT_IND with contained GT_LEA op1 of the x86 form [base + index*sccale + offset]
 // Since Arm64 does not directly support this complex of an addressing mode
 // we may generates up to three instructions for this for Arm64
 //
-void CodeGen::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir)
+void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir)
 {
     emitter* emit = GetEmitter();
     GenTree* addr = indir->GetAddr();

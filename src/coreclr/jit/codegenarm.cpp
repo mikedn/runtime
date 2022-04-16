@@ -1092,12 +1092,27 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     genDefineTempLabel(skipLabel);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreInd: Produce code for a GT_STOREIND node.
-//
-// Arguments:
-//    tree - the GT_STOREIND node
-//
+void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
+{
+    assert(tree->OperIs(GT_NULLCHECK));
+    assert(!"GT_NULLCHECK isn't supported for Arm32; use GT_IND.");
+}
+
+void CodeGen::genCodeForIndir(GenTreeIndir* load)
+{
+    assert(load->OperIs(GT_IND));
+
+    genConsumeAddress(load->GetAddr());
+    emitInsLoad(ins_Load(load->GetType()), emitActualTypeSize(load->GetType()), load->GetRegNum(), load);
+
+    if (load->IsVolatile())
+    {
+        instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
+    }
+
+    DefReg(load);
+}
+
 void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 {
     GenTree*  addr = tree->GetAddr();
@@ -1135,7 +1150,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         instGen_MemoryBarrier();
     }
 
-    emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
+    emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
 }
 
 // genLongToIntCast: Generate code for long to int casts.
@@ -1641,60 +1656,69 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
     unreached();
 }
 
-void CodeGen::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir)
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* load)
 {
-    emitter* emit = GetEmitter();
+    assert(load->OperIs(GT_IND));
 
-    // Handle unaligned floating point loads/stores
-    if ((indir->gtFlags & GTF_IND_UNALIGNED))
+    if (load->IsUnaligned() && varTypeIsFloating(load->GetType()))
     {
-        if (indir->OperGet() == GT_STOREIND)
+        emitter* emit = GetEmitter();
+
+        if (load->TypeIs(TYP_FLOAT))
         {
-            var_types type = indir->AsStoreInd()->GetValue()->TypeGet();
-            if (type == TYP_FLOAT)
-            {
-                regNumber tmpReg = indir->GetSingleTempReg();
-                emit->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tmpReg, dataReg, /* canSkip */ false);
-                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg, indir, 0);
-                return;
-            }
-            else if (type == TYP_DOUBLE)
-            {
-                regNumber tmpReg1 = indir->ExtractTempReg();
-                regNumber tmpReg2 = indir->GetSingleTempReg();
-                emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tmpReg1, tmpReg2, dataReg);
-                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg1, indir, 0);
-                emitInsLoadStoreOp(INS_str, EA_4BYTE, tmpReg2, indir, 4);
-                return;
-            }
+            regNumber tmpReg = load->GetSingleTempReg();
+            emitInsIndir(INS_ldr, EA_4BYTE, tmpReg, load, 0);
+            emit->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dataReg, tmpReg, /* canSkip */ false);
         }
-        else if (indir->OperGet() == GT_IND)
+        else
         {
-            var_types type = indir->TypeGet();
-            if (type == TYP_FLOAT)
-            {
-                regNumber tmpReg = indir->GetSingleTempReg();
-                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg, indir, 0);
-                emit->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dataReg, tmpReg, /* canSkip */ false);
-                return;
-            }
-            else if (type == TYP_DOUBLE)
-            {
-                regNumber tmpReg1 = indir->ExtractTempReg();
-                regNumber tmpReg2 = indir->GetSingleTempReg();
-                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg1, indir, 0);
-                emitInsLoadStoreOp(INS_ldr, EA_4BYTE, tmpReg2, indir, 4);
-                emit->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dataReg, tmpReg1, tmpReg2);
-                return;
-            }
+            assert(load->TypeIs(TYP_DOUBLE));
+
+            regNumber tmpReg1 = load->ExtractTempReg();
+            regNumber tmpReg2 = load->GetSingleTempReg();
+            emitInsIndir(INS_ldr, EA_4BYTE, tmpReg1, load, 0);
+            emitInsIndir(INS_ldr, EA_4BYTE, tmpReg2, load, 4);
+            emit->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dataReg, tmpReg1, tmpReg2);
         }
+
+        return;
     }
 
-    // Proceed with ordinary loads/stores
-    emitInsLoadStoreOp(ins, attr, dataReg, indir, 0);
+    emitInsIndir(ins, attr, dataReg, load, 0);
 }
 
-void CodeGen::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset)
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeStoreInd* store)
+{
+    assert(store->OperIs(GT_STOREIND));
+
+    if (store->IsUnaligned() && varTypeIsFloating(store->GetType()))
+    {
+        emitter* emit = GetEmitter();
+
+        if (store->TypeIs(TYP_FLOAT))
+        {
+            regNumber tmpReg = store->GetSingleTempReg();
+            emit->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tmpReg, dataReg, /* canSkip */ false);
+            emitInsIndir(INS_str, EA_4BYTE, tmpReg, store, 0);
+        }
+        else
+        {
+            assert(store->TypeIs(TYP_DOUBLE));
+
+            regNumber tmpReg1 = store->ExtractTempReg();
+            regNumber tmpReg2 = store->GetSingleTempReg();
+            emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tmpReg1, tmpReg2, dataReg);
+            emitInsIndir(INS_str, EA_4BYTE, tmpReg1, store, 0);
+            emitInsIndir(INS_str, EA_4BYTE, tmpReg2, store, 4);
+        }
+
+        return;
+    }
+
+    emitInsIndir(ins, attr, dataReg, store, 0);
+}
+
+void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset)
 {
     emitter* emit = GetEmitter();
     GenTree* addr = indir->GetAddr();

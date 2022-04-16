@@ -1270,30 +1270,6 @@ void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
     genProduceReg(tree);
 }
 
-//---------------------------------------------------------------------
-// genCodeForNullCheck - generate code for a GT_NULLCHECK node
-//
-// Arguments
-//    tree - the GT_NULLCHECK node
-//
-// Return value:
-//    None
-//
-void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
-{
-#ifdef TARGET_ARM
-    assert(!"GT_NULLCHECK isn't supported for Arm32; use GT_IND.");
-#else
-    assert(tree->OperIs(GT_NULLCHECK));
-    GenTree* op1 = tree->gtOp1;
-
-    genConsumeAddress(op1);
-    regNumber targetReg = REG_ZR;
-
-    emitInsLoadStoreOp(INS_ldr, EA_4BYTE, targetReg, tree);
-#endif
-}
-
 //------------------------------------------------------------------------
 // genOffsetOfMDArrayLowerBound: Returns the offset from the Array object to the
 //   lower bound for the given dimension.
@@ -1596,70 +1572,6 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     gcInfo.gcMarkRegSetNpt(genRegMask(baseReg));
 
     DefReg(node);
-}
-
-//------------------------------------------------------------------------
-// genCodeForIndir: Produce code for a GT_IND node.
-//
-// Arguments:
-//    tree - the GT_IND node
-//
-void CodeGen::genCodeForIndir(GenTreeIndir* tree)
-{
-    assert(tree->OperIs(GT_IND));
-
-#ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
-    {
-        LoadSIMD12(tree);
-        genProduceReg(tree);
-        return;
-    }
-#endif
-
-    var_types   type      = tree->TypeGet();
-    instruction ins       = ins_Load(type);
-    regNumber   targetReg = tree->GetRegNum();
-
-    genConsumeAddress(tree->Addr());
-
-    bool emitBarrier = false;
-
-    if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
-    {
-#ifdef TARGET_ARM64
-        bool addrIsInReg   = tree->Addr()->isUsedFromReg();
-        bool addrIsAligned = ((tree->gtFlags & GTF_IND_UNALIGNED) == 0);
-
-        if ((ins == INS_ldrb) && addrIsInReg)
-        {
-            ins = INS_ldarb;
-        }
-        else if ((ins == INS_ldrh) && addrIsInReg && addrIsAligned)
-        {
-            ins = INS_ldarh;
-        }
-        else if ((ins == INS_ldr) && addrIsInReg && addrIsAligned && genIsValidIntReg(targetReg))
-        {
-            ins = INS_ldar;
-        }
-        else
-#endif // TARGET_ARM64
-        {
-            emitBarrier = true;
-        }
-    }
-
-    emitInsLoadStoreOp(ins, emitActualTypeSize(type), targetReg, tree);
-
-    if (emitBarrier)
-    {
-        // when INS_ldar* could not be used for a volatile load,
-        // we use an ordinary load followed by a load barrier.
-        instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
-    }
-
-    genProduceReg(tree);
 }
 
 void CodeGen::GenDynBlk(GenTreeDynBlk* store)
@@ -3413,7 +3325,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 
         if (src->OperIs(GT_IND))
         {
-            emitInsLoadStoreOp(ins, EA_ATTR(insSize), dstReg, src->AsIndir());
+            emitInsLoad(ins, EA_ATTR(insSize), dstReg, src->AsIndir());
         }
         else
         {

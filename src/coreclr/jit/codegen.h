@@ -1307,13 +1307,16 @@ public:
 #endif
 
 #ifdef TARGET_ARM
-    void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
-    void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
 
 #ifdef TARGET_ARM64
-    void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
 
