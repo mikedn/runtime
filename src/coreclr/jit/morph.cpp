@@ -9667,7 +9667,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
             unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
             origAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
             origAssertionCount = optAssertionCount;
-            memcpy(origAssertionTab, optAssertionTabPrivate, tabSize);
+            memcpy(origAssertionTab, morphAssertionTable, tabSize);
         }
     }
 #endif // LOCAL_ASSERTION_PROP
@@ -9691,7 +9691,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
             unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
             elseAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
             elseAssertionCount = optAssertionCount;
-            memcpy(elseAssertionTab, optAssertionTabPrivate, tabSize);
+            memcpy(elseAssertionTab, morphAssertionTable, tabSize);
 
             morphAssertionReset(0);
         }
@@ -9699,7 +9699,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         if (origAssertionCount != 0)
         {
             size_t tabSize = origAssertionCount * sizeof(AssertionDsc);
-            memcpy(optAssertionTabPrivate, origAssertionTab, tabSize);
+            memcpy(morphAssertionTable, origAssertionTab, tabSize);
             morphAssertionReset(origAssertionCount);
         }
     }

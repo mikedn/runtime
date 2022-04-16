@@ -6164,12 +6164,10 @@ protected:
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
-    AssertionIndex*            optComplementaryAssertionMap;
-    JitExpandArray<ASSERT_TP>* morphAssertionDep; // table that holds dependent assertions (assertions
-                                                  // using the value of a local var) for each local var
-    AssertionDsc*  optAssertionTabPrivate;        // table that holds info about value assignments
-    AssertionIndex optAssertionCount;             // total number of assertions in the assertion table
-    AssertionIndex optMaxAssertionCount;
+    AssertionIndex* optComplementaryAssertionMap;
+    AssertionDsc*   optAssertionTabPrivate; // table that holds info about value assignments
+    AssertionIndex  optAssertionCount;      // total number of assertions in the assertion table
+    AssertionIndex  optMaxAssertionCount;
 
 public:
     GenTree* optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
@@ -6184,6 +6182,10 @@ public:
     ValueNumToAssertsMap* optValueNumToAsserts;
 
 #if LOCAL_ASSERTION_PROP
+    JitExpandArray<ASSERT_TP>* morphAssertionDep; // table that holds dependent assertions (assertions
+                                                  // using the value of a local var) for each local var
+    AssertionDsc* morphAssertionTable;            // table that holds info about local assignments
+
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);
     void morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);

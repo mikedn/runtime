@@ -38,8 +38,8 @@ void Compiler::morphAssertionInit()
 {
     optMaxAssertionCount = 64;
 
-    optLocalAssertionProp  = true;
-    optAssertionTabPrivate = new (this, CMK_AssertionProp) AssertionDsc[optMaxAssertionCount];
+    optLocalAssertionProp = true;
+    morphAssertionTable   = new (this, CMK_AssertionProp) AssertionDsc[optMaxAssertionCount];
 
     assert(NO_ASSERTION_INDEX == 0);
 
@@ -174,7 +174,7 @@ void Compiler::morphAssertionMerge(unsigned      elseAssertionCount,
     }
 
     if ((optAssertionCount == elseAssertionCount) &&
-        (memcmp(elseAssertionTab, optAssertionTabPrivate, optAssertionCount * sizeof(AssertionDsc)) == 0))
+        (memcmp(elseAssertionTab, morphAssertionTable, optAssertionCount * sizeof(AssertionDsc)) == 0))
     {
         return;
     }
@@ -343,7 +343,7 @@ Compiler::AssertionDsc* Compiler::morphGetAssertion(AssertionIndex assertIndex)
     assert(NO_ASSERTION_INDEX == 0);
     assert(assertIndex != NO_ASSERTION_INDEX);
     assert(assertIndex <= optAssertionCount);
-    AssertionDsc* assertion = &optAssertionTabPrivate[assertIndex - 1];
+    AssertionDsc* assertion = &morphAssertionTable[assertIndex - 1];
 #ifdef DEBUG
     morphDebugCheckAssertion(assertion);
 #endif
@@ -733,7 +733,7 @@ void Compiler::morphAddAssertion(AssertionDsc* newAssertion)
         return;
     }
 
-    optAssertionTabPrivate[optAssertionCount] = *newAssertion;
+    morphAssertionTable[optAssertionCount] = *newAssertion;
     optAssertionCount++;
 
 #ifdef DEBUG
