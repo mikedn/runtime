@@ -6191,7 +6191,6 @@ public:
     AssertionDsc* morphGetAssertion(AssertionIndex assertIndex);
     GenTree* morphAssertionProp(GenTree* tree);
     AssertionIndex morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
-    bool morphIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     bool morphAssertionIsNonNull(GenTree* op DEBUGARG(AssertionIndex* pIndex));
     void morphAssertionReset(AssertionIndex limit);
     void morphAssertionRemove(AssertionIndex index);

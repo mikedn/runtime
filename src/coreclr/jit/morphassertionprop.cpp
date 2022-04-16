@@ -221,10 +221,6 @@ void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex as
     {
         printf("Type     ");
     }
-    else if (curAssertion->op1.kind == O1K_ARR_BND)
-    {
-        printf("ArrBnds  ");
-    }
     else if (curAssertion->op1.kind == O1K_SUBTYPE)
     {
         printf("Subtype  ");
@@ -252,38 +248,6 @@ void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex as
         (curAssertion->op1.kind == O1K_SUBTYPE))
     {
         printf("V%02u", curAssertion->op1.lcl.lclNum);
-        if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-        {
-            printf(".%02u", curAssertion->op1.lcl.ssaNum);
-        }
-    }
-    else if (curAssertion->op1.kind == O1K_ARR_BND)
-    {
-        printf("[idx:");
-        vnStore->vnDump(this, curAssertion->op1.bnd.vnIdx);
-        printf(";len:");
-        vnStore->vnDump(this, curAssertion->op1.bnd.vnLen);
-        printf("]");
-    }
-    else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
-    {
-        printf("Oper_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
-    }
-    else if (curAssertion->op1.kind == O1K_BOUND_LOOP_BND)
-    {
-        printf("Loop_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
-    }
-    else if (curAssertion->op1.kind == O1K_CONSTANT_LOOP_BND)
-    {
-        printf("Const_Loop_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
-    }
-    else if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
-    {
-        printf("Value_Number");
-        vnStore->vnDump(this, curAssertion->op1.vn);
     }
     else
     {
@@ -325,88 +289,65 @@ void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex as
         printf(" ?assertionKind? ");
     }
 
-    if (curAssertion->op1.kind != O1K_ARR_BND)
+    switch (curAssertion->op2.kind)
     {
-        switch (curAssertion->op2.kind)
+        case O2K_LCLVAR_COPY:
+            printf("V%02u", curAssertion->op2.lcl.lclNum);
+            if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
+            {
+                printf(".%02u", curAssertion->op1.lcl.ssaNum);
+            }
+            break;
+
+        case O2K_CONST_INT:
+        case O2K_IND_CNS_INT:
         {
-            case O2K_LCLVAR_COPY:
-                printf("V%02u", curAssertion->op2.lcl.lclNum);
-                if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-                {
-                    printf(".%02u", curAssertion->op1.lcl.ssaNum);
-                }
-                break;
+            unsigned lclNum = curAssertion->op1.lcl.lclNum;
+            assert(lclNum < lvaCount);
+            LclVarDsc* varDsc  = lvaTable + lclNum;
+            var_types  op1Type = varDsc->lvType;
 
-            case O2K_CONST_INT:
-            case O2K_IND_CNS_INT:
-                if (curAssertion->op1.kind == O1K_EXACT_TYPE)
+            if (op1Type == TYP_REF)
+            {
+                assert(curAssertion->op2.u1.iconVal == 0);
+                printf("null");
+            }
+            else
+            {
+                if ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
                 {
-                    printf("Exact Type MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
-                }
-                else if (curAssertion->op1.kind == O1K_SUBTYPE)
-                {
-                    printf("MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
+                    printf("[%08p]", dspPtr(curAssertion->op2.u1.iconVal));
                 }
                 else
                 {
-                    var_types op1Type;
-
-                    if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
-                    {
-                        op1Type = vnStore->TypeOfVN(curAssertion->op1.vn);
-                    }
-                    else
-                    {
-                        unsigned lclNum = curAssertion->op1.lcl.lclNum;
-                        assert(lclNum < lvaCount);
-                        LclVarDsc* varDsc = lvaTable + lclNum;
-                        op1Type           = varDsc->lvType;
-                    }
-
-                    if (op1Type == TYP_REF)
-                    {
-                        assert(curAssertion->op2.u1.iconVal == 0);
-                        printf("null");
-                    }
-                    else
-                    {
-                        if ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
-                        {
-                            printf("[%08p]", dspPtr(curAssertion->op2.u1.iconVal));
-                        }
-                        else
-                        {
-                            printf("%d", curAssertion->op2.u1.iconVal);
-                        }
-                    }
+                    printf("%d", curAssertion->op2.u1.iconVal);
                 }
-                break;
-
-            case O2K_CONST_LONG:
-                printf("0x%016llx", curAssertion->op2.lconVal);
-                break;
-
-            case O2K_CONST_DOUBLE:
-                if (*((__int64*)&curAssertion->op2.dconVal) == (__int64)I64(0x8000000000000000))
-                {
-                    printf("-0.00000");
-                }
-                else
-                {
-                    printf("%#lg", curAssertion->op2.dconVal);
-                }
-                break;
-
-            case O2K_SUBRANGE:
-                printf("[%u..%u]", curAssertion->op2.u2.loBound, curAssertion->op2.u2.hiBound);
-                break;
-
-            default:
-                printf("?op2.kind?");
-                break;
+            }
         }
+        break;
+
+        case O2K_CONST_LONG:
+            printf("0x%016llx", curAssertion->op2.lconVal);
+            break;
+
+        case O2K_CONST_DOUBLE:
+            if (*((__int64*)&curAssertion->op2.dconVal) == (__int64)I64(0x8000000000000000))
+            {
+                printf("-0.00000");
+            }
+            else
+            {
+                printf("%#lg", curAssertion->op2.dconVal);
+            }
+            break;
+
+        case O2K_SUBRANGE:
+            printf("[%u..%u]", curAssertion->op2.u2.loBound, curAssertion->op2.u2.hiBound);
+            break;
+
+        default:
+            printf("?op2.kind?");
+            break;
     }
 
     if (assertionIndex > 0)
@@ -519,8 +460,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
         noway_assert(lclNum < lvaCount);
         LclVarDsc* lclVar = &lvaTable[lclNum];
 
-        ValueNum vn;
-
         //
         // We only perform null-checks on GC refs
         // so only make non-null assertions about GC refs or byrefs if we can't determine
@@ -540,14 +479,10 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
 
             assertion.op1.kind       = O1K_LCLVAR;
             assertion.op1.lcl.lclNum = lclNum;
-            assertion.op1.lcl.ssaNum = op1->AsLclVarCommon()->GetSsaNum();
-            vn                       = vnStore->VNConservativeNormalValue(op1->gtVNPair);
         }
 
-        assertion.op1.vn           = vn;
         assertion.assertionKind    = assertionKind;
         assertion.op2.kind         = O2K_CONST_INT;
-        assertion.op2.vn           = ValueNumStore::VNForNull();
         assertion.op2.u1.iconVal   = 0;
         assertion.op2.u1.iconFlags = GTF_EMPTY;
 #ifdef TARGET_64BIT
@@ -574,8 +509,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
 
             assertion.op1.kind       = O1K_LCLVAR;
             assertion.op1.lcl.lclNum = lclNum;
-            assertion.op1.vn         = vnStore->VNConservativeNormalValue(op1->gtVNPair);
-            assertion.op1.lcl.ssaNum = op1->AsLclVarCommon()->GetSsaNum();
 
             switch (op2->gtOper)
             {
@@ -621,7 +554,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
 
                     assertion.op2.kind    = op2Kind;
                     assertion.op2.lconVal = 0;
-                    assertion.op2.vn      = vnStore->VNConservativeNormalValue(op2->gtVNPair);
 
                     if (op2->gtOper == GT_CNS_INT)
                     {
@@ -730,8 +662,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
 
                     assertion.op2.kind       = O2K_LCLVAR_COPY;
                     assertion.op2.lcl.lclNum = lclNum2;
-                    assertion.op2.vn         = vnStore->VNConservativeNormalValue(op2->gtVNPair);
-                    assertion.op2.lcl.ssaNum = op2->AsLclVarCommon()->GetSsaNum();
 
                     //
                     // Ok everything has been set and the assertion looks good
@@ -825,94 +755,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
                 break;
             }
         } // else // !helperCallArgs
-    }     // if (op1->gtOper == GT_LCL_VAR)
-
-    //
-    // Are we making an IsType assertion?
-    //
-    else if (op1->gtOper == GT_IND)
-    {
-        op1 = op1->AsOp()->gtOp1;
-        //
-        // Is this an indirection of a local variable?
-        //
-        if (op1->gtOper == GT_LCL_VAR)
-        {
-            unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
-            noway_assert(lclNum < lvaCount);
-
-            //  If the local variable is not in SSA then bail
-            if (!lvaInSsa(lclNum))
-            {
-                goto DONE_ASSERTION;
-            }
-
-            // If we have an typeHnd indirection then op1 must be a TYP_REF
-            //  and the indirection must produce a TYP_I
-            //
-            if (op1->gtType != TYP_REF)
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
-            assertion.op1.kind       = O1K_EXACT_TYPE;
-            assertion.op1.lcl.lclNum = lclNum;
-            assertion.op1.vn         = vnStore->VNConservativeNormalValue(op1->gtVNPair);
-            assertion.op1.lcl.ssaNum = op1->AsLclVarCommon()->GetSsaNum();
-
-            assert((assertion.op1.lcl.ssaNum == SsaConfig::RESERVED_SSA_NUM) ||
-                   (assertion.op1.vn ==
-                    vnStore->VNConservativeNormalValue(
-                        lvaTable[lclNum].GetPerSsaData(assertion.op1.lcl.ssaNum)->m_vnPair)));
-
-            ssize_t      cnsValue  = 0;
-            GenTreeFlags iconFlags = GTF_EMPTY;
-            // Ngen case
-            if (op2->gtOper == GT_IND)
-            {
-                if (!morphIsTreeKnownIntValue(false, op2->AsOp()->gtOp1, &cnsValue, &iconFlags))
-                {
-                    goto DONE_ASSERTION; // Don't make an assertion
-                }
-
-                assertion.assertionKind  = assertionKind;
-                assertion.op2.kind       = O2K_IND_CNS_INT;
-                assertion.op2.u1.iconVal = cnsValue;
-                assertion.op2.vn         = vnStore->VNConservativeNormalValue(op2->AsOp()->gtOp1->gtVNPair);
-
-                /* iconFlags should only contain bits in GTF_ICON_HDL_MASK */
-                assert((iconFlags & ~GTF_ICON_HDL_MASK) == 0);
-                assertion.op2.u1.iconFlags = iconFlags;
-#ifdef TARGET_64BIT
-                if (op2->AsOp()->gtOp1->TypeGet() == TYP_LONG)
-                {
-                    assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
-                }
-#endif // TARGET_64BIT
-            }
-            // JIT case
-            else if (morphIsTreeKnownIntValue(false, op2, &cnsValue, &iconFlags))
-            {
-                assertion.assertionKind  = assertionKind;
-                assertion.op2.kind       = O2K_CONST_INT;
-                assertion.op2.u1.iconVal = cnsValue;
-                assertion.op2.vn         = vnStore->VNConservativeNormalValue(op2->gtVNPair);
-
-                /* iconFlags should only contain bits in GTF_ICON_HDL_MASK */
-                assert((iconFlags & ~GTF_ICON_HDL_MASK) == 0);
-                assertion.op2.u1.iconFlags = iconFlags;
-#ifdef TARGET_64BIT
-                if (op2->TypeGet() == TYP_LONG)
-                {
-                    assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
-                }
-#endif // TARGET_64BIT
-            }
-            else
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-        }
     }
 
 DONE_ASSERTION:
@@ -923,36 +765,8 @@ DONE_ASSERTION:
 
     // Now add the assertion to our assertion table
     noway_assert(assertion.op1.kind != O1K_INVALID);
-    noway_assert((assertion.op1.kind == O1K_ARR_BND) || (assertion.op2.kind != O2K_INVALID));
+    noway_assert(assertion.op2.kind != O2K_INVALID);
     return morphAddAssertion(&assertion);
-}
-
-/*****************************************************************************
- *
- * If tree is a constant node holding an integral value, retrieve the value in
- * pConstant. If the method returns true, pConstant holds the appropriate
- * constant. Set "vnBased" to true to indicate local or global assertion prop.
- * "pFlags" indicates if the constant is a handle marked by GTF_ICON_HDL_MASK.
- */
-bool Compiler::morphIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pFlags)
-{
-    if (tree->OperGet() == GT_CNS_INT)
-    {
-        *pConstant = tree->AsIntCon()->IconValue();
-        *pFlags    = tree->GetIconHandleFlag();
-        return true;
-    }
-#ifdef TARGET_64BIT
-    // Just to be clear, get it from gtLconVal rather than
-    // overlapping gtIconVal.
-    else if (tree->OperGet() == GT_CNS_LNG)
-    {
-        *pConstant = tree->AsLngCon()->gtLconVal;
-        *pFlags    = tree->GetIconHandleFlag();
-        return true;
-    }
-#endif
-    return false;
 }
 
 /*****************************************************************************
@@ -1022,7 +836,6 @@ void Compiler::morphDebugCheckAssertion(AssertionDsc* assertion)
     assert(assertion->assertionKind < OAK_COUNT);
     assert(assertion->op1.kind < O1K_COUNT);
     assert(assertion->op2.kind < O2K_COUNT);
-    // It would be good to check that op1.vn and op2.vn are valid value numbers.
 
     switch (assertion->op1.kind)
     {
@@ -1032,8 +845,6 @@ void Compiler::morphDebugCheckAssertion(AssertionDsc* assertion)
             assert(assertion->op1.lcl.lclNum < lvaCount);
             break;
         case O1K_ARR_BND:
-            // It would be good to check that bnd.vnIdx and bnd.vnLen are valid value numbers.
-            break;
         case O1K_BOUND_OPER_BND:
         case O1K_BOUND_LOOP_BND:
         case O1K_CONSTANT_LOOP_BND:
@@ -1066,7 +877,7 @@ void Compiler::morphDebugCheckAssertion(AssertionDsc* assertion)
                            (assertion->op2.u1.iconVal == 0) || doesMethodHaveFrozenString());
                     break;
                 case O1K_VALUE_NUMBER:
-                    assert((vnStore->TypeOfVN(assertion->op1.vn) != TYP_REF) || (assertion->op2.u1.iconVal == 0));
+                    assert(false);
                     break;
                 default:
                     break;
