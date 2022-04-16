@@ -31,16 +31,6 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 
 /*****************************************************************************
  *
- *  Initialize the assertion prop bitset traits and the default bitsets.
- */
-
-void Compiler::morphAssertionTraitsInit(AssertionIndex assertionCount)
-{
-    apTraits = new (this, CMK_AssertionProp) BitVecTraits(assertionCount, this);
-}
-
-/*****************************************************************************
- *
  *  Initialize the assertion prop tracking logic.
  */
 
@@ -60,7 +50,7 @@ void Compiler::morphAssertionInit()
             new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(CMK_AssertionProp), max(1, lvaCount));
     }
 
-    morphAssertionTraitsInit(optMaxAssertionCount);
+    apTraits            = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
     optAssertionCount   = 0;
     bbJtrueAssertionOut = nullptr;
 }

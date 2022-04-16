@@ -482,16 +482,6 @@ void Compiler::optAddCopies()
 
 /*****************************************************************************
  *
- *  Initialize the assertion prop bitset traits and the default bitsets.
- */
-
-void Compiler::optAssertionTraitsInit(AssertionIndex assertionCount)
-{
-    apTraits = new (this, CMK_AssertionProp) BitVecTraits(assertionCount, this);
-}
-
-/*****************************************************************************
- *
  *  Initialize the assertion prop tracking logic.
  */
 
@@ -521,7 +511,7 @@ void Compiler::optAssertionInit(bool isLocalProp)
             new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(CMK_AssertionProp), max(1, lvaCount));
     }
 
-    optAssertionTraitsInit(optMaxAssertionCount);
+    apTraits            = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
     optAssertionCount   = 0;
     bbJtrueAssertionOut = nullptr;
 }

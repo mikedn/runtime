@@ -6185,7 +6185,6 @@ public:
 
 #if LOCAL_ASSERTION_PROP
     void morphAssertionInit();
-    void morphAssertionTraitsInit(AssertionIndex assertionCount);
     void morphAssertionGen(GenTree* tree);
     AssertionIndex morphCreateAssertion(GenTree*         op1,
                                         GenTree*         op2,
@@ -6231,7 +6230,6 @@ public:
     ASSERT_TP& GetAssertionDep(unsigned lclNum);
     AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
     void optAssertionInit(bool isLocalProp);
-    void optAssertionTraitsInit(AssertionIndex assertionCount);
 
     // Assertion prop data flow functions.
     void optVNAssertionProp();
