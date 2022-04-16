@@ -1524,15 +1524,13 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
         return nullptr;
     }
 
-#ifdef DEBUG
-    AssertionIndex index = NO_ASSERTION_INDEX;
-#endif
-    if (morphAssertionIsNonNull(op1 DEBUGARG(&index)))
+    if (AssertionDsc* assertion = morphAssertionIsNonNull(op1))
     {
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
+                   compCurBB->bbNum);
             gtDispTree(tree, nullptr, nullptr, true);
         }
 #endif
@@ -1548,18 +1546,7 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// morphAssertionIsNonNull: see if we can prove a tree's value will be non-null
-//   based on assertions
-//
-// Arguments:
-//   op - tree to check
-//   pIndex - [out] the assertion used in the proof
-//
-// Returns:
-//   true if the tree's value will be non-null
-//
-bool Compiler::morphAssertionIsNonNull(GenTree* op DEBUGARG(AssertionIndex* pIndex))
+Compiler::AssertionDsc* Compiler::morphAssertionIsNonNull(GenTree* op)
 {
     unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
     // Check each assertion to find if we have a variable == or != null assertion.
@@ -1572,13 +1559,11 @@ bool Compiler::morphAssertionIsNonNull(GenTree* op DEBUGARG(AssertionIndex* pInd
             (curAssertion->op1.lcl.lclNum == lclNum) && (curAssertion->op2.u1.iconVal == 0))
         {
             assert(!lvaGetDesc(lclNum)->IsAddressExposed());
-            INDEBUG(*pIndex = index);
-            return true;
+            return curAssertion;
         }
     }
 
-    INDEBUG(*pIndex = NO_ASSERTION_INDEX);
-    return false;
+    return nullptr;
 }
 
 /*****************************************************************************
@@ -1601,15 +1586,13 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
         return nullptr;
     }
 
-#ifdef DEBUG
-    AssertionIndex index = NO_ASSERTION_INDEX;
-#endif
-    if (morphAssertionIsNonNull(op1 DEBUGARG(&index)))
+    if (AssertionDsc* assertion = morphAssertionIsNonNull(op1))
     {
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
+                   compCurBB->bbNum);
             gtDispTree(call, nullptr, nullptr, true);
         }
 #endif
