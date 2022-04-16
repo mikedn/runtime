@@ -6209,12 +6209,11 @@ public:
     bool morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
     GenTree* morphCopyAssertionProp(AssertionDsc*        curAssertion,
                                     GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index));
-    void morphPrintAssertion(AssertionDsc* newAssertion, AssertionIndex assertionIndex = 0);
-    void morphPrintAssertionIndex(AssertionIndex index);
 
 #ifdef DEBUG
+    void morphPrintAssertion(AssertionDsc* newAssertion, AssertionIndex assertionIndex = 0);
+    void morphPrintAssertionIndex(AssertionIndex index);
     void morphDebugCheckAssertion(AssertionDsc* assertion);
-    void morphDebugCheckAssertions(AssertionIndex AssertionIndex);
 #endif
 #endif
 

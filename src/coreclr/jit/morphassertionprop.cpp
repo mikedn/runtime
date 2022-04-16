@@ -755,10 +755,7 @@ void Compiler::morphAddAssertion(AssertionDsc* newAssertion)
         BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), optAssertionCount - 1);
     }
 
-#ifdef DEBUG
-    morphDebugCheckAssertions(optAssertionCount);
-#endif
-    return;
+    INDEBUG(morphDebugCheckAssertion(&morphAssertionTable[optAssertionCount - 1]));
 }
 
 #ifdef DEBUG
@@ -796,24 +793,6 @@ void Compiler::morphDebugCheckAssertion(AssertionDsc* assertion)
         default:
             // for all other 'assertion->op2.kind' values we don't check anything
             break;
-    }
-}
-
-/*****************************************************************************
- *
- *  Verify that assertion prop related assumptions are valid. If "index"
- *  is 0 (i.e., NO_ASSERTION_INDEX) then verify all assertions in the table.
- *  If "index" is between 1 and optAssertionCount, then verify the assertion
- *  desc corresponding to "index."
- */
-void Compiler::morphDebugCheckAssertions(AssertionIndex index)
-{
-    AssertionIndex start = (index == NO_ASSERTION_INDEX) ? 1 : index;
-    AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? optAssertionCount : index;
-    for (AssertionIndex ind = start; ind <= end; ++ind)
-    {
-        AssertionDsc* assertion = morphGetAssertion(ind);
-        morphDebugCheckAssertion(assertion);
     }
 }
 #endif
