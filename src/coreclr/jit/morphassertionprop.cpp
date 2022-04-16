@@ -217,15 +217,7 @@ void Compiler::morphAssertionMerge(unsigned      elseAssertionCount,
 #ifdef DEBUG
 void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* = 0 */)
 {
-    if (curAssertion->op1.kind == O1K_EXACT_TYPE)
-    {
-        printf("Type     ");
-    }
-    else if (curAssertion->op1.kind == O1K_SUBTYPE)
-    {
-        printf("Subtype  ");
-    }
-    else if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
+    if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
     {
         printf("Copy     ");
     }
@@ -244,8 +236,7 @@ void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex as
     }
     printf("Assertion: ");
 
-    if ((curAssertion->op1.kind == O1K_LCLVAR) || (curAssertion->op1.kind == O1K_EXACT_TYPE) ||
-        (curAssertion->op1.kind == O1K_SUBTYPE))
+    if (curAssertion->op1.kind == O1K_LCLVAR)
     {
         printf("V%02u", curAssertion->op1.lcl.lclNum);
     }
@@ -811,10 +802,10 @@ void Compiler::morphDebugCheckAssertion(AssertionDsc* assertion)
     switch (assertion->op1.kind)
     {
         case O1K_LCLVAR:
-        case O1K_EXACT_TYPE:
-        case O1K_SUBTYPE:
             assert(assertion->op1.lcl.lclNum < lvaCount);
             break;
+        case O1K_EXACT_TYPE:
+        case O1K_SUBTYPE:
         case O1K_ARR_BND:
         case O1K_BOUND_OPER_BND:
         case O1K_BOUND_LOOP_BND:
@@ -839,14 +830,12 @@ void Compiler::morphDebugCheckAssertion(AssertionDsc* assertion)
 #endif
             switch (assertion->op1.kind)
             {
-                case O1K_EXACT_TYPE:
-                case O1K_SUBTYPE:
-                    assert(assertion->op2.u1.iconFlags != GTF_EMPTY);
-                    break;
                 case O1K_LCLVAR:
                     assert((lvaTable[assertion->op1.lcl.lclNum].lvType != TYP_REF) ||
                            (assertion->op2.u1.iconVal == 0) || doesMethodHaveFrozenString());
                     break;
+                case O1K_EXACT_TYPE:
+                case O1K_SUBTYPE:
                 case O1K_VALUE_NUMBER:
                     assert(false);
                     break;
@@ -1354,7 +1343,7 @@ AssertionIndex Compiler::morphLocalAssertionIsEqualOrNotEqual(optOp1Kind op1Kind
                                                               optOp2Kind op2Kind,
                                                               ssize_t    cnsVal)
 {
-    noway_assert((op1Kind == O1K_LCLVAR) || (op1Kind == O1K_EXACT_TYPE) || (op1Kind == O1K_SUBTYPE));
+    noway_assert(op1Kind == O1K_LCLVAR);
     noway_assert((op2Kind == O2K_CONST_INT) || (op2Kind == O2K_IND_CNS_INT));
 
     for (AssertionIndex index = 1; index <= optAssertionCount; ++index)
