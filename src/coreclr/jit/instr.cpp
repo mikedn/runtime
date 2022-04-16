@@ -382,28 +382,6 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
 #endif // !TARGET_ARM
 }
 
-#ifdef TARGET_XARCH
-
-void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val)
-{
-#ifdef TARGET_AMD64
-    // X64 JB BE insures only encodable values make it here.
-    // x86 can encode 8 bits, though it masks down to 5 or 6
-    // depending on 32-bit or 64-bit registers are used.
-    // Here we will allow anything that is encodable.
-    assert(val < 256);
-#endif
-
-    if (val == 1)
-    {
-        GetEmitter()->emitIns_R(MapShiftInsToShiftBy1Ins(ins), size, reg);
-    }
-    else
-    {
-        GetEmitter()->emitIns_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, val);
-    }
-}
-
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
 {
     if (op->isUsedFromSpillTemp())
@@ -439,6 +417,28 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
     }
 
     return false;
+}
+
+#ifdef TARGET_XARCH
+
+void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val)
+{
+#ifdef TARGET_AMD64
+    // X64 JB BE insures only encodable values make it here.
+    // x86 can encode 8 bits, though it masks down to 5 or 6
+    // depending on 32-bit or 64-bit registers are used.
+    // Here we will allow anything that is encodable.
+    assert(val < 256);
+#endif
+
+    if (val == 1)
+    {
+        GetEmitter()->emitIns_R(MapShiftInsToShiftBy1Ins(ins), size, reg);
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, val);
+    }
 }
 
 bool CodeGen::IsMemoryOperand(

@@ -3283,39 +3283,20 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
         // register will be written only in genProduceReg, after the actual cast is
         // performed.
 
-        if (src->OperIs(GT_IND))
+        unsigned lclNum;
+        unsigned lclOffs;
+
+        if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
+        {
+            GetEmitter()->emitIns_R_S(ins, EA_ATTR(insSize), dstReg, lclNum, lclOffs);
+        }
+        else if (src->OperIs(GT_IND))
         {
             emitInsLoad(ins, EA_ATTR(insSize), dstReg, src->AsIndir());
         }
         else
         {
-            unsigned lclNum;
-            unsigned lclOffs;
-
-            if (src->isUsedFromSpillTemp())
-            {
-                TempDsc* tmpDsc = getSpillTempDsc(src);
-                lclNum          = tmpDsc->tdTempNum();
-                lclOffs         = 0;
-                regSet.tmpRlsTemp(tmpDsc);
-            }
-            else if (src->OperIs(GT_LCL_VAR))
-            {
-                lclNum  = src->AsLclVar()->GetLclNum();
-                lclOffs = 0;
-                assert(src->IsRegOptional() || !compiler->lvaGetDesc(lclNum)->lvIsRegCandidate());
-            }
-            else if (src->OperIs(GT_LCL_FLD))
-            {
-                lclNum  = src->AsLclFld()->GetLclNum();
-                lclOffs = src->AsLclFld()->GetLclOffs();
-            }
-            else
-            {
-                unreached();
-            }
-
-            GetEmitter()->emitIns_R_S(ins, EA_ATTR(insSize), dstReg, lclNum, lclOffs);
+            unreached();
         }
 
         srcReg = dstReg;
