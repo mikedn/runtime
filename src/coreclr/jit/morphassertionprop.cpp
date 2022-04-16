@@ -1435,20 +1435,6 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
         return nullptr;
     }
 
-    // If local assertion prop then use variable based prop.
-    return morphAssertionPropLocal_RelOp(tree);
-}
-
-/*************************************************************************************
- *
- *  Given the set of "assertions" to look up a relop assertion about the relop "tree",
- *  perform local variable name based relop assertion propagation on the tree.
- *
- */
-GenTree* Compiler::morphAssertionPropLocal_RelOp(GenTree* tree)
-{
-    assert(tree->OperGet() == GT_EQ || tree->OperGet() == GT_NE);
-
     GenTree* op1 = tree->AsOp()->gtOp1;
     GenTree* op2 = tree->AsOp()->gtOp2;
 

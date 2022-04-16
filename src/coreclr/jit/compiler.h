@@ -6201,7 +6201,6 @@ public:
     GenTree* morphAssertionProp_Cast(GenTree* tree);
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionProp_RelOp(GenTree* tree);
-    GenTree* morphAssertionPropLocal_RelOp(GenTree* tree);
     AssertionIndex morphLocalAssertionIsEqualOrNotEqual(optOp1Kind op1Kind,
                                                         unsigned   lclNum,
                                                         optOp2Kind op2Kind,
