@@ -211,7 +211,7 @@ void Compiler::morphAssertionMerge(unsigned      elseAssertionCount,
 #endif // LOCAL_ASSERTION_PROP
 
 #ifdef DEBUG
-void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* = 0 */)
+void Compiler::morphPrintAssertion(AssertionDsc* curAssertion)
 {
     if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
     {
@@ -311,23 +311,12 @@ void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex as
             break;
     }
 
-    if (assertionIndex > 0)
+    if ((curAssertion >= morphAssertionTable) && (curAssertion < morphAssertionTable + optAssertionCount))
     {
-        printf(", index = ");
-        morphPrintAssertionIndex(assertionIndex);
+        printf(", index = %u", curAssertion - morphAssertionTable);
     }
+
     printf("\n");
-}
-
-void Compiler::morphPrintAssertionIndex(AssertionIndex index)
-{
-    if (index == NO_ASSERTION_INDEX)
-    {
-        printf("#NA");
-        return;
-    }
-
-    printf("#%02u", index);
 }
 
 #endif // DEBUG
@@ -734,6 +723,7 @@ void Compiler::morphAddAssertion(AssertionDsc* newAssertion)
     }
 
     morphAssertionTable[optAssertionCount] = *newAssertion;
+    newAssertion = &morphAssertionTable[optAssertionCount];
     optAssertionCount++;
 
 #ifdef DEBUG
@@ -742,7 +732,7 @@ void Compiler::morphAddAssertion(AssertionDsc* newAssertion)
         printf("GenTreeNode creates assertion:\n");
         gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
         printf("In " FMT_BB " New Local ", compCurBB->bbNum);
-        morphPrintAssertion(newAssertion, optAssertionCount);
+        morphPrintAssertion(newAssertion);
     }
 #endif // DEBUG
 
@@ -936,8 +926,7 @@ Compiler::AssertionDsc* Compiler::morphAssertionIsSubrange(GenTree* tree, var_ty
 // Notes:
 //    stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::morphConstantAssertionProp(AssertionDsc*        curAssertion,
-                                              GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index))
+GenTree* Compiler::morphConstantAssertionProp(AssertionDsc* curAssertion, GenTreeLclVarCommon* tree)
 {
     const unsigned lclNum = tree->GetLclNum();
 
@@ -1050,7 +1039,7 @@ GenTree* Compiler::morphConstantAssertionProp(AssertionDsc*        curAssertion,
     if (verbose)
     {
         printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-        morphPrintAssertion(curAssertion, index);
+        morphPrintAssertion(curAssertion);
         gtDispTree(newTree, nullptr, nullptr, true);
     }
 #endif
@@ -1133,8 +1122,7 @@ bool Compiler::morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclV
 // Notes:
 //    stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::morphCopyAssertionProp(AssertionDsc*        curAssertion,
-                                          GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index))
+GenTree* Compiler::morphCopyAssertionProp(AssertionDsc* curAssertion, GenTreeLclVarCommon* tree)
 {
     const AssertionDsc::AssertionDscOp1& op1 = curAssertion->op1;
     const AssertionDsc::AssertionDscOp2& op2 = curAssertion->op2;
@@ -1176,7 +1164,7 @@ GenTree* Compiler::morphCopyAssertionProp(AssertionDsc*        curAssertion,
     if (verbose)
     {
         printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-        morphPrintAssertion(curAssertion, index);
+        morphPrintAssertion(curAssertion);
         gtDispTree(tree, nullptr, nullptr, true);
     }
 #endif
@@ -1223,7 +1211,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
         if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
         {
             // Perform copy assertion prop.
-            GenTree* newTree = morphCopyAssertionProp(curAssertion, tree DEBUGARG(assertionIndex));
+            GenTree* newTree = morphCopyAssertionProp(curAssertion, tree);
             if (newTree != nullptr)
             {
                 return newTree;
@@ -1245,7 +1233,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
             // Verify types match
             if (tree->TypeGet() == lclDsc->lvType)
             {
-                return morphConstantAssertionProp(curAssertion, tree DEBUGARG(assertionIndex));
+                return morphConstantAssertionProp(curAssertion, tree);
             }
         }
     }

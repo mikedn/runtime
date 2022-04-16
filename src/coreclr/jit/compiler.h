@@ -6204,15 +6204,12 @@ public:
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionProp_RelOp(GenTree* tree);
     AssertionDsc* morphLocalAssertionIsEqualOrNotEqual(unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal);
-    GenTree* morphConstantAssertionProp(AssertionDsc*        curAssertion,
-                                        GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index));
+    GenTree* morphConstantAssertionProp(AssertionDsc* curAssertion, GenTreeLclVarCommon* tree);
     bool morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
-    GenTree* morphCopyAssertionProp(AssertionDsc*        curAssertion,
-                                    GenTreeLclVarCommon* tree DEBUGARG(AssertionIndex index));
+    GenTree* morphCopyAssertionProp(AssertionDsc* curAssertion, GenTreeLclVarCommon* tree);
 
 #ifdef DEBUG
-    void morphPrintAssertion(AssertionDsc* newAssertion, AssertionIndex assertionIndex = 0);
-    void morphPrintAssertionIndex(AssertionIndex index);
+    void morphPrintAssertion(AssertionDsc* newAssertion);
     void morphDebugCheckAssertion(AssertionDsc* assertion);
 #endif
 #endif
