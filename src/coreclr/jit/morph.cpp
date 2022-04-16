@@ -3307,7 +3307,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
                     var_types type = varTypeToUnsigned(field->GetType());
 
                     if (!optLocalAssertionProp ||
-                        (optAssertionIsSubrange(field, TYP_INT, type, apFull) == NO_ASSERTION_INDEX))
+                        (morphAssertionIsSubrange(field, TYP_INT, type, apFull) == NO_ASSERTION_INDEX))
                     {
                         field->SetType(TYP_INT);
                         field = gtNewCastNode(TYP_INT, field, false, type);
@@ -5020,7 +5020,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     }
 
 #if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && optAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType(), apFull))
+    if (optLocalAssertionProp && morphAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType(), apFull))
     {
         return lclVar;
     }
@@ -5251,7 +5251,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
             INDEBUG(AssertionIndex assertionIndex;)
 
             if ((nullCheckAddr == nullptr) || !optLocalAssertionProp || (optAssertionCount == 0) ||
-                !optAssertionIsNonNull(nullCheckAddr, apFull DEBUGARG(&vnBased) DEBUGARG(&assertionIndex)))
+                !morphAssertionIsNonNull(nullCheckAddr, apFull DEBUGARG(&vnBased) DEBUGARG(&assertionIndex)))
 #endif
             {
                 addr->SetDoNotCSE();
@@ -8475,7 +8475,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
 #if LOCAL_ASSERTION_PROP
         if (optLocalAssertionProp)
         {
-            optAssertionGen(asg);
+            morphAssertionGen(asg);
         }
 #endif
 
@@ -8739,7 +8739,7 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
 #if LOCAL_ASSERTION_PROP
         if (optLocalAssertionProp)
         {
-            optAssertionGen(fieldAsg);
+            morphAssertionGen(fieldAsg);
         }
 #endif
 
@@ -9383,7 +9383,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 #if LOCAL_ASSERTION_PROP
         if (optLocalAssertionProp)
         {
-            optAssertionGen(asgField);
+            morphAssertionGen(asgField);
         }
 #endif
 
@@ -9694,14 +9694,14 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
             elseAssertionCount = optAssertionCount;
             memcpy(elseAssertionTab, optAssertionTabPrivate, tabSize);
 
-            optAssertionReset(0);
+            morphAssertionReset(0);
         }
 
         if (origAssertionCount != 0)
         {
             size_t tabSize = origAssertionCount * sizeof(AssertionDsc);
             memcpy(optAssertionTabPrivate, origAssertionTab, tabSize);
-            optAssertionReset(origAssertionCount);
+            morphAssertionReset(origAssertionCount);
         }
     }
 #endif // LOCAL_ASSERTION_PROP
@@ -9714,7 +9714,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     // Merge assertions after then/else morphing.
     if (optLocalAssertionProp)
     {
-        optAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(qmark));
+        morphAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(qmark));
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -13038,7 +13038,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
                 {
                     tree = newTree;
                     /* newTree is non-Null if we propagated an assertion */
-                    newTree = optAssertionProp(apFull, tree, nullptr, nullptr);
+                    newTree = morphAssertionProp(apFull, tree, nullptr, nullptr);
                 }
                 assert(tree != nullptr);
             }
@@ -13268,7 +13268,7 @@ void Compiler::fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree*
             if (BitVecOps::IsMember(apTraits, killed, index - 1))
             {
 #ifdef DEBUG
-                AssertionDsc* curAssertion = optGetAssertion(index);
+                AssertionDsc* curAssertion = morphGetAssertion(index);
                 noway_assert((curAssertion->op1.lcl.lclNum == lclNum) ||
                              ((curAssertion->op2.kind == O2K_LCLVAR_COPY) && (curAssertion->op2.lcl.lclNum == lclNum)));
                 if (verbose)
@@ -13276,13 +13276,13 @@ void Compiler::fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree*
                     printf("\nThe assignment ");
                     printTreeID(tree);
                     printf(" using V%02u removes: ", curAssertion->op1.lcl.lclNum);
-                    optPrintAssertion(curAssertion);
+                    morphPrintAssertion(curAssertion);
                 }
 #endif
                 // Remove this bit from the killed mask
                 BitVecOps::RemoveElemD(apTraits, killed, index - 1);
 
-                optAssertionRemove(index);
+                morphAssertionRemove(index);
             }
 
             index--;
@@ -13402,7 +13402,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         }
     }
 
-    optAssertionGen(tree);
+    morphAssertionGen(tree);
 
 #endif // LOCAL_ASSERTION_PROP
 
@@ -14143,7 +14143,7 @@ void Compiler::fgMorphBlocks()
         //
         // Initialize for local assertion prop
         //
-        optAssertionInit(true);
+        morphAssertionInit();
     }
 #elif ASSERTION_PROP
     //
@@ -14189,7 +14189,7 @@ void Compiler::fgMorphBlocks()
             // before processing each basic block,
             // also we must  handle QMARK-COLON specially
             //
-            optAssertionReset(0);
+            morphAssertionReset(0);
         }
 #endif
         // Make the current basic block address available globally.

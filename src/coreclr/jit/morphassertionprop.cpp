@@ -34,7 +34,7 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
  *  Initialize the assertion prop bitset traits and the default bitsets.
  */
 
-void Compiler::optAssertionTraitsInit(AssertionIndex assertionCount)
+void Compiler::morphAssertionTraitsInit(AssertionIndex assertionCount)
 {
     apTraits = new (this, CMK_AssertionProp) BitVecTraits(assertionCount, this);
     apFull   = BitVecOps::MakeFull(apTraits);
@@ -45,7 +45,7 @@ void Compiler::optAssertionTraitsInit(AssertionIndex assertionCount)
  *  Initialize the assertion prop tracking logic.
  */
 
-void Compiler::optAssertionInit(bool isLocalProp)
+void Compiler::morphAssertionInit()
 {
     optMaxAssertionCount = 64;
 
@@ -61,7 +61,7 @@ void Compiler::optAssertionInit(bool isLocalProp)
             new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(CMK_AssertionProp), max(1, lvaCount));
     }
 
-    optAssertionTraitsInit(optMaxAssertionCount);
+    morphAssertionTraitsInit(optMaxAssertionCount);
     optAssertionCount   = 0;
     bbJtrueAssertionOut = nullptr;
 }
@@ -70,14 +70,14 @@ void Compiler::optAssertionInit(bool isLocalProp)
 
 // The following resets the value assignment table
 // used only during local assertion prop
-void Compiler::optAssertionReset(AssertionIndex limit)
+void Compiler::morphAssertionReset(AssertionIndex limit)
 {
     PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
 
     while (optAssertionCount > limit)
     {
         AssertionIndex index        = optAssertionCount;
-        AssertionDsc*  curAssertion = optGetAssertion(index);
+        AssertionDsc*  curAssertion = morphGetAssertion(index);
         optAssertionCount--;
         unsigned lclNum = curAssertion->op1.lcl.lclNum;
         BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
@@ -98,7 +98,7 @@ void Compiler::optAssertionReset(AssertionIndex limit)
     while (optAssertionCount < limit)
     {
         AssertionIndex index        = ++optAssertionCount;
-        AssertionDsc*  curAssertion = optGetAssertion(index);
+        AssertionDsc*  curAssertion = morphGetAssertion(index);
         unsigned       lclNum       = curAssertion->op1.lcl.lclNum;
         BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index - 1);
 
@@ -123,13 +123,13 @@ void Compiler::optAssertionReset(AssertionIndex limit)
  *  used only during local assertion prop
  */
 
-void Compiler::optAssertionRemove(AssertionIndex index)
+void Compiler::morphAssertionRemove(AssertionIndex index)
 {
     assert(index > 0);
     assert(index <= optAssertionCount);
     PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
 
-    AssertionDsc* curAssertion = optGetAssertion(index);
+    AssertionDsc* curAssertion = morphGetAssertion(index);
 
     //  Two cases to consider if (index == optAssertionCount) then the last
     //  entry in the table is to be removed and that happens automatically when
@@ -162,21 +162,21 @@ void Compiler::optAssertionRemove(AssertionIndex index)
     }
     else
     {
-        AssertionDsc*  lastAssertion     = optGetAssertion(optAssertionCount);
+        AssertionDsc*  lastAssertion     = morphGetAssertion(optAssertionCount);
         AssertionIndex newAssertionCount = optAssertionCount - 1;
 
-        optAssertionReset(0); // This make optAssertionCount equal 0
+        morphAssertionReset(0); // This make optAssertionCount equal 0
 
         memcpy(curAssertion,  // the entry to be removed
                lastAssertion, // last entry in the table
                sizeof(AssertionDsc));
 
-        optAssertionReset(newAssertionCount);
+        morphAssertionReset(newAssertionCount);
     }
 }
 
-void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
-                                 AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
+void Compiler::morphAssertionMerge(unsigned      elseAssertionCount,
+                                   AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
 {
     if (optAssertionCount == 0)
     {
@@ -185,7 +185,7 @@ void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
 
     if (elseAssertionCount == 0)
     {
-        optAssertionReset(0);
+        morphAssertionReset(0);
         return;
     }
 
@@ -197,7 +197,7 @@ void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
 
     for (AssertionIndex index = 1; index <= optAssertionCount;)
     {
-        AssertionDsc* thenAssertion = optGetAssertion(index);
+        AssertionDsc* thenAssertion = morphGetAssertion(index);
         AssertionDsc* elseAssertion = nullptr;
 
         for (unsigned j = 0; j < elseAssertionCount; j++)
@@ -219,7 +219,7 @@ void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
         else
         {
             JITDUMP("The QMARK [%06u] removes assertion candidate #%d\n", qmark->GetID(), index);
-            optAssertionRemove(index);
+            morphAssertionRemove(index);
         }
     }
 }
@@ -227,7 +227,7 @@ void Compiler::optAssertionMerge(unsigned      elseAssertionCount,
 #endif // LOCAL_ASSERTION_PROP
 
 #ifdef DEBUG
-void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* = 0 */)
+void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* = 0 */)
 {
     if (curAssertion->op1.kind == O1K_EXACT_TYPE)
     {
@@ -424,12 +424,12 @@ void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex asse
     if (assertionIndex > 0)
     {
         printf(", index = ");
-        optPrintAssertionIndex(assertionIndex);
+        morphPrintAssertionIndex(assertionIndex);
     }
     printf("\n");
 }
 
-void Compiler::optPrintAssertionIndex(AssertionIndex index)
+void Compiler::morphPrintAssertionIndex(AssertionIndex index)
 {
     if (index == NO_ASSERTION_INDEX)
     {
@@ -448,21 +448,21 @@ void Compiler::optPrintAssertionIndex(AssertionIndex index)
  * is NO_ASSERTION_INDEX and "optAssertionCount" is the last valid index.
  *
  */
-Compiler::AssertionDsc* Compiler::optGetAssertion(AssertionIndex assertIndex)
+Compiler::AssertionDsc* Compiler::morphGetAssertion(AssertionIndex assertIndex)
 {
     assert(NO_ASSERTION_INDEX == 0);
     assert(assertIndex != NO_ASSERTION_INDEX);
     assert(assertIndex <= optAssertionCount);
     AssertionDsc* assertion = &optAssertionTabPrivate[assertIndex - 1];
 #ifdef DEBUG
-    optDebugCheckAssertion(assertion);
+    morphDebugCheckAssertion(assertion);
 #endif
 
     return assertion;
 }
 
 //------------------------------------------------------------------------
-// optCreateAssertion: Create an (op1 assertionKind op2) assertion.
+// morphCreateAssertion: Create an (op1 assertionKind op2) assertion.
 //
 // Arguments:
 //    op1 - the first assertion operand
@@ -479,10 +479,10 @@ Compiler::AssertionDsc* Compiler::optGetAssertion(AssertionIndex assertIndex)
 //    Assertion creation may fail either because the provided assertion
 //    operands aren't supported or because the assertion table is full.
 //
-AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
-                                            GenTree*         op2,
-                                            optAssertionKind assertionKind,
-                                            bool             helperCallArgs)
+AssertionIndex Compiler::morphCreateAssertion(GenTree*         op1,
+                                              GenTree*         op2,
+                                              optAssertionKind assertionKind,
+                                              bool             helperCallArgs)
 {
     assert(op1 != nullptr);
     assert(!helperCallArgs || (op2 != nullptr));
@@ -944,7 +944,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
             // Ngen case
             if (op2->gtOper == GT_IND)
             {
-                if (!optIsTreeKnownIntValue(false, op2->AsOp()->gtOp1, &cnsValue, &iconFlags))
+                if (!morphIsTreeKnownIntValue(false, op2->AsOp()->gtOp1, &cnsValue, &iconFlags))
                 {
                     goto DONE_ASSERTION; // Don't make an assertion
                 }
@@ -965,7 +965,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
 #endif // TARGET_64BIT
             }
             // JIT case
-            else if (optIsTreeKnownIntValue(false, op2, &cnsValue, &iconFlags))
+            else if (morphIsTreeKnownIntValue(false, op2, &cnsValue, &iconFlags))
             {
                 assertion.assertionKind  = assertionKind;
                 assertion.op2.kind       = O2K_CONST_INT;
@@ -998,7 +998,7 @@ DONE_ASSERTION:
     // Now add the assertion to our assertion table
     noway_assert(assertion.op1.kind != O1K_INVALID);
     noway_assert((assertion.op1.kind == O1K_ARR_BND) || (assertion.op2.kind != O2K_INVALID));
-    return optAddAssertion(&assertion);
+    return morphAddAssertion(&assertion);
 }
 
 /*****************************************************************************
@@ -1008,7 +1008,7 @@ DONE_ASSERTION:
  * constant. Set "vnBased" to true to indicate local or global assertion prop.
  * "pFlags" indicates if the constant is a handle marked by GTF_ICON_HDL_MASK.
  */
-bool Compiler::optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pFlags)
+bool Compiler::morphIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pFlags)
 {
     if (tree->OperGet() == GT_CNS_INT)
     {
@@ -1039,14 +1039,14 @@ bool Compiler::optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pCon
  *  we use to refer to this element.
  *  If we need to add to the table and the table is full return the value zero
  */
-AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
+AssertionIndex Compiler::morphAddAssertion(AssertionDsc* newAssertion)
 {
     noway_assert(newAssertion->assertionKind != OAK_INVALID);
 
     // Check if exists already, so we can skip adding new one. Search backwards.
     for (AssertionIndex index = optAssertionCount; index >= 1; index--)
     {
-        AssertionDsc* curAssertion = optGetAssertion(index);
+        AssertionDsc* curAssertion = morphGetAssertion(index);
         if (curAssertion->Equals(newAssertion, false))
         {
             return index;
@@ -1068,7 +1068,7 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
         printf("GenTreeNode creates assertion:\n");
         gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
         printf("In " FMT_BB " New Local ", compCurBB->bbNum);
-        optPrintAssertion(newAssertion, optAssertionCount);
+        morphPrintAssertion(newAssertion, optAssertionCount);
     }
 #endif // DEBUG
 
@@ -1085,13 +1085,13 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
     }
 
 #ifdef DEBUG
-    optDebugCheckAssertions(optAssertionCount);
+    morphDebugCheckAssertions(optAssertionCount);
 #endif
     return optAssertionCount;
 }
 
 #ifdef DEBUG
-void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
+void Compiler::morphDebugCheckAssertion(AssertionDsc* assertion)
 {
     assert(assertion->assertionKind < OAK_COUNT);
     assert(assertion->op1.kind < O1K_COUNT);
@@ -1169,14 +1169,14 @@ void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
  *  If "index" is between 1 and optAssertionCount, then verify the assertion
  *  desc corresponding to "index."
  */
-void Compiler::optDebugCheckAssertions(AssertionIndex index)
+void Compiler::morphDebugCheckAssertions(AssertionIndex index)
 {
     AssertionIndex start = (index == NO_ASSERTION_INDEX) ? 1 : index;
     AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? optAssertionCount : index;
     for (AssertionIndex ind = start; ind <= end; ++ind)
     {
-        AssertionDsc* assertion = optGetAssertion(ind);
-        optDebugCheckAssertion(assertion);
+        AssertionDsc* assertion = morphGetAssertion(ind);
+        morphDebugCheckAssertion(assertion);
     }
 }
 #endif
@@ -1187,7 +1187,7 @@ void Compiler::optDebugCheckAssertions(AssertionIndex index)
  *  then assign an index to the given value assignment by adding
  *  it to the lookup table, if necessary.
  */
-void Compiler::optAssertionGen(GenTree* tree)
+void Compiler::morphAssertionGen(GenTree* tree)
 {
     tree->ClearAssertion();
 
@@ -1202,7 +1202,7 @@ void Compiler::optAssertionGen(GenTree* tree)
     switch (tree->gtOper)
     {
         case GT_ASG:
-            assertionInfo = optCreateAssertion(tree->AsOp()->gtOp1, tree->AsOp()->gtOp2, OAK_EQUAL);
+            assertionInfo = morphCreateAssertion(tree->AsOp()->gtOp1, tree->AsOp()->gtOp2, OAK_EQUAL);
             break;
 
         case GT_BLK:
@@ -1212,16 +1212,16 @@ void Compiler::optAssertionGen(GenTree* tree)
         case GT_IND:
         case GT_NULLCHECK:
             // All indirections create non-null assertions
-            assertionInfo = optCreateAssertion(tree->AsIndir()->Addr(), nullptr, OAK_NOT_EQUAL);
+            assertionInfo = morphCreateAssertion(tree->AsIndir()->Addr(), nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_ARR_LENGTH:
-            assertionInfo = optCreateAssertion(tree->AsArrLen()->GetArray(), nullptr, OAK_NOT_EQUAL);
+            assertionInfo = morphCreateAssertion(tree->AsArrLen()->GetArray(), nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_ARR_ELEM:
             // An array element reference can create a non-null assertion
-            assertionInfo = optCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr, OAK_NOT_EQUAL);
+            assertionInfo = morphCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_CALL:
@@ -1232,7 +1232,7 @@ void Compiler::optAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                assertionInfo = optCreateAssertion(call->GetThisArg(), nullptr, OAK_NOT_EQUAL);
+                assertionInfo = morphCreateAssertion(call->GetThisArg(), nullptr, OAK_NOT_EQUAL);
             }
         }
         break;
@@ -1251,14 +1251,14 @@ void Compiler::optAssertionGen(GenTree* tree)
  *  if one such assertion could not be found in "assertions."
  */
 
-AssertionIndex Compiler::optAssertionIsSubrange(GenTree*         tree,
-                                                var_types        fromType,
-                                                var_types        toType,
-                                                ASSERT_VALARG_TP assertions)
+AssertionIndex Compiler::morphAssertionIsSubrange(GenTree*         tree,
+                                                  var_types        fromType,
+                                                  var_types        toType,
+                                                  ASSERT_VALARG_TP assertions)
 {
     for (AssertionIndex index = 1; index <= optAssertionCount; index++)
     {
-        AssertionDsc* curAssertion = optGetAssertion(index);
+        AssertionDsc* curAssertion = morphGetAssertion(index);
         if ((curAssertion->assertionKind == OAK_SUBRANGE) && (curAssertion->op1.kind == O1K_LCLVAR))
         {
             if (curAssertion->op1.lcl.lclNum != tree->AsLclVarCommon()->GetLclNum())
@@ -1310,7 +1310,7 @@ AssertionIndex Compiler::optAssertionIsSubrange(GenTree*         tree,
 }
 
 //------------------------------------------------------------------------------
-// optConstantAssertionProp: Possibly substitute a constant for a local use
+// morphConstantAssertionProp: Possibly substitute a constant for a local use
 //
 // Arguments:
 //    curAssertion - assertion to propagate
@@ -1324,9 +1324,9 @@ AssertionIndex Compiler::optAssertionIsSubrange(GenTree*         tree,
 // Notes:
 //    stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
-                                            GenTreeLclVarCommon* tree,
-                                            Statement* stmt DEBUGARG(AssertionIndex index))
+GenTree* Compiler::morphConstantAssertionProp(AssertionDsc*        curAssertion,
+                                              GenTreeLclVarCommon* tree,
+                                              Statement* stmt DEBUGARG(AssertionIndex index))
 {
     const unsigned lclNum = tree->GetLclNum();
 
@@ -1439,7 +1439,7 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
     if (verbose)
     {
         printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-        optPrintAssertion(curAssertion, index);
+        morphPrintAssertion(curAssertion, index);
         gtDispTree(newTree, nullptr, nullptr, true);
     }
 #endif
@@ -1448,7 +1448,7 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
 }
 
 //------------------------------------------------------------------------------
-// optAssertionProp_LclVarTypeCheck: verify compatible types for copy prop
+// morphAssertionProp_LclVarTypeCheck: verify compatible types for copy prop
 //
 // Arguments:
 //    tree         - tree to possibly modify
@@ -1461,7 +1461,7 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
 // Notes:
 //    Before substituting copyVar for lclVar, make sure using copyVar doesn't widen access.
 //
-bool Compiler::optAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
+bool Compiler::morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
 {
     /*
         Small struct field locals are stored using the exact width and loaded widened
@@ -1508,7 +1508,7 @@ bool Compiler::optAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVar
 }
 
 //------------------------------------------------------------------------
-// optCopyAssertionProp: copy prop use of one local with another
+// morphCopyAssertionProp: copy prop use of one local with another
 //
 // Arguments:
 //    curAssertion - assertion triggering the possible copy
@@ -1522,9 +1522,9 @@ bool Compiler::optAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVar
 // Notes:
 //    stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::optCopyAssertionProp(AssertionDsc*        curAssertion,
-                                        GenTreeLclVarCommon* tree,
-                                        Statement* stmt DEBUGARG(AssertionIndex index))
+GenTree* Compiler::morphCopyAssertionProp(AssertionDsc*        curAssertion,
+                                          GenTreeLclVarCommon* tree,
+                                          Statement* stmt DEBUGARG(AssertionIndex index))
 {
     const AssertionDsc::AssertionDscOp1& op1 = curAssertion->op1;
     const AssertionDsc::AssertionDscOp2& op2 = curAssertion->op2;
@@ -1550,7 +1550,7 @@ GenTree* Compiler::optCopyAssertionProp(AssertionDsc*        curAssertion,
     assert(!lclVarDsc->IsAddressExposed());
 
     // Make sure the types are compatible.
-    if (!optAssertionProp_LclVarTypeCheck(tree, lclVarDsc, copyVarDsc))
+    if (!morphAssertionProp_LclVarTypeCheck(tree, lclVarDsc, copyVarDsc))
     {
         return nullptr;
     }
@@ -1568,7 +1568,7 @@ GenTree* Compiler::optCopyAssertionProp(AssertionDsc*        curAssertion,
     if (verbose)
     {
         printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-        optPrintAssertion(curAssertion, index);
+        morphPrintAssertion(curAssertion, index);
         gtDispTree(tree, nullptr, nullptr, true);
     }
 #endif
@@ -1577,7 +1577,7 @@ GenTree* Compiler::optCopyAssertionProp(AssertionDsc*        curAssertion,
 }
 
 //------------------------------------------------------------------------
-// optAssertionProp_LclVar: try and optimize a local var use via assertions
+// morphAssertionProp_LclVar: try and optimize a local var use via assertions
 //
 // Arguments:
 //    assertions - set of live assertions
@@ -1590,7 +1590,7 @@ GenTree* Compiler::optCopyAssertionProp(AssertionDsc*        curAssertion,
 // Notes:
 //   stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt)
 {
     assert(tree->OperIs(GT_LCL_VAR));
 
@@ -1612,7 +1612,7 @@ GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeL
             break;
         }
         // See if the variable is equal to a constant or another variable.
-        AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
+        AssertionDsc* curAssertion = morphGetAssertion(assertionIndex);
         if (curAssertion->assertionKind != OAK_EQUAL || curAssertion->op1.kind != O1K_LCLVAR)
         {
             continue;
@@ -1622,7 +1622,7 @@ GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeL
         if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
         {
             // Perform copy assertion prop.
-            GenTree* newTree = optCopyAssertionProp(curAssertion, tree, stmt DEBUGARG(assertionIndex));
+            GenTree* newTree = morphCopyAssertionProp(curAssertion, tree, stmt DEBUGARG(assertionIndex));
             if (newTree != nullptr)
             {
                 return newTree;
@@ -1644,7 +1644,7 @@ GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeL
             // Verify types match
             if (tree->TypeGet() == lclDsc->lvType)
             {
-                return optConstantAssertionProp(curAssertion, tree, stmt DEBUGARG(assertionIndex));
+                return morphConstantAssertionProp(curAssertion, tree, stmt DEBUGARG(assertionIndex));
             }
         }
     }
@@ -1658,7 +1658,7 @@ GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeL
  *  op1Kind and lclNum, op2Kind and the constant value and is either equal or
  *  not equal assertion.
  */
-AssertionIndex Compiler::optLocalAssertionIsEqualOrNotEqual(
+AssertionIndex Compiler::morphLocalAssertionIsEqualOrNotEqual(
     optOp1Kind op1Kind, unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal, ASSERT_VALARG_TP assertions)
 {
     noway_assert((op1Kind == O1K_LCLVAR) || (op1Kind == O1K_EXACT_TYPE) || (op1Kind == O1K_SUBTYPE));
@@ -1666,7 +1666,7 @@ AssertionIndex Compiler::optLocalAssertionIsEqualOrNotEqual(
 
     for (AssertionIndex index = 1; index <= optAssertionCount; ++index)
     {
-        AssertionDsc* curAssertion = optGetAssertion(index);
+        AssertionDsc* curAssertion = morphGetAssertion(index);
         if ((curAssertion->assertionKind != OAK_EQUAL) && (curAssertion->assertionKind != OAK_NOT_EQUAL))
         {
             continue;
@@ -1695,7 +1695,7 @@ AssertionIndex Compiler::optLocalAssertionIsEqualOrNotEqual(
  *  Returns the modified tree, or nullptr if no assertion prop took place
  */
 
-GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
 {
     assert(tree->OperIsCompare());
 
@@ -1709,7 +1709,7 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
     }
 
     // If local assertion prop then use variable based prop.
-    return optAssertionPropLocal_RelOp(assertions, tree, stmt);
+    return morphAssertionPropLocal_RelOp(assertions, tree, stmt);
 }
 
 /*************************************************************************************
@@ -1718,7 +1718,7 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
  *  perform local variable name based relop assertion propagation on the tree.
  *
  */
-GenTree* Compiler::optAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
 {
     assert(tree->OperGet() == GT_EQ || tree->OperGet() == GT_NE);
 
@@ -1751,7 +1751,7 @@ GenTree* Compiler::optAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenT
     // Find an equal or not equal assertion about op1 var.
     unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
     noway_assert(lclNum < lvaCount);
-    AssertionIndex index = optLocalAssertionIsEqualOrNotEqual(op1Kind, lclNum, op2Kind, cnsVal, assertions);
+    AssertionIndex index = morphLocalAssertionIsEqualOrNotEqual(op1Kind, lclNum, op2Kind, cnsVal, assertions);
 
     if (index == NO_ASSERTION_INDEX)
     {
@@ -1760,7 +1760,7 @@ GenTree* Compiler::optAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenT
 
     assert(!lvaGetDesc(lclNum)->IsAddressExposed());
 
-    AssertionDsc* curAssertion = optGetAssertion(index);
+    AssertionDsc* curAssertion = morphGetAssertion(index);
 
     bool assertionKindIsEqual = (curAssertion->assertionKind == OAK_EQUAL);
     bool constantIsEqual      = false;
@@ -1814,7 +1814,7 @@ GenTree* Compiler::optAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenT
  *
  *  Returns the modified tree, or nullptr if no assertion prop took place.
  */
-GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
 {
     assert(tree->gtOper == GT_CAST);
 
@@ -1841,7 +1841,7 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
         return nullptr;
     }
 
-    AssertionIndex index = optAssertionIsSubrange(lcl, fromType, toType, assertions);
+    AssertionIndex index = morphAssertionIsSubrange(lcl, fromType, toType, assertions);
     if (index != NO_ASSERTION_INDEX)
     {
         LclVarDsc* varDsc = &lvaTable[lcl->AsLclVarCommon()->GetLclNum()];
@@ -1910,7 +1910,7 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
 }
 
 //------------------------------------------------------------------------
-// optAssertionProp_Ind: see if we can prove the indirection can't cause
+// morphAssertionProp_Ind: see if we can prove the indirection can't cause
 //    and exception.
 //
 // Arguments:
@@ -1924,7 +1924,7 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
 // Notes:
 //   stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
 {
     assert(tree->OperIsIndir());
 
@@ -1949,7 +1949,7 @@ GenTree* Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tr
     bool           vnBased = false;
     AssertionIndex index   = NO_ASSERTION_INDEX;
 #endif
-    if (optAssertionIsNonNull(op1, assertions DEBUGARG(&vnBased) DEBUGARG(&index)))
+    if (morphAssertionIsNonNull(op1, assertions DEBUGARG(&vnBased) DEBUGARG(&index)))
     {
 #ifdef DEBUG
         if (verbose)
@@ -1972,7 +1972,7 @@ GenTree* Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tr
 }
 
 //------------------------------------------------------------------------
-// optAssertionIsNonNull: see if we can prove a tree's value will be non-null
+// morphAssertionIsNonNull: see if we can prove a tree's value will be non-null
 //   based on assertions
 //
 // Arguments:
@@ -1991,15 +1991,15 @@ GenTree* Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tr
 //   If both VN and assertion table yield a matching assertion, "pVnBased"
 //   is only set and the return value is "NO_ASSERTION_INDEX."
 //
-bool Compiler::optAssertionIsNonNull(GenTree*         op,
-                                     ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased)
-                                         DEBUGARG(AssertionIndex* pIndex))
+bool Compiler::morphAssertionIsNonNull(GenTree*         op,
+                                       ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased)
+                                           DEBUGARG(AssertionIndex* pIndex))
 {
 #ifdef DEBUG
     *pVnBased = false;
 #endif
 
-    AssertionIndex index = optAssertionIsNonNullInternal(op, assertions DEBUGARG(pVnBased));
+    AssertionIndex index = morphAssertionIsNonNullInternal(op, assertions DEBUGARG(pVnBased));
 #ifdef DEBUG
     *pIndex = index;
 #endif
@@ -2007,7 +2007,7 @@ bool Compiler::optAssertionIsNonNull(GenTree*         op,
 }
 
 //------------------------------------------------------------------------
-// optAssertionIsNonNullInternal: see if we can prove a tree's value will
+// morphAssertionIsNonNullInternal: see if we can prove a tree's value will
 //   be non-null based on assertions
 //
 // Arguments:
@@ -2018,8 +2018,8 @@ bool Compiler::optAssertionIsNonNull(GenTree*         op,
 // Returns:
 //   index of assertion, or NO_ASSERTION_INDEX
 //
-AssertionIndex Compiler::optAssertionIsNonNullInternal(GenTree*         op,
-                                                       ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased))
+AssertionIndex Compiler::morphAssertionIsNonNullInternal(GenTree*         op,
+                                                         ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased))
 {
 
 #ifdef DEBUG
@@ -2032,7 +2032,7 @@ AssertionIndex Compiler::optAssertionIsNonNullInternal(GenTree*         op,
     // Check each assertion to find if we have a variable == or != null assertion.
     for (AssertionIndex index = 1; index <= optAssertionCount; index++)
     {
-        AssertionDsc* curAssertion = optGetAssertion(index);
+        AssertionDsc* curAssertion = morphGetAssertion(index);
         if ((curAssertion->assertionKind == OAK_NOT_EQUAL) && // kind
             (curAssertion->op1.kind == O1K_LCLVAR) &&         // op1
             (curAssertion->op2.kind == O2K_CONST_INT) &&      // op2
@@ -2051,7 +2051,7 @@ AssertionIndex Compiler::optAssertionIsNonNullInternal(GenTree*         op,
  *  Returns the modified tree, or nullptr if no assertion prop took place.
  *
  */
-GenTree* Compiler::optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call)
+GenTree* Compiler::morphNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call)
 {
     if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
     {
@@ -2068,7 +2068,7 @@ GenTree* Compiler::optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, Gen
     bool           vnBased = false;
     AssertionIndex index   = NO_ASSERTION_INDEX;
 #endif
-    if (optAssertionIsNonNull(op1, assertions DEBUGARG(&vnBased) DEBUGARG(&index)))
+    if (morphAssertionIsNonNull(op1, assertions DEBUGARG(&vnBased) DEBUGARG(&index)))
     {
 #ifdef DEBUG
         if (verbose)
@@ -2098,9 +2098,9 @@ GenTree* Compiler::optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, Gen
  *
  */
 
-GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
+GenTree* Compiler::morphAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
 {
-    if (optNonNullAssertionProp_Call(assertions, call))
+    if (morphNonNullAssertionProp_Call(assertions, call))
     {
         return call;
     }
@@ -2117,7 +2117,7 @@ GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCal
  */
 
 //------------------------------------------------------------------------
-// optAssertionProp: try and optimize a tree via assertion propagation
+// morphAssertionProp: try and optimize a tree via assertion propagation
 //
 // Arguments:
 //   assertions  - set of live assertions
@@ -2131,24 +2131,24 @@ GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCal
 // Notes:
 //   stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block)
+GenTree* Compiler::morphAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block)
 {
     switch (tree->gtOper)
     {
         case GT_LCL_VAR:
-            return optAssertionProp_LclVar(assertions, tree->AsLclVar(), stmt);
+            return morphAssertionProp_LclVar(assertions, tree->AsLclVar(), stmt);
 
         case GT_OBJ:
         case GT_BLK:
         case GT_IND:
         case GT_NULLCHECK:
-            return optAssertionProp_Ind(assertions, tree, stmt);
+            return morphAssertionProp_Ind(assertions, tree, stmt);
 
         case GT_CAST:
-            return optAssertionProp_Cast(assertions, tree, stmt);
+            return morphAssertionProp_Cast(assertions, tree, stmt);
 
         case GT_CALL:
-            return optAssertionProp_Call(assertions, tree->AsCall(), stmt);
+            return morphAssertionProp_Call(assertions, tree->AsCall(), stmt);
 
         case GT_EQ:
         case GT_NE:
@@ -2156,7 +2156,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
         case GT_LE:
         case GT_GT:
         case GT_GE:
-            return optAssertionProp_RelOp(assertions, tree, stmt);
+            return morphAssertionProp_RelOp(assertions, tree, stmt);
 
         default:
             return nullptr;

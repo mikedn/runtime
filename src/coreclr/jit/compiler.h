@@ -6184,16 +6184,59 @@ public:
     typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
     ValueNumToAssertsMap* optValueNumToAsserts;
 
+#if LOCAL_ASSERTION_PROP
+    void morphAssertionInit();
+    void morphAssertionTraitsInit(AssertionIndex assertionCount);
+    void morphAssertionGen(GenTree* tree);
+    AssertionIndex morphCreateAssertion(GenTree*         op1,
+                                        GenTree*         op2,
+                                        optAssertionKind assertionKind,
+                                        bool             helperCallArgs = false);
+    AssertionIndex morphAddAssertion(AssertionDsc* assertion);
+    AssertionDsc* morphGetAssertion(AssertionIndex assertIndex);
+    GenTree* morphAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block);
+    AssertionIndex morphAssertionIsSubrange(GenTree*         tree,
+                                            var_types        fromType,
+                                            var_types        toType,
+                                            ASSERT_VALARG_TP assertions);
+    bool morphIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
+    bool morphAssertionIsNonNull(GenTree*         op,
+                                 ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex));
+    void morphAssertionReset(AssertionIndex limit);
+    void morphAssertionRemove(AssertionIndex index);
+    void morphAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
+
+    AssertionIndex morphAssertionIsNonNullInternal(GenTree* op, ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased));
+    GenTree* morphAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt);
+    GenTree* morphAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
+    GenTree* morphAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
+    GenTree* morphAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt);
+    GenTree* morphNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call);
+    GenTree* morphAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
+    GenTree* morphAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
+    AssertionIndex morphLocalAssertionIsEqualOrNotEqual(
+        optOp1Kind op1Kind, unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal, ASSERT_VALARG_TP assertions);
+    GenTree* morphConstantAssertionProp(AssertionDsc*        curAssertion,
+                                        GenTreeLclVarCommon* tree,
+                                        Statement* stmt DEBUGARG(AssertionIndex index));
+    bool morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
+    GenTree* morphCopyAssertionProp(AssertionDsc*        curAssertion,
+                                    GenTreeLclVarCommon* tree,
+                                    Statement* stmt DEBUGARG(AssertionIndex index));
+    void morphPrintAssertion(AssertionDsc* newAssertion, AssertionIndex assertionIndex = 0);
+    void morphPrintAssertionIndex(AssertionIndex index);
+
+#ifdef DEBUG
+    void morphDebugCheckAssertion(AssertionDsc* assertion);
+    void morphDebugCheckAssertions(AssertionIndex AssertionIndex);
+#endif
+#endif
+
     // Assertion prop helpers.
     ASSERT_TP& GetAssertionDep(unsigned lclNum);
     AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
     void optAssertionInit(bool isLocalProp);
     void optAssertionTraitsInit(AssertionIndex assertionCount);
-#if LOCAL_ASSERTION_PROP
-    void optAssertionReset(AssertionIndex limit);
-    void optAssertionRemove(AssertionIndex index);
-    void optAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
-#endif
 
     // Assertion prop data flow functions.
     void optVNAssertionProp();
@@ -6244,14 +6287,7 @@ public:
     // Used for Relop propagation.
     AssertionIndex optGlobalAssertionIsEqualOrNotEqual(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
     AssertionIndex optGlobalAssertionIsEqualOrNotEqualZero(ASSERT_VALARG_TP assertions, GenTree* op1);
-    AssertionIndex optLocalAssertionIsEqualOrNotEqual(
-        optOp1Kind op1Kind, unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal, ASSERT_VALARG_TP assertions);
-
     // Assertion prop for lcl var functions.
-    bool optAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
-    GenTree* optCopyAssertionProp(AssertionDsc*        curAssertion,
-                                  GenTreeLclVarCommon* tree,
-                                  Statement* stmt DEBUGARG(AssertionIndex index));
     GenTree* optConstantAssertionProp(AssertionDsc*        curAssertion,
                                       GenTreeLclVarCommon* tree,
                                       Statement* stmt DEBUGARG(AssertionIndex index));
@@ -6266,7 +6302,6 @@ public:
     GenTree* optAssertionProp_Comma(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionProp_BndsChk(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionPropGlobal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionProp_Update(GenTree* newTree, GenTree* tree, Statement* stmt);
     GenTree* optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call);
 
