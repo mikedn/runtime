@@ -269,10 +269,6 @@ void Compiler::morphPrintAssertion(AssertionDsc* curAssertion, AssertionIndex as
             printf(" is ");
         }
     }
-    else if (curAssertion->assertionKind == OAK_NO_THROW)
-    {
-        printf(" in range ");
-    }
     else if (curAssertion->assertionKind == OAK_NOT_EQUAL)
     {
         if (curAssertion->op1.kind == O1K_LCLVAR)
