@@ -488,7 +488,6 @@ void Compiler::optAddCopies()
 void Compiler::optAssertionTraitsInit(AssertionIndex assertionCount)
 {
     apTraits = new (this, CMK_AssertionProp) BitVecTraits(assertionCount, this);
-    apFull   = BitVecOps::MakeFull(apTraits);
 }
 
 /*****************************************************************************
@@ -4324,9 +4323,8 @@ ASSERT_TP* Compiler::optInitAssertionDataflowFlags()
 
     // The local assertion gen phase may have created unreachable blocks.
     // They will never be visited in the dataflow propagation phase, so they need to
-    // be initialized correctly. This means that instead of setting their sets to
-    // apFull (i.e. all possible bits set), we need to set the bits only for valid
-    // assertions (note that at this point we are not creating any new assertions).
+    // be initialized correctly. We need to set the bits only for valid assertions
+    // (note that at this point we are not creating any new assertions).
     // Also note that assertion indices start from 1.
     ASSERT_TP apValidFull = BitVecOps::MakeEmpty(apTraits);
     for (int i = 1; i <= optAssertionCount; i++)

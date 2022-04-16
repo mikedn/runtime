@@ -37,7 +37,6 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 void Compiler::morphAssertionTraitsInit(AssertionIndex assertionCount)
 {
     apTraits = new (this, CMK_AssertionProp) BitVecTraits(assertionCount, this);
-    apFull   = BitVecOps::MakeFull(apTraits);
 }
 
 /*****************************************************************************

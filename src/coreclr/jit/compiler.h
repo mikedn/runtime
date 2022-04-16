@@ -5901,7 +5901,6 @@ public:
 public:
     // Data structures for assertion prop
     BitVecTraits* apTraits;
-    ASSERT_TP     apFull;
 
     enum optAssertionKind
     {
