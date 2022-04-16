@@ -477,19 +477,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
 
     var_types toType;
 
-    if (op1->gtOper == GT_ARR_BOUNDS_CHECK)
-    {
-        if (assertionKind == OAK_NO_THROW)
-        {
-            GenTreeBoundsChk* arrBndsChk = op1->AsBoundsChk();
-            assertion.assertionKind      = assertionKind;
-            assertion.op1.kind           = O1K_ARR_BND;
-            assertion.op1.bnd.vnIdx      = vnStore->VNConservativeNormalValue(arrBndsChk->gtIndex->gtVNPair);
-            assertion.op1.bnd.vnLen      = vnStore->VNConservativeNormalValue(arrBndsChk->gtArrLen->gtVNPair);
-            goto DONE_ASSERTION;
-        }
-    }
-
     //
     // Are we trying to make a non-null assertion?
     //
