@@ -408,9 +408,11 @@ Compiler::AssertionDsc* Compiler::morphGetAssertion(AssertionIndex assertIndex)
 //    Assertion creation may fail either because the provided assertion
 //    operands aren't supported or because the assertion table is full.
 //
-AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind)
+AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAssertionKind assertionKind)
 {
     assert(op1 != nullptr);
+    assert((op2 != nullptr) || (assertionKind == OAK_NOT_EQUAL));
+    assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
 
     AssertionDsc assertion;
     memset(&assertion, 0, sizeof(AssertionDsc));
@@ -423,11 +425,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
     //
     if (op2 == nullptr)
     {
-        //
-        // Must be an OAK_NOT_EQUAL assertion
-        //
-        noway_assert(assertionKind == OAK_NOT_EQUAL);
-
         //
         // Set op1 to the instance pointer of the indirection
         //
@@ -481,7 +478,7 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
             assertion.op1.lcl.lclNum = lclNum;
         }
 
-        assertion.assertionKind    = assertionKind;
+        assertion.assertionKind    = OAK_NOT_EQUAL;
         assertion.op2.kind         = O2K_CONST_INT;
         assertion.op2.u1.iconVal   = 0;
         assertion.op2.u1.iconFlags = GTF_EMPTY;
@@ -536,14 +533,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
 
                 CNS_COMMON:
                 {
-                    //
-                    // Must either be an OAK_EQUAL or an OAK_NOT_EQUAL assertion
-                    //
-                    if ((assertionKind != OAK_EQUAL) && (assertionKind != OAK_NOT_EQUAL))
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
                     // If the LclVar is a TYP_LONG then we only make
                     // assertions where op2 is also TYP_LONG
                     //
@@ -623,14 +612,6 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
                 //
                 case GT_LCL_VAR:
                 {
-                    //
-                    // Must either be an OAK_EQUAL or an OAK_NOT_EQUAL assertion
-                    //
-                    if ((assertionKind != OAK_EQUAL) && (assertionKind != OAK_NOT_EQUAL))
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
                     unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
                     noway_assert(lclNum2 < lvaCount);
                     LclVarDsc* lclVar2 = &lvaTable[lclNum2];
@@ -720,7 +701,7 @@ AssertionIndex Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, optAss
                         toType = TYP_INT;
                     }
                 SUBRANGE_COMMON:
-                    if ((assertionKind != OAK_SUBRANGE) && (assertionKind != OAK_EQUAL))
+                    if (assertionKind != OAK_EQUAL)
                     {
                         goto DONE_ASSERTION; // Don't make an assertion
                     }
