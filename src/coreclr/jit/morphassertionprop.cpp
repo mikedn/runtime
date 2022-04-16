@@ -903,8 +903,6 @@ void Compiler::morphDebugCheckAssertions(AssertionIndex index)
  */
 void Compiler::morphAssertionGen(GenTree* tree)
 {
-    tree->ClearAssertion();
-
 #ifdef DEBUG
     optAssertionPropCurrentTree = tree;
 #endif
