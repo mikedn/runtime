@@ -1761,6 +1761,8 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     GenTree*         base     = addrMode->GetBase();
     GenTree*         index    = addrMode->GetIndex();
 
+    offset += addrMode->GetOffset();
+
     if (index == nullptr)
     {
         if (emitter::emitIns_valid_imm_for_ldst_offset(offset, attr))
@@ -1782,8 +1784,6 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     regNumber baseReg  = base->GetRegNum();
     regNumber indexReg = index->GetRegNum();
     unsigned  lsl      = genLog2(addrMode->GetScale());
-
-    offset += addrMode->GetOffset();
 
     if (offset == 0)
     {
