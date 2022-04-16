@@ -6195,12 +6195,12 @@ public:
     GenTree* morphAssertionProp(GenTree* tree);
     AssertionIndex morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
     bool morphIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
-    bool morphAssertionIsNonNull(GenTree* op DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex));
+    bool morphAssertionIsNonNull(GenTree* op DEBUGARG(AssertionIndex* pIndex));
     void morphAssertionReset(AssertionIndex limit);
     void morphAssertionRemove(AssertionIndex index);
     void morphAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
 
-    AssertionIndex morphAssertionIsNonNullInternal(GenTree* op DEBUGARG(bool* pVnBased));
+    AssertionIndex morphAssertionIsNonNullInternal(GenTree* op);
     GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
     GenTree* morphAssertionProp_Ind(GenTree* tree);
     GenTree* morphAssertionProp_Cast(GenTree* tree);

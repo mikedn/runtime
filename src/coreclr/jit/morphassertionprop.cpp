@@ -1922,16 +1922,14 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
     }
 
 #ifdef DEBUG
-    bool           vnBased = false;
-    AssertionIndex index   = NO_ASSERTION_INDEX;
+    AssertionIndex index = NO_ASSERTION_INDEX;
 #endif
-    if (morphAssertionIsNonNull(op1 DEBUGARG(&vnBased) DEBUGARG(&index)))
+    if (morphAssertionIsNonNull(op1 DEBUGARG(&index)))
     {
 #ifdef DEBUG
         if (verbose)
         {
-            (vnBased) ? printf("\nVN based non-null prop in " FMT_BB ":\n", compCurBB->bbNum)
-                      : printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
             gtDispTree(tree, nullptr, nullptr, true);
         }
 #endif
@@ -1953,27 +1951,17 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
 //
 // Arguments:
 //   op - tree to check
-//   assertions  - set of live assertions
-//   pVnBased - [out] set to true if value numbers were used
 //   pIndex - [out] the assertion used in the proof
 //
 // Returns:
 //   true if the tree's value will be non-null
 //
 // Notes:
-//   Sets "pVnBased" if the assertion is value number based. If no matching
-//    assertions are found from the table, then returns "NO_ASSERTION_INDEX."
+//   If no matching assertions are found from the table, then returns "NO_ASSERTION_INDEX."
 //
-//   If both VN and assertion table yield a matching assertion, "pVnBased"
-//   is only set and the return value is "NO_ASSERTION_INDEX."
-//
-bool Compiler::morphAssertionIsNonNull(GenTree* op DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex))
+bool Compiler::morphAssertionIsNonNull(GenTree* op DEBUGARG(AssertionIndex* pIndex))
 {
-#ifdef DEBUG
-    *pVnBased = false;
-#endif
-
-    AssertionIndex index = morphAssertionIsNonNullInternal(op DEBUGARG(pVnBased));
+    AssertionIndex index = morphAssertionIsNonNullInternal(op);
 #ifdef DEBUG
     *pIndex = index;
 #endif
@@ -1986,20 +1974,12 @@ bool Compiler::morphAssertionIsNonNull(GenTree* op DEBUGARG(bool* pVnBased) DEBU
 //
 // Arguments:
 //   op - tree to check
-//   assertions  - set of live assertions
-//   pVnBased - [out] set to true if value numbers were used
 //
 // Returns:
 //   index of assertion, or NO_ASSERTION_INDEX
 //
-AssertionIndex Compiler::morphAssertionIsNonNullInternal(GenTree* op DEBUGARG(bool* pVnBased))
+AssertionIndex Compiler::morphAssertionIsNonNullInternal(GenTree* op)
 {
-#ifdef DEBUG
-    // Initialize the out param
-    //
-    *pVnBased = false;
-#endif
-
     unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
     // Check each assertion to find if we have a variable == or != null assertion.
     for (AssertionIndex index = 1; index <= optAssertionCount; index++)
@@ -2038,16 +2018,14 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
     }
 
 #ifdef DEBUG
-    bool           vnBased = false;
-    AssertionIndex index   = NO_ASSERTION_INDEX;
+    AssertionIndex index = NO_ASSERTION_INDEX;
 #endif
-    if (morphAssertionIsNonNull(op1 DEBUGARG(&vnBased) DEBUGARG(&index)))
+    if (morphAssertionIsNonNull(op1 DEBUGARG(&index)))
     {
 #ifdef DEBUG
         if (verbose)
         {
-            (vnBased) ? printf("\nVN based non-null prop in " FMT_BB ":\n", compCurBB->bbNum)
-                      : printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
             gtDispTree(call, nullptr, nullptr, true);
         }
 #endif
