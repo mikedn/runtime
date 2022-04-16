@@ -1956,29 +1956,7 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
 // Returns:
 //   true if the tree's value will be non-null
 //
-// Notes:
-//   If no matching assertions are found from the table, then returns "NO_ASSERTION_INDEX."
-//
 bool Compiler::morphAssertionIsNonNull(GenTree* op DEBUGARG(AssertionIndex* pIndex))
-{
-    AssertionIndex index = morphAssertionIsNonNullInternal(op);
-#ifdef DEBUG
-    *pIndex = index;
-#endif
-    return index != NO_ASSERTION_INDEX;
-}
-
-//------------------------------------------------------------------------
-// morphAssertionIsNonNullInternal: see if we can prove a tree's value will
-//   be non-null based on assertions
-//
-// Arguments:
-//   op - tree to check
-//
-// Returns:
-//   index of assertion, or NO_ASSERTION_INDEX
-//
-AssertionIndex Compiler::morphAssertionIsNonNullInternal(GenTree* op)
 {
     unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
     // Check each assertion to find if we have a variable == or != null assertion.
@@ -1991,10 +1969,13 @@ AssertionIndex Compiler::morphAssertionIsNonNullInternal(GenTree* op)
             (curAssertion->op1.lcl.lclNum == lclNum) && (curAssertion->op2.u1.iconVal == 0))
         {
             assert(!lvaGetDesc(lclNum)->IsAddressExposed());
-            return index;
+            INDEBUG(*pIndex = index);
+            return true;
         }
     }
-    return NO_ASSERTION_INDEX;
+
+    INDEBUG(*pIndex = NO_ASSERTION_INDEX);
+    return false;
 }
 
 /*****************************************************************************

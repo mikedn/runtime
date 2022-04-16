@@ -6200,7 +6200,6 @@ public:
     void morphAssertionRemove(AssertionIndex index);
     void morphAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
 
-    AssertionIndex morphAssertionIsNonNullInternal(GenTree* op);
     GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
     GenTree* morphAssertionProp_Ind(GenTree* tree);
     GenTree* morphAssertionProp_Cast(GenTree* tree);
