@@ -3106,7 +3106,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 
         id->idInsFmt(emitMapFmtForIns(fmt, ins));
 
-        // Absolute address must have already been set in the instrDesc constructor.
+        // Absolute address must have already been set by the caller.
         assert(emitGetInsAmdAny(id) == intConAddr->GetValue());
 
         return;
@@ -3137,10 +3137,10 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
     else
     {
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = emitter::OPSZ1;
+        id->idAddr()->iiaAddrMode.amScale   = OPSZ1;
     }
 
-    // disp must have already been set in the instrDesc constructor.
+    // disp must have already been set by the caller.
     assert(emitGetInsAmdAny(id) == addrMode->GetOffset());
 }
 
@@ -3148,13 +3148,9 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 // into its corresponding shadow space (defined by the x64 ABI)
 void emitter::spillIntArgRegsToShadowSlots()
 {
-    unsigned       argNum;
-    instrDesc*     id;
-    UNATIVE_OFFSET sz;
-
     assert(emitComp->compGeneratingProlog);
 
-    for (argNum = 0; argNum < MAX_REG_ARG; ++argNum)
+    for (unsigned argNum = 0; argNum < MAX_REG_ARG; ++argNum)
     {
         regNumber argReg = intArgRegs[argNum];
 
@@ -3162,19 +3158,15 @@ void emitter::spillIntArgRegsToShadowSlots()
         // (right before the caller return address)
         int offset = (argNum + 1) * EA_PTRSIZE;
 
-        id = emitNewInstrAmd(EA_PTRSIZE, offset);
+        instrDesc* id = emitNewInstrAmd(EA_PTRSIZE, offset);
         id->idIns(INS_mov);
         id->idInsFmt(IF_AWR_RRD);
         id->idAddr()->iiaAddrMode.amBaseReg = REG_SPBASE;
         id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-        id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(1);
-
-        // The offset has already been set in the intrDsc ctor,
-        // make sure we got it right.
-        assert(emitGetInsAmdAny(id) == ssize_t(offset));
-
+        id->idAddr()->iiaAddrMode.amScale   = OPSZ1;
         id->idReg1(argReg);
-        sz = emitInsSizeAM(id, insCodeMR(INS_mov));
+
+        unsigned sz = emitInsSizeAM(id, insCodeMR(INS_mov));
         id->idCodeSize(sz);
         emitCurIGsize += sz;
     }
@@ -4884,27 +4876,14 @@ void emitter::emitIns_AR_I(instruction ins, emitAttr attr, regNumber base, int d
         fmt = emitInsModeFormat(ins, IF_ARD_CNS);
     }
 
-    /*
-    Useful if you want to trap moves with 0 constant
-    if (ins == INS_mov && val == 0 && EA_SIZE(attr) >= EA_4BYTE)
-    {
-        printf("MOV 0\n");
-    }
-    */
-
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmdCns(attr, disp, imm);
+    instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMI(ins), imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -4919,22 +4898,15 @@ void emitter::emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize
     assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE) && (ireg != REG_NA));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
 
-    UNATIVE_OFFSET sz;
-    instrDesc*     id  = emitNewInstrAmd(attr, disp);
-    insFormat      fmt = emitInsModeFormat(ins, IF_RRD_ARD);
-
+    instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_ARD));
     id->idReg1(ireg);
-
     id->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
 
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -5019,21 +4991,15 @@ void emitter::emitIns_ARX_I(
         fmt = emitInsModeFormat(ins, IF_ARD_CNS);
     }
 
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmdCns(attr, disp, imm);
-
+    instrDesc* id = emitNewInstrAmdCns(attr, disp, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
     id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
 
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMI(ins), imm);
+    unsigned sz = emitInsSizeAM(id, insCodeMI(ins), imm);
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -5052,23 +5018,16 @@ void emitter::emitIns_R_ARX(
         return;
     }
 
-    UNATIVE_OFFSET sz;
-    instrDesc*     id  = emitNewInstrAmd(attr, disp);
-    insFormat      fmt = emitInsModeFormat(ins, IF_RRD_ARD);
-
+    instrDesc* id = emitNewInstrAmd(attr, disp);
     id->idIns(ins);
-    id->idInsFmt(fmt);
+    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_ARD));
     id->idReg1(reg);
-
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
     id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
 
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 }
@@ -5081,9 +5040,8 @@ void emitter::emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNum
 void emitter::emitIns_ARX_R(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, cnsval_ssize_t disp)
 {
-    UNATIVE_OFFSET sz;
-    instrDesc*     id = emitNewInstrAmd(attr, disp);
-    insFormat      fmt;
+    instrDesc* id = emitNewInstrAmd(attr, disp);
+    insFormat  fmt;
 
     if (reg == REG_NA)
     {
@@ -5101,16 +5059,12 @@ void emitter::emitIns_ARX_R(
 
     id->idIns(ins);
     id->idInsFmt(fmt);
-
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = index;
     id->idAddr()->iiaAddrMode.amScale   = emitEncodeScale(scale);
 
-    assert(emitGetInsAmdAny(id) == disp); // make sure "disp" is stored properly
-
-    sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
     id->idCodeSize(sz);
-
     dispIns(id);
     emitCurIGsize += sz;
 
@@ -11633,11 +11587,10 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
             idAmd->idInsFmt(IF_RWR_ARD);
             idAmd->idAddr()->iiaAddrMode.amBaseReg = REG_NA;
             idAmd->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
-            emitSetAmdDisp(idAmd, distVal); // set the displacement
+            emitSetAmdDisp(idAmd, distVal);
             idAmd->idSetIsDspReloc(id->idIsDspReloc());
-            assert(emitGetInsAmdAny(idAmd) == distVal); // make sure "disp" is stored properly
 
-            UNATIVE_OFFSET sz = emitInsSizeAM(idAmd, insCodeRM(ins));
+            unsigned sz = emitInsSizeAM(idAmd, insCodeRM(ins));
             idAmd->idCodeSize(sz);
 
             code = insCodeRM(ins);
