@@ -40,8 +40,7 @@ void Compiler::morphAssertionInit()
 
     optLocalAssertionProp  = true;
     optAssertionTabPrivate = new (this, CMK_AssertionProp) AssertionDsc[optMaxAssertionCount];
-    optComplementaryAssertionMap =
-        new (this, CMK_AssertionProp) AssertionIndex[optMaxAssertionCount + 1](); // zero-inited (NO_ASSERTION_INDEX)
+
     assert(NO_ASSERTION_INDEX == 0);
 
     if (morphAssertionDep == nullptr)
