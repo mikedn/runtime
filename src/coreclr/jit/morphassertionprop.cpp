@@ -1257,7 +1257,9 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
  *  op1Kind and lclNum, op2Kind and the constant value and is either equal or
  *  not equal assertion.
  */
-AssertionIndex Compiler::morphLocalAssertionIsEqualOrNotEqual(unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal)
+Compiler::AssertionDsc* Compiler::morphLocalAssertionIsEqualOrNotEqual(unsigned   lclNum,
+                                                                       optOp2Kind op2Kind,
+                                                                       ssize_t    cnsVal)
 {
     noway_assert((op2Kind == O2K_CONST_INT) || (op2Kind == O2K_IND_CNS_INT));
 
@@ -1276,11 +1278,12 @@ AssertionIndex Compiler::morphLocalAssertionIsEqualOrNotEqual(unsigned lclNum, o
 
             if (constantIsEqual || assertionIsEqual)
             {
-                return index;
+                return curAssertion;
             }
         }
     }
-    return NO_ASSERTION_INDEX;
+
+    return nullptr;
 }
 
 /*****************************************************************************
@@ -1332,16 +1335,14 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
     // Find an equal or not equal assertion about op1 var.
     unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
     noway_assert(lclNum < lvaCount);
-    AssertionIndex index = morphLocalAssertionIsEqualOrNotEqual(lclNum, op2Kind, cnsVal);
+    AssertionDsc* curAssertion = morphLocalAssertionIsEqualOrNotEqual(lclNum, op2Kind, cnsVal);
 
-    if (index == NO_ASSERTION_INDEX)
+    if (curAssertion == nullptr)
     {
         return nullptr;
     }
 
     assert(!lvaGetDesc(lclNum)->IsAddressExposed());
-
-    AssertionDsc* curAssertion = morphGetAssertion(index);
 
     bool assertionKindIsEqual = (curAssertion->assertionKind == OAK_EQUAL);
     bool constantIsEqual      = false;
@@ -1368,7 +1369,8 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nAssertion prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+        printf("\nAssertion prop for index #%02u in " FMT_BB ":\n", curAssertion - morphAssertionTable,
+               compCurBB->bbNum);
         gtDispTree(tree, nullptr, nullptr, true);
     }
 #endif
