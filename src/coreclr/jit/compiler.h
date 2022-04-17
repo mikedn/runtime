@@ -4883,10 +4883,6 @@ public:
     INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
 
 private:
-#if LOCAL_ASSERTION_PROP
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
-    void morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree));
-#endif
     void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
 
     Statement* fgMorphStmt;
@@ -6198,6 +6194,8 @@ public:
     void morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count);
     void morphAssertionMerge(unsigned        elseAssertionCount,
                              MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
+    void morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree));
 
     GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
     GenTree* morphAssertionProp_Ind(GenTree* tree);
