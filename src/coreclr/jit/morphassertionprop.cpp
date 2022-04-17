@@ -99,11 +99,6 @@ struct Compiler::MorphAssertion
                 return false;
         }
     }
-
-    bool Equals(const MorphAssertion& that) const
-    {
-        return (kind == that.kind) && (lcl.lclNum == that.lcl.lclNum) && HasSameValue(that);
-    }
 };
 
 using Kind      = Compiler::MorphAssertion::Kind;
@@ -760,10 +755,31 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
     for (unsigned index = optAssertionCount - 1; index != UINT32_MAX; index--)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if (curAssertion->Equals(*newAssertion))
+
+        if (curAssertion->lcl.lclNum != newAssertion->lcl.lclNum)
         {
+            continue;
+        }
+
+        if ((curAssertion->kind == Kind::Equal) && (newAssertion->kind == Kind::NotEqual))
+        {
+            // We can add a "not null" assertion even if we already have an "equal" one.
+            // It's normally pointless (if the local value is 42 then obviously it's not
+            // null) but existing code doesn't infer "not null" from "equal" assertions.
+            continue;
+        }
+
+        if ((curAssertion->kind == Kind::NotEqual) && (newAssertion->kind == Kind::NotEqual))
+        {
+            // We already have a "not null" assertion for this local, don't add another one.
             return;
         }
+
+        // We're trying to add an "equal" assertion when we already have another assertion
+        // about this local. This should not happen, existing assertions should have been
+        // killed by morph before generating new ones. Just drop to minopts, morphing code
+        // is likely broken.
+        unreached();
     }
 
     // Check if we are within max count.
