@@ -5247,7 +5247,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         {
 #if LOCAL_ASSERTION_PROP
             if ((nullCheckAddr == nullptr) || !optLocalAssertionProp || (optAssertionCount == 0) ||
-                !morphAssertionIsNonNull(nullCheckAddr))
+                !morphAssertionIsNotNull(nullCheckAddr->GetLclNum()))
 #endif
             {
                 addr->SetDoNotCSE();

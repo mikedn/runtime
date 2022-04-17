@@ -1559,12 +1559,12 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
         op1 = op1->AsOp()->gtOp1;
     }
 
-    if (op1->gtOper != GT_LCL_VAR)
+    if (!op1->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
 
-    if (MorphAssertion* assertion = morphAssertionIsNonNull(op1))
+    if (MorphAssertion* assertion = morphAssertionIsNotNull(op1->AsLclVar()->GetLclNum()))
     {
 #ifdef DEBUG
         if (verbose)
@@ -1585,10 +1585,8 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
     return nullptr;
 }
 
-Compiler::MorphAssertion* Compiler::morphAssertionIsNonNull(GenTree* op)
+Compiler::MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
 {
-    unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
-    // Check each assertion to find if we have a variable == or != null assertion.
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
@@ -1619,14 +1617,16 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
     {
         return nullptr;
     }
+
     GenTree* op1 = call->GetThisArg();
     noway_assert(op1 != nullptr);
-    if (op1->gtOper != GT_LCL_VAR)
+
+    if (!op1->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
 
-    if (MorphAssertion* assertion = morphAssertionIsNonNull(op1))
+    if (MorphAssertion* assertion = morphAssertionIsNotNull(op1->AsLclVar()->GetLclNum()))
     {
 #ifdef DEBUG
         if (verbose)
