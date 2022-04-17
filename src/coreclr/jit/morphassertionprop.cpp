@@ -1312,11 +1312,6 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsEqualOrNotEqual(unsigned lcl
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
 
-        if ((curAssertion->kind != Kind::Equal) && (curAssertion->kind != Kind::NotNull))
-        {
-            continue;
-        }
-
         if ((curAssertion->lcl.lclNum == lclNum) && (curAssertion->valKind == ValueKind::IntCon))
         {
             bool constantIsEqual  = (curAssertion->val.intCon.value == cnsVal);
