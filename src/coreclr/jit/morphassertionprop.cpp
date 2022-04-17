@@ -15,7 +15,6 @@ struct Compiler::MorphAssertion
     };
     struct AssertionDscOp1
     {
-        optOp1Kind kind; // a normal LclVar, or Exact-type or Subtype
         union {
             SsaVar lcl;
         };
@@ -45,14 +44,7 @@ struct Compiler::MorphAssertion
 
     bool HasSameOp1(MorphAssertion* that)
     {
-        if (op1.kind != that->op1.kind)
-        {
-            return false;
-        }
-        else
-        {
-            return op1.lcl.lclNum == that->op1.lcl.lclNum;
-        }
+        return op1.lcl.lclNum == that->op1.lcl.lclNum;
     }
 
     bool HasSameOp2(MorphAssertion* that)
@@ -459,7 +451,6 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAsserti
     MorphAssertion assertion;
     memset(&assertion, 0, sizeof(MorphAssertion));
     assert(assertion.assertionKind == OAK_INVALID);
-    assertion.op1.kind = O1K_LCLVAR;
 
     var_types toType;
 
