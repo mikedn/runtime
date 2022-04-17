@@ -196,7 +196,7 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
             }
         }
 
-        if ((elseAssertion != nullptr) && elseAssertion->HasSameOp2(thenAssertion, false))
+        if ((elseAssertion != nullptr) && elseAssertion->HasSameOp2(thenAssertion))
         {
             index++;
         }
@@ -254,10 +254,6 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
     {
         case O2K_LCLVAR_COPY:
             printf("V%02u", curAssertion->op2.lcl.lclNum);
-            if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-            {
-                printf(".%02u", curAssertion->op1.lcl.ssaNum);
-            }
             break;
 
         case O2K_CONST_INT:
@@ -669,8 +665,8 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAsserti
                         case TYP_UINT:
                         case TYP_INT:
 #endif // TARGET_64BIT
-                            assertion.op2.u2.loBound = MorphAssertion::GetLowerBoundForIntegralType(toType);
-                            assertion.op2.u2.hiBound = MorphAssertion::GetUpperBoundForIntegralType(toType);
+                            assertion.op2.u2.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
+                            assertion.op2.u2.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
                             break;
 
                         default:
@@ -710,7 +706,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
     for (AssertionIndex index = optAssertionCount; index >= 1; index--)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if (curAssertion->Equals(newAssertion, false))
+        if (curAssertion->Equals(newAssertion))
         {
             return;
         }
@@ -882,15 +878,15 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTree* tree, var_
                 case TYP_UBYTE:
                 case TYP_SHORT:
                 case TYP_USHORT:
-                    if ((curAssertion->op2.u2.loBound < MorphAssertion::GetLowerBoundForIntegralType(toType)) ||
-                        (curAssertion->op2.u2.hiBound > MorphAssertion::GetUpperBoundForIntegralType(toType)))
+                    if ((curAssertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
+                        (curAssertion->op2.u2.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
                     {
                         continue;
                     }
                     break;
 
                 case TYP_UINT:
-                    if (curAssertion->op2.u2.loBound < MorphAssertion::GetLowerBoundForIntegralType(toType))
+                    if (curAssertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
                     {
                         continue;
                     }

@@ -6188,26 +6188,17 @@ public:
         struct SsaVar
         {
             unsigned lclNum; // assigned to or property of this local var number
-            unsigned ssaNum;
-        };
-        struct ArrBnd
-        {
-            ValueNum vnIdx;
-            ValueNum vnLen;
         };
         struct AssertionDscOp1
         {
             optOp1Kind kind; // a normal LclVar, or Exact-type or Subtype
-            ValueNum   vn;
             union {
                 SsaVar lcl;
-                ArrBnd bnd;
             };
         } op1;
         struct AssertionDscOp2
         {
             optOp2Kind kind; // a const or copy assignment
-            ValueNum   vn;
             struct IntVal
             {
                 ssize_t      iconVal;   // integer
@@ -6228,114 +6219,19 @@ public:
             };
         } op2;
 
-        bool IsCheckedBoundArithBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_OPER_BND);
-        }
-        bool IsCheckedBoundBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_LOOP_BND);
-        }
-        bool IsConstantBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) &&
-                    op1.kind == O1K_CONSTANT_LOOP_BND);
-        }
-        bool IsBoundsCheckNoThrow()
-        {
-            return ((assertionKind == OAK_NO_THROW) && (op1.kind == O1K_ARR_BND));
-        }
-
-        bool IsCopyAssertion()
-        {
-            return ((assertionKind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
-        }
-
-        bool IsConstantInt32Assertion()
-        {
-            return ((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL)) && (op2.kind == O2K_CONST_INT);
-        }
-
-        static bool SameKind(MorphAssertion* a1, MorphAssertion* a2)
-        {
-            return a1->assertionKind == a2->assertionKind && a1->op1.kind == a2->op1.kind &&
-                   a1->op2.kind == a2->op2.kind;
-        }
-
-        static bool ComplementaryKind(optAssertionKind kind, optAssertionKind kind2)
-        {
-            if (kind == OAK_EQUAL)
-            {
-                return kind2 == OAK_NOT_EQUAL;
-            }
-            else if (kind == OAK_NOT_EQUAL)
-            {
-                return kind2 == OAK_EQUAL;
-            }
-            return false;
-        }
-
-        static ssize_t GetLowerBoundForIntegralType(var_types type)
-        {
-            switch (type)
-            {
-                case TYP_BYTE:
-                    return SCHAR_MIN;
-                case TYP_SHORT:
-                    return SHRT_MIN;
-                case TYP_INT:
-                    return INT_MIN;
-                case TYP_BOOL:
-                case TYP_UBYTE:
-                case TYP_USHORT:
-                case TYP_UINT:
-                    return 0;
-                default:
-                    unreached();
-            }
-        }
-        static ssize_t GetUpperBoundForIntegralType(var_types type)
-        {
-            switch (type)
-            {
-                case TYP_BOOL:
-                    return 1;
-                case TYP_BYTE:
-                    return SCHAR_MAX;
-                case TYP_SHORT:
-                    return SHRT_MAX;
-                case TYP_INT:
-                    return INT_MAX;
-                case TYP_UBYTE:
-                    return UCHAR_MAX;
-                case TYP_USHORT:
-                    return USHRT_MAX;
-                case TYP_UINT:
-                    return UINT_MAX;
-                default:
-                    unreached();
-            }
-        }
-
-        bool HasSameOp1(MorphAssertion* that, bool vnBased)
+        bool HasSameOp1(MorphAssertion* that)
         {
             if (op1.kind != that->op1.kind)
             {
                 return false;
             }
-            else if (op1.kind == O1K_ARR_BND)
-            {
-                assert(vnBased);
-                return (op1.bnd.vnIdx == that->op1.bnd.vnIdx) && (op1.bnd.vnLen == that->op1.bnd.vnLen);
-            }
             else
             {
-                return ((vnBased && (op1.vn == that->op1.vn)) ||
-                        (!vnBased && (op1.lcl.lclNum == that->op1.lcl.lclNum)));
+                return op1.lcl.lclNum == that->op1.lcl.lclNum;
             }
         }
 
-        bool HasSameOp2(MorphAssertion* that, bool vnBased)
+        bool HasSameOp2(MorphAssertion* that)
         {
             if (op2.kind != that->op2.kind)
             {
@@ -6355,9 +6251,7 @@ public:
                     return (memcmp(&op2.dconVal, &that->op2.dconVal, sizeof(double)) == 0);
 
                 case O2K_LCLVAR_COPY:
-                case O2K_ARR_LEN:
-                    return (op2.lcl.lclNum == that->op2.lcl.lclNum) &&
-                           (!vnBased || op2.lcl.ssaNum == that->op2.lcl.ssaNum);
+                    return (op2.lcl.lclNum == that->op2.lcl.lclNum);
 
                 case O2K_SUBRANGE:
                     return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
@@ -6373,13 +6267,7 @@ public:
             return false;
         }
 
-        bool Complementary(MorphAssertion* that, bool vnBased)
-        {
-            return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that, vnBased) &&
-                   HasSameOp2(that, vnBased);
-        }
-
-        bool Equals(MorphAssertion* that, bool vnBased)
+        bool Equals(MorphAssertion* that)
         {
             if (assertionKind != that->assertionKind)
             {
@@ -6388,11 +6276,11 @@ public:
             else if (assertionKind == OAK_NO_THROW)
             {
                 assert(op2.kind == O2K_INVALID);
-                return HasSameOp1(that, vnBased);
+                return HasSameOp1(that);
             }
             else
             {
-                return HasSameOp1(that, vnBased) && HasSameOp2(that, vnBased);
+                return HasSameOp1(that) && HasSameOp2(that);
             }
         }
     };
