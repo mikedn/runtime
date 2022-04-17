@@ -12,7 +12,7 @@ struct Compiler::MorphAssertion
     {
         Invalid,
         Equal,
-        NotEqual
+        NotNull
     };
 
     enum class ValueKind : uint8_t
@@ -346,7 +346,7 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
     {
         printf(" %s ", curAssertion->valKind == ValueKind::Range ? "in" : "==");
     }
-    else if (curAssertion->kind == Kind::NotEqual)
+    else if (curAssertion->kind == Kind::NotNull)
     {
         printf(" != ");
     }
@@ -492,7 +492,7 @@ void Compiler::morphCreateNonNullAssertion(GenTree* op1)
             assertion.lcl.lclNum = lclNum;
         }
 
-        assertion.kind             = Kind::NotEqual;
+        assertion.kind             = Kind::NotNull;
         assertion.valKind          = ValueKind::IntCon;
         assertion.val.intCon.value = 0;
         assertion.val.intCon.flags = GTF_EMPTY;
@@ -761,7 +761,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
             continue;
         }
 
-        if ((curAssertion->kind == Kind::Equal) && (newAssertion->kind == Kind::NotEqual))
+        if ((curAssertion->kind == Kind::Equal) && (newAssertion->kind == Kind::NotNull))
         {
             // We can add a "not null" assertion even if we already have an "equal" one.
             // It's normally pointless (if the local value is 42 then obviously it's not
@@ -769,7 +769,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
             continue;
         }
 
-        if ((curAssertion->kind == Kind::NotEqual) && (newAssertion->kind == Kind::NotEqual))
+        if ((curAssertion->kind == Kind::NotNull) && (newAssertion->kind == Kind::NotNull))
         {
             // We already have a "not null" assertion for this local, don't add another one.
             return;
@@ -1311,7 +1311,8 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsEqualOrNotEqual(unsigned lcl
     for (unsigned index = 0; index < optAssertionCount; ++index)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if ((curAssertion->kind != Kind::Equal) && (curAssertion->kind != Kind::NotEqual))
+
+        if ((curAssertion->kind != Kind::Equal) && (curAssertion->kind != Kind::NotNull))
         {
             continue;
         }
@@ -1596,12 +1597,13 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsNonNull(GenTree* op)
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if ((curAssertion->kind == Kind::NotEqual) && // kind
 
-            (curAssertion->valKind == ValueKind::IntCon) && // op2
-            (curAssertion->lcl.lclNum == lclNum) && (curAssertion->val.intCon.value == 0))
+        if ((curAssertion->kind == Kind::NotNull) && (curAssertion->lcl.lclNum == lclNum))
         {
+            assert(curAssertion->valKind == ValueKind::IntCon);
+            assert(curAssertion->val.intCon.value == 0);
             assert(!lvaGetDesc(lclNum)->IsAddressExposed());
+
             return curAssertion;
         }
     }
