@@ -713,12 +713,6 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
                 toType = TYP_INT;
             }
         SUBRANGE_COMMON:
-            if (varTypeIsFloating(op1->TypeGet()))
-            {
-                // We don't make assertions on a cast from floating point
-                goto DONE_ASSERTION;
-            }
-
             switch (toType)
             {
                 case TYP_BOOL:
