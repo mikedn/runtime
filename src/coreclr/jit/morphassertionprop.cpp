@@ -8,97 +8,97 @@
 
 struct Compiler::MorphAssertion
 {
-    optAssertionKind assertionKind;
-    struct SsaVar
+    enum class Kind : uint8_t
     {
-        unsigned lclNum; // assigned to or property of this local var number
+        Invalid,
+        Equal,
+        NotEqual,
+        Range
     };
-    struct AssertionDscOp1
-    {
-        union {
-            SsaVar lcl;
-        };
-    } op1;
-    struct AssertionDscOp2
-    {
-        optOp2Kind kind; // a const or copy assignment
-        struct IntVal
-        {
-            ssize_t      iconVal;   // integer
-            unsigned     padding;   // unused; ensures iconFlags does not overlap lconVal
-            GenTreeFlags iconFlags; // gtFlags
-        };
-        struct Range // integer subrange
-        {
-            ssize_t loBound;
-            ssize_t hiBound;
-        };
-        union {
-            SsaVar  lcl;
-            IntVal  u1;
-            __int64 lconVal;
-            double  dconVal;
-            Range   u2;
-        };
-    } op2;
 
-    bool HasSameOp1(MorphAssertion* that)
+    enum class ValueKind : uint8_t
     {
-        return op1.lcl.lclNum == that->op1.lcl.lclNum;
-    }
+        Invalid,
+        LclVar,
+        IntCon,
+        LngCon,
+        DblCon,
+        Range
+    };
 
-    bool HasSameOp2(MorphAssertion* that)
+    struct LclVar
     {
-        if (op2.kind != that->op2.kind)
+        unsigned lclNum;
+    };
+
+    struct IntCon
+    {
+        ssize_t      value;
+        unsigned     padding; // unused; ensures flags does not overlap lngCon
+        GenTreeFlags flags;
+    };
+
+    struct LngCon
+    {
+        int64_t value;
+    };
+
+    struct DblCon
+    {
+        double value;
+    };
+
+    struct Range
+    {
+        ssize_t loBound;
+        ssize_t hiBound;
+    };
+
+    Kind      kind;
+    ValueKind valKind;
+    LclVar    lcl;
+
+    union {
+        LclVar lcl;
+        IntCon intCon;
+        LngCon lngCon;
+        DblCon dblCon;
+        Range  range;
+    } val;
+
+    bool HasSameValue(MorphAssertion* that)
+    {
+        if (valKind != that->valKind)
         {
             return false;
         }
-        switch (op2.kind)
+
+        switch (valKind)
         {
-            case O2K_CONST_INT:
-                return ((op2.u1.iconVal == that->op2.u1.iconVal) && (op2.u1.iconFlags == that->op2.u1.iconFlags));
-
-            case O2K_CONST_LONG:
-                return (op2.lconVal == that->op2.lconVal);
-
-            case O2K_CONST_DOUBLE:
+            case ValueKind::IntCon:
+                return (val.intCon.value == that->val.intCon.value) && (val.intCon.flags == that->val.intCon.flags);
+            case ValueKind::LngCon:
+                return (val.lngCon.value == that->val.lngCon.value);
+            case ValueKind::DblCon:
                 // exact match because of positive and negative zero.
-                return (memcmp(&op2.dconVal, &that->op2.dconVal, sizeof(double)) == 0);
-
-            case O2K_LCLVAR_COPY:
-                return (op2.lcl.lclNum == that->op2.lcl.lclNum);
-
-            case O2K_SUBRANGE:
-                return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
-
-            case O2K_INVALID:
-                // we will return false
-                break;
-
+                return memcmp(&val.dblCon.value, &that->val.dblCon.value, sizeof(double)) == 0;
+            case ValueKind::LclVar:
+                return val.lcl.lclNum == that->val.lcl.lclNum;
+            case ValueKind::Range:
+                return (val.range.loBound == that->val.range.loBound) && (val.range.hiBound == that->val.range.hiBound);
             default:
-                assert(!"Unexpected value for op2.kind.");
-                break;
+                return false;
         }
-        return false;
     }
 
     bool Equals(MorphAssertion* that)
     {
-        if (assertionKind != that->assertionKind)
-        {
-            return false;
-        }
-        else if (assertionKind == OAK_NO_THROW)
-        {
-            assert(op2.kind == O2K_INVALID);
-            return HasSameOp1(that);
-        }
-        else
-        {
-            return HasSameOp1(that) && HasSameOp2(that);
-        }
+        return (kind == that->kind) && (lcl.lclNum == that->lcl.lclNum) && HasSameValue(that);
     }
 };
+
+using Kind      = Compiler::MorphAssertion::Kind;
+using ValueKind = Compiler::MorphAssertion::ValueKind;
 
 //------------------------------------------------------------------------------
 // GetAssertionDep: Retrieve the assertions on this local variable
@@ -158,18 +158,18 @@ void Compiler::morphAssertionReset(unsigned limit)
         unsigned        index        = optAssertionCount - 1;
         MorphAssertion* curAssertion = morphGetAssertion(index);
         optAssertionCount--;
-        unsigned lclNum = curAssertion->op1.lcl.lclNum;
+        unsigned lclNum = curAssertion->lcl.lclNum;
         BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
 
         //
         // Find the Copy assertions
         //
-        if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op2.kind == O2K_LCLVAR_COPY))
+        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::LclVar))
         {
             //
-            //  op2.lcl.lclNum no longer depends upon this assertion
+            //  value.lcl.lclNum no longer depends upon this assertion
             //
-            lclNum = curAssertion->op2.lcl.lclNum;
+            lclNum = curAssertion->val.lcl.lclNum;
             BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
         }
     }
@@ -177,18 +177,18 @@ void Compiler::morphAssertionReset(unsigned limit)
     {
         unsigned        index        = optAssertionCount++;
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        unsigned        lclNum       = curAssertion->op1.lcl.lclNum;
+        unsigned        lclNum       = curAssertion->lcl.lclNum;
         BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index);
 
         //
         // Check for Copy assertions
         //
-        if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op2.kind == O2K_LCLVAR_COPY))
+        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::LclVar))
         {
             //
-            //  op2.lcl.lclNum now depends upon this assertion
+            //  value.lcl.lclNum now depends upon this assertion
             //
-            lclNum = curAssertion->op2.lcl.lclNum;
+            lclNum = curAssertion->val.lcl.lclNum;
             BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index);
         }
     }
@@ -218,18 +218,18 @@ void Compiler::morphAssertionRemove(unsigned index)
     //
     if (index == static_cast<unsigned>(optAssertionCount) - 1)
     {
-        unsigned lclNum = curAssertion->op1.lcl.lclNum;
+        unsigned lclNum = curAssertion->lcl.lclNum;
         BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
 
         //
         // Check for Copy assertions
         //
-        if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op2.kind == O2K_LCLVAR_COPY))
+        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::LclVar))
         {
             //
-            //  op2.lcl.lclNum no longer depends upon this assertion
+            //  value.lcl.lclNum no longer depends upon this assertion
             //
-            lclNum = curAssertion->op2.lcl.lclNum;
+            lclNum = curAssertion->val.lcl.lclNum;
             BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
         }
 
@@ -291,15 +291,14 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
         {
             MorphAssertion* assertion = &elseAssertionTab[j];
 
-            if ((assertion->assertionKind == thenAssertion->assertionKind) &&
-                (assertion->op1.lcl.lclNum == thenAssertion->op1.lcl.lclNum))
+            if ((assertion->kind == thenAssertion->kind) && (assertion->lcl.lclNum == thenAssertion->lcl.lclNum))
             {
                 elseAssertion = assertion;
                 break;
             }
         }
 
-        if ((elseAssertion != nullptr) && elseAssertion->HasSameOp2(thenAssertion))
+        if ((elseAssertion != nullptr) && elseAssertion->HasSameValue(thenAssertion))
         {
             index++;
         }
@@ -316,16 +315,16 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
 #ifdef DEBUG
 void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
 {
-    if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
+    if (curAssertion->valKind == ValueKind::LclVar)
     {
         printf("Copy     ");
     }
-    else if ((curAssertion->op2.kind == O2K_CONST_INT) || (curAssertion->op2.kind == O2K_CONST_LONG) ||
-             (curAssertion->op2.kind == O2K_CONST_DOUBLE))
+    else if ((curAssertion->valKind == ValueKind::IntCon) || (curAssertion->valKind == ValueKind::LngCon) ||
+             (curAssertion->valKind == ValueKind::DblCon))
     {
         printf("Constant ");
     }
-    else if (curAssertion->op2.kind == O2K_SUBRANGE)
+    else if (curAssertion->valKind == ValueKind::Range)
     {
         printf("Subrange ");
     }
@@ -334,17 +333,17 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
         printf("?assertion classification? ");
     }
 
-    printf("Assertion: V%02u", curAssertion->op1.lcl.lclNum);
+    printf("Assertion: V%02u", curAssertion->lcl.lclNum);
 
-    if (curAssertion->assertionKind == OAK_SUBRANGE)
+    if (curAssertion->kind == Kind::Range)
     {
         printf(" in ");
     }
-    else if (curAssertion->assertionKind == OAK_EQUAL)
+    else if (curAssertion->kind == Kind::Equal)
     {
         printf(" == ");
     }
-    else if (curAssertion->assertionKind == OAK_NOT_EQUAL)
+    else if (curAssertion->kind == Kind::NotEqual)
     {
         printf(" != ");
     }
@@ -353,59 +352,59 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
         printf(" ?assertionKind? ");
     }
 
-    switch (curAssertion->op2.kind)
+    switch (curAssertion->valKind)
     {
-        case O2K_LCLVAR_COPY:
-            printf("V%02u", curAssertion->op2.lcl.lclNum);
+        case ValueKind::LclVar:
+            printf("V%02u", curAssertion->val.lcl.lclNum);
             break;
 
-        case O2K_CONST_INT:
+        case ValueKind::IntCon:
         {
-            unsigned lclNum = curAssertion->op1.lcl.lclNum;
+            unsigned lclNum = curAssertion->lcl.lclNum;
             assert(lclNum < lvaCount);
             LclVarDsc* varDsc  = lvaTable + lclNum;
             var_types  op1Type = varDsc->lvType;
 
             if (op1Type == TYP_REF)
             {
-                assert(curAssertion->op2.u1.iconVal == 0);
+                assert(curAssertion->val.intCon.value == 0);
                 printf("null");
             }
             else
             {
-                if ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
+                if ((curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
                 {
-                    printf("[%08p]", dspPtr(curAssertion->op2.u1.iconVal));
+                    printf("[%08p]", dspPtr(curAssertion->val.intCon.value));
                 }
                 else
                 {
-                    printf("%d", curAssertion->op2.u1.iconVal);
+                    printf("%d", curAssertion->val.intCon.value);
                 }
             }
         }
         break;
 
-        case O2K_CONST_LONG:
-            printf("0x%016llx", curAssertion->op2.lconVal);
+        case ValueKind::LngCon:
+            printf("0x%016llx", curAssertion->val.lngCon.value);
             break;
 
-        case O2K_CONST_DOUBLE:
-            if (*((__int64*)&curAssertion->op2.dconVal) == (__int64)I64(0x8000000000000000))
+        case ValueKind::DblCon:
+            if (*((__int64*)&curAssertion->val.dblCon.value) == (__int64)I64(0x8000000000000000))
             {
                 printf("-0.00000");
             }
             else
             {
-                printf("%#lg", curAssertion->op2.dconVal);
+                printf("%#lg", curAssertion->val.dblCon.value);
             }
             break;
 
-        case O2K_SUBRANGE:
-            printf("[%u..%u]", curAssertion->op2.u2.loBound, curAssertion->op2.u2.hiBound);
+        case ValueKind::Range:
+            printf("[%u..%u]", curAssertion->val.range.loBound, curAssertion->val.range.hiBound);
             break;
 
         default:
-            printf("?op2.kind?");
+            printf("?valKind?");
             break;
     }
 
@@ -433,7 +432,7 @@ void Compiler::morphCreateNonNullAssertion(GenTree* op1)
 
     MorphAssertion assertion;
     memset(&assertion, 0, sizeof(MorphAssertion));
-    assert(assertion.assertionKind == OAK_INVALID);
+    assert(assertion.kind == Kind::Invalid);
 
     {
         //
@@ -485,22 +484,22 @@ void Compiler::morphCreateNonNullAssertion(GenTree* op1)
                 goto DONE_ASSERTION; // Don't make an assertion
             }
 
-            assertion.op1.lcl.lclNum = lclNum;
+            assertion.lcl.lclNum = lclNum;
         }
 
-        assertion.assertionKind    = OAK_NOT_EQUAL;
-        assertion.op2.kind         = O2K_CONST_INT;
-        assertion.op2.u1.iconVal   = 0;
-        assertion.op2.u1.iconFlags = GTF_EMPTY;
+        assertion.kind             = Kind::NotEqual;
+        assertion.valKind          = ValueKind::IntCon;
+        assertion.val.intCon.value = 0;
+        assertion.val.intCon.flags = GTF_EMPTY;
 #ifdef TARGET_64BIT
-        assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
+        assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
 #endif
     }
 
 DONE_ASSERTION:
-    if (assertion.assertionKind != OAK_INVALID)
+    if (assertion.kind != Kind::Invalid)
     {
-        noway_assert(assertion.op2.kind != O2K_INVALID);
+        noway_assert(assertion.valKind != ValueKind::Invalid);
         morphAddAssertion(&assertion);
     }
 }
@@ -512,7 +511,7 @@ void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
 
     MorphAssertion assertion;
     memset(&assertion, 0, sizeof(MorphAssertion));
-    assert(assertion.assertionKind == OAK_INVALID);
+    assert(assertion.kind == Kind::Invalid);
 
     var_types toType;
 
@@ -531,33 +530,33 @@ void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
         {
             op2 = op2->SkipComma();
 
-            assertion.op1.lcl.lclNum = lclNum;
+            assertion.lcl.lclNum = lclNum;
 
             switch (op2->gtOper)
             {
-                optOp2Kind op2Kind;
+                ValueKind op2Kind;
                 //
                 //  No Assertion
                 //
-            default:
-                goto DONE_ASSERTION; // Don't make an assertion
+                default:
+                    goto DONE_ASSERTION; // Don't make an assertion
 
-            //
-            //  Constant Assertions
-            //
-            case GT_CNS_INT:
-                op2Kind = O2K_CONST_INT;
-                goto CNS_COMMON;
+                //
+                //  Constant Assertions
+                //
+                case GT_CNS_INT:
+                    op2Kind = ValueKind::IntCon;
+                    goto CNS_COMMON;
 
-            case GT_CNS_LNG:
-                op2Kind = O2K_CONST_LONG;
-                goto CNS_COMMON;
+                case GT_CNS_LNG:
+                    op2Kind = ValueKind::LngCon;
+                    goto CNS_COMMON;
 
-            case GT_CNS_DBL:
-                op2Kind = O2K_CONST_DOUBLE;
-                goto CNS_COMMON;
+                case GT_CNS_DBL:
+                    op2Kind = ValueKind::DblCon;
+                    goto CNS_COMMON;
 
-            CNS_COMMON:
+                CNS_COMMON:
                 {
                     // If the LclVar is a TYP_LONG then we only make
                     // assertions where op2 is also TYP_LONG
@@ -567,8 +566,8 @@ void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
                         goto DONE_ASSERTION; // Don't make an assertion
                     }
 
-                    assertion.op2.kind = op2Kind;
-                    assertion.op2.lconVal = 0;
+                    assertion.valKind          = op2Kind;
+                    assertion.val.lngCon.value = 0;
 
                     if (op2->gtOper == GT_CNS_INT)
                     {
@@ -585,35 +584,35 @@ void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
                         ssize_t value = op2->AsIntCon()->GetValue();
                         switch (lclVar->GetType())
                         {
-                        case TYP_BYTE:
-                            value = static_cast<int8_t>(value);
-                            break;
-                        case TYP_UBYTE:
-                        case TYP_BOOL:
-                            value = static_cast<uint8_t>(value);
-                            break;
-                        case TYP_SHORT:
-                            value = static_cast<int16_t>(value);
-                            break;
-                        case TYP_USHORT:
-                            value = static_cast<uint16_t>(value);
-                            break;
-                        default:
-                            break;
+                            case TYP_BYTE:
+                                value = static_cast<int8_t>(value);
+                                break;
+                            case TYP_UBYTE:
+                            case TYP_BOOL:
+                                value = static_cast<uint8_t>(value);
+                                break;
+                            case TYP_SHORT:
+                                value = static_cast<int16_t>(value);
+                                break;
+                            case TYP_USHORT:
+                                value = static_cast<uint16_t>(value);
+                                break;
+                            default:
+                                break;
                         }
 
-                        assertion.op2.u1.iconVal = value;
-                        assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
+                        assertion.val.intCon.value = value;
+                        assertion.val.intCon.flags = op2->GetIconHandleFlag();
 #ifdef TARGET_64BIT
                         if (op2->TypeGet() == TYP_LONG || op2->TypeGet() == TYP_BYREF)
                         {
-                            assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
+                            assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG;
                         }
 #endif // TARGET_64BIT
                     }
                     else if (op2->gtOper == GT_CNS_LNG)
                     {
-                        assertion.op2.lconVal = op2->AsLngCon()->gtLconVal;
+                        assertion.val.lngCon.value = op2->AsLngCon()->gtLconVal;
                     }
                     else
                     {
@@ -623,146 +622,146 @@ void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
                         {
                             goto DONE_ASSERTION; // Don't make an assertion
                         }
-                        assertion.op2.dconVal = op2->AsDblCon()->gtDconVal;
+                        assertion.val.dblCon.value = op2->AsDblCon()->gtDconVal;
                     }
 
                     //
                     // Ok everything has been set and the assertion looks good
                     //
-                    assertion.assertionKind = OAK_EQUAL;
+                    assertion.kind = Kind::Equal;
                 }
                 break;
 
                 //
                 //  Copy Assertions
                 //
-            case GT_LCL_VAR:
-            {
-                unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
-                noway_assert(lclNum2 < lvaCount);
-                LclVarDsc* lclVar2 = &lvaTable[lclNum2];
-
-                // If the two locals are the same then bail
-                if (lclNum == lclNum2)
+                case GT_LCL_VAR:
                 {
-                    goto DONE_ASSERTION; // Don't make an assertion
+                    unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
+                    noway_assert(lclNum2 < lvaCount);
+                    LclVarDsc* lclVar2 = &lvaTable[lclNum2];
+
+                    // If the two locals are the same then bail
+                    if (lclNum == lclNum2)
+                    {
+                        goto DONE_ASSERTION; // Don't make an assertion
+                    }
+
+                    // If the types are different then bail */
+                    if (lclVar->lvType != lclVar2->lvType)
+                    {
+                        goto DONE_ASSERTION; // Don't make an assertion
+                    }
+
+                    // If we're making a copy of a "normalize on load" lclvar then the destination
+                    // has to be "normalize on load" as well, otherwise we risk skipping normalization.
+                    if (lclVar2->lvNormalizeOnLoad() && !lclVar->lvNormalizeOnLoad())
+                    {
+                        goto DONE_ASSERTION; // Don't make an assertion
+                    }
+
+                    //  If the local variable has its address exposed then bail
+                    if (lclVar2->lvAddrExposed)
+                    {
+                        goto DONE_ASSERTION; // Don't make an assertion
+                    }
+
+                    assertion.valKind        = ValueKind::LclVar;
+                    assertion.val.lcl.lclNum = lclNum2;
+
+                    //
+                    // Ok everything has been set and the assertion looks good
+                    //
+                    assertion.kind = Kind::Equal;
                 }
+                break;
 
-                // If the types are different then bail */
-                if (lclVar->lvType != lclVar2->lvType)
+                //  Subrange Assertions
+                case GT_EQ:
+                case GT_NE:
+                case GT_LT:
+                case GT_LE:
+                case GT_GT:
+                case GT_GE:
+
+                    /* Assigning the result of a RELOP, we can add a boolean subrange assertion */
+
+                    toType = TYP_BOOL;
+                    goto SUBRANGE_COMMON;
+
+                case GT_LCL_FLD:
+
+                    /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
+
+                    toType = op2->gtType;
+                    goto SUBRANGE_COMMON;
+
+                case GT_IND:
+
+                    /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
+
+                    toType = op2->gtType;
+                    goto SUBRANGE_COMMON;
+
+                case GT_CAST:
                 {
-                    goto DONE_ASSERTION; // Don't make an assertion
-                }
+                    if (lvaTable[lclNum].lvIsStructField && lvaTable[lclNum].lvNormalizeOnLoad())
+                    {
+                        // Keep the cast on small struct fields.
+                        goto DONE_ASSERTION; // Don't make an assertion
+                    }
 
-                // If we're making a copy of a "normalize on load" lclvar then the destination
-                // has to be "normalize on load" as well, otherwise we risk skipping normalization.
-                if (lclVar2->lvNormalizeOnLoad() && !lclVar->lvNormalizeOnLoad())
-                {
-                    goto DONE_ASSERTION; // Don't make an assertion
-                }
+                    toType = op2->CastToType();
 
-                //  If the local variable has its address exposed then bail
-                if (lclVar2->lvAddrExposed)
-                {
-                    goto DONE_ASSERTION; // Don't make an assertion
-                }
+                    // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
+                    // except in overflow cases which we do not yet handle. To avoid
+                    // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
+                    // based on an assertion created from CAST(uint <- ulong), normalize the
+                    // type for the range here. Note that TYP_ULONG theoretically has the same
+                    // problem, but we do not create assertions for it.
+                    // TODO-Cleanup: this assertion is not useful - this code exists to preserve
+                    // previous behavior. Refactor it to stop generating such assertions.
+                    if (toType == TYP_UINT)
+                    {
+                        toType = TYP_INT;
+                    }
+                SUBRANGE_COMMON:
+                    if (varTypeIsFloating(op1->TypeGet()))
+                    {
+                        // We don't make assertions on a cast from floating point
+                        goto DONE_ASSERTION;
+                    }
 
-                assertion.op2.kind = O2K_LCLVAR_COPY;
-                assertion.op2.lcl.lclNum = lclNum2;
-
-                //
-                // Ok everything has been set and the assertion looks good
-                //
-                assertion.assertionKind = OAK_EQUAL;
-            }
-            break;
-
-            //  Subrange Assertions
-            case GT_EQ:
-            case GT_NE:
-            case GT_LT:
-            case GT_LE:
-            case GT_GT:
-            case GT_GE:
-
-                /* Assigning the result of a RELOP, we can add a boolean subrange assertion */
-
-                toType = TYP_BOOL;
-                goto SUBRANGE_COMMON;
-
-            case GT_LCL_FLD:
-
-                /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-                toType = op2->gtType;
-                goto SUBRANGE_COMMON;
-
-            case GT_IND:
-
-                /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-                toType = op2->gtType;
-                goto SUBRANGE_COMMON;
-
-            case GT_CAST:
-            {
-                if (lvaTable[lclNum].lvIsStructField && lvaTable[lclNum].lvNormalizeOnLoad())
-                {
-                    // Keep the cast on small struct fields.
-                    goto DONE_ASSERTION; // Don't make an assertion
-                }
-
-                toType = op2->CastToType();
-
-                // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
-                // except in overflow cases which we do not yet handle. To avoid
-                // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
-                // based on an assertion created from CAST(uint <- ulong), normalize the
-                // type for the range here. Note that TYP_ULONG theoretically has the same
-                // problem, but we do not create assertions for it.
-                // TODO-Cleanup: this assertion is not useful - this code exists to preserve
-                // previous behavior. Refactor it to stop generating such assertions.
-                if (toType == TYP_UINT)
-                {
-                    toType = TYP_INT;
-                }
-            SUBRANGE_COMMON:
-                if (varTypeIsFloating(op1->TypeGet()))
-                {
-                    // We don't make assertions on a cast from floating point
-                    goto DONE_ASSERTION;
-                }
-
-                switch (toType)
-                {
-                case TYP_BOOL:
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
+                    switch (toType)
+                    {
+                        case TYP_BOOL:
+                        case TYP_BYTE:
+                        case TYP_UBYTE:
+                        case TYP_SHORT:
+                        case TYP_USHORT:
 #ifdef TARGET_64BIT
-                case TYP_UINT:
-                case TYP_INT:
+                        case TYP_UINT:
+                        case TYP_INT:
 #endif // TARGET_64BIT
-                    assertion.op2.u2.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
-                    assertion.op2.u2.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
-                    break;
+                            assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
+                            assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
+                            break;
 
-                default:
-                    goto DONE_ASSERTION; // Don't make an assertion
+                        default:
+                            goto DONE_ASSERTION; // Don't make an assertion
+                    }
+                    assertion.valKind = ValueKind::Range;
+                    assertion.kind    = Kind::Range;
                 }
-                assertion.op2.kind = O2K_SUBRANGE;
-                assertion.assertionKind = OAK_SUBRANGE;
-            }
-            break;
+                break;
             }
         } // else // !helperCallArgs
     }
 
 DONE_ASSERTION:
-    if (assertion.assertionKind != OAK_INVALID)
+    if (assertion.kind != Kind::Invalid)
     {
-        noway_assert(assertion.op2.kind != O2K_INVALID);
+        noway_assert(assertion.valKind != ValueKind::Invalid);
         morphAddAssertion(&assertion);
     }
 }
@@ -779,7 +778,7 @@ DONE_ASSERTION:
  */
 void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
 {
-    noway_assert(newAssertion->assertionKind != OAK_INVALID);
+    noway_assert(newAssertion->kind != Kind::Invalid);
 
     // Check if exists already, so we can skip adding new one. Search backwards.
     for (unsigned index = optAssertionCount - 1; index != UINT32_MAX; index--)
@@ -811,11 +810,11 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
 #endif // DEBUG
 
     // Mark the variables this index depends on
-    unsigned lclNum = newAssertion->op1.lcl.lclNum;
+    unsigned lclNum = newAssertion->lcl.lclNum;
     BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), optAssertionCount - 1);
-    if (newAssertion->op2.kind == O2K_LCLVAR_COPY)
+    if (newAssertion->valKind == ValueKind::LclVar)
     {
-        lclNum = newAssertion->op2.lcl.lclNum;
+        lclNum = newAssertion->val.lcl.lclNum;
         BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), optAssertionCount - 1);
     }
 
@@ -825,36 +824,34 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
 #ifdef DEBUG
 void Compiler::morphDebugCheckAssertion(MorphAssertion* assertion)
 {
-    assert(assertion->assertionKind < OAK_COUNT);
-    assert(assertion->op2.kind < O2K_COUNT);
-    assert(assertion->op1.lcl.lclNum < lvaCount);
+    assert(assertion->lcl.lclNum < lvaCount);
 
-    switch (assertion->op2.kind)
+    switch (assertion->valKind)
     {
-        case O2K_CONST_INT:
+        case ValueKind::IntCon:
         {
 // The only flags that can be set are those in the GTF_ICON_HDL_MASK, or GTF_ASSERTION_PROP_LONG, which is
 // used to indicate a long constant.
 #ifdef TARGET_64BIT
-            assert((assertion->op2.u1.iconFlags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
+            assert((assertion->val.intCon.flags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
 #else
-            assert((assertion->op2.u1.iconFlags & ~GTF_ICON_HDL_MASK) == 0);
+            assert((assertion->val.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
 #endif
-            assert((lvaTable[assertion->op1.lcl.lclNum].lvType != TYP_REF) || (assertion->op2.u1.iconVal == 0) ||
+            assert((lvaTable[assertion->lcl.lclNum].lvType != TYP_REF) || (assertion->val.intCon.value == 0) ||
                    doesMethodHaveFrozenString());
         }
         break;
 
-        case O2K_CONST_LONG:
+        case ValueKind::LngCon:
         {
-            // All handles should be represented by O2K_CONST_INT,
+            // All handles should be represented by ValueKind::IntCon,
             // so no handle bits should be set here.
-            assert((assertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) == 0);
+            assert((assertion->val.intCon.flags & GTF_ICON_HDL_MASK) == 0);
         }
         break;
 
         default:
-            // for all other 'assertion->op2.kind' values we don't check anything
+            // for all other 'assertion->valKind' values we don't check anything
             break;
     }
 }
@@ -927,9 +924,9 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTree* tree, var_
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if (curAssertion->assertionKind == OAK_SUBRANGE)
+        if (curAssertion->kind == Kind::Range)
         {
-            if (curAssertion->op1.lcl.lclNum != tree->AsLclVarCommon()->GetLclNum())
+            if (curAssertion->lcl.lclNum != tree->AsLclVarCommon()->GetLclNum())
             {
                 continue;
             }
@@ -938,7 +935,7 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTree* tree, var_
             //
             if (varTypeIsUnsigned(fromType))
             {
-                if (curAssertion->op2.u2.loBound < 0)
+                if (curAssertion->val.range.loBound < 0)
                 {
                     continue;
                 }
@@ -951,15 +948,15 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTree* tree, var_
                 case TYP_UBYTE:
                 case TYP_SHORT:
                 case TYP_USHORT:
-                    if ((curAssertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
-                        (curAssertion->op2.u2.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
+                    if ((curAssertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
+                        (curAssertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
                     {
                         continue;
                     }
                     break;
 
                 case TYP_UINT:
-                    if (curAssertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
+                    if (curAssertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
                     {
                         continue;
                     }
@@ -1009,53 +1006,53 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
 
     // Update 'newTree' with the new value from our table
     // Typically newTree == tree and we are updating the node in place
-    switch (curAssertion->op2.kind)
+    switch (curAssertion->valKind)
     {
-        case O2K_CONST_DOUBLE:
+        case ValueKind::DblCon:
             // There could be a positive zero and a negative zero, so don't propagate zeroes.
-            if (curAssertion->op2.dconVal == 0.0)
+            if (curAssertion->val.dblCon.value == 0.0)
             {
                 return nullptr;
             }
             newTree->ChangeOperConst(GT_CNS_DBL);
-            newTree->AsDblCon()->gtDconVal = curAssertion->op2.dconVal;
+            newTree->AsDblCon()->gtDconVal = curAssertion->val.dblCon.value;
             break;
 
-        case O2K_CONST_LONG:
+        case ValueKind::LngCon:
 
             if (newTree->gtType == TYP_LONG)
             {
                 newTree->ChangeOperConst(GT_CNS_NATIVELONG);
-                newTree->AsIntConCommon()->SetLngValue(curAssertion->op2.lconVal);
+                newTree->AsIntConCommon()->SetLngValue(curAssertion->val.lngCon.value);
             }
             else
             {
                 newTree->ChangeOperConst(GT_CNS_INT);
-                newTree->AsIntCon()->gtIconVal = (int)curAssertion->op2.lconVal;
+                newTree->AsIntCon()->gtIconVal = (int)curAssertion->val.lngCon.value;
                 newTree->gtType                = TYP_INT;
             }
             break;
 
-        case O2K_CONST_INT:
+        case ValueKind::IntCon:
 
             // Don't propagate handles if we need to report relocs.
-            if (opts.compReloc && ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0))
+            if (opts.compReloc && ((curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK) != 0))
             {
                 return nullptr;
             }
 
-            if (curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK)
+            if (curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK)
             {
                 // Here we have to allocate a new 'large' node to replace the old one
                 // TODO-MIKE-Cleanup: Huh, what large node?!?
-                newTree = gtNewIconHandleNode(curAssertion->op2.u1.iconVal,
-                                              curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK);
+                newTree = gtNewIconHandleNode(curAssertion->val.intCon.value,
+                                              curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK);
             }
             else
             {
                 // If we have done constant propagation of a struct type, it is only valid for zero-init,
                 // and we have to ensure that we have the right zero for the type.
-                assert(!varTypeIsStruct(tree->GetType()) || curAssertion->op2.u1.iconVal == 0);
+                assert(!varTypeIsStruct(tree->GetType()) || curAssertion->val.intCon.value == 0);
 
 #ifdef FEATURE_SIMD
                 if (varTypeIsSIMD(tree->GetType()))
@@ -1068,7 +1065,7 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
 #endif // FEATURE_SIMD
                 {
                     newTree->ChangeOperConst(GT_CNS_INT);
-                    newTree->AsIntCon()->gtIconVal = curAssertion->op2.u1.iconVal;
+                    newTree->AsIntCon()->gtIconVal = curAssertion->val.intCon.value;
                     newTree->ClearIconHandleMask();
                     if (newTree->TypeIs(TYP_STRUCT))
                     {
@@ -1083,7 +1080,7 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
             {
 #ifdef TARGET_64BIT
                 var_types newType =
-                    (var_types)((curAssertion->op2.u1.iconFlags & GTF_ASSERTION_PROP_LONG) ? TYP_LONG : TYP_INT);
+                    (var_types)((curAssertion->val.intCon.flags & GTF_ASSERTION_PROP_LONG) ? TYP_LONG : TYP_INT);
                 if (newTree->TypeGet() != newType)
                 {
                     noway_assert(newTree->gtType != TYP_REF);
@@ -1192,21 +1189,21 @@ bool Compiler::morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclV
 //
 GenTree* Compiler::morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree)
 {
-    const MorphAssertion::AssertionDscOp1& op1 = curAssertion->op1;
-    const MorphAssertion::AssertionDscOp2& op2 = curAssertion->op2;
+    const auto& op1 = curAssertion->lcl;
+    const auto& op2 = curAssertion->val;
 
-    noway_assert(op1.lcl.lclNum != op2.lcl.lclNum);
+    noway_assert(op1.lclNum != op2.lcl.lclNum);
 
     const unsigned lclNum = tree->GetLclNum();
 
     // Make sure one of the lclNum of the assertion matches with that of the tree.
-    if (op1.lcl.lclNum != lclNum && op2.lcl.lclNum != lclNum)
+    if (op1.lclNum != lclNum && op2.lcl.lclNum != lclNum)
     {
         return nullptr;
     }
 
     // Extract the matching lclNum.
-    const unsigned copyLclNum = (op1.lcl.lclNum == lclNum) ? op2.lcl.lclNum : op1.lcl.lclNum;
+    const unsigned copyLclNum = (op1.lclNum == lclNum) ? op2.lcl.lclNum : op1.lclNum;
 
     LclVarDsc* const copyVarDsc = lvaGetDesc(copyLclNum);
     LclVarDsc* const lclVarDsc  = lvaGetDesc(lclNum);
@@ -1221,7 +1218,7 @@ GenTree* Compiler::morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeL
     }
 
     // Make sure we can perform this copy prop.
-    if (optCopyProp_LclVarScore(lclVarDsc, copyVarDsc, curAssertion->op1.lcl.lclNum == lclNum) <= 0)
+    if (optCopyProp_LclVarScore(lclVarDsc, copyVarDsc, curAssertion->lcl.lclNum == lclNum) <= 0)
     {
         return nullptr;
     }
@@ -1270,13 +1267,13 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
     {
         // See if the variable is equal to a constant or another variable.
         MorphAssertion* curAssertion = morphGetAssertion(assertionIndex);
-        if (curAssertion->assertionKind != OAK_EQUAL)
+        if (curAssertion->kind != Kind::Equal)
         {
             continue;
         }
 
         // Copy prop.
-        if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
+        if (curAssertion->valKind == ValueKind::LclVar)
         {
             // Perform copy assertion prop.
             GenTree* newTree = morphCopyAssertionProp(curAssertion, tree);
@@ -1295,7 +1292,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
         // node.  In such a case is not safe to perform the substitution since later on the JIT will assert mismatching
         // types between trees.
         const unsigned lclNum = tree->GetLclNum();
-        if (curAssertion->op1.lcl.lclNum == lclNum)
+        if (curAssertion->lcl.lclNum == lclNum)
         {
             LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
             // Verify types match
@@ -1320,15 +1317,15 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsEqualOrNotEqual(unsigned lcl
     for (unsigned index = 0; index < optAssertionCount; ++index)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if ((curAssertion->assertionKind != OAK_EQUAL) && (curAssertion->assertionKind != OAK_NOT_EQUAL))
+        if ((curAssertion->kind != Kind::Equal) && (curAssertion->kind != Kind::NotEqual))
         {
             continue;
         }
 
-        if ((curAssertion->op1.lcl.lclNum == lclNum) && (curAssertion->op2.kind == O2K_CONST_INT))
+        if ((curAssertion->lcl.lclNum == lclNum) && (curAssertion->valKind == ValueKind::IntCon))
         {
-            bool constantIsEqual  = (curAssertion->op2.u1.iconVal == cnsVal);
-            bool assertionIsEqual = (curAssertion->assertionKind == OAK_EQUAL);
+            bool constantIsEqual  = (curAssertion->val.intCon.value == cnsVal);
+            bool assertionIsEqual = (curAssertion->kind == Kind::Equal);
 
             if (constantIsEqual || assertionIsEqual)
             {
@@ -1397,18 +1394,18 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
 
     assert(!lvaGetDesc(lclNum)->IsAddressExposed());
 
-    bool assertionKindIsEqual = (curAssertion->assertionKind == OAK_EQUAL);
+    bool assertionKindIsEqual = (curAssertion->kind == Kind::Equal);
     bool constantIsEqual      = false;
 
     if (genTypeSize(cmpType) == TARGET_POINTER_SIZE)
     {
-        constantIsEqual = (curAssertion->op2.u1.iconVal == cnsVal);
+        constantIsEqual = (curAssertion->val.intCon.value == cnsVal);
     }
 #ifdef TARGET_64BIT
     else if (genTypeSize(cmpType) == sizeof(INT32))
     {
         // Compare the low 32-bits only
-        constantIsEqual = (((INT32)curAssertion->op2.u1.iconVal) == ((INT32)cnsVal));
+        constantIsEqual = (((INT32)curAssertion->val.intCon.value) == ((INT32)cnsVal));
     }
 #endif
     else
@@ -1605,10 +1602,10 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsNonNull(GenTree* op)
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if ((curAssertion->assertionKind == OAK_NOT_EQUAL) && // kind
+        if ((curAssertion->kind == Kind::NotEqual) && // kind
 
-            (curAssertion->op2.kind == O2K_CONST_INT) && // op2
-            (curAssertion->op1.lcl.lclNum == lclNum) && (curAssertion->op2.u1.iconVal == 0))
+            (curAssertion->valKind == ValueKind::IntCon) && // op2
+            (curAssertion->lcl.lclNum == lclNum) && (curAssertion->val.intCon.value == 0))
         {
             assert(!lvaGetDesc(lclNum)->IsAddressExposed());
             return curAssertion;
@@ -1726,13 +1723,13 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
             {
 #ifdef DEBUG
                 MorphAssertion* curAssertion = morphGetAssertion(count - 1);
-                noway_assert((curAssertion->op1.lcl.lclNum == lclNum) ||
-                             ((curAssertion->op2.kind == O2K_LCLVAR_COPY) && (curAssertion->op2.lcl.lclNum == lclNum)));
+                noway_assert((curAssertion->lcl.lclNum == lclNum) || ((curAssertion->valKind == ValueKind::LclVar) &&
+                                                                      (curAssertion->val.lcl.lclNum == lclNum)));
                 if (verbose)
                 {
                     printf("\nThe assignment ");
                     printTreeID(tree);
-                    printf(" using V%02u removes: ", curAssertion->op1.lcl.lclNum);
+                    printf(" using V%02u removes: ", curAssertion->lcl.lclNum);
                     morphPrintAssertion(curAssertion);
                 }
 #endif
