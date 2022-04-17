@@ -859,14 +859,9 @@ void Compiler::morphDebugCheckAssertion(MorphAssertion* assertion)
  */
 void Compiler::morphAssertionGen(GenTree* tree)
 {
-#ifdef DEBUG
-    optAssertionPropCurrentTree = tree;
-#endif
+    INDEBUG(optAssertionPropCurrentTree = tree);
 
-    // For most of the assertions that we create below
-    // the assertion is true after the tree is processed
-    bool assertionProven = true;
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
         case GT_ASG:
             if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
