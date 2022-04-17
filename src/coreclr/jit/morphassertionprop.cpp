@@ -898,14 +898,16 @@ void Compiler::morphAssertionGen(GenTree* tree)
  *  if one such assertion could not be found in "assertions."
  */
 
-Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType)
+Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTreeLclVar* lclVar,
+                                                             var_types      fromType,
+                                                             var_types      toType)
 {
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
         if (curAssertion->kind == Kind::Range)
         {
-            if (curAssertion->lcl.lclNum != tree->AsLclVarCommon()->GetLclNum())
+            if (curAssertion->lcl.lclNum != lclVar->GetLclNum())
             {
                 continue;
             }
@@ -1454,9 +1456,9 @@ GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
         return nullptr;
     }
 
-    if (MorphAssertion* assertion = morphAssertionIsSubrange(lcl, fromType, toType))
+    if (MorphAssertion* assertion = morphAssertionIsSubrange(lcl->AsLclVar(), fromType, toType))
     {
-        LclVarDsc* varDsc = &lvaTable[lcl->AsLclVarCommon()->GetLclNum()];
+        LclVarDsc* varDsc = lvaGetDesc(lcl->AsLclVar());
         assert(!varDsc->IsAddressExposed());
 
         if (varDsc->lvNormalizeOnLoad() || varTypeIsLong(varDsc->TypeGet()))

@@ -6184,7 +6184,7 @@ public:
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);
     GenTree* morphAssertionProp(GenTree* tree);
-    MorphAssertion* morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
+    MorphAssertion* morphAssertionIsSubrange(GenTreeLclVar* lclVar, var_types fromType, var_types toType);
     MorphAssertion* morphAssertionIsNonNull(GenTree* op);
     void morphAssertionReset(unsigned limit);
     unsigned morphAssertionTableSize(unsigned count);
