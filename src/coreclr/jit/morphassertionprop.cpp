@@ -210,11 +210,10 @@ void Compiler::morphAssertionReset(unsigned limit)
 
 void Compiler::morphAssertionRemove(unsigned index)
 {
-    assert(index > 0);
-    assert(index <= optAssertionCount);
+    assert(index < optAssertionCount);
     PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
 
-    MorphAssertion* curAssertion = morphGetAssertion(index - 1);
+    MorphAssertion* curAssertion = morphGetAssertion(index);
 
     //  Two cases to consider if (index == optAssertionCount) then the last
     //  entry in the table is to be removed and that happens automatically when
@@ -225,10 +224,10 @@ void Compiler::morphAssertionRemove(unsigned index)
     //  using optAssertionReset(0) and optAssertionReset(newAssertionCount) will
     //  correctly update the morphAssertionDep bits
     //
-    if (index == optAssertionCount)
+    if (index == static_cast<unsigned>(optAssertionCount) - 1)
     {
         unsigned lclNum = curAssertion->op1.lcl.lclNum;
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
 
         //
         // Check for Copy assertions
@@ -239,7 +238,7 @@ void Compiler::morphAssertionRemove(unsigned index)
             //  op2.lcl.lclNum no longer depends upon this assertion
             //
             lclNum = curAssertion->op2.lcl.lclNum;
-            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
+            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
         }
 
         optAssertionCount--;
@@ -315,7 +314,7 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
         else
         {
             JITDUMP("The QMARK [%06u] removes assertion candidate #%d\n", qmark->GetID(), index);
-            morphAssertionRemove(index);
+            morphAssertionRemove(index - 1);
         }
     }
 }
@@ -1770,7 +1769,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
                 // Remove this bit from the killed mask
                 BitVecOps::RemoveElemD(apTraits, killed, index - 1);
 
-                morphAssertionRemove(index);
+                morphAssertionRemove(index - 1);
             }
 
             index--;
