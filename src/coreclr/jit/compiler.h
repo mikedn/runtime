@@ -6203,7 +6203,7 @@ private:
     void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
 
     GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
-    GenTree* morphAssertionProp_Ind(GenTree* tree);
+    GenTree* morphAssertionPropIndir(GenTreeIndir* indir);
     GenTree* morphAssertionProp_Cast(GenTree* tree);
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionProp_RelOp(GenTree* tree);

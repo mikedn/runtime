@@ -1530,56 +1530,41 @@ GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// morphAssertionProp_Ind: see if we can prove the indirection can't cause
-//    and exception.
-//
-// Arguments:
-//   tree - tree to possibly optimize
-//
-// Returns:
-//   The modified tree, or nullptr if no assertion prop took place.
-//
-// Notes:
-//   stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
+GenTree* Compiler::morphAssertionPropIndir(GenTreeIndir* indir)
 {
-    assert(tree->OperIsIndir());
-
-    if (!(tree->gtFlags & GTF_EXCEPT))
+    if ((indir->gtFlags & GTF_EXCEPT) == 0)
     {
         return nullptr;
     }
 
-    // Check for add of a constant.
-    GenTree* op1 = tree->AsIndir()->Addr();
-    if ((op1->gtOper == GT_ADD) && (op1->AsOp()->gtOp2->gtOper == GT_CNS_INT))
+    GenTree* addr = indir->GetAddr();
+
+    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
     {
-        op1 = op1->AsOp()->gtOp1;
+        addr = addr->AsOp()->GetOp(0);
     }
 
-    if (!op1->OperIs(GT_LCL_VAR))
+    if (!addr->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
 
-    if (MorphAssertion* assertion = morphAssertionIsNotNull(op1->AsLclVar()->GetLclNum()))
+    if (MorphAssertion* assertion = morphAssertionIsNotNull(addr->AsLclVar()->GetLclNum()))
     {
 #ifdef DEBUG
         if (verbose)
         {
             printf("\nNon-null prop for index #%02u:\n", assertion - morphAssertionTable);
-            gtDispTree(tree, nullptr, nullptr, true);
+            gtDispTree(indir, nullptr, nullptr, true);
         }
 #endif
-        tree->gtFlags &= ~GTF_EXCEPT;
-        tree->gtFlags |= GTF_IND_NONFAULTING;
 
+        indir->gtFlags &= ~GTF_EXCEPT;
+        indir->gtFlags |= GTF_IND_NONFAULTING;
         // Set this flag to prevent reordering
-        tree->gtFlags |= GTF_ORDER_SIDEEFF;
+        indir->gtFlags |= GTF_ORDER_SIDEEFF;
 
-        return tree;
+        return indir;
     }
 
     return nullptr;
@@ -1671,7 +1656,7 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
         case GT_BLK:
         case GT_IND:
         case GT_NULLCHECK:
-            return morphAssertionProp_Ind(tree);
+            return morphAssertionPropIndir(tree->AsIndir());
 
         case GT_CAST:
             return morphAssertionProp_Cast(tree);
