@@ -21,7 +21,9 @@ struct Compiler::MorphAssertion
         Invalid,
         LclVar,
         IntCon,
+#ifndef TARGET_64BIT
         LngCon,
+#endif
         DblCon,
         Range
     };
@@ -38,10 +40,12 @@ struct Compiler::MorphAssertion
         GenTreeFlags flags;
     };
 
+#ifndef TARGET_64BIT
     struct LngCon
     {
         int64_t value;
     };
+#endif
 
     struct DblCon
     {
@@ -61,7 +65,9 @@ struct Compiler::MorphAssertion
     union {
         LclVar lcl;
         IntCon intCon;
+#ifndef TARGET_64BIT
         LngCon lngCon;
+#endif
         DblCon dblCon;
         Range  range;
     } val;
@@ -77,8 +83,10 @@ struct Compiler::MorphAssertion
         {
             case ValueKind::IntCon:
                 return (val.intCon.value == that->val.intCon.value) && (val.intCon.flags == that->val.intCon.flags);
+#ifndef TARGET_64BIT
             case ValueKind::LngCon:
                 return (val.lngCon.value == that->val.lngCon.value);
+#endif
             case ValueKind::DblCon:
                 // exact match because of positive and negative zero.
                 return memcmp(&val.dblCon.value, &that->val.dblCon.value, sizeof(double)) == 0;
@@ -319,7 +327,10 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
     {
         printf("Copy     ");
     }
-    else if ((curAssertion->valKind == ValueKind::IntCon) || (curAssertion->valKind == ValueKind::LngCon) ||
+    else if ((curAssertion->valKind == ValueKind::IntCon) ||
+#ifndef TARGET_64BIT
+             (curAssertion->valKind == ValueKind::LngCon) ||
+#endif
              (curAssertion->valKind == ValueKind::DblCon))
     {
         printf("Constant ");
@@ -384,9 +395,11 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
         }
         break;
 
+#ifndef TARGET_64BIT
         case ValueKind::LngCon:
             printf("0x%016llx", curAssertion->val.lngCon.value);
             break;
+#endif
 
         case ValueKind::DblCon:
             if (*((__int64*)&curAssertion->val.dblCon.value) == (__int64)I64(0x8000000000000000))
@@ -583,13 +596,15 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
 #endif
             break;
 
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
             assert(lclVar->TypeIs(TYP_LONG) && op1->TypeIs(TYP_LONG) && op2->TypeIs(TYP_LONG));
 
             assertion.kind             = Kind::Equal;
             assertion.valKind          = ValueKind::LngCon;
-            assertion.val.lngCon.value = op2->AsLngCon()->gtLconVal;
+            assertion.val.lngCon.value = op2->AsLngCon()->GetValue();
             break;
+#endif
 
         case GT_CNS_DBL:
             assert((lclVar->GetType() == op1->GetType()) && (lclVar->GetType() == op2->GetType()));
@@ -812,13 +827,13 @@ void Compiler::morphDebugCheckAssertion(MorphAssertion* assertion)
         }
         break;
 
+#ifndef TARGET_64BIT
         case ValueKind::LngCon:
-        {
             // All handles should be represented by ValueKind::IntCon,
             // so no handle bits should be set here.
             assert((assertion->val.intCon.flags & GTF_ICON_HDL_MASK) == 0);
-        }
-        break;
+            break;
+#endif
 
         default:
             // for all other 'assertion->valKind' values we don't check anything
@@ -986,6 +1001,7 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
             newTree->AsDblCon()->gtDconVal = curAssertion->val.dblCon.value;
             break;
 
+#ifndef TARGET_64BIT
         case ValueKind::LngCon:
 
             if (newTree->gtType == TYP_LONG)
@@ -1000,6 +1016,7 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
                 newTree->gtType                = TYP_INT;
             }
             break;
+#endif
 
         case ValueKind::IntCon:
 
