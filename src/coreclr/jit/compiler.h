@@ -6073,7 +6073,7 @@ public:
             }
         }
 
-        bool HasSameOp1(AssertionDsc* that, bool vnBased)
+        bool HasSameOp1(AssertionDsc* that)
         {
             if (op1.kind != that->op1.kind)
             {
@@ -6081,17 +6081,15 @@ public:
             }
             else if (op1.kind == O1K_ARR_BND)
             {
-                assert(vnBased);
                 return (op1.bnd.vnIdx == that->op1.bnd.vnIdx) && (op1.bnd.vnLen == that->op1.bnd.vnLen);
             }
             else
             {
-                return ((vnBased && (op1.vn == that->op1.vn)) ||
-                        (!vnBased && (op1.lcl.lclNum == that->op1.lcl.lclNum)));
+                return op1.vn == that->op1.vn;
             }
         }
 
-        bool HasSameOp2(AssertionDsc* that, bool vnBased)
+        bool HasSameOp2(AssertionDsc* that)
         {
             if (op2.kind != that->op2.kind)
             {
@@ -6112,8 +6110,7 @@ public:
 
                 case O2K_LCLVAR_COPY:
                 case O2K_ARR_LEN:
-                    return (op2.lcl.lclNum == that->op2.lcl.lclNum) &&
-                           (!vnBased || op2.lcl.ssaNum == that->op2.lcl.ssaNum);
+                    return (op2.lcl.lclNum == that->op2.lcl.lclNum) && (op2.lcl.ssaNum == that->op2.lcl.ssaNum);
 
                 case O2K_SUBRANGE:
                     return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
@@ -6129,13 +6126,12 @@ public:
             return false;
         }
 
-        bool Complementary(AssertionDsc* that, bool vnBased)
+        bool Complementary(AssertionDsc* that)
         {
-            return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that, vnBased) &&
-                   HasSameOp2(that, vnBased);
+            return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that) && HasSameOp2(that);
         }
 
-        bool Equals(AssertionDsc* that, bool vnBased)
+        bool Equals(AssertionDsc* that)
         {
             if (assertionKind != that->assertionKind)
             {
@@ -6144,11 +6140,11 @@ public:
             else if (assertionKind == OAK_NO_THROW)
             {
                 assert(op2.kind == O2K_INVALID);
-                return HasSameOp1(that, vnBased);
+                return HasSameOp1(that);
             }
             else
             {
-                return HasSameOp1(that, vnBased) && HasSameOp2(that, vnBased);
+                return HasSameOp1(that) && HasSameOp2(that);
             }
         }
     };
