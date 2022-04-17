@@ -442,11 +442,9 @@ Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned index)
 //    Assertion creation may fail either because the provided assertion
 //    operands aren't supported or because the assertion table is full.
 //
-void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAssertionKind assertionKind)
+void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
 {
     assert(op1 != nullptr);
-    assert((op2 != nullptr) || (assertionKind == OAK_NOT_EQUAL));
-    assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
 
     MorphAssertion assertion;
     memset(&assertion, 0, sizeof(MorphAssertion));
@@ -635,7 +633,7 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAsserti
                     //
                     // Ok everything has been set and the assertion looks good
                     //
-                    assertion.assertionKind = assertionKind;
+                    assertion.assertionKind = OAK_EQUAL;
                 }
                 break;
 
@@ -679,7 +677,7 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAsserti
                     //
                     // Ok everything has been set and the assertion looks good
                     //
-                    assertion.assertionKind = assertionKind;
+                    assertion.assertionKind = OAK_EQUAL;
                 }
                 break;
 
@@ -733,11 +731,6 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2, const optAsserti
                         toType = TYP_INT;
                     }
                 SUBRANGE_COMMON:
-                    if (assertionKind != OAK_EQUAL)
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
                     if (varTypeIsFloating(op1->TypeGet()))
                     {
                         // We don't make assertions on a cast from floating point
@@ -889,7 +882,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
     switch (tree->gtOper)
     {
         case GT_ASG:
-            morphCreateAssertion(tree->AsOp()->gtOp1, tree->AsOp()->gtOp2, OAK_EQUAL);
+            morphCreateAssertion(tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
             break;
 
         case GT_BLK:
@@ -899,16 +892,16 @@ void Compiler::morphAssertionGen(GenTree* tree)
         case GT_IND:
         case GT_NULLCHECK:
             // All indirections create non-null assertions
-            morphCreateAssertion(tree->AsIndir()->Addr(), nullptr, OAK_NOT_EQUAL);
+            morphCreateAssertion(tree->AsIndir()->Addr(), nullptr);
             break;
 
         case GT_ARR_LENGTH:
-            morphCreateAssertion(tree->AsArrLen()->GetArray(), nullptr, OAK_NOT_EQUAL);
+            morphCreateAssertion(tree->AsArrLen()->GetArray(), nullptr);
             break;
 
         case GT_ARR_ELEM:
             // An array element reference can create a non-null assertion
-            morphCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr, OAK_NOT_EQUAL);
+            morphCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr);
             break;
 
         case GT_CALL:
@@ -919,7 +912,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                morphCreateAssertion(call->GetThisArg(), nullptr, OAK_NOT_EQUAL);
+                morphCreateAssertion(call->GetThisArg(), nullptr);
             }
         }
         break;

@@ -6182,7 +6182,7 @@ public:
 
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);
-    void morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
+    void morphCreateAssertion(GenTree* op1, GenTree* op2);
     void morphAddAssertion(MorphAssertion* assertion);
     MorphAssertion* morphGetAssertion(unsigned index);
     GenTree* morphAssertionProp(GenTree* tree);
