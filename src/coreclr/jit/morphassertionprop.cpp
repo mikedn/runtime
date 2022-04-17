@@ -143,8 +143,6 @@ void Compiler::morphAssertionInit()
     optLocalAssertionProp = true;
     morphAssertionTable   = new (this, CMK_AssertionProp) MorphAssertion[optMaxAssertionCount];
 
-    assert(NO_ASSERTION_INDEX == 0);
-
     if (morphAssertionDep == nullptr)
     {
         morphAssertionDep =
@@ -432,14 +430,12 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
 
 /******************************************************************************
  *
- * Helper to retrieve the "assertIndex" assertion. Note that assertIndex 0
- * is NO_ASSERTION_INDEX and "optAssertionCount" is the last valid index.
+ * Helper to retrieve the "assertIndex" assertion. Note that the index is 1 based.
  *
  */
 Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned assertIndex)
 {
-    assert(NO_ASSERTION_INDEX == 0);
-    assert(assertIndex != NO_ASSERTION_INDEX);
+    assert(assertIndex != 0);
     assert(assertIndex <= optAssertionCount);
     MorphAssertion* assertion = &morphAssertionTable[assertIndex - 1];
 #ifdef DEBUG
@@ -948,7 +944,6 @@ void Compiler::morphAssertionGen(GenTree* tree)
         break;
 
         default:
-            // All other gtOper node kinds, leave 'assertionIndex' = NO_ASSERTION_INDEX
             break;
     }
 }
@@ -957,7 +952,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
  *
  *  Given a lclNum, a fromType and a toType, return assertion index of the assertion that
  *  claims that a variable's value is always a valid subrange of the fromType.
- *  Thus we can discard or omit a cast to fromType. Returns NO_ASSERTION_INDEX
+ *  Thus we can discard or omit a cast to fromType. Returns nullptr
  *  if one such assertion could not be found in "assertions."
  */
 
