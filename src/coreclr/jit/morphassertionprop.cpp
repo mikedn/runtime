@@ -1457,55 +1457,57 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* tree)
         LclVarDsc* varDsc = lvaGetDesc(lcl->AsLclVar());
         assert(!varDsc->IsAddressExposed());
 
-        if (varDsc->lvNormalizeOnLoad() || varTypeIsLong(varDsc->TypeGet()))
+        if (!varDsc->lvNormalizeOnLoad() && !varTypeIsLong(varDsc->TypeGet()))
         {
-            // For normalize on load variables it must be a narrowing cast to remove
-            if (genTypeSize(toType) > genTypeSize(varDsc->TypeGet()))
+            return nullptr;
+        }
+
+        // For normalize on load variables it must be a narrowing cast to remove
+        if (genTypeSize(toType) > genTypeSize(varDsc->TypeGet()))
+        {
+            // Can we just remove the GTF_OVERFLOW flag?
+            if ((tree->gtFlags & GTF_OVERFLOW) == 0)
             {
-                // Can we just remove the GTF_OVERFLOW flag?
-                if ((tree->gtFlags & GTF_OVERFLOW) == 0)
-                {
-                    return nullptr;
-                }
-                else
-                {
+                return nullptr;
+            }
+            else
+            {
 
 #ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("\nSubrange prop for index #%02u:\n", assertion - morphAssertionTable);
-                        gtDispTree(tree, nullptr, nullptr, true);
-                    }
-#endif
-                    tree->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
-                    return tree;
+                if (verbose)
+                {
+                    printf("\nSubrange prop for index #%02u:\n", assertion - morphAssertionTable);
+                    gtDispTree(tree, nullptr, nullptr, true);
                 }
+#endif
+                tree->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
+                return tree;
             }
-
-            //             GT_CAST   long -> uint -> int
-            //                |
-            //           GT_LCL_VAR long
-            //
-            // Where the lclvar is known to be in the range of [0..MAX_UINT]
-            //
-            // A load of a 32-bit unsigned int is the same as a load of a 32-bit signed int
-            //
-            if (toType == TYP_UINT)
-            {
-                toType = TYP_INT;
-            }
-
-            // Change the "lcl" type to match what the cast wanted, by propagating the type
-            // change down the comma nodes leading to the "lcl", if we skipped them earlier.
-            GenTree* tmp = op1;
-            while (tmp->gtOper == GT_COMMA)
-            {
-                tmp->gtType = toType;
-                tmp         = tmp->AsOp()->gtOp2;
-            }
-            noway_assert(tmp == lcl);
-            tmp->gtType = toType;
         }
+
+        //             GT_CAST   long -> uint -> int
+        //                |
+        //           GT_LCL_VAR long
+        //
+        // Where the lclvar is known to be in the range of [0..MAX_UINT]
+        //
+        // A load of a 32-bit unsigned int is the same as a load of a 32-bit signed int
+        //
+        if (toType == TYP_UINT)
+        {
+            toType = TYP_INT;
+        }
+
+        // Change the "lcl" type to match what the cast wanted, by propagating the type
+        // change down the comma nodes leading to the "lcl", if we skipped them earlier.
+        GenTree* tmp = op1;
+        while (tmp->gtOper == GT_COMMA)
+        {
+            tmp->gtType = toType;
+            tmp         = tmp->AsOp()->gtOp2;
+        }
+        noway_assert(tmp == lcl);
+        tmp->gtType = toType;
 
 #ifdef DEBUG
         if (verbose)
