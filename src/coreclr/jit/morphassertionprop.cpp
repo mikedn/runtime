@@ -917,6 +917,31 @@ MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
     return nullptr;
 }
 
+MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
+{
+    // For now morph only needs this to eliminate some small int casts.
+    // TODO-MIKE-Review: Check why BOOL is ignored, it behaves like UBYTE when used with casts.
+    if (!varTypeIsSmallInt(type))
+    {
+        return nullptr;
+    }
+
+    MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());
+
+    if (assertion == nullptr)
+    {
+        return nullptr;
+    }
+
+    if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(type)) ||
+        (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(type)))
+    {
+        return nullptr;
+    }
+
+    return assertion;
+}
+
 MorphAssertion* Compiler::morphAssertionIsRange(GenTreeLclVar* lclVar, var_types fromType, var_types toType)
 {
     MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());

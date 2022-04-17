@@ -6184,8 +6184,8 @@ public:
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);
     GenTree* morphAssertionProp(GenTree* tree);
-    MorphAssertion* morphAssertionIsRange(GenTreeLclVar* lclVar, var_types fromType, var_types toType);
     MorphAssertion* morphAssertionIsNotNull(unsigned lclNum);
+    MorphAssertion* morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
     void morphAssertionReset(unsigned limit);
     unsigned morphAssertionTableSize(unsigned count);
     void morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count);
@@ -6202,6 +6202,7 @@ private:
     void morphAssertionRemove(unsigned index);
     void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
     MorphAssertion* morphAssertionFindRange(unsigned lclNum);
+    MorphAssertion* morphAssertionIsRange(GenTreeLclVar* lclVar, var_types fromType, var_types toType);
 
     GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
     GenTree* morphAssertionPropIndir(GenTreeIndir* indir);
