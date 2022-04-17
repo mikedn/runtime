@@ -1318,7 +1318,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
             // Ngen case
             if (op2->gtOper == GT_IND)
             {
-                if (!optIsTreeKnownIntValue(true, op2->AsOp()->gtOp1, &cnsValue, &iconFlags))
+                if (!optIsTreeKnownIntValue(op2->AsOp()->gtOp1, &cnsValue, &iconFlags))
                 {
                     goto DONE_ASSERTION; // Don't make an assertion
                 }
@@ -1339,7 +1339,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
 #endif // TARGET_64BIT
             }
             // JIT case
-            else if (optIsTreeKnownIntValue(true, op2, &cnsValue, &iconFlags))
+            else if (optIsTreeKnownIntValue(op2, &cnsValue, &iconFlags))
             {
                 assertion.assertionKind  = assertionKind;
                 assertion.op2.kind       = O2K_CONST_INT;
@@ -1394,7 +1394,7 @@ DONE_ASSERTION:
  * constant. Set "vnBased" to true to indicate local or global assertion prop.
  * "pFlags" indicates if the constant is a handle marked by GTF_ICON_HDL_MASK.
  */
-bool Compiler::optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pFlags)
+bool Compiler::optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pFlags)
 {
     ValueNum vn = vnStore->VNConservativeNormalValue(tree->gtVNPair);
     if (!vnStore->IsVNConstant(vn))
@@ -2326,7 +2326,7 @@ AssertionIndex Compiler::optAssertionIsSubtype(GenTree* tree, GenTree* methodTab
 
         ssize_t      methodTableVal = 0;
         GenTreeFlags iconFlags      = GTF_EMPTY;
-        if (!optIsTreeKnownIntValue(true, methodTableArg, &methodTableVal, &iconFlags))
+        if (!optIsTreeKnownIntValue(methodTableArg, &methodTableVal, &iconFlags))
         {
             continue;
         }

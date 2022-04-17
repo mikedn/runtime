@@ -6320,7 +6320,7 @@ public:
 
     // Assertion prop data flow functions.
     void optVNAssertionProp();
-    bool optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
+    bool optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     ASSERT_TP* optInitAssertionDataflowFlags();
     ASSERT_TP* optComputeAssertionGen();
 
