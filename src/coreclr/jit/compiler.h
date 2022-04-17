@@ -6184,7 +6184,7 @@ public:
     void morphAssertionGen(GenTree* tree);
     void morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
     void morphAddAssertion(MorphAssertion* assertion);
-    MorphAssertion* morphGetAssertion(unsigned assertIndex);
+    MorphAssertion* morphGetAssertion(unsigned index);
     GenTree* morphAssertionProp(GenTree* tree);
     MorphAssertion* morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
     MorphAssertion* morphAssertionIsNonNull(GenTree* op);
