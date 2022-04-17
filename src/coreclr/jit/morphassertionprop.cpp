@@ -1427,97 +1427,86 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
     return op2;
 }
 
-GenTree* Compiler::morphAssertionPropCast(GenTreeCast* tree)
+GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
 {
-    GenTree*  op1      = tree->GetOp(0);
-    var_types fromType = op1->GetType();
-    var_types toType   = tree->GetCastType();
+    GenTree*  src      = cast->GetOp(0);
+    var_types fromType = src->GetType();
+    var_types toType   = cast->GetCastType();
 
-    // force the fromType to unsigned if GT_UNSIGNED flag is set
-    if (tree->IsUnsigned())
-    {
-        fromType = varTypeToUnsigned(fromType);
-    }
-
-    // If we have a cast involving floating point types, then bail.
     if (varTypeIsFloating(toType) || varTypeIsFloating(fromType))
     {
         return nullptr;
     }
 
-    GenTree* lcl = op1->SkipComma();
+    GenTree* actualSrc = src->SkipComma();
 
-    if (!lcl->OperIs(GT_LCL_VAR))
+    if (!actualSrc->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
 
-    if (MorphAssertion* assertion = morphAssertionIsSubrange(lcl->AsLclVar(), fromType, toType))
+    if (cast->IsUnsigned())
     {
-        LclVarDsc* varDsc = lvaGetDesc(lcl->AsLclVar());
-        assert(!varDsc->IsAddressExposed());
+        fromType = varTypeToUnsigned(fromType);
+    }
 
-        if (!varDsc->lvNormalizeOnLoad() && !varTypeIsLong(varDsc->TypeGet()))
-        {
-            return nullptr;
-        }
+    MorphAssertion* assertion = morphAssertionIsSubrange(actualSrc->AsLclVar(), fromType, toType);
 
-        // For normalize on load variables it must be a narrowing cast to remove
-        if (genTypeSize(toType) > genTypeSize(varDsc->TypeGet()))
-        {
-            // Can we just remove the GTF_OVERFLOW flag?
-            if ((tree->gtFlags & GTF_OVERFLOW) == 0)
-            {
-                return nullptr;
-            }
-            else
-            {
+    if (assertion == nullptr)
+    {
+        return nullptr;
+    }
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nSubrange prop for index #%02u:\n", assertion - morphAssertionTable);
-                    gtDispTree(tree, nullptr, nullptr, true);
-                }
-#endif
-                tree->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
-                return tree;
-            }
-        }
+    LclVarDsc* lcl = lvaGetDesc(actualSrc->AsLclVar());
+    assert(!lcl->IsAddressExposed());
 
-        //             GT_CAST   long -> uint -> int
-        //                |
-        //           GT_LCL_VAR long
-        //
-        // Where the lclvar is known to be in the range of [0..MAX_UINT]
-        //
-        // A load of a 32-bit unsigned int is the same as a load of a 32-bit signed int
-        //
+    if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
+    {
+        return src;
+    }
+
+    if (varTypeSize(toType) <= varTypeSize(lcl->GetType()))
+    {
         if (toType == TYP_UINT)
         {
             toType = TYP_INT;
         }
 
-        // Change the "lcl" type to match what the cast wanted, by propagating the type
-        // change down the comma nodes leading to the "lcl", if we skipped them earlier.
-        GenTree* tmp = op1;
-        while (tmp->gtOper == GT_COMMA)
+        GenTree* tmp = src;
+
+        for (; tmp->OperIs(GT_COMMA); tmp = tmp->AsOp()->GetOp(1))
         {
-            tmp->gtType = toType;
-            tmp         = tmp->AsOp()->gtOp2;
+            tmp->SetType(toType);
         }
-        noway_assert(tmp == lcl);
-        tmp->gtType = toType;
+
+        tmp->SetType(toType);
 
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nSubrange prop for index #%02u:\n", assertion - morphAssertionTable);
-            gtDispTree(tree, nullptr, nullptr, true);
+            printf("\nRange prop for index #%02u:\n", assertion - morphAssertionTable);
+            gtDispTree(cast, nullptr, nullptr, true);
         }
 #endif
-        return op1;
+
+        return src;
     }
+
+    if ((cast->gtFlags & GTF_OVERFLOW) != 0)
+    {
+        cast->gtFlags &= ~GTF_OVERFLOW;
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("\nRange prop for index #%02u:\n", assertion - morphAssertionTable);
+            gtDispTree(cast, nullptr, nullptr, true);
+        }
+#endif
+
+        return cast;
+    }
+
     return nullptr;
 }
 
