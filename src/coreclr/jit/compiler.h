@@ -6239,7 +6239,6 @@ public:
             }
             switch (op2.kind)
             {
-                case O2K_IND_CNS_INT:
                 case O2K_CONST_INT:
                     return ((op2.u1.iconVal == that->op2.u1.iconVal) && (op2.u1.iconFlags == that->op2.u1.iconFlags));
 

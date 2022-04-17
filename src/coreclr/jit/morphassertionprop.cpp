@@ -257,7 +257,6 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
             break;
 
         case O2K_CONST_INT:
-        case O2K_IND_CNS_INT:
         {
             unsigned lclNum = curAssertion->op1.lcl.lclNum;
             assert(lclNum < lvaCount);
@@ -752,7 +751,6 @@ void Compiler::morphDebugCheckAssertion(MorphAssertion* assertion)
 
     switch (assertion->op2.kind)
     {
-        case O2K_IND_CNS_INT:
         case O2K_CONST_INT:
         {
 // The only flags that can be set are those in the GTF_ICON_HDL_MASK, or GTF_ASSERTION_PROP_LONG, which is
@@ -1246,7 +1244,7 @@ Compiler::MorphAssertion* Compiler::morphLocalAssertionIsEqualOrNotEqual(unsigne
                                                                          optOp2Kind op2Kind,
                                                                          ssize_t    cnsVal)
 {
-    noway_assert((op2Kind == O2K_CONST_INT) || (op2Kind == O2K_IND_CNS_INT));
+    noway_assert(op2Kind == O2K_CONST_INT);
 
     for (AssertionIndex index = 1; index <= optAssertionCount; ++index)
     {
