@@ -3306,7 +3306,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
                 {
                     var_types type = varTypeToUnsigned(field->GetType());
 
-                    if (!optLocalAssertionProp || !morphAssertionIsSubrange(field->AsLclVar(), TYP_INT, type))
+                    if (!optLocalAssertionProp || !morphAssertionIsRange(field->AsLclVar(), TYP_INT, type))
                     {
                         field->SetType(TYP_INT);
                         field = gtNewCastNode(TYP_INT, field, false, type);
@@ -5019,7 +5019,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     }
 
 #if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && morphAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType()))
+    if (optLocalAssertionProp && morphAssertionIsRange(lclVar, TYP_INT, lcl->GetType()))
     {
         return lclVar;
     }

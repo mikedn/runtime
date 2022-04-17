@@ -101,8 +101,9 @@ struct Compiler::MorphAssertion
     }
 };
 
-using Kind      = Compiler::MorphAssertion::Kind;
-using ValueKind = Compiler::MorphAssertion::ValueKind;
+using MorphAssertion = Compiler::MorphAssertion;
+using Kind           = MorphAssertion::Kind;
+using ValueKind      = MorphAssertion::ValueKind;
 
 //------------------------------------------------------------------------------
 // GetAssertionDep: Retrieve the assertions on this local variable
@@ -901,60 +902,63 @@ void Compiler::morphAssertionGen(GenTree* tree)
     }
 }
 
-Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTreeLclVar* lclVar,
-                                                             var_types      fromType,
-                                                             var_types      toType)
+MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
 {
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
         MorphAssertion* assertion = morphGetAssertion(index);
 
-        if (assertion->lcl.lclNum != lclVar->GetLclNum())
+        if ((assertion->kind == Kind::Equal) && (assertion->lcl.lclNum == lclNum))
         {
-            continue;
+            return assertion->valKind == ValueKind::Range ? assertion : nullptr;
         }
-
-        if ((assertion->kind != Kind::Equal) || (assertion->valKind != ValueKind::Range))
-        {
-            continue;
-        }
-
-        if (varTypeIsUnsigned(fromType) && (assertion->val.range.loBound < 0))
-        {
-            continue;
-        }
-
-        switch (toType)
-        {
-            case TYP_BYTE:
-            case TYP_UBYTE:
-            case TYP_SHORT:
-            case TYP_USHORT:
-                if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
-                    (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
-                {
-                    continue;
-                }
-                break;
-
-            case TYP_UINT:
-                if (assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
-                {
-                    continue;
-                }
-                break;
-
-            case TYP_INT:
-                break;
-
-            default:
-                continue;
-        }
-
-        return assertion;
     }
 
     return nullptr;
+}
+
+MorphAssertion* Compiler::morphAssertionIsRange(GenTreeLclVar* lclVar, var_types fromType, var_types toType)
+{
+    MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());
+
+    if (assertion == nullptr)
+    {
+        return nullptr;
+    }
+
+    if (varTypeIsUnsigned(fromType) && (assertion->val.range.loBound < 0))
+    {
+        return nullptr;
+    }
+
+    switch (toType)
+    {
+        case TYP_BYTE:
+        case TYP_UBYTE:
+        case TYP_SHORT:
+        case TYP_USHORT:
+            if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
+                (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
+            {
+                return nullptr;
+            }
+            break;
+
+        case TYP_UINT:
+            if (assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
+            {
+                return nullptr;
+            }
+            break;
+
+        case TYP_INT:
+            break;
+
+        default:
+            return nullptr;
+    }
+
+    return assertion;
 }
 
 //------------------------------------------------------------------------------
@@ -1439,7 +1443,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
         fromType = varTypeToUnsigned(fromType);
     }
 
-    MorphAssertion* assertion = morphAssertionIsSubrange(actualSrc->AsLclVar(), fromType, toType);
+    MorphAssertion* assertion = morphAssertionIsRange(actualSrc->AsLclVar(), fromType, toType);
 
     if (assertion == nullptr)
     {
