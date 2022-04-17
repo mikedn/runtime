@@ -9643,7 +9643,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
 #if LOCAL_ASSERTION_PROP
     AssertionIndex  origAssertionCount = 0;
-    MorphAssertion* origAssertionTab   = nullptr;
+    MorphAssertion* origAssertionTable = nullptr;
 
     if (optLocalAssertionProp)
     {
@@ -9661,10 +9661,10 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-            unsigned tabSize   = optAssertionCount * sizeof(MorphAssertion);
-            origAssertionTab   = (MorphAssertion*)ALLOCA(tabSize);
+            unsigned tableSize = morphAssertionTableSize(optAssertionCount);
+            origAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
             origAssertionCount = optAssertionCount;
-            memcpy(origAssertionTab, morphAssertionTable, tabSize);
+            morphAssertionCopyTable(origAssertionTable, morphAssertionTable, optAssertionCount);
         }
     }
 #endif // LOCAL_ASSERTION_PROP
@@ -9675,7 +9675,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
 #if LOCAL_ASSERTION_PROP
     AssertionIndex  elseAssertionCount = 0;
-    MorphAssertion* elseAssertionTab   = nullptr;
+    MorphAssertion* elseAssertionTable = nullptr;
 
     if (optLocalAssertionProp)
     {
@@ -9685,18 +9685,17 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-            unsigned tabSize   = optAssertionCount * sizeof(MorphAssertion);
-            elseAssertionTab   = (MorphAssertion*)ALLOCA(tabSize);
+            unsigned tableSize = morphAssertionTableSize(optAssertionCount);
+            elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
             elseAssertionCount = optAssertionCount;
-            memcpy(elseAssertionTab, morphAssertionTable, tabSize);
+            morphAssertionCopyTable(elseAssertionTable, morphAssertionTable, optAssertionCount);
 
             morphAssertionReset(0);
         }
 
         if (origAssertionCount != 0)
         {
-            size_t tabSize = origAssertionCount * sizeof(MorphAssertion);
-            memcpy(morphAssertionTable, origAssertionTab, tabSize);
+            morphAssertionCopyTable(morphAssertionTable, origAssertionTable, origAssertionCount);
             morphAssertionReset(origAssertionCount);
         }
     }
@@ -9710,7 +9709,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     // Merge assertions after then/else morphing.
     if (optLocalAssertionProp)
     {
-        morphAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(qmark));
+        morphAssertionMerge(elseAssertionCount, elseAssertionTable DEBUGARG(qmark));
     }
 #endif // LOCAL_ASSERTION_PROP
 

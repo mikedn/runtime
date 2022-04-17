@@ -6,6 +6,108 @@
 #pragma hdrstop
 #endif
 
+struct Compiler::MorphAssertion
+{
+    optAssertionKind assertionKind;
+    struct SsaVar
+    {
+        unsigned lclNum; // assigned to or property of this local var number
+    };
+    struct AssertionDscOp1
+    {
+        optOp1Kind kind; // a normal LclVar, or Exact-type or Subtype
+        union {
+            SsaVar lcl;
+        };
+    } op1;
+    struct AssertionDscOp2
+    {
+        optOp2Kind kind; // a const or copy assignment
+        struct IntVal
+        {
+            ssize_t      iconVal;   // integer
+            unsigned     padding;   // unused; ensures iconFlags does not overlap lconVal
+            GenTreeFlags iconFlags; // gtFlags
+        };
+        struct Range // integer subrange
+        {
+            ssize_t loBound;
+            ssize_t hiBound;
+        };
+        union {
+            SsaVar  lcl;
+            IntVal  u1;
+            __int64 lconVal;
+            double  dconVal;
+            Range   u2;
+        };
+    } op2;
+
+    bool HasSameOp1(MorphAssertion* that)
+    {
+        if (op1.kind != that->op1.kind)
+        {
+            return false;
+        }
+        else
+        {
+            return op1.lcl.lclNum == that->op1.lcl.lclNum;
+        }
+    }
+
+    bool HasSameOp2(MorphAssertion* that)
+    {
+        if (op2.kind != that->op2.kind)
+        {
+            return false;
+        }
+        switch (op2.kind)
+        {
+            case O2K_CONST_INT:
+                return ((op2.u1.iconVal == that->op2.u1.iconVal) && (op2.u1.iconFlags == that->op2.u1.iconFlags));
+
+            case O2K_CONST_LONG:
+                return (op2.lconVal == that->op2.lconVal);
+
+            case O2K_CONST_DOUBLE:
+                // exact match because of positive and negative zero.
+                return (memcmp(&op2.dconVal, &that->op2.dconVal, sizeof(double)) == 0);
+
+            case O2K_LCLVAR_COPY:
+                return (op2.lcl.lclNum == that->op2.lcl.lclNum);
+
+            case O2K_SUBRANGE:
+                return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
+
+            case O2K_INVALID:
+                // we will return false
+                break;
+
+            default:
+                assert(!"Unexpected value for op2.kind.");
+                break;
+        }
+        return false;
+    }
+
+    bool Equals(MorphAssertion* that)
+    {
+        if (assertionKind != that->assertionKind)
+        {
+            return false;
+        }
+        else if (assertionKind == OAK_NO_THROW)
+        {
+            assert(op2.kind == O2K_INVALID);
+            return HasSameOp1(that);
+        }
+        else
+        {
+            return HasSameOp1(that) && HasSameOp2(that);
+        }
+    }
+};
+
 //------------------------------------------------------------------------------
 // GetAssertionDep: Retrieve the assertions on this local variable
 //
@@ -157,6 +259,18 @@ void Compiler::morphAssertionRemove(AssertionIndex index)
 
         morphAssertionReset(newAssertionCount);
     }
+}
+
+unsigned Compiler::morphAssertionTableSize(unsigned count)
+{
+    assert(count <= optMaxAssertionCount);
+    return count * sizeof(MorphAssertion);
+}
+
+void Compiler::morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count)
+{
+    assert(count <= optMaxAssertionCount);
+    memcpy(toTable, fromTable, count * sizeof(MorphAssertion));
 }
 
 void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
