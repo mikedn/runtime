@@ -159,13 +159,13 @@ void Compiler::morphAssertionInit()
 
 // The following resets the value assignment table
 // used only during local assertion prop
-void Compiler::morphAssertionReset(AssertionIndex limit)
+void Compiler::morphAssertionReset(unsigned limit)
 {
     PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
 
     while (optAssertionCount > limit)
     {
-        AssertionIndex  index        = optAssertionCount;
+        unsigned        index        = optAssertionCount;
         MorphAssertion* curAssertion = morphGetAssertion(index);
         optAssertionCount--;
         unsigned lclNum = curAssertion->op1.lcl.lclNum;
@@ -185,7 +185,7 @@ void Compiler::morphAssertionReset(AssertionIndex limit)
     }
     while (optAssertionCount < limit)
     {
-        AssertionIndex  index        = ++optAssertionCount;
+        unsigned        index        = ++optAssertionCount;
         MorphAssertion* curAssertion = morphGetAssertion(index);
         unsigned        lclNum       = curAssertion->op1.lcl.lclNum;
         BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index - 1);
@@ -210,7 +210,7 @@ void Compiler::morphAssertionReset(AssertionIndex limit)
  *  used only during local assertion prop
  */
 
-void Compiler::morphAssertionRemove(AssertionIndex index)
+void Compiler::morphAssertionRemove(unsigned index)
 {
     assert(index > 0);
     assert(index <= optAssertionCount);
@@ -249,7 +249,7 @@ void Compiler::morphAssertionRemove(AssertionIndex index)
     else
     {
         MorphAssertion* lastAssertion     = morphGetAssertion(optAssertionCount);
-        AssertionIndex  newAssertionCount = optAssertionCount - 1;
+        unsigned        newAssertionCount = optAssertionCount - 1;
 
         morphAssertionReset(0); // This make optAssertionCount equal 0
 
@@ -293,7 +293,7 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
         return;
     }
 
-    for (AssertionIndex index = 1; index <= optAssertionCount;)
+    for (unsigned index = 1; index <= optAssertionCount;)
     {
         MorphAssertion* thenAssertion = morphGetAssertion(index);
         MorphAssertion* elseAssertion = nullptr;
@@ -436,7 +436,7 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
  * is NO_ASSERTION_INDEX and "optAssertionCount" is the last valid index.
  *
  */
-Compiler::MorphAssertion* Compiler::morphGetAssertion(AssertionIndex assertIndex)
+Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned assertIndex)
 {
     assert(NO_ASSERTION_INDEX == 0);
     assert(assertIndex != NO_ASSERTION_INDEX);
@@ -816,7 +816,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
     noway_assert(newAssertion->assertionKind != OAK_INVALID);
 
     // Check if exists already, so we can skip adding new one. Search backwards.
-    for (AssertionIndex index = optAssertionCount; index >= 1; index--)
+    for (unsigned index = optAssertionCount; index >= 1; index--)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
         if (curAssertion->Equals(newAssertion))
@@ -963,7 +963,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
 
 Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType)
 {
-    for (AssertionIndex index = 1; index <= optAssertionCount; index++)
+    for (unsigned index = 1; index <= optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
         if (curAssertion->assertionKind == OAK_SUBRANGE)
@@ -1305,7 +1305,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
         return nullptr;
     }
 
-    for (AssertionIndex assertionIndex = 1; assertionIndex <= optAssertionCount; ++assertionIndex)
+    for (unsigned assertionIndex = 1; assertionIndex <= optAssertionCount; ++assertionIndex)
     {
         // See if the variable is equal to a constant or another variable.
         MorphAssertion* curAssertion = morphGetAssertion(assertionIndex);
@@ -1360,7 +1360,7 @@ Compiler::MorphAssertion* Compiler::morphLocalAssertionIsEqualOrNotEqual(unsigne
 {
     noway_assert(op2Kind == O2K_CONST_INT);
 
-    for (AssertionIndex index = 1; index <= optAssertionCount; ++index)
+    for (unsigned index = 1; index <= optAssertionCount; ++index)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
         if ((curAssertion->assertionKind != OAK_EQUAL) && (curAssertion->assertionKind != OAK_NOT_EQUAL))
@@ -1646,7 +1646,7 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsNonNull(GenTree* op)
 {
     unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
     // Check each assertion to find if we have a variable == or != null assertion.
-    for (AssertionIndex index = 1; index <= optAssertionCount; index++)
+    for (unsigned index = 1; index <= optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
         if ((curAssertion->assertionKind == OAK_NOT_EQUAL) && // kind
@@ -1764,7 +1764,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
 
     if (killed)
     {
-        AssertionIndex index = optAssertionCount;
+        unsigned index = optAssertionCount;
         while (killed && (index > 0))
         {
             if (BitVecOps::IsMember(apTraits, killed, index - 1))

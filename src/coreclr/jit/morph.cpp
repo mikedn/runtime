@@ -9642,7 +9642,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     bool removeRestOfBlock = fgRemoveRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    AssertionIndex  origAssertionCount = 0;
+    unsigned        origAssertionCount = 0;
     MorphAssertion* origAssertionTable = nullptr;
 
     if (optLocalAssertionProp)
@@ -9674,7 +9674,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    AssertionIndex  elseAssertionCount = 0;
+    unsigned        elseAssertionCount = 0;
     MorphAssertion* elseAssertionTable = nullptr;
 
     if (optLocalAssertionProp)

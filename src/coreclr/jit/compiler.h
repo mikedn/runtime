@@ -6184,12 +6184,12 @@ public:
     void morphAssertionGen(GenTree* tree);
     void morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
     void morphAddAssertion(MorphAssertion* assertion);
-    MorphAssertion* morphGetAssertion(AssertionIndex assertIndex);
+    MorphAssertion* morphGetAssertion(unsigned assertIndex);
     GenTree* morphAssertionProp(GenTree* tree);
     MorphAssertion* morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
     MorphAssertion* morphAssertionIsNonNull(GenTree* op);
-    void morphAssertionReset(AssertionIndex limit);
-    void morphAssertionRemove(AssertionIndex index);
+    void morphAssertionReset(unsigned limit);
+    void morphAssertionRemove(unsigned index);
     unsigned morphAssertionTableSize(unsigned count);
     void morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count);
     void morphAssertionMerge(unsigned        elseAssertionCount,
