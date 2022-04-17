@@ -6182,35 +6182,251 @@ public:
     ValueNumToAssertsMap* optValueNumToAsserts;
 
 #if LOCAL_ASSERTION_PROP
+    struct MorphAssertion
+    {
+        optAssertionKind assertionKind;
+        struct SsaVar
+        {
+            unsigned lclNum; // assigned to or property of this local var number
+            unsigned ssaNum;
+        };
+        struct ArrBnd
+        {
+            ValueNum vnIdx;
+            ValueNum vnLen;
+        };
+        struct AssertionDscOp1
+        {
+            optOp1Kind kind; // a normal LclVar, or Exact-type or Subtype
+            ValueNum   vn;
+            union {
+                SsaVar lcl;
+                ArrBnd bnd;
+            };
+        } op1;
+        struct AssertionDscOp2
+        {
+            optOp2Kind kind; // a const or copy assignment
+            ValueNum   vn;
+            struct IntVal
+            {
+                ssize_t      iconVal;   // integer
+                unsigned     padding;   // unused; ensures iconFlags does not overlap lconVal
+                GenTreeFlags iconFlags; // gtFlags
+            };
+            struct Range // integer subrange
+            {
+                ssize_t loBound;
+                ssize_t hiBound;
+            };
+            union {
+                SsaVar  lcl;
+                IntVal  u1;
+                __int64 lconVal;
+                double  dconVal;
+                Range   u2;
+            };
+        } op2;
+
+        bool IsCheckedBoundArithBound()
+        {
+            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_OPER_BND);
+        }
+        bool IsCheckedBoundBound()
+        {
+            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_LOOP_BND);
+        }
+        bool IsConstantBound()
+        {
+            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) &&
+                    op1.kind == O1K_CONSTANT_LOOP_BND);
+        }
+        bool IsBoundsCheckNoThrow()
+        {
+            return ((assertionKind == OAK_NO_THROW) && (op1.kind == O1K_ARR_BND));
+        }
+
+        bool IsCopyAssertion()
+        {
+            return ((assertionKind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
+        }
+
+        bool IsConstantInt32Assertion()
+        {
+            return ((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL)) && (op2.kind == O2K_CONST_INT);
+        }
+
+        static bool SameKind(MorphAssertion* a1, MorphAssertion* a2)
+        {
+            return a1->assertionKind == a2->assertionKind && a1->op1.kind == a2->op1.kind &&
+                   a1->op2.kind == a2->op2.kind;
+        }
+
+        static bool ComplementaryKind(optAssertionKind kind, optAssertionKind kind2)
+        {
+            if (kind == OAK_EQUAL)
+            {
+                return kind2 == OAK_NOT_EQUAL;
+            }
+            else if (kind == OAK_NOT_EQUAL)
+            {
+                return kind2 == OAK_EQUAL;
+            }
+            return false;
+        }
+
+        static ssize_t GetLowerBoundForIntegralType(var_types type)
+        {
+            switch (type)
+            {
+                case TYP_BYTE:
+                    return SCHAR_MIN;
+                case TYP_SHORT:
+                    return SHRT_MIN;
+                case TYP_INT:
+                    return INT_MIN;
+                case TYP_BOOL:
+                case TYP_UBYTE:
+                case TYP_USHORT:
+                case TYP_UINT:
+                    return 0;
+                default:
+                    unreached();
+            }
+        }
+        static ssize_t GetUpperBoundForIntegralType(var_types type)
+        {
+            switch (type)
+            {
+                case TYP_BOOL:
+                    return 1;
+                case TYP_BYTE:
+                    return SCHAR_MAX;
+                case TYP_SHORT:
+                    return SHRT_MAX;
+                case TYP_INT:
+                    return INT_MAX;
+                case TYP_UBYTE:
+                    return UCHAR_MAX;
+                case TYP_USHORT:
+                    return USHRT_MAX;
+                case TYP_UINT:
+                    return UINT_MAX;
+                default:
+                    unreached();
+            }
+        }
+
+        bool HasSameOp1(MorphAssertion* that, bool vnBased)
+        {
+            if (op1.kind != that->op1.kind)
+            {
+                return false;
+            }
+            else if (op1.kind == O1K_ARR_BND)
+            {
+                assert(vnBased);
+                return (op1.bnd.vnIdx == that->op1.bnd.vnIdx) && (op1.bnd.vnLen == that->op1.bnd.vnLen);
+            }
+            else
+            {
+                return ((vnBased && (op1.vn == that->op1.vn)) ||
+                        (!vnBased && (op1.lcl.lclNum == that->op1.lcl.lclNum)));
+            }
+        }
+
+        bool HasSameOp2(MorphAssertion* that, bool vnBased)
+        {
+            if (op2.kind != that->op2.kind)
+            {
+                return false;
+            }
+            switch (op2.kind)
+            {
+                case O2K_IND_CNS_INT:
+                case O2K_CONST_INT:
+                    return ((op2.u1.iconVal == that->op2.u1.iconVal) && (op2.u1.iconFlags == that->op2.u1.iconFlags));
+
+                case O2K_CONST_LONG:
+                    return (op2.lconVal == that->op2.lconVal);
+
+                case O2K_CONST_DOUBLE:
+                    // exact match because of positive and negative zero.
+                    return (memcmp(&op2.dconVal, &that->op2.dconVal, sizeof(double)) == 0);
+
+                case O2K_LCLVAR_COPY:
+                case O2K_ARR_LEN:
+                    return (op2.lcl.lclNum == that->op2.lcl.lclNum) &&
+                           (!vnBased || op2.lcl.ssaNum == that->op2.lcl.ssaNum);
+
+                case O2K_SUBRANGE:
+                    return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
+
+                case O2K_INVALID:
+                    // we will return false
+                    break;
+
+                default:
+                    assert(!"Unexpected value for op2.kind.");
+                    break;
+            }
+            return false;
+        }
+
+        bool Complementary(MorphAssertion* that, bool vnBased)
+        {
+            return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that, vnBased) &&
+                   HasSameOp2(that, vnBased);
+        }
+
+        bool Equals(MorphAssertion* that, bool vnBased)
+        {
+            if (assertionKind != that->assertionKind)
+            {
+                return false;
+            }
+            else if (assertionKind == OAK_NO_THROW)
+            {
+                assert(op2.kind == O2K_INVALID);
+                return HasSameOp1(that, vnBased);
+            }
+            else
+            {
+                return HasSameOp1(that, vnBased) && HasSameOp2(that, vnBased);
+            }
+        }
+    };
+
     JitExpandArray<ASSERT_TP>* morphAssertionDep; // table that holds dependent assertions (assertions
                                                   // using the value of a local var) for each local var
-    AssertionDsc* morphAssertionTable;            // table that holds info about local assignments
+    MorphAssertion* morphAssertionTable;          // table that holds info about local assignments
 
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);
     void morphCreateAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
-    void morphAddAssertion(AssertionDsc* assertion);
-    AssertionDsc* morphGetAssertion(AssertionIndex assertIndex);
+    void morphAddAssertion(MorphAssertion* assertion);
+    MorphAssertion* morphGetAssertion(AssertionIndex assertIndex);
     GenTree* morphAssertionProp(GenTree* tree);
-    AssertionDsc* morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
-    AssertionDsc* morphAssertionIsNonNull(GenTree* op);
+    MorphAssertion* morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
+    MorphAssertion* morphAssertionIsNonNull(GenTree* op);
     void morphAssertionReset(AssertionIndex limit);
     void morphAssertionRemove(AssertionIndex index);
-    void morphAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
+    void morphAssertionMerge(unsigned        elseAssertionCount,
+                             MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
 
     GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
     GenTree* morphAssertionProp_Ind(GenTree* tree);
     GenTree* morphAssertionProp_Cast(GenTree* tree);
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionProp_RelOp(GenTree* tree);
-    AssertionDsc* morphLocalAssertionIsEqualOrNotEqual(unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal);
-    GenTree* morphConstantAssertionProp(AssertionDsc* curAssertion, GenTreeLclVarCommon* tree);
+    MorphAssertion* morphLocalAssertionIsEqualOrNotEqual(unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal);
+    GenTree* morphConstantAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree);
     bool morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
-    GenTree* morphCopyAssertionProp(AssertionDsc* curAssertion, GenTreeLclVarCommon* tree);
+    GenTree* morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree);
 
 #ifdef DEBUG
-    void morphPrintAssertion(AssertionDsc* newAssertion);
-    void morphDebugCheckAssertion(AssertionDsc* assertion);
+    void morphPrintAssertion(MorphAssertion* newAssertion);
+    void morphDebugCheckAssertion(MorphAssertion* assertion);
 #endif
 #endif
 

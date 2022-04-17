@@ -9642,8 +9642,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     bool removeRestOfBlock = fgRemoveRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    AssertionIndex origAssertionCount = 0;
-    AssertionDsc*  origAssertionTab   = nullptr;
+    AssertionIndex  origAssertionCount = 0;
+    MorphAssertion* origAssertionTab   = nullptr;
 
     if (optLocalAssertionProp)
     {
@@ -9661,8 +9661,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-            unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
-            origAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
+            unsigned tabSize   = optAssertionCount * sizeof(MorphAssertion);
+            origAssertionTab   = (MorphAssertion*)ALLOCA(tabSize);
             origAssertionCount = optAssertionCount;
             memcpy(origAssertionTab, morphAssertionTable, tabSize);
         }
@@ -9674,8 +9674,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    AssertionIndex elseAssertionCount = 0;
-    AssertionDsc*  elseAssertionTab   = nullptr;
+    AssertionIndex  elseAssertionCount = 0;
+    MorphAssertion* elseAssertionTab   = nullptr;
 
     if (optLocalAssertionProp)
     {
@@ -9685,8 +9685,8 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         if (optAssertionCount != 0)
         {
             noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-            unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
-            elseAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
+            unsigned tabSize   = optAssertionCount * sizeof(MorphAssertion);
+            elseAssertionTab   = (MorphAssertion*)ALLOCA(tabSize);
             elseAssertionCount = optAssertionCount;
             memcpy(elseAssertionTab, morphAssertionTable, tabSize);
 
@@ -9695,7 +9695,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
         if (origAssertionCount != 0)
         {
-            size_t tabSize = origAssertionCount * sizeof(AssertionDsc);
+            size_t tabSize = origAssertionCount * sizeof(MorphAssertion);
             memcpy(morphAssertionTable, origAssertionTab, tabSize);
             morphAssertionReset(origAssertionCount);
         }
