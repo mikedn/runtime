@@ -901,68 +901,57 @@ void Compiler::morphAssertionGen(GenTree* tree)
     }
 }
 
-/*****************************************************************************
- *
- *  Given a lclNum, a fromType and a toType, return assertion index of the assertion that
- *  claims that a variable's value is always a valid subrange of the fromType.
- *  Thus we can discard or omit a cast to fromType. Returns nullptr
- *  if one such assertion could not be found in "assertions."
- */
-
 Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTreeLclVar* lclVar,
                                                              var_types      fromType,
                                                              var_types      toType)
 {
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
-        MorphAssertion* curAssertion = morphGetAssertion(index);
-        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::Range))
-        {
-            if (curAssertion->lcl.lclNum != lclVar->GetLclNum())
-            {
-                continue;
-            }
+        MorphAssertion* assertion = morphGetAssertion(index);
 
-            // If we have an unsigned fromType, then the loBound can't be negative
-            //
-            if (varTypeIsUnsigned(fromType))
-            {
-                if (curAssertion->val.range.loBound < 0)
+        if (assertion->lcl.lclNum != lclVar->GetLclNum())
+        {
+            continue;
+        }
+
+        if ((assertion->kind != Kind::Equal) || (assertion->valKind != ValueKind::Range))
+        {
+            continue;
+        }
+
+        if (varTypeIsUnsigned(fromType) && (assertion->val.range.loBound < 0))
+        {
+            continue;
+        }
+
+        switch (toType)
+        {
+            case TYP_BYTE:
+            case TYP_UBYTE:
+            case TYP_SHORT:
+            case TYP_USHORT:
+                if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
+                    (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
                 {
                     continue;
                 }
-            }
+                break;
 
-            // Make sure the toType is within current assertion's bounds.
-            switch (toType)
-            {
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                    if ((curAssertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
-                        (curAssertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
-                    {
-                        continue;
-                    }
-                    break;
-
-                case TYP_UINT:
-                    if (curAssertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
-                    {
-                        continue;
-                    }
-                    break;
-
-                case TYP_INT:
-                    break;
-
-                default:
+            case TYP_UINT:
+                if (assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
+                {
                     continue;
-            }
+                }
+                break;
 
-            return curAssertion;
+            case TYP_INT:
+                break;
+
+            default:
+                continue;
         }
+
+        return assertion;
     }
 
     return nullptr;
