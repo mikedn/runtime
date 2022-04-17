@@ -504,7 +504,7 @@ DONE_ASSERTION:
     }
 }
 
-void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
+void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
 {
     assert(op1 != nullptr);
     assert(op2 != nullptr);
@@ -514,248 +514,242 @@ void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
     assert(assertion.kind == Kind::Invalid);
 
     var_types toType;
+    unsigned  lclNum = op1->GetLclNum();
+    noway_assert(lclNum < lvaCount);
+    LclVarDsc* lclVar = &lvaTable[lclNum];
 
-    if (op1->gtOper == GT_LCL_VAR)
+    //  If the local variable has its address exposed then bail
+    if (lclVar->lvAddrExposed)
     {
-        unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
-        noway_assert(lclNum < lvaCount);
-        LclVarDsc* lclVar = &lvaTable[lclNum];
+        goto DONE_ASSERTION; // Don't make an assertion
+    }
 
-        //  If the local variable has its address exposed then bail
-        if (lclVar->lvAddrExposed)
-        {
+    op2 = op2->SkipComma();
+
+    assertion.lcl.lclNum = lclNum;
+
+    switch (op2->gtOper)
+    {
+        ValueKind op2Kind;
+        //
+        //  No Assertion
+        //
+        default:
             goto DONE_ASSERTION; // Don't make an assertion
-        }
 
+        //
+        //  Constant Assertions
+        //
+        case GT_CNS_INT:
+            op2Kind = ValueKind::IntCon;
+            goto CNS_COMMON;
+
+        case GT_CNS_LNG:
+            op2Kind = ValueKind::LngCon;
+            goto CNS_COMMON;
+
+        case GT_CNS_DBL:
+            op2Kind = ValueKind::DblCon;
+            goto CNS_COMMON;
+
+        CNS_COMMON:
         {
-            op2 = op2->SkipComma();
-
-            assertion.lcl.lclNum = lclNum;
-
-            switch (op2->gtOper)
+            // If the LclVar is a TYP_LONG then we only make
+            // assertions where op2 is also TYP_LONG
+            //
+            if ((lclVar->TypeGet() == TYP_LONG) && (op2->TypeGet() != TYP_LONG))
             {
-                ValueKind op2Kind;
-                //
-                //  No Assertion
-                //
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+
+            assertion.valKind          = op2Kind;
+            assertion.val.lngCon.value = 0;
+
+            if (op2->gtOper == GT_CNS_INT)
+            {
+#ifdef TARGET_ARM
+                // Do not Constant-Prop large constants for ARM
+                // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had
+                // target_ssize_t type.
+                if (!codeGen->validImmForMov((target_ssize_t)op2->AsIntCon()->gtIconVal))
+                {
+                    goto DONE_ASSERTION; // Don't make an assertion
+                }
+#endif // TARGET_ARM
+                // TODO-MIKE-Cleanup: This logic should be in a GenTreeIntCon function.
+                ssize_t value = op2->AsIntCon()->GetValue();
+                switch (lclVar->GetType())
+                {
+                    case TYP_BYTE:
+                        value = static_cast<int8_t>(value);
+                        break;
+                    case TYP_UBYTE:
+                    case TYP_BOOL:
+                        value = static_cast<uint8_t>(value);
+                        break;
+                    case TYP_SHORT:
+                        value = static_cast<int16_t>(value);
+                        break;
+                    case TYP_USHORT:
+                        value = static_cast<uint16_t>(value);
+                        break;
+                    default:
+                        break;
+                }
+
+                assertion.val.intCon.value = value;
+                assertion.val.intCon.flags = op2->GetIconHandleFlag();
+#ifdef TARGET_64BIT
+                if (op2->TypeGet() == TYP_LONG || op2->TypeGet() == TYP_BYREF)
+                {
+                    assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG;
+                }
+#endif // TARGET_64BIT
+            }
+            else if (op2->gtOper == GT_CNS_LNG)
+            {
+                assertion.val.lngCon.value = op2->AsLngCon()->gtLconVal;
+            }
+            else
+            {
+                noway_assert(op2->gtOper == GT_CNS_DBL);
+                /* If we have an NaN value then don't record it */
+                if (_isnan(op2->AsDblCon()->gtDconVal))
+                {
+                    goto DONE_ASSERTION; // Don't make an assertion
+                }
+                assertion.val.dblCon.value = op2->AsDblCon()->gtDconVal;
+            }
+
+            //
+            // Ok everything has been set and the assertion looks good
+            //
+            assertion.kind = Kind::Equal;
+        }
+        break;
+
+        //
+        //  Copy Assertions
+        //
+        case GT_LCL_VAR:
+        {
+            unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
+            noway_assert(lclNum2 < lvaCount);
+            LclVarDsc* lclVar2 = &lvaTable[lclNum2];
+
+            // If the two locals are the same then bail
+            if (lclNum == lclNum2)
+            {
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+
+            // If the types are different then bail */
+            if (lclVar->lvType != lclVar2->lvType)
+            {
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+
+            // If we're making a copy of a "normalize on load" lclvar then the destination
+            // has to be "normalize on load" as well, otherwise we risk skipping normalization.
+            if (lclVar2->lvNormalizeOnLoad() && !lclVar->lvNormalizeOnLoad())
+            {
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+
+            //  If the local variable has its address exposed then bail
+            if (lclVar2->lvAddrExposed)
+            {
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+
+            assertion.valKind        = ValueKind::LclVar;
+            assertion.val.lcl.lclNum = lclNum2;
+
+            //
+            // Ok everything has been set and the assertion looks good
+            //
+            assertion.kind = Kind::Equal;
+        }
+        break;
+
+        //  Subrange Assertions
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+
+            /* Assigning the result of a RELOP, we can add a boolean subrange assertion */
+
+            toType = TYP_BOOL;
+            goto SUBRANGE_COMMON;
+
+        case GT_LCL_FLD:
+
+            /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
+
+            toType = op2->gtType;
+            goto SUBRANGE_COMMON;
+
+        case GT_IND:
+
+            /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
+
+            toType = op2->gtType;
+            goto SUBRANGE_COMMON;
+
+        case GT_CAST:
+        {
+            if (lvaTable[lclNum].lvIsStructField && lvaTable[lclNum].lvNormalizeOnLoad())
+            {
+                // Keep the cast on small struct fields.
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+
+            toType = op2->CastToType();
+
+            // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
+            // except in overflow cases which we do not yet handle. To avoid
+            // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
+            // based on an assertion created from CAST(uint <- ulong), normalize the
+            // type for the range here. Note that TYP_ULONG theoretically has the same
+            // problem, but we do not create assertions for it.
+            // TODO-Cleanup: this assertion is not useful - this code exists to preserve
+            // previous behavior. Refactor it to stop generating such assertions.
+            if (toType == TYP_UINT)
+            {
+                toType = TYP_INT;
+            }
+        SUBRANGE_COMMON:
+            if (varTypeIsFloating(op1->TypeGet()))
+            {
+                // We don't make assertions on a cast from floating point
+                goto DONE_ASSERTION;
+            }
+
+            switch (toType)
+            {
+                case TYP_BOOL:
+                case TYP_BYTE:
+                case TYP_UBYTE:
+                case TYP_SHORT:
+                case TYP_USHORT:
+#ifdef TARGET_64BIT
+                case TYP_UINT:
+                case TYP_INT:
+#endif // TARGET_64BIT
+                    assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
+                    assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
+                    break;
+
                 default:
                     goto DONE_ASSERTION; // Don't make an assertion
-
-                //
-                //  Constant Assertions
-                //
-                case GT_CNS_INT:
-                    op2Kind = ValueKind::IntCon;
-                    goto CNS_COMMON;
-
-                case GT_CNS_LNG:
-                    op2Kind = ValueKind::LngCon;
-                    goto CNS_COMMON;
-
-                case GT_CNS_DBL:
-                    op2Kind = ValueKind::DblCon;
-                    goto CNS_COMMON;
-
-                CNS_COMMON:
-                {
-                    // If the LclVar is a TYP_LONG then we only make
-                    // assertions where op2 is also TYP_LONG
-                    //
-                    if ((lclVar->TypeGet() == TYP_LONG) && (op2->TypeGet() != TYP_LONG))
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    assertion.valKind          = op2Kind;
-                    assertion.val.lngCon.value = 0;
-
-                    if (op2->gtOper == GT_CNS_INT)
-                    {
-#ifdef TARGET_ARM
-                        // Do not Constant-Prop large constants for ARM
-                        // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had
-                        // target_ssize_t type.
-                        if (!codeGen->validImmForMov((target_ssize_t)op2->AsIntCon()->gtIconVal))
-                        {
-                            goto DONE_ASSERTION; // Don't make an assertion
-                        }
-#endif // TARGET_ARM
-                        // TODO-MIKE-Cleanup: This logic should be in a GenTreeIntCon function.
-                        ssize_t value = op2->AsIntCon()->GetValue();
-                        switch (lclVar->GetType())
-                        {
-                            case TYP_BYTE:
-                                value = static_cast<int8_t>(value);
-                                break;
-                            case TYP_UBYTE:
-                            case TYP_BOOL:
-                                value = static_cast<uint8_t>(value);
-                                break;
-                            case TYP_SHORT:
-                                value = static_cast<int16_t>(value);
-                                break;
-                            case TYP_USHORT:
-                                value = static_cast<uint16_t>(value);
-                                break;
-                            default:
-                                break;
-                        }
-
-                        assertion.val.intCon.value = value;
-                        assertion.val.intCon.flags = op2->GetIconHandleFlag();
-#ifdef TARGET_64BIT
-                        if (op2->TypeGet() == TYP_LONG || op2->TypeGet() == TYP_BYREF)
-                        {
-                            assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG;
-                        }
-#endif // TARGET_64BIT
-                    }
-                    else if (op2->gtOper == GT_CNS_LNG)
-                    {
-                        assertion.val.lngCon.value = op2->AsLngCon()->gtLconVal;
-                    }
-                    else
-                    {
-                        noway_assert(op2->gtOper == GT_CNS_DBL);
-                        /* If we have an NaN value then don't record it */
-                        if (_isnan(op2->AsDblCon()->gtDconVal))
-                        {
-                            goto DONE_ASSERTION; // Don't make an assertion
-                        }
-                        assertion.val.dblCon.value = op2->AsDblCon()->gtDconVal;
-                    }
-
-                    //
-                    // Ok everything has been set and the assertion looks good
-                    //
-                    assertion.kind = Kind::Equal;
-                }
-                break;
-
-                //
-                //  Copy Assertions
-                //
-                case GT_LCL_VAR:
-                {
-                    unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
-                    noway_assert(lclNum2 < lvaCount);
-                    LclVarDsc* lclVar2 = &lvaTable[lclNum2];
-
-                    // If the two locals are the same then bail
-                    if (lclNum == lclNum2)
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    // If the types are different then bail */
-                    if (lclVar->lvType != lclVar2->lvType)
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    // If we're making a copy of a "normalize on load" lclvar then the destination
-                    // has to be "normalize on load" as well, otherwise we risk skipping normalization.
-                    if (lclVar2->lvNormalizeOnLoad() && !lclVar->lvNormalizeOnLoad())
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    //  If the local variable has its address exposed then bail
-                    if (lclVar2->lvAddrExposed)
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    assertion.valKind        = ValueKind::LclVar;
-                    assertion.val.lcl.lclNum = lclNum2;
-
-                    //
-                    // Ok everything has been set and the assertion looks good
-                    //
-                    assertion.kind = Kind::Equal;
-                }
-                break;
-
-                //  Subrange Assertions
-                case GT_EQ:
-                case GT_NE:
-                case GT_LT:
-                case GT_LE:
-                case GT_GT:
-                case GT_GE:
-
-                    /* Assigning the result of a RELOP, we can add a boolean subrange assertion */
-
-                    toType = TYP_BOOL;
-                    goto SUBRANGE_COMMON;
-
-                case GT_LCL_FLD:
-
-                    /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-                    toType = op2->gtType;
-                    goto SUBRANGE_COMMON;
-
-                case GT_IND:
-
-                    /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-                    toType = op2->gtType;
-                    goto SUBRANGE_COMMON;
-
-                case GT_CAST:
-                {
-                    if (lvaTable[lclNum].lvIsStructField && lvaTable[lclNum].lvNormalizeOnLoad())
-                    {
-                        // Keep the cast on small struct fields.
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    toType = op2->CastToType();
-
-                    // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
-                    // except in overflow cases which we do not yet handle. To avoid
-                    // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
-                    // based on an assertion created from CAST(uint <- ulong), normalize the
-                    // type for the range here. Note that TYP_ULONG theoretically has the same
-                    // problem, but we do not create assertions for it.
-                    // TODO-Cleanup: this assertion is not useful - this code exists to preserve
-                    // previous behavior. Refactor it to stop generating such assertions.
-                    if (toType == TYP_UINT)
-                    {
-                        toType = TYP_INT;
-                    }
-                SUBRANGE_COMMON:
-                    if (varTypeIsFloating(op1->TypeGet()))
-                    {
-                        // We don't make assertions on a cast from floating point
-                        goto DONE_ASSERTION;
-                    }
-
-                    switch (toType)
-                    {
-                        case TYP_BOOL:
-                        case TYP_BYTE:
-                        case TYP_UBYTE:
-                        case TYP_SHORT:
-                        case TYP_USHORT:
-#ifdef TARGET_64BIT
-                        case TYP_UINT:
-                        case TYP_INT:
-#endif // TARGET_64BIT
-                            assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
-                            assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
-                            break;
-
-                        default:
-                            goto DONE_ASSERTION; // Don't make an assertion
-                    }
-                    assertion.valKind = ValueKind::Range;
-                    assertion.kind    = Kind::Range;
-                }
-                break;
             }
-        } // else // !helperCallArgs
+            assertion.valKind = ValueKind::Range;
+            assertion.kind    = Kind::Range;
+        }
+        break;
     }
 
 DONE_ASSERTION:
@@ -875,7 +869,10 @@ void Compiler::morphAssertionGen(GenTree* tree)
     switch (tree->gtOper)
     {
         case GT_ASG:
-            morphCreateEqualAssertion(tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
+            if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+            {
+                morphCreateEqualAssertion(tree->AsOp()->GetOp(0)->AsLclVar(), tree->AsOp()->GetOp(1));
+            }
             break;
 
         case GT_BLK:
