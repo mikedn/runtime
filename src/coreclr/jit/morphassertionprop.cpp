@@ -12,8 +12,7 @@ struct Compiler::MorphAssertion
     {
         Invalid,
         Equal,
-        NotEqual,
-        Range
+        NotEqual
     };
 
     enum class ValueKind : uint8_t
@@ -348,13 +347,9 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
 
     printf("Assertion: V%02u", curAssertion->lcl.lclNum);
 
-    if (curAssertion->kind == Kind::Range)
+    if (curAssertion->kind == Kind::Equal)
     {
-        printf(" in ");
-    }
-    else if (curAssertion->kind == Kind::Equal)
-    {
-        printf(" == ");
+        printf(" %s ", curAssertion->valKind == ValueKind::Range ? "in" : "==");
     }
     else if (curAssertion->kind == Kind::NotEqual)
     {
@@ -734,7 +729,7 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
                     goto DONE_ASSERTION; // Don't make an assertion
             }
             assertion.valKind = ValueKind::Range;
-            assertion.kind    = Kind::Range;
+            assertion.kind    = Kind::Equal;
         }
         break;
     }
@@ -905,7 +900,7 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsSubrange(GenTreeLclVar* lclV
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if (curAssertion->kind == Kind::Range)
+        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::Range))
         {
             if (curAssertion->lcl.lclNum != lclVar->GetLclNum())
             {
