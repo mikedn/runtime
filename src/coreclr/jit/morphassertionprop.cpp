@@ -530,53 +530,26 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
 
     switch (op2->gtOper)
     {
-        ValueKind op2Kind;
-        //
-        //  No Assertion
-        //
         default:
             goto DONE_ASSERTION; // Don't make an assertion
 
-        //
-        //  Constant Assertions
-        //
         case GT_CNS_INT:
-            op2Kind = ValueKind::IntCon;
-            goto CNS_COMMON;
-
-        case GT_CNS_LNG:
-            op2Kind = ValueKind::LngCon;
-            goto CNS_COMMON;
-
-        case GT_CNS_DBL:
-            op2Kind = ValueKind::DblCon;
-            goto CNS_COMMON;
-
-        CNS_COMMON:
-        {
-            // If the LclVar is a TYP_LONG then we only make
-            // assertions where op2 is also TYP_LONG
-            //
-            if ((lclVar->TypeGet() == TYP_LONG) && (op2->TypeGet() != TYP_LONG))
+            if (lclVar->TypeIs(TYP_LONG) && !op2->TypeIs(TYP_LONG))
             {
                 goto DONE_ASSERTION; // Don't make an assertion
             }
 
-            assertion.valKind = op2Kind;
-
-            if (op2->gtOper == GT_CNS_INT)
-            {
 #ifdef TARGET_ARM
-                // Do not Constant-Prop large constants for ARM
-                // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had
-                // target_ssize_t type.
-                if (!codeGen->validImmForMov((target_ssize_t)op2->AsIntCon()->gtIconVal))
-                {
-                    goto DONE_ASSERTION; // Don't make an assertion
-                }
-#endif // TARGET_ARM
+            if (!codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
+            {
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+#endif
+
+            {
                 // TODO-MIKE-Cleanup: This logic should be in a GenTreeIntCon function.
                 ssize_t value = op2->AsIntCon()->GetValue();
+
                 switch (lclVar->GetType())
                 {
                     case TYP_BYTE:
@@ -597,35 +570,39 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
                 }
 
                 assertion.val.intCon.value = value;
-                assertion.val.intCon.flags = op2->GetIconHandleFlag();
-#ifdef TARGET_64BIT
-                if (op2->TypeGet() == TYP_LONG || op2->TypeGet() == TYP_BYREF)
-                {
-                    assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG;
-                }
-#endif // TARGET_64BIT
-            }
-            else if (op2->gtOper == GT_CNS_LNG)
-            {
-                assertion.val.lngCon.value = op2->AsLngCon()->gtLconVal;
-            }
-            else
-            {
-                noway_assert(op2->gtOper == GT_CNS_DBL);
-                /* If we have an NaN value then don't record it */
-                if (_isnan(op2->AsDblCon()->gtDconVal))
-                {
-                    goto DONE_ASSERTION; // Don't make an assertion
-                }
-                assertion.val.dblCon.value = op2->AsDblCon()->gtDconVal;
             }
 
-            //
-            // Ok everything has been set and the assertion looks good
-            //
-            assertion.kind = Kind::Equal;
-        }
-        break;
+            assertion.kind             = Kind::Equal;
+            assertion.valKind          = ValueKind::IntCon;
+            assertion.val.intCon.flags = op2->GetIconHandleFlag();
+#ifdef TARGET_64BIT
+            if (op2->TypeIs(TYP_LONG, TYP_BYREF))
+            {
+                assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG;
+            }
+#endif
+            break;
+
+        case GT_CNS_LNG:
+            assert(lclVar->TypeIs(TYP_LONG) && op1->TypeIs(TYP_LONG) && op2->TypeIs(TYP_LONG));
+
+            assertion.kind             = Kind::Equal;
+            assertion.valKind          = ValueKind::LngCon;
+            assertion.val.lngCon.value = op2->AsLngCon()->gtLconVal;
+            break;
+
+        case GT_CNS_DBL:
+            assert((lclVar->GetType() == op1->GetType()) && (lclVar->GetType() == op2->GetType()));
+
+            if (_isnan(op2->AsDblCon()->GetValue()))
+            {
+                goto DONE_ASSERTION; // Don't make an assertion
+            }
+
+            assertion.kind             = Kind::Equal;
+            assertion.valKind          = ValueKind::DblCon;
+            assertion.val.dblCon.value = op2->AsDblCon()->GetValue();
+            break;
 
         //
         //  Copy Assertions
