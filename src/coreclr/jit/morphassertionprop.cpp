@@ -723,7 +723,7 @@ void Compiler::morphAddAssertion(AssertionDsc* newAssertion)
     }
 
     morphAssertionTable[optAssertionCount] = *newAssertion;
-    newAssertion = &morphAssertionTable[optAssertionCount];
+    newAssertion                           = &morphAssertionTable[optAssertionCount];
     optAssertionCount++;
 
 #ifdef DEBUG
@@ -731,7 +731,6 @@ void Compiler::morphAddAssertion(AssertionDsc* newAssertion)
     {
         printf("GenTreeNode creates assertion:\n");
         gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
-        printf("In " FMT_BB " New Local ", compCurBB->bbNum);
         morphPrintAssertion(newAssertion);
     }
 #endif // DEBUG
@@ -1038,7 +1037,7 @@ GenTree* Compiler::morphConstantAssertionProp(AssertionDsc* curAssertion, GenTre
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
+        printf("\nAssertion prop:\n");
         morphPrintAssertion(curAssertion);
         gtDispTree(newTree, nullptr, nullptr, true);
     }
@@ -1163,7 +1162,7 @@ GenTree* Compiler::morphCopyAssertionProp(AssertionDsc* curAssertion, GenTreeLcl
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
+        printf("\nAssertion prop:\n");
         morphPrintAssertion(curAssertion);
         gtDispTree(tree, nullptr, nullptr, true);
     }
@@ -1359,8 +1358,7 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nAssertion prop for index #%02u in " FMT_BB ":\n", curAssertion - morphAssertionTable,
-               compCurBB->bbNum);
+        printf("\nAssertion prop for index #%02u:\n", curAssertion - morphAssertionTable);
         gtDispTree(tree, nullptr, nullptr, true);
     }
 #endif
@@ -1435,8 +1433,7 @@ GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
 #ifdef DEBUG
                     if (verbose)
                     {
-                        printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
-                               compCurBB->bbNum);
+                        printf("\nSubrange prop for index #%02u:\n", assertion - morphAssertionTable);
                         gtDispTree(tree, nullptr, nullptr, true);
                     }
 #endif
@@ -1473,8 +1470,7 @@ GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
-                   compCurBB->bbNum);
+            printf("\nSubrange prop for index #%02u:\n", assertion - morphAssertionTable);
             gtDispTree(tree, nullptr, nullptr, true);
         }
 #endif
@@ -1522,8 +1518,7 @@ GenTree* Compiler::morphAssertionProp_Ind(GenTree* tree)
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
-                   compCurBB->bbNum);
+            printf("\nNon-null prop for index #%02u:\n", assertion - morphAssertionTable);
             gtDispTree(tree, nullptr, nullptr, true);
         }
 #endif
@@ -1584,8 +1579,7 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", assertion - morphAssertionTable,
-                   compCurBB->bbNum);
+            printf("\nNon-null prop for index #%02u:\n", assertion - morphAssertionTable);
             gtDispTree(call, nullptr, nullptr, true);
         }
 #endif
