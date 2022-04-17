@@ -72,36 +72,38 @@ struct Compiler::MorphAssertion
         Range  range;
     } val;
 
-    bool HasSameValue(MorphAssertion* that)
+    bool HasSameValue(const MorphAssertion& that) const
     {
-        if (valKind != that->valKind)
+        if (valKind != that.valKind)
         {
             return false;
         }
 
+        const auto& x = val;
+        const auto& y = that.val;
+
         switch (valKind)
         {
             case ValueKind::IntCon:
-                return (val.intCon.value == that->val.intCon.value) && (val.intCon.flags == that->val.intCon.flags);
+                return (x.intCon.value == y.intCon.value) && (x.intCon.flags == y.intCon.flags);
 #ifndef TARGET_64BIT
             case ValueKind::LngCon:
-                return (val.lngCon.value == that->val.lngCon.value);
+                return (x.lngCon.value == y.lngCon.value);
 #endif
             case ValueKind::DblCon:
-                // exact match because of positive and negative zero.
-                return memcmp(&val.dblCon.value, &that->val.dblCon.value, sizeof(double)) == 0;
+                return jitstd::bit_cast<uint64_t>(x.dblCon.value) == jitstd::bit_cast<uint64_t>(y.dblCon.value);
             case ValueKind::LclVar:
-                return val.lcl.lclNum == that->val.lcl.lclNum;
+                return x.lcl.lclNum == y.lcl.lclNum;
             case ValueKind::Range:
-                return (val.range.loBound == that->val.range.loBound) && (val.range.hiBound == that->val.range.hiBound);
+                return (x.range.loBound == y.range.loBound) && (y.range.hiBound == y.range.hiBound);
             default:
                 return false;
         }
     }
 
-    bool Equals(MorphAssertion* that)
+    bool Equals(const MorphAssertion& that) const
     {
-        return (kind == that->kind) && (lcl.lclNum == that->lcl.lclNum) && HasSameValue(that);
+        return (kind == that.kind) && (lcl.lclNum == that.lcl.lclNum) && HasSameValue(that);
     }
 };
 
@@ -306,7 +308,7 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
             }
         }
 
-        if ((elseAssertion != nullptr) && elseAssertion->HasSameValue(thenAssertion))
+        if ((elseAssertion != nullptr) && elseAssertion->HasSameValue(*thenAssertion))
         {
             index++;
         }
@@ -763,7 +765,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
     for (unsigned index = optAssertionCount - 1; index != UINT32_MAX; index--)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        if (curAssertion->Equals(newAssertion))
+        if (curAssertion->Equals(*newAssertion))
         {
             return;
         }
