@@ -1427,22 +1427,11 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
     return op2;
 }
 
-/*****************************************************************************
- *
- *  Given a tree consisting of a Cast and a set of available assertions
- *  we try to propagate an assertion and modify the Cast tree if we can.
- *  We pass in the root of the tree via 'stmt', for local copy prop 'stmt'
- *  will be nullptr.
- *
- *  Returns the modified tree, or nullptr if no assertion prop took place.
- */
-GenTree* Compiler::morphAssertionProp_Cast(GenTree* tree)
+GenTree* Compiler::morphAssertionPropCast(GenTreeCast* tree)
 {
-    assert(tree->gtOper == GT_CAST);
-
-    var_types fromType = tree->CastFromType();
-    var_types toType   = tree->AsCast()->gtCastType;
-    GenTree*  op1      = tree->AsCast()->CastOp();
+    GenTree*  op1      = tree->GetOp(0);
+    var_types fromType = op1->GetType();
+    var_types toType   = tree->GetCastType();
 
     // force the fromType to unsigned if GT_UNSIGNED flag is set
     if (tree->IsUnsigned())
@@ -1659,7 +1648,7 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
             return morphAssertionPropIndir(tree->AsIndir());
 
         case GT_CAST:
-            return morphAssertionProp_Cast(tree);
+            return morphAssertionPropCast(tree->AsCast());
 
         case GT_CALL:
             return morphAssertionProp_Call(tree->AsCall());
