@@ -427,22 +427,7 @@ Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned index)
     return assertion;
 }
 
-//------------------------------------------------------------------------
-// morphCreateAssertion: Create an (op1 assertionKind op2) assertion.
-//
-// Arguments:
-//    op1 - the first assertion operand
-//    op2 - the second assertion operand
-//    assertionKind - the assertion kind
-//    helperCallArgs - when true this indicates that the assertion operands
-//                     are the arguments of a type cast helper call such as
-//                     CORINFO_HELP_ISINSTANCEOFCLASS
-//
-// Notes:
-//    Assertion creation may fail either because the provided assertion
-//    operands aren't supported or because the assertion table is full.
-//
-void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
+void Compiler::morphCreateNonNullAssertion(GenTree* op1)
 {
     assert(op1 != nullptr);
 
@@ -450,12 +435,6 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
     memset(&assertion, 0, sizeof(MorphAssertion));
     assert(assertion.assertionKind == OAK_INVALID);
 
-    var_types toType;
-
-    //
-    // Are we trying to make a non-null assertion?
-    //
-    if (op2 == nullptr)
     {
         //
         // Set op1 to the instance pointer of the indirection
@@ -517,10 +496,27 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
         assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
 #endif
     }
-    //
-    // Are we making an assertion about a local variable?
-    //
-    else if (op1->gtOper == GT_LCL_VAR)
+
+DONE_ASSERTION:
+    if (assertion.assertionKind != OAK_INVALID)
+    {
+        noway_assert(assertion.op2.kind != O2K_INVALID);
+        morphAddAssertion(&assertion);
+    }
+}
+
+void Compiler::morphCreateEqualAssertion(GenTree* op1, GenTree* op2)
+{
+    assert(op1 != nullptr);
+    assert(op2 != nullptr);
+
+    MorphAssertion assertion;
+    memset(&assertion, 0, sizeof(MorphAssertion));
+    assert(assertion.assertionKind == OAK_INVALID);
+
+    var_types toType;
+
+    if (op1->gtOper == GT_LCL_VAR)
     {
         unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
         noway_assert(lclNum < lvaCount);
@@ -543,25 +539,25 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
                 //
                 //  No Assertion
                 //
-                default:
-                    goto DONE_ASSERTION; // Don't make an assertion
+            default:
+                goto DONE_ASSERTION; // Don't make an assertion
 
-                //
-                //  Constant Assertions
-                //
-                case GT_CNS_INT:
-                    op2Kind = O2K_CONST_INT;
-                    goto CNS_COMMON;
+            //
+            //  Constant Assertions
+            //
+            case GT_CNS_INT:
+                op2Kind = O2K_CONST_INT;
+                goto CNS_COMMON;
 
-                case GT_CNS_LNG:
-                    op2Kind = O2K_CONST_LONG;
-                    goto CNS_COMMON;
+            case GT_CNS_LNG:
+                op2Kind = O2K_CONST_LONG;
+                goto CNS_COMMON;
 
-                case GT_CNS_DBL:
-                    op2Kind = O2K_CONST_DOUBLE;
-                    goto CNS_COMMON;
+            case GT_CNS_DBL:
+                op2Kind = O2K_CONST_DOUBLE;
+                goto CNS_COMMON;
 
-                CNS_COMMON:
+            CNS_COMMON:
                 {
                     // If the LclVar is a TYP_LONG then we only make
                     // assertions where op2 is also TYP_LONG
@@ -571,7 +567,7 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
                         goto DONE_ASSERTION; // Don't make an assertion
                     }
 
-                    assertion.op2.kind    = op2Kind;
+                    assertion.op2.kind = op2Kind;
                     assertion.op2.lconVal = 0;
 
                     if (op2->gtOper == GT_CNS_INT)
@@ -589,24 +585,24 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
                         ssize_t value = op2->AsIntCon()->GetValue();
                         switch (lclVar->GetType())
                         {
-                            case TYP_BYTE:
-                                value = static_cast<int8_t>(value);
-                                break;
-                            case TYP_UBYTE:
-                            case TYP_BOOL:
-                                value = static_cast<uint8_t>(value);
-                                break;
-                            case TYP_SHORT:
-                                value = static_cast<int16_t>(value);
-                                break;
-                            case TYP_USHORT:
-                                value = static_cast<uint16_t>(value);
-                                break;
-                            default:
-                                break;
+                        case TYP_BYTE:
+                            value = static_cast<int8_t>(value);
+                            break;
+                        case TYP_UBYTE:
+                        case TYP_BOOL:
+                            value = static_cast<uint8_t>(value);
+                            break;
+                        case TYP_SHORT:
+                            value = static_cast<int16_t>(value);
+                            break;
+                        case TYP_USHORT:
+                            value = static_cast<uint16_t>(value);
+                            break;
+                        default:
+                            break;
                         }
 
-                        assertion.op2.u1.iconVal   = value;
+                        assertion.op2.u1.iconVal = value;
                         assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
 #ifdef TARGET_64BIT
                         if (op2->TypeGet() == TYP_LONG || op2->TypeGet() == TYP_BYREF)
@@ -640,125 +636,125 @@ void Compiler::morphCreateAssertion(GenTree* op1, GenTree* op2)
                 //
                 //  Copy Assertions
                 //
-                case GT_LCL_VAR:
+            case GT_LCL_VAR:
+            {
+                unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
+                noway_assert(lclNum2 < lvaCount);
+                LclVarDsc* lclVar2 = &lvaTable[lclNum2];
+
+                // If the two locals are the same then bail
+                if (lclNum == lclNum2)
                 {
-                    unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
-                    noway_assert(lclNum2 < lvaCount);
-                    LclVarDsc* lclVar2 = &lvaTable[lclNum2];
-
-                    // If the two locals are the same then bail
-                    if (lclNum == lclNum2)
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    // If the types are different then bail */
-                    if (lclVar->lvType != lclVar2->lvType)
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    // If we're making a copy of a "normalize on load" lclvar then the destination
-                    // has to be "normalize on load" as well, otherwise we risk skipping normalization.
-                    if (lclVar2->lvNormalizeOnLoad() && !lclVar->lvNormalizeOnLoad())
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    //  If the local variable has its address exposed then bail
-                    if (lclVar2->lvAddrExposed)
-                    {
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
-
-                    assertion.op2.kind       = O2K_LCLVAR_COPY;
-                    assertion.op2.lcl.lclNum = lclNum2;
-
-                    //
-                    // Ok everything has been set and the assertion looks good
-                    //
-                    assertion.assertionKind = OAK_EQUAL;
+                    goto DONE_ASSERTION; // Don't make an assertion
                 }
-                break;
 
-                //  Subrange Assertions
-                case GT_EQ:
-                case GT_NE:
-                case GT_LT:
-                case GT_LE:
-                case GT_GT:
-                case GT_GE:
-
-                    /* Assigning the result of a RELOP, we can add a boolean subrange assertion */
-
-                    toType = TYP_BOOL;
-                    goto SUBRANGE_COMMON;
-
-                case GT_LCL_FLD:
-
-                    /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-                    toType = op2->gtType;
-                    goto SUBRANGE_COMMON;
-
-                case GT_IND:
-
-                    /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-                    toType = op2->gtType;
-                    goto SUBRANGE_COMMON;
-
-                case GT_CAST:
+                // If the types are different then bail */
+                if (lclVar->lvType != lclVar2->lvType)
                 {
-                    if (lvaTable[lclNum].lvIsStructField && lvaTable[lclNum].lvNormalizeOnLoad())
-                    {
-                        // Keep the cast on small struct fields.
-                        goto DONE_ASSERTION; // Don't make an assertion
-                    }
+                    goto DONE_ASSERTION; // Don't make an assertion
+                }
 
-                    toType = op2->CastToType();
+                // If we're making a copy of a "normalize on load" lclvar then the destination
+                // has to be "normalize on load" as well, otherwise we risk skipping normalization.
+                if (lclVar2->lvNormalizeOnLoad() && !lclVar->lvNormalizeOnLoad())
+                {
+                    goto DONE_ASSERTION; // Don't make an assertion
+                }
 
-                    // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
-                    // except in overflow cases which we do not yet handle. To avoid
-                    // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
-                    // based on an assertion created from CAST(uint <- ulong), normalize the
-                    // type for the range here. Note that TYP_ULONG theoretically has the same
-                    // problem, but we do not create assertions for it.
-                    // TODO-Cleanup: this assertion is not useful - this code exists to preserve
-                    // previous behavior. Refactor it to stop generating such assertions.
-                    if (toType == TYP_UINT)
-                    {
-                        toType = TYP_INT;
-                    }
-                SUBRANGE_COMMON:
-                    if (varTypeIsFloating(op1->TypeGet()))
-                    {
-                        // We don't make assertions on a cast from floating point
-                        goto DONE_ASSERTION;
-                    }
+                //  If the local variable has its address exposed then bail
+                if (lclVar2->lvAddrExposed)
+                {
+                    goto DONE_ASSERTION; // Don't make an assertion
+                }
 
-                    switch (toType)
-                    {
-                        case TYP_BOOL:
-                        case TYP_BYTE:
-                        case TYP_UBYTE:
-                        case TYP_SHORT:
-                        case TYP_USHORT:
+                assertion.op2.kind = O2K_LCLVAR_COPY;
+                assertion.op2.lcl.lclNum = lclNum2;
+
+                //
+                // Ok everything has been set and the assertion looks good
+                //
+                assertion.assertionKind = OAK_EQUAL;
+            }
+            break;
+
+            //  Subrange Assertions
+            case GT_EQ:
+            case GT_NE:
+            case GT_LT:
+            case GT_LE:
+            case GT_GT:
+            case GT_GE:
+
+                /* Assigning the result of a RELOP, we can add a boolean subrange assertion */
+
+                toType = TYP_BOOL;
+                goto SUBRANGE_COMMON;
+
+            case GT_LCL_FLD:
+
+                /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
+
+                toType = op2->gtType;
+                goto SUBRANGE_COMMON;
+
+            case GT_IND:
+
+                /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
+
+                toType = op2->gtType;
+                goto SUBRANGE_COMMON;
+
+            case GT_CAST:
+            {
+                if (lvaTable[lclNum].lvIsStructField && lvaTable[lclNum].lvNormalizeOnLoad())
+                {
+                    // Keep the cast on small struct fields.
+                    goto DONE_ASSERTION; // Don't make an assertion
+                }
+
+                toType = op2->CastToType();
+
+                // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
+                // except in overflow cases which we do not yet handle. To avoid
+                // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
+                // based on an assertion created from CAST(uint <- ulong), normalize the
+                // type for the range here. Note that TYP_ULONG theoretically has the same
+                // problem, but we do not create assertions for it.
+                // TODO-Cleanup: this assertion is not useful - this code exists to preserve
+                // previous behavior. Refactor it to stop generating such assertions.
+                if (toType == TYP_UINT)
+                {
+                    toType = TYP_INT;
+                }
+            SUBRANGE_COMMON:
+                if (varTypeIsFloating(op1->TypeGet()))
+                {
+                    // We don't make assertions on a cast from floating point
+                    goto DONE_ASSERTION;
+                }
+
+                switch (toType)
+                {
+                case TYP_BOOL:
+                case TYP_BYTE:
+                case TYP_UBYTE:
+                case TYP_SHORT:
+                case TYP_USHORT:
 #ifdef TARGET_64BIT
-                        case TYP_UINT:
-                        case TYP_INT:
+                case TYP_UINT:
+                case TYP_INT:
 #endif // TARGET_64BIT
-                            assertion.op2.u2.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
-                            assertion.op2.u2.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
-                            break;
+                    assertion.op2.u2.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
+                    assertion.op2.u2.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
+                    break;
 
-                        default:
-                            goto DONE_ASSERTION; // Don't make an assertion
-                    }
-                    assertion.op2.kind      = O2K_SUBRANGE;
-                    assertion.assertionKind = OAK_SUBRANGE;
+                default:
+                    goto DONE_ASSERTION; // Don't make an assertion
                 }
-                break;
+                assertion.op2.kind = O2K_SUBRANGE;
+                assertion.assertionKind = OAK_SUBRANGE;
+            }
+            break;
             }
         } // else // !helperCallArgs
     }
@@ -882,7 +878,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
     switch (tree->gtOper)
     {
         case GT_ASG:
-            morphCreateAssertion(tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
+            morphCreateEqualAssertion(tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
             break;
 
         case GT_BLK:
@@ -891,17 +887,13 @@ void Compiler::morphAssertionGen(GenTree* tree)
             FALLTHROUGH;
         case GT_IND:
         case GT_NULLCHECK:
-            // All indirections create non-null assertions
-            morphCreateAssertion(tree->AsIndir()->Addr(), nullptr);
+            morphCreateNonNullAssertion(tree->AsIndir()->GetAddr());
             break;
-
         case GT_ARR_LENGTH:
-            morphCreateAssertion(tree->AsArrLen()->GetArray(), nullptr);
+            morphCreateNonNullAssertion(tree->AsArrLen()->GetArray());
             break;
-
         case GT_ARR_ELEM:
-            // An array element reference can create a non-null assertion
-            morphCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr);
+            morphCreateNonNullAssertion(tree->AsArrElem()->GetArray());
             break;
 
         case GT_CALL:
@@ -912,7 +904,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                morphCreateAssertion(call->GetThisArg(), nullptr);
+                morphCreateNonNullAssertion(call->GetThisArg());
             }
         }
         break;
