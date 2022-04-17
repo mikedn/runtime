@@ -6180,23 +6180,27 @@ public:
                                                   // using the value of a local var) for each local var
     MorphAssertion* morphAssertionTable;          // table that holds info about local assignments
 
+public:
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);
-    void morphCreateNonNullAssertion(GenTree* op1);
-    void morphCreateEqualAssertion(GenTree* op1, GenTree* op2);
-    void morphAddAssertion(MorphAssertion* assertion);
-    MorphAssertion* morphGetAssertion(unsigned index);
     GenTree* morphAssertionProp(GenTree* tree);
     MorphAssertion* morphAssertionIsSubrange(GenTree* tree, var_types fromType, var_types toType);
     MorphAssertion* morphAssertionIsNonNull(GenTree* op);
     void morphAssertionReset(unsigned limit);
-    void morphAssertionRemove(unsigned index);
     unsigned morphAssertionTableSize(unsigned count);
     void morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count);
     void morphAssertionMerge(unsigned        elseAssertionCount,
                              MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
     void morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree));
+
+private:
+    ASSERT_TP& GetAssertionDep(unsigned lclNum);
+    void morphCreateNonNullAssertion(GenTree* op1);
+    void morphCreateEqualAssertion(GenTree* op1, GenTree* op2);
+    void morphAddAssertion(MorphAssertion* assertion);
+    MorphAssertion* morphGetAssertion(unsigned index);
+    void morphAssertionRemove(unsigned index);
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
 
     GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
     GenTree* morphAssertionProp_Ind(GenTree* tree);
@@ -6214,8 +6218,8 @@ public:
 #endif
 #endif
 
+public:
     // Assertion prop helpers.
-    ASSERT_TP& GetAssertionDep(unsigned lclNum);
     AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
     void optAssertionInit();
 
