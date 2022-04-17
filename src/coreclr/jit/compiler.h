@@ -6202,7 +6202,7 @@ public:
     GenTree* morphAssertionProp_Cast(GenTree* tree);
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionProp_RelOp(GenTree* tree);
-    MorphAssertion* morphLocalAssertionIsEqualOrNotEqual(unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal);
+    MorphAssertion* morphAssertionIsEqualOrNotEqual(unsigned lclNum, ssize_t cnsVal);
     GenTree* morphConstantAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree);
     bool morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
     GenTree* morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree);

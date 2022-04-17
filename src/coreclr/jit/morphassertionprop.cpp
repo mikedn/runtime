@@ -1330,12 +1330,8 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
  *  op1Kind and lclNum, op2Kind and the constant value and is either equal or
  *  not equal assertion.
  */
-Compiler::MorphAssertion* Compiler::morphLocalAssertionIsEqualOrNotEqual(unsigned   lclNum,
-                                                                         optOp2Kind op2Kind,
-                                                                         ssize_t    cnsVal)
+Compiler::MorphAssertion* Compiler::morphAssertionIsEqualOrNotEqual(unsigned lclNum, ssize_t cnsVal)
 {
-    noway_assert(op2Kind == O2K_CONST_INT);
-
     for (unsigned index = 0; index < optAssertionCount; ++index)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
@@ -1344,7 +1340,7 @@ Compiler::MorphAssertion* Compiler::morphLocalAssertionIsEqualOrNotEqual(unsigne
             continue;
         }
 
-        if ((curAssertion->op1.lcl.lclNum == lclNum) && (curAssertion->op2.kind == op2Kind))
+        if ((curAssertion->op1.lcl.lclNum == lclNum) && (curAssertion->op2.kind == O2K_CONST_INT))
         {
             bool constantIsEqual  = (curAssertion->op2.u1.iconVal == cnsVal);
             bool assertionIsEqual = (curAssertion->assertionKind == OAK_EQUAL);
@@ -1395,9 +1391,8 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
         return nullptr;
     }
 
-    optOp2Kind op2Kind = O2K_CONST_INT;
-    ssize_t    cnsVal  = op2->AsIntCon()->gtIconVal;
-    var_types  cmpType = op1->TypeGet();
+    ssize_t   cnsVal  = op2->AsIntCon()->gtIconVal;
+    var_types cmpType = op1->TypeGet();
 
     // Don't try to fold/optimize Floating Compares; there are multiple zero values.
     if (varTypeIsFloating(cmpType))
@@ -1408,7 +1403,7 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
     // Find an equal or not equal assertion about op1 var.
     unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
     noway_assert(lclNum < lvaCount);
-    MorphAssertion* curAssertion = morphLocalAssertionIsEqualOrNotEqual(lclNum, op2Kind, cnsVal);
+    MorphAssertion* curAssertion = morphAssertionIsEqualOrNotEqual(lclNum, cnsVal);
 
     if (curAssertion == nullptr)
     {
