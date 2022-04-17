@@ -562,8 +562,7 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
                 goto DONE_ASSERTION; // Don't make an assertion
             }
 
-            assertion.valKind          = op2Kind;
-            assertion.val.lngCon.value = 0;
+            assertion.valKind = op2Kind;
 
             if (op2->gtOper == GT_CNS_INT)
             {
