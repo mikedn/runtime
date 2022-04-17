@@ -597,7 +597,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 {
                     noway_assert(fgIsCommaThrow(folded));
                     folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-                    fgMorphTreeDone(folded);
+                    INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                     return folded;
                 }
 
@@ -5032,7 +5032,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     fgMorphTreeDone(lclVar);
 
     GenTreeCast* cast = gtNewCastNode(TYP_INT, lclVar, false, lcl->GetType());
-    fgMorphTreeDone(cast);
+    INDEBUG(cast->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
     return cast;
 }
 
@@ -10427,7 +10427,7 @@ DONE_MORPHING_CHILDREN:
         if (fgIsCommaThrow(tree))
         {
             tree->AsOp()->gtOp1 = fgMorphTree(tree->AsOp()->gtOp1);
-            fgMorphTreeDone(tree);
+            INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
             return tree;
         }
 
@@ -13270,14 +13270,52 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         return;
     }
 
+    // The way global morph tries to prevent double/lack of morphing of a node
+    // is rather convoluted. The overall idea is that fgMorphTree is called on
+    // `tree` and:
+    //   - it modifies the tree node itself (e.g. by changing its type or even
+    //     its oper), but does not create new nodes and returns the same `tree`.
+    //     Then fgMorphTreeDone sets GTF_DEBUG_NODE_MORPHED on `tree` (and does
+    //     expect that it hasn't been set).
+    //   - it inserts new nodes (typically as `tree` operands) but still returns
+    //     the same `tree`.
+    //     For `tree` this works as in the previous case.
+    //     For inserted nodes the morphing code is more or less expected to call
+    //     fgMorphTreeDone, at least when nodes may affect assertion propagation
+    //     (e.g. new assignment node, new indir node etc.). Failure to do so is
+    //     not immediately detected, but can later result in asserts if other
+    //     nodes are removed such that these new nodes reach fgMorphTreeDone.
+    //   - it returns a new node and possibly drops `tree` on the floor.
+    //     Here things are a bit bizarre - fgMorphTreeDone expects that the new
+    //     node has GTF_DEBUG_NODE_MORPHED already set. Not clear why, perhaps
+    //     the idea was that if you create a new node you should also pass it to
+    //     fgMorphTree. But if you create a new node in morph then it is likely
+    //     that it can be considered to already be morphed. In any case, it's
+    //     fine for the morphing code to simply set GTF_DEBUG_NODE_MORPHED on
+    //     the new node. It should not call fgMorphTreeDone though, that's done
+    //     anyway in fgMorphTree.
+    //     If the original `tree` is not dropped then fgMorphTreeDone should be
+    //     called on it too, unless morphing code is certain that `tree` does
+    //     not influence assertion propagation.
+    //   - it simply drops `tree` on the floor and returns a descendant node.
+    //     Such a node should have been morphed and have GTF_DEBUG_NODE_MORPHED
+    //     set so this will work fine.
+    //     However, it can result in double assertion generation, which should
+    //     be harmless but may have some throughput cost.
+    // Note that removing nodes from the tree after it has been morphed is not
+    // tracked in any way, even though node removal could theoretically affect
+    // assertion propagation. But this should be impossible, assignments and
+    // indirections are side effects and morph does not have enough information
+    // to remove them, except in the "expression always throws" case. And then
+    // assertion propagation is no longer relevant since the rest of the code
+    // in the basic block will also be removed.
+
     if ((oldTree != nullptr) && (oldTree != tree))
     {
-        /* Ensure that we have morphed this node */
-        assert((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) && "ERROR: Did not morph this node!");
+        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) != 0) && "ERROR: Did not morph this node!");
     }
     else
     {
-        // Ensure that we haven't morphed this node already
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
     }
 
