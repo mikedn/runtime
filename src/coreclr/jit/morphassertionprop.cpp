@@ -519,10 +519,8 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
     memset(&assertion, 0, sizeof(MorphAssertion));
     assert(assertion.kind == Kind::Invalid);
 
-    var_types toType;
-    unsigned  lclNum = op1->GetLclNum();
-    noway_assert(lclNum < lvaCount);
-    LclVarDsc* lclVar = &lvaTable[lclNum];
+    unsigned   lclNum = op1->GetLclNum();
+    LclVarDsc* lclVar = lvaGetDesc(lclNum);
 
     //  If the local variable has its address exposed then bail
     if (lclVar->lvAddrExposed)
@@ -536,6 +534,8 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
 
     switch (op2->gtOper)
     {
+        var_types toType;
+
         default:
             goto DONE_ASSERTION; // Don't make an assertion
 
@@ -656,78 +656,84 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
         }
         break;
 
-        //  Subrange Assertions
         case GT_EQ:
         case GT_NE:
         case GT_LT:
         case GT_LE:
         case GT_GT:
         case GT_GE:
-
-            /* Assigning the result of a RELOP, we can add a boolean subrange assertion */
-
-            toType = TYP_BOOL;
-            goto SUBRANGE_COMMON;
+            assertion.kind              = Kind::Equal;
+            assertion.valKind           = ValueKind::Range;
+            assertion.val.range.loBound = 0;
+            assertion.val.range.hiBound = 1;
+            break;
 
         case GT_LCL_FLD:
-
-            /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-            toType = op2->gtType;
-            goto SUBRANGE_COMMON;
-
         case GT_IND:
+            toType = op2->GetType();
 
-            /* Assigning the result of an indirection into a LCL_VAR, see if we can add a subrange assertion */
-
-            toType = op2->gtType;
-            goto SUBRANGE_COMMON;
-
-        case GT_CAST:
-        {
-            if (lvaTable[lclNum].lvIsStructField && lvaTable[lclNum].lvNormalizeOnLoad())
+            if (varTypeIsSmall(toType))
             {
-                // Keep the cast on small struct fields.
-                goto DONE_ASSERTION; // Don't make an assertion
+                assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
+                assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
             }
-
-            toType = op2->CastToType();
-
-            // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
-            // except in overflow cases which we do not yet handle. To avoid
-            // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
-            // based on an assertion created from CAST(uint <- ulong), normalize the
-            // type for the range here. Note that TYP_ULONG theoretically has the same
-            // problem, but we do not create assertions for it.
-            // TODO-Cleanup: this assertion is not useful - this code exists to preserve
-            // previous behavior. Refactor it to stop generating such assertions.
-            if (toType == TYP_UINT)
-            {
-                toType = TYP_INT;
-            }
-        SUBRANGE_COMMON:
-            switch (toType)
-            {
-                case TYP_BOOL:
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
 #ifdef TARGET_64BIT
-                case TYP_UINT:
-                case TYP_INT:
-#endif // TARGET_64BIT
-                    assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
-                    assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
-                    break;
-
-                default:
-                    goto DONE_ASSERTION; // Don't make an assertion
+            // TODO-MIKE-CQ: This is useless nonsense, of course an INT load has range
+            // INT32_MIN..INT32_MAX. Problem is, these assertions still take space in
+            // the assertion table and can prevent more assertions from being created
+            // so removing this causes diffs. Remove it when it's all done.
+            // Also note that loads should not have UINT type but due to bogus JIT code
+            // that does happen sometimes.
+            else if ((toType == TYP_INT) || (toType == TYP_UINT))
+            {
+                assertion.val.range.loBound = INT32_MIN;
+                assertion.val.range.hiBound = INT32_MAX;
             }
+#endif
+            else
+            {
+                return;
+            }
+
             assertion.valKind = ValueKind::Range;
             assertion.kind    = Kind::Equal;
-        }
-        break;
+            break;
+
+        case GT_CAST:
+            if (lclVar->IsPromotedField() && lclVar->lvNormalizeOnLoad())
+            {
+                // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
+                // this case. In typical idiotic fashion old comment stated what the code is
+                // doing instead of why it is doing it.
+                return;
+            }
+
+            toType = op2->AsCast()->GetCastType();
+
+            if (varTypeIsSmall(toType))
+            {
+                assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
+                assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
+            }
+#ifdef TARGET_64BIT
+            else if ((toType == TYP_INT) || (toType == TYP_UINT))
+            {
+                // TODO-MIKE-CQ: Like in the load case, this is pretty much nonsense. There is
+                // a difference however, an overflow checking cast to UINT should produce a
+                // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
+                // No idea why this always produces an INT32_MIN..INT32_MAX range.
+                assertion.val.range.loBound = INT32_MIN;
+                assertion.val.range.hiBound = INT32_MAX;
+            }
+#endif
+            else
+            {
+                return;
+            }
+
+            assertion.valKind = ValueKind::Range;
+            assertion.kind    = Kind::Equal;
+            break;
     }
 
 DONE_ASSERTION:
