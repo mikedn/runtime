@@ -394,14 +394,7 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
 #endif
 
         case ValueKind::DblCon:
-            if (*((__int64*)&curAssertion->val.dblCon.value) == (__int64)I64(0x8000000000000000))
-            {
-                printf("-0.00000");
-            }
-            else
-            {
-                printf("%#lg", curAssertion->val.dblCon.value);
-            }
+            printf("%#.17g", curAssertion->val.dblCon.value);
             break;
 
         case ValueKind::Range:

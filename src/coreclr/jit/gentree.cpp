@@ -7703,18 +7703,10 @@ void Compiler::gtDispConst(GenTree* tree)
             break;
 
         case GT_CNS_LNG:
-            printf(" 0x%016I64x", tree->AsLngCon()->gtLconVal);
+            printf(" 0x%016I64x", tree->AsLngCon()->GetValue());
             break;
-
         case GT_CNS_DBL:
-            if (*((__int64*)&tree->AsDblCon()->gtDconVal) == (__int64)I64(0x8000000000000000))
-            {
-                printf(" -0.00000");
-            }
-            else
-            {
-                printf(" %#.17g", tree->AsDblCon()->gtDconVal);
-            }
+            printf(" %#.17g", tree->AsDblCon()->GetValue());
             break;
         case GT_CNS_STR:
             printf("<string constant>");
