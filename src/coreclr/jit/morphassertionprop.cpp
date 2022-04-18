@@ -1037,66 +1037,6 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
     return newTree;
 }
 
-//------------------------------------------------------------------------------
-// morphAssertionProp_LclVarTypeCheck: verify compatible types for copy prop
-//
-// Arguments:
-//    tree         - tree to possibly modify
-//    lclVarDsc    - local accessed by tree
-//    copyVarDsc   - local to possibly copy prop into tree
-//
-// Returns:
-//    True if copy prop is safe.
-//
-// Notes:
-//    Before substituting copyVar for lclVar, make sure using copyVar doesn't widen access.
-//
-bool Compiler::morphAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
-{
-    /*
-        Small struct field locals are stored using the exact width and loaded widened
-        (i.e. lvNormalizeOnStore==false   lvNormalizeOnLoad==true),
-        because the field locals might end up embedded in the parent struct local with the exact width.
-
-            In other words, a store to a short field local should always done using an exact width store
-
-                [00254538] 0x0009 ------------               const     int    0x1234
-            [002545B8] 0x000B -A--G--NR---               =         short
-                [00254570] 0x000A D------N----               lclVar    short  V43 tmp40
-
-            mov   word  ptr [L_043], 0x1234
-
-        Now, if we copy prop, say a short field local V43, to another short local V34
-        for the following tree:
-
-                [04E18650] 0x0001 ------------               lclVar    int   V34 tmp31
-            [04E19714] 0x0002 -A----------               =         int
-                [04E196DC] 0x0001 D------N----               lclVar    int   V36 tmp33
-
-        We will end with this tree:
-
-                [04E18650] 0x0001 ------------               lclVar    int   V43 tmp40
-            [04E19714] 0x0002 -A-----NR---               =         int
-                [04E196DC] 0x0001 D------N----               lclVar    int   V36 tmp33    EAX
-
-        And eventually causing a fetch of 4-byte out from [L_043] :(
-            mov     EAX, dword ptr [L_043]
-
-        The following check is to make sure we only perform the copy prop
-        when we don't retrieve the wider value.
-    */
-
-    if (copyVarDsc->lvIsStructField)
-    {
-        var_types varType = (var_types)copyVarDsc->lvType;
-        // Make sure we don't retrieve the wider value.
-        return !varTypeIsSmall(varType) || (varType == tree->TypeGet());
-    }
-    // Called in the context of a single copy assertion, so the types should have been
-    // taken care by the assertion gen logic for other cases. Just return true.
-    return true;
-}
-
 //------------------------------------------------------------------------
 // morphCopyAssertionProp: copy prop use of one local with another
 //
@@ -1136,8 +1076,13 @@ GenTree* Compiler::morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeL
     assert(!copyVarDsc->IsAddressExposed());
     assert(!lclVarDsc->IsAddressExposed());
 
-    // Make sure the types are compatible.
-    if (!morphAssertionProp_LclVarTypeCheck(tree, lclVarDsc, copyVarDsc))
+    // We can't use a small int promoted field if the original LCL_VAR doesn't have the same type
+    // as the field. If the field ends up being P-DEP then we risk reading bits from adjacent fields.
+    // TODO-MIKE-Cleanup: It's not clear what the problem is here. Such a promoted field is supposed
+    // to be widened on load so any garbage bits would be discarded. This might be related to struct
+    // assignment promotion where widening casts are not inserted.
+    if (copyVarDsc->IsPromotedField() && varTypeIsSmall(copyVarDsc->GetType()) &&
+        (copyVarDsc->GetType() != tree->GetType()))
     {
         return nullptr;
     }
