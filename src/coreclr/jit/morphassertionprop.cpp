@@ -362,30 +362,15 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
             break;
 
         case ValueKind::IntCon:
-        {
-            unsigned lclNum = curAssertion->lcl.lclNum;
-            assert(lclNum < lvaCount);
-            LclVarDsc* varDsc  = lvaTable + lclNum;
-            var_types  op1Type = varDsc->lvType;
-
-            if (op1Type == TYP_REF)
+            if ((curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
             {
-                assert(curAssertion->val.intCon.value == 0);
-                printf("null");
+                printf("%08p (handle)", dspPtr(curAssertion->val.intCon.value));
             }
             else
             {
-                if ((curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
-                {
-                    printf("[%08p]", dspPtr(curAssertion->val.intCon.value));
-                }
-                else
-                {
-                    printf("%d", curAssertion->val.intCon.value);
-                }
+                printf("%Id", curAssertion->val.intCon.value);
             }
-        }
-        break;
+            break;
 
 #ifndef TARGET_64BIT
         case ValueKind::LngCon:
@@ -398,7 +383,7 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
             break;
 
         case ValueKind::Range:
-            printf("[%u..%u]", curAssertion->val.range.loBound, curAssertion->val.range.hiBound);
+            printf("[%Id..%Id]", curAssertion->val.range.loBound, curAssertion->val.range.hiBound);
             break;
 
         default:
