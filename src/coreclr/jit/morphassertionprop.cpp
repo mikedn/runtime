@@ -942,50 +942,6 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
     return assertion;
 }
 
-MorphAssertion* Compiler::morphAssertionIsRange(GenTreeLclVar* lclVar, var_types fromType, var_types toType)
-{
-    MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());
-
-    if (assertion == nullptr)
-    {
-        return nullptr;
-    }
-
-    if (varTypeIsUnsigned(fromType) && (assertion->val.range.loBound < 0))
-    {
-        return nullptr;
-    }
-
-    switch (toType)
-    {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-            if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
-                (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
-            {
-                return nullptr;
-            }
-            break;
-
-        case TYP_UINT:
-            if (assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
-            {
-                return nullptr;
-            }
-            break;
-
-        case TYP_INT:
-            break;
-
-        default:
-            return nullptr;
-    }
-
-    return assertion;
-}
-
 //------------------------------------------------------------------------------
 // morphConstantAssertionProp: Possibly substitute a constant for a local use
 //
@@ -1463,16 +1419,48 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
         return nullptr;
     }
 
+    MorphAssertion* assertion = morphAssertionFindRange(actualSrc->AsLclVar()->GetLclNum());
+
+    if (assertion == nullptr)
+    {
+        return nullptr;
+    }
+
     if (cast->IsUnsigned())
     {
         fromType = varTypeToUnsigned(fromType);
     }
 
-    MorphAssertion* assertion = morphAssertionIsRange(actualSrc->AsLclVar(), fromType, toType);
-
-    if (assertion == nullptr)
+    if (varTypeIsUnsigned(fromType) && (assertion->val.range.loBound < 0))
     {
         return nullptr;
+    }
+
+    switch (toType)
+    {
+        case TYP_BYTE:
+        case TYP_UBYTE:
+        case TYP_SHORT:
+        case TYP_USHORT:
+            if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
+                (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
+            {
+                return nullptr;
+            }
+            break;
+
+        case TYP_UINT:
+            if (assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
+            {
+                return nullptr;
+            }
+            break;
+
+        case TYP_INT:
+            break;
+
+        default:
+            return nullptr;
     }
 
     LclVarDsc* lcl = lvaGetDesc(actualSrc->AsLclVar());
