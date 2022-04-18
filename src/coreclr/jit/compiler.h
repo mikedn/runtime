@@ -6214,7 +6214,7 @@ private:
     GenTree* morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree);
 
 #ifdef DEBUG
-    void morphPrintAssertion(MorphAssertion* newAssertion);
+    void morphPrintAssertion(MorphAssertion* assertion);
     void morphDebugCheckAssertion(MorphAssertion* assertion);
 #endif
 #endif

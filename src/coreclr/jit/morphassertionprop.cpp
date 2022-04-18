@@ -317,84 +317,65 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
 #endif // LOCAL_ASSERTION_PROP
 
 #ifdef DEBUG
-void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
+void Compiler::morphPrintAssertion(MorphAssertion* assertion)
 {
-    if (curAssertion->valKind == ValueKind::LclVar)
+    printf("Assertion");
+
+    if ((assertion >= morphAssertionTable) && (assertion < morphAssertionTable + optAssertionCount))
     {
-        printf("Copy     ");
-    }
-    else if ((curAssertion->valKind == ValueKind::IntCon) ||
-#ifndef TARGET_64BIT
-             (curAssertion->valKind == ValueKind::LngCon) ||
-#endif
-             (curAssertion->valKind == ValueKind::DblCon))
-    {
-        printf("Constant ");
-    }
-    else if (curAssertion->valKind == ValueKind::Range)
-    {
-        printf("Subrange ");
-    }
-    else
-    {
-        printf("?assertion classification? ");
+        printf(" #%02u", assertion - morphAssertionTable);
     }
 
-    printf("Assertion: V%02u", curAssertion->lcl.lclNum);
+    printf(": V%02u", assertion->lcl.lclNum);
 
-    if (curAssertion->kind == Kind::Equal)
+    const char* op;
+
+    switch (assertion->kind)
     {
-        printf(" %s ", curAssertion->valKind == ValueKind::Range ? "in" : "==");
-    }
-    else if (curAssertion->kind == Kind::NotNull)
-    {
-        printf(" != ");
-    }
-    else
-    {
-        printf(" ?assertionKind? ");
+        case Kind::Equal:
+            op = assertion->valKind == ValueKind::Range ? "in" : "==";
+            break;
+        case Kind::NotNull:
+            op = "!=";
+            break;
+        default:
+            op = "???";
+            break;
     }
 
-    switch (curAssertion->valKind)
+    printf(" %s ", op);
+
+    const auto& val = assertion->val;
+
+    switch (assertion->valKind)
     {
         case ValueKind::LclVar:
-            printf("V%02u", curAssertion->val.lcl.lclNum);
+            printf("V%02u", val.lcl.lclNum);
             break;
-
         case ValueKind::IntCon:
-            if ((curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
+            if ((val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
             {
-                printf("%08p (%s)", dspPtr(curAssertion->val.intCon.value),
-                       dmpGetHandleKindName(curAssertion->val.intCon.flags));
+                printf("%08p (%s)", dspPtr(val.intCon.value), dmpGetHandleKindName(val.intCon.flags));
             }
             else
             {
-                printf("%Id", curAssertion->val.intCon.value);
+                printf("%Id", val.intCon.value);
             }
             break;
-
 #ifndef TARGET_64BIT
         case ValueKind::LngCon:
-            printf("0x%016llx", curAssertion->val.lngCon.value);
+            printf("0x%016llx", val.lngCon.value);
             break;
 #endif
-
         case ValueKind::DblCon:
-            printf("%#.17g", curAssertion->val.dblCon.value);
+            printf("%#.17g", val.dblCon.value);
             break;
-
         case ValueKind::Range:
-            printf("[%Id..%Id]", curAssertion->val.range.loBound, curAssertion->val.range.hiBound);
+            printf("[%Id..%Id]", val.range.loBound, val.range.hiBound);
             break;
-
         default:
-            printf("?valKind?");
+            printf("???");
             break;
-    }
-
-    if ((curAssertion >= morphAssertionTable) && (curAssertion < morphAssertionTable + optAssertionCount))
-    {
-        printf(", index = %u", curAssertion - morphAssertionTable);
     }
 
     printf("\n");
