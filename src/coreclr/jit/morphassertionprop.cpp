@@ -35,7 +35,6 @@ struct Compiler::MorphAssertion
     struct IntCon
     {
         ssize_t      value;
-        unsigned     padding; // unused; ensures flags does not overlap lngCon
         GenTreeFlags flags;
     };
 
@@ -840,14 +839,6 @@ void Compiler::morphDebugCheckAssertion(MorphAssertion* assertion)
                    doesMethodHaveFrozenString());
         }
         break;
-
-#ifndef TARGET_64BIT
-        case ValueKind::LngCon:
-            // All handles should be represented by ValueKind::IntCon,
-            // so no handle bits should be set here.
-            assert((assertion->val.intCon.flags & GTF_ICON_HDL_MASK) == 0);
-            break;
-#endif
 
         default:
             // for all other 'assertion->valKind' values we don't check anything
