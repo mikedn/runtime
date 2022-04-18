@@ -428,7 +428,7 @@ void Compiler::morphCreateNonNullAssertion(GenTree* op1)
             goto DONE_ASSERTION; // Don't make an assertion
         }
 
-        unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
+        unsigned lclNum = op1->AsLclVar()->GetLclNum();
         noway_assert(lclNum < lvaCount);
         LclVarDsc* lclVar = &lvaTable[lclNum];
 
@@ -576,7 +576,7 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
         //
         case GT_LCL_VAR:
         {
-            unsigned lclNum2 = op2->AsLclVarCommon()->GetLclNum();
+            unsigned lclNum2 = op2->AsLclVar()->GetLclNum();
             noway_assert(lclNum2 < lvaCount);
             LclVarDsc* lclVar2 = &lvaTable[lclNum2];
 
@@ -914,7 +914,7 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
 // Notes:
 //    stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree)
+GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenTreeLclVar* tree)
 {
     const unsigned lclNum = tree->GetLclNum();
 
@@ -1052,7 +1052,7 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
 // Notes:
 //    stmt may be nullptr during local assertion prop
 //
-GenTree* Compiler::morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVarCommon* tree)
+GenTree* Compiler::morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVar* tree)
 {
     const auto& op1 = curAssertion->lcl;
     const auto& op2 = curAssertion->val;
@@ -1249,7 +1249,7 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
     }
 
     // Find an equal or not equal assertion about op1 var.
-    unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
+    unsigned lclNum = op1->AsLclVar()->GetLclNum();
     noway_assert(lclNum < lvaCount);
     MorphAssertion* curAssertion = morphAssertionIsEqualOrNotEqual(lclNum, cnsVal);
 
