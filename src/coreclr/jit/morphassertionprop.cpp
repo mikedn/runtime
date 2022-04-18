@@ -364,7 +364,8 @@ void Compiler::morphPrintAssertion(MorphAssertion* curAssertion)
         case ValueKind::IntCon:
             if ((curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
             {
-                printf("%08p (handle)", dspPtr(curAssertion->val.intCon.value));
+                printf("%08p (%s)", dspPtr(curAssertion->val.intCon.value),
+                       dmpGetHandleKindName(curAssertion->val.intCon.flags));
             }
             else
             {

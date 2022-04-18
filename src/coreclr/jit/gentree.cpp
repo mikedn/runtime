@@ -7547,6 +7547,48 @@ void Compiler::gtDispClassLayout(ClassLayout* layout, var_types type)
     }
 }
 
+const char* dmpGetHandleKindName(GenTreeFlags flags)
+{
+    switch (flags & GTF_ICON_HDL_MASK)
+    {
+        case GTF_ICON_SCOPE_HDL:
+            return "scope";
+        case GTF_ICON_CLASS_HDL:
+            return "class";
+        case GTF_ICON_METHOD_HDL:
+            return "method";
+        case GTF_ICON_FIELD_HDL:
+            return "field";
+        case GTF_ICON_STATIC_HDL:
+            return "static";
+        case GTF_ICON_STR_HDL:
+            return "string";
+        case GTF_ICON_CONST_PTR:
+            return "const ptr";
+        case GTF_ICON_GLOBAL_PTR:
+            return "global ptr";
+        case GTF_ICON_VARG_HDL:
+            return "vararg";
+        case GTF_ICON_PINVKI_HDL:
+            return "pinvoke";
+            break;
+        case GTF_ICON_TOKEN_HDL:
+            return "token";
+#ifdef WINDOWS_X86_ABI
+        case GTF_ICON_TLS_HDL:
+            return "tls";
+#endif
+        case GTF_ICON_FTN_ADDR:
+            return "ftn";
+        case GTF_ICON_CIDMID_HDL:
+            return "cid/mid";
+        case GTF_ICON_BBC_PTR:
+            return "bbc";
+        default:
+            return "handle";
+    }
+}
+
 /*****************************************************************************/
 void Compiler::gtDispConst(GenTree* tree)
 {
@@ -7614,62 +7656,7 @@ void Compiler::gtDispConst(GenTree* tree)
 
                 if (tree->IsIconHandle())
                 {
-                    printf(prefix);
-
-                    switch (tree->GetIconHandleFlag())
-                    {
-                        case GTF_ICON_SCOPE_HDL:
-                            printf("scope");
-                            break;
-                        case GTF_ICON_CLASS_HDL:
-                            printf("class");
-                            break;
-                        case GTF_ICON_METHOD_HDL:
-                            printf("method");
-                            break;
-                        case GTF_ICON_FIELD_HDL:
-                            printf("field");
-                            break;
-                        case GTF_ICON_STATIC_HDL:
-                            printf("static");
-                            break;
-                        case GTF_ICON_STR_HDL:
-                            printf("string");
-                            break;
-                        case GTF_ICON_CONST_PTR:
-                            printf("const ptr");
-                            break;
-                        case GTF_ICON_GLOBAL_PTR:
-                            printf("global ptr");
-                            break;
-                        case GTF_ICON_VARG_HDL:
-                            printf("vararg");
-                            break;
-                        case GTF_ICON_PINVKI_HDL:
-                            printf("pinvoke");
-                            break;
-                        case GTF_ICON_TOKEN_HDL:
-                            printf("token");
-                            break;
-#ifdef WINDOWS_X86_ABI
-                        case GTF_ICON_TLS_HDL:
-                            printf("tls");
-                            break;
-#endif
-                        case GTF_ICON_FTN_ADDR:
-                            printf("ftn");
-                            break;
-                        case GTF_ICON_CIDMID_HDL:
-                            printf("cid/mid");
-                            break;
-                        case GTF_ICON_BBC_PTR:
-                            printf("bbc");
-                            break;
-                        default:
-                            printf("handle");
-                            break;
-                    }
-
+                    printf("%s%s", prefix, dmpGetHandleKindName(tree->GetIconHandleFlag()));
                     prefix = ", ";
                 }
 

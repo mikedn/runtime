@@ -2926,6 +2926,8 @@ struct GenTreePhysReg : public GenTree
 #endif
 };
 
+const char* dmpGetHandleKindName(GenTreeFlags flags);
+
 /* gtIntCon -- integer constant (GT_CNS_INT) */
 struct GenTreeIntCon : public GenTreeIntConCommon
 {
