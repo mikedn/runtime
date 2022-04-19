@@ -1472,49 +1472,49 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
     return nullptr;
 }
 
-/*****************************************************************************
- *
- *  Called when we have a successfully performed an assertion prop. We have
- *  the newTree in hand. This method will replace the existing tree in the
- *  stmt with the newTree.
- *
- */
-
-//------------------------------------------------------------------------
-// morphAssertionProp: try and optimize a tree via assertion propagation
-//
-// Arguments:
-//   tree - tree to possibly optimize
-//
-// Returns:
-//   The modified tree, or nullptr if no assertion prop took place.
-//
 GenTree* Compiler::morphAssertionProp(GenTree* tree)
 {
-    switch (tree->gtOper)
+    GenTree* newTree = tree;
+
+    // In some cases (CAST removal, LCL_VAR copy propagation) we end up returning
+    // a different node that too may be subject to assertion propagation.
+    // TODO-MIKE-Review: This looks dangerous, if some code returns the original
+    // tree instead of null when not making any changes we'll get stuck here.
+    // There are only a couple of cases that need iteration so it could be better
+    // to do this in the specific code (e.g. when a cast is removed).
+
+    do
     {
-        case GT_LCL_VAR:
-            return morphAssertionProp_LclVar(tree->AsLclVar());
+        tree = newTree;
 
-        case GT_OBJ:
-        case GT_BLK:
-        case GT_IND:
-        case GT_NULLCHECK:
-            return morphAssertionPropIndir(tree->AsIndir());
+        switch (tree->GetOper())
+        {
+            case GT_LCL_VAR:
+                newTree = morphAssertionProp_LclVar(tree->AsLclVar());
+                break;
+            case GT_OBJ:
+            case GT_BLK:
+            case GT_IND:
+            case GT_NULLCHECK:
+                newTree = morphAssertionPropIndir(tree->AsIndir());
+                break;
+            case GT_CAST:
+                newTree = morphAssertionPropCast(tree->AsCast());
+                break;
+            case GT_CALL:
+                newTree = morphAssertionProp_Call(tree->AsCall());
+                break;
+            case GT_EQ:
+            case GT_NE:
+                newTree = morphAssertionPropRelOp(tree->AsOp());
+                break;
+            default:
+                newTree = nullptr;
+                break;
+        }
+    } while (newTree != nullptr);
 
-        case GT_CAST:
-            return morphAssertionPropCast(tree->AsCast());
-
-        case GT_CALL:
-            return morphAssertionProp_Call(tree->AsCall());
-
-        case GT_EQ:
-        case GT_NE:
-            return morphAssertionPropRelOp(tree->AsOp());
-
-        default:
-            return nullptr;
-    }
+    return tree;
 }
 
 #if LOCAL_ASSERTION_PROP

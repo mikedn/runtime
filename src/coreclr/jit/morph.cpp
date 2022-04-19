@@ -13018,24 +13018,10 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
 
 #if LOCAL_ASSERTION_PROP
-        /* Before morphing the tree, we try to propagate any active assertions */
-        if (optLocalAssertionProp)
+        if (optLocalAssertionProp && (optAssertionCount > 0))
         {
-            /* Do we have any active assertions? */
-
-            if (optAssertionCount > 0)
-            {
-                GenTree* newTree = tree;
-                while (newTree != nullptr)
-                {
-                    tree = newTree;
-                    /* newTree is non-Null if we propagated an assertion */
-                    newTree = morphAssertionProp(tree);
-                }
-                assert(tree != nullptr);
-            }
+            tree = morphAssertionProp(tree);
         }
-        PREFAST_ASSUME(tree != nullptr);
 #endif
     }
 
