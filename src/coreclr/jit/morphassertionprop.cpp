@@ -954,7 +954,28 @@ GenTree* Compiler::morphAssertionPropagateCopy(MorphAssertion* assertion, GenTre
         return nullptr;
     }
 
-    if (optCopyProp_LclVarScore(lcl, lclCopy, lclNumDst == lclNum) <= 0)
+    // TODO-MIKE-Review: This whole thing doesn't make much sense. Why special case DOUBLE on x86?
+    // Without it we'd be doing copy propagation only in the "normal" case where we have X = Y and
+    // replace subsequent uses of X with Y. But due to this weird crap we have Y = X and replace
+    // uses of X with Y!
+    int score = (lclNumDst == lclNum) ? 1 : -1;
+
+#ifdef TARGET_X86
+    if (lcl->TypeIs(TYP_DOUBLE))
+    {
+        if (lcl->IsParam())
+        {
+            score += 2;
+        }
+
+        if (lclCopy->IsParam())
+        {
+            score -= 2;
+        }
+    }
+#endif
+
+    if (score <= 0)
     {
         return nullptr;
     }
