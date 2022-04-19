@@ -1574,6 +1574,8 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
 //
 void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree))
 {
+    morphAssertionKillSingle(lclNum DEBUGARG(tree));
+
     LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
     if (varDsc->lvPromoted)
@@ -1585,21 +1587,10 @@ void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree))
         {
             morphAssertionKillSingle(i DEBUGARG(tree));
         }
-
-        // Kill the struct local itself.
-        morphAssertionKillSingle(lclNum DEBUGARG(tree));
     }
     else if (varDsc->lvIsStructField)
     {
-        // Kill the field local.
-        morphAssertionKillSingle(lclNum DEBUGARG(tree));
-
-        // Kill the parent struct.
         morphAssertionKillSingle(varDsc->lvParentLcl DEBUGARG(tree));
-    }
-    else
-    {
-        morphAssertionKillSingle(lclNum DEBUGARG(tree));
     }
 }
 #endif // LOCAL_ASSERTION_PROP
