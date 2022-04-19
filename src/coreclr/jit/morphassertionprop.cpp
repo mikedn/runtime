@@ -944,18 +944,19 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
 
 #ifndef TARGET_64BIT
         case ValueKind::LngCon:
+            assert(lcl->TypeIs(TYP_LONG));
 
-            if (newTree->gtType == TYP_LONG)
+            if (tree->TypeIs(TYP_INT))
             {
-                newTree->ChangeOperConst(GT_CNS_NATIVELONG);
-                newTree->AsIntConCommon()->SetLngValue(curAssertion->val.lngCon.value);
+                // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
+                // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
+                newTree = tree->ChangeToIntCon(static_cast<int32_t>(val.lngCon.value));
+                break;
             }
-            else
-            {
-                newTree->ChangeOperConst(GT_CNS_INT);
-                newTree->AsIntCon()->gtIconVal = (int)curAssertion->val.lngCon.value;
-                newTree->gtType                = TYP_INT;
-            }
+
+            assert(tree->TypeIs(TYP_LONG));
+
+            newTree = tree->ChangeToLngCon(val.lngCon.value);
             break;
 #endif
 
