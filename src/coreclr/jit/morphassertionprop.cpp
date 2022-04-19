@@ -456,9 +456,6 @@ void Compiler::morphCreateNonNullAssertion(GenTree* op1)
         assertion.valKind          = ValueKind::IntCon;
         assertion.val.intCon.value = 0;
         assertion.val.intCon.flags = GTF_EMPTY;
-#ifdef TARGET_64BIT
-        assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
-#endif
     }
 
 DONE_ASSERTION:
@@ -540,12 +537,6 @@ void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
             assertion.kind             = Kind::Equal;
             assertion.valKind          = ValueKind::IntCon;
             assertion.val.intCon.flags = op2->GetIconHandleFlag();
-#ifdef TARGET_64BIT
-            if (op2->TypeIs(TYP_LONG, TYP_BYREF))
-            {
-                assertion.val.intCon.flags |= GTF_ASSERTION_PROP_LONG;
-            }
-#endif
             break;
 
 #ifndef TARGET_64BIT
@@ -787,18 +778,10 @@ void Compiler::morphDebugCheckAssertion(MorphAssertion* assertion)
     switch (assertion->valKind)
     {
         case ValueKind::IntCon:
-        {
-// The only flags that can be set are those in the GTF_ICON_HDL_MASK, or GTF_ASSERTION_PROP_LONG, which is
-// used to indicate a long constant.
-#ifdef TARGET_64BIT
-            assert((assertion->val.intCon.flags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
-#else
             assert((assertion->val.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-#endif
             assert((lvaTable[assertion->lcl.lclNum].lvType != TYP_REF) || (assertion->val.intCon.value == 0) ||
                    doesMethodHaveFrozenString());
-        }
-        break;
+            break;
 
         default:
             // for all other 'assertion->valKind' values we don't check anything
