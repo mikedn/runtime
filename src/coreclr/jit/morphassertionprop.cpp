@@ -899,24 +899,9 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
     return assertion;
 }
 
-//------------------------------------------------------------------------------
-// morphConstantAssertionProp: Possibly substitute a constant for a local use
-//
-// Arguments:
-//    curAssertion - assertion to propagate
-//    tree         - tree to possibly modify
-//    stmt         - statement containing the tree
-//    index        - index of this assertion in the assertion table
-//
-// Returns:
-//    Updated tree (may be the input tree, modified in place), or nullptr
-//
-// Notes:
-//    stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenTreeLclVar* tree)
+GenTree* Compiler::morphAssertionPropagateConst(MorphAssertion* assertion, GenTreeLclVar* lclVar)
 {
-    LclVarDsc* lcl = lvaGetDesc(tree->GetLclNum());
+    LclVarDsc* lcl = lvaGetDesc(lclVar->GetLclNum());
 
     assert(!lcl->IsAddressExposed());
 
@@ -925,41 +910,39 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
         return nullptr;
     }
 
-    const auto& val     = curAssertion->val;
-    GenTree*    newTree = tree;
+    const auto& val     = assertion->val;
+    GenTree*    conNode = nullptr;
 
-    // Update 'newTree' with the new value from our table
-    // Typically newTree == tree and we are updating the node in place
-    switch (curAssertion->valKind)
+    switch (assertion->valKind)
     {
         case ValueKind::DblCon:
             // There could be a positive zero and a negative zero, so don't propagate zeroes.
             // TODO-MIKE-Review: So what?
             if (val.dblCon.value == 0.0)
             {
-                return nullptr;
+                break;
             }
 
-            assert(lcl->GetType() == tree->GetType());
+            assert(lcl->GetType() == lclVar->GetType());
 
-            newTree = tree->ChangeToDblCon(lcl->GetType(), val.dblCon.value);
+            conNode = lclVar->ChangeToDblCon(lcl->GetType(), val.dblCon.value);
             break;
 
 #ifndef TARGET_64BIT
         case ValueKind::LngCon:
             assert(lcl->TypeIs(TYP_LONG));
 
-            if (tree->TypeIs(TYP_INT))
+            if (lclVar->TypeIs(TYP_INT))
             {
                 // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
                 // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
-                newTree = tree->ChangeToIntCon(static_cast<int32_t>(val.lngCon.value));
+                conNode = lclVar->ChangeToIntCon(static_cast<int32_t>(val.lngCon.value));
                 break;
             }
 
-            assert(tree->TypeIs(TYP_LONG));
+            assert(lclVar->TypeIs(TYP_LONG));
 
-            newTree = tree->ChangeToLngCon(val.lngCon.value);
+            conNode = lclVar->ChangeToLngCon(val.lngCon.value);
             break;
 #endif
 
@@ -971,76 +954,76 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
                 )
             {
                 // For small int locals we often get INT LCL_VARs, otherwise the types should match.
-                assert((lcl->GetType() == tree->GetType()) || tree->TypeIs(TYP_INT));
+                assert((lcl->GetType() == lclVar->GetType()) || lclVar->TypeIs(TYP_INT));
                 assert(lcl->TypeIs(TYP_INT) || varTypeSmallIntCanRepresentValue(lcl->GetType(), val.intCon.value));
 
-                newTree = tree->ChangeToIntCon(TYP_INT, val.intCon.value);
+                conNode = lclVar->ChangeToIntCon(TYP_INT, val.intCon.value);
                 break;
             }
 
-            if (tree->TypeIs(TYP_STRUCT))
+            if (lclVar->TypeIs(TYP_STRUCT))
             {
                 assert(val.intCon.value == 0);
-                assert(lcl->GetType() == tree->GetType());
+                assert(lcl->GetType() == lclVar->GetType());
 
-                newTree = tree->ChangeToIntCon(TYP_INT, 0);
+                conNode = lclVar->ChangeToIntCon(TYP_INT, 0);
                 break;
             }
 
 #ifdef FEATURE_SIMD
-            if (varTypeIsSIMD(tree->GetType()))
+            if (varTypeIsSIMD(lclVar->GetType()))
             {
                 assert(val.intCon.value == 0);
-                assert(lcl->GetType() == tree->GetType());
+                assert(lcl->GetType() == lclVar->GetType());
 
-                newTree = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+                conNode = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
                 break;
             }
 #endif
 
-            if (lcl->TypeIs(TYP_LONG) && tree->TypeIs(TYP_INT))
+            if (lcl->TypeIs(TYP_LONG) && lclVar->TypeIs(TYP_INT))
             {
                 // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
                 // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
-                newTree = tree->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.intCon.value));
+                conNode = lclVar->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.intCon.value));
                 break;
             }
 
             assert(varTypeIsI(lcl->GetType()));
-            assert(varTypeIsI(tree->GetType()));
+            assert(varTypeIsI(lclVar->GetType()));
 
             if ((val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
             {
                 if (opts.compReloc)
                 {
-                    return nullptr;
+                    break;
                 }
 
                 // TODO-MIKE-Review: It's not clear why this is done only for handles. It's a
                 // constant so it obviously does not need to be reported to the GC.
                 // On the other hand, we don't know the user and blindly changing types like
                 // this isn't great.
-                tree->SetType(TYP_I_IMPL);
+                lclVar->SetType(TYP_I_IMPL);
             }
 
-            newTree = tree->ChangeToIntCon(val.intCon.value);
-            newTree->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
+            conNode = lclVar->ChangeToIntCon(val.intCon.value);
+            conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
             break;
 
         default:
-            return nullptr;
+            break;
     }
 
 #ifdef DEBUG
-    if (verbose)
+    if (verbose && (conNode != nullptr))
     {
         printf("\nAssertion prop:\n");
-        morphPrintAssertion(curAssertion);
-        gtDispTree(newTree, nullptr, nullptr, true);
+        morphPrintAssertion(assertion);
+        gtDispTree(conNode, nullptr, nullptr, true);
     }
 #endif
 
-    return newTree;
+    return conNode;
 }
 
 //------------------------------------------------------------------------
@@ -1175,7 +1158,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
             // Verify types match
             if (tree->TypeGet() == lclDsc->lvType)
             {
-                return morphConstantAssertionProp(curAssertion, tree);
+                return morphAssertionPropagateConst(curAssertion, tree);
             }
         }
     }
