@@ -921,67 +921,49 @@ GenTree* Compiler::morphAssertionPropagateConst(MorphAssertion* assertion, GenTr
     return conNode;
 }
 
-//------------------------------------------------------------------------
-// morphCopyAssertionProp: copy prop use of one local with another
-//
-// Arguments:
-//    curAssertion - assertion triggering the possible copy
-//    tree         - tree use to consider replacing
-//    stmt         - statment containing the tree
-//    index        - index of the assertion
-//
-// Returns:
-//    Updated tree, or nullptr
-//
-// Notes:
-//    stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVar* tree)
+GenTree* Compiler::morphAssertionPropagateCopy(MorphAssertion* assertion, GenTreeLclVar* lclVar)
 {
-    const auto& op1 = curAssertion->lcl;
-    const auto& op2 = curAssertion->val;
+    assert((assertion->kind == Kind::Equal) && (assertion->valKind == ValueKind::LclVar));
 
-    noway_assert(op1.lclNum != op2.lcl.lclNum);
+    unsigned lclNumDst = assertion->lcl.lclNum;
+    unsigned lclNumSrc = assertion->val.lcl.lclNum;
 
-    const unsigned lclNum = tree->GetLclNum();
+    assert(lclNumDst != lclNumSrc);
 
-    // Make sure one of the lclNum of the assertion matches with that of the tree.
-    if (op1.lclNum != lclNum && op2.lcl.lclNum != lclNum)
+    unsigned lclNum = lclVar->GetLclNum();
+
+    if ((lclNum != lclNumDst) && (lclNum != lclNumSrc))
     {
         return nullptr;
     }
 
-    // Extract the matching lclNum.
-    const unsigned copyLclNum = (op1.lclNum == lclNum) ? op2.lcl.lclNum : op1.lclNum;
+    unsigned lclNumCopy = (lclNumDst == lclNum) ? lclNumSrc : lclNumDst;
 
-    LclVarDsc* const copyVarDsc = lvaGetDesc(copyLclNum);
-    LclVarDsc* const lclVarDsc  = lvaGetDesc(lclNum);
-
-    assert(!copyVarDsc->IsAddressExposed());
-    assert(!lclVarDsc->IsAddressExposed());
+    LclVarDsc* const lcl = lvaGetDesc(lclNum);
+    assert(!lcl->IsAddressExposed());
+    LclVarDsc* const lclCopy = lvaGetDesc(lclNumCopy);
+    assert(!lclCopy->IsAddressExposed());
 
     // We can't use a small int promoted field if the original LCL_VAR doesn't have the same type
     // as the field. If the field ends up being P-DEP then we risk reading bits from adjacent fields.
     // TODO-MIKE-Cleanup: It's not clear what the problem is here. Such a promoted field is supposed
     // to be widened on load so any garbage bits would be discarded. This might be related to struct
     // assignment promotion where widening casts are not inserted.
-    if (copyVarDsc->IsPromotedField() && varTypeIsSmall(copyVarDsc->GetType()) &&
-        (copyVarDsc->GetType() != tree->GetType()))
+    if (lclCopy->IsPromotedField() && varTypeIsSmall(lclCopy->GetType()) && (lclCopy->GetType() != lclVar->GetType()))
     {
         return nullptr;
     }
 
-    // Make sure we can perform this copy prop.
-    if (optCopyProp_LclVarScore(lclVarDsc, copyVarDsc, curAssertion->lcl.lclNum == lclNum) <= 0)
+    if (optCopyProp_LclVarScore(lcl, lclCopy, lclNumDst == lclNum) <= 0)
     {
         return nullptr;
     }
 
-    tree->SetLclNum(copyLclNum);
+    lclVar->SetLclNum(lclNumCopy);
 
-    DBEXEC(verbose, morphAssertionTrace(curAssertion, tree, "propagated"));
+    DBEXEC(verbose, morphAssertionTrace(assertion, lclVar, "propagated"));
 
-    return tree;
+    return lclVar;
 }
 
 //---------------------------------------------------
@@ -1023,7 +1005,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
         if (curAssertion->valKind == ValueKind::LclVar)
         {
             // Perform copy assertion prop.
-            GenTree* newTree = morphCopyAssertionProp(curAssertion, tree);
+            GenTree* newTree = morphAssertionPropagateCopy(curAssertion, tree);
             if (newTree != nullptr)
             {
                 return newTree;
