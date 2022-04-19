@@ -1975,13 +1975,6 @@ public:
         return (gtFlags & GTF_ICON_HDL_MASK);
     }
 
-    // Mark this node as no longer being a handle; clear its GTF_ICON_*_HDL bits.
-    void ClearIconHandleMask()
-    {
-        assert(gtOper == GT_CNS_INT);
-        gtFlags &= ~GTF_ICON_HDL_MASK;
-    }
-
     // Return true if the two GT_CNS_INT trees have the same handle flag (GTF_ICON_*_HDL).
     static bool SameIconHandleFlag(GenTree* t1, GenTree* t2)
     {

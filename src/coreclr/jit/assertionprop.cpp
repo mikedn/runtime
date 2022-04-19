@@ -2431,7 +2431,6 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
                 {
                     newTree->ChangeOperConst(GT_CNS_INT);
                     newTree->AsIntCon()->gtIconVal = curAssertion->op2.u1.iconVal;
-                    newTree->ClearIconHandleMask();
                     if (newTree->TypeIs(TYP_STRUCT))
                     {
                         // LCL_VAR can be init with a GT_CNS_INT, keep its type INT, not STRUCT.
