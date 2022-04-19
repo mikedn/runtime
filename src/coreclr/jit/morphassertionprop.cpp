@@ -934,12 +934,15 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
     {
         case ValueKind::DblCon:
             // There could be a positive zero and a negative zero, so don't propagate zeroes.
-            if (curAssertion->val.dblCon.value == 0.0)
+            // TODO-MIKE-Review: So what?
+            if (val.dblCon.value == 0.0)
             {
                 return nullptr;
             }
-            newTree->ChangeOperConst(GT_CNS_DBL);
-            newTree->AsDblCon()->gtDconVal = curAssertion->val.dblCon.value;
+
+            assert(lcl->GetType() == tree->GetType());
+
+            newTree = tree->ChangeToDblCon(lcl->GetType(), val.dblCon.value);
             break;
 
 #ifndef TARGET_64BIT
