@@ -2975,6 +2975,37 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return gtIconVal;
     }
 
+    ssize_t GetValue(var_types type) const
+    {
+        switch (type)
+        {
+            case TYP_BYTE:
+                return static_cast<int8_t>(gtIconVal);
+            case TYP_UBYTE:
+            case TYP_BOOL:
+                return static_cast<uint8_t>(gtIconVal);
+            case TYP_SHORT:
+                return static_cast<int16_t>(gtIconVal);
+            case TYP_USHORT:
+                return static_cast<uint16_t>(gtIconVal);
+#ifdef TARGET_64BIT
+            case TYP_INT:
+                return static_cast<int32_t>(gtIconVal);
+            case TYP_UINT:
+                // Disallow UINT for now as it's not needed and it's not clear if we should
+                // sign extend or zero extend. Sign extend seems to make more sense - if we
+                // actually cast this value to UINT using a CAST then the result would be a
+                // 32 bit value that's considered to have type INT and if we store that in
+                // in an IntCon we'd have to sign extend.
+                assert(false);
+                return static_cast<int32_t>(gtIconVal);
+#endif
+            default:
+                assert(varTypeIsI(type) || (varTypeIsStruct(type) && (gtIconVal == 0)));
+                return gtIconVal;
+        }
+    }
+
     size_t GetUnsignedValue() const
     {
         return static_cast<size_t>(gtIconVal);
@@ -3046,6 +3077,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
         m_fieldSeq = fieldSeq;
+    }
+
+    GenTreeFlags GetHandleKind() const
+    {
+        return gtFlags & GTF_ICON_HDL_MASK;
     }
 
     void SetHandleKind(GenTreeFlags kind)

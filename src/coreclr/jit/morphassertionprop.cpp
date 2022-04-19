@@ -452,143 +452,97 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
     morphAddAssertion(&assertion);
 }
 
-void Compiler::morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2)
+void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
 {
-    assert(op1 != nullptr);
-    assert(op2 != nullptr);
+    unsigned   lclNum = lclVar->GetLclNum();
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    if (lcl->IsAddressExposed())
+    {
+        return;
+    }
 
     MorphAssertion assertion;
     memset(&assertion, 0, sizeof(MorphAssertion));
     assert(assertion.kind == Kind::Invalid);
-
-    unsigned   lclNum = op1->GetLclNum();
-    LclVarDsc* lclVar = lvaGetDesc(lclNum);
-
-    //  If the local variable has its address exposed then bail
-    if (lclVar->lvAddrExposed)
-    {
-        goto DONE_ASSERTION; // Don't make an assertion
-    }
-
-    op2 = op2->SkipComma();
-
     assertion.lcl.lclNum = lclNum;
 
-    switch (op2->gtOper)
+    val = val->SkipComma();
+
+    switch (val->GetOper())
     {
-        var_types toType;
-
-        default:
-            goto DONE_ASSERTION; // Don't make an assertion
-
         case GT_CNS_INT:
-            if (lclVar->TypeIs(TYP_LONG) && !op2->TypeIs(TYP_LONG))
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
 #ifdef TARGET_ARM
             if (!codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
             {
-                goto DONE_ASSERTION; // Don't make an assertion
+                return;
             }
 #endif
 
+            if (lcl->TypeIs(TYP_LONG) && !val->TypeIs(TYP_LONG))
             {
-                // TODO-MIKE-Cleanup: This logic should be in a GenTreeIntCon function.
-                ssize_t value = op2->AsIntCon()->GetValue();
-
-                switch (lclVar->GetType())
-                {
-                    case TYP_BYTE:
-                        value = static_cast<int8_t>(value);
-                        break;
-                    case TYP_UBYTE:
-                    case TYP_BOOL:
-                        value = static_cast<uint8_t>(value);
-                        break;
-                    case TYP_SHORT:
-                        value = static_cast<int16_t>(value);
-                        break;
-                    case TYP_USHORT:
-                        value = static_cast<uint16_t>(value);
-                        break;
-                    default:
-                        break;
-                }
-
-                assertion.val.intCon.value = value;
+                return;
             }
 
             assertion.kind             = Kind::Equal;
             assertion.valKind          = ValueKind::IntCon;
-            assertion.val.intCon.flags = op2->GetIconHandleFlag();
+            assertion.val.intCon.value = val->AsIntCon()->GetValue(lcl->GetType());
+            assertion.val.intCon.flags = val->AsIntCon()->GetHandleKind();
             break;
 
 #ifndef TARGET_64BIT
         case GT_CNS_LNG:
-            assert(lclVar->TypeIs(TYP_LONG) && op1->TypeIs(TYP_LONG) && op2->TypeIs(TYP_LONG));
+            assert(lcl->TypeIs(TYP_LONG) && lclVar->TypeIs(TYP_LONG) && val->TypeIs(TYP_LONG));
 
             assertion.kind             = Kind::Equal;
             assertion.valKind          = ValueKind::LngCon;
-            assertion.val.lngCon.value = op2->AsLngCon()->GetValue();
+            assertion.val.lngCon.value = val->AsLngCon()->GetValue();
             break;
 #endif
 
         case GT_CNS_DBL:
-            assert((lclVar->GetType() == op1->GetType()) && (lclVar->GetType() == op2->GetType()));
+            assert((lcl->GetType() == lclVar->GetType()) && (lcl->GetType() == val->GetType()));
 
-            if (_isnan(op2->AsDblCon()->GetValue()))
+            if (_isnan(val->AsDblCon()->GetValue()))
             {
-                goto DONE_ASSERTION; // Don't make an assertion
+                return;
             }
 
             assertion.kind             = Kind::Equal;
             assertion.valKind          = ValueKind::DblCon;
-            assertion.val.dblCon.value = op2->AsDblCon()->GetValue();
+            assertion.val.dblCon.value = val->AsDblCon()->GetValue();
             break;
 
-        //
-        //  Copy Assertions
-        //
         case GT_LCL_VAR:
         {
-            unsigned lclNum2 = op2->AsLclVar()->GetLclNum();
-            noway_assert(lclNum2 < lvaCount);
-            LclVarDsc* lclVar2 = &lvaTable[lclNum2];
+            unsigned   valLclNum = val->AsLclVar()->GetLclNum();
+            LclVarDsc* valLcl    = lvaGetDesc(valLclNum);
 
-            // If the two locals are the same then bail
-            if (lclNum == lclNum2)
+            if ((lclNum == valLclNum) || valLcl->IsAddressExposed())
             {
-                goto DONE_ASSERTION; // Don't make an assertion
+                return;
             }
 
-            // If the types are different then bail */
-            if (lclVar->lvType != lclVar2->lvType)
+            // TODO-MIKE-Review: This might be overly restrictive when small int locals are
+            // involved. It should be possible to allow a copy from a small int local to an
+            // INT local, probably with a bit of care when doing the actual substitution
+            // (now it expects copies to be symmetric).
+            if (lcl->GetType() != valLcl->GetType())
             {
-                goto DONE_ASSERTION; // Don't make an assertion
+                return;
             }
 
-            // If we're making a copy of a "normalize on load" lclvar then the destination
-            // has to be "normalize on load" as well, otherwise we risk skipping normalization.
-            if (lclVar2->lvNormalizeOnLoad() && !lclVar->lvNormalizeOnLoad())
+            // TODO-MIKE-Review: This looks a bit odd. Local assertion propagation runs before
+            // morphing so we haven't yet inserted the necessary (or not) widening cast. This
+            // might be a leftover from global assertion propagation.
+            if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
             {
-                goto DONE_ASSERTION; // Don't make an assertion
+                return;
             }
 
-            //  If the local variable has its address exposed then bail
-            if (lclVar2->lvAddrExposed)
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
+            assertion.kind           = Kind::Equal;
             assertion.valKind        = ValueKind::LclVar;
-            assertion.val.lcl.lclNum = lclNum2;
-
-            //
-            // Ok everything has been set and the assertion looks good
-            //
-            assertion.kind = Kind::Equal;
+            assertion.val.lcl.lclNum = valLclNum;
         }
         break;
 
@@ -606,12 +560,10 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2)
 
         case GT_LCL_FLD:
         case GT_IND:
-            toType = op2->GetType();
-
-            if (varTypeIsSmall(toType))
+            if (varTypeIsSmall(val->GetType()))
             {
-                assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
-                assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
+                assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(val->GetType());
+                assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(val->GetType());
             }
 #ifdef TARGET_64BIT
             // TODO-MIKE-CQ: This is useless nonsense, of course an INT load has range
@@ -620,7 +572,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2)
             // so removing this causes diffs. Remove it when it's all done.
             // Also note that loads should not have UINT type but due to bogus JIT code
             // that does happen sometimes.
-            else if ((toType == TYP_INT) || (toType == TYP_UINT))
+            else if (val->TypeIs(TYP_INT, TYP_UINT))
             {
                 assertion.val.range.loBound = INT32_MIN;
                 assertion.val.range.hiBound = INT32_MAX;
@@ -636,7 +588,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2)
             break;
 
         case GT_CAST:
-            if (lclVar->IsPromotedField() && lclVar->lvNormalizeOnLoad())
+            if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
             {
                 // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
                 // this case. In typical idiotic fashion old comment stated what the code is
@@ -644,40 +596,40 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2)
                 return;
             }
 
-            toType = op2->AsCast()->GetCastType();
+            {
+                var_types toType = val->AsCast()->GetCastType();
 
-            if (varTypeIsSmall(toType))
-            {
-                assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
-                assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
-            }
+                if (varTypeIsSmall(toType))
+                {
+                    assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
+                    assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
+                }
 #ifdef TARGET_64BIT
-            else if ((toType == TYP_INT) || (toType == TYP_UINT))
-            {
-                // TODO-MIKE-CQ: Like in the load case, this is pretty much nonsense. There is
-                // a difference however, an overflow checking cast to UINT should produce a
-                // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
-                // No idea why this always produces an INT32_MIN..INT32_MAX range.
-                assertion.val.range.loBound = INT32_MIN;
-                assertion.val.range.hiBound = INT32_MAX;
-            }
+                else if ((toType == TYP_INT) || (toType == TYP_UINT))
+                {
+                    // TODO-MIKE-CQ: Like in the load case, this is pretty much nonsense. There is
+                    // a difference however, an overflow checking cast to UINT should produce a
+                    // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
+                    // No idea why this always produces an INT32_MIN..INT32_MAX range.
+                    assertion.val.range.loBound = INT32_MIN;
+                    assertion.val.range.hiBound = INT32_MAX;
+                }
 #endif
-            else
-            {
-                return;
+                else
+                {
+                    return;
+                }
             }
 
             assertion.valKind = ValueKind::Range;
             assertion.kind    = Kind::Equal;
             break;
+
+        default:
+            return;
     }
 
-DONE_ASSERTION:
-    if (assertion.kind != Kind::Invalid)
-    {
-        noway_assert(assertion.valKind != ValueKind::Invalid);
-        morphAddAssertion(&assertion);
-    }
+    morphAddAssertion(&assertion);
 }
 
 /*****************************************************************************
@@ -692,7 +644,7 @@ DONE_ASSERTION:
  */
 void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
 {
-    noway_assert(newAssertion->kind != Kind::Invalid);
+    noway_assert((newAssertion->kind != Kind::Invalid) && (newAssertion->valKind != ValueKind::Invalid));
 
     // Check if exists already, so we can skip adding new one. Search backwards.
     for (unsigned index = optAssertionCount - 1; index != UINT32_MAX; index--)
