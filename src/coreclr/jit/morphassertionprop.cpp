@@ -1176,29 +1176,12 @@ Compiler::MorphAssertion* Compiler::morphAssertionIsEqualOrNotEqual(unsigned lcl
     return nullptr;
 }
 
-/*****************************************************************************
- *
- *  Given a tree consisting of a RelOp and a set of available assertions
- *  we try to propagate an assertion and modify the RelOp tree if we can.
- *  We pass in the root of the tree via 'stmt', for local copy prop 'stmt' will be nullptr
- *  Returns the modified tree, or nullptr if no assertion prop took place
- */
-
-GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
+GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
 {
-    assert(tree->OperIsCompare());
+    assert(relop->OperIs(GT_EQ, GT_NE));
 
-    //
-    // Currently only GT_EQ or GT_NE are supported Relops for local AssertionProp
-    //
-
-    if ((tree->gtOper != GT_EQ) && (tree->gtOper != GT_NE))
-    {
-        return nullptr;
-    }
-
-    GenTree* op1 = tree->AsOp()->gtOp1;
-    GenTree* op2 = tree->AsOp()->gtOp2;
+    GenTree* op1 = relop->GetOp(0);
+    GenTree* op2 = relop->GetOp(1);
 
     // For Local AssertionProp we only can fold when op1 is a GT_LCL_VAR
     if (op1->gtOper != GT_LCL_VAR)
@@ -1259,13 +1242,13 @@ GenTree* Compiler::morphAssertionProp_RelOp(GenTree* tree)
     if (verbose)
     {
         printf("\nAssertion prop for index #%02u:\n", curAssertion - morphAssertionTable);
-        gtDispTree(tree, nullptr, nullptr, true);
+        gtDispTree(relop, nullptr, nullptr, true);
     }
 #endif
 
     // Return either CNS_INT 0 or CNS_INT 1.
     bool foldResult = (constantIsEqual == assertionKindIsEqual);
-    if (tree->gtOper == GT_NE)
+    if (relop->OperIs(GT_NE))
     {
         foldResult = !foldResult;
     }
@@ -1527,11 +1510,7 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
 
         case GT_EQ:
         case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-            return morphAssertionProp_RelOp(tree);
+            return morphAssertionPropRelOp(tree->AsOp());
 
         default:
             return nullptr;
