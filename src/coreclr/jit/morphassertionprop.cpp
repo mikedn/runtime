@@ -319,16 +319,17 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
 #endif // LOCAL_ASSERTION_PROP
 
 #ifdef DEBUG
-void Compiler::morphPrintAssertion(MorphAssertion* assertion)
+
+void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, const char* message)
 {
-    printf("Assertion");
+    printf("[%06u] %s assertion", node->GetID(), message);
 
     if ((assertion >= morphAssertionTable) && (assertion < morphAssertionTable + optAssertionCount))
     {
         printf(" #%02u", assertion - morphAssertionTable);
     }
 
-    printf(": V%02u", assertion->lcl.lclNum);
+    printf(" V%02u", assertion->lcl.lclNum);
 
     const char* op;
 
@@ -689,14 +690,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
     newAssertion                           = &morphAssertionTable[optAssertionCount];
     optAssertionCount++;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("GenTreeNode creates assertion:\n");
-        gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
-        morphPrintAssertion(newAssertion);
-    }
-#endif // DEBUG
+    DBEXEC(verbose, morphAssertionTrace(newAssertion, optAssertionPropCurrentTree, "generated"));
 
     // Mark the variables this index depends on
     unsigned lclNum = newAssertion->lcl.lclNum;
@@ -915,14 +909,10 @@ GenTree* Compiler::morphAssertionPropagateConst(MorphAssertion* assertion, GenTr
             break;
     }
 
-#ifdef DEBUG
-    if (verbose && (conNode != nullptr))
+    if (conNode != nullptr)
     {
-        printf("\nAssertion prop:\n");
-        morphPrintAssertion(assertion);
-        gtDispTree(conNode, nullptr, nullptr, true);
+        DBEXEC(verbose, morphAssertionTrace(assertion, conNode, "propagated"));
     }
-#endif
 
     return conNode;
 }
@@ -985,19 +975,12 @@ GenTree* Compiler::morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeL
 
     tree->SetLclNum(copyLclNum);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nAssertion prop:\n");
-        morphPrintAssertion(curAssertion);
-        gtDispTree(tree, nullptr, nullptr, true);
-    }
-#endif
+    DBEXEC(verbose, morphAssertionTrace(curAssertion, tree, "propagated"));
 
     return tree;
 }
 
-//------------------------------------------------------------------------
+//---------------------------------------------------
 // morphAssertionProp_LclVar: try and optimize a local var use via assertions
 //
 // Arguments:
@@ -1156,13 +1139,7 @@ GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
 
     noway_assert(constantIsEqual || assertionKindIsEqual);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nAssertion prop for index #%02u:\n", curAssertion - morphAssertionTable);
-        gtDispTree(relop, nullptr, nullptr, true);
-    }
-#endif
+    DBEXEC(verbose, morphAssertionTrace(curAssertion, relop, "propagated"));
 
     // Return either CNS_INT 0 or CNS_INT 1.
     bool foldResult = (constantIsEqual == assertionKindIsEqual);
@@ -1263,13 +1240,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
 
         tmp->SetType(toType);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nRange prop for index #%02u:\n", assertion - morphAssertionTable);
-            gtDispTree(cast, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, morphAssertionTrace(assertion, cast, "propagated"));
 
         return src;
     }
@@ -1278,13 +1249,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
     {
         cast->gtFlags &= ~GTF_OVERFLOW;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nRange prop for index #%02u:\n", assertion - morphAssertionTable);
-            gtDispTree(cast, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, morphAssertionTrace(assertion, cast, "propagated"));
 
         return cast;
     }
@@ -1313,13 +1278,7 @@ GenTree* Compiler::morphAssertionPropIndir(GenTreeIndir* indir)
 
     if (MorphAssertion* assertion = morphAssertionIsNotNull(addr->AsLclVar()->GetLclNum()))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nNon-null prop for index #%02u:\n", assertion - morphAssertionTable);
-            gtDispTree(indir, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, morphAssertionTrace(assertion, indir, "propagated"));
 
         indir->gtFlags &= ~GTF_EXCEPT;
         indir->gtFlags |= GTF_IND_NONFAULTING;
@@ -1375,18 +1334,16 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
 
     if (MorphAssertion* assertion = morphAssertionIsNotNull(op1->AsLclVar()->GetLclNum()))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nNon-null prop for index #%02u:\n", assertion - morphAssertionTable);
-            gtDispTree(call, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, morphAssertionTrace(assertion, call, "propagated"));
+
         call->gtFlags &= ~GTF_CALL_NULLCHECK;
         call->gtFlags &= ~GTF_EXCEPT;
+
         noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
+
         return call;
     }
+
     return nullptr;
 }
 
@@ -1455,18 +1412,13 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
         {
             if (BitVecOps::IsMember(apTraits, killed, count - 1))
             {
-#ifdef DEBUG
                 MorphAssertion* curAssertion = morphGetAssertion(count - 1);
-                noway_assert((curAssertion->lcl.lclNum == lclNum) || ((curAssertion->valKind == ValueKind::LclVar) &&
-                                                                      (curAssertion->val.lcl.lclNum == lclNum)));
-                if (verbose)
-                {
-                    printf("\nThe assignment ");
-                    printTreeID(tree);
-                    printf(" using V%02u removes: ", curAssertion->lcl.lclNum);
-                    morphPrintAssertion(curAssertion);
-                }
-#endif
+
+                assert((curAssertion->lcl.lclNum == lclNum) ||
+                       ((curAssertion->valKind == ValueKind::LclVar) && (curAssertion->val.lcl.lclNum == lclNum)));
+
+                DBEXEC(verbose, morphAssertionTrace(curAssertion, tree, "killed"));
+
                 // Remove this bit from the killed mask
                 BitVecOps::RemoveElemD(apTraits, killed, count - 1);
 
