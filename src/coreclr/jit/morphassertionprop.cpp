@@ -119,12 +119,14 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 {
     assert(lclNum < lvaCount);
 
-    JitExpandArray<ASSERT_TP>& dep = *morphAssertionDep;
-    if (dep[lclNum] == nullptr)
+    ASSERT_TP& dep = morphAssertionDep->GetRef(lclNum);
+
+    if (BitVecOps::MayBeUninit(dep))
     {
-        dep[lclNum] = BitVecOps::MakeEmpty(apTraits);
+        dep = BitVecOps::MakeEmpty(apTraits);
     }
-    return dep[lclNum];
+
+    return dep;
 }
 
 /*****************************************************************************
