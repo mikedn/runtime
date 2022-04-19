@@ -387,7 +387,7 @@ Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned index)
 {
     assert(index < optAssertionCount);
     MorphAssertion* assertion = &morphAssertionTable[index];
-    INDEBUG(morphDebugCheckAssertion(assertion));
+    assert((assertion->kind != Kind::Invalid) && (assertion->lcl.lclNum < lvaCount));
     return assertion;
 }
 
@@ -704,29 +704,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
         lclNum = newAssertion->val.lcl.lclNum;
         BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), optAssertionCount - 1);
     }
-
-    INDEBUG(morphDebugCheckAssertion(&morphAssertionTable[optAssertionCount - 1]));
 }
-
-#ifdef DEBUG
-void Compiler::morphDebugCheckAssertion(MorphAssertion* assertion)
-{
-    assert(assertion->lcl.lclNum < lvaCount);
-
-    switch (assertion->valKind)
-    {
-        case ValueKind::IntCon:
-            assert((assertion->val.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-            assert((lvaTable[assertion->lcl.lclNum].lvType != TYP_REF) || (assertion->val.intCon.value == 0) ||
-                   doesMethodHaveFrozenString());
-            break;
-
-        default:
-            // for all other 'assertion->valKind' values we don't check anything
-            break;
-    }
-}
-#endif
 
 /*****************************************************************************
  *
