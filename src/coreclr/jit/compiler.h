@@ -6212,7 +6212,10 @@ private:
     GenTree* morphAssertionPropagateConst(MorphAssertion* assertion, GenTreeLclVar* lclVar);
     GenTree* morphCopyAssertionProp(MorphAssertion* curAssertion, GenTreeLclVar* tree);
 
-    INDEBUG(void morphAssertionTrace(MorphAssertion* assertion, GenTree* node, const char* message);)
+#ifdef DEBUG
+    unsigned morphAssertionId;
+    void morphAssertionTrace(MorphAssertion* assertion, GenTree* node, const char* message);
+#endif
 #endif
 
 public:

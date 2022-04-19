@@ -56,6 +56,8 @@ struct Compiler::MorphAssertion
         ssize_t hiBound;
     };
 
+    INDEBUG(unsigned id;)
+
     Kind      kind;
     ValueKind valKind;
     LclVar    lcl;
@@ -149,6 +151,7 @@ void Compiler::morphAssertionInit()
 
     apTraits          = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
     optAssertionCount = 0;
+    INDEBUG(morphAssertionId = 0);
 }
 
 #if LOCAL_ASSERTION_PROP
@@ -326,7 +329,7 @@ void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, con
 
     if ((assertion >= morphAssertionTable) && (assertion < morphAssertionTable + optAssertionCount))
     {
-        printf(" #%02u", assertion - morphAssertionTable);
+        printf(" #%02u", assertion->id);
     }
 
     printf(" V%02u", assertion->lcl.lclNum);
@@ -689,6 +692,7 @@ void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
     morphAssertionTable[optAssertionCount] = *newAssertion;
     newAssertion                           = &morphAssertionTable[optAssertionCount];
     optAssertionCount++;
+    INDEBUG(newAssertion->id = ++morphAssertionId);
 
     DBEXEC(verbose, morphAssertionTrace(newAssertion, optAssertionPropCurrentTree, "generated"));
 
