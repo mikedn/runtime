@@ -391,82 +391,68 @@ Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned index)
     return assertion;
 }
 
-void Compiler::morphCreateNonNullAssertion(GenTree* op1)
+void Compiler::morphAssertionGenNotNull(GenTree* addr)
 {
-    assert(op1 != nullptr);
+    ssize_t offset = 0;
 
-    MorphAssertion assertion;
-    memset(&assertion, 0, sizeof(MorphAssertion));
-    assert(assertion.kind == Kind::Invalid);
-
+    while (addr->OperIs(GT_ADD) && addr->TypeIs(TYP_BYREF))
     {
-        //
-        // Set op1 to the instance pointer of the indirection
-        //
-
-        ssize_t offset = 0;
-        while ((op1->gtOper == GT_ADD) && (op1->gtType == TYP_BYREF))
+        if (GenTreeIntCon* intCon = addr->AsOp()->GetOp(1)->IsIntCon())
         {
-            if (op1->gtGetOp2()->IsCnsIntOrI())
-            {
-                offset += op1->gtGetOp2()->AsIntCon()->gtIconVal;
-                op1 = op1->gtGetOp1();
-            }
-            else if (op1->gtGetOp1()->IsCnsIntOrI())
-            {
-                offset += op1->gtGetOp1()->AsIntCon()->gtIconVal;
-                op1 = op1->gtGetOp2();
-            }
-            else
-            {
-                break;
-            }
+            offset += intCon->GetValue();
+            addr = addr->AsOp()->GetOp(0);
         }
-
-        if (fgIsBigOffset(offset) || op1->gtOper != GT_LCL_VAR)
+        else if (GenTreeIntCon* intCon = addr->AsOp()->GetOp(0)->IsIntCon())
         {
-            goto DONE_ASSERTION; // Don't make an assertion
-        }
-
-        unsigned lclNum = op1->AsLclVar()->GetLclNum();
-        noway_assert(lclNum < lvaCount);
-        LclVarDsc* lclVar = &lvaTable[lclNum];
-
-        //
-        // We only perform null-checks on GC refs
-        // so only make non-null assertions about GC refs or byrefs if we can't determine
-        // the corresponding ref.
-        //
-        if (lclVar->TypeGet() != TYP_REF)
-        {
-            goto DONE_ASSERTION; // Don't make an assertion
+            offset += intCon->GetValue();
+            addr = addr->AsOp()->GetOp(1);
         }
         else
         {
-            //  If the local variable has its address exposed then bail
-            if (lclVar->lvAddrExposed)
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
-            assertion.lcl.lclNum = lclNum;
+            break;
         }
-
-        assertion.kind             = Kind::NotNull;
-        assertion.valKind          = ValueKind::IntCon;
-        assertion.val.intCon.value = 0;
-        assertion.val.intCon.flags = GTF_EMPTY;
     }
 
-DONE_ASSERTION:
-    if (assertion.kind != Kind::Invalid)
+    if (!addr->OperIs(GT_LCL_VAR) || fgIsBigOffset(offset))
     {
-        noway_assert(assertion.valKind != ValueKind::Invalid);
-        morphAddAssertion(&assertion);
+        return;
     }
+
+    unsigned   lclNum = addr->AsLclVar()->GetLclNum();
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    // TODO-MIKE-Review: It's not clear why is this restricted to REF. Old comment
+    // stated "we only perform null-checks on GC refs" but that's rather bogus.
+    if (!lcl->TypeIs(TYP_REF))
+    {
+        return;
+    }
+
+    // TODO-MIKE-CQ: This could probably work, we just need to kill assertions
+    // involving such locals when we encounter memory stores or calls.
+    if (lcl->IsAddressExposed())
+    {
+        return;
+    }
+
+    MorphAssertion assertion;
+
+    // TODO-MIKE-Cleanup: Try to get rid of memset if possible. The use of memcmp
+    // in assertion merging makes it necessary now as there are alignment holes in
+    // MorphAssertion and we need to ensure they do not contain garbage. Otherwise
+    // it's obvious that the code below initializes all the needed data members.
+    memset(&assertion, 0, sizeof(MorphAssertion));
+
+    assertion.kind             = Kind::NotNull;
+    assertion.valKind          = ValueKind::IntCon;
+    assertion.lcl.lclNum       = lclNum;
+    assertion.val.intCon.value = 0;
+    assertion.val.intCon.flags = GTF_EMPTY;
+
+    morphAddAssertion(&assertion);
 }
 
-void Compiler::morphCreateEqualAssertion(GenTreeLclVar* op1, GenTree* op2)
+void Compiler::morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2)
 {
     assert(op1 != nullptr);
     assert(op2 != nullptr);
@@ -805,7 +791,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
         case GT_ASG:
             if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
             {
-                morphCreateEqualAssertion(tree->AsOp()->GetOp(0)->AsLclVar(), tree->AsOp()->GetOp(1));
+                morphAssertionGenEqual(tree->AsOp()->GetOp(0)->AsLclVar(), tree->AsOp()->GetOp(1));
             }
             break;
 
@@ -815,13 +801,13 @@ void Compiler::morphAssertionGen(GenTree* tree)
             FALLTHROUGH;
         case GT_IND:
         case GT_NULLCHECK:
-            morphCreateNonNullAssertion(tree->AsIndir()->GetAddr());
+            morphAssertionGenNotNull(tree->AsIndir()->GetAddr());
             break;
         case GT_ARR_LENGTH:
-            morphCreateNonNullAssertion(tree->AsArrLen()->GetArray());
+            morphAssertionGenNotNull(tree->AsArrLen()->GetArray());
             break;
         case GT_ARR_ELEM:
-            morphCreateNonNullAssertion(tree->AsArrElem()->GetArray());
+            morphAssertionGenNotNull(tree->AsArrElem()->GetArray());
             break;
 
         case GT_CALL:
@@ -832,7 +818,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                morphCreateNonNullAssertion(call->GetThisArg());
+                morphAssertionGenNotNull(call->GetThisArg());
             }
         }
         break;
