@@ -12567,8 +12567,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
         op1 = fgMorphTree(op1);
 
-        op2->ChangeToIntCon(genLog2(op2->AsLngCon()->GetUInt64Value()));
-        op2->SetType(TYP_INT);
+        op2->ChangeToIntCon(TYP_INT, genLog2(op2->AsLngCon()->GetUInt64Value()));
 
         mul->SetOper(GT_LSH);
         mul->SetOp(0, op1);
@@ -12580,15 +12579,13 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
-        op1->ChangeToIntCon(static_cast<int32_t>(longConst1->GetValue()));
-        op1->SetType(TYP_INT);
+        op1->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst1->GetValue()));
         op1 = gtNewCastNode(TYP_LONG, op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(0, op1);
     }
     else if (GenTreeLngCon* longConst2 = op2->IsLngCon())
     {
-        op2->ChangeToIntCon(static_cast<int32_t>(longConst2->GetValue()));
-        op2->SetType(TYP_INT);
+        op2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst2->GetValue()));
         op2 = gtNewCastNode(TYP_LONG, op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(1, op2);
     }

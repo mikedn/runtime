@@ -727,8 +727,7 @@ private:
 
             if (op2->IsIntegralConst(0))
             {
-                op1->ChangeToIntCon(1);
-                op1->SetType(TYP_I_IMPL);
+                op1->ChangeToIntCon(TYP_I_IMPL, 1);
 
                 INDEBUG(m_stmtModified = true;)
 

@@ -916,16 +916,17 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
 //
 GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenTreeLclVar* tree)
 {
-    const unsigned lclNum = tree->GetLclNum();
+    LclVarDsc* lcl = lvaGetDesc(tree->GetLclNum());
 
-    assert(!lvaGetDesc(lclNum)->IsAddressExposed());
+    assert(!lcl->IsAddressExposed());
 
-    if (lclNumIsCSE(lclNum))
+    if (lcl->lvIsCSE)
     {
         return nullptr;
     }
 
-    GenTree* newTree = tree;
+    const auto& val     = curAssertion->val;
+    GenTree*    newTree = tree;
 
     // Update 'newTree' with the new value from our table
     // Typically newTree == tree and we are updating the node in place
@@ -959,66 +960,67 @@ GenTree* Compiler::morphConstantAssertionProp(MorphAssertion* curAssertion, GenT
 #endif
 
         case ValueKind::IntCon:
-
-            // Don't propagate handles if we need to report relocs.
-            if (opts.compReloc && ((curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK) != 0))
+            if (varTypeIsSmall(lcl->GetType())
+#ifdef TARGET_64BIT
+                || lcl->TypeIs(TYP_INT) // Handle INT separately on 32 bit as it may be a handle.
+#endif
+                )
             {
-                return nullptr;
+                // For small int locals we often get INT LCL_VARs, otherwise the types should match.
+                assert((lcl->GetType() == tree->GetType()) || tree->TypeIs(TYP_INT));
+                assert(lcl->TypeIs(TYP_INT) || varTypeSmallIntCanRepresentValue(lcl->GetType(), val.intCon.value));
+
+                newTree = tree->ChangeToIntCon(TYP_INT, val.intCon.value);
+                break;
             }
 
-            if (curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK)
+            if (tree->TypeIs(TYP_STRUCT))
             {
-                // Here we have to allocate a new 'large' node to replace the old one
-                // TODO-MIKE-Cleanup: Huh, what large node?!?
-                newTree = gtNewIconHandleNode(curAssertion->val.intCon.value,
-                                              curAssertion->val.intCon.flags & GTF_ICON_HDL_MASK);
+                assert(val.intCon.value == 0);
+                assert(lcl->GetType() == tree->GetType());
+
+                newTree = tree->ChangeToIntCon(TYP_INT, 0);
+                break;
             }
-            else
-            {
-                // If we have done constant propagation of a struct type, it is only valid for zero-init,
-                // and we have to ensure that we have the right zero for the type.
-                assert(!varTypeIsStruct(tree->GetType()) || curAssertion->val.intCon.value == 0);
 
 #ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(tree->GetType()))
-                {
-                    LclVarDsc* lcl = lvaGetDesc(lclNum);
-                    assert(lcl->GetType() == tree->GetType());
-                    newTree = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
-                }
-                else
-#endif // FEATURE_SIMD
-                {
-                    newTree->ChangeOperConst(GT_CNS_INT);
-                    newTree->AsIntCon()->gtIconVal = curAssertion->val.intCon.value;
-                    newTree->ClearIconHandleMask();
-                    if (newTree->TypeIs(TYP_STRUCT))
-                    {
-                        // LCL_VAR can be init with a GT_CNS_INT, keep its type INT, not STRUCT.
-                        newTree->ChangeType(TYP_INT);
-                    }
-                }
+            if (varTypeIsSIMD(tree->GetType()))
+            {
+                assert(val.intCon.value == 0);
+                assert(lcl->GetType() == tree->GetType());
+
+                newTree = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+                break;
+            }
+#endif
+
+            if (lcl->TypeIs(TYP_LONG) && tree->TypeIs(TYP_INT))
+            {
+                // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
+                // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
+                newTree = tree->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.intCon.value));
+                break;
             }
 
-            // Constant ints are of type TYP_INT, not any of the short forms.
-            if (varTypeIsIntegral(newTree->TypeGet()))
+            assert(varTypeIsI(lcl->GetType()));
+            assert(varTypeIsI(tree->GetType()));
+
+            if ((val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
             {
-#ifdef TARGET_64BIT
-                var_types newType =
-                    (var_types)((curAssertion->val.intCon.flags & GTF_ASSERTION_PROP_LONG) ? TYP_LONG : TYP_INT);
-                if (newTree->TypeGet() != newType)
+                if (opts.compReloc)
                 {
-                    noway_assert(newTree->gtType != TYP_REF);
-                    newTree->gtType = newType;
+                    return nullptr;
                 }
-#else
-                if (newTree->TypeGet() != TYP_INT)
-                {
-                    noway_assert(newTree->gtType != TYP_REF && newTree->gtType != TYP_LONG);
-                    newTree->gtType = TYP_INT;
-                }
-#endif
+
+                // TODO-MIKE-Review: It's not clear why this is done only for handles. It's a
+                // constant so it obviously does not need to be reported to the GC.
+                // On the other hand, we don't know the user and blindly changing types like
+                // this isn't great.
+                tree->SetType(TYP_I_IMPL);
             }
+
+            newTree = tree->ChangeToIntCon(val.intCon.value);
+            newTree->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
             break;
 
         default:
@@ -1165,6 +1167,7 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
         if (curAssertion->lcl.lclNum == lclNum)
         {
             LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
+            // TODO-MIKE-CQ: This is dubious, it tends to block constant prop for small int locals.
             // Verify types match
             if (tree->TypeGet() == lclDsc->lvType)
             {

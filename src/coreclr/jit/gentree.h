@@ -1787,6 +1787,7 @@ public:
 
     void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
+    GenTreeIntCon* ChangeToIntCon(var_types type, ssize_t value);
 #ifndef TARGET_64BIT
     GenTreeLngCon* ChangeToLngCon(int64_t value);
 #endif
@@ -3057,6 +3058,13 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
         m_fieldSeq = fieldSeq;
+    }
+
+    void SetHandleKind(GenTreeFlags kind)
+    {
+        assert((kind & ~GTF_ICON_HDL_MASK) == 0);
+
+        gtFlags = (gtFlags & ~GTF_ICON_HDL_MASK) | (kind & GTF_ICON_HDL_MASK);
     }
 
     bool ImmedValNeedsReloc(Compiler* comp);
