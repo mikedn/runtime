@@ -3307,7 +3307,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
                     var_types type = varTypeToUnsigned(field->GetType());
 
 #if LOCAL_ASSERTION_PROP
-                    if (!optLocalAssertionProp || !morphAssertionIsTypeRange(field->AsLclVar(), type))
+                    if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclVar(), type))
 #endif
                     {
                         field->SetType(TYP_INT);
@@ -5021,7 +5021,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     }
 
 #if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && morphAssertionIsTypeRange(lclVar, lcl->GetType()))
+    if ((morphAssertionCount != 0) && morphAssertionIsTypeRange(lclVar, lcl->GetType()))
     {
         return lclVar;
     }
@@ -5248,7 +5248,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         if (mac->isAddressTaken)
         {
 #if LOCAL_ASSERTION_PROP
-            if ((nullCheckAddr == nullptr) || !optLocalAssertionProp || (optAssertionCount == 0) ||
+            if ((nullCheckAddr == nullptr) || (morphAssertionCount == 0) ||
                 !morphAssertionIsNotNull(nullCheckAddr->GetLclNum()))
 #endif
             {
@@ -8053,7 +8053,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     }
 
 #if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && (destLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
+    if ((destLclNum != BAD_VAR_NUM) && (morphAssertionCount != 0))
     {
         morphAssertionKill(destLclNum DEBUGARG(asg));
     }
@@ -8471,7 +8471,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
                                                                  destFieldLcl->lvNormalizeOnStore(), baseType));
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionTable != nullptr)
         {
             morphAssertionGen(asg);
         }
@@ -8735,7 +8735,7 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         GenTreeOp* fieldAsg = gtNewAssignNode(fieldDst, fieldSrc);
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionTable != nullptr)
         {
             morphAssertionGen(fieldAsg);
         }
@@ -8934,7 +8934,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         destLclVar  = lvaGetDesc(destLclNum);
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp && (optAssertionCount > 0))
+        if (morphAssertionCount != 0)
         {
             morphAssertionKill(destLclNum DEBUGARG(asg));
         }
@@ -9379,7 +9379,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         GenTreeOp* asgField = gtNewAssignNode(destField, srcField);
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionTable != nullptr)
         {
             morphAssertionGen(asgField);
         }
@@ -9647,7 +9647,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     unsigned        origAssertionCount = 0;
     MorphAssertion* origAssertionTable = nullptr;
 
-    if (optLocalAssertionProp)
+    if (morphAssertionCount != 0)
     {
         // The local assertion propagation state after morphing the condition expression
         // applies to both then and else expressions, we need to save it before morphing
@@ -9660,14 +9660,11 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         // modifying existing assertions.
         // Anyway, the table is usually fairly small - less than 8 in corelib.
 
-        if (optAssertionCount != 0)
-        {
-            static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
-            unsigned tableSize = morphAssertionTableSize(optAssertionCount);
-            origAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
-            origAssertionCount = optAssertionCount;
-            morphAssertionCopyTable(origAssertionTable, morphAssertionTable, optAssertionCount);
-        }
+        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
+        unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
+        origAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
+        origAssertionCount = morphAssertionCount;
+        morphAssertionCopyTable(origAssertionTable, morphAssertionTable, morphAssertionCount);
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -9679,27 +9676,24 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     unsigned        elseAssertionCount = 0;
     MorphAssertion* elseAssertionTable = nullptr;
 
-    if (optLocalAssertionProp)
+    // We also need to save the local assertion propagation state after morphing the
+    // first of the then/else expressions. Later we need to merge the two states by
+    // removing assertions that are not present in both states.
+    if (morphAssertionCount != 0)
     {
-        // We also need to save the local assertion propagation state after morphing the
-        // first of the then/else expressions. Later we need to merge the two states by
-        // removing assertions that are not present in both states.
-        if (optAssertionCount != 0)
-        {
-            static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be a bad idea");
-            unsigned tableSize = morphAssertionTableSize(optAssertionCount);
-            elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
-            elseAssertionCount = optAssertionCount;
-            morphAssertionCopyTable(elseAssertionTable, morphAssertionTable, optAssertionCount);
+        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be a bad idea");
+        unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
+        elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
+        elseAssertionCount = morphAssertionCount;
+        morphAssertionCopyTable(elseAssertionTable, morphAssertionTable, morphAssertionCount);
 
-            morphAssertionReset(0);
-        }
+        morphAssertionReset(0);
+    }
 
-        if (origAssertionCount != 0)
-        {
-            morphAssertionCopyTable(morphAssertionTable, origAssertionTable, origAssertionCount);
-            morphAssertionReset(origAssertionCount);
-        }
+    if (origAssertionCount != 0)
+    {
+        morphAssertionCopyTable(morphAssertionTable, origAssertionTable, origAssertionCount);
+        morphAssertionReset(origAssertionCount);
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -9709,7 +9703,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
 #if LOCAL_ASSERTION_PROP
     // Merge assertions after then/else morphing.
-    if (optLocalAssertionProp)
+    if (morphAssertionCount != 0)
     {
         morphAssertionMerge(elseAssertionCount, elseAssertionTable DEBUGARG(qmark));
     }
@@ -13020,7 +13014,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp && (optAssertionCount > 0))
+        if (morphAssertionCount != 0)
         {
             tree = morphAssertionProp(tree);
         }
@@ -13310,28 +13304,24 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
     }
 
 #if LOCAL_ASSERTION_PROP
-
-    if (!optLocalAssertionProp)
+    if (morphAssertionTable != nullptr)
     {
-        goto DONE;
-    }
-
-    if (optAssertionCount > 0)
-    {
-        if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (morphAssertionCount != 0)
         {
-            GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
-            morphAssertionKill(lclNode->GetLclNum() DEBUGARG(tree));
+            if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            {
+                GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
+                morphAssertionKill(lclNode->GetLclNum() DEBUGARG(tree));
+            }
+            else
+            {
+                // We should not have LIR stores during global morph.
+                assert(!tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+            }
         }
-        else
-        {
-            // We should not have LIR stores during global morph.
-            assert(!tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-        }
+
+        morphAssertionGen(tree);
     }
-
-    morphAssertionGen(tree);
-
 #endif // LOCAL_ASSERTION_PROP
 
 DONE:;
@@ -14061,26 +14051,7 @@ void Compiler::fgMorphBlocks()
     fgGlobalMorph = true;
 
 #if LOCAL_ASSERTION_PROP
-    //
-    // Local assertion prop is enabled if we are optimized
-    //
-    optLocalAssertionProp = opts.OptimizationEnabled();
-
-    if (optLocalAssertionProp)
-    {
-        //
-        // Initialize for local assertion prop
-        //
-        morphAssertionInit();
-    }
-#elif ASSERTION_PROP
-    //
-    // If LOCAL_ASSERTION_PROP is not set
-    // and we have global assertion prop
-    // then local assertion prop is always off
-    //
-    optLocalAssertionProp = false;
-
+    morphAssertionInit();
 #endif
 
     if (!compEnregLocals())
@@ -14110,13 +14081,9 @@ void Compiler::fgMorphBlocks()
 #endif
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionCount != 0)
         {
-            //
-            // Clear out any currently recorded assertion candidates
-            // before processing each basic block,
-            // also we must  handle QMARK-COLON specially
-            //
+            // Clear out the assertion table before processing each basic block.
             morphAssertionReset(0);
         }
 #endif
@@ -14137,6 +14104,10 @@ void Compiler::fgMorphBlocks()
 
         block = block->bbNext;
     } while (block != nullptr);
+
+#if LOCAL_ASSERTION_PROP
+    morphAssertionDone();
+#endif
 
     // We are done with the global morphing phase
     fgGlobalMorph = false;

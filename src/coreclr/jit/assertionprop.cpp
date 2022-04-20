@@ -497,7 +497,6 @@ void Compiler::optAssertionInit()
     const unsigned              codeSize    = info.compILCodeSize / 512;
     optMaxAssertionCount                    = countFunc[min(upperBound, codeSize)];
 
-    optLocalAssertionProp  = false;
     optAssertionTabPrivate = new (this, CMK_AssertionProp) AssertionDsc[optMaxAssertionCount];
     optComplementaryAssertionMap =
         new (this, CMK_AssertionProp) AssertionIndex[optMaxAssertionCount + 1](); // zero-inited (NO_ASSERTION_INDEX)

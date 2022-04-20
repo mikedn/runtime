@@ -135,29 +135,46 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 
 void Compiler::morphAssertionInit()
 {
-    optLocalAssertionProp = true;
+    assert(fgGlobalMorph);
+
+    if (!opts.OptimizationEnabled())
+    {
+        morphAssertionTable = nullptr;
+        morphAssertionCount = 0;
+
+        return;
+    }
 
     CompAllocator allocator = getAllocator(CMK_AssertionProp);
 
     morphAssertionTable = new (allocator) MorphAssertion[morphAssertionMaxCount];
     morphAssertionDep   = new (allocator) JitExpandArray<ASSERT_TP>(allocator, max(1, lvaCount));
     apTraits            = new (allocator) BitVecTraits(morphAssertionMaxCount, this);
-    optAssertionCount   = 0;
+    morphAssertionCount = 0;
 
     INDEBUG(morphAssertionId = 0);
+}
+
+void Compiler::morphAssertionDone()
+{
+    assert(fgGlobalMorph);
+
+    morphAssertionTable = nullptr;
+    morphAssertionCount = 0;
 }
 
 // The following resets the value assignment table
 // used only during local assertion prop
 void Compiler::morphAssertionReset(unsigned limit)
 {
-    PREFAST_ASSUME(optAssertionCount <= morphAssertionMaxCount);
+    assert(fgGlobalMorph);
+    assert(limit <= morphAssertionMaxCount);
 
-    while (optAssertionCount > limit)
+    while (morphAssertionCount > limit)
     {
-        unsigned        index        = optAssertionCount - 1;
+        unsigned        index        = morphAssertionCount - 1;
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        optAssertionCount--;
+        morphAssertionCount--;
 
         BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
 
@@ -167,9 +184,9 @@ void Compiler::morphAssertionReset(unsigned limit)
         }
     }
 
-    while (optAssertionCount < limit)
+    while (morphAssertionCount < limit)
     {
-        unsigned        index        = optAssertionCount++;
+        unsigned        index        = morphAssertionCount++;
         MorphAssertion* curAssertion = morphGetAssertion(index);
 
         BitVecOps::AddElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
@@ -189,21 +206,21 @@ void Compiler::morphAssertionReset(unsigned limit)
 
 void Compiler::morphAssertionRemove(unsigned index)
 {
-    assert(index < optAssertionCount);
-    PREFAST_ASSUME(optAssertionCount <= morphAssertionMaxCount);
+    assert(index < morphAssertionCount);
+    assert(morphAssertionCount <= morphAssertionMaxCount);
 
     MorphAssertion* curAssertion = morphGetAssertion(index);
 
-    //  Two cases to consider if (index == optAssertionCount) then the last
+    //  Two cases to consider if (index == morphAssertionCount) then the last
     //  entry in the table is to be removed and that happens automatically when
-    //  optAssertionCount is decremented and we can just clear the morphAssertionDep bits
-    //  The other case is when index < optAssertionCount and here we overwrite the
+    //  morphAssertionCount is decremented and we can just clear the morphAssertionDep bits
+    //  The other case is when index < morphAssertionCount and here we overwrite the
     //  index-th entry in the table with the data found at the end of the table
     //  Since we are reordering the rable the morphAssertionDep bits need to be recreated
     //  using optAssertionReset(0) and optAssertionReset(newAssertionCount) will
     //  correctly update the morphAssertionDep bits
-    //
-    if (index == static_cast<unsigned>(optAssertionCount) - 1)
+
+    if (index == morphAssertionCount - 1)
     {
         BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
 
@@ -212,14 +229,14 @@ void Compiler::morphAssertionRemove(unsigned index)
             BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->val.lcl.lclNum), index);
         }
 
-        optAssertionCount--;
+        morphAssertionCount--;
     }
     else
     {
-        MorphAssertion* lastAssertion     = morphGetAssertion(optAssertionCount - 1);
-        unsigned        newAssertionCount = optAssertionCount - 1;
+        MorphAssertion* lastAssertion     = morphGetAssertion(morphAssertionCount - 1);
+        unsigned        newAssertionCount = morphAssertionCount - 1;
 
-        morphAssertionReset(0); // This make optAssertionCount equal 0
+        morphAssertionReset(0); // This make morphAssertionCount equal 0
 
         memcpy(curAssertion,  // the entry to be removed
                lastAssertion, // last entry in the table
@@ -231,20 +248,26 @@ void Compiler::morphAssertionRemove(unsigned index)
 
 unsigned Compiler::morphAssertionTableSize(unsigned count)
 {
+    assert(fgGlobalMorph);
     assert(count <= morphAssertionMaxCount);
+
     return count * sizeof(MorphAssertion);
 }
 
 void Compiler::morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count)
 {
+    assert(fgGlobalMorph);
     assert(count <= morphAssertionMaxCount);
+
     memcpy(toTable, fromTable, count * sizeof(MorphAssertion));
 }
 
 void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
                                    MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
 {
-    if (optAssertionCount == 0)
+    assert(fgGlobalMorph);
+
+    if (morphAssertionCount == 0)
     {
         return;
     }
@@ -255,13 +278,13 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
         return;
     }
 
-    if ((optAssertionCount == elseAssertionCount) &&
-        (memcmp(elseAssertionTab, morphAssertionTable, optAssertionCount * sizeof(MorphAssertion)) == 0))
+    if ((morphAssertionCount == elseAssertionCount) &&
+        (memcmp(elseAssertionTab, morphAssertionTable, morphAssertionCount * sizeof(MorphAssertion)) == 0))
     {
         return;
     }
 
-    for (unsigned index = 0; index < optAssertionCount;)
+    for (unsigned index = 0; index < morphAssertionCount;)
     {
         MorphAssertion* thenAssertion = morphGetAssertion(index);
         MorphAssertion* elseAssertion = nullptr;
@@ -295,7 +318,7 @@ void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, con
 {
     printf("[%06u] %s assertion", node->GetID(), message);
 
-    if ((assertion >= morphAssertionTable) && (assertion < morphAssertionTable + optAssertionCount))
+    if ((assertion >= morphAssertionTable) && (assertion < morphAssertionTable + morphAssertionCount))
     {
         printf(" #%02u", assertion->id);
     }
@@ -359,7 +382,7 @@ void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, con
 
 MorphAssertion* Compiler::morphGetAssertion(unsigned index)
 {
-    assert(index < optAssertionCount);
+    assert(index < morphAssertionCount);
     MorphAssertion* assertion = &morphAssertionTable[index];
     assert((assertion->kind != Kind::Invalid) && (assertion->lcl.lclNum < lvaCount));
     return assertion;
@@ -367,7 +390,7 @@ MorphAssertion* Compiler::morphGetAssertion(unsigned index)
 
 void Compiler::morphAssertionGenNotNull(GenTree* addr)
 {
-    if (optAssertionCount >= morphAssertionMaxCount)
+    if (morphAssertionCount >= morphAssertionMaxCount)
     {
         return;
     }
@@ -417,7 +440,7 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
     // We don't need more than one NotNull assertion for a local. In theory we also
     // don't need a NotNull assertion if we already have a constant assertion, but
     // currently the NotNull propagation code ignores constant assertions.
-    for (unsigned i = optAssertionCount - 1; i != UINT32_MAX; i--)
+    for (unsigned i = morphAssertionCount - 1; i != UINT32_MAX; i--)
     {
         MorphAssertion* existing = morphGetAssertion(i);
 
@@ -427,7 +450,7 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
         }
     }
 
-    MorphAssertion& assertion = morphAssertionTable[optAssertionCount];
+    MorphAssertion& assertion = morphAssertionTable[morphAssertionCount];
 
     // TODO-MIKE-Cleanup: Try to get rid of memset if possible. The use of memcmp
     // in assertion merging makes it necessary now as there are alignment holes in
@@ -461,12 +484,12 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
     // TODO-MIKE-Consider: Maybe we can simply overwrite an existing assertion?
     noway_assert(BitVecOps::IsEmpty(apTraits, GetAssertionDep(lclNum)));
 
-    if (optAssertionCount >= morphAssertionMaxCount)
+    if (morphAssertionCount >= morphAssertionMaxCount)
     {
         return;
     }
 
-    MorphAssertion& assertion = morphAssertionTable[optAssertionCount];
+    MorphAssertion& assertion = morphAssertionTable[morphAssertionCount];
     memset(&assertion, 0, sizeof(MorphAssertion));
     assert(assertion.kind == Kind::Invalid);
     assertion.lcl.lclNum = lclNum;
@@ -639,20 +662,20 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
 void Compiler::morphAssertionAdd(MorphAssertion& assertion)
 {
     assert((assertion.kind != Kind::Invalid) && (assertion.valKind != ValueKind::Invalid));
-    assert(optAssertionCount < morphAssertionMaxCount);
-    assert(&assertion == &morphAssertionTable[optAssertionCount]);
+    assert(morphAssertionCount < morphAssertionMaxCount);
+    assert(&assertion == &morphAssertionTable[morphAssertionCount]);
 
     INDEBUG(assertion.id = ++morphAssertionId);
     DBEXEC(verbose, morphAssertionTrace(&assertion, optAssertionPropCurrentTree, "generated"));
 
-    BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), optAssertionCount);
+    BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), morphAssertionCount);
 
     if (assertion.valKind == ValueKind::LclVar)
     {
-        BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), optAssertionCount);
+        BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), morphAssertionCount);
     }
 
-    optAssertionCount++;
+    morphAssertionCount++;
 }
 
 /*****************************************************************************
@@ -663,6 +686,7 @@ void Compiler::morphAssertionAdd(MorphAssertion& assertion)
  */
 void Compiler::morphAssertionGen(GenTree* tree)
 {
+    assert(fgGlobalMorph);
     INDEBUG(optAssertionPropCurrentTree = tree);
 
     switch (tree->GetOper())
@@ -709,7 +733,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
 
 MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
 {
-    for (unsigned index = 0; index < optAssertionCount; index++)
+    for (unsigned index = 0; index < morphAssertionCount; index++)
     {
         MorphAssertion* assertion = morphGetAssertion(index);
 
@@ -724,6 +748,8 @@ MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
 
 MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
 {
+    assert(fgGlobalMorph);
+
     // For now morph only needs this to eliminate some small int casts.
     // TODO-MIKE-Review: Check why BOOL is ignored, it behaves like UBYTE when used with casts.
     if (!varTypeIsSmallInt(type))
@@ -954,7 +980,7 @@ GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
         return nullptr;
     }
 
-    for (unsigned index = 0; index < optAssertionCount; ++index)
+    for (unsigned index = 0; index < morphAssertionCount; ++index)
     {
         MorphAssertion* assertion = morphGetAssertion(index);
 
@@ -1036,7 +1062,7 @@ GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
 
     int result = -1;
 
-    for (unsigned index = 0; index < optAssertionCount; ++index)
+    for (unsigned index = 0; index < morphAssertionCount; ++index)
     {
         MorphAssertion* assertion = morphGetAssertion(index);
 
@@ -1212,7 +1238,9 @@ GenTree* Compiler::morphAssertionPropIndir(GenTreeIndir* indir)
 
 MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
 {
-    for (unsigned index = 0; index < optAssertionCount; index++)
+    assert(fgGlobalMorph);
+
+    for (unsigned index = 0; index < morphAssertionCount; index++)
     {
         MorphAssertion* curAssertion = morphGetAssertion(index);
 
@@ -1268,6 +1296,8 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
 
 GenTree* Compiler::morphAssertionProp(GenTree* tree)
 {
+    assert(fgGlobalMorph);
+
     GenTree* newTree = tree;
 
     // In some cases (CAST removal, LCL_VAR copy propagation) we end up returning
@@ -1327,7 +1357,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
     // be stored in 3 uint8_t and that would take less space.
     ASSERT_TP killed = BitVecOps::MakeCopy(apTraits, GetAssertionDep(lclNum));
 
-    for (unsigned count = optAssertionCount; !BitVecOps::IsEmpty(apTraits, killed) && (count > 0); count--)
+    for (unsigned count = morphAssertionCount; !BitVecOps::IsEmpty(apTraits, killed) && (count > 0); count--)
     {
         if (BitVecOps::TryRemoveElemD(apTraits, killed, count - 1))
         {
@@ -1358,6 +1388,8 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
 //
 void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree))
 {
+    assert(fgGlobalMorph);
+
     morphAssertionKillSingle(lclNum DEBUGARG(tree));
 
     LclVarDsc* varDsc = lvaGetDesc(lclNum);

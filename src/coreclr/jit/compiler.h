@@ -6151,7 +6151,6 @@ protected:
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    bool optLocalAssertionProp; // indicates that we are performing local assertion prop
     bool optVNAssertionPropStmtMorphPending;
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
@@ -6174,13 +6173,16 @@ public:
     ValueNumToAssertsMap* optValueNumToAsserts;
 
 #if LOCAL_ASSERTION_PROP
-    static constexpr unsigned morphAssertionMaxCount = 64;
     struct MorphAssertion;
+
+    static constexpr unsigned  morphAssertionMaxCount = 64;
+    unsigned                   morphAssertionCount;
     MorphAssertion*            morphAssertionTable; // table that holds info about local assignments
     JitExpandArray<ASSERT_TP>* morphAssertionDep;   // table that holds dependent assertions (assertions
                                                     // using the value of a local var) for each local var
 public:
     void morphAssertionInit();
+    void morphAssertionDone();
     void morphAssertionGen(GenTree* tree);
     GenTree* morphAssertionProp(GenTree* tree);
     MorphAssertion* morphAssertionIsNotNull(unsigned lclNum);
