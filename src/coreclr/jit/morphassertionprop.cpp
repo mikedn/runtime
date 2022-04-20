@@ -158,38 +158,25 @@ void Compiler::morphAssertionReset(unsigned limit)
         unsigned        index        = optAssertionCount - 1;
         MorphAssertion* curAssertion = morphGetAssertion(index);
         optAssertionCount--;
-        unsigned lclNum = curAssertion->lcl.lclNum;
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
 
-        //
-        // Find the Copy assertions
-        //
-        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::LclVar))
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
+
+        if (curAssertion->valKind == ValueKind::LclVar)
         {
-            //
-            //  value.lcl.lclNum no longer depends upon this assertion
-            //
-            lclNum = curAssertion->val.lcl.lclNum;
-            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
+            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->val.lcl.lclNum), index);
         }
     }
+
     while (optAssertionCount < limit)
     {
         unsigned        index        = optAssertionCount++;
         MorphAssertion* curAssertion = morphGetAssertion(index);
-        unsigned        lclNum       = curAssertion->lcl.lclNum;
-        BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index);
 
-        //
-        // Check for Copy assertions
-        //
-        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::LclVar))
+        BitVecOps::AddElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
+
+        if (curAssertion->valKind == ValueKind::LclVar)
         {
-            //
-            //  value.lcl.lclNum now depends upon this assertion
-            //
-            lclNum = curAssertion->val.lcl.lclNum;
-            BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), index);
+            BitVecOps::AddElemD(apTraits, GetAssertionDep(curAssertion->val.lcl.lclNum), index);
         }
     }
 }
@@ -218,19 +205,11 @@ void Compiler::morphAssertionRemove(unsigned index)
     //
     if (index == static_cast<unsigned>(optAssertionCount) - 1)
     {
-        unsigned lclNum = curAssertion->lcl.lclNum;
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
 
-        //
-        // Check for Copy assertions
-        //
-        if ((curAssertion->kind == Kind::Equal) && (curAssertion->valKind == ValueKind::LclVar))
+        if (curAssertion->valKind == ValueKind::LclVar)
         {
-            //
-            //  value.lcl.lclNum no longer depends upon this assertion
-            //
-            lclNum = curAssertion->val.lcl.lclNum;
-            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index);
+            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->val.lcl.lclNum), index);
         }
 
         optAssertionCount--;
