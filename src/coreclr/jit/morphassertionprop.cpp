@@ -459,7 +459,7 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
         }
     }
 
-    MorphAssertion assertion;
+    MorphAssertion& assertion = morphAssertionTable[optAssertionCount];
 
     // TODO-MIKE-Cleanup: Try to get rid of memset if possible. The use of memcmp
     // in assertion merging makes it necessary now as there are alignment holes in
@@ -473,7 +473,7 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
     assertion.val.intCon.value = 0;
     assertion.val.intCon.flags = GTF_EMPTY;
 
-    morphAddAssertion(&assertion);
+    morphAssertionAdd(assertion);
 }
 
 void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
@@ -498,7 +498,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
         return;
     }
 
-    MorphAssertion assertion;
+    MorphAssertion& assertion = morphAssertionTable[optAssertionCount];
     memset(&assertion, 0, sizeof(MorphAssertion));
     assert(assertion.kind == Kind::Invalid);
     assertion.lcl.lclNum = lclNum;
@@ -665,29 +665,26 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
             return;
     }
 
-    morphAddAssertion(&assertion);
+    morphAssertionAdd(assertion);
 }
 
-void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
+void Compiler::morphAssertionAdd(MorphAssertion& assertion)
 {
-    assert((newAssertion->kind != Kind::Invalid) && (newAssertion->valKind != ValueKind::Invalid));
+    assert((assertion.kind != Kind::Invalid) && (assertion.valKind != ValueKind::Invalid));
     assert(optAssertionCount < optMaxAssertionCount);
+    assert(&assertion == &morphAssertionTable[optAssertionCount]);
 
-    morphAssertionTable[optAssertionCount] = *newAssertion;
-    newAssertion                           = &morphAssertionTable[optAssertionCount];
-    optAssertionCount++;
-    INDEBUG(newAssertion->id = ++morphAssertionId);
+    INDEBUG(assertion.id = ++morphAssertionId);
+    DBEXEC(verbose, morphAssertionTrace(&assertion, optAssertionPropCurrentTree, "generated"));
 
-    DBEXEC(verbose, morphAssertionTrace(newAssertion, optAssertionPropCurrentTree, "generated"));
+    BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), optAssertionCount);
 
-    // Mark the variables this index depends on
-    unsigned lclNum = newAssertion->lcl.lclNum;
-    BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), optAssertionCount - 1);
-    if (newAssertion->valKind == ValueKind::LclVar)
+    if (assertion.valKind == ValueKind::LclVar)
     {
-        lclNum = newAssertion->val.lcl.lclNum;
-        BitVecOps::AddElemD(apTraits, GetAssertionDep(lclNum), optAssertionCount - 1);
+        BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), optAssertionCount);
     }
+
+    optAssertionCount++;
 }
 
 /*****************************************************************************

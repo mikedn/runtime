@@ -6197,7 +6197,7 @@ private:
     ASSERT_TP& GetAssertionDep(unsigned lclNum);
     void morphAssertionGenNotNull(GenTree* op1);
     void morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2);
-    void morphAddAssertion(MorphAssertion* assertion);
+    void morphAssertionAdd(MorphAssertion& assertion);
     MorphAssertion* morphGetAssertion(unsigned index);
     void morphAssertionRemove(unsigned index);
     void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
