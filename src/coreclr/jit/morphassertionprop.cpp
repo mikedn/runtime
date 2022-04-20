@@ -1034,85 +1034,80 @@ GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
     GenTree* op1 = relop->GetOp(0);
     GenTree* op2 = relop->GetOp(1);
 
-    // For Local AssertionProp we only can fold when op1 is a GT_LCL_VAR
-    if (op1->gtOper != GT_LCL_VAR)
-    {
-        return nullptr;
-    }
-
-    // For Local AssertionProp we only can fold when op2 is a GT_CNS_INT
-    if (op2->gtOper != GT_CNS_INT)
+    if (!op1->OperIs(GT_LCL_VAR) || !op2->IsIntCon())
     {
         return nullptr;
     }
 
     assert(varTypeIsIntegralOrI(op1->GetType()));
 
-    ssize_t   cnsVal  = op2->AsIntCon()->gtIconVal;
-    var_types cmpType = op1->TypeGet();
+    unsigned   lclNum = op1->AsLclVar()->GetLclNum();
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-    // Find an equal or not equal assertion about op1 var.
-    unsigned lclNum = op1->AsLclVar()->GetLclNum();
-    noway_assert(lclNum < lvaCount);
-    MorphAssertion* curAssertion = nullptr;
+    if (lcl->IsAddressExposed())
+    {
+        return nullptr;
+    }
+
+#ifndef TARGET_64BIT
+    // For 32 bit targets IntCon cannot be LONG but may have a LONG local due to implicit
+    // narrowing to INT of LCL_VARs. For now just bail out since the rest of the code only
+    // looks for IntCon assertions and it won't find anything if the local is LONG.
+    if (lcl->TypeIs(TYP_LONG))
+    {
+        return nullptr;
+    }
+#endif
+
+    ssize_t value     = op2->AsIntCon()->GetValue();
+    ssize_t valueMask = -1;
+
+    // Ensure that INT comparisons are done using only 32 bits.
+    // This also deals with the case of implicit LCL_VAR narrowing to INT of LONG locals,
+    // when we have a 64 bit value stored in the assertion.
+    if (varActualTypeIsInt(op1->GetType()))
+    {
+        assert(varActualTypeIsInt(op2->GetType()));
+
+        valueMask = UINT32_MAX;
+        value &= valueMask;
+    }
+
+    int result = -1;
 
     for (unsigned index = 0; index < optAssertionCount; ++index)
     {
         MorphAssertion* assertion = morphGetAssertion(index);
 
-        if ((assertion->lcl.lclNum == lclNum) && (assertion->valKind == ValueKind::IntCon))
+        if ((assertion->lcl.lclNum != lclNum) || (assertion->valKind != ValueKind::IntCon))
         {
-            bool constantIsEqual  = (assertion->val.intCon.value == cnsVal);
-            bool assertionIsEqual = (assertion->kind == Kind::Equal);
+            continue;
+        }
 
-            if (constantIsEqual || assertionIsEqual)
-            {
-                curAssertion = assertion;
-                break;
-            }
+        if (assertion->kind == Kind::Equal)
+        {
+            result = relop->OperIs(GT_EQ) == (value == (assertion->val.intCon.value & valueMask)) ? 1 : 0;
+            DBEXEC(verbose, morphAssertionTrace(assertion, op2, "propagated"));
+            break;
+        }
+
+        assert(assertion->kind == Kind::NotNull);
+        assert(assertion->val.intCon.value == 0);
+
+        if (value == 0)
+        {
+            result = relop->OperIs(GT_NE) ? 1 : 0;
+            DBEXEC(verbose, morphAssertionTrace(assertion, op2, "propagated"));
+            break;
         }
     }
 
-    if (curAssertion == nullptr)
+    if (result == -1)
     {
         return nullptr;
     }
 
-    assert(!lvaGetDesc(lclNum)->IsAddressExposed());
-
-    bool assertionKindIsEqual = (curAssertion->kind == Kind::Equal);
-    bool constantIsEqual      = false;
-
-    if (genTypeSize(cmpType) == TARGET_POINTER_SIZE)
-    {
-        constantIsEqual = (curAssertion->val.intCon.value == cnsVal);
-    }
-#ifdef TARGET_64BIT
-    else if (genTypeSize(cmpType) == sizeof(INT32))
-    {
-        // Compare the low 32-bits only
-        constantIsEqual = (((INT32)curAssertion->val.intCon.value) == ((INT32)cnsVal));
-    }
-#endif
-    else
-    {
-        // We currently don't fold/optimize when the GT_LCL_VAR has been cast to a small type
-        return nullptr;
-    }
-
-    noway_assert(constantIsEqual || assertionKindIsEqual);
-
-    DBEXEC(verbose, morphAssertionTrace(curAssertion, relop, "propagated"));
-
-    // Return either CNS_INT 0 or CNS_INT 1.
-    bool foldResult = (constantIsEqual == assertionKindIsEqual);
-    if (relop->OperIs(GT_NE))
-    {
-        foldResult = !foldResult;
-    }
-
-    op2->AsIntCon()->gtIconVal = foldResult;
-    op2->gtType                = TYP_INT;
+    op2->AsIntCon()->SetValue(TYP_INT, result);
 
     return op2;
 }
