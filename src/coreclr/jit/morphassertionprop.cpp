@@ -1038,33 +1038,6 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
     return nullptr;
 }
 
-/*****************************************************************************
- *
- *  Given a set of "assertions" to search, find an assertion that matches
- *  op1Kind and lclNum, op2Kind and the constant value and is either equal or
- *  not equal assertion.
- */
-Compiler::MorphAssertion* Compiler::morphAssertionIsEqualOrNotEqual(unsigned lclNum, ssize_t cnsVal)
-{
-    for (unsigned index = 0; index < optAssertionCount; ++index)
-    {
-        MorphAssertion* curAssertion = morphGetAssertion(index);
-
-        if ((curAssertion->lcl.lclNum == lclNum) && (curAssertion->valKind == ValueKind::IntCon))
-        {
-            bool constantIsEqual  = (curAssertion->val.intCon.value == cnsVal);
-            bool assertionIsEqual = (curAssertion->kind == Kind::Equal);
-
-            if (constantIsEqual || assertionIsEqual)
-            {
-                return curAssertion;
-            }
-        }
-    }
-
-    return nullptr;
-}
-
 GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
 {
     assert(relop->OperIs(GT_EQ, GT_NE));
@@ -1092,7 +1065,24 @@ GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
     // Find an equal or not equal assertion about op1 var.
     unsigned lclNum = op1->AsLclVar()->GetLclNum();
     noway_assert(lclNum < lvaCount);
-    MorphAssertion* curAssertion = morphAssertionIsEqualOrNotEqual(lclNum, cnsVal);
+    MorphAssertion* curAssertion = nullptr;
+
+    for (unsigned index = 0; index < optAssertionCount; ++index)
+    {
+        MorphAssertion* assertion = morphGetAssertion(index);
+
+        if ((assertion->lcl.lclNum == lclNum) && (assertion->valKind == ValueKind::IntCon))
+        {
+            bool constantIsEqual  = (assertion->val.intCon.value == cnsVal);
+            bool assertionIsEqual = (assertion->kind == Kind::Equal);
+
+            if (constantIsEqual || assertionIsEqual)
+            {
+                curAssertion = assertion;
+                break;
+            }
+        }
+    }
 
     if (curAssertion == nullptr)
     {

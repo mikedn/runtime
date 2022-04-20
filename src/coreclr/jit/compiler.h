@@ -6208,7 +6208,6 @@ private:
     GenTree* morphAssertionPropCast(GenTreeCast* cast);
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionPropRelOp(GenTreeOp* relop);
-    MorphAssertion* morphAssertionIsEqualOrNotEqual(unsigned lclNum, ssize_t cnsVal);
     GenTree* morphAssertionPropagateConst(MorphAssertion* assertion, GenTreeLclVar* lclVar);
     GenTree* morphAssertionPropagateCopy(MorphAssertion* curAssertion, GenTreeLclVar* tree);
 
