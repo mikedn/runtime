@@ -399,6 +399,11 @@ Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned index)
 
 void Compiler::morphAssertionGenNotNull(GenTree* addr)
 {
+    if (optAssertionCount >= optMaxAssertionCount)
+    {
+        return;
+    }
+
     ssize_t offset = 0;
 
     while (addr->OperIs(GT_ADD) && addr->TypeIs(TYP_BYREF))
@@ -441,6 +446,19 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
         return;
     }
 
+    // We don't need more than one NotNull assertion for a local. In theory we also
+    // don't need a NotNull assertion if we already have a constant assertion, but
+    // currently the NotNull propagation code ignores constant assertions.
+    for (unsigned i = optAssertionCount - 1; i != UINT32_MAX; i--)
+    {
+        MorphAssertion* existing = morphGetAssertion(i);
+
+        if ((existing->lcl.lclNum == lclNum) && (existing->kind == Kind::NotNull))
+        {
+            return;
+        }
+    }
+
     MorphAssertion assertion;
 
     // TODO-MIKE-Cleanup: Try to get rid of memset if possible. The use of memcmp
@@ -464,6 +482,18 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
     if (lcl->IsAddressExposed())
+    {
+        return;
+    }
+
+    // We're trying to add an Equal assertion when we already have another assertion
+    // about this local. This should not happen, existing assertions should have been
+    // killed by morph before generating new ones. Just drop to minopts, morphing code
+    // is likely broken.
+    // TODO-MIKE-Consider: Maybe we can simply overwrite an existing assertion?
+    noway_assert(BitVecOps::IsEmpty(apTraits, GetAssertionDep(lclNum)));
+
+    if (optAssertionCount >= optMaxAssertionCount)
     {
         return;
     }
@@ -638,56 +668,10 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
     morphAddAssertion(&assertion);
 }
 
-/*****************************************************************************
- *
- *  Given an assertion add it to the assertion table
- *
- *  If it is already in the assertion table return the assertionIndex that
- *  we use to refer to this element.
- *  Otherwise add it to the assertion table ad return the assertionIndex that
- *  we use to refer to this element.
- *  If we need to add to the table and the table is full return the value zero
- */
 void Compiler::morphAddAssertion(MorphAssertion* newAssertion)
 {
-    noway_assert((newAssertion->kind != Kind::Invalid) && (newAssertion->valKind != ValueKind::Invalid));
-
-    // Check if exists already, so we can skip adding new one. Search backwards.
-    for (unsigned index = optAssertionCount - 1; index != UINT32_MAX; index--)
-    {
-        MorphAssertion* curAssertion = morphGetAssertion(index);
-
-        if (curAssertion->lcl.lclNum != newAssertion->lcl.lclNum)
-        {
-            continue;
-        }
-
-        if ((curAssertion->kind == Kind::Equal) && (newAssertion->kind == Kind::NotNull))
-        {
-            // We can add a "not null" assertion even if we already have an "equal" one.
-            // It's normally pointless (if the local value is 42 then obviously it's not
-            // null) but existing code doesn't infer "not null" from "equal" assertions.
-            continue;
-        }
-
-        if ((curAssertion->kind == Kind::NotNull) && (newAssertion->kind == Kind::NotNull))
-        {
-            // We already have a "not null" assertion for this local, don't add another one.
-            return;
-        }
-
-        // We're trying to add an "equal" assertion when we already have another assertion
-        // about this local. This should not happen, existing assertions should have been
-        // killed by morph before generating new ones. Just drop to minopts, morphing code
-        // is likely broken.
-        unreached();
-    }
-
-    // Check if we are within max count.
-    if (optAssertionCount >= optMaxAssertionCount)
-    {
-        return;
-    }
+    assert((newAssertion->kind != Kind::Invalid) && (newAssertion->valKind != ValueKind::Invalid));
+    assert(optAssertionCount < optMaxAssertionCount);
 
     morphAssertionTable[optAssertionCount] = *newAssertion;
     newAssertion                           = &morphAssertionTable[optAssertionCount];
