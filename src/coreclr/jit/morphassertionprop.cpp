@@ -131,24 +131,17 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
     return dep;
 }
 
-/*****************************************************************************
- *
- *  Initialize the assertion prop tracking logic.
- */
-
 void Compiler::morphAssertionInit()
 {
     optLocalAssertionProp = true;
-    morphAssertionTable   = new (this, CMK_AssertionProp) MorphAssertion[morphAssertionMaxCount];
 
-    if (morphAssertionDep == nullptr)
-    {
-        morphAssertionDep =
-            new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(CMK_AssertionProp), max(1, lvaCount));
-    }
+    CompAllocator allocator = getAllocator(CMK_AssertionProp);
 
-    apTraits          = new (this, CMK_AssertionProp) BitVecTraits(morphAssertionMaxCount, this);
-    optAssertionCount = 0;
+    morphAssertionTable = new (allocator) MorphAssertion[morphAssertionMaxCount];
+    morphAssertionDep   = new (allocator) JitExpandArray<ASSERT_TP>(allocator, max(1, lvaCount));
+    apTraits            = new (allocator) BitVecTraits(morphAssertionMaxCount, this);
+    optAssertionCount   = 0;
+
     INDEBUG(morphAssertionId = 0);
 }
 
