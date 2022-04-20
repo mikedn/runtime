@@ -6174,12 +6174,11 @@ public:
     ValueNumToAssertsMap* optValueNumToAsserts;
 
 #if LOCAL_ASSERTION_PROP
+    static constexpr unsigned morphAssertionMaxCount = 64;
     struct MorphAssertion;
-
-    JitExpandArray<ASSERT_TP>* morphAssertionDep; // table that holds dependent assertions (assertions
-                                                  // using the value of a local var) for each local var
-    MorphAssertion* morphAssertionTable;          // table that holds info about local assignments
-
+    MorphAssertion*            morphAssertionTable; // table that holds info about local assignments
+    JitExpandArray<ASSERT_TP>* morphAssertionDep;   // table that holds dependent assertions (assertions
+                                                    // using the value of a local var) for each local var
 public:
     void morphAssertionInit();
     void morphAssertionGen(GenTree* tree);

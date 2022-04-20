@@ -9660,7 +9660,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
         if (optAssertionCount != 0)
         {
-            noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
+            static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
             unsigned tableSize = morphAssertionTableSize(optAssertionCount);
             origAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
             origAssertionCount = optAssertionCount;
@@ -9684,7 +9684,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         // removing assertions that are not present in both states.
         if (optAssertionCount != 0)
         {
-            noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
+            static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be a bad idea");
             unsigned tableSize = morphAssertionTableSize(optAssertionCount);
             elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
             elseAssertionCount = optAssertionCount;

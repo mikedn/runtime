@@ -138,10 +138,8 @@ ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 
 void Compiler::morphAssertionInit()
 {
-    optMaxAssertionCount = 64;
-
     optLocalAssertionProp = true;
-    morphAssertionTable   = new (this, CMK_AssertionProp) MorphAssertion[optMaxAssertionCount];
+    morphAssertionTable   = new (this, CMK_AssertionProp) MorphAssertion[morphAssertionMaxCount];
 
     if (morphAssertionDep == nullptr)
     {
@@ -149,7 +147,7 @@ void Compiler::morphAssertionInit()
             new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(CMK_AssertionProp), max(1, lvaCount));
     }
 
-    apTraits          = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
+    apTraits          = new (this, CMK_AssertionProp) BitVecTraits(morphAssertionMaxCount, this);
     optAssertionCount = 0;
     INDEBUG(morphAssertionId = 0);
 }
@@ -160,7 +158,7 @@ void Compiler::morphAssertionInit()
 // used only during local assertion prop
 void Compiler::morphAssertionReset(unsigned limit)
 {
-    PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
+    PREFAST_ASSUME(optAssertionCount <= morphAssertionMaxCount);
 
     while (optAssertionCount > limit)
     {
@@ -212,7 +210,7 @@ void Compiler::morphAssertionReset(unsigned limit)
 void Compiler::morphAssertionRemove(unsigned index)
 {
     assert(index < optAssertionCount);
-    PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
+    PREFAST_ASSUME(optAssertionCount <= morphAssertionMaxCount);
 
     MorphAssertion* curAssertion = morphGetAssertion(index);
 
@@ -261,13 +259,13 @@ void Compiler::morphAssertionRemove(unsigned index)
 
 unsigned Compiler::morphAssertionTableSize(unsigned count)
 {
-    assert(count <= optMaxAssertionCount);
+    assert(count <= morphAssertionMaxCount);
     return count * sizeof(MorphAssertion);
 }
 
 void Compiler::morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count)
 {
-    assert(count <= optMaxAssertionCount);
+    assert(count <= morphAssertionMaxCount);
     memcpy(toTable, fromTable, count * sizeof(MorphAssertion));
 }
 
@@ -399,7 +397,7 @@ Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned index)
 
 void Compiler::morphAssertionGenNotNull(GenTree* addr)
 {
-    if (optAssertionCount >= optMaxAssertionCount)
+    if (optAssertionCount >= morphAssertionMaxCount)
     {
         return;
     }
@@ -493,7 +491,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
     // TODO-MIKE-Consider: Maybe we can simply overwrite an existing assertion?
     noway_assert(BitVecOps::IsEmpty(apTraits, GetAssertionDep(lclNum)));
 
-    if (optAssertionCount >= optMaxAssertionCount)
+    if (optAssertionCount >= morphAssertionMaxCount)
     {
         return;
     }
@@ -671,7 +669,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
 void Compiler::morphAssertionAdd(MorphAssertion& assertion)
 {
     assert((assertion.kind != Kind::Invalid) && (assertion.valKind != ValueKind::Invalid));
-    assert(optAssertionCount < optMaxAssertionCount);
+    assert(optAssertionCount < morphAssertionMaxCount);
     assert(&assertion == &morphAssertionTable[optAssertionCount]);
 
     INDEBUG(assertion.id = ++morphAssertionId);
