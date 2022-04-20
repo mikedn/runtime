@@ -1084,14 +1084,10 @@ GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
         return nullptr;
     }
 
+    assert(varTypeIsIntegralOrI(op1->GetType()));
+
     ssize_t   cnsVal  = op2->AsIntCon()->gtIconVal;
     var_types cmpType = op1->TypeGet();
-
-    // Don't try to fold/optimize Floating Compares; there are multiple zero values.
-    if (varTypeIsFloating(cmpType))
-    {
-        return nullptr;
-    }
 
     // Find an equal or not equal assertion about op1 var.
     unsigned lclNum = op1->AsLclVar()->GetLclNum();
