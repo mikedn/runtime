@@ -6,6 +6,8 @@
 #pragma hdrstop
 #endif
 
+#if LOCAL_ASSERTION_PROP
+
 struct Compiler::MorphAssertion
 {
     enum class Kind : uint8_t
@@ -144,8 +146,6 @@ void Compiler::morphAssertionInit()
 
     INDEBUG(morphAssertionId = 0);
 }
-
-#if LOCAL_ASSERTION_PROP
 
 // The following resets the value assignment table
 // used only during local assertion prop
@@ -309,8 +309,6 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
         }
     }
 }
-
-#endif // LOCAL_ASSERTION_PROP
 
 #ifdef DEBUG
 
@@ -1357,7 +1355,6 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
     return tree;
 }
 
-#if LOCAL_ASSERTION_PROP
 //------------------------------------------------------------------------
 // morphAssertionKillSingle: Kill all assertions specific to lclNum
 //
@@ -1428,4 +1425,5 @@ void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree))
         morphAssertionKillSingle(varDsc->lvParentLcl DEBUGARG(tree));
     }
 }
+
 #endif // LOCAL_ASSERTION_PROP
