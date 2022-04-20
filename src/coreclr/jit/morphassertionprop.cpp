@@ -378,7 +378,7 @@ void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, con
 
 #endif // DEBUG
 
-Compiler::MorphAssertion* Compiler::morphGetAssertion(unsigned index)
+MorphAssertion* Compiler::morphGetAssertion(unsigned index)
 {
     assert(index < optAssertionCount);
     MorphAssertion* assertion = &morphAssertionTable[index];
@@ -768,7 +768,7 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
     return assertion;
 }
 
-GenTree* Compiler::morphAssertionPropagateConst(MorphAssertion* assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropLclVarConst(MorphAssertion* assertion, GenTreeLclVar* lclVar)
 {
     LclVarDsc* lcl = lvaGetDesc(lclVar->GetLclNum());
 
@@ -891,7 +891,7 @@ GenTree* Compiler::morphAssertionPropagateConst(MorphAssertion* assertion, GenTr
     return conNode;
 }
 
-GenTree* Compiler::morphAssertionPropagateCopy(MorphAssertion* assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropLclVarCopy(MorphAssertion* assertion, GenTreeLclVar* lclVar)
 {
     assert((assertion->kind == Kind::Equal) && (assertion->valKind == ValueKind::LclVar));
 
@@ -957,46 +957,37 @@ GenTree* Compiler::morphAssertionPropagateCopy(MorphAssertion* assertion, GenTre
     return lclVar;
 }
 
-//---------------------------------------------------
-// morphAssertionProp_LclVar: try and optimize a local var use via assertions
-//
-// Arguments:
-//    assertions - set of live assertions
-//    tree       - local use to optimize
-//    stmt       - statement containing the tree
-//
-// Returns:
-//    Updated tree, or nullptr
-//
-// Notes:
-//   stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
+GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
 {
-    assert(tree->OperIs(GT_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_VAR));
 
-    // If we have a var definition then bail or
-    // If this is the address of the var then it will have the GTF_DONT_CSE
-    // flag set and we don't want to to assertion prop on it.
-    if (tree->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE))
+    // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
+    if ((lclVar->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
     {
         return nullptr;
     }
 
-    for (unsigned assertionIndex = 0; assertionIndex < optAssertionCount; ++assertionIndex)
+    unsigned   lclNum = lclVar->GetLclNum();
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    if (lcl->IsAddressExposed())
     {
-        // See if the variable is equal to a constant or another variable.
-        MorphAssertion* curAssertion = morphGetAssertion(assertionIndex);
-        if (curAssertion->kind != Kind::Equal)
+        return nullptr;
+    }
+
+    for (unsigned index = 0; index < optAssertionCount; ++index)
+    {
+        MorphAssertion* assertion = morphGetAssertion(index);
+
+        if (assertion->kind != Kind::Equal)
         {
             continue;
         }
 
-        // Copy prop.
-        if (curAssertion->valKind == ValueKind::LclVar)
+        if (assertion->valKind == ValueKind::LclVar)
         {
-            // Perform copy assertion prop.
-            GenTree* newTree = morphAssertionPropagateCopy(curAssertion, tree);
+            GenTree* newTree = morphAssertionPropLclVarCopy(assertion, lclVar);
+
             if (newTree != nullptr)
             {
                 return newTree;
@@ -1005,21 +996,12 @@ GenTree* Compiler::morphAssertionProp_LclVar(GenTreeLclVar* tree)
             continue;
         }
 
-        // Constant prop.
-        //
-        // The case where the tree type could be different than the LclVar type is caused by
-        // gtFoldExpr, specifically the case of a cast, where the fold operation changes the type of the LclVar
-        // node.  In such a case is not safe to perform the substitution since later on the JIT will assert mismatching
-        // types between trees.
-        const unsigned lclNum = tree->GetLclNum();
-        if (curAssertion->lcl.lclNum == lclNum)
+        if (assertion->lcl.lclNum == lclNum)
         {
-            LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
             // TODO-MIKE-CQ: This is dubious, it tends to block constant prop for small int locals.
-            // Verify types match
-            if (tree->TypeGet() == lclDsc->lvType)
+            if (lclVar->GetType() == lcl->GetType())
             {
-                return morphAssertionPropagateConst(curAssertion, tree);
+                return morphAssertionPropLclVarConst(assertion, lclVar);
             }
         }
     }
@@ -1249,7 +1231,7 @@ GenTree* Compiler::morphAssertionPropIndir(GenTreeIndir* indir)
     return nullptr;
 }
 
-Compiler::MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
+MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
 {
     for (unsigned index = 0; index < optAssertionCount; index++)
     {
@@ -1323,7 +1305,7 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
         switch (tree->GetOper())
         {
             case GT_LCL_VAR:
-                newTree = morphAssertionProp_LclVar(tree->AsLclVar());
+                newTree = morphAssertionPropLclVar(tree->AsLclVar());
                 break;
             case GT_OBJ:
             case GT_BLK:

@@ -6202,13 +6202,13 @@ private:
     void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
     MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
-    GenTree* morphAssertionProp_LclVar(GenTreeLclVar* tree);
+    GenTree* morphAssertionPropLclVar(GenTreeLclVar* lclVar);
     GenTree* morphAssertionPropIndir(GenTreeIndir* indir);
     GenTree* morphAssertionPropCast(GenTreeCast* cast);
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionPropRelOp(GenTreeOp* relop);
-    GenTree* morphAssertionPropagateConst(MorphAssertion* assertion, GenTreeLclVar* lclVar);
-    GenTree* morphAssertionPropagateCopy(MorphAssertion* curAssertion, GenTreeLclVar* tree);
+    GenTree* morphAssertionPropLclVarConst(MorphAssertion* assertion, GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropLclVarCopy(MorphAssertion* assertion, GenTreeLclVar* lclVar);
 
 #ifdef DEBUG
     unsigned morphAssertionId;
