@@ -1320,33 +1320,29 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
 //
 void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
 {
-    /* All dependent assertions are killed here */
-
+    // TODO-MIKE-Review: Looks like this will allocate a bitvector
+    // on every call on 32 bit hosts, this doesn't seem necessary.
+    // In general the whole "AssertionDep" thing is pretty dubious,
+    // we have at most 3 assertions per local - their indices could
+    // be stored in 3 uint8_t and that would take less space.
     ASSERT_TP killed = BitVecOps::MakeCopy(apTraits, GetAssertionDep(lclNum));
 
-    if (killed)
+    for (unsigned count = optAssertionCount; !BitVecOps::IsEmpty(apTraits, killed) && (count > 0); count--)
     {
-        for (unsigned count = optAssertionCount; killed && (count > 0); count--)
+        if (BitVecOps::TryRemoveElemD(apTraits, killed, count - 1))
         {
-            if (BitVecOps::IsMember(apTraits, killed, count - 1))
-            {
-                MorphAssertion* curAssertion = morphGetAssertion(count - 1);
+            MorphAssertion* curAssertion = morphGetAssertion(count - 1);
 
-                assert((curAssertion->lcl.lclNum == lclNum) ||
-                       ((curAssertion->valKind == ValueKind::LclVar) && (curAssertion->val.lcl.lclNum == lclNum)));
+            assert((curAssertion->lcl.lclNum == lclNum) ||
+                   ((curAssertion->valKind == ValueKind::LclVar) && (curAssertion->val.lcl.lclNum == lclNum)));
 
-                DBEXEC(verbose, morphAssertionTrace(curAssertion, tree, "killed"));
+            DBEXEC(verbose, morphAssertionTrace(curAssertion, tree, "killed"));
 
-                // Remove this bit from the killed mask
-                BitVecOps::RemoveElemD(apTraits, killed, count - 1);
-
-                morphAssertionRemove(count - 1);
-            }
+            morphAssertionRemove(count - 1);
         }
-
-        // killed mask should now be zero
-        noway_assert(BitVecOps::IsEmpty(apTraits, killed));
     }
+
+    assert(BitVecOps::IsEmpty(apTraits, killed));
 }
 //------------------------------------------------------------------------
 // morphAssertionKill: Kill all dependent assertions with regard to lclNum.
