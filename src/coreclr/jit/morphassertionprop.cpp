@@ -198,52 +198,45 @@ void Compiler::morphAssertionReset(unsigned limit)
     }
 }
 
-/*****************************************************************************
- *
- *  The following removes the i-th entry in the value assignment table
- *  used only during local assertion prop
- */
-
 void Compiler::morphAssertionRemove(unsigned index)
 {
     assert(index < morphAssertionCount);
     assert(morphAssertionCount <= morphAssertionMaxCount);
 
-    MorphAssertion* curAssertion = morphGetAssertion(index);
+    MorphAssertion* assertion = morphGetAssertion(index);
 
-    //  Two cases to consider if (index == morphAssertionCount) then the last
-    //  entry in the table is to be removed and that happens automatically when
-    //  morphAssertionCount is decremented and we can just clear the morphAssertionDep bits
-    //  The other case is when index < morphAssertionCount and here we overwrite the
-    //  index-th entry in the table with the data found at the end of the table
-    //  Since we are reordering the rable the morphAssertionDep bits need to be recreated
-    //  using optAssertionReset(0) and optAssertionReset(newAssertionCount) will
-    //  correctly update the morphAssertionDep bits
+    BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion->lcl.lclNum), index);
 
-    if (index == morphAssertionCount - 1)
+    if (assertion->valKind == ValueKind::LclVar)
     {
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion->val.lcl.lclNum), index);
+    }
 
-        if (curAssertion->valKind == ValueKind::LclVar)
+    // The order of the assertions isn't important so if the removed assertion isn't
+    // at the end of the table then just move the last assertion instead of moving
+    // down all the assertions between the removed one and the end of the table.
+
+    unsigned lastIndex = morphAssertionCount - 1;
+
+    if (index != lastIndex)
+    {
+        MorphAssertion* lastAssertion = morphGetAssertion(lastIndex);
+
+        ASSERT_TP& lastDep = GetAssertionDep(lastAssertion->lcl.lclNum);
+        BitVecOps::RemoveElemD(apTraits, lastDep, lastIndex);
+        BitVecOps::AddElemD(apTraits, lastDep, index);
+
+        if (lastAssertion->valKind == ValueKind::LclVar)
         {
-            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->val.lcl.lclNum), index);
+            ASSERT_TP& lastCopyDep = GetAssertionDep(lastAssertion->val.lcl.lclNum);
+            BitVecOps::RemoveElemD(apTraits, lastCopyDep, lastIndex);
+            BitVecOps::AddElemD(apTraits, lastCopyDep, index);
         }
 
-        morphAssertionCount--;
+        *assertion = *lastAssertion;
     }
-    else
-    {
-        MorphAssertion* lastAssertion     = morphGetAssertion(morphAssertionCount - 1);
-        unsigned        newAssertionCount = morphAssertionCount - 1;
 
-        morphAssertionReset(0); // This make morphAssertionCount equal 0
-
-        memcpy(curAssertion,  // the entry to be removed
-               lastAssertion, // last entry in the table
-               sizeof(MorphAssertion));
-
-        morphAssertionReset(newAssertionCount);
-    }
+    morphAssertionCount--;
 }
 
 unsigned Compiler::morphAssertionTableSize(unsigned count)
