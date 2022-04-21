@@ -1114,7 +1114,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
     var_types fromType = src->GetType();
     var_types toType   = cast->GetCastType();
 
-    if (varTypeIsFloating(toType) || varTypeIsFloating(fromType))
+    if (!varTypeIsIntegral(toType) || !varTypeIsIntegral(fromType))
     {
         return nullptr;
     }
