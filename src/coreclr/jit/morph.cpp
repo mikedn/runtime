@@ -9653,13 +9653,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         // applies to both then and else expressions, we need to save it before morphing
         // one expression and restore it before morphing the other expression.
 
-        // TODO-MIKE-Cleanup: We should not need to make a copy of the assertion table
-        // here. We could just remember the assertion count and reset it before morphing
-        // the other branch. But the local assertion propagation code is such a mess that
-        // it's difficult to be sure if somewhere it doesn't do something stupid, like
-        // modifying existing assertions.
-        // Anyway, the table is usually fairly small - less than 8 in corelib.
-
         static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
         unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
         origAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
