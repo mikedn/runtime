@@ -163,14 +163,12 @@ void Compiler::morphAssertionDone()
     morphAssertionCount = 0;
 }
 
-// The following resets the value assignment table
-// used only during local assertion prop
-void Compiler::morphAssertionReset(unsigned limit)
+void Compiler::morphAssertionSetCount(unsigned count)
 {
     assert(fgGlobalMorph);
-    assert(limit <= morphAssertionMaxCount);
+    assert(count <= morphAssertionMaxCount);
 
-    while (morphAssertionCount > limit)
+    while (morphAssertionCount > count)
     {
         unsigned        index        = morphAssertionCount - 1;
         MorphAssertion* curAssertion = morphGetAssertion(index);
@@ -184,7 +182,7 @@ void Compiler::morphAssertionReset(unsigned limit)
         }
     }
 
-    while (morphAssertionCount < limit)
+    while (morphAssertionCount < count)
     {
         unsigned        index        = morphAssertionCount++;
         MorphAssertion* curAssertion = morphGetAssertion(index);
@@ -247,12 +245,21 @@ unsigned Compiler::morphAssertionTableSize(unsigned count)
     return count * sizeof(MorphAssertion);
 }
 
-void Compiler::morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count)
+void Compiler::morphAssertionGetTable(MorphAssertion* table, unsigned count)
+{
+    assert(fgGlobalMorph);
+    assert(count <= morphAssertionCount);
+
+    memcpy(table, morphAssertionTable, count * sizeof(MorphAssertion));
+}
+
+void Compiler::morphAssertionSetTable(MorphAssertion* table, unsigned count)
 {
     assert(fgGlobalMorph);
     assert(count <= morphAssertionMaxCount);
 
-    memcpy(toTable, fromTable, count * sizeof(MorphAssertion));
+    memcpy(morphAssertionTable, table, count * sizeof(MorphAssertion));
+    morphAssertionSetCount(count);
 }
 
 void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
@@ -267,7 +274,7 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
 
     if (elseAssertionCount == 0)
     {
-        morphAssertionReset(0);
+        morphAssertionSetCount(0);
         return;
     }
 

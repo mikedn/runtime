@@ -6187,9 +6187,10 @@ public:
     GenTree* morphAssertionProp(GenTree* tree);
     MorphAssertion* morphAssertionIsNotNull(unsigned lclNum);
     MorphAssertion* morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
-    void morphAssertionReset(unsigned limit);
+    void morphAssertionSetCount(unsigned limit);
     unsigned morphAssertionTableSize(unsigned count);
-    void morphAssertionCopyTable(MorphAssertion* toTable, MorphAssertion* fromTable, unsigned count);
+    void morphAssertionGetTable(MorphAssertion* table, unsigned count);
+    void morphAssertionSetTable(MorphAssertion* table, unsigned count);
     void morphAssertionMerge(unsigned        elseAssertionCount,
                              MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
     void morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree));

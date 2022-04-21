@@ -9644,20 +9644,20 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     bool removeRestOfBlock = fgRemoveRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    unsigned        origAssertionCount = 0;
-    MorphAssertion* origAssertionTable = nullptr;
+    // The local assertion propagation state after morphing the condition expression
+    // applies to both then and else expressions, we need to save it before morphing
+    // one expression and restore it before morphing the other expression.
+
+    unsigned        entryAssertionCount = 0;
+    MorphAssertion* entryAssertionTable = nullptr;
 
     if (morphAssertionCount != 0)
     {
-        // The local assertion propagation state after morphing the condition expression
-        // applies to both then and else expressions, we need to save it before morphing
-        // one expression and restore it before morphing the other expression.
-
         static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
-        unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
-        origAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
-        origAssertionCount = morphAssertionCount;
-        morphAssertionCopyTable(origAssertionTable, morphAssertionTable, morphAssertionCount);
+        unsigned tableSize  = morphAssertionTableSize(morphAssertionCount);
+        entryAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
+        entryAssertionCount = morphAssertionCount;
+        morphAssertionGetTable(entryAssertionTable, entryAssertionCount);
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -9678,15 +9678,13 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
         elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
         elseAssertionCount = morphAssertionCount;
-        morphAssertionCopyTable(elseAssertionTable, morphAssertionTable, morphAssertionCount);
-
-        morphAssertionReset(0);
+        morphAssertionGetTable(elseAssertionTable, elseAssertionCount);
+        morphAssertionSetCount(0);
     }
 
-    if (origAssertionCount != 0)
+    if (entryAssertionCount != 0)
     {
-        morphAssertionCopyTable(morphAssertionTable, origAssertionTable, origAssertionCount);
-        morphAssertionReset(origAssertionCount);
+        morphAssertionSetTable(entryAssertionTable, entryAssertionCount);
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -14076,7 +14074,7 @@ void Compiler::fgMorphBlocks()
         if (morphAssertionCount != 0)
         {
             // Clear out the assertion table before processing each basic block.
-            morphAssertionReset(0);
+            morphAssertionSetCount(0);
         }
 #endif
         // Make the current basic block address available globally.
