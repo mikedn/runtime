@@ -8040,6 +8040,13 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
             destLclOffs  = dest->AsLclFld()->GetLclOffs();
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
+
+#if LOCAL_ASSERTION_PROP
+        if (morphAssertionCount != 0)
+        {
+            morphAssertionKill(destLclNum DEBUGARG(asg));
+        }
+#endif
     }
     else if (dest->OperIs(GT_IND))
     {
@@ -8051,13 +8058,6 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     {
         destSize = dest->AsObj()->GetLayout()->GetSize();
     }
-
-#if LOCAL_ASSERTION_PROP
-    if ((destLclNum != BAD_VAR_NUM) && (morphAssertionCount != 0))
-    {
-        morphAssertionKill(destLclNum DEBUGARG(asg));
-    }
-#endif
 
     GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
 
@@ -13310,8 +13310,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         {
             if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
-                morphAssertionKill(lclNode->GetLclNum() DEBUGARG(tree));
+                morphAssertionKill(tree->AsOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() DEBUGARG(tree));
             }
             else
             {
