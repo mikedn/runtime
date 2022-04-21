@@ -278,20 +278,21 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
         return;
     }
 
-    if ((morphAssertionCount == elseAssertionCount) &&
-        (memcmp(elseAssertionTab, morphAssertionTable, morphAssertionCount * sizeof(MorphAssertion)) == 0))
-    {
-        return;
-    }
-
     for (unsigned index = 0; index < morphAssertionCount;)
     {
         MorphAssertion* thenAssertion = morphGetAssertion(index);
         MorphAssertion* elseAssertion = nullptr;
 
-        for (unsigned j = 0; j < elseAssertionCount; j++)
+        // QMARK's "else" branch rarely removes assertions, start by searching for a matching assertion
+        // from the current "then" index (and wrap around if there actually are fewer "else" assertions).
+        for (unsigned j = 0, elseIndex = index; j < elseAssertionCount; j++)
         {
-            MorphAssertion* assertion = &elseAssertionTab[j];
+            if (elseIndex > elseAssertionCount)
+            {
+                elseIndex = 0;
+            }
+
+            MorphAssertion* assertion = &elseAssertionTab[elseIndex++];
 
             if ((assertion->kind == thenAssertion->kind) && (assertion->lcl.lclNum == thenAssertion->lcl.lclNum))
             {
@@ -452,12 +453,6 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
 
     MorphAssertion& assertion = morphAssertionTable[morphAssertionCount];
 
-    // TODO-MIKE-Cleanup: Try to get rid of memset if possible. The use of memcmp
-    // in assertion merging makes it necessary now as there are alignment holes in
-    // MorphAssertion and we need to ensure they do not contain garbage. Otherwise
-    // it's obvious that the code below initializes all the needed data members.
-    memset(&assertion, 0, sizeof(MorphAssertion));
-
     assertion.kind             = Kind::NotNull;
     assertion.valKind          = ValueKind::IntCon;
     assertion.lcl.lclNum       = lclNum;
@@ -490,9 +485,9 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
     }
 
     MorphAssertion& assertion = morphAssertionTable[morphAssertionCount];
-    memset(&assertion, 0, sizeof(MorphAssertion));
-    assert(assertion.kind == Kind::Invalid);
-    assertion.lcl.lclNum = lclNum;
+    assertion.kind            = Kind::Invalid;
+    assertion.valKind         = ValueKind::Invalid;
+    assertion.lcl.lclNum      = lclNum;
 
     val = val->SkipComma();
 
