@@ -1126,6 +1126,13 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
         return nullptr;
     }
 
+    LclVarDsc* lcl = lvaGetDesc(actualSrc->AsLclVar());
+
+    if (lcl->IsAddressExposed())
+    {
+        return nullptr;
+    }
+
     MorphAssertion* assertion = morphAssertionFindRange(actualSrc->AsLclVar()->GetLclNum());
 
     if (assertion == nullptr)
@@ -1169,9 +1176,6 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
         default:
             return nullptr;
     }
-
-    LclVarDsc* lcl = lvaGetDesc(actualSrc->AsLclVar());
-    assert(!lcl->IsAddressExposed());
 
     if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
     {
