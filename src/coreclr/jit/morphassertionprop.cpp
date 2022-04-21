@@ -54,8 +54,8 @@ struct Compiler::MorphAssertion
 
     struct Range
     {
-        ssize_t loBound;
-        ssize_t hiBound;
+        ssize_t min;
+        ssize_t max;
     };
 
     INDEBUG(unsigned id;)
@@ -97,7 +97,7 @@ struct Compiler::MorphAssertion
             case ValueKind::LclVar:
                 return x.lcl.lclNum == y.lcl.lclNum;
             case ValueKind::Range:
-                return (x.range.loBound == y.range.loBound) && (y.range.hiBound == y.range.hiBound);
+                return (x.range.min == y.range.min) && (y.range.max == y.range.max);
             default:
                 return false;
         }
@@ -107,6 +107,25 @@ struct Compiler::MorphAssertion
 using MorphAssertion = Compiler::MorphAssertion;
 using Kind           = MorphAssertion::Kind;
 using ValueKind      = MorphAssertion::ValueKind;
+
+static const MorphAssertion::Range& GetSmallTypeRange(var_types type)
+{
+    static const MorphAssertion::Range ranges[]{
+        {0, 1},                 // BOOL
+        {INT8_MIN, INT8_MAX},   // BYTE
+        {0, UINT8_MAX},         // UBYTE
+        {INT16_MIN, INT16_MAX}, // SHORT
+        {0, UINT16_MAX},        // USHORT
+    };
+
+    static_assert_no_msg(TYP_BYTE - TYP_BOOL == 1);
+    static_assert_no_msg(TYP_UBYTE - TYP_BOOL == 2);
+    static_assert_no_msg(TYP_SHORT - TYP_BOOL == 3);
+    static_assert_no_msg(TYP_USHORT - TYP_BOOL == 4);
+
+    assert(varTypeIsSmall(type));
+    return ranges[type - TYP_BOOL];
+}
 
 //------------------------------------------------------------------------------
 // GetAssertionDep: Retrieve the assertions on this local variable
@@ -369,7 +388,7 @@ void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, con
             printf("%#.17g", val.dblCon.value);
             break;
         case ValueKind::Range:
-            printf("[%Id..%Id]", val.range.loBound, val.range.hiBound);
+            printf("[%Id..%Id]", val.range.min, val.range.max);
             break;
         default:
             printf("???");
@@ -574,30 +593,25 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
         case GT_LE:
         case GT_GT:
         case GT_GE:
-            assertion.kind              = Kind::Equal;
-            assertion.valKind           = ValueKind::Range;
-            assertion.val.range.loBound = 0;
-            assertion.val.range.hiBound = 1;
+            assertion.kind      = Kind::Equal;
+            assertion.valKind   = ValueKind::Range;
+            assertion.val.range = {0, 1};
             break;
 
         case GT_LCL_FLD:
         case GT_IND:
             if (varTypeIsSmall(val->GetType()))
             {
-                assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(val->GetType());
-                assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(val->GetType());
+                assertion.val.range = GetSmallTypeRange(val->GetType());
             }
 #ifdef TARGET_64BIT
             // TODO-MIKE-CQ: This is useless nonsense, of course an INT load has range
             // INT32_MIN..INT32_MAX. Problem is, these assertions still take space in
             // the assertion table and can prevent more assertions from being created
             // so removing this causes diffs. Remove it when it's all done.
-            // Also note that loads should not have UINT type but due to bogus JIT code
-            // that does happen sometimes.
-            else if (val->TypeIs(TYP_INT, TYP_UINT))
+            else if (val->TypeIs(TYP_INT))
             {
-                assertion.val.range.loBound = INT32_MIN;
-                assertion.val.range.hiBound = INT32_MAX;
+                assertion.val.range = {INT32_MIN, INT32_MAX};
             }
 #endif
             else
@@ -623,8 +637,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
 
                 if (varTypeIsSmall(toType))
                 {
-                    assertion.val.range.loBound = AssertionDsc::GetLowerBoundForIntegralType(toType);
-                    assertion.val.range.hiBound = AssertionDsc::GetUpperBoundForIntegralType(toType);
+                    assertion.val.range = GetSmallTypeRange(toType);
                 }
 #ifdef TARGET_64BIT
                 else if ((toType == TYP_INT) || (toType == TYP_UINT))
@@ -633,8 +646,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
                     // a difference however, an overflow checking cast to UINT should produce a
                     // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
                     // No idea why this always produces an INT32_MIN..INT32_MAX range.
-                    assertion.val.range.loBound = INT32_MIN;
-                    assertion.val.range.hiBound = INT32_MAX;
+                    assertion.val.range = {INT32_MIN, INT32_MAX};
                 }
 #endif
                 else
@@ -759,8 +771,10 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
         return nullptr;
     }
 
-    if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(type)) ||
-        (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(type)))
+    const auto& typeRange  = GetSmallTypeRange(type);
+    const auto& valueRange = assertion->val.range;
+
+    if ((valueRange.min < typeRange.min) || (valueRange.max > typeRange.max))
     {
         return nullptr;
     }
@@ -1124,7 +1138,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
         fromType = varTypeToUnsigned(fromType);
     }
 
-    if (varTypeIsUnsigned(fromType) && (assertion->val.range.loBound < 0))
+    if (varTypeIsUnsigned(fromType) && (assertion->val.range.min < 0))
     {
         return nullptr;
     }
@@ -1135,15 +1149,15 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
         case TYP_UBYTE:
         case TYP_SHORT:
         case TYP_USHORT:
-            if ((assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
-                (assertion->val.range.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
+            if ((assertion->val.range.min < GetSmallTypeRange(toType).min) ||
+                (assertion->val.range.max > GetSmallTypeRange(toType).max))
             {
                 return nullptr;
             }
             break;
 
         case TYP_UINT:
-            if (assertion->val.range.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
+            if (assertion->val.range.min < 0)
             {
                 return nullptr;
             }
