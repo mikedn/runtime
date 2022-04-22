@@ -102,6 +102,11 @@ struct Compiler::MorphAssertion
                 return false;
         }
     }
+
+    bool operator==(const MorphAssertion& that) const
+    {
+        return (kind == that.kind) && (lcl.lclNum == that.lcl.lclNum) && HasSameValue(that);
+    }
 };
 
 using MorphAssertion = Compiler::MorphAssertion;
@@ -282,7 +287,7 @@ void Compiler::morphAssertionSetTable(const MorphAssertion* table, unsigned coun
 }
 
 void Compiler::morphAssertionMerge(unsigned              elseAssertionCount,
-                                   const MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
+                                   const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark))
 {
     assert(fgGlobalMorph);
 
@@ -299,8 +304,8 @@ void Compiler::morphAssertionMerge(unsigned              elseAssertionCount,
 
     for (unsigned index = 0; index < morphAssertionCount;)
     {
-        const MorphAssertion& thenAssertion = morphAssertionGet(index);
-        const MorphAssertion* elseAssertion = nullptr;
+        const MorphAssertion& thenAssertion        = morphAssertionGet(index);
+        bool                  hasMatchingAssertion = false;
 
         // QMARK's "else" branch rarely removes assertions, start by searching for a matching assertion
         // from the current "then" index (and wrap around if there actually are fewer "else" assertions).
@@ -311,16 +316,14 @@ void Compiler::morphAssertionMerge(unsigned              elseAssertionCount,
                 elseIndex = 0;
             }
 
-            const MorphAssertion& assertion = elseAssertionTab[elseIndex++];
-
-            if ((assertion.kind == thenAssertion.kind) && (assertion.lcl.lclNum == thenAssertion.lcl.lclNum))
+            if (elseAssertionTable[elseIndex++] == thenAssertion)
             {
-                elseAssertion = &assertion;
+                hasMatchingAssertion = true;
                 break;
             }
         }
 
-        if ((elseAssertion != nullptr) && elseAssertion->HasSameValue(thenAssertion))
+        if (hasMatchingAssertion)
         {
             index++;
         }
