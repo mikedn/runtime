@@ -1354,67 +1354,48 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
     return tree;
 }
 
-//------------------------------------------------------------------------
-// morphAssertionKillSingle: Kill all assertions specific to lclNum
-//
-// Arguments:
-//    lclNum - The varNum of the lclVar for which we're killing assertions.
-//    tree   - (DEBUG only) the tree responsible for killing its assertions.
-//
-void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree))
+void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg))
 {
     ASSERT_TP& killed = GetAssertionDep(lclNum);
 
     for (unsigned count = morphAssertionCount; !BitVecOps::IsEmpty(apTraits, killed) && (count > 0); count--)
     {
-        if (BitVecOps::IsMember(apTraits, killed, count - 1))
+        if (!BitVecOps::IsMember(apTraits, killed, count - 1))
         {
-            MorphAssertion* curAssertion = morphGetAssertion(count - 1);
-
-            assert((curAssertion->lcl.lclNum == lclNum) ||
-                   ((curAssertion->valKind == ValueKind::LclVar) && (curAssertion->val.lcl.lclNum == lclNum)));
-
-            DBEXEC(verbose, morphAssertionTrace(curAssertion, tree, "killed"));
-
-            morphAssertionRemove(count - 1);
+            continue;
         }
+
+        MorphAssertion* assertion = morphGetAssertion(count - 1);
+
+        assert((assertion->lcl.lclNum == lclNum) ||
+               ((assertion->valKind == ValueKind::LclVar) && (assertion->val.lcl.lclNum == lclNum)));
+
+        DBEXEC(verbose, morphAssertionTrace(assertion, asg, "killed"));
+
+        morphAssertionRemove(count - 1);
     }
 
     assert(BitVecOps::IsEmpty(apTraits, killed));
 }
-//------------------------------------------------------------------------
-// morphAssertionKill: Kill all dependent assertions with regard to lclNum.
-//
-// Arguments:
-//    lclNum - The varNum of the lclVar for which we're killing assertions.
-//    tree   - (DEBUG only) the tree responsible for killing its assertions.
-//
-// Notes:
-//    For structs and struct fields, it will invalidate the children and parent
-//    respectively.
-//    Calls morphAssertionKillSingle to kill the assertions for a single lclVar.
-//
-void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree))
+
+void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg))
 {
     assert(fgGlobalMorph);
 
-    morphAssertionKillSingle(lclNum DEBUGARG(tree));
+    morphAssertionKillSingle(lclNum DEBUGARG(asg));
 
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    if (varDsc->lvPromoted)
+    if (lcl->IsPromoted())
     {
-        noway_assert(varTypeIsStruct(varDsc));
-
-        // Kill the field locals.
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            morphAssertionKillSingle(i DEBUGARG(tree));
+            morphAssertionKillSingle(lcl->GetPromotedFieldLclNum(i) DEBUGARG(asg));
         }
     }
-    else if (varDsc->lvIsStructField)
+    else if (lcl->IsPromotedField())
     {
-        morphAssertionKillSingle(varDsc->lvParentLcl DEBUGARG(tree));
+        morphAssertionKillSingle(lcl->GetPromotedFieldParentLclNum() DEBUGARG(asg));
     }
 }
 

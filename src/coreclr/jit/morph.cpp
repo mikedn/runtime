@@ -13301,7 +13301,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         {
             if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                morphAssertionKill(tree->AsOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() DEBUGARG(tree));
+                morphAssertionKill(tree->AsOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() DEBUGARG(tree->AsOp()));
             }
             else
             {

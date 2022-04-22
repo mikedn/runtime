@@ -6193,7 +6193,7 @@ public:
     void morphAssertionSetTable(MorphAssertion* table, unsigned count);
     void morphAssertionMerge(unsigned        elseAssertionCount,
                              MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKill(unsigned lclNum DEBUGARG(GenTree* tree));
+    void morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg));
 
 private:
     ASSERT_TP& GetAssertionDep(unsigned lclNum);
@@ -6202,7 +6202,7 @@ private:
     void morphAssertionAdd(MorphAssertion& assertion);
     MorphAssertion* morphGetAssertion(unsigned index);
     void morphAssertionRemove(unsigned index);
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* tree));
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg));
     MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
     GenTree* morphAssertionPropLclVar(GenTreeLclVar* lclVar);
