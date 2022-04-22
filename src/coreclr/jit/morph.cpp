@@ -13217,8 +13217,6 @@ DONE:
  *  It should only be called once for each node.
  *  If DEBUG is defined the flag GTF_DEBUG_NODE_MORPHED is checked and updated,
  *  to enforce the invariant that each node is only morphed once.
- *  If LOCAL_ASSERTION_PROP is enabled the result tree may be replaced
- *  by an equivalent tree.
  *
  */
 
