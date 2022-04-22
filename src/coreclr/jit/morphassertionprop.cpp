@@ -132,31 +132,6 @@ static const MorphAssertion::Range& GetSmallTypeRange(var_types type)
     return ranges[type - TYP_BOOL];
 }
 
-//------------------------------------------------------------------------------
-// GetAssertionDep: Retrieve the assertions on this local variable
-//
-// Arguments:
-//    lclNum - The local var id.
-//
-// Return Value:
-//    The dependent assertions (assertions using the value of the local var)
-//    of the local var.
-//
-
-ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
-{
-    assert(lclNum < lvaCount);
-
-    ASSERT_TP& dep = morphAssertionDep->GetRef(lclNum);
-
-    if (BitVecOps::MayBeUninit(dep))
-    {
-        dep = BitVecOps::MakeEmpty(apTraits);
-    }
-
-    return dep;
-}
-
 void Compiler::morphAssertionInit()
 {
     assert(fgGlobalMorph);
@@ -198,11 +173,11 @@ void Compiler::morphAssertionSetCount(unsigned count)
         const MorphAssertion& assertion = morphAssertionGet(index);
         morphAssertionCount--;
 
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), index);
+        BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), index);
 
         if (assertion.valKind == ValueKind::LclVar)
         {
-            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), index);
+            BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
         }
     }
 
@@ -211,13 +186,27 @@ void Compiler::morphAssertionSetCount(unsigned count)
         const unsigned        index     = morphAssertionCount++;
         const MorphAssertion& assertion = morphAssertionGet(index);
 
-        BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), index);
+        BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), index);
 
         if (assertion.valKind == ValueKind::LclVar)
         {
-            BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), index);
+            BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
         }
     }
+}
+
+ASSERT_TP& Compiler::morphAssertionGetDependent(unsigned lclNum)
+{
+    assert(lclNum < lvaCount);
+
+    ASSERT_TP& dep = morphAssertionDep->GetRef(lclNum);
+
+    if (BitVecOps::MayBeUninit(dep))
+    {
+        dep = BitVecOps::MakeEmpty(apTraits);
+    }
+
+    return dep;
 }
 
 void Compiler::morphAssertionRemove(unsigned index)
@@ -227,11 +216,11 @@ void Compiler::morphAssertionRemove(unsigned index)
 
     const MorphAssertion& assertion = morphAssertionGet(index);
 
-    BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), index);
+    BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), index);
 
     if (assertion.valKind == ValueKind::LclVar)
     {
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), index);
+        BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
     }
 
     // The order of the assertions isn't important so if the removed assertion isn't
@@ -244,13 +233,13 @@ void Compiler::morphAssertionRemove(unsigned index)
     {
         const MorphAssertion& lastAssertion = morphAssertionGet(lastIndex);
 
-        ASSERT_TP& lastDep = GetAssertionDep(lastAssertion.lcl.lclNum);
+        ASSERT_TP& lastDep = morphAssertionGetDependent(lastAssertion.lcl.lclNum);
         BitVecOps::RemoveElemD(apTraits, lastDep, lastIndex);
         BitVecOps::AddElemD(apTraits, lastDep, index);
 
         if (lastAssertion.valKind == ValueKind::LclVar)
         {
-            ASSERT_TP& lastCopyDep = GetAssertionDep(lastAssertion.val.lcl.lclNum);
+            ASSERT_TP& lastCopyDep = morphAssertionGetDependent(lastAssertion.val.lcl.lclNum);
             BitVecOps::RemoveElemD(apTraits, lastCopyDep, lastIndex);
             BitVecOps::AddElemD(apTraits, lastCopyDep, index);
         }
@@ -404,7 +393,7 @@ const MorphAssertion& Compiler::morphAssertionGet(unsigned index)
     return assertion;
 }
 
-void Compiler::morphAssertionGenNotNull(GenTree* addr)
+void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
 {
     if (morphAssertionCount >= morphAssertionMaxCount)
     {
@@ -477,7 +466,7 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
     morphAssertionAdd(assertion);
 }
 
-void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
+void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
 {
     unsigned   lclNum = lclVar->GetLclNum();
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
@@ -492,7 +481,7 @@ void Compiler::morphAssertionGenEqual(GenTreeLclVar* lclVar, GenTree* val)
     // killed by morph before generating new ones. Just drop to minopts, morphing code
     // is likely broken.
     // TODO-MIKE-Consider: Maybe we can simply overwrite an existing assertion?
-    noway_assert(BitVecOps::IsEmpty(apTraits, GetAssertionDep(lclNum)));
+    noway_assert(BitVecOps::IsEmpty(apTraits, morphAssertionGetDependent(lclNum)));
 
     if (morphAssertionCount >= morphAssertionMaxCount)
     {
@@ -671,23 +660,17 @@ void Compiler::morphAssertionAdd(MorphAssertion& assertion)
     INDEBUG(assertion.id = ++morphAssertionId);
     DBEXEC(verbose, morphAssertionTrace(assertion, optAssertionPropCurrentTree, "generated"));
 
-    BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), morphAssertionCount);
+    BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), morphAssertionCount);
 
     if (assertion.valKind == ValueKind::LclVar)
     {
-        BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), morphAssertionCount);
+        BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), morphAssertionCount);
     }
 
     morphAssertionCount++;
 }
 
-/*****************************************************************************
- *
- *  If this statement creates a value assignment or assertion
- *  then assign an index to the given value assignment by adding
- *  it to the lookup table, if necessary.
- */
-void Compiler::morphAssertionGen(GenTree* tree)
+void Compiler::morphAssertionGenerate(GenTree* tree)
 {
     assert(fgGlobalMorph);
     INDEBUG(optAssertionPropCurrentTree = tree);
@@ -697,7 +680,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
         case GT_ASG:
             if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
             {
-                morphAssertionGenEqual(tree->AsOp()->GetOp(0)->AsLclVar(), tree->AsOp()->GetOp(1));
+                morphAssertionGenerateEqual(tree->AsOp()->GetOp(0)->AsLclVar(), tree->AsOp()->GetOp(1));
             }
             break;
 
@@ -707,13 +690,13 @@ void Compiler::morphAssertionGen(GenTree* tree)
             FALLTHROUGH;
         case GT_IND:
         case GT_NULLCHECK:
-            morphAssertionGenNotNull(tree->AsIndir()->GetAddr());
+            morphAssertionGenerateNotNull(tree->AsIndir()->GetAddr());
             break;
         case GT_ARR_LENGTH:
-            morphAssertionGenNotNull(tree->AsArrLen()->GetArray());
+            morphAssertionGenerateNotNull(tree->AsArrLen()->GetArray());
             break;
         case GT_ARR_ELEM:
-            morphAssertionGenNotNull(tree->AsArrElem()->GetArray());
+            morphAssertionGenerateNotNull(tree->AsArrElem()->GetArray());
             break;
 
         case GT_CALL:
@@ -724,7 +707,7 @@ void Compiler::morphAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                morphAssertionGenNotNull(call->GetThisArg());
+                morphAssertionGenerateNotNull(call->GetThisArg());
             }
         }
         break;
@@ -778,7 +761,7 @@ const MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar,
     return assertion;
 }
 
-GenTree* Compiler::morphAssertionPropLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
 {
     LclVarDsc* lcl = lvaGetDesc(lclVar->GetLclNum());
 
@@ -901,7 +884,7 @@ GenTree* Compiler::morphAssertionPropLclVarConst(const MorphAssertion& assertion
     return conNode;
 }
 
-GenTree* Compiler::morphAssertionPropLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
 {
     assert((assertion.kind == Kind::Equal) && (assertion.valKind == ValueKind::LclVar));
 
@@ -967,7 +950,7 @@ GenTree* Compiler::morphAssertionPropLclVarCopy(const MorphAssertion& assertion,
     return lclVar;
 }
 
-GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_LCL_VAR));
 
@@ -996,7 +979,7 @@ GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
 
         if (assertion.valKind == ValueKind::LclVar)
         {
-            GenTree* newTree = morphAssertionPropLclVarCopy(assertion, lclVar);
+            GenTree* newTree = morphAssertionPropagateLclVarCopy(assertion, lclVar);
 
             if (newTree != nullptr)
             {
@@ -1011,7 +994,7 @@ GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
             // TODO-MIKE-CQ: This is dubious, it tends to block constant prop for small int locals.
             if (lclVar->GetType() == lcl->GetType())
             {
-                return morphAssertionPropLclVarConst(assertion, lclVar);
+                return morphAssertionPropagateLclVarConst(assertion, lclVar);
             }
         }
     }
@@ -1019,7 +1002,7 @@ GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
     return nullptr;
 }
 
-GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
+GenTree* Compiler::morphAssertionPropagateRelOp(GenTreeOp* relop)
 {
     assert(relop->OperIs(GT_EQ, GT_NE));
 
@@ -1104,7 +1087,7 @@ GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
     return op2;
 }
 
-GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
+GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
 {
     GenTree*  src      = cast->GetOp(0);
     var_types fromType = src->GetType();
@@ -1211,7 +1194,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
     return nullptr;
 }
 
-GenTree* Compiler::morphAssertionPropIndir(GenTreeIndir* indir)
+GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
 {
     if ((indir->gtFlags & GTF_EXCEPT) == 0)
     {
@@ -1266,14 +1249,7 @@ const MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
     return nullptr;
 }
 
-/*****************************************************************************
- *
- *  Given a tree consisting of a call and a set of available assertions, we
- *  try to propagate a non-null assertion and modify the Call tree if we can.
- *  Returns the modified tree, or nullptr if no assertion prop took place.
- *
- */
-GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
+GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
 {
     if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
     {
@@ -1303,7 +1279,7 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
     return nullptr;
 }
 
-GenTree* Compiler::morphAssertionProp(GenTree* tree)
+GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
 {
     assert(fgGlobalMorph);
 
@@ -1323,23 +1299,23 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
         switch (tree->GetOper())
         {
             case GT_LCL_VAR:
-                newTree = morphAssertionPropLclVar(tree->AsLclVar());
+                newTree = morphAssertionPropagateLclVar(tree->AsLclVar());
                 break;
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
             case GT_NULLCHECK:
-                newTree = morphAssertionPropIndir(tree->AsIndir());
+                newTree = morphAssertionPropagateIndir(tree->AsIndir());
                 break;
             case GT_CAST:
-                newTree = morphAssertionPropCast(tree->AsCast());
+                newTree = morphAssertionPropagateCast(tree->AsCast());
                 break;
             case GT_CALL:
-                newTree = morphAssertionProp_Call(tree->AsCall());
+                newTree = morphAssertionPropagateCall(tree->AsCall());
                 break;
             case GT_EQ:
             case GT_NE:
-                newTree = morphAssertionPropRelOp(tree->AsOp());
+                newTree = morphAssertionPropagateRelOp(tree->AsOp());
                 break;
             default:
                 newTree = nullptr;
@@ -1352,7 +1328,7 @@ GenTree* Compiler::morphAssertionProp(GenTree* tree)
 
 void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg))
 {
-    ASSERT_TP& killed = GetAssertionDep(lclNum);
+    ASSERT_TP& killed = morphAssertionGetDependent(lclNum);
 
     for (unsigned count = morphAssertionCount; !BitVecOps::IsEmpty(apTraits, killed) && (count > 0); count--)
     {

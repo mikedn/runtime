@@ -8473,7 +8473,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionTable != nullptr)
         {
-            morphAssertionGen(asg);
+            morphAssertionGenerate(asg);
         }
 #endif
 
@@ -8737,7 +8737,7 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionTable != nullptr)
         {
-            morphAssertionGen(fieldAsg);
+            morphAssertionGenerate(fieldAsg);
         }
 #endif
 
@@ -9381,7 +9381,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionTable != nullptr)
         {
-            morphAssertionGen(asgField);
+            morphAssertionGenerate(asgField);
         }
 #endif
 
@@ -13007,7 +13007,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionCount != 0)
         {
-            tree = morphAssertionProp(tree);
+            tree = morphAssertionPropagate(tree);
         }
 #endif
     }
@@ -13303,7 +13303,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
             }
         }
 
-        morphAssertionGen(tree);
+        morphAssertionGenerate(tree);
     }
 #endif // LOCAL_ASSERTION_PROP
 

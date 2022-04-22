@@ -84,10 +84,10 @@ void Compiler::optAddCopies()
         }
 
         /* For lvNormalizeOnLoad(), we need to add a cast to the copy-assignment
-           like "copyLclNum = int(varDsc)" and morphAssertionGen() only
+           like "copyLclNum = int(varDsc)" and optAssertionGen() only
            tracks simple assignments. The same goes for lvNormalizedOnStore as
            the cast is generated in fgMorphSmpOpAsg. This boils down to not having
-           a copy until morphAssertionGen handles this*/
+           a copy until optAssertionGen handles this*/
         if (varDsc->lvNormalizeOnLoad() || varDsc->lvNormalizeOnStore())
         {
             continue;
