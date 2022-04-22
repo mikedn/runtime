@@ -6185,14 +6185,14 @@ public:
     void morphAssertionDone();
     void morphAssertionGen(GenTree* tree);
     GenTree* morphAssertionProp(GenTree* tree);
-    MorphAssertion* morphAssertionIsNotNull(unsigned lclNum);
-    MorphAssertion* morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
+    const MorphAssertion* morphAssertionIsNotNull(unsigned lclNum);
+    const MorphAssertion* morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
     void morphAssertionSetCount(unsigned limit);
     unsigned morphAssertionTableSize(unsigned count);
     void morphAssertionGetTable(MorphAssertion* table, unsigned count);
-    void morphAssertionSetTable(MorphAssertion* table, unsigned count);
-    void morphAssertionMerge(unsigned        elseAssertionCount,
-                             MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
+    void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
+    void morphAssertionMerge(unsigned              elseAssertionCount,
+                             const MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
     void morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg));
 
 private:
@@ -6200,22 +6200,22 @@ private:
     void morphAssertionGenNotNull(GenTree* op1);
     void morphAssertionGenEqual(GenTreeLclVar* op1, GenTree* op2);
     void morphAssertionAdd(MorphAssertion& assertion);
-    MorphAssertion* morphGetAssertion(unsigned index);
+    const MorphAssertion& morphAssertionGet(unsigned index);
     void morphAssertionRemove(unsigned index);
     void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg));
-    MorphAssertion* morphAssertionFindRange(unsigned lclNum);
+    const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
     GenTree* morphAssertionPropLclVar(GenTreeLclVar* lclVar);
     GenTree* morphAssertionPropIndir(GenTreeIndir* indir);
     GenTree* morphAssertionPropCast(GenTreeCast* cast);
     GenTree* morphAssertionProp_Call(GenTreeCall* call);
     GenTree* morphAssertionPropRelOp(GenTreeOp* relop);
-    GenTree* morphAssertionPropLclVarConst(MorphAssertion* assertion, GenTreeLclVar* lclVar);
-    GenTree* morphAssertionPropLclVarCopy(MorphAssertion* assertion, GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
 
 #ifdef DEBUG
     unsigned morphAssertionId;
-    void morphAssertionTrace(MorphAssertion* assertion, GenTree* node, const char* message);
+    void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
 #endif
 #endif
 

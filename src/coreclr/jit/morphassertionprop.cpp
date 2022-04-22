@@ -189,28 +189,28 @@ void Compiler::morphAssertionSetCount(unsigned count)
 
     while (morphAssertionCount > count)
     {
-        unsigned        index        = morphAssertionCount - 1;
-        MorphAssertion* curAssertion = morphGetAssertion(index);
+        const unsigned        index     = morphAssertionCount - 1;
+        const MorphAssertion& assertion = morphAssertionGet(index);
         morphAssertionCount--;
 
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), index);
 
-        if (curAssertion->valKind == ValueKind::LclVar)
+        if (assertion.valKind == ValueKind::LclVar)
         {
-            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(curAssertion->val.lcl.lclNum), index);
+            BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), index);
         }
     }
 
     while (morphAssertionCount < count)
     {
-        unsigned        index        = morphAssertionCount++;
-        MorphAssertion* curAssertion = morphGetAssertion(index);
+        const unsigned        index     = morphAssertionCount++;
+        const MorphAssertion& assertion = morphAssertionGet(index);
 
-        BitVecOps::AddElemD(apTraits, GetAssertionDep(curAssertion->lcl.lclNum), index);
+        BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), index);
 
-        if (curAssertion->valKind == ValueKind::LclVar)
+        if (assertion.valKind == ValueKind::LclVar)
         {
-            BitVecOps::AddElemD(apTraits, GetAssertionDep(curAssertion->val.lcl.lclNum), index);
+            BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), index);
         }
     }
 }
@@ -220,13 +220,13 @@ void Compiler::morphAssertionRemove(unsigned index)
     assert(index < morphAssertionCount);
     assert(morphAssertionCount <= morphAssertionMaxCount);
 
-    MorphAssertion* assertion = morphGetAssertion(index);
+    const MorphAssertion& assertion = morphAssertionGet(index);
 
-    BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion->lcl.lclNum), index);
+    BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), index);
 
-    if (assertion->valKind == ValueKind::LclVar)
+    if (assertion.valKind == ValueKind::LclVar)
     {
-        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion->val.lcl.lclNum), index);
+        BitVecOps::RemoveElemD(apTraits, GetAssertionDep(assertion.val.lcl.lclNum), index);
     }
 
     // The order of the assertions isn't important so if the removed assertion isn't
@@ -237,20 +237,20 @@ void Compiler::morphAssertionRemove(unsigned index)
 
     if (index != lastIndex)
     {
-        MorphAssertion* lastAssertion = morphGetAssertion(lastIndex);
+        const MorphAssertion& lastAssertion = morphAssertionGet(lastIndex);
 
-        ASSERT_TP& lastDep = GetAssertionDep(lastAssertion->lcl.lclNum);
+        ASSERT_TP& lastDep = GetAssertionDep(lastAssertion.lcl.lclNum);
         BitVecOps::RemoveElemD(apTraits, lastDep, lastIndex);
         BitVecOps::AddElemD(apTraits, lastDep, index);
 
-        if (lastAssertion->valKind == ValueKind::LclVar)
+        if (lastAssertion.valKind == ValueKind::LclVar)
         {
-            ASSERT_TP& lastCopyDep = GetAssertionDep(lastAssertion->val.lcl.lclNum);
+            ASSERT_TP& lastCopyDep = GetAssertionDep(lastAssertion.val.lcl.lclNum);
             BitVecOps::RemoveElemD(apTraits, lastCopyDep, lastIndex);
             BitVecOps::AddElemD(apTraits, lastCopyDep, index);
         }
 
-        *assertion = *lastAssertion;
+        morphAssertionTable[index] = lastAssertion;
     }
 
     morphAssertionCount--;
@@ -272,7 +272,7 @@ void Compiler::morphAssertionGetTable(MorphAssertion* table, unsigned count)
     memcpy(table, morphAssertionTable, count * sizeof(MorphAssertion));
 }
 
-void Compiler::morphAssertionSetTable(MorphAssertion* table, unsigned count)
+void Compiler::morphAssertionSetTable(const MorphAssertion* table, unsigned count)
 {
     assert(fgGlobalMorph);
     assert(count <= morphAssertionMaxCount);
@@ -281,8 +281,8 @@ void Compiler::morphAssertionSetTable(MorphAssertion* table, unsigned count)
     morphAssertionSetCount(count);
 }
 
-void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
-                                   MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
+void Compiler::morphAssertionMerge(unsigned              elseAssertionCount,
+                                   const MorphAssertion* elseAssertionTab DEBUGARG(GenTreeQmark* qmark))
 {
     assert(fgGlobalMorph);
 
@@ -299,8 +299,8 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
 
     for (unsigned index = 0; index < morphAssertionCount;)
     {
-        MorphAssertion* thenAssertion = morphGetAssertion(index);
-        MorphAssertion* elseAssertion = nullptr;
+        const MorphAssertion& thenAssertion = morphAssertionGet(index);
+        const MorphAssertion* elseAssertion = nullptr;
 
         // QMARK's "else" branch rarely removes assertions, start by searching for a matching assertion
         // from the current "then" index (and wrap around if there actually are fewer "else" assertions).
@@ -311,16 +311,16 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
                 elseIndex = 0;
             }
 
-            MorphAssertion* assertion = &elseAssertionTab[elseIndex++];
+            const MorphAssertion& assertion = elseAssertionTab[elseIndex++];
 
-            if ((assertion->kind == thenAssertion->kind) && (assertion->lcl.lclNum == thenAssertion->lcl.lclNum))
+            if ((assertion.kind == thenAssertion.kind) && (assertion.lcl.lclNum == thenAssertion.lcl.lclNum))
             {
-                elseAssertion = assertion;
+                elseAssertion = &assertion;
                 break;
             }
         }
 
-        if ((elseAssertion != nullptr) && elseAssertion->HasSameValue(*thenAssertion))
+        if ((elseAssertion != nullptr) && elseAssertion->HasSameValue(thenAssertion))
         {
             index++;
         }
@@ -334,23 +334,16 @@ void Compiler::morphAssertionMerge(unsigned        elseAssertionCount,
 
 #ifdef DEBUG
 
-void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, const char* message)
+void Compiler::morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message)
 {
-    printf("[%06u] %s assertion", node->GetID(), message);
-
-    if ((assertion >= morphAssertionTable) && (assertion < morphAssertionTable + morphAssertionCount))
-    {
-        printf(" #%02u", assertion->id);
-    }
-
-    printf(" V%02u", assertion->lcl.lclNum);
+    printf("[%06u] %s assertion #%02u V%02u", node->GetID(), message, assertion.id, assertion.lcl.lclNum);
 
     const char* op;
 
-    switch (assertion->kind)
+    switch (assertion.kind)
     {
         case Kind::Equal:
-            op = assertion->valKind == ValueKind::Range ? "in" : "==";
+            op = assertion.valKind == ValueKind::Range ? "in" : "==";
             break;
         case Kind::NotNull:
             op = "!=";
@@ -362,9 +355,9 @@ void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, con
 
     printf(" %s ", op);
 
-    const auto& val = assertion->val;
+    const auto& val = assertion.val;
 
-    switch (assertion->valKind)
+    switch (assertion.valKind)
     {
         case ValueKind::LclVar:
             printf("V%02u", val.lcl.lclNum);
@@ -400,11 +393,11 @@ void Compiler::morphAssertionTrace(MorphAssertion* assertion, GenTree* node, con
 
 #endif // DEBUG
 
-MorphAssertion* Compiler::morphGetAssertion(unsigned index)
+const MorphAssertion& Compiler::morphAssertionGet(unsigned index)
 {
     assert(index < morphAssertionCount);
-    MorphAssertion* assertion = &morphAssertionTable[index];
-    assert((assertion->kind != Kind::Invalid) && (assertion->lcl.lclNum < lvaCount));
+    const MorphAssertion& assertion = morphAssertionTable[index];
+    assert((assertion.kind != Kind::Invalid) && (assertion.lcl.lclNum < lvaCount));
     return assertion;
 }
 
@@ -462,9 +455,9 @@ void Compiler::morphAssertionGenNotNull(GenTree* addr)
     // currently the NotNull propagation code ignores constant assertions.
     for (unsigned i = morphAssertionCount - 1; i != UINT32_MAX; i--)
     {
-        MorphAssertion* existing = morphGetAssertion(i);
+        const MorphAssertion& existing = morphAssertionGet(i);
 
-        if ((existing->lcl.lclNum == lclNum) && (existing->kind == Kind::NotNull))
+        if ((existing.lcl.lclNum == lclNum) && (existing.kind == Kind::NotNull))
         {
             return;
         }
@@ -673,7 +666,7 @@ void Compiler::morphAssertionAdd(MorphAssertion& assertion)
     assert(&assertion == &morphAssertionTable[morphAssertionCount]);
 
     INDEBUG(assertion.id = ++morphAssertionId);
-    DBEXEC(verbose, morphAssertionTrace(&assertion, optAssertionPropCurrentTree, "generated"));
+    DBEXEC(verbose, morphAssertionTrace(assertion, optAssertionPropCurrentTree, "generated"));
 
     BitVecOps::AddElemD(apTraits, GetAssertionDep(assertion.lcl.lclNum), morphAssertionCount);
 
@@ -738,22 +731,22 @@ void Compiler::morphAssertionGen(GenTree* tree)
     }
 }
 
-MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
+const MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
 {
     for (unsigned index = 0; index < morphAssertionCount; index++)
     {
-        MorphAssertion* assertion = morphGetAssertion(index);
+        const MorphAssertion& assertion = morphAssertionGet(index);
 
-        if ((assertion->kind == Kind::Equal) && (assertion->lcl.lclNum == lclNum))
+        if ((assertion.kind == Kind::Equal) && (assertion.lcl.lclNum == lclNum))
         {
-            return assertion->valKind == ValueKind::Range ? assertion : nullptr;
+            return assertion.valKind == ValueKind::Range ? &assertion : nullptr;
         }
     }
 
     return nullptr;
 }
 
-MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
+const MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
 {
     assert(fgGlobalMorph);
 
@@ -764,7 +757,7 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
         return nullptr;
     }
 
-    MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());
+    const MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());
 
     if (assertion == nullptr)
     {
@@ -782,7 +775,7 @@ MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_t
     return assertion;
 }
 
-GenTree* Compiler::morphAssertionPropLclVarConst(MorphAssertion* assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
 {
     LclVarDsc* lcl = lvaGetDesc(lclVar->GetLclNum());
 
@@ -793,10 +786,10 @@ GenTree* Compiler::morphAssertionPropLclVarConst(MorphAssertion* assertion, GenT
         return nullptr;
     }
 
-    const auto& val     = assertion->val;
+    const auto& val     = assertion.val;
     GenTree*    conNode = nullptr;
 
-    switch (assertion->valKind)
+    switch (assertion.valKind)
     {
         case ValueKind::DblCon:
             // There could be a positive zero and a negative zero, so don't propagate zeroes.
@@ -905,12 +898,12 @@ GenTree* Compiler::morphAssertionPropLclVarConst(MorphAssertion* assertion, GenT
     return conNode;
 }
 
-GenTree* Compiler::morphAssertionPropLclVarCopy(MorphAssertion* assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
 {
-    assert((assertion->kind == Kind::Equal) && (assertion->valKind == ValueKind::LclVar));
+    assert((assertion.kind == Kind::Equal) && (assertion.valKind == ValueKind::LclVar));
 
-    unsigned lclNumDst = assertion->lcl.lclNum;
-    unsigned lclNumSrc = assertion->val.lcl.lclNum;
+    unsigned lclNumDst = assertion.lcl.lclNum;
+    unsigned lclNumSrc = assertion.val.lcl.lclNum;
 
     assert(lclNumDst != lclNumSrc);
 
@@ -991,14 +984,14 @@ GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
 
     for (unsigned index = 0; index < morphAssertionCount; ++index)
     {
-        MorphAssertion* assertion = morphGetAssertion(index);
+        const MorphAssertion& assertion = morphAssertionGet(index);
 
-        if (assertion->kind != Kind::Equal)
+        if (assertion.kind != Kind::Equal)
         {
             continue;
         }
 
-        if (assertion->valKind == ValueKind::LclVar)
+        if (assertion.valKind == ValueKind::LclVar)
         {
             GenTree* newTree = morphAssertionPropLclVarCopy(assertion, lclVar);
 
@@ -1010,7 +1003,7 @@ GenTree* Compiler::morphAssertionPropLclVar(GenTreeLclVar* lclVar)
             continue;
         }
 
-        if (assertion->lcl.lclNum == lclNum)
+        if (assertion.lcl.lclNum == lclNum)
         {
             // TODO-MIKE-CQ: This is dubious, it tends to block constant prop for small int locals.
             if (lclVar->GetType() == lcl->GetType())
@@ -1073,22 +1066,22 @@ GenTree* Compiler::morphAssertionPropRelOp(GenTreeOp* relop)
 
     for (unsigned index = 0; index < morphAssertionCount; ++index)
     {
-        MorphAssertion* assertion = morphGetAssertion(index);
+        const MorphAssertion& assertion = morphAssertionGet(index);
 
-        if ((assertion->lcl.lclNum != lclNum) || (assertion->valKind != ValueKind::IntCon))
+        if ((assertion.lcl.lclNum != lclNum) || (assertion.valKind != ValueKind::IntCon))
         {
             continue;
         }
 
-        if (assertion->kind == Kind::Equal)
+        if (assertion.kind == Kind::Equal)
         {
-            result = relop->OperIs(GT_EQ) == (value == (assertion->val.intCon.value & valueMask)) ? 1 : 0;
+            result = relop->OperIs(GT_EQ) == (value == (assertion.val.intCon.value & valueMask)) ? 1 : 0;
             DBEXEC(verbose, morphAssertionTrace(assertion, op2, "propagated"));
             break;
         }
 
-        assert(assertion->kind == Kind::NotNull);
-        assert(assertion->val.intCon.value == 0);
+        assert(assertion.kind == Kind::NotNull);
+        assert(assertion.val.intCon.value == 0);
 
         if (value == 0)
         {
@@ -1133,7 +1126,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
         return nullptr;
     }
 
-    MorphAssertion* assertion = morphAssertionFindRange(actualSrc->AsLclVar()->GetLclNum());
+    const MorphAssertion* assertion = morphAssertionFindRange(actualSrc->AsLclVar()->GetLclNum());
 
     if (assertion == nullptr)
     {
@@ -1198,7 +1191,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
 
         tmp->SetType(toType);
 
-        DBEXEC(verbose, morphAssertionTrace(assertion, cast, "propagated"));
+        DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
 
         return src;
     }
@@ -1207,7 +1200,7 @@ GenTree* Compiler::morphAssertionPropCast(GenTreeCast* cast)
     {
         cast->gtFlags &= ~GTF_OVERFLOW;
 
-        DBEXEC(verbose, morphAssertionTrace(assertion, cast, "propagated"));
+        DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
 
         return cast;
     }
@@ -1234,9 +1227,9 @@ GenTree* Compiler::morphAssertionPropIndir(GenTreeIndir* indir)
         return nullptr;
     }
 
-    if (MorphAssertion* assertion = morphAssertionIsNotNull(addr->AsLclVar()->GetLclNum()))
+    if (const MorphAssertion* assertion = morphAssertionIsNotNull(addr->AsLclVar()->GetLclNum()))
     {
-        DBEXEC(verbose, morphAssertionTrace(assertion, indir, "propagated"));
+        DBEXEC(verbose, morphAssertionTrace(*assertion, indir, "propagated"));
 
         indir->gtFlags &= ~GTF_EXCEPT;
         indir->gtFlags |= GTF_IND_NONFAULTING;
@@ -1249,21 +1242,21 @@ GenTree* Compiler::morphAssertionPropIndir(GenTreeIndir* indir)
     return nullptr;
 }
 
-MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
+const MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
 {
     assert(fgGlobalMorph);
 
     for (unsigned index = 0; index < morphAssertionCount; index++)
     {
-        MorphAssertion* curAssertion = morphGetAssertion(index);
+        const MorphAssertion& assertion = morphAssertionGet(index);
 
-        if ((curAssertion->kind == Kind::NotNull) && (curAssertion->lcl.lclNum == lclNum))
+        if ((assertion.kind == Kind::NotNull) && (assertion.lcl.lclNum == lclNum))
         {
-            assert(curAssertion->valKind == ValueKind::IntCon);
-            assert(curAssertion->val.intCon.value == 0);
+            assert(assertion.valKind == ValueKind::IntCon);
+            assert(assertion.val.intCon.value == 0);
             assert(!lvaGetDesc(lclNum)->IsAddressExposed());
 
-            return curAssertion;
+            return &assertion;
         }
     }
 
@@ -1292,9 +1285,9 @@ GenTree* Compiler::morphAssertionProp_Call(GenTreeCall* call)
         return nullptr;
     }
 
-    if (MorphAssertion* assertion = morphAssertionIsNotNull(op1->AsLclVar()->GetLclNum()))
+    if (const MorphAssertion* assertion = morphAssertionIsNotNull(op1->AsLclVar()->GetLclNum()))
     {
-        DBEXEC(verbose, morphAssertionTrace(assertion, call, "propagated"));
+        DBEXEC(verbose, morphAssertionTrace(*assertion, call, "propagated"));
 
         call->gtFlags &= ~GTF_CALL_NULLCHECK;
         call->gtFlags &= ~GTF_EXCEPT;
@@ -1365,10 +1358,10 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
             continue;
         }
 
-        MorphAssertion* assertion = morphGetAssertion(count - 1);
+        const MorphAssertion& assertion = morphAssertionGet(count - 1);
 
-        assert((assertion->lcl.lclNum == lclNum) ||
-               ((assertion->valKind == ValueKind::LclVar) && (assertion->val.lcl.lclNum == lclNum)));
+        assert((assertion.lcl.lclNum == lclNum) ||
+               ((assertion.valKind == ValueKind::LclVar) && (assertion.val.lcl.lclNum == lclNum)));
 
         DBEXEC(verbose, morphAssertionTrace(assertion, asg, "killed"));
 
