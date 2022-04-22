@@ -13289,13 +13289,8 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
     }
 
-    if (tree->OperIsConst())
-    {
-        goto DONE;
-    }
-
 #if LOCAL_ASSERTION_PROP
-    if (morphAssertionTable != nullptr)
+    if (!tree->OperIsConst() && (morphAssertionTable != nullptr))
     {
         if (morphAssertionCount != 0)
         {
@@ -13314,12 +13309,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
     }
 #endif // LOCAL_ASSERTION_PROP
 
-DONE:;
-
-#ifdef DEBUG
-    /* Mark this node as being morphed */
-    tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 }
 
 /*****************************************************************************
