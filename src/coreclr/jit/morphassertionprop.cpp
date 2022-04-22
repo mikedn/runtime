@@ -732,7 +732,7 @@ const MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
     return nullptr;
 }
 
-const MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
+bool Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
 {
     assert(fgGlobalMorph);
 
@@ -755,10 +755,12 @@ const MorphAssertion* Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar,
 
     if ((valueRange.min < typeRange.min) || (valueRange.max > typeRange.max))
     {
-        return nullptr;
+        return false;
     }
 
-    return assertion;
+    DBEXEC(verbose, morphAssertionTrace(*assertion, lclVar, "propagated"));
+
+    return true;
 }
 
 GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
