@@ -1215,24 +1215,24 @@ GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
         return nullptr;
     }
 
-    if (const MorphAssertion* assertion = morphAssertionIsNotNull(addr->AsLclVar()->GetLclNum()))
+    if (!morphAssertionIsNotNull(addr->AsLclVar()))
     {
-        DBEXEC(verbose, morphAssertionTrace(*assertion, indir, "propagated"));
-
-        indir->gtFlags &= ~GTF_EXCEPT;
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-        // Set this flag to prevent reordering
-        indir->gtFlags |= GTF_ORDER_SIDEEFF;
-
-        return indir;
+        return nullptr;
     }
 
-    return nullptr;
+    indir->gtFlags &= ~GTF_EXCEPT;
+    indir->gtFlags |= GTF_IND_NONFAULTING;
+    // Set this flag to prevent reordering
+    indir->gtFlags |= GTF_ORDER_SIDEEFF;
+
+    return indir;
 }
 
-const MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
+bool Compiler::morphAssertionIsNotNull(GenTreeLclVar* lclVar)
 {
     assert(fgGlobalMorph);
+
+    unsigned lclNum = lclVar->GetLclNum();
 
     for (unsigned index = 0; index < morphAssertionCount; index++)
     {
@@ -1244,11 +1244,13 @@ const MorphAssertion* Compiler::morphAssertionIsNotNull(unsigned lclNum)
             assert(assertion.val.intCon.value == 0);
             assert(!lvaGetDesc(lclNum)->IsAddressExposed());
 
-            return &assertion;
+            DBEXEC(verbose, morphAssertionTrace(assertion, lclVar, "propagated"));
+
+            return true;
         }
     }
 
-    return nullptr;
+    return false;
 }
 
 GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
@@ -1266,19 +1268,17 @@ GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
         return nullptr;
     }
 
-    if (const MorphAssertion* assertion = morphAssertionIsNotNull(op1->AsLclVar()->GetLclNum()))
+    if (!morphAssertionIsNotNull(op1->AsLclVar()))
     {
-        DBEXEC(verbose, morphAssertionTrace(*assertion, call, "propagated"));
-
-        call->gtFlags &= ~GTF_CALL_NULLCHECK;
-        call->gtFlags &= ~GTF_EXCEPT;
-
-        noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
-
-        return call;
+        return nullptr;
     }
 
-    return nullptr;
+    call->gtFlags &= ~GTF_CALL_NULLCHECK;
+    call->gtFlags &= ~GTF_EXCEPT;
+
+    noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
+
+    return call;
 }
 
 GenTree* Compiler::morphAssertionPropagate(GenTree* tree)

@@ -5248,8 +5248,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         if (mac->isAddressTaken)
         {
 #if LOCAL_ASSERTION_PROP
-            if ((nullCheckAddr == nullptr) || (morphAssertionCount == 0) ||
-                !morphAssertionIsNotNull(nullCheckAddr->GetLclNum()))
+            if ((nullCheckAddr == nullptr) || (morphAssertionCount == 0) || !morphAssertionIsNotNull(nullCheckAddr))
 #endif
             {
                 addr->SetDoNotCSE();
