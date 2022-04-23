@@ -650,6 +650,13 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
                 return;
             }
 
+            if (varTypeIsLong(lcl->GetType()))
+            {
+                // TODO-MIKE-Review: We don't generate ranges for LONG locals. Not clear why,
+                // it's likely that there aren't many useful cases.
+                return;
+            }
+
             {
                 var_types toType = val->AsCast()->GetCastType();
 
@@ -1145,7 +1152,7 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
 
     LclVarDsc* lcl = lvaGetDesc(actualSrc->AsLclVar());
 
-    if (lcl->IsAddressExposed())
+    if (lcl->IsAddressExposed() || varTypeIsLong(lcl->GetType()))
     {
         return nullptr;
     }
@@ -1187,7 +1194,7 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
         assert(toType == TYP_INT);
     }
 
-    if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
+    if (!lcl->lvNormalizeOnLoad())
     {
         DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
 
