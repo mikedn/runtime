@@ -54,8 +54,10 @@ struct Compiler::MorphAssertion
 
     struct Range
     {
-        ssize_t min;
-        ssize_t max;
+        // For now ranges can be INT only, we'd only need LONG for overflow checking casts
+        // to/from ULONG, those would generate a 0..INT64_MAX range but they're rare.
+        int32_t min;
+        int32_t max;
     };
 
     INDEBUG(unsigned id;)
@@ -404,7 +406,7 @@ void Compiler::morphAssertionTrace(const MorphAssertion& assertion, GenTree* nod
             printf("%#.17g", val.dblCon.value);
             break;
         case ValueKind::Range:
-            printf("[%Id..%Id]", val.range.min, val.range.max);
+            printf("[%d..%d]", val.range.min, val.range.max);
             break;
         default:
             printf("???");
