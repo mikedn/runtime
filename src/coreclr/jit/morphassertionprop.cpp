@@ -1203,10 +1203,13 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
 
     if (varTypeSize(toType) <= varTypeSize(lcl->GetType()))
     {
-        if (toType == TYP_UINT)
-        {
-            toType = TYP_INT;
-        }
+        assert(varTypeIsSmallInt(toType));
+
+        // TODO-MIKE-Review: What the crap is this code doing? This changes the type
+        // of a LCL_VAR node to another type that is not necessarily the same as the
+        // local's type or INT. That's just bonkers. As if the whole INT/small int
+        // dance of small int locals and implicit LONG/INT truncation weren't stupid
+        // enough.
 
         GenTree* tmp = src;
 
