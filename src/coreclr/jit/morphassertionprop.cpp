@@ -1191,6 +1191,8 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
 
     if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
     {
+        DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
+
         return src;
     }
 
