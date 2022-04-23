@@ -132,6 +132,38 @@ static const MorphAssertion::Range& GetSmallTypeRange(var_types type)
     return ranges[type - TYP_BOOL];
 }
 
+struct Compiler::MorphAssertionBitVecTraits
+{
+    static void* Alloc(Compiler* c, size_t byteSize)
+    {
+        return c->getAllocator(CMK_AssertionProp).allocate<char>(byteSize);
+    }
+
+    static unsigned GetSize(Compiler*)
+    {
+        return Compiler::morphAssertionMaxCount;
+    }
+
+    static unsigned GetArrSize(Compiler*, unsigned elemSize)
+    {
+        unsigned elemBits = 8 * elemSize;
+        return roundUp(Compiler::morphAssertionMaxCount, elemBits) / elemBits;
+    }
+};
+
+// TODO-MIKE-Throughput: It looks like on 32 bit hosts we end up allocating memory for bit vectors
+// because the max assertion count is still 64. And we can't reduce it to 32, in fact we'd want to
+// increase it because some block need more than 64 assertions. One alternative would be to just
+// use uint64_t as a bit vector but then morphAssertionDep would be larger on 32 bit hosts. And if
+// we need more than 64 assertions then we're back to square 1 anyway.
+//
+// At the end of the day local assertion storage is messed up and could use a replacement.
+// LclVarDsc appears to have 2 pointer sized members that are not needed during global morph, those
+// could be used to link assertions directly to locals and entirely avoid the bit vector stuff, not
+// to mention the stupid linear search that's probably one of the reasons the max assertion count is
+// limited to 64 now.
+using DepBitVecOps = BitSetOps<BitSetShortLongRep, BSShortLong, Compiler*, Compiler::MorphAssertionBitVecTraits>;
+
 void Compiler::morphAssertionInit()
 {
     assert(fgGlobalMorph);
@@ -147,8 +179,7 @@ void Compiler::morphAssertionInit()
     CompAllocator allocator = getAllocator(CMK_AssertionProp);
 
     morphAssertionTable = new (allocator) MorphAssertion[morphAssertionMaxCount];
-    morphAssertionDep   = new (allocator) JitExpandArray<ASSERT_TP>(allocator, max(1, lvaCount));
-    apTraits            = new (allocator) BitVecTraits(morphAssertionMaxCount, this);
+    morphAssertionDep   = new (allocator) JitExpandArray<BitVec>(allocator, max(1, lvaCount));
     morphAssertionCount = 0;
 
     INDEBUG(morphAssertionId = 0);
@@ -173,11 +204,11 @@ void Compiler::morphAssertionSetCount(unsigned count)
         const MorphAssertion& assertion = morphAssertionGet(index);
         morphAssertionCount--;
 
-        BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), index);
+        DepBitVecOps::RemoveElemD(this, morphAssertionGetDependent(assertion.lcl.lclNum), index);
 
         if (assertion.valKind == ValueKind::LclVar)
         {
-            BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
+            DepBitVecOps::RemoveElemD(this, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
         }
     }
 
@@ -186,24 +217,24 @@ void Compiler::morphAssertionSetCount(unsigned count)
         const unsigned        index     = morphAssertionCount++;
         const MorphAssertion& assertion = morphAssertionGet(index);
 
-        BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), index);
+        DepBitVecOps::AddElemD(this, morphAssertionGetDependent(assertion.lcl.lclNum), index);
 
         if (assertion.valKind == ValueKind::LclVar)
         {
-            BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
+            DepBitVecOps::AddElemD(this, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
         }
     }
 }
 
-ASSERT_TP& Compiler::morphAssertionGetDependent(unsigned lclNum)
+BitVec& Compiler::morphAssertionGetDependent(unsigned lclNum)
 {
     assert(lclNum < lvaCount);
 
-    ASSERT_TP& dep = morphAssertionDep->GetRef(lclNum);
+    BitVec& dep = morphAssertionDep->GetRef(lclNum);
 
-    if (BitVecOps::MayBeUninit(dep))
+    if (DepBitVecOps::MayBeUninit(dep))
     {
-        dep = BitVecOps::MakeEmpty(apTraits);
+        dep = DepBitVecOps::MakeEmpty(this);
     }
 
     return dep;
@@ -216,11 +247,11 @@ void Compiler::morphAssertionRemove(unsigned index)
 
     const MorphAssertion& assertion = morphAssertionGet(index);
 
-    BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), index);
+    DepBitVecOps::RemoveElemD(this, morphAssertionGetDependent(assertion.lcl.lclNum), index);
 
     if (assertion.valKind == ValueKind::LclVar)
     {
-        BitVecOps::RemoveElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
+        DepBitVecOps::RemoveElemD(this, morphAssertionGetDependent(assertion.val.lcl.lclNum), index);
     }
 
     // The order of the assertions isn't important so if the removed assertion isn't
@@ -233,15 +264,15 @@ void Compiler::morphAssertionRemove(unsigned index)
     {
         const MorphAssertion& lastAssertion = morphAssertionGet(lastIndex);
 
-        ASSERT_TP& lastDep = morphAssertionGetDependent(lastAssertion.lcl.lclNum);
-        BitVecOps::RemoveElemD(apTraits, lastDep, lastIndex);
-        BitVecOps::AddElemD(apTraits, lastDep, index);
+        BitVec& lastDep = morphAssertionGetDependent(lastAssertion.lcl.lclNum);
+        DepBitVecOps::RemoveElemD(this, lastDep, lastIndex);
+        DepBitVecOps::AddElemD(this, lastDep, index);
 
         if (lastAssertion.valKind == ValueKind::LclVar)
         {
-            ASSERT_TP& lastCopyDep = morphAssertionGetDependent(lastAssertion.val.lcl.lclNum);
-            BitVecOps::RemoveElemD(apTraits, lastCopyDep, lastIndex);
-            BitVecOps::AddElemD(apTraits, lastCopyDep, index);
+            BitVec& lastCopyDep = morphAssertionGetDependent(lastAssertion.val.lcl.lclNum);
+            DepBitVecOps::RemoveElemD(this, lastCopyDep, lastIndex);
+            DepBitVecOps::AddElemD(this, lastCopyDep, index);
         }
 
         morphAssertionTable[index] = lastAssertion;
@@ -481,7 +512,7 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
     // killed by morph before generating new ones. Just drop to minopts, morphing code
     // is likely broken.
     // TODO-MIKE-Consider: Maybe we can simply overwrite an existing assertion?
-    noway_assert(BitVecOps::IsEmpty(apTraits, morphAssertionGetDependent(lclNum)));
+    noway_assert(DepBitVecOps::IsEmpty(this, morphAssertionGetDependent(lclNum)));
 
     if (morphAssertionCount >= morphAssertionMaxCount)
     {
@@ -660,11 +691,11 @@ void Compiler::morphAssertionAdd(MorphAssertion& assertion)
     INDEBUG(assertion.id = ++morphAssertionId);
     DBEXEC(verbose, morphAssertionTrace(assertion, optAssertionPropCurrentTree, "generated"));
 
-    BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.lcl.lclNum), morphAssertionCount);
+    DepBitVecOps::AddElemD(this, morphAssertionGetDependent(assertion.lcl.lclNum), morphAssertionCount);
 
     if (assertion.valKind == ValueKind::LclVar)
     {
-        BitVecOps::AddElemD(apTraits, morphAssertionGetDependent(assertion.val.lcl.lclNum), morphAssertionCount);
+        DepBitVecOps::AddElemD(this, morphAssertionGetDependent(assertion.val.lcl.lclNum), morphAssertionCount);
     }
 
     morphAssertionCount++;
@@ -1330,11 +1361,11 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
 
 void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg))
 {
-    ASSERT_TP& killed = morphAssertionGetDependent(lclNum);
+    BitVec& killed = morphAssertionGetDependent(lclNum);
 
-    for (unsigned count = morphAssertionCount; !BitVecOps::IsEmpty(apTraits, killed) && (count > 0); count--)
+    for (unsigned count = morphAssertionCount; !DepBitVecOps::IsEmpty(this, killed) && (count > 0); count--)
     {
-        if (!BitVecOps::IsMember(apTraits, killed, count - 1))
+        if (!DepBitVecOps::IsMember(this, killed, count - 1))
         {
             continue;
         }
@@ -1349,7 +1380,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
         morphAssertionRemove(count - 1);
     }
 
-    assert(BitVecOps::IsEmpty(apTraits, killed));
+    assert(DepBitVecOps::IsEmpty(this, killed));
 }
 
 void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg))

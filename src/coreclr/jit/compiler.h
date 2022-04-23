@@ -6174,12 +6174,15 @@ public:
 
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
+    struct MorphAssertionBitVecTraits;
+    friend MorphAssertionBitVecTraits;
 
-    static constexpr unsigned  morphAssertionMaxCount = 64;
-    unsigned                   morphAssertionCount;
-    MorphAssertion*            morphAssertionTable; // table that holds info about local assignments
-    JitExpandArray<ASSERT_TP>* morphAssertionDep;   // table that holds dependent assertions (assertions
-                                                    // using the value of a local var) for each local var
+    static constexpr unsigned morphAssertionMaxCount = 64;
+    unsigned                  morphAssertionCount;
+    MorphAssertion*           morphAssertionTable; // table that holds info about local assignments
+    JitExpandArray<BitVec>*   morphAssertionDep;   // table that holds dependent assertions (assertions
+                                                   // using the value of a local var) for each local var
+
 public:
     void morphAssertionInit();
     void morphAssertionDone();
@@ -6196,7 +6199,7 @@ public:
     void morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg));
 
 private:
-    ASSERT_TP& morphAssertionGetDependent(unsigned lclNum);
+    BitVec& morphAssertionGetDependent(unsigned lclNum);
     void morphAssertionGenerateNotNull(GenTree* op1);
     void morphAssertionGenerateEqual(GenTreeLclVar* op1, GenTree* op2);
     void morphAssertionAdd(MorphAssertion& assertion);
