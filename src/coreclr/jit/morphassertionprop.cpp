@@ -664,6 +664,9 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
                     // a difference however, an overflow checking cast to UINT should produce a
                     // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
                     // No idea why this always produces an INT32_MIN..INT32_MAX range.
+                    // We can also have an INT to LONG cast that tells that a LONG local has INT
+                    // range, this (and any other range information we could deduce from the cast
+                    // source types) is completely ignored now.
                     assertion.val.range = {INT32_MIN, INT32_MAX};
                 }
 #endif
