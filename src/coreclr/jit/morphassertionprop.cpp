@@ -1128,7 +1128,7 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
     var_types fromType = src->GetType();
     var_types toType   = cast->GetCastType();
 
-    if (!varTypeIsIntegral(toType) || !varTypeIsIntegral(fromType))
+    if (!varActualTypeIsInt(toType) || (toType == TYP_BOOL) || !varTypeIsIntegral(fromType))
     {
         return nullptr;
     }
@@ -1164,31 +1164,24 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
         return nullptr;
     }
 
-    switch (toType)
+    if (varTypeIsSmallInt(toType))
     {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-            if ((assertion->val.range.min < GetSmallTypeRange(toType).min) ||
-                (assertion->val.range.max > GetSmallTypeRange(toType).max))
-            {
-                return nullptr;
-            }
-            break;
-
-        case TYP_UINT:
-            if (assertion->val.range.min < 0)
-            {
-                return nullptr;
-            }
-            break;
-
-        case TYP_INT:
-            break;
-
-        default:
+        if ((assertion->val.range.min < GetSmallTypeRange(toType).min) ||
+            (assertion->val.range.max > GetSmallTypeRange(toType).max))
+        {
             return nullptr;
+        }
+    }
+    else if (toType == TYP_UINT)
+    {
+        if (assertion->val.range.min < 0)
+        {
+            return nullptr;
+        }
+    }
+    else
+    {
+        assert(toType == TYP_INT);
     }
 
     if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
