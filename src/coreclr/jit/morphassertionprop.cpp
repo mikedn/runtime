@@ -1201,38 +1201,15 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
         return src;
     }
 
-    if (varTypeSize(toType) <= varTypeSize(lcl->GetType()))
-    {
-        assert(varTypeIsSmallInt(toType));
-
-        // TODO-MIKE-Review: What the crap is this code doing? This changes the type
-        // of a LCL_VAR node to another type that is not necessarily the same as the
-        // local's type or INT. That's just bonkers. As if the whole INT/small int
-        // dance of small int locals and implicit LONG/INT truncation weren't stupid
-        // enough.
-
-        GenTree* tmp = src;
-
-        for (; tmp->OperIs(GT_COMMA); tmp = tmp->AsOp()->GetOp(1))
-        {
-            tmp->SetType(toType);
-        }
-
-        tmp->SetType(toType);
-
-        DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
-
-        return src;
-    }
-
-    if ((cast->gtFlags & GTF_OVERFLOW) != 0)
-    {
-        cast->gtFlags &= ~GTF_OVERFLOW;
-
-        DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
-
-        return cast;
-    }
+    // TODO-MIKE-CQ: It's not entirely clear what the problem with lvNormalizeOnLoad is here.
+    // Old code tried to handle this case but it was broken and removing it produced no diffs.
+    // This happens when a small int promoted field or param local is casted to another small
+    // int type, which isn't exactly common. See morph-assertion-short-param-byte-cast.cs.
+    // There could also be an overflow checking cast to UINT that can be removed if we know
+    // that the value store in the local is positive.
+    // This needs care in the case of promoted struct fields because we don't know if they're
+    // P-DEP or not yet. If they're P-DEP then there will be an implicit truncation on store
+    // that range generation currently ignores. osx-arm64 may also have this problem.
 
     return nullptr;
 }
