@@ -138,7 +138,7 @@ struct Compiler::MorphAssertionBitVecTraits
 {
     static void* Alloc(Compiler* c, size_t byteSize)
     {
-        return c->getAllocator(CMK_AssertionProp).allocate<char>(byteSize);
+        return c->getAllocator(CMK_MorphAssertion).allocate<char>(byteSize);
     }
 
     static unsigned GetSize(Compiler*)
@@ -178,7 +178,7 @@ void Compiler::morphAssertionInit()
         return;
     }
 
-    CompAllocator allocator = getAllocator(CMK_AssertionProp);
+    CompAllocator allocator = getAllocator(CMK_MorphAssertion);
 
     morphAssertionTable = new (allocator) MorphAssertion[morphAssertionMaxCount];
     morphAssertionDep   = new (allocator) JitExpandArray<BitVec>(allocator, max(1, lvaCount));
