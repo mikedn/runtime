@@ -1216,12 +1216,25 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
 
 inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 {
+#ifdef TARGET_64BIT
+    assert((gtType == TYP_INT) || (gtType == TYP_LONG) || (gtType == TYP_REF) || (gtType == TYP_BYREF));
+    assert((gtType != TYP_INT) || ((INT32_MIN <= value) && (value <= INT32_MAX)));
+#else
+    assert((gtType == TYP_INT) || (gtType == TYP_REF) || (gtType == TYP_BYREF));
+#endif
+
     SetOperResetFlags(GT_CNS_INT);
 
     GenTreeIntCon* intCon = AsIntCon();
     intCon->SetValue(value);
     intCon->gtCompileTimeHandle = 0;
     return intCon;
+}
+
+inline GenTreeIntCon* GenTree::ChangeToIntCon(var_types type, ssize_t value)
+{
+    SetType(type);
+    return ChangeToIntCon(value);
 }
 
 #ifndef TARGET_64BIT

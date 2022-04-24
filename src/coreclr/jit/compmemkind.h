@@ -57,6 +57,7 @@ CompMemKindMacro(TailMergeThrows)
 CompMemKindMacro(EarlyProp)
 CompMemKindMacro(ZeroInit)
 CompMemKindMacro(Pgo)
+CompMemKindMacro(MorphAssertion)
 //clang-format on
 
 #undef CompMemKindMacro

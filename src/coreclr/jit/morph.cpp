@@ -597,7 +597,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 {
                     noway_assert(fgIsCommaThrow(folded));
                     folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-                    fgMorphTreeDone(folded);
+                    INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                     return folded;
                 }
 
@@ -3306,8 +3306,9 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
                 {
                     var_types type = varTypeToUnsigned(field->GetType());
 
-                    if (!optLocalAssertionProp ||
-                        (optAssertionIsSubrange(field, TYP_INT, type, apFull) == NO_ASSERTION_INDEX))
+#if LOCAL_ASSERTION_PROP
+                    if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclVar(), type))
+#endif
                     {
                         field->SetType(TYP_INT);
                         field = gtNewCastNode(TYP_INT, field, false, type);
@@ -5020,7 +5021,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     }
 
 #if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && optAssertionIsSubrange(lclVar, TYP_INT, lcl->GetType(), apFull))
+    if ((morphAssertionCount != 0) && morphAssertionIsTypeRange(lclVar, lcl->GetType()))
     {
         return lclVar;
     }
@@ -5033,7 +5034,7 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
     fgMorphTreeDone(lclVar);
 
     GenTreeCast* cast = gtNewCastNode(TYP_INT, lclVar, false, lcl->GetType());
-    fgMorphTreeDone(cast);
+    INDEBUG(cast->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
     return cast;
 }
 
@@ -5247,11 +5248,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         if (mac->isAddressTaken)
         {
 #if LOCAL_ASSERTION_PROP
-            INDEBUG(bool vnBased;)
-            INDEBUG(AssertionIndex assertionIndex;)
-
-            if ((nullCheckAddr == nullptr) || !optLocalAssertionProp || (optAssertionCount == 0) ||
-                !optAssertionIsNonNull(nullCheckAddr, apFull DEBUGARG(&vnBased) DEBUGARG(&assertionIndex)))
+            if ((nullCheckAddr == nullptr) || (morphAssertionCount == 0) || !morphAssertionIsNotNull(nullCheckAddr))
 #endif
             {
                 addr->SetDoNotCSE();
@@ -8042,6 +8039,13 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
             destLclOffs  = dest->AsLclFld()->GetLclOffs();
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
+
+#if LOCAL_ASSERTION_PROP
+        if (morphAssertionCount != 0)
+        {
+            morphAssertionKill(destLclNum DEBUGARG(asg));
+        }
+#endif
     }
     else if (dest->OperIs(GT_IND))
     {
@@ -8053,13 +8057,6 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     {
         destSize = dest->AsObj()->GetLayout()->GetSize();
     }
-
-#if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && (destLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
-    {
-        fgKillDependentAssertions(destLclNum DEBUGARG(asg));
-    }
-#endif
 
     GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
 
@@ -8473,9 +8470,9 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(LclVarDsc* destLclVar, GenTree*
                                                                  destFieldLcl->lvNormalizeOnStore(), baseType));
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionTable != nullptr)
         {
-            optAssertionGen(asg);
+            morphAssertionGenerate(asg);
         }
 #endif
 
@@ -8737,9 +8734,9 @@ GenTreeOp* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned ds
         GenTreeOp* fieldAsg = gtNewAssignNode(fieldDst, fieldSrc);
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionTable != nullptr)
         {
-            optAssertionGen(fieldAsg);
+            morphAssertionGenerate(fieldAsg);
         }
 #endif
 
@@ -8936,9 +8933,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         destLclVar  = lvaGetDesc(destLclNum);
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp && (optAssertionCount > 0))
+        if (morphAssertionCount != 0)
         {
-            fgKillDependentAssertions(destLclNum DEBUGARG(asg));
+            morphAssertionKill(destLclNum DEBUGARG(asg));
         }
 #endif
     }
@@ -9381,9 +9378,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         GenTreeOp* asgField = gtNewAssignNode(destField, srcField);
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionTable != nullptr)
         {
-            optAssertionGen(asgField);
+            morphAssertionGenerate(asgField);
         }
 #endif
 
@@ -9646,30 +9643,20 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     bool removeRestOfBlock = fgRemoveRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    AssertionIndex origAssertionCount = 0;
-    AssertionDsc*  origAssertionTab   = nullptr;
+    // The local assertion propagation state after morphing the condition expression
+    // applies to both then and else expressions, we need to save it before morphing
+    // one expression and restore it before morphing the other expression.
 
-    if (optLocalAssertionProp)
+    unsigned        entryAssertionCount = 0;
+    MorphAssertion* entryAssertionTable = nullptr;
+
+    if (morphAssertionCount != 0)
     {
-        // The local assertion propagation state after morphing the condition expression
-        // applies to both then and else expressions, we need to save it before morphing
-        // one expression and restore it before morphing the other expression.
-
-        // TODO-MIKE-Cleanup: We should not need to make a copy of the assertion table
-        // here. We could just remember the assertion count and reset it before morphing
-        // the other branch. But the local assertion propagation code is such a mess that
-        // it's difficult to be sure if somewhere it doesn't do something stupid, like
-        // modifying existing assertions.
-        // Anyway, the table is usually fairly small - less than 8 in corelib.
-
-        if (optAssertionCount != 0)
-        {
-            noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-            unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
-            origAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
-            origAssertionCount = optAssertionCount;
-            memcpy(origAssertionTab, optAssertionTabPrivate, tabSize);
-        }
+        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
+        unsigned tableSize  = morphAssertionTableSize(morphAssertionCount);
+        entryAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
+        entryAssertionCount = morphAssertionCount;
+        morphAssertionGetTable(entryAssertionTable, entryAssertionCount);
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -9678,31 +9665,25 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     fgRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
-    AssertionIndex elseAssertionCount = 0;
-    AssertionDsc*  elseAssertionTab   = nullptr;
+    unsigned        elseAssertionCount = 0;
+    MorphAssertion* elseAssertionTable = nullptr;
 
-    if (optLocalAssertionProp)
+    // We also need to save the local assertion propagation state after morphing the
+    // first of the then/else expressions. Later we need to merge the two states by
+    // removing assertions that are not present in both states.
+    if (morphAssertionCount != 0)
     {
-        // We also need to save the local assertion propagation state after morphing the
-        // first of the then/else expressions. Later we need to merge the two states by
-        // removing assertions that are not present in both states.
-        if (optAssertionCount != 0)
-        {
-            noway_assert(optAssertionCount <= optMaxAssertionCount); // else ALLOCA() is a bad idea
-            unsigned tabSize   = optAssertionCount * sizeof(AssertionDsc);
-            elseAssertionTab   = (AssertionDsc*)ALLOCA(tabSize);
-            elseAssertionCount = optAssertionCount;
-            memcpy(elseAssertionTab, optAssertionTabPrivate, tabSize);
+        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be a bad idea");
+        unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
+        elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
+        elseAssertionCount = morphAssertionCount;
+        morphAssertionGetTable(elseAssertionTable, elseAssertionCount);
+        morphAssertionSetCount(0);
+    }
 
-            optAssertionReset(0);
-        }
-
-        if (origAssertionCount != 0)
-        {
-            size_t tabSize = origAssertionCount * sizeof(AssertionDsc);
-            memcpy(optAssertionTabPrivate, origAssertionTab, tabSize);
-            optAssertionReset(origAssertionCount);
-        }
+    if (entryAssertionCount != 0)
+    {
+        morphAssertionSetTable(entryAssertionTable, entryAssertionCount);
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -9712,9 +9693,9 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
 #if LOCAL_ASSERTION_PROP
     // Merge assertions after then/else morphing.
-    if (optLocalAssertionProp)
+    if (morphAssertionCount != 0)
     {
-        optAssertionMerge(elseAssertionCount, elseAssertionTab DEBUGARG(qmark));
+        morphAssertionMerge(elseAssertionCount, elseAssertionTable DEBUGARG(qmark));
     }
 #endif // LOCAL_ASSERTION_PROP
 
@@ -10432,7 +10413,7 @@ DONE_MORPHING_CHILDREN:
         if (fgIsCommaThrow(tree))
         {
             tree->AsOp()->gtOp1 = fgMorphTree(tree->AsOp()->gtOp1);
-            fgMorphTreeDone(tree);
+            INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
             return tree;
         }
 
@@ -12572,8 +12553,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
         op1 = fgMorphTree(op1);
 
-        op2->ChangeToIntCon(genLog2(op2->AsLngCon()->GetUInt64Value()));
-        op2->SetType(TYP_INT);
+        op2->ChangeToIntCon(TYP_INT, genLog2(op2->AsLngCon()->GetUInt64Value()));
 
         mul->SetOper(GT_LSH);
         mul->SetOp(0, op1);
@@ -12585,15 +12565,13 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
-        op1->ChangeToIntCon(static_cast<int32_t>(longConst1->GetValue()));
-        op1->SetType(TYP_INT);
+        op1->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst1->GetValue()));
         op1 = gtNewCastNode(TYP_LONG, op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(0, op1);
     }
     else if (GenTreeLngCon* longConst2 = op2->IsLngCon())
     {
-        op2->ChangeToIntCon(static_cast<int32_t>(longConst2->GetValue()));
-        op2->SetType(TYP_INT);
+        op2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst2->GetValue()));
         op2 = gtNewCastNode(TYP_LONG, op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
         mul->SetOp(1, op2);
     }
@@ -13026,24 +13004,10 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
 
 #if LOCAL_ASSERTION_PROP
-        /* Before morphing the tree, we try to propagate any active assertions */
-        if (optLocalAssertionProp)
+        if (morphAssertionCount != 0)
         {
-            /* Do we have any active assertions? */
-
-            if (optAssertionCount > 0)
-            {
-                GenTree* newTree = tree;
-                while (newTree != nullptr)
-                {
-                    tree = newTree;
-                    /* newTree is non-Null if we propagated an assertion */
-                    newTree = optAssertionProp(apFull, tree, nullptr, nullptr);
-                }
-                assert(tree != nullptr);
-            }
+            tree = morphAssertionPropagate(tree);
         }
-        PREFAST_ASSUME(tree != nullptr);
 #endif
     }
 
@@ -13246,104 +13210,12 @@ DONE:
     return tree;
 }
 
-#if LOCAL_ASSERTION_PROP
-//------------------------------------------------------------------------
-// fgKillDependentAssertionsSingle: Kill all assertions specific to lclNum
-//
-// Arguments:
-//    lclNum - The varNum of the lclVar for which we're killing assertions.
-//    tree   - (DEBUG only) the tree responsible for killing its assertions.
-//
-void Compiler::fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree* tree))
-{
-    /* All dependent assertions are killed here */
-
-    ASSERT_TP killed = BitVecOps::MakeCopy(apTraits, GetAssertionDep(lclNum));
-
-    if (killed)
-    {
-        AssertionIndex index = optAssertionCount;
-        while (killed && (index > 0))
-        {
-            if (BitVecOps::IsMember(apTraits, killed, index - 1))
-            {
-#ifdef DEBUG
-                AssertionDsc* curAssertion = optGetAssertion(index);
-                noway_assert((curAssertion->op1.lcl.lclNum == lclNum) ||
-                             ((curAssertion->op2.kind == O2K_LCLVAR_COPY) && (curAssertion->op2.lcl.lclNum == lclNum)));
-                if (verbose)
-                {
-                    printf("\nThe assignment ");
-                    printTreeID(tree);
-                    printf(" using V%02u removes: ", curAssertion->op1.lcl.lclNum);
-                    optPrintAssertion(curAssertion);
-                }
-#endif
-                // Remove this bit from the killed mask
-                BitVecOps::RemoveElemD(apTraits, killed, index - 1);
-
-                optAssertionRemove(index);
-            }
-
-            index--;
-        }
-
-        // killed mask should now be zero
-        noway_assert(BitVecOps::IsEmpty(apTraits, killed));
-    }
-}
-//------------------------------------------------------------------------
-// fgKillDependentAssertions: Kill all dependent assertions with regard to lclNum.
-//
-// Arguments:
-//    lclNum - The varNum of the lclVar for which we're killing assertions.
-//    tree   - (DEBUG only) the tree responsible for killing its assertions.
-//
-// Notes:
-//    For structs and struct fields, it will invalidate the children and parent
-//    respectively.
-//    Calls fgKillDependentAssertionsSingle to kill the assertions for a single lclVar.
-//
-void Compiler::fgKillDependentAssertions(unsigned lclNum DEBUGARG(GenTree* tree))
-{
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
-    if (varDsc->lvPromoted)
-    {
-        noway_assert(varTypeIsStruct(varDsc));
-
-        // Kill the field locals.
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
-        {
-            fgKillDependentAssertionsSingle(i DEBUGARG(tree));
-        }
-
-        // Kill the struct local itself.
-        fgKillDependentAssertionsSingle(lclNum DEBUGARG(tree));
-    }
-    else if (varDsc->lvIsStructField)
-    {
-        // Kill the field local.
-        fgKillDependentAssertionsSingle(lclNum DEBUGARG(tree));
-
-        // Kill the parent struct.
-        fgKillDependentAssertionsSingle(varDsc->lvParentLcl DEBUGARG(tree));
-    }
-    else
-    {
-        fgKillDependentAssertionsSingle(lclNum DEBUGARG(tree));
-    }
-}
-#endif // LOCAL_ASSERTION_PROP
-
 /*****************************************************************************
  *
  *  This function is called to complete the morphing of a tree node
  *  It should only be called once for each node.
  *  If DEBUG is defined the flag GTF_DEBUG_NODE_MORPHED is checked and updated,
  *  to enforce the invariant that each node is only morphed once.
- *  If LOCAL_ASSERTION_PROP is enabled the result tree may be replaced
- *  by an equivalent tree.
  *
  */
 
@@ -13365,53 +13237,76 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         return;
     }
 
+    // The way global morph tries to prevent double/lack of morphing of a node
+    // is rather convoluted. The overall idea is that fgMorphTree is called on
+    // `tree` and:
+    //   - it modifies the tree node itself (e.g. by changing its type or even
+    //     its oper), but does not create new nodes and returns the same `tree`.
+    //     Then fgMorphTreeDone sets GTF_DEBUG_NODE_MORPHED on `tree` (and does
+    //     expect that it hasn't been set).
+    //   - it inserts new nodes (typically as `tree` operands) but still returns
+    //     the same `tree`.
+    //     For `tree` this works as in the previous case.
+    //     For inserted nodes the morphing code is more or less expected to call
+    //     fgMorphTreeDone, at least when nodes may affect assertion propagation
+    //     (e.g. new assignment node, new indir node etc.). Failure to do so is
+    //     not immediately detected, but can later result in asserts if other
+    //     nodes are removed such that these new nodes reach fgMorphTreeDone.
+    //   - it returns a new node and possibly drops `tree` on the floor.
+    //     Here things are a bit bizarre - fgMorphTreeDone expects that the new
+    //     node has GTF_DEBUG_NODE_MORPHED already set. Not clear why, perhaps
+    //     the idea was that if you create a new node you should also pass it to
+    //     fgMorphTree. But if you create a new node in morph then it is likely
+    //     that it can be considered to already be morphed. In any case, it's
+    //     fine for the morphing code to simply set GTF_DEBUG_NODE_MORPHED on
+    //     the new node. It should not call fgMorphTreeDone though, that's done
+    //     anyway in fgMorphTree.
+    //     If the original `tree` is not dropped then fgMorphTreeDone should be
+    //     called on it too, unless morphing code is certain that `tree` does
+    //     not influence assertion propagation.
+    //   - it simply drops `tree` on the floor and returns a descendant node.
+    //     Such a node should have been morphed and have GTF_DEBUG_NODE_MORPHED
+    //     set so this will work fine.
+    //     However, it can result in double assertion generation, which should
+    //     be harmless but may have some throughput cost.
+    // Note that removing nodes from the tree after it has been morphed is not
+    // tracked in any way, even though node removal could theoretically affect
+    // assertion propagation. But this should be impossible, assignments and
+    // indirections are side effects and morph does not have enough information
+    // to remove them, except in the "expression always throws" case. And then
+    // assertion propagation is no longer relevant since the rest of the code
+    // in the basic block will also be removed.
+
     if ((oldTree != nullptr) && (oldTree != tree))
     {
-        /* Ensure that we have morphed this node */
-        assert((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) && "ERROR: Did not morph this node!");
+        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) != 0) && "ERROR: Did not morph this node!");
     }
     else
     {
-        // Ensure that we haven't morphed this node already
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
     }
 
-    if (tree->OperIsConst())
-    {
-        goto DONE;
-    }
-
 #if LOCAL_ASSERTION_PROP
-
-    if (!optLocalAssertionProp)
+    if (!tree->OperIsConst() && (morphAssertionTable != nullptr))
     {
-        goto DONE;
-    }
-
-    if (optAssertionCount > 0)
-    {
-        if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (morphAssertionCount != 0)
         {
-            GenTreeLclVarCommon* lclNode = tree->AsOp()->GetOp(0)->AsLclVarCommon();
-            fgKillDependentAssertions(lclNode->GetLclNum() DEBUGARG(tree));
+            if (tree->OperIs(GT_ASG) && tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            {
+                morphAssertionKill(tree->AsOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() DEBUGARG(tree->AsOp()));
+            }
+            else
+            {
+                // We should not have LIR stores during global morph.
+                assert(!tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+            }
         }
-        else
-        {
-            // We should not have LIR stores during global morph.
-            assert(!tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-        }
+
+        morphAssertionGenerate(tree);
     }
-
-    optAssertionGen(tree);
-
 #endif // LOCAL_ASSERTION_PROP
 
-DONE:;
-
-#ifdef DEBUG
-    /* Mark this node as being morphed */
-    tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 }
 
 /*****************************************************************************
@@ -14133,26 +14028,7 @@ void Compiler::fgMorphBlocks()
     fgGlobalMorph = true;
 
 #if LOCAL_ASSERTION_PROP
-    //
-    // Local assertion prop is enabled if we are optimized
-    //
-    optLocalAssertionProp = opts.OptimizationEnabled();
-
-    if (optLocalAssertionProp)
-    {
-        //
-        // Initialize for local assertion prop
-        //
-        optAssertionInit(true);
-    }
-#elif ASSERTION_PROP
-    //
-    // If LOCAL_ASSERTION_PROP is not set
-    // and we have global assertion prop
-    // then local assertion prop is always off
-    //
-    optLocalAssertionProp = false;
-
+    morphAssertionInit();
 #endif
 
     if (!compEnregLocals())
@@ -14182,14 +14058,10 @@ void Compiler::fgMorphBlocks()
 #endif
 
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp)
+        if (morphAssertionCount != 0)
         {
-            //
-            // Clear out any currently recorded assertion candidates
-            // before processing each basic block,
-            // also we must  handle QMARK-COLON specially
-            //
-            optAssertionReset(0);
+            // Clear out the assertion table before processing each basic block.
+            morphAssertionSetCount(0);
         }
 #endif
         // Make the current basic block address available globally.
@@ -14209,6 +14081,10 @@ void Compiler::fgMorphBlocks()
 
         block = block->bbNext;
     } while (block != nullptr);
+
+#if LOCAL_ASSERTION_PROP
+    morphAssertionDone();
+#endif
 
     // We are done with the global morphing phase
     fgGlobalMorph = false;

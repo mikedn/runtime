@@ -4883,10 +4883,6 @@ public:
     INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
 
 private:
-#if LOCAL_ASSERTION_PROP
-    void fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree* tree));
-    void fgKillDependentAssertions(unsigned lclNum DEBUGARG(GenTree* tree));
-#endif
     void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
 
     Statement* fgMorphStmt;
@@ -5901,7 +5897,6 @@ public:
 public:
     // Data structures for assertion prop
     BitVecTraits* apTraits;
-    ASSERT_TP     apFull;
 
     enum optAssertionKind
     {
@@ -6074,7 +6069,7 @@ public:
             }
         }
 
-        bool HasSameOp1(AssertionDsc* that, bool vnBased)
+        bool HasSameOp1(AssertionDsc* that)
         {
             if (op1.kind != that->op1.kind)
             {
@@ -6082,17 +6077,15 @@ public:
             }
             else if (op1.kind == O1K_ARR_BND)
             {
-                assert(vnBased);
                 return (op1.bnd.vnIdx == that->op1.bnd.vnIdx) && (op1.bnd.vnLen == that->op1.bnd.vnLen);
             }
             else
             {
-                return ((vnBased && (op1.vn == that->op1.vn)) ||
-                        (!vnBased && (op1.lcl.lclNum == that->op1.lcl.lclNum)));
+                return op1.vn == that->op1.vn;
             }
         }
 
-        bool HasSameOp2(AssertionDsc* that, bool vnBased)
+        bool HasSameOp2(AssertionDsc* that)
         {
             if (op2.kind != that->op2.kind)
             {
@@ -6113,8 +6106,7 @@ public:
 
                 case O2K_LCLVAR_COPY:
                 case O2K_ARR_LEN:
-                    return (op2.lcl.lclNum == that->op2.lcl.lclNum) &&
-                           (!vnBased || op2.lcl.ssaNum == that->op2.lcl.ssaNum);
+                    return (op2.lcl.lclNum == that->op2.lcl.lclNum) && (op2.lcl.ssaNum == that->op2.lcl.ssaNum);
 
                 case O2K_SUBRANGE:
                     return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
@@ -6130,13 +6122,12 @@ public:
             return false;
         }
 
-        bool Complementary(AssertionDsc* that, bool vnBased)
+        bool Complementary(AssertionDsc* that)
         {
-            return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that, vnBased) &&
-                   HasSameOp2(that, vnBased);
+            return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that) && HasSameOp2(that);
         }
 
-        bool Equals(AssertionDsc* that, bool vnBased)
+        bool Equals(AssertionDsc* that)
         {
             if (assertionKind != that->assertionKind)
             {
@@ -6145,11 +6136,11 @@ public:
             else if (assertionKind == OAK_NO_THROW)
             {
                 assert(op2.kind == O2K_INVALID);
-                return HasSameOp1(that, vnBased);
+                return HasSameOp1(that);
             }
             else
             {
-                return HasSameOp1(that, vnBased) && HasSameOp2(that, vnBased);
+                return HasSameOp1(that) && HasSameOp2(that);
             }
         }
     };
@@ -6160,17 +6151,14 @@ protected:
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    bool optLocalAssertionProp; // indicates that we are performing local assertion prop
     bool optVNAssertionPropStmtMorphPending;
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
-    AssertionIndex*            optComplementaryAssertionMap;
-    JitExpandArray<ASSERT_TP>* optAssertionDep; // table that holds dependent assertions (assertions
-                                                // using the value of a local var) for each local var
-    AssertionDsc*  optAssertionTabPrivate;      // table that holds info about value assignments
-    AssertionIndex optAssertionCount;           // total number of assertions in the assertion table
-    AssertionIndex optMaxAssertionCount;
+    AssertionIndex* optComplementaryAssertionMap;
+    AssertionDsc*   optAssertionTabPrivate; // table that holds info about value assignments
+    AssertionIndex  optAssertionCount;      // total number of assertions in the assertion table
+    AssertionIndex  optMaxAssertionCount;
 
 public:
     GenTree* optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
@@ -6184,20 +6172,64 @@ public:
     typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
     ValueNumToAssertsMap* optValueNumToAsserts;
 
-    // Assertion prop helpers.
-    ASSERT_TP& GetAssertionDep(unsigned lclNum);
-    AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
-    void optAssertionInit(bool isLocalProp);
-    void optAssertionTraitsInit(AssertionIndex assertionCount);
 #if LOCAL_ASSERTION_PROP
-    void optAssertionReset(AssertionIndex limit);
-    void optAssertionRemove(AssertionIndex index);
-    void optAssertionMerge(unsigned elseAssertionCount, AssertionDsc* elseAssertionTab DEBUGARG(GenTreeQmark* qmark));
+    struct MorphAssertion;
+    struct MorphAssertionBitVecTraits;
+    friend MorphAssertionBitVecTraits;
+
+    static constexpr unsigned morphAssertionMaxCount = 64;
+    unsigned                  morphAssertionCount;
+    MorphAssertion*           morphAssertionTable; // table that holds info about local assignments
+    JitExpandArray<BitVec>*   morphAssertionDep;   // table that holds dependent assertions (assertions
+                                                   // using the value of a local var) for each local var
+
+public:
+    void morphAssertionInit();
+    void morphAssertionDone();
+    void morphAssertionGenerate(GenTree* tree);
+    GenTree* morphAssertionPropagate(GenTree* tree);
+    bool morphAssertionIsNotNull(GenTreeLclVar* lclVar);
+    bool morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
+    void morphAssertionSetCount(unsigned count);
+    unsigned morphAssertionTableSize(unsigned count);
+    void morphAssertionGetTable(MorphAssertion* table, unsigned count);
+    void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
+    void morphAssertionMerge(unsigned              elseAssertionCount,
+                             const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
+    void morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg));
+
+private:
+    BitVec& morphAssertionGetDependent(unsigned lclNum);
+    void morphAssertionGenerateNotNull(GenTree* op1);
+    void morphAssertionGenerateEqual(GenTreeLclVar* op1, GenTree* op2);
+    void morphAssertionAdd(MorphAssertion& assertion);
+    const MorphAssertion& morphAssertionGet(unsigned index);
+    void morphAssertionRemove(unsigned index);
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg));
+    const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
+
+    GenTree* morphAssertionPropagateLclVar(GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
+    GenTree* morphAssertionPropagateCast(GenTreeCast* cast);
+    GenTree* morphAssertionPropagateCall(GenTreeCall* call);
+    GenTree* morphAssertionPropagateRelOp(GenTreeOp* relop);
+    GenTree* morphAssertionPropagateLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropagateLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
+
+#ifdef DEBUG
+    unsigned morphAssertionId;
+    void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
 #endif
+#endif
+
+public:
+    // Assertion prop helpers.
+    AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
+    void optAssertionInit();
 
     // Assertion prop data flow functions.
     void optVNAssertionProp();
-    bool optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
+    bool optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     ASSERT_TP* optInitAssertionDataflowFlags();
     ASSERT_TP* optComputeAssertionGen();
 
@@ -6244,14 +6276,7 @@ public:
     // Used for Relop propagation.
     AssertionIndex optGlobalAssertionIsEqualOrNotEqual(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
     AssertionIndex optGlobalAssertionIsEqualOrNotEqualZero(ASSERT_VALARG_TP assertions, GenTree* op1);
-    AssertionIndex optLocalAssertionIsEqualOrNotEqual(
-        optOp1Kind op1Kind, unsigned lclNum, optOp2Kind op2Kind, ssize_t cnsVal, ASSERT_VALARG_TP assertions);
-
     // Assertion prop for lcl var functions.
-    bool optAssertionProp_LclVarTypeCheck(GenTree* tree, LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
-    GenTree* optCopyAssertionProp(AssertionDsc*        curAssertion,
-                                  GenTreeLclVarCommon* tree,
-                                  Statement* stmt DEBUGARG(AssertionIndex index));
     GenTree* optConstantAssertionProp(AssertionDsc*        curAssertion,
                                       GenTreeLclVarCommon* tree,
                                       Statement* stmt DEBUGARG(AssertionIndex index));
@@ -6266,7 +6291,6 @@ public:
     GenTree* optAssertionProp_Comma(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionProp_BndsChk(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionPropGlobal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionPropLocal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
     GenTree* optAssertionProp_Update(GenTree* newTree, GenTree* tree, Statement* stmt);
     GenTree* optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call);
 

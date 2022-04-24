@@ -210,7 +210,7 @@ void RangeCheck::OptimizeRangeCheck(BasicBlock* block, Statement* stmt, GenTree*
         ssize_t      constVal  = -1;
         GenTreeFlags iconFlags = GTF_EMPTY;
 
-        if (m_pCompiler->optIsTreeKnownIntValue(true, bndsChk->gtArrLen, &constVal, &iconFlags))
+        if (m_pCompiler->optIsTreeKnownIntValue(bndsChk->gtArrLen, &constVal, &iconFlags))
         {
             arrSize = (int)constVal;
         }
@@ -238,7 +238,7 @@ void RangeCheck::OptimizeRangeCheck(BasicBlock* block, Statement* stmt, GenTree*
     {
         ssize_t      idxVal    = -1;
         GenTreeFlags iconFlags = GTF_EMPTY;
-        if (!m_pCompiler->optIsTreeKnownIntValue(true, treeIndex, &idxVal, &iconFlags))
+        if (!m_pCompiler->optIsTreeKnownIntValue(treeIndex, &idxVal, &iconFlags))
         {
             return;
         }

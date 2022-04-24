@@ -431,12 +431,7 @@ enum GenTreeFlags : unsigned int
     GTF_MAKE_CSE    = 0x00000800, // Hoisted expression: try hard to make this into CSE (see optPerformHoistExpr)
     GTF_DONT_CSE    = 0x00001000, // Don't bother CSE'ing this expr
 
-    GTF_NODE_MASK   = 0,          // TODO-MIKE-Cleanup: This should be LATE_ARG but a lot of code used it to deal with the old COLON_COND.
-                                  // The problem is now that it's not clear where it should be used. For example, gtCloneExpr used it to
-                                  // remove COLON_COND from the clone (why, the clone could have been used in a COLON tree too) and at the
-                                  // same time gtCloneExpr did not remove LATE_ARG, even if it's far less likely that the clone would have
-                                  // been a late arg too. Probably it's not worth the trouble to deal with LATE_ARG at this point, just
-                                  // remove that stupid flag.
+    GTF_NODE_MASK   = 0,          // TODO-MIKE-Cleanup: This should probably be removed completely.
 
     GTF_BOOLEAN     = 0x00004000, // value is known to be 0/1
 
@@ -1787,6 +1782,7 @@ public:
 
     void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
+    GenTreeIntCon* ChangeToIntCon(var_types type, ssize_t value);
 #ifndef TARGET_64BIT
     GenTreeLngCon* ChangeToLngCon(int64_t value);
 #endif
@@ -1972,13 +1968,6 @@ public:
     {
         assert(gtOper == GT_CNS_INT);
         return (gtFlags & GTF_ICON_HDL_MASK);
-    }
-
-    // Mark this node as no longer being a handle; clear its GTF_ICON_*_HDL bits.
-    void ClearIconHandleMask()
-    {
-        assert(gtOper == GT_CNS_INT);
-        gtFlags &= ~GTF_ICON_HDL_MASK;
     }
 
     // Return true if the two GT_CNS_INT trees have the same handle flag (GTF_ICON_*_HDL).
@@ -2926,6 +2915,8 @@ struct GenTreePhysReg : public GenTree
 #endif
 };
 
+const char* dmpGetHandleKindName(GenTreeFlags flags);
+
 /* gtIntCon -- integer constant (GT_CNS_INT) */
 struct GenTreeIntCon : public GenTreeIntConCommon
 {
@@ -2982,6 +2973,37 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     ssize_t GetValue() const
     {
         return gtIconVal;
+    }
+
+    ssize_t GetValue(var_types type) const
+    {
+        switch (type)
+        {
+            case TYP_BYTE:
+                return static_cast<int8_t>(gtIconVal);
+            case TYP_UBYTE:
+            case TYP_BOOL:
+                return static_cast<uint8_t>(gtIconVal);
+            case TYP_SHORT:
+                return static_cast<int16_t>(gtIconVal);
+            case TYP_USHORT:
+                return static_cast<uint16_t>(gtIconVal);
+#ifdef TARGET_64BIT
+            case TYP_INT:
+                return static_cast<int32_t>(gtIconVal);
+            case TYP_UINT:
+                // Disallow UINT for now as it's not needed and it's not clear if we should
+                // sign extend or zero extend. Sign extend seems to make more sense - if we
+                // actually cast this value to UINT using a CAST then the result would be a
+                // 32 bit value that's considered to have type INT and if we store that in
+                // in an IntCon we'd have to sign extend.
+                assert(false);
+                return static_cast<int32_t>(gtIconVal);
+#endif
+            default:
+                assert(varTypeIsI(type) || (varTypeIsStruct(type) && (gtIconVal == 0)));
+                return gtIconVal;
+        }
     }
 
     size_t GetUnsignedValue() const
@@ -3055,6 +3077,18 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
         m_fieldSeq = fieldSeq;
+    }
+
+    GenTreeFlags GetHandleKind() const
+    {
+        return gtFlags & GTF_ICON_HDL_MASK;
+    }
+
+    void SetHandleKind(GenTreeFlags kind)
+    {
+        assert((kind & ~GTF_ICON_HDL_MASK) == 0);
+
+        gtFlags = (gtFlags & ~GTF_ICON_HDL_MASK) | (kind & GTF_ICON_HDL_MASK);
     }
 
     bool ImmedValNeedsReloc(Compiler* comp);
