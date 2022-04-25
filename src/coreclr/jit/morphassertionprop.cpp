@@ -1047,6 +1047,79 @@ GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
     return nullptr;
 }
 
+GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
+{
+    assert(lclFld->OperIs(GT_LCL_FLD));
+
+    // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
+    if ((lclFld->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
+    {
+        return nullptr;
+    }
+
+    unsigned   lclNum = lclFld->GetLclNum();
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    if (lcl->IsAddressExposed() || !lcl->TypeIs(TYP_STRUCT))
+    {
+        return nullptr;
+    }
+
+    for (unsigned index = 0; index < morphAssertionCount; ++index)
+    {
+        const MorphAssertion& assertion = morphAssertionGet(index);
+
+        if ((assertion.lcl.lclNum != lclNum) || (assertion.kind != Kind::Equal))
+        {
+            continue;
+        }
+
+        if (assertion.valKind == ValueKind::IntCon)
+        {
+            assert(assertion.val.intCon.value == 0);
+
+            if (varTypeIsFloating(lclFld->GetType()))
+            {
+                return lclFld->ChangeToDblCon(lclFld->GetType(), 0);
+            }
+
+#ifdef FEATURE_SIMD
+            if (varTypeIsSIMD(lclFld->GetType()))
+            {
+                return gtNewZeroSimdHWIntrinsicNode(lclFld->GetLayout(this));
+            }
+#endif
+
+#ifndef TARGET_64BIT
+            if (varTypeIsLong(lclFld->GetType()))
+            {
+                return lclFld->ChangeToLngCon(0);
+            }
+#endif
+            assert(varTypeIsIntegralOrI(lclFld->GetType()) || lclFld->TypeIs(TYP_STRUCT));
+
+            return lclFld->ChangeToIntCon(lclFld->TypeIs(TYP_STRUCT) ? TYP_INT : lclFld->GetType(), 0);
+        }
+
+        if (assertion.valKind == ValueKind::LclVar)
+        {
+            unsigned lclNumCopySrc = assertion.val.lcl.lclNum;
+
+            assert(lvaGetDesc(lclNumCopySrc)->TypeIs(TYP_STRUCT));
+            assert(!lvaGetDesc(lclNumCopySrc)->IsIndependentPromoted());
+
+            lclFld->SetLclNum(lclNumCopySrc);
+            lvaSetVarDoNotEnregister(lclNumCopySrc DEBUGARG(DNER_LocalField));
+
+            return lclFld;
+        }
+
+        break;
+    }
+
+    return nullptr;
+}
+
 GenTree* Compiler::morphAssertionPropagateRelOp(GenTreeOp* relop)
 {
     assert(relop->OperIs(GT_EQ, GT_NE));
@@ -1320,6 +1393,9 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
         {
             case GT_LCL_VAR:
                 newTree = morphAssertionPropagateLclVar(tree->AsLclVar());
+                break;
+            case GT_LCL_FLD:
+                newTree = morphAssertionPropagateLclFld(tree->AsLclFld());
                 break;
             case GT_OBJ:
             case GT_BLK:

@@ -1233,7 +1233,7 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 
 inline GenTreeIntCon* GenTree::ChangeToIntCon(var_types type, ssize_t value)
 {
-    SetType(type);
+    SetType(varActualType(type));
     return ChangeToIntCon(value);
 }
 
