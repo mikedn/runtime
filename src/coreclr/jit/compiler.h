@@ -6209,6 +6209,7 @@ private:
     const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
     GenTree* morphAssertionPropagateLclVar(GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropagateLclFld(GenTreeLclFld* lclFld);
     GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
     GenTree* morphAssertionPropagateCast(GenTreeCast* cast);
     GenTree* morphAssertionPropagateCall(GenTreeCall* call);
