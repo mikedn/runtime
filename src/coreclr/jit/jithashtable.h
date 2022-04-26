@@ -597,6 +597,13 @@ public:
             return m_node->m_key;
         }
 
+        const Key& GetKey() const
+        {
+            assert(m_node != nullptr);
+
+            return m_node->m_key;
+        }
+
         //------------------------------------------------------------------------
         // GetValue: Get a reference to this iterator's value.
         //

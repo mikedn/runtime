@@ -29,26 +29,21 @@ void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrSt
 {
     for (Statement* const stmt : block->Statements())
     {
-        for (GenTree* const tree : stmt->TreeList())
+        for (GenTree* const node : stmt->Nodes())
         {
-            if (!tree->IsLocal())
+            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
+
+            if ((lclNode == nullptr) || ((node->gtFlags & GTF_VAR_DEF) == 0))
             {
                 continue;
             }
-            const unsigned lclNum = optIsSsaLocal(tree);
-            if (lclNum == BAD_VAR_NUM)
+
+            ArrayStack<GenTree*>* stack = nullptr;
+            curSsaName->Lookup(lclNode->GetLclNum(), &stack);
+            stack->Pop();
+            if (stack->Empty())
             {
-                continue;
-            }
-            if (tree->gtFlags & GTF_VAR_DEF)
-            {
-                ArrayStack<GenTree*>* stack = nullptr;
-                curSsaName->Lookup(lclNum, &stack);
-                stack->Pop();
-                if (stack->Empty())
-                {
-                    curSsaName->Remove(lclNum);
-                }
+                curSsaName->Remove(lclNode->GetLclNum());
             }
         }
     }
@@ -60,19 +55,8 @@ void Compiler::optDumpCopyPropStack(LclNumToGenTreePtrStack* curSsaName)
     JITDUMP("{ ");
     for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName->Begin(); !iter.Equal(curSsaName->End()); ++iter)
     {
-        GenTreeLclVarCommon* lclVar    = iter.GetValue()->Top()->AsLclVarCommon();
-        unsigned             ssaLclNum = optIsSsaLocal(lclVar);
-        assert(ssaLclNum != BAD_VAR_NUM);
-
-        if (ssaLclNum == lclVar->GetLclNum())
-        {
-            JITDUMP("%d-[%06d]:V%02u ", iter.Get(), dspTreeID(lclVar), ssaLclNum);
-        }
-        else
-        {
-            // A promoted field was asigned using the parent struct, print `ssa field lclNum(parent lclNum)`.
-            JITDUMP("%d-[%06d]:V%02u(V%02u) ", iter.Get(), dspTreeID(lclVar), ssaLclNum, lclVar->GetLclNum());
-        }
+        GenTreeLclVarCommon* lclNode = iter.GetValue()->Top()->AsLclVarCommon();
+        JITDUMP("%u-[%06u]:V%02u ", iter.Get(), lclNode->GetID(), lclNode->GetLclNum());
     }
     JITDUMP("}\n\n");
 }
@@ -154,41 +138,48 @@ public:
         return killSet;
     }
 
-    void Update(GenTree* node)
+    void UpdateDef(GenTreeLclVarCommon* lclNode)
     {
-        if (!node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) != 0));
+
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+
+        assert(lcl->IsInSsa());
+
+        bool isBorn  = (lclNode->gtFlags & GTF_VAR_USEASG) == 0;
+        bool isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
+
+        if (isBorn || isDying)
         {
-            return;
+            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
+
+            if (isDying)
+            {
+                VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
+            }
+            else
+            {
+                VarSetOps::AddElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
+            }
+
+            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
         }
+    }
 
-        GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-        LclVarDsc*           lcl     = compiler->lvaGetDesc(lclNode);
+    void UpdateUse(GenTreeLclVarCommon* lclNode)
+    {
+        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) == 0));
 
-        if (!lcl->IsInSsa())
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+
+        assert(lcl->IsInSsa());
+
+        if ((lclNode->gtFlags & GTF_VAR_DEATH) != 0)
         {
-            return;
-        }
-
-        bool isBorn  = ((lclNode->gtFlags & GTF_VAR_DEF) != 0) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0);
-        bool isDying = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0);
-
-        if (!isBorn && !isDying)
-        {
-            return;
-        }
-
-        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
-
-        if (isDying)
-        {
+            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
             VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
+            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
         }
-        else
-        {
-            VarSetOps::AddElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
-        }
-
-        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
     }
 
     void Kill(unsigned lclNum)
@@ -201,20 +192,9 @@ public:
 // variable, then look up all currently live definitions and check if any of those
 // definitions share the same value number. If so, then we can make the replacement.
 //
-void Compiler::optCopyProp(BasicBlock*              block,
-                           Statement*               stmt,
-                           GenTreeLclVar*           tree,
-                           unsigned                 lclNum,
-                           LclNumToGenTreePtrStack* curSsaName,
-                           CopyPropLivenessUpdater& liveness)
+void Compiler::optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaName, CopyPropLivenessUpdater& liveness)
 {
     assert(tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEF) == 0));
-
-    // TODO-Review: EH successor/predecessor iteration seems broken.
-    if (block->bbCatchTyp == BBCT_FINALLY || block->bbCatchTyp == BBCT_FAULT)
-    {
-        return;
-    }
 
     ValueNum treeVN = tree->gtVNPair.GetConservative();
 
@@ -223,11 +203,12 @@ void Compiler::optCopyProp(BasicBlock*              block,
         return;
     }
 
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    unsigned   lclNum = tree->GetLclNum();
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
     for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName->Begin(); !iter.Equal(curSsaName->End()); ++iter)
     {
-        unsigned newLclNum = iter.Get();
+        unsigned newLclNum = iter.GetKey();
 
         // Nothing to do if same.
         if (lclNum == newLclNum)
@@ -347,21 +328,11 @@ void Compiler::optCopyProp(BasicBlock*              block,
     }
 }
 
-unsigned Compiler::optIsSsaLocal(GenTree* tree)
+GenTreeLclVarCommon* Compiler::optIsSsaLocal(GenTree* node)
 {
-    if (!tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        return BAD_VAR_NUM;
-    }
-
-    unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
-
-    if (!lvaInSsa(lclNum))
-    {
-        return BAD_VAR_NUM;
-    }
-
-    return lclNum;
+    return node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && lvaGetDesc(node->AsLclVarCommon())->IsInSsa()
+               ? node->AsLclVarCommon()
+               : nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -392,20 +363,22 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
     {
         liveness.BeginStatement();
 
-        // Walk the tree to find if any local variable can be replaced with current live definitions.
-        for (GenTree* const tree : stmt->TreeList())
+        for (GenTree* const node : stmt->Nodes())
         {
-            liveness.Update(tree);
+            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
 
-            const unsigned lclNum = optIsSsaLocal(tree);
-
-            if (lclNum == BAD_VAR_NUM)
+            if (lclNode == nullptr)
             {
                 continue;
             }
 
-            if ((tree->gtFlags & GTF_VAR_DEF) != 0)
+            unsigned   lclNum = lclNode->GetLclNum();
+            LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+            if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
             {
+                liveness.UpdateDef(lclNode);
+
                 // TODO-Review: Merge this loop with the following loop to correctly update the
                 // live SSA num while also propagating copies.
                 //
@@ -420,41 +393,56 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
                 // embedded update. Killing the variable is a simplification to produce 0 ASM diffs
                 // for an update release.
                 liveness.Kill(lclNum);
+
+                continue;
             }
-            else if (tree->OperIs(GT_LCL_VAR))
+
+            liveness.UpdateUse(lclNode);
+
+            if (lclNode->OperIs(GT_LCL_VAR))
             {
-                optCopyProp(block, stmt, tree->AsLclVar(), lclNum, curSsaName, liveness);
+                // TODO-Review: EH successor/predecessor iteration seems broken.
+                if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
+                {
+                    optCopyProp(lclNode->AsLclVar(), curSsaName, liveness);
+                }
             }
         }
 
-        // This logic must be in sync with SSA renaming process.
-        for (GenTree* const tree : stmt->TreeList())
+        for (GenTree* const node : stmt->Nodes())
         {
-            const unsigned lclNum = optIsSsaLocal(tree);
-            if (lclNum == BAD_VAR_NUM)
+            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
+
+            if (lclNode == nullptr)
             {
                 continue;
             }
 
-            if ((tree->gtFlags & GTF_VAR_DEF) != 0)
+            unsigned   lclNum = lclNode->GetLclNum();
+            LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+            if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
             {
                 ArrayStack<GenTree*>* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
                 {
                     stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
                 }
-                stack->Push(tree);
+                stack->Push(lclNode);
                 curSsaName->Set(lclNum, stack, LclNumToGenTreePtrStack::Overwrite);
+
+                continue;
             }
+
             // If we encounter first use of a param or this pointer add it as a live definition.
             // Since they are always live, do it only once.
-            else if (tree->OperIs(GT_LCL_VAR) && (lvaTable[lclNum].lvIsParam || lvaTable[lclNum].lvIsThisPtr))
+            if (lclNode->OperIs(GT_LCL_VAR) && (lcl->IsParam() || lcl->lvIsThisPtr))
             {
                 ArrayStack<GenTree*>* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
                 {
                     stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
-                    stack->Push(tree);
+                    stack->Push(lclNode);
                     curSsaName->Set(lclNum, stack);
                 }
             }

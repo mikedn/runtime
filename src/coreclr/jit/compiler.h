@@ -5723,17 +5723,12 @@ public:
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, ArrayStack<GenTree*>*> LclNumToGenTreePtrStack;
 
     // Copy propagation functions.
-    void optCopyProp(BasicBlock*                    block,
-                     Statement*                     stmt,
-                     GenTreeLclVar*                 tree,
-                     unsigned                       lclNum,
-                     LclNumToGenTreePtrStack*       curSsaName,
-                     class CopyPropLivenessUpdater& liveness);
+    void optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaName, class CopyPropLivenessUpdater& liveness);
     void optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
     void optBlockCopyProp(BasicBlock*                    block,
                           LclNumToGenTreePtrStack*       curSsaName,
                           class CopyPropLivenessUpdater& liveness);
-    unsigned optIsSsaLocal(GenTree* tree);
+    GenTreeLclVarCommon* optIsSsaLocal(GenTree* node);
     int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2);
     void optVnCopyProp();
     INDEBUG(void optDumpCopyPropStack(LclNumToGenTreePtrStack* curSsaName));
