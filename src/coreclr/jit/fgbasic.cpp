@@ -2177,16 +2177,12 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
         thisCopyLcl->lvAddrExposed     = thisLcl->lvAddrExposed;
         thisCopyLcl->lvDoNotEnregister = thisLcl->lvDoNotEnregister;
         thisCopyLcl->lvHasILStoreOp    = thisLcl->lvHasILStoreOp;
-        thisCopyLcl->lvIsThisPtr       = thisLcl->lvIsThisPtr;
 #ifdef DEBUG
         thisCopyLcl->lvLiveInOutOfHndlr = thisLcl->lvLiveInOutOfHndlr;
         thisCopyLcl->lvLclFieldExpr     = thisLcl->lvLclFieldExpr;
         thisCopyLcl->lvLiveAcrossUCall  = thisLcl->lvLiveAcrossUCall;
 #endif
 
-        noway_assert(thisCopyLcl->lvIsThisPtr);
-
-        thisLcl->lvIsThisPtr    = false;
         thisLcl->lvAddrExposed  = false;
         thisLcl->lvHasILStoreOp = false;
     }

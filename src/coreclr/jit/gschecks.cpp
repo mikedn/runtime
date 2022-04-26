@@ -440,7 +440,6 @@ void Compiler::gsParamsToShadows()
 
         shadowLcl->lvAddrExposed     = lcl->lvAddrExposed;
         shadowLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
-        shadowLcl->lvIsThisPtr       = lcl->lvIsThisPtr;
         shadowLcl->lvIsUnsafeBuffer  = lcl->lvIsUnsafeBuffer;
         shadowLcl->lvIsPtr           = lcl->lvIsPtr;
 #ifdef DEBUG

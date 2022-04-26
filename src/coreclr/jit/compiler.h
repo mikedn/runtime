@@ -504,17 +504,6 @@ public:
                                          // the prolog. If the local has gc pointers, there are no gc-safe points
                                          // between the prolog and the explicit initialization.
 
-    // TODO-MIKE-Cleanup/Fix: This is pretty much bogus. Only VN Copy Prop uses this and for the wrong reasons.
-    // It assumes that if this is set then the local is live, because "this" is supposed to always be live.
-    // Except that isn't really true, "this" is always live only in certain methods (e.g. those that need
-    // it for the generic context). Also, if "this" is stored to, a copy of "this" is created and lvIsThisPtr
-    // is set on that copy, not on the original "this" local. And that copy doesn't have the same "always live"
-    // behavior as the "this" param itself.
-    // This is primarily a cleanup issue, LclVarDsc already contains too much information and the last thing
-    // it needs is such bogus info.
-    // It's also a bug but it requires rather exotic IL code to reproduce it (see copy-prop-test.il test).
-    unsigned char lvIsThisPtr : 1;
-
     union {
         unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
                                   // struct local. For implicit byref parameters, this gets hijacked between

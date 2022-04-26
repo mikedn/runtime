@@ -313,7 +313,7 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaN
         // 'c' with 'x.'
         // Because of this dependence on live variable analysis, CopyProp phase is immediately
         // after Liveness, SSA and VN.
-        if (!newLcl->lvIsThisPtr && !VarSetOps::IsMember(this, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
+        if (!VarSetOps::IsMember(this, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
         {
             continue;
         }
@@ -436,7 +436,7 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
 
             // If we encounter first use of a param or this pointer add it as a live definition.
             // Since they are always live, do it only once.
-            if (lclNode->OperIs(GT_LCL_VAR) && (lcl->IsParam() || lcl->lvIsThisPtr))
+            if (lclNode->OperIs(GT_LCL_VAR) && lcl->IsParam())
             {
                 ArrayStack<GenTree*>* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
