@@ -154,13 +154,11 @@ void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisit
 #ifdef DEBUG
 void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
 {
-    auto& curSsaName = visitor.curSsaName;
-
     JITDUMP("{ ");
-    for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName.Begin(); !iter.Equal(curSsaName.End()); ++iter)
+    for (const auto& pair : visitor.curSsaName)
     {
-        GenTreeLclVarCommon* lclNode = iter.GetValue()->Top()->AsLclVarCommon();
-        JITDUMP("%u-[%06u]:V%02u ", iter.Get(), lclNode->GetID(), lclNode->GetLclNum());
+        GenTreeLclVarCommon* lclNode = pair.value->Top()->AsLclVarCommon();
+        JITDUMP("%u-[%06u]:V%02u ", pair.key, lclNode->GetID(), lclNode->GetLclNum());
     }
     JITDUMP("}\n\n");
 }
@@ -219,13 +217,12 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
         return;
     }
 
-    unsigned   lclNum     = tree->GetLclNum();
-    LclVarDsc* lcl        = lvaGetDesc(lclNum);
-    auto&      curSsaName = visitor.curSsaName;
+    unsigned   lclNum = tree->GetLclNum();
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-    for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName.Begin(); !iter.Equal(curSsaName.End()); ++iter)
+    for (const auto& pair : visitor.curSsaName)
     {
-        unsigned newLclNum = iter.GetKey();
+        unsigned newLclNum = pair.key;
 
         // Nothing to do if same.
         if (lclNum == newLclNum)
@@ -233,7 +230,7 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
             continue;
         }
 
-        GenTreeLclVarCommon* op = iter.GetValue()->Top()->AsLclVarCommon();
+        GenTreeLclVarCommon* op = pair.value->Top()->AsLclVarCommon();
 
         if (op->GetType() != tree->GetType())
         {
