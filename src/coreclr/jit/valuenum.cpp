@@ -4763,7 +4763,13 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         return;
     }
 
-    ValueNumPair vnp = lcl->GetPerSsaData(load->GetSsaNum())->m_vnPair;
+    load->SetVNP(vnLocalLoad(load, lcl, load->GetSsaNum()));
+    ;
+}
+
+ValueNumPair Compiler::vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum)
+{
+    ValueNumPair vnp = lcl->GetPerSsaData(ssaNum)->GetVNP();
 
     assert(vnp.GetLiberal() != ValueNumStore::NoVN);
 
@@ -4779,6 +4785,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         }
         else
         {
+            printf("bad type %s %s\n", varTypeName(load->GetType()), varTypeName(lcl->GetType()));
             vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
         }
     }
@@ -4790,7 +4797,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         {
             ValueNum extendVN = vnStore->ExtendPtrVN(vnp.GetLiberal(), fieldSeq, 0);
 
-            if (extendVN != ValueNumStore::NoVN)
+            if (extendVN != NoVN)
             {
                 // TODO-MIKE-Fix: This doesn't make a lot of sense. We only look at the liberal VN,
                 // the conservative VN might be different (e.g. the value stored in the local could
@@ -4800,7 +4807,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         }
     }
 
-    load->SetVNP(vnp);
+    return vnp;
 }
 
 void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)

@@ -201,18 +201,16 @@ int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDs
     return score + ((preferOp2) ? 1 : -1);
 }
 
-void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
+void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
 {
-    assert(tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEF) == 0));
+    assert(use->OperIs(GT_LCL_VAR) && ((use->gtFlags & GTF_VAR_DEF) == 0));
 
-    ValueNum treeVN = tree->gtVNPair.GetConservative();
-
-    if (treeVN == ValueNumStore::NoVN)
+    if (use->GetConservativeVN() == ValueNumStore::NoVN)
     {
         return;
     }
 
-    unsigned   lclNum = tree->GetLclNum();
+    unsigned   lclNum = use->GetLclNum();
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
     for (const auto& pair : visitor.curSsaName)
@@ -225,21 +223,11 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
             continue;
         }
 
-        GenTreeLclVarCommon* op = pair.value->Top()->AsLclVarCommon();
-
-        if (op->GetType() != tree->GetType())
-        {
-            continue;
-        }
+        GenTreeLclVarCommon* def = pair.value->Top()->AsLclVarCommon();
 
         LclVarDsc* newLcl = lvaGetDesc(newLclNum);
 
-        // TODO-MIKE-Review: This shouldn't be needed, it mostly exists to reject the case
-        // of LONG locals accessed via INT LCL_VAR nodes. Thing is, if the two nodes have
-        // the same type and the same VN then the local type should not matter. Removing
-        // this produces no diffs so it can stay for now, at least because VN can't be
-        // trusted when it comes to this kind of implicit casting.
-        if (varActualType(op->GetType()) != varActualType(newLcl->GetType()))
+        if (varActualType(newLcl->GetType()) != varActualType(lcl->GetType()))
         {
             continue;
         }
@@ -261,28 +249,14 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
         }
 
         unsigned newSsaNum = SsaConfig::RESERVED_SSA_NUM;
-        ValueNum opVN;
 
-        if ((op->gtFlags & GTF_VAR_DEF) != 0)
+        if ((def->gtFlags & GTF_VAR_DEF) != 0)
         {
-            newSsaNum = GetSsaNumForLocalVarDef(op);
-
-            // TODO-MIKE-CQ: The VN should always be obtained from the local SSA data, not from the node.
-            // Def nodes don't need a VN since they don't produce a value and there actually are some
-            // that don't have a VN (PHI defs apparently) and unnecessarily block copy propagation.
-            if ((op->gtFlags & GTF_VAR_USEASG) != 0)
-            {
-                opVN = newLcl->GetPerSsaData(newSsaNum)->m_vnPair.GetConservative();
-            }
-            else
-            {
-                opVN = op->gtVNPair.GetConservative();
-            }
+            newSsaNum = GetSsaNumForLocalVarDef(def);
         }
         else // parameters, this pointer etc.
         {
-            newSsaNum = op->GetSsaNum();
-            opVN      = op->gtVNPair.GetConservative();
+            newSsaNum = def->GetSsaNum();
         }
 
         if (newSsaNum == SsaConfig::RESERVED_SSA_NUM)
@@ -290,7 +264,8 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
             continue;
         }
 
-        if (opVN != treeVN)
+        // The use must produce the same value number if we substitute the def.
+        if (vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
         {
             continue;
         }
@@ -308,11 +283,11 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
             continue;
         }
 
-        JITDUMP("[%06u] replacing V%02u:%u by V%02u:%u\n", tree->GetID(), tree->GetLclNum(), tree->GetSsaNum(),
-                newLclNum, newSsaNum);
+        JITDUMP("[%06u] replacing V%02u:%u by V%02u:%u\n", use->GetID(), use->GetLclNum(), use->GetSsaNum(), newLclNum,
+                newSsaNum);
 
-        tree->SetLclNum(newLclNum);
-        tree->SetSsaNum(newSsaNum);
+        use->SetLclNum(newLclNum);
+        use->SetSsaNum(newSsaNum);
 
         break;
     }

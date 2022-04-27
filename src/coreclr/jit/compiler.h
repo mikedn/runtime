@@ -3958,6 +3958,7 @@ public:
     ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
+    ValueNumPair vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnLocalFieldLoad(GenTreeLclFld* load);
     ValueNum vnAddField(GenTreeOp* add);
@@ -5708,7 +5709,7 @@ protected:
 public:
     class CopyPropDomTreeVisitor;
 
-    void optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor);
+    void optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor);
     void optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisitor& visitor);
     void optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor);
     GenTreeLclVarCommon* optIsSsaLocal(GenTree* node);
