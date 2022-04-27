@@ -5061,11 +5061,6 @@ private:
 
 void Compiler::optVNAssertionProp()
 {
-    if (fgSsaPassesCompleted == 0)
-    {
-        return;
-    }
-
 #ifdef DEBUG
     if (verbose)
     {
@@ -5074,6 +5069,8 @@ void Compiler::optVNAssertionProp()
         fgDispBasicBlocks(true);
     }
 #endif
+
+    assert(ssaForm && (vnStore != nullptr));
 
     optAssertionInit();
 

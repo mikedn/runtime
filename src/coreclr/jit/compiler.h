@@ -3915,7 +3915,7 @@ public:
     // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
     void fgResetForSsa();
 
-    unsigned fgSsaPassesCompleted; // Number of times fgSsaBuild has been run.
+    bool ssaForm;
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
     inline bool fgVarIsNeverZeroInitializedInProlog(unsigned varNum);
@@ -3979,8 +3979,6 @@ public:
     FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
     FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
     bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
-
-    unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 
     struct VNLoop
     {

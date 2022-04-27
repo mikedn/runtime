@@ -1297,10 +1297,8 @@ Range RangeCheck::GetRange(BasicBlock* block, GenTree* expr, bool monIncreasing 
 // Entry point to range check optimizations.
 void RangeCheck::OptimizeRangeChecks()
 {
-    if (m_pCompiler->fgSsaPassesCompleted == 0)
-    {
-        return;
-    }
+    assert(m_pCompiler->ssaForm && (m_pCompiler->vnStore != nullptr));
+
 #ifdef DEBUG
     if (m_pCompiler->verbose)
     {

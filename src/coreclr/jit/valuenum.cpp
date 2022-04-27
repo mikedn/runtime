@@ -7407,45 +7407,11 @@ struct ValueNumberState
 
 void Compiler::fgValueNumber()
 {
-#ifdef DEBUG
-    // This could be a JITDUMP, but some people find it convenient to set a breakpoint on the printf.
-    if (verbose)
-    {
-        printf("\n*************** In fgValueNumber()\n");
-    }
-#endif
+    JITDUMP("\n*************** In fgValueNumber()\n");
 
-    // If we skipped SSA, skip VN as well.
-    if (fgSsaPassesCompleted == 0)
-    {
-        return;
-    }
+    assert(ssaForm && (vnStore == nullptr));
 
-    // Allocate the value number store.
-    assert(fgVNPassesCompleted > 0 || vnStore == nullptr);
-    if (fgVNPassesCompleted == 0)
-    {
-        CompAllocator allocator(getAllocator(CMK_ValueNumber));
-        vnStore = new (allocator) ValueNumStore(this, allocator);
-    }
-    else
-    {
-        // Make sure the memory SSA names have no value numbers.
-        for (unsigned i = 0; i < lvMemoryPerSsaData.GetCount(); i++)
-        {
-            lvMemoryPerSsaData.GetSsaDefByIndex(i)->m_vn = NoVN;
-        }
-        for (BasicBlock* const blk : Blocks())
-        {
-            for (Statement* const stmt : blk->NonPhiStatements())
-            {
-                for (GenTree* const tree : stmt->TreeList())
-                {
-                    tree->gtVNPair.SetBoth(ValueNumStore::NoVN);
-                }
-            }
-        }
-    }
+    vnStore = new (getAllocator(CMK_ValueNumber)) ValueNumStore(this, getAllocator(CMK_ValueNumber));
 
     if (optLoopCount > 0)
     {
@@ -7577,8 +7543,6 @@ void Compiler::fgValueNumber()
             vs.FinishVisit(toDo);
         }
     }
-
-    fgVNPassesCompleted++;
 }
 
 void Compiler::vnSummarizeLoopMemoryStores()

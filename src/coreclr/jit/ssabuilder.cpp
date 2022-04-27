@@ -55,15 +55,11 @@ static inline BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2)
 
 void Compiler::fgSsaBuild()
 {
-    // If this is not the first invocation, reset data structures for SSA.
-    if (fgSsaPassesCompleted > 0)
-    {
-        fgResetForSsa();
-    }
+    assert(!ssaForm);
 
     SsaBuilder builder(this);
     builder.Build();
-    fgSsaPassesCompleted++;
+    ssaForm = true;
 
 #ifdef DEBUG
     if (verbose)
@@ -80,6 +76,7 @@ void Compiler::fgResetForSsa()
     {
         lvaTable[i].lvPerSsaData.Reset();
     }
+
     lvMemoryPerSsaData.Reset();
     m_memorySsaMap = nullptr;
 

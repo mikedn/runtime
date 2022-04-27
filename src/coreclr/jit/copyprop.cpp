@@ -399,17 +399,9 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
 
 void Compiler::optVnCopyProp()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In optVnCopyProp()\n");
-    }
-#endif
+    JITDUMP("*************** In optVnCopyProp()\n");
 
-    if (fgSsaPassesCompleted == 0)
-    {
-        return;
-    }
+    assert(ssaForm && (vnStore != nullptr));
 
     CopyPropDomTreeVisitor visitor(this);
     visitor.WalkTree();

@@ -1124,11 +1124,10 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     }
 #endif // DEBUG
 
+    ssaForm                    = false;
     vnStore                    = nullptr;
     m_opAsgnVarDefSsaNums      = nullptr;
     m_nodeToLoopMemoryBlockMap = nullptr;
-    fgSsaPassesCompleted       = 0;
-    fgVNPassesCompleted        = 0;
 
     // check that HelperCallProperties are initialized
 
@@ -3863,9 +3862,12 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
                 DoPhase(this, PHASE_OPTIMIZE_BRANCHES, &Compiler::optRedundantBranches);
             }
 
-            // Remove common sub-expressions
-            //
-            DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::optOptimizeCSEs);
+            if (doValueNum)
+            {
+                // Remove common sub-expressions
+                //
+                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::optOptimizeCSEs);
+            }
 
 #if ASSERTION_PROP
             if (doAssertionProp)
@@ -3904,12 +3906,11 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
             }
 
             // Iterate if requested, resetting annotations first.
-            if (--iterations == 0)
+            if (--iterations != 0)
             {
-                break;
+                ResetOptAnnotations();
+                RecomputeLoopInfo();
             }
-            ResetOptAnnotations();
-            RecomputeLoopInfo();
         }
     }
 
@@ -4153,12 +4154,13 @@ void Compiler::ResetOptAnnotations()
 {
     assert(opts.optRepeat);
     assert(JitConfig.JitOptRepeatCount() > 0);
+
     fgResetForSsa();
+
+    ssaForm               = false;
     vnStore               = nullptr;
     m_opAsgnVarDefSsaNums = nullptr;
     m_blockToEHPreds      = nullptr;
-    fgSsaPassesCompleted  = 0;
-    fgVNPassesCompleted   = 0;
 
     for (BasicBlock* const block : Blocks())
     {
