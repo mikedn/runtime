@@ -5708,19 +5708,15 @@ protected:
     static callInterf optCallInterf(GenTreeCall* call);
 
 public:
-    // VN based copy propagation.
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, ArrayStack<GenTree*>*> LclNumToGenTreePtrStack;
+    class CopyPropDomTreeVisitor;
 
-    // Copy propagation functions.
-    void optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaName, class CopyPropLivenessUpdater& liveness);
-    void optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
-    void optBlockCopyProp(BasicBlock*                    block,
-                          LclNumToGenTreePtrStack*       curSsaName,
-                          class CopyPropLivenessUpdater& liveness);
+    void optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor);
+    void optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisitor& visitor);
+    void optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor);
     GenTreeLclVarCommon* optIsSsaLocal(GenTree* node);
     int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2);
     void optVnCopyProp();
-    INDEBUG(void optDumpCopyPropStack(LclNumToGenTreePtrStack* curSsaName));
+    INDEBUG(void optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor));
 
 /**************************************************************************
  *               Early value propagation

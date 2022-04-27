@@ -19,87 +19,6 @@
 #include "jitpch.h"
 #include "ssabuilder.h"
 
-/**************************************************************************************
- *
- * Corresponding to the live definition pushes, pop the stack as we finish a sub-paths
- * of the graph originating from the block. Refer SSA renaming for any additional info.
- * "curSsaName" tracks the currently live definitions.
- */
-void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName)
-{
-    for (Statement* const stmt : block->Statements())
-    {
-        for (GenTree* const node : stmt->Nodes())
-        {
-            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
-
-            if ((lclNode == nullptr) || ((node->gtFlags & GTF_VAR_DEF) == 0))
-            {
-                continue;
-            }
-
-            ArrayStack<GenTree*>* stack = nullptr;
-            curSsaName->Lookup(lclNode->GetLclNum(), &stack);
-            stack->Pop();
-            if (stack->Empty())
-            {
-                curSsaName->Remove(lclNode->GetLclNum());
-            }
-        }
-    }
-}
-
-#ifdef DEBUG
-void Compiler::optDumpCopyPropStack(LclNumToGenTreePtrStack* curSsaName)
-{
-    JITDUMP("{ ");
-    for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName->Begin(); !iter.Equal(curSsaName->End()); ++iter)
-    {
-        GenTreeLclVarCommon* lclNode = iter.GetValue()->Top()->AsLclVarCommon();
-        JITDUMP("%u-[%06u]:V%02u ", iter.Get(), lclNode->GetID(), lclNode->GetLclNum());
-    }
-    JITDUMP("}\n\n");
-}
-#endif
-/*******************************************************************************************************
- *
- * Given the "lclVar" and "copyVar" compute if the copy prop will be beneficial.
- *
- */
-int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2)
-{
-    int score = 0;
-
-    if (lclVarDsc->lvVolatileHint)
-    {
-        score += 4;
-    }
-
-    if (copyVarDsc->lvVolatileHint)
-    {
-        score -= 4;
-    }
-
-#ifdef TARGET_X86
-    // For doubles we also prefer to change parameters into non-parameter local variables
-    if (lclVarDsc->lvType == TYP_DOUBLE)
-    {
-        if (lclVarDsc->lvIsParam)
-        {
-            score += 2;
-        }
-
-        if (copyVarDsc->lvIsParam)
-        {
-            score -= 2;
-        }
-    }
-#endif
-
-    // Otherwise we prefer to use the op2LclNum
-    return score + ((preferOp2) ? 1 : -1);
-}
-
 class CopyPropLivenessUpdater
 {
     Compiler* compiler;
@@ -171,11 +90,125 @@ public:
     }
 };
 
+typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, ArrayStack<GenTree*>*> LclNumToGenTreePtrStack;
+
+class Compiler::CopyPropDomTreeVisitor : public DomTreeVisitor<Compiler::CopyPropDomTreeVisitor>
+{
+public:
+    // The map from lclNum to its recently live definitions as a stack.
+    LclNumToGenTreePtrStack curSsaName;
+    CopyPropLivenessUpdater liveness;
+
+    CopyPropDomTreeVisitor(Compiler* compiler)
+        : DomTreeVisitor(compiler, compiler->fgSsaDomTree)
+        , curSsaName(compiler->getAllocator(CMK_CopyProp))
+        , liveness(compiler)
+    {
+    }
+
+    void PreOrderVisit(BasicBlock* block)
+    {
+        // TODO-Cleanup: Move this function from Compiler to this class.
+        m_compiler->optBlockCopyProp(block, *this);
+    }
+
+    void PostOrderVisit(BasicBlock* block)
+    {
+        // TODO-Cleanup: Move this function from Compiler to this class.
+        m_compiler->optBlockCopyPropPopStacks(block, *this);
+    }
+};
+
+/**************************************************************************************
+ *
+ * Corresponding to the live definition pushes, pop the stack as we finish a sub-paths
+ * of the graph originating from the block. Refer SSA renaming for any additional info.
+ * "curSsaName" tracks the currently live definitions.
+ */
+void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
+{
+    auto& curSsaName = visitor.curSsaName;
+
+    for (Statement* const stmt : block->Statements())
+    {
+        for (GenTree* const node : stmt->Nodes())
+        {
+            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
+
+            if ((lclNode == nullptr) || ((node->gtFlags & GTF_VAR_DEF) == 0))
+            {
+                continue;
+            }
+
+            ArrayStack<GenTree*>* stack = nullptr;
+            curSsaName.Lookup(lclNode->GetLclNum(), &stack);
+            stack->Pop();
+            if (stack->Empty())
+            {
+                curSsaName.Remove(lclNode->GetLclNum());
+            }
+        }
+    }
+}
+
+#ifdef DEBUG
+void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
+{
+    auto& curSsaName = visitor.curSsaName;
+
+    JITDUMP("{ ");
+    for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName.Begin(); !iter.Equal(curSsaName.End()); ++iter)
+    {
+        GenTreeLclVarCommon* lclNode = iter.GetValue()->Top()->AsLclVarCommon();
+        JITDUMP("%u-[%06u]:V%02u ", iter.Get(), lclNode->GetID(), lclNode->GetLclNum());
+    }
+    JITDUMP("}\n\n");
+}
+#endif
+/*******************************************************************************************************
+ *
+ * Given the "lclVar" and "copyVar" compute if the copy prop will be beneficial.
+ *
+ */
+int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2)
+{
+    int score = 0;
+
+    if (lclVarDsc->lvVolatileHint)
+    {
+        score += 4;
+    }
+
+    if (copyVarDsc->lvVolatileHint)
+    {
+        score -= 4;
+    }
+
+#ifdef TARGET_X86
+    // For doubles we also prefer to change parameters into non-parameter local variables
+    if (lclVarDsc->lvType == TYP_DOUBLE)
+    {
+        if (lclVarDsc->lvIsParam)
+        {
+            score += 2;
+        }
+
+        if (copyVarDsc->lvIsParam)
+        {
+            score -= 2;
+        }
+    }
+#endif
+
+    // Otherwise we prefer to use the op2LclNum
+    return score + ((preferOp2) ? 1 : -1);
+}
+
 // Perform copy propagation on a given tree as we walk the graph and if it is a local
 // variable, then look up all currently live definitions and check if any of those
 // definitions share the same value number. If so, then we can make the replacement.
 //
-void Compiler::optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaName, CopyPropLivenessUpdater& liveness)
+void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
 {
     assert(tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEF) == 0));
 
@@ -186,10 +219,11 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaN
         return;
     }
 
-    unsigned   lclNum = tree->GetLclNum();
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+    unsigned   lclNum     = tree->GetLclNum();
+    LclVarDsc* lcl        = lvaGetDesc(lclNum);
+    auto&      curSsaName = visitor.curSsaName;
 
-    for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName->Begin(); !iter.Equal(curSsaName->End()); ++iter)
+    for (LclNumToGenTreePtrStack::KeyIterator iter = curSsaName.Begin(); !iter.Equal(curSsaName.End()); ++iter)
     {
         unsigned newLclNum = iter.GetKey();
 
@@ -289,7 +323,7 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaN
         // 'c' with 'x.'
         // Because of this dependence on live variable analysis, CopyProp phase is immediately
         // after Liveness, SSA and VN.
-        if (!VarSetOps::IsMember(this, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
+        if (!VarSetOps::IsMember(this, visitor.liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
         {
             continue;
         }
@@ -320,20 +354,20 @@ GenTreeLclVarCommon* Compiler::optIsSsaLocal(GenTree* node)
 //    block       -  Block the tree belongs to
 //    curSsaName  -  The map from lclNum to its recently live definitions as a stack
 
-void Compiler::optBlockCopyProp(BasicBlock*              block,
-                                LclNumToGenTreePtrStack* curSsaName,
-                                CopyPropLivenessUpdater& liveness)
+void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
 {
 #ifdef DEBUG
     JITDUMP("Copy Assertion for " FMT_BB "\n", block->bbNum);
     if (verbose)
     {
         printf("  curSsaName stack: ");
-        optDumpCopyPropStack(curSsaName);
+        optDumpCopyPropStack(visitor);
     }
 #endif
 
-    liveness.BeginBlock(block);
+    visitor.liveness.BeginBlock(block);
+
+    auto& curSsaName = visitor.curSsaName;
 
     for (Statement* const stmt : block->Statements())
     {
@@ -351,27 +385,27 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
 
             if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
             {
-                liveness.UpdateDef(lclNode);
+                visitor.liveness.UpdateDef(lclNode);
 
                 ArrayStack<GenTree*>* stack;
-                if (!curSsaName->Lookup(lclNum, &stack))
+                if (!curSsaName.Lookup(lclNum, &stack))
                 {
-                    stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
+                    stack = new (curSsaName.GetAllocator()) ArrayStack<GenTree*>(curSsaName.GetAllocator());
                 }
                 stack->Push(lclNode);
-                curSsaName->Set(lclNum, stack, LclNumToGenTreePtrStack::Overwrite);
+                curSsaName.Set(lclNum, stack, LclNumToGenTreePtrStack::Overwrite);
 
                 continue;
             }
 
-            liveness.UpdateUse(lclNode);
+            visitor.liveness.UpdateUse(lclNode);
 
             if (lclNode->OperIs(GT_LCL_VAR))
             {
                 // TODO-Review: EH successor/predecessor iteration seems broken.
                 if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
                 {
-                    optCopyProp(lclNode->AsLclVar(), curSsaName, liveness);
+                    optCopyProp(lclNode->AsLclVar(), visitor);
                 }
 
                 // If we encounter first use of a param or this pointer add it as a live definition.
@@ -380,11 +414,11 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
                 if (lcl->IsParam())
                 {
                     ArrayStack<GenTree*>* stack;
-                    if (!curSsaName->Lookup(lclNum, &stack))
+                    if (!curSsaName.Lookup(lclNum, &stack))
                     {
-                        stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
+                        stack = new (curSsaName.GetAllocator()) ArrayStack<GenTree*>(curSsaName.GetAllocator());
                         stack->Push(lclNode);
-                        curSsaName->Set(lclNum, stack);
+                        curSsaName.Set(lclNum, stack);
                     }
                 }
             }
@@ -430,33 +464,6 @@ void Compiler::optVnCopyProp()
     {
         return;
     }
-
-    class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
-    {
-        // The map from lclNum to its recently live definitions as a stack.
-        LclNumToGenTreePtrStack m_curSsaName;
-        CopyPropLivenessUpdater m_liveness;
-
-    public:
-        CopyPropDomTreeVisitor(Compiler* compiler)
-            : DomTreeVisitor(compiler, compiler->fgSsaDomTree)
-            , m_curSsaName(compiler->getAllocator(CMK_CopyProp))
-            , m_liveness(compiler)
-        {
-        }
-
-        void PreOrderVisit(BasicBlock* block)
-        {
-            // TODO-Cleanup: Move this function from Compiler to this class.
-            m_compiler->optBlockCopyProp(block, &m_curSsaName, m_liveness);
-        }
-
-        void PostOrderVisit(BasicBlock* block)
-        {
-            // TODO-Cleanup: Move this function from Compiler to this class.
-            m_compiler->optBlockCopyPropPopStacks(block, &m_curSsaName);
-        }
-    };
 
     CopyPropDomTreeVisitor visitor(this);
     visitor.WalkTree();
