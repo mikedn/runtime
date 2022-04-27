@@ -99,18 +99,17 @@ public:
     }
 };
 
-typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, ArrayStack<GenTree*>*> LclNumToGenTreePtrStack;
+typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, ArrayStack<unsigned>*> LclSsaStackMap;
 
 class Compiler::CopyPropDomTreeVisitor : public DomTreeVisitor<Compiler::CopyPropDomTreeVisitor>
 {
 public:
-    // The map from lclNum to its recently live definitions as a stack.
-    LclNumToGenTreePtrStack curSsaName;
+    LclSsaStackMap          lclSsaStackMap;
     CopyPropLivenessUpdater liveness;
 
     CopyPropDomTreeVisitor(Compiler* compiler)
         : DomTreeVisitor(compiler, compiler->fgSsaDomTree)
-        , curSsaName(compiler->getAllocator(CMK_CopyProp))
+        , lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
         , liveness(compiler)
     {
     }
@@ -130,7 +129,7 @@ public:
 
 void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
 {
-    auto& curSsaName = visitor.curSsaName;
+    auto& lclSsaStackMap = visitor.lclSsaStackMap;
 
     for (Statement* const stmt : block->Statements())
     {
@@ -143,12 +142,12 @@ void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisit
                 continue;
             }
 
-            ArrayStack<GenTree*>* stack = nullptr;
-            curSsaName.Lookup(lclNode->GetLclNum(), &stack);
+            ArrayStack<unsigned>* stack = nullptr;
+            lclSsaStackMap.Lookup(lclNode->GetLclNum(), &stack);
             stack->Pop();
             if (stack->Empty())
             {
-                curSsaName.Remove(lclNode->GetLclNum());
+                lclSsaStackMap.Remove(lclNode->GetLclNum());
             }
         }
     }
@@ -158,10 +157,9 @@ void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisit
 void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
 {
     JITDUMP("{ ");
-    for (const auto& pair : visitor.curSsaName)
+    for (const auto& pair : visitor.lclSsaStackMap)
     {
-        GenTreeLclVarCommon* lclNode = pair.value->Top()->AsLclVarCommon();
-        JITDUMP("%u-[%06u]:V%02u ", pair.key, lclNode->GetID(), lclNode->GetLclNum());
+        JITDUMP("V%02u:%u ", pair.key, pair.value->Top());
     }
     JITDUMP("}\n\n");
 }
@@ -213,7 +211,7 @@ void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
     unsigned   lclNum = use->GetLclNum();
     LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-    for (const auto& pair : visitor.curSsaName)
+    for (const auto& pair : visitor.lclSsaStackMap)
     {
         unsigned newLclNum = pair.key;
 
@@ -222,8 +220,6 @@ void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
         {
             continue;
         }
-
-        GenTreeLclVarCommon* def = pair.value->Top()->AsLclVarCommon();
 
         LclVarDsc* newLcl = lvaGetDesc(newLclNum);
 
@@ -248,21 +244,7 @@ void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
             continue;
         }
 
-        unsigned newSsaNum = SsaConfig::RESERVED_SSA_NUM;
-
-        if ((def->gtFlags & GTF_VAR_DEF) != 0)
-        {
-            newSsaNum = GetSsaNumForLocalVarDef(def);
-        }
-        else // parameters, this pointer etc.
-        {
-            newSsaNum = def->GetSsaNum();
-        }
-
-        if (newSsaNum == SsaConfig::RESERVED_SSA_NUM)
-        {
-            continue;
-        }
+        unsigned newSsaNum = pair.value->Top();
 
         // The use must produce the same value number if we substitute the def.
         if (vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
@@ -306,14 +288,14 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
     JITDUMP("Copy Assertion for " FMT_BB "\n", block->bbNum);
     if (verbose)
     {
-        printf("  curSsaName stack: ");
+        printf("  SSA defs: ");
         optDumpCopyPropStack(visitor);
     }
 #endif
 
     visitor.liveness.BeginBlock(block);
 
-    auto& curSsaName = visitor.curSsaName;
+    auto& lclSsaStackMap = visitor.lclSsaStackMap;
 
     for (Statement* const stmt : block->Statements())
     {
@@ -333,13 +315,13 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
             {
                 visitor.liveness.UpdateDef(lclNode);
 
-                ArrayStack<GenTree*>* stack;
-                if (!curSsaName.Lookup(lclNum, &stack))
+                ArrayStack<unsigned>* stack;
+                if (!lclSsaStackMap.Lookup(lclNum, &stack))
                 {
-                    stack = new (curSsaName.GetAllocator()) ArrayStack<GenTree*>(curSsaName.GetAllocator());
+                    stack = new (lclSsaStackMap.GetAllocator()) ArrayStack<unsigned>(lclSsaStackMap.GetAllocator());
                 }
-                stack->Push(lclNode);
-                curSsaName.Set(lclNum, stack, LclNumToGenTreePtrStack::Overwrite);
+                stack->Push(GetSsaNumForLocalVarDef(lclNode));
+                lclSsaStackMap.Set(lclNum, stack, LclSsaStackMap::Overwrite);
 
                 continue;
             }
@@ -359,12 +341,12 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
                 // TODO-MIKE-Review: Hmm, why not LCL_FLDs too?
                 if (lcl->IsParam())
                 {
-                    ArrayStack<GenTree*>* stack;
-                    if (!curSsaName.Lookup(lclNum, &stack))
+                    ArrayStack<unsigned>* stack;
+                    if (!lclSsaStackMap.Lookup(lclNum, &stack))
                     {
-                        stack = new (curSsaName.GetAllocator()) ArrayStack<GenTree*>(curSsaName.GetAllocator());
-                        stack->Push(lclNode);
-                        curSsaName.Set(lclNum, stack);
+                        stack = new (lclSsaStackMap.GetAllocator()) ArrayStack<unsigned>(lclSsaStackMap.GetAllocator());
+                        stack->Push(lclNode->GetSsaNum());
+                        lclSsaStackMap.Set(lclNum, stack);
                     }
                 }
             }
