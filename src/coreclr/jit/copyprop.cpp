@@ -1,9 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//
-//
-//                                    CopyProp
+// VN based copy propagation
 //
 // This stage performs value numbering based copy propagation. Since copy propagation
 // is about data flow, we cannot find them in assertion prop phase. In assertion prop
@@ -14,7 +12,18 @@
 // when we see a variable that shares the VN with a live definition, we'd replace this
 // variable with the variable in the live definition, if suitable.
 //
-///////////////////////////////////////////////////////////////////////////////////////
+// Due to limited SSA support this suffers from various constraints and issues:
+//   - We build pruned SSA and lack any real SSA repair facility thus care needs
+//     to be taken to not introduce new uses of a local in places where PHIs have
+//     not been added due to the local being dead.
+//   - The backend does not support the transformed SSA form so again, we can't
+//     introduce new uses anywhere we might need them, that would require proper
+//     SSA destruction which is too missing from the JIT.
+//   - These restrictions cause another problem - given A = B we'd simply replace
+//     all uses of A with B but given the restrictions we might not be able to do
+//     that. This means that A = B won't actually be removed and worse, we may end
+//     up extending the live range of B, which may be concurrent with that of A
+//     and increase register pressure.
 
 #include "jitpch.h"
 #include "ssabuilder.h"
@@ -119,12 +128,6 @@ public:
     }
 };
 
-/**************************************************************************************
- *
- * Corresponding to the live definition pushes, pop the stack as we finish a sub-paths
- * of the graph originating from the block. Refer SSA renaming for any additional info.
- * "curSsaName" tracks the currently live definitions.
- */
 void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
 {
     auto& curSsaName = visitor.curSsaName;
@@ -163,11 +166,7 @@ void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
     JITDUMP("}\n\n");
 }
 #endif
-/*******************************************************************************************************
- *
- * Given the "lclVar" and "copyVar" compute if the copy prop will be beneficial.
- *
- */
+
 int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2)
 {
     int score = 0;
@@ -202,10 +201,6 @@ int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDs
     return score + ((preferOp2) ? 1 : -1);
 }
 
-// Perform copy propagation on a given tree as we walk the graph and if it is a local
-// variable, then look up all currently live definitions and check if any of those
-// definitions share the same value number. If so, then we can make the replacement.
-//
 void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
 {
     assert(tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEF) == 0));
@@ -306,20 +301,8 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, CopyPropDomTreeVisitor& visitor)
         }
 
         // Check whether the newLclNum is live before being substituted. Otherwise, we could end
-        // up in a situation where there must've been a phi node that got pruned because the variable
-        // is not live anymore. For example,
-        //  if
-        //     x0 = 1
-        //  else
-        //     x1 = 2
-        //  print(c) <-- x is not live here. Let's say 'c' shares the value number with "x0."
-        //
-        // If we simply substituted 'c' with "x0", we would be wrong. Ideally, there would be a phi
-        // node x2 = phi(x0, x1) which can then be used to substitute 'c' with. But because of pruning
-        // there would be no such phi node. To solve this we'll check if 'x' is live, before replacing
-        // 'c' with 'x.'
-        // Because of this dependence on live variable analysis, CopyProp phase is immediately
-        // after Liveness, SSA and VN.
+        // up in a situation where there must've been a PHI node that got pruned because the variable
+        // is not live anymore.
         if (!VarSetOps::IsMember(this, visitor.liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
         {
             continue;
@@ -341,15 +324,6 @@ GenTreeLclVarCommon* Compiler::optIsSsaLocal(GenTree* node)
                ? node->AsLclVarCommon()
                : nullptr;
 }
-
-//------------------------------------------------------------------------------
-// optBlockCopyProp : Perform copy propagation using currently live definitions on the current block's
-//                    variables. Also as new definitions are encountered update the "curSsaName" which
-//                    tracks the currently live definitions.
-//
-// Arguments:
-//    block       -  Block the tree belongs to
-//    curSsaName  -  The map from lclNum to its recently live definitions as a stack
 
 void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
 {
@@ -423,31 +397,6 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
     }
 }
 
-/**************************************************************************************
- *
- * This stage performs value numbering based copy propagation. Since copy propagation
- * is about data flow, we cannot find them in assertion prop phase. In assertion prop
- * we can identify copies that like so: if (a == b) else, i.e., control flow assertions.
- *
- * To identify data flow copies, we follow a similar approach to SSA renaming. We walk
- * each path in the graph keeping track of every live definition. Thus when we see a
- * variable that shares the VN with a live definition, we'd replace this variable with
- * the variable in the live definition.
- *
- * We do this to be in conventional SSA form. This can very well be changed later.
- *
- * For example, on some path in the graph:
- *    a0 = x0
- *    :            <- other blocks
- *    :
- *    a1 = y0
- *    :
- *    :            <- other blocks
- *    b0 = x0, we cannot substitute x0 with a0, because currently our backend doesn't
- * treat lclNum and ssaNum together as a variable, but just looks at lclNum. If we
- * substituted x0 with a0, then we'd be in general SSA form.
- *
- */
 void Compiler::optVnCopyProp()
 {
 #ifdef DEBUG
