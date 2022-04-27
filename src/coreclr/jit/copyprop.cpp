@@ -104,14 +104,12 @@ class CopyPropLivenessUpdater
 {
     Compiler* compiler;
     VARSET_TP liveSet;
-    VARSET_TP killSet;
     INDEBUG(VARSET_TP scratchSet;)
 
 public:
     CopyPropLivenessUpdater::CopyPropLivenessUpdater(Compiler* compiler)
         : compiler(compiler)
         , liveSet(VarSetOps::MakeEmpty(compiler))
-        , killSet(VarSetOps::MakeEmpty(compiler))
 #ifdef DEBUG
         , scratchSet(VarSetOps::MakeEmpty(compiler))
 #endif
@@ -123,19 +121,9 @@ public:
         VarSetOps::Assign(compiler, liveSet, block->bbLiveIn);
     }
 
-    void BeginStatement()
-    {
-        VarSetOps::ClearD(compiler, killSet);
-    }
-
     VARSET_VALARG_TP GetLiveSet() const
     {
         return liveSet;
-    }
-
-    VARSET_VALARG_TP GetKillSet() const
-    {
-        return killSet;
     }
 
     void UpdateDef(GenTreeLclVarCommon* lclNode)
@@ -180,11 +168,6 @@ public:
             VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
             DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
         }
-    }
-
-    void Kill(unsigned lclNum)
-    {
-        VarSetOps::AddElemD(compiler, killSet, compiler->lvaGetDesc(lclNum)->GetLivenessBitIndex());
     }
 };
 
@@ -231,13 +214,6 @@ void Compiler::optCopyProp(GenTreeLclVar* tree, LclNumToGenTreePtrStack* curSsaN
         // this produces no diffs so it can stay for now, at least because VN can't be
         // trusted when it comes to this kind of implicit casting.
         if (varActualType(op->GetType()) != varActualType(newLcl->GetType()))
-        {
-            continue;
-        }
-
-        // Skip variables with assignments embedded in the statement (i.e., with a comma). Because we
-        // are not currently updating their SSA names as live in the copy-prop pass of the stmt.
-        if (VarSetOps::IsMember(this, liveness.GetKillSet(), newLcl->GetLivenessBitIndex()))
         {
             continue;
         }
@@ -361,8 +337,6 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
 
     for (Statement* const stmt : block->Statements())
     {
-        liveness.BeginStatement();
-
         for (GenTree* const node : stmt->Nodes())
         {
             GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
@@ -379,20 +353,13 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
             {
                 liveness.UpdateDef(lclNode);
 
-                // TODO-Review: Merge this loop with the following loop to correctly update the
-                // live SSA num while also propagating copies.
-                //
-                // 1. This loop performs copy prop with currently live (on-top-of-stack) SSA num.
-                // 2. The subsequent loop maintains a stack for each lclNum with
-                //    currently active SSA numbers when definitions are encountered.
-                //
-                // If there is an embedded definition using a "comma" in a stmt, then the currently
-                // live SSA number will get updated only in the next loop (2). However, this new
-                // definition is now supposed to be live (on tos). If we did not update the stacks
-                // using (2), copy prop (1) will use a SSA num defined outside the stmt ignoring the
-                // embedded update. Killing the variable is a simplification to produce 0 ASM diffs
-                // for an update release.
-                liveness.Kill(lclNum);
+                ArrayStack<GenTree*>* stack;
+                if (!curSsaName->Lookup(lclNum, &stack))
+                {
+                    stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
+                }
+                stack->Push(lclNode);
+                curSsaName->Set(lclNum, stack, LclNumToGenTreePtrStack::Overwrite);
 
                 continue;
             }
@@ -406,44 +373,19 @@ void Compiler::optBlockCopyProp(BasicBlock*              block,
                 {
                     optCopyProp(lclNode->AsLclVar(), curSsaName, liveness);
                 }
-            }
-        }
 
-        for (GenTree* const node : stmt->Nodes())
-        {
-            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
-
-            if (lclNode == nullptr)
-            {
-                continue;
-            }
-
-            unsigned   lclNum = lclNode->GetLclNum();
-            LclVarDsc* lcl    = lvaGetDesc(lclNum);
-
-            if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
-            {
-                ArrayStack<GenTree*>* stack;
-                if (!curSsaName->Lookup(lclNum, &stack))
+                // If we encounter first use of a param or this pointer add it as a live definition.
+                // Since they are always live, do it only once.
+                // TODO-MIKE-Review: Hmm, why not LCL_FLDs too?
+                if (lcl->IsParam())
                 {
-                    stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
-                }
-                stack->Push(lclNode);
-                curSsaName->Set(lclNum, stack, LclNumToGenTreePtrStack::Overwrite);
-
-                continue;
-            }
-
-            // If we encounter first use of a param or this pointer add it as a live definition.
-            // Since they are always live, do it only once.
-            if (lclNode->OperIs(GT_LCL_VAR) && lcl->IsParam())
-            {
-                ArrayStack<GenTree*>* stack;
-                if (!curSsaName->Lookup(lclNum, &stack))
-                {
-                    stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
-                    stack->Push(lclNode);
-                    curSsaName->Set(lclNum, stack);
+                    ArrayStack<GenTree*>* stack;
+                    if (!curSsaName->Lookup(lclNum, &stack))
+                    {
+                        stack = new (curSsaName->GetAllocator()) ArrayStack<GenTree*>(curSsaName->GetAllocator());
+                        stack->Push(lclNode);
+                        curSsaName->Set(lclNum, stack);
+                    }
                 }
             }
         }
