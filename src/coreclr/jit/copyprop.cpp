@@ -114,6 +114,23 @@ public:
     {
     }
 
+    void Begin()
+    {
+        for (unsigned lclNum = 0; lclNum < m_compiler->lvaCount; lclNum++)
+        {
+            LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
+
+            if ((lcl->lvPerSsaData.GetCount() > 0) &&
+                (lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr))
+            {
+                ArrayStack<unsigned>* stack =
+                    new (lclSsaStackMap.GetAllocator()) ArrayStack<unsigned>(lclSsaStackMap.GetAllocator());
+                stack->Push(SsaConfig::FIRST_SSA_NUM);
+                lclSsaStackMap.Set(lclNum, stack);
+            }
+        }
+    }
+
     void PreOrderVisit(BasicBlock* block)
     {
         // TODO-Cleanup: Move this function from Compiler to this class.
@@ -334,20 +351,6 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
                 if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
                 {
                     optCopyProp(lclNode->AsLclVar(), visitor);
-                }
-
-                // If we encounter first use of a param or this pointer add it as a live definition.
-                // Since they are always live, do it only once.
-                // TODO-MIKE-Review: Hmm, why not LCL_FLDs too?
-                if (lcl->IsParam())
-                {
-                    ArrayStack<unsigned>* stack;
-                    if (!lclSsaStackMap.Lookup(lclNum, &stack))
-                    {
-                        stack = new (lclSsaStackMap.GetAllocator()) ArrayStack<unsigned>(lclSsaStackMap.GetAllocator());
-                        stack->Push(lclNode->GetSsaNum());
-                        lclSsaStackMap.Set(lclNum, stack);
-                    }
                 }
             }
         }
