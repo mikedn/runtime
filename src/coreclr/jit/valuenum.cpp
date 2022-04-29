@@ -4877,7 +4877,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
         }
     }
 
-    lcl->GetPerSsaData(GetSsaNumForLocalVarDef(store))->SetVNP(valueVNP);
+    lcl->GetPerSsaData(GetSsaDefNum(store))->SetVNP(valueVNP);
     store->SetVNP(valueVNP);
 
     INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));

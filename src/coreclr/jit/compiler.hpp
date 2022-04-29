@@ -3544,33 +3544,35 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
     return !info.compInitMem || (varDsc->lvIsTemp && !varDsc->HasGCPtr());
 }
 
-unsigned Compiler::GetSsaNumForLocalVarDef(GenTree* lcl)
+// Local field stores usually modify only a part of a local so they're both a use and a def.
+// GenTreeLclVarCommon has room for only one SSA number so for such partial stores we store
+// the SSA use number in the store node and the SSA def number in a node-number map.
+inline void Compiler::SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum)
 {
-    // Address-taken variables don't have SSA numbers.
-    if (!lvaInSsa(lcl->AsLclVarCommon()->GetLclNum()))
+    assert(store->OperIs(GT_LCL_FLD));
+    assert((store->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) == (GTF_VAR_DEF | GTF_VAR_USEASG));
+
+    if (m_partialSsaDefMap == nullptr)
     {
-        return SsaConfig::RESERVED_SSA_NUM;
+        m_partialSsaDefMap = new (getAllocator(CMK_SSA)) NodeToUnsignedMap(getAllocator(CMK_SSA));
     }
 
-    if (lcl->gtFlags & GTF_VAR_USEASG)
+    m_partialSsaDefMap->Set(store, ssaNum);
+}
+
+inline unsigned Compiler::GetSsaDefNum(GenTreeLclVarCommon* lclNode)
+{
+    assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
+    assert(lvaGetDesc(lclNode)->IsInSsa());
+
+    if ((lclNode->gtFlags & GTF_VAR_USEASG) == 0)
     {
-        // It's partial definition of a struct. "lcl" is both used and defined here;
-        // we've chosen in this case to annotate "lcl" with the SSA number (and VN) of the use,
-        // and to store the SSA number of the def in a side table.
-        unsigned ssaNum;
-        // In case of a remorph (fgMorph) in CSE/AssertionProp after SSA phase, there
-        // wouldn't be an entry for the USEASG portion of the indir addr, return
-        // reserved.
-        if (!GetOpAsgnVarDefSsaNums()->Lookup(lcl, &ssaNum))
-        {
-            return SsaConfig::RESERVED_SSA_NUM;
-        }
-        return ssaNum;
+        return lclNode->GetSsaNum();
     }
-    else
-    {
-        return lcl->AsLclVarCommon()->GetSsaNum();
-    }
+
+    assert(lclNode->OperIs(GT_LCL_FLD));
+
+    return *m_partialSsaDefMap->LookupPointer(lclNode);
 }
 
 template <typename TVisitor>

@@ -1126,7 +1126,7 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
 
     ssaForm                    = false;
     vnStore                    = nullptr;
-    m_opAsgnVarDefSsaNums      = nullptr;
+    m_partialSsaDefMap         = nullptr;
     m_nodeToLoopMemoryBlockMap = nullptr;
 
     // check that HelperCallProperties are initialized
@@ -4157,10 +4157,10 @@ void Compiler::ResetOptAnnotations()
 
     fgResetForSsa();
 
-    ssaForm               = false;
-    vnStore               = nullptr;
-    m_opAsgnVarDefSsaNums = nullptr;
-    m_blockToEHPreds      = nullptr;
+    ssaForm            = false;
+    vnStore            = nullptr;
+    m_partialSsaDefMap = nullptr;
+    m_blockToEHPreds   = nullptr;
 
     for (BasicBlock* const block : Blocks())
     {

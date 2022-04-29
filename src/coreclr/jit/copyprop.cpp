@@ -368,7 +368,7 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
             if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
             {
                 visitor.liveness.UpdateDef(lclNode);
-                visitor.PushSsaDef(visitor.lclSsaStackMap.Emplace(lclNum), block, GetSsaNumForLocalVarDef(lclNode));
+                visitor.PushSsaDef(visitor.lclSsaStackMap.Emplace(lclNum), block, GetSsaDefNum(lclNode));
 
                 continue;
             }

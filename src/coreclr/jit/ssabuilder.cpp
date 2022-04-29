@@ -729,11 +729,8 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             {
                 assert((lclNode->gtFlags & GTF_VAR_USEASG) != 0);
 
-                // This is a partial definition of a variable. The node records only the SSA number
-                // of the use that is implied by this partial definition. The SSA number of the new
-                // definition will be recorded in the m_opAsgnVarDefSsaNums map.
                 lclNode->SetSsaNum(m_renameStack.Top(lclNum));
-                m_pCompiler->GetOpAsgnVarDefSsaNums()->Set(lclNode, ssaNum);
+                m_pCompiler->SetPartialSsaDefNum(lclNode->AsLclFld(), ssaNum);
             }
             else
             {
