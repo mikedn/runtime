@@ -5712,7 +5712,7 @@ public:
     void optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor);
     void optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor);
     GenTreeLclVarCommon* optIsSsaLocal(GenTree* node);
-    int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2);
+    int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
     void optVnCopyProp();
     INDEBUG(void optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor));
 

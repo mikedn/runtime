@@ -218,9 +218,9 @@ void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
 }
 #endif
 
-int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2)
+int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
 {
-    int score = 0;
+    int score = 1;
 
     if (lclVarDsc->lvVolatileHint)
     {
@@ -248,8 +248,7 @@ int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDs
     }
 #endif
 
-    // Otherwise we prefer to use the op2LclNum
-    return score + ((preferOp2) ? 1 : -1);
+    return score;
 }
 
 void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
@@ -305,7 +304,7 @@ void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
             continue;
         }
 
-        if (optCopyProp_LclVarScore(lcl, newLcl, true) <= 0)
+        if (optCopyProp_LclVarScore(lcl, newLcl) <= 0)
         {
             continue;
         }
