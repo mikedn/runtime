@@ -197,10 +197,59 @@ public:
         }
     }
 
+    GenTreeLclVarCommon* IsSsaLocal(GenTree* node)
+    {
+        return node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && m_compiler->lvaGetDesc(node->AsLclVarCommon())->IsInSsa()
+                   ? node->AsLclVarCommon()
+                   : nullptr;
+    }
+
     void PreOrderVisit(BasicBlock* block)
     {
-        // TODO-Cleanup: Move this function from Compiler to this class.
-        m_compiler->optBlockCopyProp(block, *this);
+#ifdef DEBUG
+        if (m_compiler->verbose)
+        {
+            printf(FMT_BB " entry SSA defs: ", block->bbNum);
+            DumpLiveSsaDefs();
+        }
+#endif
+
+        liveness.BeginBlock(block);
+
+        for (Statement* const stmt : block->Statements())
+        {
+            for (GenTree* const node : stmt->Nodes())
+            {
+                GenTreeLclVarCommon* lclNode = IsSsaLocal(node);
+
+                if (lclNode == nullptr)
+                {
+                    continue;
+                }
+
+                unsigned   lclNum = lclNode->GetLclNum();
+                LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+
+                if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
+                {
+                    liveness.UpdateDef(lclNode);
+                    PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, m_compiler->GetSsaDefNum(lclNode));
+
+                    continue;
+                }
+
+                liveness.UpdateUse(lclNode);
+
+                if (lclNode->OperIs(GT_LCL_VAR))
+                {
+                    // TODO-Review: EH successor/predecessor iteration seems broken.
+                    if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
+                    {
+                        m_compiler->optCopyProp(lclNode->AsLclVar(), *this);
+                    }
+                }
+            }
+        }
     }
 
     void PostOrderVisit(BasicBlock* block)
@@ -329,61 +378,6 @@ void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
         use->SetSsaNum(newSsaNum);
 
         break;
-    }
-}
-
-GenTreeLclVarCommon* Compiler::optIsSsaLocal(GenTree* node)
-{
-    return node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && lvaGetDesc(node->AsLclVarCommon())->IsInSsa()
-               ? node->AsLclVarCommon()
-               : nullptr;
-}
-
-void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf(FMT_BB " entry SSA defs: ", block->bbNum);
-        visitor.DumpLiveSsaDefs();
-    }
-#endif
-
-    visitor.liveness.BeginBlock(block);
-
-    for (Statement* const stmt : block->Statements())
-    {
-        for (GenTree* const node : stmt->Nodes())
-        {
-            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
-
-            if (lclNode == nullptr)
-            {
-                continue;
-            }
-
-            unsigned   lclNum = lclNode->GetLclNum();
-            LclVarDsc* lcl    = lvaGetDesc(lclNum);
-
-            if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
-            {
-                visitor.liveness.UpdateDef(lclNode);
-                visitor.PushSsaDef(visitor.lclSsaStackMap.Emplace(lclNum), block, GetSsaDefNum(lclNode));
-
-                continue;
-            }
-
-            visitor.liveness.UpdateUse(lclNode);
-
-            if (lclNode->OperIs(GT_LCL_VAR))
-            {
-                // TODO-Review: EH successor/predecessor iteration seems broken.
-                if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
-                {
-                    optCopyProp(lclNode->AsLclVar(), visitor);
-                }
-            }
-        }
     }
 }
 
