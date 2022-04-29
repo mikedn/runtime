@@ -5710,7 +5710,6 @@ public:
     class CopyPropDomTreeVisitor;
 
     void optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor);
-    void optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisitor& visitor);
     void optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor);
     GenTreeLclVarCommon* optIsSsaLocal(GenTree* node);
     int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2);

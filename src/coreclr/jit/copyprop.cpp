@@ -99,10 +99,33 @@ public:
     }
 };
 
-typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, ArrayStack<unsigned>*> LclSsaStackMap;
+using SsaStack     = SsaRenameState::Stack;
+using SsaStackNode = SsaRenameState::StackNode;
+
+typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack> LclSsaStackMap;
 
 class Compiler::CopyPropDomTreeVisitor : public DomTreeVisitor<Compiler::CopyPropDomTreeVisitor>
 {
+    SsaStack* stackListTail = nullptr;
+    SsaStack  freeStack;
+
+    template <class... Args>
+    SsaStackNode* AllocStackNode(Args&&... args)
+    {
+        SsaStackNode* stack = freeStack.Top();
+
+        if (stack != nullptr)
+        {
+            freeStack.Pop();
+        }
+        else
+        {
+            stack = m_compiler->getAllocator(CMK_CopyProp).allocate<SsaStackNode>(1);
+        }
+
+        return new (stack) SsaStackNode(std::forward<Args>(args)...);
+    }
+
 public:
     LclSsaStackMap          lclSsaStackMap;
     CopyPropLivenessUpdater liveness;
@@ -114,6 +137,35 @@ public:
     {
     }
 
+    void PushSsaDef(SsaStack* stack, BasicBlock* block, unsigned ssaNum)
+    {
+        SsaStackNode* top = stack->Top();
+
+        if ((top == nullptr) || (top->m_block != block))
+        {
+            stack->Push(AllocStackNode(stackListTail, block, ssaNum));
+            // Append the stack to the stack list. The stack list allows PopBlockSsaDefs
+            // to easily find stacks that need popping.
+            stackListTail = stack;
+        }
+        else
+        {
+            // If we already have a stack node for this block then simply update
+            // update the SSA number, the previous one is no longer needed.
+            top->m_ssaNum = ssaNum;
+        }
+    }
+
+    void PopBlockSsaDefs(BasicBlock* block)
+    {
+        while ((stackListTail != nullptr) && (stackListTail->Top()->m_block == block))
+        {
+            SsaStackNode* top = stackListTail->Pop();
+            stackListTail     = top->m_listPrev;
+            freeStack.Push(top);
+        }
+    }
+
     void Begin()
     {
         for (unsigned lclNum = 0; lclNum < m_compiler->lvaCount; lclNum++)
@@ -123,10 +175,7 @@ public:
             if ((lcl->lvPerSsaData.GetCount() > 0) &&
                 (lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr))
             {
-                ArrayStack<unsigned>* stack =
-                    new (lclSsaStackMap.GetAllocator()) ArrayStack<unsigned>(lclSsaStackMap.GetAllocator());
-                stack->Push(SsaConfig::FIRST_SSA_NUM);
-                lclSsaStackMap.Set(lclNum, stack);
+                PushSsaDef(lclSsaStackMap.Emplace(lclNum), m_compiler->fgFirstBB, SsaConfig::FIRST_SSA_NUM);
             }
         }
     }
@@ -139,36 +188,23 @@ public:
 
     void PostOrderVisit(BasicBlock* block)
     {
-        // TODO-Cleanup: Move this function from Compiler to this class.
-        m_compiler->optBlockCopyPropPopStacks(block, *this);
-    }
-};
+        PopBlockSsaDefs(block);
 
-void Compiler::optBlockCopyPropPopStacks(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
-{
-    auto& lclSsaStackMap = visitor.lclSsaStackMap;
-
-    for (Statement* const stmt : block->Statements())
-    {
-        for (GenTree* const node : stmt->Nodes())
+        for (auto iter = lclSsaStackMap.begin(); iter != lclSsaStackMap.end();)
         {
-            GenTreeLclVarCommon* lclNode = optIsSsaLocal(node);
-
-            if ((lclNode == nullptr) || ((node->gtFlags & GTF_VAR_DEF) == 0))
+            if (iter.GetValue().Top() == nullptr)
             {
-                continue;
+                unsigned lclNum = iter.GetKey();
+                ++iter;
+                lclSsaStackMap.Remove(lclNum);
             }
-
-            ArrayStack<unsigned>* stack = nullptr;
-            lclSsaStackMap.Lookup(lclNode->GetLclNum(), &stack);
-            stack->Pop();
-            if (stack->Empty())
+            else
             {
-                lclSsaStackMap.Remove(lclNode->GetLclNum());
+                ++iter;
             }
         }
     }
-}
+};
 
 #ifdef DEBUG
 void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
@@ -176,7 +212,7 @@ void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
     JITDUMP("{ ");
     for (const auto& pair : visitor.lclSsaStackMap)
     {
-        JITDUMP("V%02u:%u ", pair.key, pair.value->Top());
+        JITDUMP("V%02u:%u ", pair.key, pair.value.Top()->m_ssaNum);
     }
     JITDUMP("}\n\n");
 }
@@ -261,7 +297,7 @@ void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
             continue;
         }
 
-        unsigned newSsaNum = pair.value->Top();
+        unsigned newSsaNum = pair.value.Top()->m_ssaNum;
 
         // The use must produce the same value number if we substitute the def.
         if (vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
@@ -312,8 +348,6 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
 
     visitor.liveness.BeginBlock(block);
 
-    auto& lclSsaStackMap = visitor.lclSsaStackMap;
-
     for (Statement* const stmt : block->Statements())
     {
         for (GenTree* const node : stmt->Nodes())
@@ -331,14 +365,7 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
             if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
             {
                 visitor.liveness.UpdateDef(lclNode);
-
-                ArrayStack<unsigned>* stack;
-                if (!lclSsaStackMap.Lookup(lclNum, &stack))
-                {
-                    stack = new (lclSsaStackMap.GetAllocator()) ArrayStack<unsigned>(lclSsaStackMap.GetAllocator());
-                }
-                stack->Push(GetSsaNumForLocalVarDef(lclNode));
-                lclSsaStackMap.Set(lclNum, stack, LclSsaStackMap::Overwrite);
+                visitor.PushSsaDef(visitor.lclSsaStackMap.Emplace(lclNum), block, GetSsaNumForLocalVarDef(lclNode));
 
                 continue;
             }

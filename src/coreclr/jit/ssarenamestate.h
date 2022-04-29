@@ -5,6 +5,7 @@
 
 class SsaRenameState
 {
+public:
     struct StackNode;
 
     class Stack
@@ -16,7 +17,7 @@ class SsaRenameState
         {
         }
 
-        StackNode* Top()
+        StackNode* Top() const
         {
             return m_top;
         }
@@ -52,6 +53,7 @@ class SsaRenameState
         }
     };
 
+private:
     // Memory allocator
     CompAllocator m_alloc;
     // Number of local variables to allocate stacks for
