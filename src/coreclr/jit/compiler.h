@@ -5693,8 +5693,6 @@ protected:
     static callInterf optCallInterf(GenTreeCall* call);
 
 public:
-    class CopyPropDomTreeVisitor;
-
     void optVnCopyProp();
 
 /**************************************************************************

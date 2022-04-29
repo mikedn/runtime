@@ -1,6 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#include "jitpch.h"
+#include "ssabuilder.h"
+
 // VN based copy propagation
 //
 // This stage performs value numbering based copy propagation. Since copy propagation
@@ -25,89 +28,88 @@
 //     up extending the live range of B, which may be concurrent with that of A
 //     and increase register pressure.
 
-#include "jitpch.h"
-#include "ssabuilder.h"
-
-class CopyPropLivenessUpdater
+class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    Compiler* compiler;
-    VARSET_TP liveSet;
-    INDEBUG(VARSET_TP scratchSet;)
+    class LivenessUpdater
+    {
+        Compiler* compiler;
+        VARSET_TP liveSet;
+        INDEBUG(VARSET_TP scratchSet;)
 
-public:
-    CopyPropLivenessUpdater::CopyPropLivenessUpdater(Compiler* compiler)
-        : compiler(compiler)
-        , liveSet(VarSetOps::MakeEmpty(compiler))
+    public:
+        LivenessUpdater::LivenessUpdater(Compiler* compiler)
+            : compiler(compiler)
+            , liveSet(VarSetOps::MakeEmpty(compiler))
 #ifdef DEBUG
-        , scratchSet(VarSetOps::MakeEmpty(compiler))
+            , scratchSet(VarSetOps::MakeEmpty(compiler))
 #endif
-    {
-    }
-
-    void BeginBlock(BasicBlock* block)
-    {
-        VarSetOps::Assign(compiler, liveSet, block->bbLiveIn);
-    }
-
-    VARSET_VALARG_TP GetLiveSet() const
-    {
-        return liveSet;
-    }
-
-    void UpdateDef(GenTreeLclVarCommon* lclNode)
-    {
-        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) != 0));
-
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
-
-        assert(lcl->IsInSsa());
-
-        bool isBorn  = (lclNode->gtFlags & GTF_VAR_USEASG) == 0;
-        bool isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
-
-        if (isBorn || isDying)
         {
-            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
+        }
 
-            if (isDying)
+        void BeginBlock(BasicBlock* block)
+        {
+            VarSetOps::Assign(compiler, liveSet, block->bbLiveIn);
+        }
+
+        VARSET_VALARG_TP GetLiveSet() const
+        {
+            return liveSet;
+        }
+
+        void UpdateDef(GenTreeLclVarCommon* lclNode)
+        {
+            assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) != 0));
+
+            LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+
+            assert(lcl->IsInSsa());
+
+            bool isBorn  = (lclNode->gtFlags & GTF_VAR_USEASG) == 0;
+            bool isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
+
+            if (isBorn || isDying)
             {
+                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
+
+                if (isDying)
+                {
+                    VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
+                }
+                else
+                {
+                    VarSetOps::AddElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
+                }
+
+                DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
+            }
+        }
+
+        void UpdateUse(GenTreeLclVarCommon* lclNode)
+        {
+            assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) == 0));
+
+            LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+
+            assert(lcl->IsInSsa());
+
+            if ((lclNode->gtFlags & GTF_VAR_DEATH) != 0)
+            {
+                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
                 VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
+                DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
             }
-            else
-            {
-                VarSetOps::AddElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
-            }
-
-            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
         }
-    }
+    };
 
-    void UpdateUse(GenTreeLclVarCommon* lclNode)
-    {
-        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) == 0));
+    using SsaStack     = SsaRenameState::Stack;
+    using SsaStackNode = SsaRenameState::StackNode;
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack> LclSsaStackMap;
 
-        assert(lcl->IsInSsa());
-
-        if ((lclNode->gtFlags & GTF_VAR_DEATH) != 0)
-        {
-            DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
-            VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
-            DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
-        }
-    }
-};
-
-using SsaStack     = SsaRenameState::Stack;
-using SsaStackNode = SsaRenameState::StackNode;
-
-typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack> LclSsaStackMap;
-
-class Compiler::CopyPropDomTreeVisitor : public DomTreeVisitor<Compiler::CopyPropDomTreeVisitor>
-{
-    SsaStack* stackListTail = nullptr;
-    SsaStack  freeStack;
+    LclSsaStackMap  lclSsaStackMap;
+    LivenessUpdater liveness;
+    SsaStack*       stackListTail = nullptr;
+    SsaStack        freeStack;
 
     template <class... Args>
     SsaStackNode* AllocStackNode(Args&&... args)
@@ -127,9 +129,6 @@ class Compiler::CopyPropDomTreeVisitor : public DomTreeVisitor<Compiler::CopyPro
     }
 
 public:
-    LclSsaStackMap          lclSsaStackMap;
-    CopyPropLivenessUpdater liveness;
-
     CopyPropDomTreeVisitor(Compiler* compiler)
         : DomTreeVisitor(compiler, compiler->fgSsaDomTree)
         , lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
