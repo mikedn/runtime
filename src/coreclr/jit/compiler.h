@@ -5714,7 +5714,6 @@ public:
     GenTreeLclVarCommon* optIsSsaLocal(GenTree* node);
     int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
     void optVnCopyProp();
-    INDEBUG(void optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor));
 
 /**************************************************************************
  *               Early value propagation

@@ -156,6 +156,23 @@ public:
         }
     }
 
+#ifdef DEBUG
+    void DumpLiveSsaDefs()
+    {
+        printf("{ ");
+        const char* prefix = "";
+        for (const auto& pair : lclSsaStackMap)
+        {
+            unsigned lclNum = pair.key;
+            unsigned ssaNum = pair.value.Top()->m_ssaNum;
+            printf("%sV%02u:%u " FMT_VN, prefix, lclNum, ssaNum,
+                   m_compiler->lvaGetDesc(lclNum)->GetPerSsaData(ssaNum)->GetConservativeVN());
+            prefix = ", ";
+        }
+        printf(" }\n");
+    }
+#endif
+
     void PopBlockSsaDefs(BasicBlock* block)
     {
         while ((stackListTail != nullptr) && (stackListTail->Top()->m_block == block))
@@ -205,18 +222,6 @@ public:
         }
     }
 };
-
-#ifdef DEBUG
-void Compiler::optDumpCopyPropStack(CopyPropDomTreeVisitor& visitor)
-{
-    JITDUMP("{ ");
-    for (const auto& pair : visitor.lclSsaStackMap)
-    {
-        JITDUMP("V%02u:%u ", pair.key, pair.value.Top()->m_ssaNum);
-    }
-    JITDUMP("}\n\n");
-}
-#endif
 
 int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
 {
@@ -337,11 +342,10 @@ GenTreeLclVarCommon* Compiler::optIsSsaLocal(GenTree* node)
 void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visitor)
 {
 #ifdef DEBUG
-    JITDUMP("Copy Assertion for " FMT_BB "\n", block->bbNum);
     if (verbose)
     {
-        printf("  SSA defs: ");
-        optDumpCopyPropStack(visitor);
+        printf(FMT_BB " entry SSA defs: ", block->bbNum);
+        visitor.DumpLiveSsaDefs();
     }
 #endif
 
@@ -385,8 +389,6 @@ void Compiler::optBlockCopyProp(BasicBlock* block, CopyPropDomTreeVisitor& visit
 
 void Compiler::optVnCopyProp()
 {
-    JITDUMP("*************** In optVnCopyProp()\n");
-
     assert(ssaForm && (vnStore != nullptr));
 
     CopyPropDomTreeVisitor visitor(this);
