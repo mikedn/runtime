@@ -5695,8 +5695,6 @@ protected:
 public:
     class CopyPropDomTreeVisitor;
 
-    void optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor);
-    int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc);
     void optVnCopyProp();
 
 /**************************************************************************

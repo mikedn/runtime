@@ -245,10 +245,120 @@ public:
                     // TODO-Review: EH successor/predecessor iteration seems broken.
                     if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
                     {
-                        m_compiler->optCopyProp(lclNode->AsLclVar(), *this);
+                        CopyProp(lclNode->AsLclVar());
                     }
                 }
             }
+        }
+    }
+
+    int GetCopyPropScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
+    {
+        int score = 1;
+
+        if (lclVarDsc->lvVolatileHint)
+        {
+            score += 4;
+        }
+
+        if (copyVarDsc->lvVolatileHint)
+        {
+            score -= 4;
+        }
+
+#ifdef TARGET_X86
+        // For doubles we also prefer to change parameters into non-parameter local variables
+        if (lclVarDsc->lvType == TYP_DOUBLE)
+        {
+            if (lclVarDsc->lvIsParam)
+            {
+                score += 2;
+            }
+
+            if (copyVarDsc->lvIsParam)
+            {
+                score -= 2;
+            }
+        }
+#endif
+
+        return score;
+    }
+
+    void CopyProp(GenTreeLclVar* use)
+    {
+        assert(use->OperIs(GT_LCL_VAR) && ((use->gtFlags & GTF_VAR_DEF) == 0));
+
+        if (use->GetConservativeVN() == ValueNumStore::NoVN)
+        {
+            return;
+        }
+
+        unsigned   lclNum = use->GetLclNum();
+        LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+
+        for (const auto& pair : lclSsaStackMap)
+        {
+            unsigned newLclNum = pair.key;
+
+            // Nothing to do if same.
+            if (lclNum == newLclNum)
+            {
+                continue;
+            }
+
+            LclVarDsc* newLcl = m_compiler->lvaGetDesc(newLclNum);
+
+            if (varActualType(newLcl->GetType()) != varActualType(lcl->GetType()))
+            {
+                continue;
+            }
+
+            // Do not copy propagate if the old and new lclVar have different 'doNotEnregister' settings.
+            // This is primarily to avoid copy propagating to IND(ADDR(LCL_VAR)) where the replacement lclVar
+            // is not marked 'lvDoNotEnregister'.
+            // However, in addition, it may not be profitable to propagate a 'doNotEnregister' lclVar to an
+            // existing use of an enregisterable lclVar.
+
+            if (lcl->lvDoNotEnregister != newLcl->lvDoNotEnregister)
+            {
+                continue;
+            }
+
+            if ((m_compiler->gsShadowVarInfo != nullptr) && newLcl->IsParam() &&
+                (m_compiler->gsShadowVarInfo[newLclNum].shadowLclNum == lclNum))
+            {
+                continue;
+            }
+
+            unsigned newSsaNum = pair.value.Top()->m_ssaNum;
+
+            // The use must produce the same value number if we substitute the def.
+            if (m_compiler->vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
+            {
+                continue;
+            }
+
+            if (GetCopyPropScore(lcl, newLcl) <= 0)
+            {
+                continue;
+            }
+
+            // Check whether the newLclNum is live before being substituted. Otherwise, we could end
+            // up in a situation where there must've been a PHI node that got pruned because the variable
+            // is not live anymore.
+            if (!VarSetOps::IsMember(m_compiler, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
+            {
+                continue;
+            }
+
+            JITDUMP("[%06u] replacing V%02u:%u by V%02u:%u\n", use->GetID(), use->GetLclNum(), use->GetSsaNum(),
+                    newLclNum, newSsaNum);
+
+            use->SetLclNum(newLclNum);
+            use->SetSsaNum(newSsaNum);
+
+            break;
         }
     }
 
@@ -271,115 +381,6 @@ public:
         }
     }
 };
-
-int Compiler::optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
-{
-    int score = 1;
-
-    if (lclVarDsc->lvVolatileHint)
-    {
-        score += 4;
-    }
-
-    if (copyVarDsc->lvVolatileHint)
-    {
-        score -= 4;
-    }
-
-#ifdef TARGET_X86
-    // For doubles we also prefer to change parameters into non-parameter local variables
-    if (lclVarDsc->lvType == TYP_DOUBLE)
-    {
-        if (lclVarDsc->lvIsParam)
-        {
-            score += 2;
-        }
-
-        if (copyVarDsc->lvIsParam)
-        {
-            score -= 2;
-        }
-    }
-#endif
-
-    return score;
-}
-
-void Compiler::optCopyProp(GenTreeLclVar* use, CopyPropDomTreeVisitor& visitor)
-{
-    assert(use->OperIs(GT_LCL_VAR) && ((use->gtFlags & GTF_VAR_DEF) == 0));
-
-    if (use->GetConservativeVN() == ValueNumStore::NoVN)
-    {
-        return;
-    }
-
-    unsigned   lclNum = use->GetLclNum();
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
-
-    for (const auto& pair : visitor.lclSsaStackMap)
-    {
-        unsigned newLclNum = pair.key;
-
-        // Nothing to do if same.
-        if (lclNum == newLclNum)
-        {
-            continue;
-        }
-
-        LclVarDsc* newLcl = lvaGetDesc(newLclNum);
-
-        if (varActualType(newLcl->GetType()) != varActualType(lcl->GetType()))
-        {
-            continue;
-        }
-
-        // Do not copy propagate if the old and new lclVar have different 'doNotEnregister' settings.
-        // This is primarily to avoid copy propagating to IND(ADDR(LCL_VAR)) where the replacement lclVar
-        // is not marked 'lvDoNotEnregister'.
-        // However, in addition, it may not be profitable to propagate a 'doNotEnregister' lclVar to an
-        // existing use of an enregisterable lclVar.
-
-        if (lcl->lvDoNotEnregister != newLcl->lvDoNotEnregister)
-        {
-            continue;
-        }
-
-        if ((gsShadowVarInfo != nullptr) && newLcl->IsParam() && (gsShadowVarInfo[newLclNum].shadowLclNum == lclNum))
-        {
-            continue;
-        }
-
-        unsigned newSsaNum = pair.value.Top()->m_ssaNum;
-
-        // The use must produce the same value number if we substitute the def.
-        if (vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
-        {
-            continue;
-        }
-
-        if (optCopyProp_LclVarScore(lcl, newLcl) <= 0)
-        {
-            continue;
-        }
-
-        // Check whether the newLclNum is live before being substituted. Otherwise, we could end
-        // up in a situation where there must've been a PHI node that got pruned because the variable
-        // is not live anymore.
-        if (!VarSetOps::IsMember(this, visitor.liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
-        {
-            continue;
-        }
-
-        JITDUMP("[%06u] replacing V%02u:%u by V%02u:%u\n", use->GetID(), use->GetLclNum(), use->GetSsaNum(), newLclNum,
-                newSsaNum);
-
-        use->SetLclNum(newLclNum);
-        use->SetSsaNum(newSsaNum);
-
-        break;
-    }
-}
 
 void Compiler::optVnCopyProp()
 {
