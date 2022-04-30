@@ -195,13 +195,6 @@ public:
         }
     }
 
-    GenTreeLclVarCommon* IsSsaLocal(GenTree* node)
-    {
-        return node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && m_compiler->lvaGetDesc(node->AsLclVarCommon())->IsInSsa()
-                   ? node->AsLclVarCommon()
-                   : nullptr;
-    }
-
     void PreOrderVisit(BasicBlock* block)
     {
 #ifdef DEBUG
@@ -218,15 +211,19 @@ public:
         {
             for (GenTree* const node : stmt->Nodes())
             {
-                GenTreeLclVarCommon* lclNode = IsSsaLocal(node);
-
-                if (lclNode == nullptr)
+                if (!node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
                     continue;
                 }
 
-                unsigned   lclNum = lclNode->GetLclNum();
-                LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+                GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
+                unsigned             lclNum  = lclNode->GetLclNum();
+                LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNum);
+
+                if (!lcl->IsInSsa())
+                {
+                    continue;
+                }
 
                 if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
                 {
