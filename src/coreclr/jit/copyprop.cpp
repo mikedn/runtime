@@ -333,10 +333,32 @@ public:
                 continue;
             }
 
-            // Check whether the newLclNum is live before being substituted. Otherwise, we could end
-            // up in a situation where there must've been a PHI node that got pruned because the variable
-            // is not live anymore.
-            if (!VarSetOps::IsMember(m_compiler, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
+            // The new local should be live to use it, we might need to add a PHI that got pruned
+            // during initial SSA construction and we don't have the means to do that here. Also,
+            // we don't know if all uses of the old local will disappear the extended live range
+            // of the new local may very well interfere with the live range of the old local and
+            // increase register pressure.
+            //
+            // Make an exception if the new local is `this` (the real one, not a copy). There are
+            // no stores to `this` so there aren't any PHIs, pruned or not, and we can add a new
+            // use anywhere in the method. It's rare for developer written code to contain `this`
+            // copies but the C# compiler seem to introduce such copies for `lock (this)`.
+            //
+            // TODO-MIKE-Review: The special casing of `this` is inherited from old code that was
+            // actually broken. But the corrected code doesn't have much to do with `this`, it's
+            // likely fine to do this for any local with a single SSA def. But of course, this
+            // may again turn out to not be so great for CQ due to live range extension issues.
+            // Maybe it could work well for parameters and other locals that have the single SSA
+            // def at the start of the first block?
+            //
+            // TODO-MIKE-Cleanup: Well, `this` should really have only one def. Except that loop
+            // tail call morphing is messy and introduces unnecessary defs...
+
+            if ((newLclNum == m_compiler->info.compThisArg) && (newLcl->lvPerSsaData.GetCount() == 1))
+            {
+                assert(newLcl->HasImplicitSsaDef());
+            }
+            else if (!VarSetOps::IsMember(m_compiler, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
             {
                 continue;
             }
