@@ -2685,8 +2685,6 @@ public:
     bool lvaIsParameter(unsigned varNum);
     bool lvaIsRegArgument(unsigned varNum);
     bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
-    bool lvaIsOriginalThisReadOnly();           // return true if there is no place in the code
-                                                // that writes to arg0
 
     bool lvaIsImplicitByRefLocal(unsigned varNum)
     {
