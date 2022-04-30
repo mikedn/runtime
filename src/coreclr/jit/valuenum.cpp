@@ -7445,12 +7445,10 @@ void Compiler::fgValueNumber()
     {
         LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
-        if (!varDsc->IsInSsa())
+        if (!varDsc->HasImplicitSsaDef())
         {
             continue;
         }
-
-        assert(varDsc->HasLiveness());
 
         if (varDsc->IsParam())
         {
@@ -7464,8 +7462,7 @@ void Compiler::fgValueNumber()
             ssaDef->SetBlock(fgFirstBB);
             INDEBUG(vnTraceLocal(lclNum, ssaDef->GetVNP()));
         }
-        else if (info.compInitMem || varDsc->lvMustInit ||
-                 VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
+        else
         {
             // The last clause covers the use-before-def variables (the ones that are live-in to the the first block),
             // these are variables that are read before being initialized (at least on some control flow paths)

@@ -188,8 +188,7 @@ public:
         {
             LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
 
-            if ((lcl->lvPerSsaData.GetCount() > 0) &&
-                (lcl->GetPerSsaData(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr))
+            if (lcl->HasImplicitSsaDef())
             {
                 PushSsaDef(lclSsaStackMap.Emplace(lclNum), m_compiler->fgFirstBB, SsaConfig::FIRST_SSA_NUM);
             }

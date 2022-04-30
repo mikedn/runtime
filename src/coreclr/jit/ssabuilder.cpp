@@ -1212,22 +1212,14 @@ void SsaBuilder::RenameVariables()
     // virtual definition before entry -- they start out at SSA name 1.
     for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
     {
-        if (!m_pCompiler->lvaInSsa(lclNum))
+        LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
+
+        if (lcl->IsInSsa() &&
+            VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
-            continue;
-        }
-
-        LclVarDsc* varDsc = &m_pCompiler->lvaTable[lclNum];
-        assert(varDsc->lvTracked);
-
-        if (varDsc->lvIsParam || m_pCompiler->info.compInitMem || varDsc->lvMustInit ||
-            VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
-        {
-            unsigned ssaNum = varDsc->lvPerSsaData.AllocSsaNum(m_allocator);
-
-            // In ValueNum we'd assume un-inited variables get FIRST_SSA_NUM.
+            unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator);
+            // HasImplicitSsaDef assumes that this is always the first SSA def.
             assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
-
             m_renameStack.Push(m_pCompiler->fgFirstBB, lclNum, ssaNum);
         }
     }

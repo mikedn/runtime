@@ -303,7 +303,7 @@ public:
     }
 
     // Get a pointer to the SSA definition at the specified index.
-    T* GetSsaDefByIndex(unsigned index)
+    T* GetSsaDefByIndex(unsigned index) const
     {
         assert(index < m_count);
         return &m_array[index];
@@ -316,7 +316,7 @@ public:
     }
 
     // Get a pointer to the SSA definition associated with the specified SSA number.
-    T* GetSsaDef(unsigned ssaNum)
+    T* GetSsaDef(unsigned ssaNum) const
     {
         assert(ssaNum != SsaConfig::RESERVED_SSA_NUM);
         return GetSsaDefByIndex(ssaNum - GetMinSsaNum());
@@ -989,6 +989,12 @@ public:
     LclSsaVarDsc* GetPerSsaData(unsigned ssaNum)
     {
         return lvPerSsaData.GetSsaDef(ssaNum);
+    }
+
+    bool HasImplicitSsaDef() const
+    {
+        return (lvPerSsaData.GetCount() != 0) &&
+               (lvPerSsaData.GetSsaDef(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr);
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
