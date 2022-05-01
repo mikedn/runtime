@@ -30,86 +30,14 @@
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    class LivenessUpdater
-    {
-        Compiler* compiler;
-        VARSET_TP liveSet;
-        INDEBUG(VARSET_TP scratchSet;)
-
-    public:
-        LivenessUpdater::LivenessUpdater(Compiler* compiler)
-            : compiler(compiler)
-            , liveSet(VarSetOps::MakeEmpty(compiler))
-#ifdef DEBUG
-            , scratchSet(VarSetOps::MakeEmpty(compiler))
-#endif
-        {
-        }
-
-        void BeginBlock(BasicBlock* block)
-        {
-            VarSetOps::Assign(compiler, liveSet, block->bbLiveIn);
-        }
-
-        VARSET_VALARG_TP GetLiveSet() const
-        {
-            return liveSet;
-        }
-
-        void UpdateDef(GenTreeLclVarCommon* lclNode)
-        {
-            assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) != 0));
-
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
-
-            assert(lcl->IsInSsa());
-
-            bool isBorn  = (lclNode->gtFlags & GTF_VAR_USEASG) == 0;
-            bool isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
-
-            if (isBorn || isDying)
-            {
-                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
-
-                if (isDying)
-                {
-                    VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
-                }
-                else
-                {
-                    VarSetOps::AddElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
-                }
-
-                DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
-            }
-        }
-
-        void UpdateUse(GenTreeLclVarCommon* lclNode)
-        {
-            assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((lclNode->gtFlags & GTF_VAR_DEF) == 0));
-
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
-
-            assert(lcl->IsInSsa());
-
-            if ((lclNode->gtFlags & GTF_VAR_DEATH) != 0)
-            {
-                DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet, liveSet));
-                VarSetOps::RemoveElemD(compiler, liveSet, lcl->GetLivenessBitIndex());
-                DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars: ", scratchSet, liveSet);)
-            }
-        }
-    };
-
     using SsaStack     = SsaRenameState::Stack;
     using SsaStackNode = SsaRenameState::StackNode;
 
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack> LclSsaStackMap;
 
-    LclSsaStackMap  lclSsaStackMap;
-    LivenessUpdater liveness;
-    SsaStack*       stackListTail = nullptr;
-    SsaStack        freeStack;
+    LclSsaStackMap lclSsaStackMap;
+    SsaStack*      stackListTail = nullptr;
+    SsaStack       freeStack;
 
     template <class... Args>
     SsaStackNode* AllocStackNode(Args&&... args)
@@ -130,9 +58,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 
 public:
     CopyPropDomTreeVisitor(Compiler* compiler)
-        : DomTreeVisitor(compiler, compiler->fgSsaDomTree)
-        , lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
-        , liveness(compiler)
+        : DomTreeVisitor(compiler, compiler->fgSsaDomTree), lclSsaStackMap(compiler->getAllocator(CMK_CopyProp))
     {
     }
 
@@ -164,9 +90,13 @@ public:
         {
             unsigned lclNum = pair.key;
             unsigned ssaNum = pair.value.Top()->m_ssaNum;
-            printf("%sV%02u:%u " FMT_VN, prefix, lclNum, ssaNum,
-                   m_compiler->lvaGetDesc(lclNum)->GetPerSsaData(ssaNum)->GetConservativeVN());
-            prefix = ", ";
+
+            if (ssaNum != SsaConfig::RESERVED_SSA_NUM)
+            {
+                ValueNum vn = m_compiler->lvaGetDesc(lclNum)->GetPerSsaData(ssaNum)->GetConservativeVN();
+                printf("%sV%02u:%u " FMT_VN, prefix, lclNum, ssaNum, vn);
+                prefix = ", ";
+            }
         }
         printf(" }\n");
     }
@@ -205,8 +135,6 @@ public:
         }
 #endif
 
-        liveness.BeginBlock(block);
-
         for (Statement* const stmt : block->Statements())
         {
             for (GenTree* const node : stmt->Nodes())
@@ -225,22 +153,34 @@ public:
                     continue;
                 }
 
-                if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
+                if ((lclNode->gtFlags & (GTF_VAR_DEF | GTF_VAR_DEATH)) != 0)
                 {
-                    liveness.UpdateDef(lclNode);
-                    PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, m_compiler->GetSsaDefNum(lclNode));
+                    // We obviously need to push a SSA def for VAR_DEF but we also push
+                    // a "fake" one for VAR_DEATH, to prevent live range extension. We
+                    // do not need any of this for `this` because it's never stored to
+                    // and can be considered always live.
 
-                    continue;
+                    if (lclNum != m_compiler->info.compThisArg)
+                    {
+                        unsigned ssaDefNum = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0)
+                                                 ? SsaConfig::RESERVED_SSA_NUM
+                                                 : m_compiler->GetSsaDefNum(lclNode);
+
+                        PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, ssaDefNum);
+                    }
+
+                    if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
+                    {
+                        continue;
+                    }
                 }
-
-                liveness.UpdateUse(lclNode);
 
                 if (lclNode->OperIs(GT_LCL_VAR))
                 {
                     // TODO-Review: EH successor/predecessor iteration seems broken.
                     if ((block->bbCatchTyp != BBCT_FINALLY) && (block->bbCatchTyp != BBCT_FAULT))
                     {
-                        CopyProp(lclNode->AsLclVar());
+                        CopyProp(block, lclNode->AsLclVar());
                     }
                 }
             }
@@ -280,7 +220,7 @@ public:
         return score;
     }
 
-    void CopyProp(GenTreeLclVar* use)
+    void CopyProp(BasicBlock* block, GenTreeLclVar* use)
     {
         assert(use->OperIs(GT_LCL_VAR) && ((use->gtFlags & GTF_VAR_DEF) == 0));
 
@@ -295,9 +235,9 @@ public:
         for (const auto& pair : lclSsaStackMap)
         {
             unsigned newLclNum = pair.key;
+            unsigned newSsaNum = pair.value.Top()->m_ssaNum;
 
-            // Nothing to do if same.
-            if (lclNum == newLclNum)
+            if ((lclNum == newLclNum) || (newSsaNum == SsaConfig::RESERVED_SSA_NUM))
             {
                 continue;
             }
@@ -319,8 +259,6 @@ public:
             {
                 continue;
             }
-
-            unsigned newSsaNum = pair.value.Top()->m_ssaNum;
 
             // The use must produce the same value number if we substitute the def.
             if (m_compiler->vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
@@ -351,13 +289,16 @@ public:
             // Maybe it could work well for parameters and other locals that have the single SSA
             // def at the start of the first block?
 
-            if (newLclNum == m_compiler->info.compThisArg)
+            if (pair.value.Top()->m_block != block)
             {
-                assert((newLcl->lvPerSsaData.GetCount() == 1) && newLcl->HasImplicitSsaDef());
-            }
-            else if (!VarSetOps::IsMember(m_compiler, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
-            {
-                continue;
+                if (newLclNum == m_compiler->info.compThisArg)
+                {
+                    assert((newLcl->lvPerSsaData.GetCount() == 1) && newLcl->HasImplicitSsaDef());
+                }
+                else if (!VarSetOps::IsMember(m_compiler, block->bbLiveIn, newLcl->GetLivenessBitIndex()))
+                {
+                    continue;
+                }
             }
 
             JITDUMP("[%06u] replacing V%02u:%u by V%02u:%u\n", use->GetID(), use->GetLclNum(), use->GetSsaNum(),
