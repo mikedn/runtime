@@ -350,13 +350,10 @@ public:
             // may again turn out to not be so great for CQ due to live range extension issues.
             // Maybe it could work well for parameters and other locals that have the single SSA
             // def at the start of the first block?
-            //
-            // TODO-MIKE-Cleanup: Well, `this` should really have only one def. Except that loop
-            // tail call morphing is messy and introduces unnecessary defs...
 
-            if ((newLclNum == m_compiler->info.compThisArg) && (newLcl->lvPerSsaData.GetCount() == 1))
+            if (newLclNum == m_compiler->info.compThisArg)
             {
-                assert(newLcl->HasImplicitSsaDef());
+                assert((newLcl->lvPerSsaData.GetCount() == 1) && newLcl->HasImplicitSsaDef());
             }
             else if (!VarSetOps::IsMember(m_compiler, liveness.GetLiveSet(), newLcl->GetLivenessBitIndex()))
             {
