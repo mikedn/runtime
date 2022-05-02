@@ -27,6 +27,24 @@
 //     that. This means that A = B won't actually be removed and worse, we may end
 //     up extending the live range of B, which may be concurrent with that of A
 //     and increase register pressure.
+//   - `this` can be special cased: usually there are no stores to it and we can
+//     consider it to be always live as far as copy propagation is concerned. If
+//     we never replace its uses with a copy we're more or less guaranteed that we
+//     will instead replace all uses of its copies and remove the copies so live
+//     range extension is unlikely to be an issue for `this`. And since it has a
+//     single SSA definition it is also not subject to SSA pruning issues.
+//     Note that he importer avoids `this` stores but some JIT transforms may
+//     introduce `this` stores (e.g. the tail call to loop transform) so we do
+//     need to check if `this` is actually always live.
+//     It's rare for developer written code to contain `this` copies but the C#
+//     compiler seems to introduce such copies for `lock (this)`.
+//
+// TODO-MIKE-Review: The special casing of `this` is inherited from old code that was
+// actually broken. But the corrected code doesn't have much to do with `this`, it's
+// likely fine to do this for any local with a single SSA def. But of course, this
+// may again turn out to not be so great for CQ due to live range extension issues.
+// Maybe it could work well for parameters and other locals that have the single SSA
+// def at the start of the first block?
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
@@ -38,6 +56,7 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
     LclSsaStackMap lclSsaStackMap;
     SsaStack*      stackListTail = nullptr;
     SsaStack       freeStack;
+    unsigned       thisParamLclNum = BAD_VAR_NUM;
 
     template <class... Args>
     SsaStackNode* AllocStackNode(Args&&... args)
@@ -54,6 +73,11 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         }
 
         return new (stack) SsaStackNode(std::forward<Args>(args)...);
+    }
+
+    bool IsAlwaysLiveThisParam(unsigned lclNum) const
+    {
+        return lclNum == thisParamLclNum;
     }
 
 public:
@@ -123,6 +147,16 @@ public:
                 PushSsaDef(lclSsaStackMap.Emplace(lclNum), m_compiler->fgFirstBB, SsaConfig::FIRST_SSA_NUM);
             }
         }
+
+        if ((m_compiler->info.compThisArg) != BAD_VAR_NUM)
+        {
+            LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->info.compThisArg);
+
+            if (lcl->HasSingleSsaDef() && lcl->HasImplicitSsaDef())
+            {
+                thisParamLclNum = m_compiler->info.compThisArg;
+            }
+        }
     }
 
     void PreOrderVisit(BasicBlock* block)
@@ -153,21 +187,20 @@ public:
                     continue;
                 }
 
+                if (IsAlwaysLiveThisParam(lclNum))
+                {
+                    continue;
+                }
+
                 if ((lclNode->gtFlags & (GTF_VAR_DEF | GTF_VAR_DEATH)) != 0)
                 {
                     // We obviously need to push a SSA def for VAR_DEF but we also push
-                    // a "fake" one for VAR_DEATH, to prevent live range extension. We
-                    // do not need any of this for `this` because it's never stored to
-                    // and can be considered always live.
+                    // a "fake" one for VAR_DEATH, to prevent live range extension.
 
-                    if (lclNum != m_compiler->info.compThisArg)
-                    {
-                        unsigned ssaDefNum = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0)
-                                                 ? SsaConfig::RESERVED_SSA_NUM
-                                                 : m_compiler->GetSsaDefNum(lclNode);
+                    unsigned ssaDefNum = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0) ? SsaConfig::RESERVED_SSA_NUM
+                                                                                   : m_compiler->GetSsaDefNum(lclNode);
 
-                        PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, ssaDefNum);
-                    }
+                    PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, ssaDefNum);
 
                     if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
                     {
@@ -271,34 +304,10 @@ public:
                 continue;
             }
 
-            // The new local should be live to use it, we might need to add a PHI that got pruned
-            // during initial SSA construction and we don't have the means to do that here. Also,
-            // we don't know if all uses of the old local will disappear the extended live range
-            // of the new local may very well interfere with the live range of the old local and
-            // increase register pressure.
-            //
-            // Make an exception if the new local is `this` (the real one, not a copy). There are
-            // no stores to `this` so there aren't any PHIs, pruned or not, and we can add a new
-            // use anywhere in the method. It's rare for developer written code to contain `this`
-            // copies but the C# compiler seem to introduce such copies for `lock (this)`.
-            //
-            // TODO-MIKE-Review: The special casing of `this` is inherited from old code that was
-            // actually broken. But the corrected code doesn't have much to do with `this`, it's
-            // likely fine to do this for any local with a single SSA def. But of course, this
-            // may again turn out to not be so great for CQ due to live range extension issues.
-            // Maybe it could work well for parameters and other locals that have the single SSA
-            // def at the start of the first block?
-
-            if (pair.value.Top()->m_block != block)
+            if (!IsAlwaysLiveThisParam(newLclNum) && (pair.value.Top()->m_block != block) &&
+                !VarSetOps::IsMember(m_compiler, block->bbLiveIn, newLcl->GetLivenessBitIndex()))
             {
-                if (newLclNum == m_compiler->info.compThisArg)
-                {
-                    assert((newLcl->lvPerSsaData.GetCount() == 1) && newLcl->HasImplicitSsaDef());
-                }
-                else if (!VarSetOps::IsMember(m_compiler, block->bbLiveIn, newLcl->GetLivenessBitIndex()))
-                {
-                    continue;
-                }
+                continue;
             }
 
             JITDUMP("[%06u] replacing V%02u:%u by V%02u:%u\n", use->GetID(), use->GetLclNum(), use->GetSsaNum(),

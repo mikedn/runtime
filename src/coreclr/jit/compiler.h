@@ -991,6 +991,11 @@ public:
         return lvPerSsaData.GetSsaDef(ssaNum);
     }
 
+    bool HasSingleSsaDef() const
+    {
+        return lvPerSsaData.GetCount() == 1;
+    }
+
     bool HasImplicitSsaDef() const
     {
         return (lvPerSsaData.GetCount() != 0) &&
