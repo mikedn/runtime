@@ -196,11 +196,16 @@ public:
                 {
                     // We obviously need to push a SSA def for VAR_DEF but we also push
                     // a "fake" one for VAR_DEATH, to prevent live range extension.
+                    // For STRUCT local live range extension isn't an issue as they're
+                    // currently not enregistered nor is any stack packing done.
 
                     unsigned ssaDefNum = ((lclNode->gtFlags & GTF_VAR_DEATH) != 0) ? SsaConfig::RESERVED_SSA_NUM
                                                                                    : m_compiler->GetSsaDefNum(lclNode);
 
-                    PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, ssaDefNum);
+                    if (((lclNode->gtFlags & GTF_VAR_DEF) != 0) || !lcl->TypeIs(TYP_STRUCT))
+                    {
+                        PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, ssaDefNum);
+                    }
 
                     if ((lclNode->gtFlags & GTF_VAR_DEF) != 0)
                     {
