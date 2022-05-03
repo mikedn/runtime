@@ -3876,6 +3876,7 @@ public:
 
     void SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum);
     unsigned GetSsaDefNum(GenTreeLclVarCommon* lclNode);
+    INDEBUG(void MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to);)
 
     // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
     // The map provides the entry block of the most closely enclosing loop that

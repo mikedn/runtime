@@ -3565,10 +3565,23 @@ inline unsigned Compiler::GetSsaDefNum(GenTreeLclVarCommon* lclNode)
         return lclNode->GetSsaNum();
     }
 
-    assert(lclNode->OperIs(GT_LCL_FLD));
+    assert(lclNode->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD));
 
     return *m_partialSsaDefMap->LookupPointer(lclNode);
 }
+
+#ifdef DEBUG
+inline void Compiler::MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to)
+{
+    if (m_partialSsaDefMap != nullptr)
+    {
+        if (unsigned* ssaDefNum = m_partialSsaDefMap->LookupPointer(from))
+        {
+            m_partialSsaDefMap->Set(to, *ssaDefNum);
+        }
+    }
+}
+#endif
 
 template <typename TVisitor>
 void GenTree::VisitOperands(TVisitor visitor)
