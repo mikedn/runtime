@@ -237,6 +237,14 @@ public:
         unsigned   lclNum = use->GetLclNum();
         LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
+        // TODO-MIKE-Review: The whole "search the SSA defs for a def with matching VN" approach
+        // is rather shoddy, partly due to it being just a linear search (and funnily enough, in
+        // a hashtable) and partly due it stopping at the first match. Ideally it would look for
+        // all matches and pick the best. But what exactly is "best" in this case? Something that
+        // avoids live range extension issues and ping pong copy issues. But it doesn't look like
+        // that can be done with readily available information and in a cheap manner.
+        // Oh well, this approach to copy propagation seems to be doomed.
+
         for (const auto& pair : lclSsaStackMap)
         {
             unsigned newLclNum = pair.key;
@@ -265,6 +273,12 @@ public:
             }
 
 #ifdef TARGET_X86
+            // TODO-MIKE-CQ: This avoids replacing a DOUBLE local with a parameter because such parameters
+            // aren't 8 byte aligned on x86. It's not clear how useful is this. In terms of code size this
+            // turns out to make things worse and the cost of unaligned access is usually small on modern
+            // CPUs. And the overall approach is dubious anyway since such parameters can be enregistered.
+            // If spilling is needed then it would make more sense to just spill into a local slot instead
+            // of the parameter's home. See also local copy assertion propagation and optAddCopies.
             if (lcl->TypeIs(TYP_DOUBLE) && !lcl->IsParam() && newLcl->IsParam())
             {
                 continue;
