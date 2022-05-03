@@ -225,39 +225,6 @@ public:
         }
     }
 
-    int GetCopyPropScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc)
-    {
-        int score = 1;
-
-        if (lclVarDsc->lvVolatileHint)
-        {
-            score += 4;
-        }
-
-        if (copyVarDsc->lvVolatileHint)
-        {
-            score -= 4;
-        }
-
-#ifdef TARGET_X86
-        // For doubles we also prefer to change parameters into non-parameter local variables
-        if (lclVarDsc->lvType == TYP_DOUBLE)
-        {
-            if (lclVarDsc->lvIsParam)
-            {
-                score += 2;
-            }
-
-            if (copyVarDsc->lvIsParam)
-            {
-                score -= 2;
-            }
-        }
-#endif
-
-        return score;
-    }
-
     void CopyProp(BasicBlock* block, GenTreeLclVar* use)
     {
         assert(use->OperIs(GT_LCL_VAR) && ((use->gtFlags & GTF_VAR_DEF) == 0));
@@ -292,6 +259,18 @@ public:
                 continue;
             }
 
+            if (!lcl->lvVolatileHint && newLcl->lvVolatileHint)
+            {
+                continue;
+            }
+
+#ifdef TARGET_X86
+            if (lcl->TypeIs(TYP_DOUBLE) && !lcl->IsParam() && newLcl->IsParam())
+            {
+                continue;
+            }
+#endif
+
             if ((m_compiler->gsShadowVarInfo != nullptr) && newLcl->IsParam() &&
                 (m_compiler->gsShadowVarInfo[newLclNum].shadowLclNum == lclNum))
             {
@@ -300,11 +279,6 @@ public:
 
             // The use must produce the same value number if we substitute the def.
             if (m_compiler->vnLocalLoad(use, newLcl, newSsaNum).GetConservative() != use->GetConservativeVN())
-            {
-                continue;
-            }
-
-            if (GetCopyPropScore(lcl, newLcl) <= 0)
             {
                 continue;
             }
