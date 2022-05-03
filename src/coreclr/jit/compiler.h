@@ -303,7 +303,7 @@ public:
     }
 
     // Get a pointer to the SSA definition at the specified index.
-    T* GetSsaDefByIndex(unsigned index)
+    T* GetSsaDefByIndex(unsigned index) const
     {
         assert(index < m_count);
         return &m_array[index];
@@ -316,7 +316,7 @@ public:
     }
 
     // Get a pointer to the SSA definition associated with the specified SSA number.
-    T* GetSsaDef(unsigned ssaNum)
+    T* GetSsaDef(unsigned ssaNum) const
     {
         assert(ssaNum != SsaConfig::RESERVED_SSA_NUM);
         return GetSsaDefByIndex(ssaNum - GetMinSsaNum());
@@ -503,17 +503,6 @@ public:
     unsigned char lvHasExplicitInit : 1; // The local is explicitly initialized and doesn't need zero initialization in
                                          // the prolog. If the local has gc pointers, there are no gc-safe points
                                          // between the prolog and the explicit initialization.
-
-    // TODO-MIKE-Cleanup/Fix: This is pretty much bogus. Only VN Copy Prop uses this and for the wrong reasons.
-    // It assumes that if this is set then the local is live, because "this" is supposed to always be live.
-    // Except that isn't really true, "this" is always live only in certain methods (e.g. those that need
-    // it for the generic context). Also, if "this" is stored to, a copy of "this" is created and lvIsThisPtr
-    // is set on that copy, not on the original "this" local. And that copy doesn't have the same "always live"
-    // behavior as the "this" param itself.
-    // This is primarily a cleanup issue, LclVarDsc already contains too much information and the last thing
-    // it needs is such bogus info.
-    // It's also a bug but it requires rather exotic IL code to reproduce it (see copy-prop-test.il test).
-    unsigned char lvIsThisPtr : 1;
 
     union {
         unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
@@ -1000,6 +989,17 @@ public:
     LclSsaVarDsc* GetPerSsaData(unsigned ssaNum)
     {
         return lvPerSsaData.GetSsaDef(ssaNum);
+    }
+
+    bool HasSingleSsaDef() const
+    {
+        return lvPerSsaData.GetCount() == 1;
+    }
+
+    bool HasImplicitSsaDef() const
+    {
+        return (lvPerSsaData.GetCount() != 0) &&
+               (lvPerSsaData.GetSsaDef(SsaConfig::FIRST_SSA_NUM)->GetAssignment() == nullptr);
     }
 
     var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
@@ -2690,8 +2690,6 @@ public:
     bool lvaIsParameter(unsigned varNum);
     bool lvaIsRegArgument(unsigned varNum);
     bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
-    bool lvaIsOriginalThisReadOnly();           // return true if there is no place in the code
-                                                // that writes to arg0
 
     bool lvaIsImplicitByRefLocal(unsigned varNum)
     {
@@ -3872,20 +3870,13 @@ public:
         return BasicBlockRangeList(startBlock, endBlock);
     }
 
-    // The presence of a partial definition presents some difficulties for SSA: this is both a use of some SSA name
-    // of "x", and a def of a new SSA name for "x".  The tree only has one local variable for "x", so it has to choose
-    // whether to treat that as the use or def.  It chooses the "use", and thus the old SSA name.  This map allows us
-    // to record/recover the "def" SSA number, given the lcl var node for "x" in such a tree.
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
-    NodeToUnsignedMap* m_opAsgnVarDefSsaNums;
-    NodeToUnsignedMap* GetOpAsgnVarDefSsaNums()
-    {
-        if (m_opAsgnVarDefSsaNums == nullptr)
-        {
-            m_opAsgnVarDefSsaNums = new (getAllocator()) NodeToUnsignedMap(getAllocator());
-        }
-        return m_opAsgnVarDefSsaNums;
-    }
+
+    NodeToUnsignedMap* m_partialSsaDefMap;
+
+    void SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum);
+    unsigned GetSsaDefNum(GenTreeLclVarCommon* lclNode);
+    INDEBUG(void MoveSsaDefNum(GenTreeLclVarCommon* from, GenTreeLclVarCommon* to);)
 
     // This map tracks nodes whose value numbers explicitly or implicitly depend on memory states.
     // The map provides the entry block of the most closely enclosing loop that
@@ -3914,19 +3905,13 @@ public:
     void optRecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
     void optCopyLoopMemoryDependence(GenTree* fromTree, GenTree* toTree);
 
-    // Requires that "lcl" has the GTF_VAR_DEF flag set.  Returns the SSA number of "lcl".
-    // Except: assumes that lcl is a def, and if it is
-    // a partial def (GTF_VAR_USEASG), looks up and returns the SSA number for the "def",
-    // rather than the "use" SSA number recorded in the tree "lcl".
-    inline unsigned GetSsaNumForLocalVarDef(GenTree* lcl);
-
     // Performs SSA conversion.
     void fgSsaBuild();
 
     // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
     void fgResetForSsa();
 
-    unsigned fgSsaPassesCompleted; // Number of times fgSsaBuild has been run.
+    bool ssaForm;
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
     inline bool fgVarIsNeverZeroInitializedInProlog(unsigned varNum);
@@ -3969,6 +3954,7 @@ public:
     ValueNum vnCoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
     void vnLocalStore(GenTreeLclVar* store, GenTreeOp* asg, GenTree* value);
     void vnLocalLoad(GenTreeLclVar* load);
+    ValueNumPair vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum);
     void vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value);
     void vnLocalFieldLoad(GenTreeLclFld* load);
     ValueNum vnAddField(GenTreeOp* add);
@@ -3990,8 +3976,6 @@ public:
     FieldSeqNode* vnIsFieldAddr(GenTree* addr, GenTree** obj);
     FieldSeqNode* vnIsStaticStructFieldAddr(GenTree* addr);
     bool vnIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
-
-    unsigned fgVNPassesCompleted; // Number of times fgValueNumber has been run.
 
     struct VNLoop
     {
@@ -5719,24 +5703,7 @@ protected:
     static callInterf optCallInterf(GenTreeCall* call);
 
 public:
-    // VN based copy propagation.
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, ArrayStack<GenTree*>*> LclNumToGenTreePtrStack;
-
-    // Copy propagation functions.
-    void optCopyProp(BasicBlock*                    block,
-                     Statement*                     stmt,
-                     GenTreeLclVar*                 tree,
-                     unsigned                       lclNum,
-                     LclNumToGenTreePtrStack*       curSsaName,
-                     class CopyPropLivenessUpdater& liveness);
-    void optBlockCopyPropPopStacks(BasicBlock* block, LclNumToGenTreePtrStack* curSsaName);
-    void optBlockCopyProp(BasicBlock*                    block,
-                          LclNumToGenTreePtrStack*       curSsaName,
-                          class CopyPropLivenessUpdater& liveness);
-    unsigned optIsSsaLocal(GenTree* tree);
-    int optCopyProp_LclVarScore(LclVarDsc* lclVarDsc, LclVarDsc* copyVarDsc, bool preferOp2);
     void optVnCopyProp();
-    INDEBUG(void optDumpCopyPropStack(LclNumToGenTreePtrStack* curSsaName));
 
 /**************************************************************************
  *               Early value propagation

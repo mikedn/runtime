@@ -962,13 +962,15 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
         return nullptr;
     }
 
-    // TODO-MIKE-Review: This whole thing doesn't make much sense. Why special case DOUBLE on x86?
-    // Without it we'd be doing copy propagation only in the "normal" case where we have X = Y and
-    // replace subsequent uses of X with Y. But due to this weird crap we have Y = X and replace
-    // uses of X with Y!
     int score = (lclNumDst == lclNum) ? 1 : -1;
 
 #ifdef TARGET_X86
+    // TODO-MIKE-CQ: This avoids replacing a DOUBLE local with a parameter because such parameters
+    // aren't 8 byte aligned on x86. It's not clear how useful is this. In terms of code size this
+    // turns out to make things worse and the cost of unaligned access is usually small on modern
+    // CPUs. And the overall approach is dubious anyway since such parameters can be enregistered.
+    // If spilling is needed then it would make more sense to just spill into a local slot instead
+    // of the parameter's home. See also VN copy prop and optAddCopies.
     if (lcl->TypeIs(TYP_DOUBLE))
     {
         if (lcl->IsParam())

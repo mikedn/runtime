@@ -55,15 +55,11 @@ static inline BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2)
 
 void Compiler::fgSsaBuild()
 {
-    // If this is not the first invocation, reset data structures for SSA.
-    if (fgSsaPassesCompleted > 0)
-    {
-        fgResetForSsa();
-    }
+    assert(!ssaForm);
 
     SsaBuilder builder(this);
     builder.Build();
-    fgSsaPassesCompleted++;
+    ssaForm = true;
 
 #ifdef DEBUG
     if (verbose)
@@ -80,6 +76,7 @@ void Compiler::fgResetForSsa()
     {
         lvaTable[i].lvPerSsaData.Reset();
     }
+
     lvMemoryPerSsaData.Reset();
     m_memorySsaMap = nullptr;
 
@@ -732,11 +729,8 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
             {
                 assert((lclNode->gtFlags & GTF_VAR_USEASG) != 0);
 
-                // This is a partial definition of a variable. The node records only the SSA number
-                // of the use that is implied by this partial definition. The SSA number of the new
-                // definition will be recorded in the m_opAsgnVarDefSsaNums map.
                 lclNode->SetSsaNum(m_renameStack.Top(lclNum));
-                m_pCompiler->GetOpAsgnVarDefSsaNums()->Set(lclNode, ssaNum);
+                m_pCompiler->SetPartialSsaDefNum(lclNode->AsLclFld(), ssaNum);
             }
             else
             {
@@ -1218,22 +1212,14 @@ void SsaBuilder::RenameVariables()
     // virtual definition before entry -- they start out at SSA name 1.
     for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
     {
-        if (!m_pCompiler->lvaInSsa(lclNum))
+        LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
+
+        if (lcl->IsInSsa() &&
+            VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
-            continue;
-        }
-
-        LclVarDsc* varDsc = &m_pCompiler->lvaTable[lclNum];
-        assert(varDsc->lvTracked);
-
-        if (varDsc->lvIsParam || m_pCompiler->info.compInitMem || varDsc->lvMustInit ||
-            VarSetOps::IsMember(m_pCompiler, m_pCompiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
-        {
-            unsigned ssaNum = varDsc->lvPerSsaData.AllocSsaNum(m_allocator);
-
-            // In ValueNum we'd assume un-inited variables get FIRST_SSA_NUM.
+            unsigned ssaNum = lcl->lvPerSsaData.AllocSsaNum(m_allocator);
+            // HasImplicitSsaDef assumes that this is always the first SSA def.
             assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
-
             m_renameStack.Push(m_pCompiler->fgFirstBB, lclNum, ssaNum);
         }
     }

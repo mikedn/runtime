@@ -8459,7 +8459,7 @@ void Compiler::optRemoveRedundantZeroInits()
         {
             LclVarRefCounts::KeyIterator iter(defsInBlock.Begin());
             LclVarRefCounts::KeyIterator end(defsInBlock.End());
-            for (; !iter.Equal(end); iter++)
+            for (; !iter.Equal(end); ++iter)
             {
                 unsigned int lclNum = iter.Get();
                 if (defsInBlock[lclNum] == 0)

@@ -2119,7 +2119,7 @@ PhaseStatus Compiler::fgTailMergeThrows()
     BlockToBlockMap::KeyIterator end(blockMap.End());
     unsigned                     updateCount = 0;
 
-    for (; !iter.Equal(end); iter++)
+    for (; !iter.Equal(end); ++iter)
     {
         BasicBlock* const nonCanonicalBlock = iter.Get();
         BasicBlock* const canonicalBlock    = iter.GetValue();

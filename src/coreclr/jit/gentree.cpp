@@ -7911,7 +7911,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
 
         if ((node->gtFlags & GTF_VAR_USEASG) != 0)
         {
-            printf("u:%d, d:%d", node->GetSsaNum(), GetSsaNumForLocalVarDef(node));
+            printf("u:%d, d:%d", node->GetSsaNum(), GetSsaDefNum(node));
         }
         else
         {

@@ -480,8 +480,7 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
             lvaSetClass(varDscInfo->varNum, info.compClassHnd);
         }
 
-        varDsc->lvIsThisPtr = true;
-        varDsc->lvIsRegArg  = true;
+        varDsc->lvIsRegArg = true;
         noway_assert(varDscInfo->intRegArgNum == 0);
 
         varDsc->SetArgReg(genMapRegArgNumToRegNum(varDscInfo->allocRegArg(TYP_INT), varDsc->TypeGet()));
@@ -6178,10 +6177,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
     if (varDsc->lvHasLdAddrOp)
     {
         printf(" ld-addr-op");
-    }
-    if (varDsc->lvIsThisPtr)
-    {
-        printf(" this");
     }
     if (varDsc->lvPinned)
     {

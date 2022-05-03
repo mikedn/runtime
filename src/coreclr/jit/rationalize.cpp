@@ -113,8 +113,8 @@ void Rationalizer::RewriteLocalAssignment(GenTreeOp* assignment, GenTreeLclVarCo
     store->gtFlags |= GTF_VAR_DEF;
     store->gtFlags &= ~GTF_EXCEPT;
 
-    DISPNODE(store);
-    JITDUMP("\n");
+    // We don't use SSA in LIR but being able to still display SSA use/defs might be useful.
+    INDEBUG(comp->MoveSsaDefNum(location, store));
 }
 
 void Rationalizer::RewriteAssignment(LIR::Use& use)

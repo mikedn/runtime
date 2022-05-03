@@ -114,6 +114,9 @@ void Compiler::optAddCopies()
         //
         // On all other platforms we will never need to make a copy
         // for an incoming double parameter
+        //
+        // TODO-MIKE-CQ: So if this is done in order to get around DOUBLE parameter
+        // alignment then why the crap it's also checking for FLOAT?!?
 
         bool isFloatParam = false;
 
@@ -5061,11 +5064,6 @@ private:
 
 void Compiler::optVNAssertionProp()
 {
-    if (fgSsaPassesCompleted == 0)
-    {
-        return;
-    }
-
 #ifdef DEBUG
     if (verbose)
     {
@@ -5074,6 +5072,8 @@ void Compiler::optVNAssertionProp()
         fgDispBasicBlocks(true);
     }
 #endif
+
+    assert(ssaForm && (vnStore != nullptr));
 
     optAssertionInit();
 

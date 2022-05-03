@@ -155,7 +155,7 @@ void Compiler::optEarlyProp()
     }
 #endif
 
-    assert(fgSsaPassesCompleted == 1);
+    assert(ssaForm);
 
     for (BasicBlock* const block : Blocks())
     {

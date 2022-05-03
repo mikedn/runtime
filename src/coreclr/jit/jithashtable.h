@@ -103,7 +103,13 @@ template <typename Key,
 class JitHashTable
 {
 public:
-    class KeyIterator;
+    struct Pair
+    {
+        const Key key;
+        Value     value;
+    };
+
+    class iterator;
 
     //------------------------------------------------------------------------
     // JitHashTable: Construct an empty JitHashTable object.
@@ -157,7 +163,7 @@ public:
         {
             if (pVal != nullptr)
             {
-                *pVal = pN->m_val;
+                *pVal = pN->m_value.value;
             }
             return true;
         }
@@ -188,7 +194,7 @@ public:
 
         if (pN != nullptr)
         {
-            return &(pN->m_val);
+            return &(pN->m_value.value);
         }
         else
         {
@@ -229,14 +235,14 @@ public:
         unsigned index = GetIndexForKey(k);
 
         Node* pN = m_table[index];
-        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_key))
+        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_value.key))
         {
             pN = pN->m_next;
         }
         if (pN != nullptr)
         {
             assert(kind == Overwrite);
-            pN->m_val = v;
+            pN->m_value.value = v;
             return true;
         }
         else
@@ -269,7 +275,7 @@ public:
         unsigned index = GetIndexForKey(k);
 
         Node* n = m_table[index];
-        while ((n != nullptr) && !KeyFuncs::Equals(k, n->m_key))
+        while ((n != nullptr) && !KeyFuncs::Equals(k, n->m_value.key))
         {
             n = n->m_next;
         }
@@ -282,7 +288,7 @@ public:
             m_tableCount++;
         }
 
-        return &n->m_val;
+        return &n->m_value.value;
     }
 
     //------------------------------------------------------------------------
@@ -303,7 +309,7 @@ public:
 
         Node*  pN  = m_table[index];
         Node** ppN = &m_table[index];
-        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_key))
+        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_value.key))
         {
             ppN = &pN->m_next;
             pN  = pN->m_next;
@@ -349,16 +355,27 @@ public:
     }
 
     // Get an iterator to the first key in the table.
-    KeyIterator Begin() const
+    // [[deprecated]]
+    iterator Begin() const
     {
-        KeyIterator i(this, true);
-        return i;
+        return iterator(this);
+    }
+
+    iterator begin() const
+    {
+        return iterator(this);
     }
 
     // Get an iterator following the last key in the table.
-    KeyIterator End() const
+    // [[deprecated]]
+    iterator End() const
     {
-        return KeyIterator(this, false);
+        return iterator();
+    }
+
+    iterator end() const
+    {
+        return iterator();
     }
 
     // Get the number of keys currently stored in the table.
@@ -419,12 +436,12 @@ private:
         }
 
         // Otherwise...
-        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_key))
+        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_value.key))
         {
             pN = pN->m_next;
         }
 
-        assert((pN == nullptr) || KeyFuncs::Equals(k, pN->m_key));
+        assert((pN == nullptr) || KeyFuncs::Equals(k, pN->m_value.key));
 
         // If pN != nullptr, it's the node for the key, else the key isn't mapped.
         return pN;
@@ -506,7 +523,7 @@ public:
             {
                 Node* pNext = pN->m_next;
 
-                unsigned newIndex  = newPrime.magicNumberRem(KeyFuncs::GetHashCode(pN->m_key));
+                unsigned newIndex  = newPrime.magicNumberRem(KeyFuncs::GetHashCode(pN->m_value.key));
                 pN->m_next         = newTable[newIndex];
                 newTable[newIndex] = pN;
 
@@ -536,153 +553,89 @@ public:
     // }
     // iter.Get() will yield (a reference to) the
     // current key.  It will assert the equivalent of "iter != end."
-    class KeyIterator
+    class iterator
     {
-    private:
         friend class JitHashTable;
 
-        Node**   m_table;
-        Node*    m_node;
-        unsigned m_tableSize;
-        unsigned m_index;
+        Node*  m_node;
+        Node** m_buckets;
+        Node** m_bucketsEnd;
+
+        iterator() : m_node(nullptr)
+        {
+        }
+
+        iterator(const JitHashTable* hash)
+            : m_node(nullptr), m_buckets(hash->m_table), m_bucketsEnd(hash->m_table + hash->m_tableSizeInfo.prime)
+        {
+            if (hash->m_tableCount > 0)
+            {
+                FindNextBucket();
+            }
+        }
+
+        void FindNextBucket()
+        {
+            while ((m_buckets < m_bucketsEnd) && ((m_node = *m_buckets++) == nullptr))
+            {
+            }
+        }
 
     public:
-        //------------------------------------------------------------------------
-        // KeyIterator: Construct an iterator for the specified JitHashTable.
-        //
-        // Arguments:
-        //    hash  - the hashtable
-        //    begin - `true` to construct an "begin" iterator,
-        //            `false` to construct an "end" iterator
-        //
-        KeyIterator(const JitHashTable* hash, bool begin)
-            : m_table(hash->m_table)
-            , m_node(nullptr)
-            , m_tableSize(hash->m_tableSizeInfo.prime)
-            , m_index(begin ? 0 : m_tableSize)
-        {
-            if (begin && (hash->m_tableCount > 0))
-            {
-                assert(m_table != nullptr);
-                while ((m_index < m_tableSize) && (m_table[m_index] == nullptr))
-                {
-                    m_index++;
-                }
-
-                if (m_index >= m_tableSize)
-                {
-                    return;
-                }
-                else
-                {
-                    m_node = m_table[m_index];
-                }
-                assert(m_node != nullptr);
-            }
-        }
-
-        //------------------------------------------------------------------------
-        // Get: Get a reference to this iterator's key.
-        //
-        // Return Value:
-        //    A reference to this iterator's key.
-        //
-        // Assumptions:
-        //    This must not be the "end" iterator.
-        //
-        const Key& Get() const
-        {
-            assert(m_node != nullptr);
-
-            return m_node->m_key;
-        }
-
-        //------------------------------------------------------------------------
-        // GetValue: Get a reference to this iterator's value.
-        //
-        // Return Value:
-        //    A reference to this iterator's value.
-        //
-        // Assumptions:
-        //    This must not be the "end" iterator.
-        //
-        Value& GetValue() const
-        {
-            assert(m_node != nullptr);
-
-            return m_node->m_val;
-        }
-
-        //------------------------------------------------------------------------
-        // SetValue: Assign a new value to this iterator's key
-        //
-        // Arguments:
-        //    value - the value to assign
-        //
-        // Assumptions:
-        //    This must not be the "end" iterator.
-        //
-        void SetValue(const Value& value) const
-        {
-            assert(m_node != nullptr);
-
-            m_node->m_val = value;
-        }
-
-        //------------------------------------------------------------------------
-        // Next: Advance the iterator to the next node.
-        //
-        // Notes:
-        //    Advancing the end iterator has no effect.
-        //
-        void Next()
-        {
-            if (m_node != nullptr)
-            {
-                m_node = m_node->m_next;
-                if (m_node != nullptr)
-                {
-                    return;
-                }
-
-                // Otherwise...
-                m_index++;
-            }
-            while ((m_index < m_tableSize) && (m_table[m_index] == nullptr))
-            {
-                m_index++;
-            }
-
-            if (m_index >= m_tableSize)
-            {
-                m_node = nullptr;
-                return;
-            }
-            else
-            {
-                m_node = m_table[m_index];
-            }
-            assert(m_node != nullptr);
-        }
-
-        // Return `true` if the specified iterator has the same position as this iterator
-        bool Equal(const KeyIterator& i) const
+        bool operator==(const iterator& i) const
         {
             return i.m_node == m_node;
         }
 
-        // Advance the iterator to the next node
-        void operator++()
+        bool operator!=(const iterator& i) const
         {
-            Next();
+            return i.m_node != m_node;
         }
 
-        // Advance the iterator to the next node
-        void operator++(int)
+        void operator++()
         {
-            Next();
+            m_node = m_node->m_next;
+
+            if (m_node == nullptr)
+            {
+                FindNextBucket();
+            }
+        }
+
+        Pair& operator*()
+        {
+            return m_node->m_value;
+        }
+
+        // [[deprecated]]
+        const Key& Get() const
+        {
+            return m_node->m_value.key;
+        }
+
+        const Key& GetKey() const
+        {
+            return m_node->m_value.key;
+        }
+
+        Value& GetValue() const
+        {
+            return m_node->m_value.value;
+        }
+
+        void SetValue(const Value& value) const
+        {
+            m_node->m_value.value = value;
+        }
+
+        // [[deprecated]]
+        bool Equal(const iterator& i) const
+        {
+            return i.m_node == m_node;
         }
     };
+
+    using KeyIterator = iterator;
 
     //------------------------------------------------------------------------
     // operator[]: Get a reference to the value associated with the specified key.
@@ -730,13 +683,11 @@ private:
     // The node type.
     struct Node
     {
-        Node* m_next; // Assume that the alignment requirement of Key and Value are no greater than Node*,
-                      // so put m_next first to avoid unnecessary padding.
-        Key   m_key;
-        Value m_val;
+        Node* m_next;
+        Pair  m_value;
 
         template <class... Args>
-        Node(Node* next, Key k, Args&&... args) : m_next(next), m_key(k), m_val(std::forward<Args>(args)...)
+        Node(Node* next, Key k, Args&&... args) : m_next(next), m_value{k, Value(std::forward<Args>(args)...)}
         {
         }
 
@@ -899,22 +850,18 @@ public:
     {
         friend class JitHashSet;
 
-        Node*    m_node;
-        Node**   m_buckets;
-        unsigned m_bucketCount;
-        unsigned m_bucketIndex;
+        Node*  m_node;
+        Node** m_buckets;
+        Node** m_bucketsEnd;
 
         iterator() : m_node(nullptr)
         {
         }
 
         iterator(const JitHashSet* hash)
-            : m_node(nullptr)
-            , m_buckets(hash->m_buckets)
-            , m_bucketCount(hash->GetBucketCount())
-            , m_bucketIndex(UINT32_MAX) // FindNextBucket starts by incrementing the index
+            : m_node(nullptr), m_buckets(hash->m_buckets), m_bucketsEnd(hash->m_buckets + hash->GetBucketCount())
         {
-            if (hash->m_count != 0)
+            if (hash->m_count > 0)
             {
                 FindNextBucket();
             }
@@ -922,16 +869,8 @@ public:
 
         void FindNextBucket()
         {
-            assert(m_node == nullptr);
-
-            while (++m_bucketIndex < m_bucketCount)
+            while ((m_buckets < m_bucketsEnd) && ((m_node = *m_buckets++) == nullptr))
             {
-                m_node = m_buckets[m_bucketIndex];
-
-                if (m_node != nullptr)
-                {
-                    break;
-                }
             }
         }
 

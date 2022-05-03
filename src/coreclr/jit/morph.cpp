@@ -982,6 +982,12 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             //
             // Likewise, previous arguments only need temps if they're going to be moved to
             // the late arg list.
+            //
+            // This should probably be more precise, even at the cost of throughput. It's
+            // rare for normal code to contain assignments in arg trees, it's more likely
+            // that such assignments were introduced by the JIT (e.g. bound checks, null
+            // checks, multi use etc.) and assign to new temps that aren't used anywhere
+            // else except this particular arg tree.
 
             if (argCount > 1)
             {
@@ -998,7 +1004,14 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
                 assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
 
-                if (!prevArgInfo->GetNode()->OperIsConst() && !prevArgInfo->GetNode()->OperIsLocalAddr())
+                GenTree* node = prevArgInfo->GetNode();
+
+                // Constants and local addresses obviously do not need temps.
+                // The `this` arg also does not need a temp, if it's ever stored
+                // to the importer replaces it with a normal local.
+
+                if (!node->OperIsConst() && !node->OperIsLocalAddr() &&
+                    !(node->OperIs(GT_LCL_VAR) && (node->AsLclVar()->GetLclNum() == compiler->info.compThisArg)))
                 {
                     prevArgInfo->SetTempNeeded();
                     needsTemps = true;

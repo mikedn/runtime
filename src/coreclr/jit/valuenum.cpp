@@ -4763,7 +4763,13 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         return;
     }
 
-    ValueNumPair vnp = lcl->GetPerSsaData(load->GetSsaNum())->m_vnPair;
+    load->SetVNP(vnLocalLoad(load, lcl, load->GetSsaNum()));
+    ;
+}
+
+ValueNumPair Compiler::vnLocalLoad(GenTreeLclVar* load, LclVarDsc* lcl, unsigned ssaNum)
+{
+    ValueNumPair vnp = lcl->GetPerSsaData(ssaNum)->GetVNP();
 
     assert(vnp.GetLiberal() != ValueNumStore::NoVN);
 
@@ -4779,6 +4785,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         }
         else
         {
+            printf("bad type %s %s\n", varTypeName(load->GetType()), varTypeName(lcl->GetType()));
             vnp.SetBoth(vnStore->VNForExpr(compCurBB, load->GetType()));
         }
     }
@@ -4790,7 +4797,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         {
             ValueNum extendVN = vnStore->ExtendPtrVN(vnp.GetLiberal(), fieldSeq, 0);
 
-            if (extendVN != ValueNumStore::NoVN)
+            if (extendVN != NoVN)
             {
                 // TODO-MIKE-Fix: This doesn't make a lot of sense. We only look at the liberal VN,
                 // the conservative VN might be different (e.g. the value stored in the local could
@@ -4800,7 +4807,7 @@ void Compiler::vnLocalLoad(GenTreeLclVar* load)
         }
     }
 
-    load->SetVNP(vnp);
+    return vnp;
 }
 
 void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* value)
@@ -4870,7 +4877,7 @@ void Compiler::vnLocalFieldStore(GenTreeLclFld* store, GenTreeOp* asg, GenTree* 
         }
     }
 
-    lcl->GetPerSsaData(GetSsaNumForLocalVarDef(store))->SetVNP(valueVNP);
+    lcl->GetPerSsaData(GetSsaDefNum(store))->SetVNP(valueVNP);
     store->SetVNP(valueVNP);
 
     INDEBUG(vnTraceLocal(store->GetLclNum(), valueVNP));
@@ -7407,45 +7414,11 @@ struct ValueNumberState
 
 void Compiler::fgValueNumber()
 {
-#ifdef DEBUG
-    // This could be a JITDUMP, but some people find it convenient to set a breakpoint on the printf.
-    if (verbose)
-    {
-        printf("\n*************** In fgValueNumber()\n");
-    }
-#endif
+    JITDUMP("\n*************** In fgValueNumber()\n");
 
-    // If we skipped SSA, skip VN as well.
-    if (fgSsaPassesCompleted == 0)
-    {
-        return;
-    }
+    assert(ssaForm && (vnStore == nullptr));
 
-    // Allocate the value number store.
-    assert(fgVNPassesCompleted > 0 || vnStore == nullptr);
-    if (fgVNPassesCompleted == 0)
-    {
-        CompAllocator allocator(getAllocator(CMK_ValueNumber));
-        vnStore = new (allocator) ValueNumStore(this, allocator);
-    }
-    else
-    {
-        // Make sure the memory SSA names have no value numbers.
-        for (unsigned i = 0; i < lvMemoryPerSsaData.GetCount(); i++)
-        {
-            lvMemoryPerSsaData.GetSsaDefByIndex(i)->m_vn = NoVN;
-        }
-        for (BasicBlock* const blk : Blocks())
-        {
-            for (Statement* const stmt : blk->NonPhiStatements())
-            {
-                for (GenTree* const tree : stmt->TreeList())
-                {
-                    tree->gtVNPair.SetBoth(ValueNumStore::NoVN);
-                }
-            }
-        }
-    }
+    vnStore = new (getAllocator(CMK_ValueNumber)) ValueNumStore(this, getAllocator(CMK_ValueNumber));
 
     if (optLoopCount > 0)
     {
@@ -7472,12 +7445,10 @@ void Compiler::fgValueNumber()
     {
         LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
-        if (!varDsc->IsInSsa())
+        if (!varDsc->HasImplicitSsaDef())
         {
             continue;
         }
-
-        assert(varDsc->HasLiveness());
 
         if (varDsc->IsParam())
         {
@@ -7491,8 +7462,7 @@ void Compiler::fgValueNumber()
             ssaDef->SetBlock(fgFirstBB);
             INDEBUG(vnTraceLocal(lclNum, ssaDef->GetVNP()));
         }
-        else if (info.compInitMem || varDsc->lvMustInit ||
-                 VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
+        else
         {
             // The last clause covers the use-before-def variables (the ones that are live-in to the the first block),
             // these are variables that are read before being initialized (at least on some control flow paths)
@@ -7577,8 +7547,6 @@ void Compiler::fgValueNumber()
             vs.FinishVisit(toDo);
         }
     }
-
-    fgVNPassesCompleted++;
 }
 
 void Compiler::vnSummarizeLoopMemoryStores()
