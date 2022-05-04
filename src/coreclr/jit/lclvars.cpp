@@ -3212,6 +3212,20 @@ void Compiler::lvaMarkLocalVars()
     }
 }
 
+// Check for a stack passed parameter in a X86 varargs method.
+// Such parameters are not accessed directly, they're accessed via an indirection
+// based on the address passed in lvaVarargsHandleArg and they cannot be tracked
+// by GC (their offsets in the stack are not known at compile time).
+bool Compiler::lvaIsX86VarargsStackParam(unsigned lclNum)
+{
+#ifdef TARGET_X86
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    return info.compIsVarArgs && lcl->IsParam() && !lcl->IsRegParam() && (lclNum != lvaVarargsHandleArg);
+#else
+    return false;
+#endif
+}
+
 //------------------------------------------------------------------------
 // lvaComputeRefCounts: compute ref counts for locals
 //
@@ -3245,9 +3259,7 @@ void Compiler::lvaComputeRefCounts()
             {
                 LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
-                const bool isSpecialVarargsParam = varDsc->lvIsParam && raIsVarargsStackArg(lclNum);
-
-                if (isSpecialVarargsParam)
+                if (lvaIsX86VarargsStackParam(lclNum))
                 {
                     assert(varDsc->lvRefCnt() == 0);
                 }
@@ -3277,11 +3289,8 @@ void Compiler::lvaComputeRefCounts()
             varDsc->setLvRefCnt(0);
             varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
 
-            // Special case for some varargs params ... these must
-            // remain unreferenced.
-            const bool isSpecialVarargsParam = varDsc->lvIsParam && raIsVarargsStackArg(lclNum);
-
-            if (!isSpecialVarargsParam)
+            // Special case for some varargs params, these must remain unreferenced.
+            if (!lvaIsX86VarargsStackParam(lclNum))
             {
                 varDsc->lvImplicitlyReferenced = 1;
             }
@@ -3378,20 +3387,14 @@ void Compiler::lvaComputeRefCounts()
             }
         }
 
-        // If we have JMP, all arguments must have a location
-        // even if we don't use them inside the method
-        if (compJmpOpUsed && varDsc->lvIsParam && (varDsc->lvRefCnt() == 0))
+        // If we have JMP, all arguments must have a location even if we don't use them
+        // inside the method. Except when we have varargs and the argument is passed on
+        // the stack. In that case, it's important for the ref count to be zero, so that
+        // we don't attempt to track them for GC info (which is not possible since we
+        // don't know their offset in the stack). See the assert at the end of raMarkStkVars.
+        if (compJmpOpUsed && varDsc->IsParam() && (varDsc->lvRefCnt() == 0) && !lvaIsX86VarargsStackParam(lclNum))
         {
-            // except when we have varargs and the argument is
-            // passed on the stack.  In that case, it's important
-            // for the ref count to be zero, so that we don't attempt
-            // to track them for GC info (which is not possible since we
-            // don't know their offset in the stack).  See the assert at the
-            // end of raMarkStkVars and bug #28949 for more info.
-            if (!raIsVarargsStackArg(lclNum))
-            {
-                varDsc->lvImplicitlyReferenced = 1;
-            }
+            varDsc->lvImplicitlyReferenced = 1;
         }
     }
 }

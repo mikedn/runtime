@@ -424,12 +424,9 @@ void Compiler::raMarkStkVars()
         // to the GC, as the frame offsets in these local varables would
         // not be correct.
 
-        if (varDsc->lvIsParam && raIsVarargsStackArg(lclNum))
+        if (lvaIsX86VarargsStackParam(lclNum) && !varDsc->IsPromoted() && !varDsc->IsPromotedField())
         {
-            if (!varDsc->lvPromoted && !varDsc->lvIsStructField)
-            {
-                noway_assert(varDsc->lvRefCnt() == 0 && !varDsc->lvRegister && !varDsc->lvOnFrame);
-            }
+            noway_assert(varDsc->lvRefCnt() == 0 && !varDsc->lvRegister && !varDsc->lvOnFrame);
         }
 #endif
     }
