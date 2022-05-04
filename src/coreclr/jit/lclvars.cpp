@@ -3280,16 +3280,14 @@ void Compiler::lvaComputeRefCounts()
         {
             LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
-            // Using lvImplicitlyReferenced here ensures that we can't
-            // accidentally make locals be unreferenced later by decrementing
-            // the ref count to zero.
-            //
-            // If, in minopts/debug, we really want to allow locals to become
-            // unreferenced later, we'll have to explicitly clear this bit.
             varDsc->setLvRefCnt(0);
             varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
 
-            // Special case for some varargs params, these must remain unreferenced.
+            // Using lvImplicitlyReferenced here ensures that locals don't accidentally become
+            // unreferenced by decrementing the ref count to zero. If we want to allow locals
+            // to become unreferenced later, we'll have to explicitly clear this bit.
+            // X86 varargs stack params must remain unreferenced.
+
             if (!lvaIsX86VarargsStackParam(lclNum))
             {
                 varDsc->lvImplicitlyReferenced = 1;
