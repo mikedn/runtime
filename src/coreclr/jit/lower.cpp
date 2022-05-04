@@ -4904,13 +4904,9 @@ PhaseStatus Lowering::DoPhase()
     }
 #endif
 
-    // Recompute local var ref counts before potentially sorting for liveness.
-    // Note this does minimal work in cases where we are not going to sort.
-    const bool isRecompute    = true;
-    const bool setSlotNumbers = false;
-    comp->lvaComputeRefCounts(isRecompute, setSlotNumbers);
-
+    comp->lvaComputeRefCounts();
     comp->fgLocalVarLiveness();
+
     // local var liveness can delete code, which may create empty blocks
     if (comp->opts.OptimizationEnabled())
     {
@@ -4926,7 +4922,7 @@ PhaseStatus Lowering::DoPhase()
     // Recompute local var ref counts again after liveness to reflect
     // impact of any dead code removal. Note this may leave us with
     // tracked vars that have zero refs.
-    comp->lvaComputeRefCounts(isRecompute, setSlotNumbers);
+    comp->lvaComputeRefCounts();
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }

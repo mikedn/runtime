@@ -3094,14 +3094,7 @@ void Compiler::lvaMarkLocalVars()
     // Ref counting is now enabled normally.
     lvaRefCountState = RCS_NORMAL;
 
-#if defined(DEBUG)
-    const bool setSlotNumbers = true;
-#else
-    const bool setSlotNumbers = opts.compScopeInfo && (info.compVarScopesCount > 0);
-#endif // defined(DEBUG)
-
-    const bool isRecompute = false;
-    lvaComputeRefCounts(isRecompute, setSlotNumbers);
+    lvaComputeRefCounts();
 
     // If we're not optimizing, we're done.
     if (opts.OptimizationDisabled())
@@ -3127,13 +3120,6 @@ void Compiler::lvaMarkLocalVars()
 //------------------------------------------------------------------------
 // lvaComputeRefCounts: compute ref counts for locals
 //
-// Arguments:
-//    isRecompute -- true if we just want ref counts and no other side effects;
-//                   false means to also look for true boolean locals, lay
-//                   groundwork for assertion prop, check type consistency, etc.
-//                   See lvaMarkLclRefs for details on what else goes on.
-//    setSlotNumbers -- true if local slot numbers should be assigned.
-//
 // Notes:
 //    Some implicit references are given actual counts or weight bumps here
 //    to match pre-existing behavior.
@@ -3145,8 +3131,15 @@ void Compiler::lvaMarkLocalVars()
 //    When optimizing we also recompute lvaGenericsContextInUse based
 //    on specially flagged LCL_VAR appearances.
 //
-void Compiler::lvaComputeRefCounts(bool isRecompute, bool setSlotNumbers)
+void Compiler::lvaComputeRefCounts()
 {
+    const bool isRecompute = compRationalIRForm;
+#if defined(DEBUG)
+    const bool setSlotNumbers = !compRationalIRForm;
+#else
+    const bool setSlotNumbers = !compRationalIRForm && opts.compScopeInfo && (info.compVarScopesCount > 0);
+#endif
+
     JITDUMP("\n*** lvaComputeRefCounts ***\n");
     unsigned   lclNum = 0;
     LclVarDsc* varDsc = nullptr;
