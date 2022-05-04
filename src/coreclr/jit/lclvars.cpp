@@ -2694,13 +2694,7 @@ var_types LclVarDsc::GetActualRegisterType() const
 
 void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, bool propagate)
 {
-    // In minopts and debug codegen, we don't maintain normal ref counts.
-    if (comp->opts.OptimizationDisabled())
-    {
-        // Note, at least, that there is at least one reference.
-        lvImplicitlyReferenced = 1;
-        return;
-    }
+    assert(comp->opts.OptimizationEnabled());
 
     // Increment counts on the local itself.
     if ((lvType != TYP_STRUCT) || !IsIndependentPromoted())
