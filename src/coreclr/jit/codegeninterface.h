@@ -658,10 +658,10 @@ public:
         Compiler* m_Compiler;
 
         VariableLiveDescriptor* m_vlrLiveDsc; // Array of descriptors that manage VariableLiveRanges.
-                                              // Its indices correspond to lvaTable indexes (or lvSlotNum).
+                                              // Its indices correspond to lvaTable indexes.
 
         VariableLiveDescriptor* m_vlrLiveDscForProlog; // Array of descriptors that manage VariableLiveRanges.
-                                                       // Its indices correspond to lvaTable indexes (or lvSlotNum).
+                                                       // Its indices correspond to lvaTable indexes.
 
         bool m_LastBasicBlockHasBeenEmited; // When true no more siEndVariableLiveRange is considered.
                                             // No update/start happens when code has been generated.

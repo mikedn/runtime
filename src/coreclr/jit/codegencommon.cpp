@@ -2595,10 +2595,9 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 #endif // !UNIX_AMD64_ABI
     } regArgTab[max(MAX_REG_ARG + 1, MAX_FLOAT_REG_ARG)] = {};
 
-    unsigned   varNum;
     LclVarDsc* varDsc;
 
-    for (varNum = 0; varNum < compiler->lvaCount; ++varNum)
+    for (unsigned varNum = 0; varNum < compiler->lvaCount; ++varNum)
     {
         varDsc = compiler->lvaTable + varNum;
 
@@ -2962,7 +2961,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     continue;
                 }
 
-                varNum = regArgTab[argNum].varNum;
+                unsigned varNum = regArgTab[argNum].varNum;
                 noway_assert(varNum < compiler->lvaCount);
                 varDsc                     = compiler->lvaTable + varNum;
                 const var_types varRegType = varDsc->GetRegisterType();
@@ -3099,7 +3098,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             continue;
         }
 
-        varNum = regArgTab[argNum].varNum;
+        unsigned varNum = regArgTab[argNum].varNum;
         noway_assert(varNum < compiler->lvaCount);
         varDsc = compiler->lvaTable + varNum;
 
@@ -3320,7 +3319,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 /* only 2 registers form the circular dependency - use "xchg" */
 
-                varNum = regArgTab[argNum].varNum;
+                unsigned varNum = regArgTab[argNum].varNum;
                 noway_assert(varNum < compiler->lvaCount);
                 varDsc = compiler->lvaTable + varNum;
                 noway_assert(varDsc->lvIsParam && varDsc->lvIsRegArg);
@@ -3516,7 +3515,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 continue;
             }
 
-            varNum = regArgTab[argNum].varNum;
+            unsigned varNum = regArgTab[argNum].varNum;
             noway_assert(varNum < compiler->lvaCount);
             varDsc                     = compiler->lvaTable + varNum;
             const var_types regType    = regArgTab[argNum].getRegType(compiler);

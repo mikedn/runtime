@@ -3228,12 +3228,6 @@ void Compiler::lvaMarkLocalVars()
 //
 void Compiler::lvaComputeRefCounts()
 {
-#ifdef DEBUG
-    const bool setSlotNumbers = !compRationalIRForm;
-#else
-    const bool setSlotNumbers = !compRationalIRForm && opts.compScopeInfo && (info.compVarScopesCount > 0);
-#endif
-
     JITDUMP("\n*** lvaComputeRefCounts ***\n");
 
     // Fast path for minopts and debug codegen.
@@ -3294,11 +3288,6 @@ void Compiler::lvaComputeRefCounts()
 
             varDsc->lvTracked = 0;
 
-            if (setSlotNumbers)
-            {
-                varDsc->lvSlotNum = lclNum;
-            }
-
             // Assert that it's ok to bypass the type repair logic in lvaMarkLclRefs
             assert((varDsc->lvType != TYP_UNDEF) && (varDsc->lvType != TYP_VOID) && (varDsc->lvType != TYP_UNKNOWN));
         }
@@ -3318,11 +3307,6 @@ void Compiler::lvaComputeRefCounts()
 
         varDsc->setLvRefCnt(0);
         varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
-
-        if (setSlotNumbers)
-        {
-            varDsc->lvSlotNum = lclNum;
-        }
 
         // Set initial value for lvSingleDef for explicit and implicit
         // argument locals as they are "defined" on entry.

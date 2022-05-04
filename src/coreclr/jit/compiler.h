@@ -848,8 +848,6 @@ public:
 
     unsigned lvSize() const;
 
-    unsigned lvSlotNum; // original slot # (if remapped)
-
     // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
     // since the rest of the bits in typeInfo aren't very useful, they can be recreated
     // from the local's type. Also:
