@@ -2692,6 +2692,90 @@ var_types LclVarDsc::GetActualRegisterType() const
     return genActualType(GetRegisterType());
 }
 
+void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCountState state, bool propagate)
+{
+    // In minopts and debug codegen, we don't maintain normal ref counts.
+    if ((state == RCS_NORMAL) && comp->opts.OptimizationDisabled())
+    {
+        // Note, at least, that there is at least one reference.
+        lvImplicitlyReferenced = 1;
+        return;
+    }
+
+    // Increment counts on the local itself.
+    if ((lvType != TYP_STRUCT) || !IsIndependentPromoted())
+    {
+        // We increment ref counts of this local for primitive types, including structs that have been retyped as their
+        // only field, as well as for structs whose fields are not independently promoted.
+
+        //
+        // Increment lvRefCnt
+        //
+        int newRefCnt = lvRefCnt(state) + 1;
+        if (newRefCnt == (unsigned short)newRefCnt) // lvRefCnt is an "unsigned short". Don't overflow it.
+        {
+            setLvRefCnt((unsigned short)newRefCnt, state);
+        }
+
+        //
+        // Increment lvRefCntWtd
+        //
+        if (weight != 0)
+        {
+            // We double the weight of internal temps
+
+            bool doubleWeight = lvIsTemp;
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+            // and, for the time being, implicit byref params
+            doubleWeight |= lvIsImplicitByRef;
+#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+
+            if (doubleWeight && (weight * 2 > weight))
+            {
+                weight *= 2;
+            }
+
+            BasicBlock::weight_t newWeight = lvRefCntWtd(state) + weight;
+            assert(newWeight >= lvRefCntWtd(state));
+            setLvRefCntWtd(newWeight, state);
+        }
+    }
+
+    if (varTypeIsStruct(lvType) && propagate)
+    {
+        // For promoted struct locals, increment lvRefCnt on its field locals as well.
+        if (lvPromoted)
+        {
+            for (unsigned i = lvFieldLclStart; i < lvFieldLclStart + lvFieldCnt; ++i)
+            {
+                comp->lvaTable[i].incRefCnts(weight, comp, state, false); // Don't propagate
+            }
+        }
+    }
+
+    if (lvIsStructField && propagate)
+    {
+        LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
+
+        // Depending on the promotion type, increment the ref count for the parent struct as well.
+        if (parentLcl->IsDependentPromoted())
+        {
+            parentLcl->incRefCnts(weight, comp, state, false); // Don't propagate
+        }
+    }
+
+#ifdef DEBUG
+    if (comp->verbose)
+    {
+        unsigned varNum = (unsigned)(this - comp->lvaTable);
+        assert(&comp->lvaTable[varNum] == this);
+        printf("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", varNum, lvRefCnt(state),
+               refCntWtd2str(lvRefCntWtd(state)));
+    }
+#endif
+}
+
 //------------------------------------------------------------------------
 // lvaMarkLclRefs: increment local var references counts and more
 //
