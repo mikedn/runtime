@@ -2670,7 +2670,7 @@ public:
 
     void lvaMarkLocalVars(); // Local variable ref-counting
     void lvaComputeRefCounts();
-    void lvaComputeRefCounts(BasicBlock* block, bool isRecompute);
+    void lvaComputeRefCounts(BasicBlock* block);
 
     void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
 
@@ -2778,7 +2778,7 @@ public:
 protected:
     //---------------- Local variable ref-counting ----------------------------
 
-    void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt, bool isRecompute);
+    void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt);
     bool IsDominatedByExceptionalEntry(BasicBlock* block);
     void SetVolatileHint(LclVarDsc* varDsc);
 
