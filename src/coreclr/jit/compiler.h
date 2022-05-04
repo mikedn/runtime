@@ -2669,6 +2669,7 @@ public:
     void lvaMarkLocalVars(); // Local variable ref-counting
     void lvaComputeRefCounts();
     void lvaComputeRefCounts(BasicBlock* block);
+    void lvaComputeRefCountsLIR(BasicBlock* block);
 
     void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
 

@@ -3049,6 +3049,52 @@ void Compiler::lvaComputeRefCounts(BasicBlock* block)
     }
 }
 
+void Compiler::lvaComputeRefCountsLIR(BasicBlock* block)
+{
+    const BasicBlock::weight_t weight = block->getBBWeight(this);
+
+    for (GenTree* node : LIR::AsRange(block))
+    {
+        switch (node->GetOper())
+        {
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                lvaGetDesc(node->AsLclVarCommon())->incRefCnts(0, this);
+                break;
+
+            case GT_LCL_VAR:
+            case GT_LCL_FLD:
+            case GT_STORE_LCL_VAR:
+            case GT_STORE_LCL_FLD:
+            {
+                LclVarDsc* varDsc = lvaGetDesc(node->AsLclVarCommon());
+                // If this is an EH var, use a zero weight for defs, so that we don't
+                // count those in our heuristic for register allocation, since they always
+                // must be stored, so there's no value in enregistering them at defs; only
+                // if there are enough uses to justify it.
+                if (varDsc->lvLiveInOutOfHndlr && !varDsc->lvDoNotEnregister && ((node->gtFlags & GTF_VAR_DEF) != 0))
+                {
+                    varDsc->incRefCnts(0, this);
+                }
+                else
+                {
+                    varDsc->incRefCnts(weight, this);
+                }
+
+                if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
+                {
+                    assert(node->OperIs(GT_LCL_VAR));
+                    lvaGenericsContextInUse = true;
+                }
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+}
+
 //------------------------------------------------------------------------
 // lvaMarkLocalVars: enable normal ref counting, compute initial counts, sort locals table
 //
@@ -3291,50 +3337,9 @@ void Compiler::lvaComputeRefCounts()
     // Second, account for all explicit local variable references
     for (BasicBlock* const block : Blocks())
     {
-        if (block->IsLIR())
+        if (compRationalIRForm)
         {
-            const BasicBlock::weight_t weight = block->getBBWeight(this);
-            for (GenTree* node : LIR::AsRange(block))
-            {
-                switch (node->OperGet())
-                {
-                    case GT_LCL_VAR_ADDR:
-                    case GT_LCL_FLD_ADDR:
-                        lvaGetDesc(node->AsLclVarCommon())->incRefCnts(0, this);
-                        break;
-
-                    case GT_LCL_VAR:
-                    case GT_LCL_FLD:
-                    case GT_STORE_LCL_VAR:
-                    case GT_STORE_LCL_FLD:
-                    {
-                        LclVarDsc* varDsc = lvaGetDesc(node->AsLclVarCommon());
-                        // If this is an EH var, use a zero weight for defs, so that we don't
-                        // count those in our heuristic for register allocation, since they always
-                        // must be stored, so there's no value in enregistering them at defs; only
-                        // if there are enough uses to justify it.
-                        if (varDsc->lvLiveInOutOfHndlr && !varDsc->lvDoNotEnregister &&
-                            ((node->gtFlags & GTF_VAR_DEF) != 0))
-                        {
-                            varDsc->incRefCnts(0, this);
-                        }
-                        else
-                        {
-                            varDsc->incRefCnts(weight, this);
-                        }
-
-                        if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
-                        {
-                            assert(node->OperIs(GT_LCL_VAR));
-                            lvaGenericsContextInUse = true;
-                        }
-                        break;
-                    }
-
-                    default:
-                        break;
-                }
-            }
+            lvaComputeRefCountsLIR(block);
         }
         else
         {
