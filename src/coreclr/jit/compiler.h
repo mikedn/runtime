@@ -943,10 +943,8 @@ public:
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
-    void incRefCnts(BasicBlock::weight_t weight,
-                    Compiler*            pComp,
-                    RefCountState        state     = RCS_NORMAL,
-                    bool                 propagate = true);
+    void incRefCnts(BasicBlock::weight_t weight, Compiler* pComp, bool propagate = true);
+
     bool IsFloatRegType() const
     {
         return varTypeUsesFloatReg(lvType) || lvIsHfaRegArg();

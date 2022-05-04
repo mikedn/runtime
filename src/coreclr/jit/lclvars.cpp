@@ -2692,10 +2692,10 @@ var_types LclVarDsc::GetActualRegisterType() const
     return genActualType(GetRegisterType());
 }
 
-void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCountState state, bool propagate)
+void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, bool propagate)
 {
     // In minopts and debug codegen, we don't maintain normal ref counts.
-    if ((state == RCS_NORMAL) && comp->opts.OptimizationDisabled())
+    if (comp->opts.OptimizationDisabled())
     {
         // Note, at least, that there is at least one reference.
         lvImplicitlyReferenced = 1;
@@ -2711,10 +2711,10 @@ void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCount
         //
         // Increment lvRefCnt
         //
-        int newRefCnt = lvRefCnt(state) + 1;
+        int newRefCnt = lvRefCnt(RCS_NORMAL) + 1;
         if (newRefCnt == (unsigned short)newRefCnt) // lvRefCnt is an "unsigned short". Don't overflow it.
         {
-            setLvRefCnt((unsigned short)newRefCnt, state);
+            setLvRefCnt((unsigned short)newRefCnt, RCS_NORMAL);
         }
 
         //
@@ -2736,9 +2736,9 @@ void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCount
                 weight *= 2;
             }
 
-            BasicBlock::weight_t newWeight = lvRefCntWtd(state) + weight;
-            assert(newWeight >= lvRefCntWtd(state));
-            setLvRefCntWtd(newWeight, state);
+            BasicBlock::weight_t newWeight = lvRefCntWtd(RCS_NORMAL) + weight;
+            assert(newWeight >= lvRefCntWtd(RCS_NORMAL));
+            setLvRefCntWtd(newWeight, RCS_NORMAL);
         }
     }
 
@@ -2749,7 +2749,7 @@ void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCount
         {
             for (unsigned i = lvFieldLclStart; i < lvFieldLclStart + lvFieldCnt; ++i)
             {
-                comp->lvaTable[i].incRefCnts(weight, comp, state, false); // Don't propagate
+                comp->lvaTable[i].incRefCnts(weight, comp, false); // Don't propagate
             }
         }
     }
@@ -2761,7 +2761,7 @@ void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCount
         // Depending on the promotion type, increment the ref count for the parent struct as well.
         if (parentLcl->IsDependentPromoted())
         {
-            parentLcl->incRefCnts(weight, comp, state, false); // Don't propagate
+            parentLcl->incRefCnts(weight, comp, false); // Don't propagate
         }
     }
 
@@ -2770,8 +2770,8 @@ void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCount
     {
         unsigned varNum = (unsigned)(this - comp->lvaTable);
         assert(&comp->lvaTable[varNum] == this);
-        printf("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", varNum, lvRefCnt(state),
-               refCntWtd2str(lvRefCntWtd(state)));
+        printf("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", varNum, lvRefCnt(RCS_NORMAL),
+               refCntWtd2str(lvRefCntWtd(RCS_NORMAL)));
     }
 #endif
 }
