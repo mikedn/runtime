@@ -2943,6 +2943,7 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
             BlockSetOps::AddElemD(this, varDsc->lvRefBlks, block->bbNum);
         }
     }
+#endif // ASSERTION_PROP
 
     if (!varDsc->lvDisqualifySingleDefRegCandidate) // If this var is already disqualified, we can skip this
     {
@@ -2991,8 +2992,6 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
             }
         }
     }
-
-#endif // ASSERTION_PROP
 
     noway_assert((tree->GetType() == varDsc->GetType()) ||
                  (tree->TypeIs(TYP_INT) && varTypeIsSmall(varDsc->GetType())) ||
