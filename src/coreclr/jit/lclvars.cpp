@@ -3108,9 +3108,6 @@ void Compiler::lvaComputeRefCountsLIR(BasicBlock* block)
 
 void Compiler::lvaMarkLocalVars()
 {
-
-    JITDUMP("\n*************** In lvaMarkLocalVars()");
-
     // If we have direct pinvokes, verify the frame list root local was set up properly
     if (compMethodRequiresPInvokeFrame())
     {
