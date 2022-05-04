@@ -2670,7 +2670,7 @@ public:
 
     void lvaMarkLocalVars(); // Local variable ref-counting
     void lvaComputeRefCounts(bool isRecompute, bool setSlotNumbers);
-    void lvaMarkLocalVars(BasicBlock* block, bool isRecompute);
+    void lvaComputeRefCounts(BasicBlock* block, bool isRecompute);
 
     void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
 

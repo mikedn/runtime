@@ -2966,7 +2966,7 @@ void Compiler::SetVolatileHint(LclVarDsc* varDsc)
 //    Invokes lvaMarkLclRefs on each tree node for each
 //    statement in the block.
 
-void Compiler::lvaMarkLocalVars(BasicBlock* block, bool isRecompute)
+void Compiler::lvaComputeRefCounts(BasicBlock* block, bool isRecompute)
 {
     class MarkLocalVarsVisitor final : public GenTreeVisitor<MarkLocalVarsVisitor>
     {
@@ -3304,7 +3304,7 @@ void Compiler::lvaComputeRefCounts(bool isRecompute, bool setSlotNumbers)
         }
         else
         {
-            lvaMarkLocalVars(block, isRecompute);
+            lvaComputeRefCounts(block, isRecompute);
         }
     }
 
