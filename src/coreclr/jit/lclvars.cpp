@@ -3013,7 +3013,7 @@ bool Compiler::IsDominatedByExceptionalEntry(BasicBlock* block)
     return block->IsDominatedByExceptionalEntryFlag();
 }
 
-void Compiler::lvaComputeRefCounts(BasicBlock* block)
+void Compiler::lvaComputeRefCountsHIR()
 {
     class MarkLocalVarsVisitor final : public GenTreeVisitor<MarkLocalVarsVisitor>
     {
@@ -3038,59 +3038,66 @@ void Compiler::lvaComputeRefCounts(BasicBlock* block)
         }
     };
 
-    JITDUMP("\n*** marking local variables in block " FMT_BB " (weight=%s)\n", block->bbNum,
-            refCntWtd2str(block->getBBWeight(this)));
-
-    for (Statement* const stmt : block->NonPhiStatements())
+    for (BasicBlock* block : Blocks())
     {
-        MarkLocalVarsVisitor visitor(this, block, stmt);
-        DISPSTMT(stmt);
-        visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
+        JITDUMP("\n*** marking local variables in block " FMT_BB " (weight=%s)\n", block->bbNum,
+                refCntWtd2str(block->getBBWeight(this)));
+
+        for (Statement* const stmt : block->NonPhiStatements())
+        {
+            MarkLocalVarsVisitor visitor(this, block, stmt);
+            DISPSTMT(stmt);
+            visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
+        }
     }
 }
 
-void Compiler::lvaComputeRefCountsLIR(BasicBlock* block)
+void Compiler::lvaComputeRefCountsLIR()
 {
-    const BasicBlock::weight_t weight = block->getBBWeight(this);
-
-    for (GenTree* node : LIR::AsRange(block))
+    for (BasicBlock* block : Blocks())
     {
-        switch (node->GetOper())
+        const BasicBlock::weight_t weight = block->getBBWeight(this);
+
+        for (GenTree* node : LIR::AsRange(block))
         {
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
-                lvaGetDesc(node->AsLclVarCommon())->incRefCnts(0, this);
-                break;
-
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
-            case GT_STORE_LCL_VAR:
-            case GT_STORE_LCL_FLD:
+            switch (node->GetOper())
             {
-                LclVarDsc* varDsc = lvaGetDesc(node->AsLclVarCommon());
-                // If this is an EH var, use a zero weight for defs, so that we don't
-                // count those in our heuristic for register allocation, since they always
-                // must be stored, so there's no value in enregistering them at defs; only
-                // if there are enough uses to justify it.
-                if (varDsc->lvLiveInOutOfHndlr && !varDsc->lvDoNotEnregister && ((node->gtFlags & GTF_VAR_DEF) != 0))
+                case GT_LCL_VAR_ADDR:
+                case GT_LCL_FLD_ADDR:
+                    lvaGetDesc(node->AsLclVarCommon())->incRefCnts(0, this);
+                    break;
+
+                case GT_LCL_VAR:
+                case GT_LCL_FLD:
+                case GT_STORE_LCL_VAR:
+                case GT_STORE_LCL_FLD:
                 {
-                    varDsc->incRefCnts(0, this);
-                }
-                else
-                {
-                    varDsc->incRefCnts(weight, this);
+                    LclVarDsc* varDsc = lvaGetDesc(node->AsLclVarCommon());
+                    // If this is an EH var, use a zero weight for defs, so that we don't
+                    // count those in our heuristic for register allocation, since they always
+                    // must be stored, so there's no value in enregistering them at defs; only
+                    // if there are enough uses to justify it.
+                    if (varDsc->lvLiveInOutOfHndlr && !varDsc->lvDoNotEnregister &&
+                        ((node->gtFlags & GTF_VAR_DEF) != 0))
+                    {
+                        varDsc->incRefCnts(0, this);
+                    }
+                    else
+                    {
+                        varDsc->incRefCnts(weight, this);
+                    }
+
+                    if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
+                    {
+                        assert(node->OperIs(GT_LCL_VAR));
+                        lvaGenericsContextInUse = true;
+                    }
+                    break;
                 }
 
-                if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
-                {
-                    assert(node->OperIs(GT_LCL_VAR));
-                    lvaGenericsContextInUse = true;
-                }
-                break;
+                default:
+                    break;
             }
-
-            default:
-                break;
         }
     }
 }
@@ -3336,16 +3343,13 @@ void Compiler::lvaComputeRefCounts()
     JITDUMP("\n*** lvaComputeRefCounts -- explicit counts ***\n");
 
     // Second, account for all explicit local variable references
-    for (BasicBlock* const block : Blocks())
+    if (compRationalIRForm)
     {
-        if (compRationalIRForm)
-        {
-            lvaComputeRefCountsLIR(block);
-        }
-        else
-        {
-            lvaComputeRefCounts(block);
-        }
+        lvaComputeRefCountsLIR();
+    }
+    else
+    {
+        lvaComputeRefCountsHIR();
     }
 
     if (oldLvaGenericsContextInUse && !lvaGenericsContextInUse)
