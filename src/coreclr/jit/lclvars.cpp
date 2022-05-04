@@ -2904,7 +2904,7 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 #if ASSERTION_PROP
     if (fgDomsComputed && IsDominatedByExceptionalEntry(block))
     {
-        SetVolatileHint(varDsc);
+        varDsc->lvVolatileHint = true;
     }
 
     /* Record if the variable has a single def or not */
@@ -3011,17 +3011,6 @@ bool Compiler::IsDominatedByExceptionalEntry(BasicBlock* block)
 {
     assert(fgDomsComputed);
     return block->IsDominatedByExceptionalEntryFlag();
-}
-
-//------------------------------------------------------------------------
-// SetVolatileHint: Set a local var's volatile hint.
-//
-// Arguments:
-//    lcl - the local variable that needs the hint.
-//
-void Compiler::SetVolatileHint(LclVarDsc* varDsc)
-{
-    varDsc->lvVolatileHint = true;
 }
 
 void Compiler::lvaComputeRefCounts(BasicBlock* block)
