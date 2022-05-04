@@ -3231,8 +3231,6 @@ void Compiler::lvaComputeRefCounts()
 #endif
 
     JITDUMP("\n*** lvaComputeRefCounts ***\n");
-    unsigned   lclNum = 0;
-    LclVarDsc* varDsc = nullptr;
 
     // Fast path for minopts and debug codegen.
     //
@@ -3245,8 +3243,10 @@ void Compiler::lvaComputeRefCounts()
 #ifdef DEBUG
             // All local vars should be marked as implicitly referenced
             // and not tracked.
-            for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+            for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
             {
+                LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
                 const bool isSpecialVarargsParam = varDsc->lvIsParam && raIsVarargsStackArg(lclNum);
 
                 if (isSpecialVarargsParam)
@@ -3266,8 +3266,10 @@ void Compiler::lvaComputeRefCounts()
         }
 
         // First compute.
-        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
         {
+            LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
             // Using lvImplicitlyReferenced here ensures that we can't
             // accidentally make locals be unreferenced later by decrementing
             // the ref count to zero.
@@ -3306,8 +3308,10 @@ void Compiler::lvaComputeRefCounts()
     // Slower path we take when optimizing, to get accurate counts.
     //
     // First, reset all explicit ref counts and weights.
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
         varDsc->setLvRefCnt(0);
         varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
 
@@ -3365,8 +3369,10 @@ void Compiler::lvaComputeRefCounts()
     JITDUMP("\n*** lvaComputeRefCounts -- implicit counts ***\n");
 
     // Third, bump ref counts for some implicit prolog references
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
         // Todo: review justification for these count bumps.
         if (varDsc->lvIsRegArg)
         {
