@@ -2668,6 +2668,7 @@ public:
     void lvaComputeRefCounts();
     void lvaComputeRefCountsHIR();
     void lvaComputeRefCountsLIR();
+    INDEBUG(void lvaCheckZeroRefCountsLIR();)
 
     void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
 

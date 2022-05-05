@@ -3226,6 +3226,30 @@ bool Compiler::lvaIsX86VarargsStackParam(unsigned lclNum)
 #endif
 }
 
+#ifdef DEBUG
+void Compiler::lvaCheckZeroRefCountsLIR()
+{
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
+
+        if (lvaIsX86VarargsStackParam(lclNum))
+        {
+            assert(lcl->lvRefCnt() == 0);
+        }
+        else
+        {
+            // lvaGrabTemp should automatically set lvImplicitlyReferenced after lvaMarkLocalVars phase.
+            assert(lcl->lvImplicitlyReferenced);
+        }
+
+        assert(!lcl->lvTracked);
+    }
+}
+#endif // DEBUG
+
 //------------------------------------------------------------------------
 // lvaComputeRefCounts: compute ref counts for locals
 //
@@ -3252,26 +3276,7 @@ void Compiler::lvaComputeRefCounts()
     {
         if (compRationalIRForm)
         {
-#ifdef DEBUG
-            for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
-            {
-                LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-                assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
-
-                if (lvaIsX86VarargsStackParam(lclNum))
-                {
-                    assert(lcl->lvRefCnt() == 0);
-                }
-                else
-                {
-                    // lvaGrabTemp should automatically set lvImplicitlyReferenced after lvaMarkLocalVars phase.
-                    assert(lcl->lvImplicitlyReferenced);
-                }
-
-                assert(!lcl->lvTracked);
-            }
-#endif // DEBUG
+            INDEBUG(lvaCheckZeroRefCountsLIR());
 
             return;
         }
