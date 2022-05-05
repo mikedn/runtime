@@ -2307,6 +2307,8 @@ public:
 
 void Compiler::lvaMarkLivenessTrackedLocals()
 {
+    assert(opts.OptimizationEnabled());
+
     lvaTrackedCount             = 0;
     lvaTrackedCountInSizeTUnits = 0;
 

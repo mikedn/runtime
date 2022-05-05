@@ -193,12 +193,6 @@ void Compiler::fgLocalVarLivenessInit()
 {
     JITDUMP("In fgLocalVarLivenessInit\n");
 
-    // Sort locals first, if we're optimizing
-    if (opts.OptimizationEnabled())
-    {
-        lvaMarkLivenessTrackedLocals();
-    }
-
     // We mark a lcl as must-init in a first pass of local variable
     // liveness (Liveness1), then assertion prop eliminates the
     // uninit-use of a variable Vk, asserting it will be init'ed to

@@ -1383,6 +1383,7 @@ void SsaBuilder::Build()
     EndPhase(PHASE_BUILD_SSA_DOMS);
 
     // Compute liveness on the graph.
+    m_pCompiler->lvaMarkLivenessTrackedLocals();
     m_pCompiler->fgLocalVarLiveness();
     EndPhase(PHASE_BUILD_SSA_LIVENESS);
 

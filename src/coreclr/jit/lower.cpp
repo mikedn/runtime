@@ -4929,6 +4929,7 @@ PhaseStatus Lowering::DoPhase()
     else
     {
         comp->lvaComputeRefCounts();
+        comp->lvaMarkLivenessTrackedLocals();
         comp->fgLocalVarLiveness();
 
         // local var liveness can delete code, which may create empty blocks
@@ -4938,6 +4939,7 @@ PhaseStatus Lowering::DoPhase()
         {
             JITDUMP("had to run another liveness pass:\n");
 
+            comp->lvaMarkLivenessTrackedLocals();
             comp->fgLocalVarLiveness();
         }
 
