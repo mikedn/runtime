@@ -4904,20 +4904,38 @@ PhaseStatus Lowering::DoPhase()
     }
 #endif
 
-    comp->lvaComputeRefCounts();
-
-    if (comp->backendRequiresLocalVarLifetimes())
+    if (comp->opts.OptimizationDisabled())
     {
-        comp->fgLocalVarLiveness();
+        comp->lvaComputeRefCounts();
+
+        if (comp->backendRequiresLocalVarLifetimes())
+        {
+            comp->fgLocalVarLiveness();
+        }
+        else
+        {
+            comp->fgLocalVarLivenessAlwaysLive();
+        }
+
+        // Recompute local var ref counts again after liveness to reflect
+        // impact of any dead code removal. Note this may leave us with
+        // tracked vars that have zero refs.
+        comp->lvaComputeRefCounts();
     }
     else
     {
-        comp->fgLocalVarLivenessAlwaysLive();
-    }
+        comp->lvaComputeRefCounts();
 
-    // local var liveness can delete code, which may create empty blocks
-    if (comp->opts.OptimizationEnabled())
-    {
+        if (comp->backendRequiresLocalVarLifetimes())
+        {
+            comp->fgLocalVarLiveness();
+        }
+        else
+        {
+            comp->fgLocalVarLivenessAlwaysLive();
+        }
+
+        // local var liveness can delete code, which may create empty blocks
         comp->optLoopsMarked = false;
         bool modified        = comp->fgUpdateFlowGraph();
         if (modified)
@@ -4933,12 +4951,12 @@ PhaseStatus Lowering::DoPhase()
                 comp->fgLocalVarLivenessAlwaysLive();
             }
         }
-    }
 
-    // Recompute local var ref counts again after liveness to reflect
-    // impact of any dead code removal. Note this may leave us with
-    // tracked vars that have zero refs.
-    comp->lvaComputeRefCounts();
+        // Recompute local var ref counts again after liveness to reflect
+        // impact of any dead code removal. Note this may leave us with
+        // tracked vars that have zero refs.
+        comp->lvaComputeRefCounts();
+    }
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
