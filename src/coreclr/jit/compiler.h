@@ -3805,11 +3805,6 @@ public:
 
     GenTreeCall* fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls);
 
-    bool backendRequiresLocalVarLifetimes()
-    {
-        return !opts.MinOpts() || m_pLinearScan->willEnregisterLocalVars();
-    }
-
     void fgLocalVarLiveness();
     void fgLocalVarLivenessAlwaysLive();
 

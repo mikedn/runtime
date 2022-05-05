@@ -4908,7 +4908,7 @@ PhaseStatus Lowering::DoPhase()
     {
         comp->lvaCheckZeroRefCountsLIR();
 
-        if (comp->backendRequiresLocalVarLifetimes())
+        if (m_lsra->willEnregisterLocalVars())
         {
             comp->fgLocalVarLiveness();
         }
@@ -4919,7 +4919,7 @@ PhaseStatus Lowering::DoPhase()
 
         comp->lvaCheckZeroRefCountsLIR();
     }
-    else if (!comp->backendRequiresLocalVarLifetimes())
+    else if (!m_lsra->willEnregisterLocalVars())
     {
         comp->fgUpdateFlowGraph();
         comp->lvaComputeRefCounts();

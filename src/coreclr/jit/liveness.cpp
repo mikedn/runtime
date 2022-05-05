@@ -96,8 +96,6 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
 void Compiler::fgLocalVarLivenessAlwaysLive()
 {
-    assert(!backendRequiresLocalVarLifetimes());
-
     VARSET_TP liveAll(VarSetOps::MakeEmpty(this));
 
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
@@ -166,8 +164,6 @@ void Compiler::fgLocalVarLiveness()
         }
     }
 #endif // DEBUG
-
-    assert(!backendRequiresLocalVarLifetimes());
 
     // Init liveness data structures.
     fgLocalVarLivenessInit();
@@ -444,8 +440,6 @@ void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
 void Compiler::fgPerBlockLocalVarLiveness()
 {
     JITDUMP("*************** In fgPerBlockLocalVarLiveness()\n");
-
-    assert(backendRequiresLocalVarLifetimes());
 
     unsigned livenessVarEpoch = GetCurLVEpoch();
 
@@ -1348,8 +1342,6 @@ public:
 
 void Compiler::fgLiveVarAnalysis(bool updateInternalOnly)
 {
-    assert(!backendRequiresLocalVarLifetimes());
-
     LiveVarAnalysis::Run(this, updateInternalOnly);
 
 #ifdef DEBUG
@@ -2052,8 +2044,6 @@ void Compiler::fgInterBlockLocalVarLiveness()
         printf("*************** In fgInterBlockLocalVarLiveness()\n");
     }
 #endif
-
-    assert(backendRequiresLocalVarLifetimes());
 
     /* This global flag is set whenever we remove a statement */
 
