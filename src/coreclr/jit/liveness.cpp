@@ -96,7 +96,33 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
 void Compiler::fgLocalVarLivenessAlwaysLive()
 {
-    fgLocalVarLivenessInitAlwaysLive();
+    assert(!backendRequiresLocalVarLifetimes());
+
+    // Sort locals first, if we're optimizing
+    if (opts.OptimizationEnabled())
+    {
+        lvaSortByRefCount();
+    }
+
+    // We mark a lcl as must-init in a first pass of local variable
+    // liveness (Liveness1), then assertion prop eliminates the
+    // uninit-use of a variable Vk, asserting it will be init'ed to
+    // null.  Then, in a second local-var liveness (Liveness2), the
+    // variable Vk is no longer live on entry to the method, since its
+    // uses have been replaced via constant propagation.
+    //
+    // This leads to a bug: since Vk is no longer live on entry, the
+    // register allocator sees Vk and an argument Vj as having
+    // disjoint lifetimes, and allocates them to the same register.
+    // But Vk is still marked "must-init", and this initialization (of
+    // the register) trashes the value in Vj.
+    //
+    // Therefore, initialize must-init to false for all variables in
+    // each liveness phase.
+    for (unsigned lclNum = 0; lclNum < lvaCount; ++lclNum)
+    {
+        lvaTable[lclNum].lvMustInit = false;
+    }
 
     EndPhase(PHASE_LCLVARLIVENESS_INIT);
 
@@ -107,13 +133,75 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
     do
     {
         /* Figure out use/def info for all basic blocks */
-        fgPerBlockLocalVarLivenessAlwaysLive();
+
+        BasicBlock* block;
+        unsigned    lclNum;
+        LclVarDsc*  varDsc;
+
+        VARSET_TP liveAll(VarSetOps::MakeEmpty(this));
+
+        /* We simply make everything live everywhere */
+
+        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+        {
+            if (varDsc->lvTracked)
+            {
+                VarSetOps::AddElemD(this, liveAll, varDsc->lvVarIndex);
+            }
+        }
+
+        for (block = fgFirstBB; block; block = block->bbNext)
+        {
+            // Strictly speaking, the assignments for the "Def" cases aren't necessary here.
+            // The empty set would do as well.  Use means "use-before-def", so as long as that's
+            // "all", this has the right effect.
+            VarSetOps::Assign(this, block->bbVarUse, liveAll);
+            VarSetOps::Assign(this, block->bbVarDef, liveAll);
+            VarSetOps::Assign(this, block->bbLiveIn, liveAll);
+            block->bbMemoryUse     = true;
+            block->bbMemoryDef     = true;
+            block->bbMemoryLiveIn  = true;
+            block->bbMemoryLiveOut = true;
+
+            switch (block->bbJumpKind)
+            {
+                case BBJ_EHFINALLYRET:
+                case BBJ_THROW:
+                case BBJ_RETURN:
+                    VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
+                    break;
+                default:
+                    VarSetOps::Assign(this, block->bbLiveOut, liveAll);
+                    break;
+            }
+        }
+
         EndPhase(PHASE_LCLVARLIVENESS_PERBLOCK);
 
         /* Live variable analysis. */
 
         fgStmtRemoved = false;
-        fgInterBlockLocalVarLivenessAlwaysLive();
+        /* This global flag is set whenever we remove a statement */
+
+        fgStmtRemoved = false;
+
+        // keep track if a bbLiveIn changed due to dead store removal
+        fgLocalVarLivenessChanged = false;
+
+        /* Compute the IN and OUT sets for tracked variables */
+
+        fgLiveVarAnalysis();
+
+        /* For debuggable code, we mark vars as live over their entire
+         * reported scope, so that it will be visible over the entire scope
+         */
+
+        if (opts.compDbgCode && (info.compVarScopesCount > 0))
+        {
+            fgExtendDbgLifetimes();
+        }
+
+        fgLocalVarLivenessDone = true;
     } while (fgStmtRemoved && fgLocalVarLivenessChanged);
 
     EndPhase(PHASE_LCLVARLIVENESS_INTERBLOCK);
@@ -161,37 +249,6 @@ void Compiler::fgLocalVarLiveness()
     } while (fgStmtRemoved && fgLocalVarLivenessChanged);
 
     EndPhase(PHASE_LCLVARLIVENESS_INTERBLOCK);
-}
-
-void Compiler::fgLocalVarLivenessInitAlwaysLive()
-{
-    JITDUMP("In fgLocalVarLivenessInit\n");
-
-    // Sort locals first, if we're optimizing
-    if (opts.OptimizationEnabled())
-    {
-        lvaSortByRefCount();
-    }
-
-    // We mark a lcl as must-init in a first pass of local variable
-    // liveness (Liveness1), then assertion prop eliminates the
-    // uninit-use of a variable Vk, asserting it will be init'ed to
-    // null.  Then, in a second local-var liveness (Liveness2), the
-    // variable Vk is no longer live on entry to the method, since its
-    // uses have been replaced via constant propagation.
-    //
-    // This leads to a bug: since Vk is no longer live on entry, the
-    // register allocator sees Vk and an argument Vj as having
-    // disjoint lifetimes, and allocates them to the same register.
-    // But Vk is still marked "must-init", and this initialization (of
-    // the register) trashes the value in Vj.
-    //
-    // Therefore, initialize must-init to false for all variables in
-    // each liveness phase.
-    for (unsigned lclNum = 0; lclNum < lvaCount; ++lclNum)
-    {
-        lvaTable[lclNum].lvMustInit = false;
-    }
 }
 
 void Compiler::fgLocalVarLivenessInit()
@@ -439,53 +496,6 @@ void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
     if (lcl->lvTracked && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
     {
         VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
-    }
-}
-
-void Compiler::fgPerBlockLocalVarLivenessAlwaysLive()
-{
-    assert(!backendRequiresLocalVarLifetimes());
-
-    BasicBlock* block;
-    unsigned    lclNum;
-    LclVarDsc*  varDsc;
-
-    VARSET_TP liveAll(VarSetOps::MakeEmpty(this));
-
-    /* We simply make everything live everywhere */
-
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
-    {
-        if (varDsc->lvTracked)
-        {
-            VarSetOps::AddElemD(this, liveAll, varDsc->lvVarIndex);
-        }
-    }
-
-    for (block = fgFirstBB; block; block = block->bbNext)
-    {
-        // Strictly speaking, the assignments for the "Def" cases aren't necessary here.
-        // The empty set would do as well.  Use means "use-before-def", so as long as that's
-        // "all", this has the right effect.
-        VarSetOps::Assign(this, block->bbVarUse, liveAll);
-        VarSetOps::Assign(this, block->bbVarDef, liveAll);
-        VarSetOps::Assign(this, block->bbLiveIn, liveAll);
-        block->bbMemoryUse     = true;
-        block->bbMemoryDef     = true;
-        block->bbMemoryLiveIn  = true;
-        block->bbMemoryLiveOut = true;
-
-        switch (block->bbJumpKind)
-        {
-            case BBJ_EHFINALLYRET:
-            case BBJ_THROW:
-            case BBJ_RETURN:
-                VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
-                break;
-            default:
-                VarSetOps::Assign(this, block->bbLiveOut, liveAll);
-                break;
-        }
     }
 }
 
@@ -2085,33 +2095,6 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
     }
 
     return asgNode;
-}
-
-void Compiler::fgInterBlockLocalVarLivenessAlwaysLive()
-{
-    assert(!backendRequiresLocalVarLifetimes());
-
-    /* This global flag is set whenever we remove a statement */
-
-    fgStmtRemoved = false;
-
-    // keep track if a bbLiveIn changed due to dead store removal
-    fgLocalVarLivenessChanged = false;
-
-    /* Compute the IN and OUT sets for tracked variables */
-
-    fgLiveVarAnalysis();
-
-    /* For debuggable code, we mark vars as live over their entire
-     * reported scope, so that it will be visible over the entire scope
-     */
-
-    if (opts.compDbgCode && (info.compVarScopesCount > 0))
-    {
-        fgExtendDbgLifetimes();
-    }
-
-    fgLocalVarLivenessDone = true;
 }
 
 /*****************************************************************************
