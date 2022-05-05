@@ -127,7 +127,21 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
     EndPhase(PHASE_LCLVARLIVENESS_INIT);
 
     // Initialize the per-block var sets.
-    fgInitBlockVarSets();
+    for (BasicBlock* const block : Blocks())
+    {
+        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, block->bbScope, VarSetOps::MakeEmpty(this));
+
+        block->bbMemoryUse     = false;
+        block->bbMemoryDef     = false;
+        block->bbMemoryLiveIn  = false;
+        block->bbMemoryLiveOut = false;
+    }
+
+    fgBBVarSetsInited = true;
 
     fgLocalVarLivenessChanged = false;
     do
