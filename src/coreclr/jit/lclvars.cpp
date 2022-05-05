@@ -3271,12 +3271,7 @@ void Compiler::lvaComputeRefCounts()
     // On recompute: do nothing.
     if (opts.OptimizationDisabled())
     {
-        if (compRationalIRForm)
-        {
-            INDEBUG(lvaCheckZeroRefCountsLIR());
-
-            return;
-        }
+        assert(!compRationalIRForm);
 
         // First compute.
         for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
