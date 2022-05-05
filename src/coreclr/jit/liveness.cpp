@@ -96,19 +96,10 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
 void Compiler::fgLocalVarLivenessAlwaysLive()
 {
-    VARSET_TP liveAll(VarSetOps::MakeEmpty(this));
-
+    // TODO-MIKE-Review: Check if this is really needed in minopts.
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-        if (lcl->HasLiveness())
-        {
-            VarSetOps::AddElemD(this, liveAll, lcl->GetLivenessBitIndex());
-        }
-
-        // TODO-MIKE-Review: Check if this is really needed in minopts.
-        lvaTable[lclNum].lvMustInit = false;
+        lvaGetDesc(lclNum)->lvMustInit = false;
     }
 
     for (BasicBlock* const block : Blocks())
@@ -117,9 +108,9 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
         // The empty set would do as well.  Use means "use-before-def", so as long as that's
         // "all", this has the right effect.
 
-        block->bbVarUse = VarSetOps::MakeCopy(this, liveAll);
-        block->bbVarDef = VarSetOps::MakeCopy(this, liveAll);
-        block->bbLiveIn = VarSetOps::MakeCopy(this, liveAll);
+        block->bbVarUse = VarSetOps::MakeFull(this);
+        block->bbVarDef = VarSetOps::MakeFull(this);
+        block->bbLiveIn = VarSetOps::MakeFull(this);
 
         switch (block->bbJumpKind)
         {
@@ -129,7 +120,7 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
                 block->bbLiveOut = VarSetOps::MakeEmpty(this);
                 break;
             default:
-                block->bbLiveOut = VarSetOps::MakeCopy(this, liveAll);
+                block->bbLiveOut = VarSetOps::MakeFull(this);
                 break;
         }
 
