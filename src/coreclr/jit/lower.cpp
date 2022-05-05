@@ -4906,7 +4906,7 @@ PhaseStatus Lowering::DoPhase()
 
     if (comp->opts.OptimizationDisabled())
     {
-        comp->lvaCheckZeroRefCountsLIR();
+        INDEBUG(comp->lvaCheckZeroRefCountsLIR());
 
         if (m_lsra->willEnregisterLocalVars())
         {
@@ -4917,7 +4917,7 @@ PhaseStatus Lowering::DoPhase()
             comp->fgLocalVarLivenessAlwaysLive();
         }
 
-        comp->lvaCheckZeroRefCountsLIR();
+        INDEBUG(comp->lvaCheckZeroRefCountsLIR());
     }
     else if (!m_lsra->willEnregisterLocalVars())
     {
