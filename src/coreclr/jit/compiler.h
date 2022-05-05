@@ -4889,7 +4889,7 @@ private:
     void fgUnmarkInScope(BasicBlock* block, VARSET_VALARG_TP unmarkScope);
 
     void fgExtendDbgScopes();
-    void fgExtendDbgLifetimes();
+    void fgExtendDbgLifetimes(bool alwaysLive);
 
 #ifdef DEBUG
     void fgDispDebugScopes();
