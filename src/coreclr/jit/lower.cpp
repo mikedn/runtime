@@ -4921,23 +4921,9 @@ PhaseStatus Lowering::DoPhase()
     }
     else if (!comp->backendRequiresLocalVarLifetimes())
     {
+        comp->fgUpdateFlowGraph();
         comp->lvaComputeRefCounts();
         comp->fgLocalVarLivenessAlwaysLive();
-
-        // local var liveness can delete code, which may create empty blocks
-        comp->optLoopsMarked = false;
-        bool modified        = comp->fgUpdateFlowGraph();
-        if (modified)
-        {
-            JITDUMP("had to run another liveness pass:\n");
-
-            comp->fgLocalVarLivenessAlwaysLive();
-        }
-
-        // Recompute local var ref counts again after liveness to reflect
-        // impact of any dead code removal. Note this may leave us with
-        // tracked vars that have zero refs.
-        comp->lvaComputeRefCounts();
     }
     else
     {
