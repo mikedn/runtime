@@ -4905,7 +4905,15 @@ PhaseStatus Lowering::DoPhase()
 #endif
 
     comp->lvaComputeRefCounts();
-    comp->fgLocalVarLiveness();
+
+    if (comp->backendRequiresLocalVarLifetimes())
+    {
+        comp->fgLocalVarLiveness();
+    }
+    else
+    {
+        comp->fgLocalVarLivenessAlwaysLive();
+    }
 
     // local var liveness can delete code, which may create empty blocks
     if (comp->opts.OptimizationEnabled())
@@ -4915,7 +4923,15 @@ PhaseStatus Lowering::DoPhase()
         if (modified)
         {
             JITDUMP("had to run another liveness pass:\n");
-            comp->fgLocalVarLiveness();
+
+            if (comp->backendRequiresLocalVarLifetimes())
+            {
+                comp->fgLocalVarLiveness();
+            }
+            else
+            {
+                comp->fgLocalVarLivenessAlwaysLive();
+            }
         }
     }
 

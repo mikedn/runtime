@@ -172,11 +172,7 @@ void Compiler::fgLocalVarLiveness()
     }
 #endif // DEBUG
 
-    if (!backendRequiresLocalVarLifetimes())
-    {
-        fgLocalVarLivenessAlwaysLive();
-        return;
-    }
+    assert(!backendRequiresLocalVarLifetimes());
 
     // Init liveness data structures.
     fgLocalVarLivenessInit();
