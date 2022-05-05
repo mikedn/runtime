@@ -40,8 +40,11 @@ void Compiler::lvaInit()
 
     lvaGenericsContextInUse = false;
 
-    lvaTrackedToVarNumSize = 0;
-    lvaTrackedToVarNum     = nullptr;
+    lvaTrackedCount             = 0;
+    lvaTrackedCountInSizeTUnits = 0;
+    lvaCurEpoch                 = 0;
+    lvaTrackedToVarNumSize      = 0;
+    lvaTrackedToVarNum          = nullptr;
 
     lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 #if !defined(FEATURE_EH_FUNCLETS)
@@ -72,7 +75,6 @@ void Compiler::lvaInit()
 #if defined(FEATURE_EH_FUNCLETS)
     lvaPSPSym = BAD_VAR_NUM;
 #endif
-    lvaCurEpoch = 0;
 
     lvaAddressExposedLocalsMarked = false;
 
@@ -3301,9 +3303,6 @@ void Compiler::lvaComputeRefCounts()
             assert(!lcl->lvTracked);
         }
 
-        lvaCurEpoch++;
-        lvaTrackedCount             = 0;
-        lvaTrackedCountInSizeTUnits = 0;
         return;
     }
 
