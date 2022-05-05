@@ -103,22 +103,6 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
         lvaSortByRefCount();
     }
 
-    for (BasicBlock* const block : Blocks())
-    {
-        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbScope, VarSetOps::MakeEmpty(this));
-
-        block->bbMemoryUse     = false;
-        block->bbMemoryDef     = false;
-        block->bbMemoryLiveIn  = false;
-        block->bbMemoryLiveOut = false;
-    }
-
-    fgBBVarSetsInited = true;
-
     VARSET_TP liveAll(VarSetOps::MakeEmpty(this));
 
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
@@ -134,32 +118,37 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
         lvaTable[lclNum].lvMustInit = false;
     }
 
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* const block : Blocks())
     {
         // Strictly speaking, the assignments for the "Def" cases aren't necessary here.
         // The empty set would do as well.  Use means "use-before-def", so as long as that's
         // "all", this has the right effect.
-        VarSetOps::Assign(this, block->bbVarUse, liveAll);
-        VarSetOps::Assign(this, block->bbVarDef, liveAll);
-        VarSetOps::Assign(this, block->bbLiveIn, liveAll);
+
+        block->bbVarUse = VarSetOps::MakeCopy(this, liveAll);
+        block->bbVarDef = VarSetOps::MakeCopy(this, liveAll);
+        block->bbLiveIn = VarSetOps::MakeCopy(this, liveAll);
 
         switch (block->bbJumpKind)
         {
             case BBJ_EHFINALLYRET:
             case BBJ_THROW:
             case BBJ_RETURN:
-                VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
+                block->bbLiveOut = VarSetOps::MakeEmpty(this);
                 break;
             default:
-                VarSetOps::Assign(this, block->bbLiveOut, liveAll);
+                block->bbLiveOut = VarSetOps::MakeCopy(this, liveAll);
                 break;
         }
+
+        block->bbScope = VarSetOps::MakeEmpty(this);
 
         block->bbMemoryUse     = true;
         block->bbMemoryDef     = true;
         block->bbMemoryLiveIn  = true;
         block->bbMemoryLiveOut = true;
     }
+
+    fgBBVarSetsInited = true;
 
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
     {
