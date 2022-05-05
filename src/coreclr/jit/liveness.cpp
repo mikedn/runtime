@@ -98,11 +98,6 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
 {
     assert(!backendRequiresLocalVarLifetimes());
 
-    if (opts.OptimizationEnabled())
-    {
-        lvaSortByRefCount();
-    }
-
     VARSET_TP liveAll(VarSetOps::MakeEmpty(this));
 
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)

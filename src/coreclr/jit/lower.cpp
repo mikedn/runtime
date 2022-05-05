@@ -4923,6 +4923,7 @@ PhaseStatus Lowering::DoPhase()
     {
         comp->fgUpdateFlowGraph();
         comp->lvaComputeRefCounts();
+        comp->lvaSortByRefCount();
         comp->fgLocalVarLivenessAlwaysLive();
     }
     else
