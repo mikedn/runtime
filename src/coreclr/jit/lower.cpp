@@ -4906,7 +4906,7 @@ PhaseStatus Lowering::DoPhase()
 
     if (comp->opts.OptimizationDisabled())
     {
-        comp->lvaComputeRefCounts();
+        comp->lvaCheckZeroRefCountsLIR();
 
         if (comp->backendRequiresLocalVarLifetimes())
         {
@@ -4917,10 +4917,7 @@ PhaseStatus Lowering::DoPhase()
             comp->fgLocalVarLivenessAlwaysLive();
         }
 
-        // Recompute local var ref counts again after liveness to reflect
-        // impact of any dead code removal. Note this may leave us with
-        // tracked vars that have zero refs.
-        comp->lvaComputeRefCounts();
+        comp->lvaCheckZeroRefCountsLIR();
     }
     else
     {
