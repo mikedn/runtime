@@ -3810,13 +3810,16 @@ public:
     }
 
     void fgLocalVarLiveness();
+    void fgLocalVarLivenessAlwaysLive();
 
     void fgLocalVarLivenessInit();
+    void fgLocalVarLivenessInitAlwaysLive();
 
     void fgPerNodeLocalVarLiveness(GenTree* node);
     void fgPerNodeLocalVarLivenessLIR(GenTree* node);
     void fgPInvokeFrameLiveness(GenTreeCall* call);
     void fgPerBlockLocalVarLiveness();
+    void fgPerBlockLocalVarLivenessAlwaysLive();
 
     VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
 
@@ -3843,6 +3846,7 @@ public:
     GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
 
     void fgInterBlockLocalVarLiveness();
+    void fgInterBlockLocalVarLivenessAlwaysLive();
 
     // Blocks: convenience methods for enabling range-based `for` iteration over the function's blocks, e.g.:
     // 1.   for (BasicBlock* const block : compiler->Blocks()) ...
