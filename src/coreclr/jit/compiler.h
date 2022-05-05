@@ -326,7 +326,7 @@ public:
 enum RefCountState
 {
     RCS_INVALID, // not valid to get/set ref counts
-    RCS_EARLY,   // early counts for struct promotion and struct passing
+    RCS_MORPH,   // morphing uses the 2 LclVarDsc ref count members for implicit by ref optimizations
     RCS_NORMAL,  // normal ref counts (from lvaMarkRefs onward)
 };
 

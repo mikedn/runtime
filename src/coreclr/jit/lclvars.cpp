@@ -3377,7 +3377,7 @@ void Compiler::lvaComputeRefCounts()
 
             // Ref count bump that was in lvaPromoteStructVar
             //
-            // This was formerly done during RCS_EARLY counting,
+            // This was formerly done during RCS_MORPH counting,
             // and we did not used to reset counts like we do now.
             if (varDsc->lvIsStructField)
             {

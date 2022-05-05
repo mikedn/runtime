@@ -420,7 +420,7 @@ public:
         GenTree* node = *use;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        if ((m_compiler->lvaRefCountState == RCS_EARLY) &&
+        if ((m_compiler->lvaRefCountState == RCS_MORPH) &&
             node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
             UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
@@ -2272,8 +2272,8 @@ private:
         }
 
         JITDUMP("LocalAddressVisitor incrementing ref count from " FMT_WT " to " FMT_WT " for implict byref V%02u\n",
-                lcl->lvRefCnt(RCS_EARLY), lcl->lvRefCnt(RCS_EARLY) + 1, lclNum);
-        lcl->incLvRefCnt(1, RCS_EARLY);
+                lcl->lvRefCnt(RCS_MORPH), lcl->lvRefCnt(RCS_MORPH) + 1, lclNum);
+        lcl->incLvRefCnt(1, RCS_MORPH);
 
         // See if this struct is an argument to a call. This information is recorded
         // via the weighted early ref count for the local, and feeds the undo promotion
@@ -2295,8 +2295,8 @@ private:
         {
             JITDUMP("LocalAddressVisitor incrementing weighted ref count from %f to %f"
                     " for implict byref V%02d arg passed to call\n",
-                    lcl->lvRefCntWtd(RCS_EARLY), lcl->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
-            lcl->incLvRefCntWtd(1, RCS_EARLY);
+                    lcl->lvRefCntWtd(RCS_MORPH), lcl->lvRefCntWtd(RCS_MORPH) + 1, lclNum);
+            lcl->incLvRefCntWtd(1, RCS_MORPH);
         }
     }
 
@@ -3458,7 +3458,7 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 {
     JITDUMP("\n*************** In lvaResetImplicitByRefParamsRefCount()\n");
 
-    lvaRefCountState          = RCS_EARLY;
+    lvaRefCountState          = RCS_MORPH;
     lvaHasImplicitByRefParams = false;
 
     for (unsigned lclNum = 0; lclNum < info.compArgsCount; ++lclNum)
@@ -3468,8 +3468,8 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
         if (lcl->IsImplicitByRefParam())
         {
             // We haven't use ref counts until now so they should be 0.
-            assert(lcl->lvRefCnt(RCS_EARLY) == 0);
-            assert(lcl->lvRefCntWtd(RCS_EARLY) == 0);
+            assert(lcl->lvRefCnt(RCS_MORPH) == 0);
+            assert(lcl->lvRefCntWtd(RCS_MORPH) == 0);
 
             lvaHasImplicitByRefParams = true;
         }
@@ -3528,8 +3528,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
             // total number of references to the struct or some field, and how many of these
             // are arguments to calls. We undo promotion unless we see enough non-call uses.
 
-            unsigned totalAppearances = lcl->lvRefCnt(RCS_EARLY);
-            unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
+            unsigned totalAppearances = lcl->lvRefCnt(RCS_MORPH);
+            unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_MORPH));
             assert(totalAppearances >= callAppearances);
             unsigned nonCallAppearances  = totalAppearances - callAppearances;
             bool     isDependentPromoted = lcl->IsDependentPromoted();

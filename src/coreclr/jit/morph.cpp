@@ -4592,7 +4592,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
         {
             const unsigned   lclNum           = lclNode->GetLclNum();
             LclVarDsc* const lcl              = lvaGetDesc(lclNum);
-            const unsigned   totalAppearances = lcl->lvRefCnt(RCS_EARLY);
+            const unsigned   totalAppearances = lcl->lvRefCnt(RCS_MORPH);
 
             // We don't have liveness so we rely on other indications of last use.
             //
@@ -5601,8 +5601,8 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
         JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->gtTreeID,
                 lclNode->GetLclNum());
 
-        const unsigned totalAppearances = lcl->lvRefCnt(RCS_EARLY);
-        const unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
+        const unsigned totalAppearances = lcl->lvRefCnt(RCS_MORPH);
+        const unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_MORPH));
         assert(totalAppearances >= callAppearances);
 
         if (totalAppearances == 1)
