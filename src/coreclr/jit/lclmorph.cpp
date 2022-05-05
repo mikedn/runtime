@@ -420,7 +420,7 @@ public:
         GenTree* node = *use;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        if (m_compiler->lvaHasImplicitByRefParams &&
+        if ((m_compiler->lvaRefCountState == RCS_EARLY) &&
             node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
             UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
@@ -3473,6 +3473,12 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 
             lvaHasImplicitByRefParams = true;
         }
+    }
+
+    if (!opts.OptimizationEnabled() || !lvaHasImplicitByRefParams)
+    {
+        // It turns out that we do not actually need ref counting.
+        lvaRefCountState = RCS_INVALID;
     }
 }
 
