@@ -2305,12 +2305,7 @@ public:
     }
 };
 
-/*****************************************************************************
- *
- *  Sort the local variable table by refcount and assign tracking indices.
- */
-
-void Compiler::lvaSortByRefCount()
+void Compiler::lvaMarkLivenessTrackedLocals()
 {
     lvaTrackedCount             = 0;
     lvaTrackedCountInSizeTUnits = 0;

@@ -200,7 +200,7 @@ void Compiler::fgLocalVarLivenessInit()
     // Sort locals first, if we're optimizing
     if (opts.OptimizationEnabled())
     {
-        lvaSortByRefCount();
+        lvaMarkLivenessTrackedLocals();
     }
 
     // We mark a lcl as must-init in a first pass of local variable

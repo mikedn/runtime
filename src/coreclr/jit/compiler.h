@@ -2662,7 +2662,7 @@ public:
 
     void lvaResizeTable(unsigned newSize);
 
-    void lvaSortByRefCount();
+    void lvaMarkLivenessTrackedLocals();
 
     void lvaMarkLocalVars(); // Local variable ref-counting
     void lvaComputeRefCounts();

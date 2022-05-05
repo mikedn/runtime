@@ -1505,8 +1505,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
 }
 
 // Identify locals & compiler temps that are register candidates
-// TODO-Cleanup: This was cloned from Compiler::lvaSortByRefCount() in lclvars.cpp in order
-// to avoid perturbation, but should be merged.
 
 void LinearScan::identifyCandidates()
 {
