@@ -3253,22 +3253,23 @@ void Compiler::lvaComputeRefCounts()
         if (compRationalIRForm)
         {
 #ifdef DEBUG
-            // All local vars should be marked as implicitly referenced
-            // and not tracked.
             for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
             {
-                LclVarDsc* varDsc = lvaGetDesc(lclNum);
+                LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+                assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
 
                 if (lvaIsX86VarargsStackParam(lclNum))
                 {
-                    assert(varDsc->lvRefCnt() == 0);
+                    assert(lcl->lvRefCnt() == 0);
                 }
                 else
                 {
-                    assert(varDsc->lvImplicitlyReferenced);
+                    // lvaGrabTemp should automatically set lvImplicitlyReferenced after lvaMarkLocalVars phase.
+                    assert(lcl->lvImplicitlyReferenced);
                 }
 
-                assert(!varDsc->lvTracked);
+                assert(!lcl->lvTracked);
             }
 #endif // DEBUG
 
@@ -3278,25 +3279,29 @@ void Compiler::lvaComputeRefCounts()
         // First compute.
         for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
         {
-            LclVarDsc* varDsc = lvaGetDesc(lclNum);
+            LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-            varDsc->setLvRefCnt(0);
-            varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
+            assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
 
             // Using lvImplicitlyReferenced here ensures that locals don't accidentally become
             // unreferenced by decrementing the ref count to zero. If we want to allow locals
             // to become unreferenced later, we'll have to explicitly clear this bit.
             // X86 varargs stack params must remain unreferenced.
 
-            if (!lvaIsX86VarargsStackParam(lclNum))
+            if (lvaIsX86VarargsStackParam(lclNum))
             {
-                varDsc->lvImplicitlyReferenced = 1;
+                assert(lcl->lvRefCnt() == 0);
+                assert(lcl->lvRefCntWtd() == 0);
+            }
+            else
+            {
+                lcl->lvImplicitlyReferenced = 1;
+
+                assert(lcl->lvRefCnt() == 1);
+                assert(lcl->lvRefCntWtd() == BB_UNITY_WEIGHT);
             }
 
-            varDsc->lvTracked = 0;
-
-            // Assert that it's ok to bypass the type repair logic in lvaMarkLclRefs
-            assert((varDsc->lvType != TYP_UNDEF) && (varDsc->lvType != TYP_VOID) && (varDsc->lvType != TYP_UNKNOWN));
+            assert(!lcl->lvTracked);
         }
 
         lvaCurEpoch++;
