@@ -3839,6 +3839,7 @@ public:
     void fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block);
     GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
 
+    void fgInterBlockLocalVarLivenessUntracked();
     bool fgInterBlockLocalVarLiveness();
 
     // Blocks: convenience methods for enabling range-based `for` iteration over the function's blocks, e.g.:

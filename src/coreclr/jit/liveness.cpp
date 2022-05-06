@@ -165,7 +165,7 @@ void Compiler::fgLocalVarLiveness()
 
     fgBBVarSetsInited = true;
 
-    do
+    for (bool changed = true; changed;)
     {
         if (compRationalIRForm)
         {
@@ -189,7 +189,16 @@ void Compiler::fgLocalVarLiveness()
             fgLiveVarAnalysis();
         }
 
-    } while (fgInterBlockLocalVarLiveness());
+        if (lvaTrackedCount == 0)
+        {
+            fgInterBlockLocalVarLivenessUntracked();
+            changed = false;
+        }
+        else
+        {
+            changed = fgInterBlockLocalVarLiveness();
+        }
+    }
 
     EndPhase(PHASE_LCLVARLIVENESS);
 }
@@ -1460,6 +1469,52 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
     }
 
     return asgNode;
+}
+
+void Compiler::fgInterBlockLocalVarLivenessUntracked()
+{
+    assert(lvaTrackedCount == 0);
+
+    fgStmtRemoved = false;
+
+    VARSET_TP keepAlive = VarSetOps::UninitVal();
+    VARSET_TP life      = VarSetOps::UninitVal();
+
+    for (BasicBlock* const block : Blocks())
+    {
+        compCurBB = block;
+
+        if (block->IsLIR())
+        {
+            fgComputeLifeLIR(life, keepAlive, block);
+        }
+        else
+        {
+            Statement* firstStmt = block->FirstNonPhiDef();
+
+            if (firstStmt == nullptr)
+            {
+                continue;
+            }
+
+            Statement* nextStmt = block->lastStmt();
+
+            do
+            {
+                noway_assert(nextStmt != nullptr);
+
+                compCurStmt = nextStmt;
+                nextStmt    = nextStmt->GetPrevStmt();
+
+                fgComputeLifeStmt(life, keepAlive, compCurStmt);
+            } while (compCurStmt != firstStmt);
+        }
+
+        noway_assert(compCurBB == block);
+        INDEBUG(compCurBB = nullptr);
+    }
+
+    fgLocalVarLivenessDone = true;
 }
 
 bool Compiler::fgInterBlockLocalVarLiveness()
