@@ -171,14 +171,12 @@ void Compiler::fgLocalVarLiveness()
         {
             if (lvaTrackedCount != 0)
             {
-                fgPerBlockLocalVarLivenessLIR();
-            }
+                assert(!opts.compDbgCode);
 
-            if (!opts.compDbgCode)
-            {
+                fgPerBlockLocalVarLivenessLIR();
                 fgLiveVarAnalysis();
             }
-            else if (info.compVarScopesCount > 0)
+            else if (opts.compDbgCode && (info.compVarScopesCount > 0))
             {
                 fgExtendDbgLifetimes();
             }
