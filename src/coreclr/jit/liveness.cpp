@@ -860,56 +860,36 @@ void Compiler::fgLiveVarAnalysis()
 #endif // DEBUG
 }
 
-//------------------------------------------------------------------------
-// Compiler::fgComputeLifeCall: compute the changes to local var liveness
-//                              due to a GT_CALL node.
-//
-// Arguments:
-//    life - The live set that is being computed.
-//    call - The call node in question.
-//
 void Compiler::fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call)
 {
-    assert(call != nullptr);
-
-    // If this is a tail-call via helper, and we have any unmanaged p/invoke calls in
-    // the method, then we're going to run the p/invoke epilog
-    // So we mark the FrameRoot as used by this instruction.
-    // This ensure that this variable is kept alive at the tail-call
-    if (call->IsTailCallViaJitHelper() && compMethodRequiresPInvokeFrame())
+    if (!compMethodRequiresPInvokeFrame() || opts.ShouldUsePInvokeHelpers())
     {
-        assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-        if (!opts.ShouldUsePInvokeHelpers())
-        {
-            // Get the FrameListRoot local and make it live.
-
-            noway_assert(info.compLvFrameListRoot < lvaCount);
-
-            LclVarDsc* frameVarDsc = &lvaTable[info.compLvFrameListRoot];
-
-            if (frameVarDsc->lvTracked)
-            {
-                VarSetOps::AddElemD(this, life, frameVarDsc->lvVarIndex);
-            }
-        }
+        return;
     }
 
-    // TODO: we should generate the code for saving to/restoring
-    //       from the inlined N/Direct frame instead.
+    bool usesFrameListRoot = false;
 
-    /* Is this call to unmanaged code? */
-    if (call->IsUnmanaged() && compMethodRequiresPInvokeFrame())
+    // If this is a tail-call via helper, and we have any unmanaged p/invoke calls in
+    // the method, then we're going to run the p/invoke epilog, which uses the frame
+    // list root local.
+    if (call->IsTailCallViaJitHelper())
     {
-        // Get the FrameListRoot local and make it live.
-        assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-        if (!opts.ShouldUsePInvokeHelpers() && !call->IsSuppressGCTransition())
-        {
-            LclVarDsc* frameVarDsc = lvaGetDesc(info.compLvFrameListRoot);
+        usesFrameListRoot = true;
+    }
+    // TODO: we should generate the code for saving to/restoring from the inlined N/Direct
+    // frame instead.
+    else if (call->IsUnmanaged() && !call->IsSuppressGCTransition())
+    {
+        usesFrameListRoot = true;
+    }
 
-            if (frameVarDsc->HasLiveness())
-            {
-                VarSetOps::AddElemD(this, life, frameVarDsc->GetLivenessBitIndex());
-            }
+    if (usesFrameListRoot)
+    {
+        LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
+
+        if (lcl->HasLiveness())
+        {
+            VarSetOps::AddElemD(this, life, lcl->GetLivenessBitIndex());
         }
     }
 }
