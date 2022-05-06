@@ -93,6 +93,8 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
 void Compiler::fgLocalVarLivenessAlwaysLive()
 {
+    assert(compRationalIRForm);
+
     // TODO-MIKE-Review: Check if this is really needed in minopts.
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
@@ -120,11 +122,6 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
                 block->bbLiveOut = VarSetOps::MakeFull(this);
                 break;
         }
-
-        block->bbMemoryUse     = true;
-        block->bbMemoryDef     = true;
-        block->bbMemoryLiveIn  = true;
-        block->bbMemoryLiveOut = true;
     }
 
     fgBBVarSetsInited = true;
