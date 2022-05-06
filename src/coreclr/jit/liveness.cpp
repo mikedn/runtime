@@ -398,10 +398,6 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
             assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
             break;
 
-        case GT_CALL:
-            fgPInvokeFrameLiveness(tree->AsCall());
-            break;
-
         default:
             break;
     }
@@ -409,6 +405,8 @@ void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
 
 void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
 {
+    assert(!compRationalIRForm);
+
     // If this is a p/invoke unmanaged call or if this is a tail-call via helper,
     // and we have an unmanaged p/invoke call in the method,
     // then we're going to run the p/invoke epilog.
@@ -480,32 +478,32 @@ void Compiler::fgPerBlockLocalVarLiveness()
                     fgPerNodeLocalVarLiveness(node);
                 }
             }
-        }
 
-        // Mark the FrameListRoot as used, if applicable.
+            // Mark the FrameListRoot as used, if applicable.
 
-        if (block->bbJumpKind == BBJ_RETURN && compMethodRequiresPInvokeFrame())
-        {
-            assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-            if (!opts.ShouldUsePInvokeHelpers())
+            if (block->bbJumpKind == BBJ_RETURN && compMethodRequiresPInvokeFrame())
             {
-                noway_assert(info.compLvFrameListRoot < lvaCount);
-
-                // 32-bit targets always pop the frame in the epilog.
-                // For 64-bit targets, we only do this in the epilog for IL stubs;
-                // for non-IL stubs the frame is popped after every PInvoke call.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef TARGET_64BIT
-                if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
-#endif
+                assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
+                if (!opts.ShouldUsePInvokeHelpers())
                 {
-                    LclVarDsc* varDsc = &lvaTable[info.compLvFrameListRoot];
+                    noway_assert(info.compLvFrameListRoot < lvaCount);
 
-                    if (varDsc->lvTracked)
+                    // 32-bit targets always pop the frame in the epilog.
+                    // For 64-bit targets, we only do this in the epilog for IL stubs;
+                    // for non-IL stubs the frame is popped after every PInvoke call.
+                    CLANG_FORMAT_COMMENT_ANCHOR;
+#ifdef TARGET_64BIT
+                    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
+#endif
                     {
-                        if (!VarSetOps::IsMember(this, fgCurDefSet, varDsc->lvVarIndex))
+                        LclVarDsc* varDsc = &lvaTable[info.compLvFrameListRoot];
+
+                        if (varDsc->lvTracked)
                         {
-                            VarSetOps::AddElemD(this, fgCurUseSet, varDsc->lvVarIndex);
+                            if (!VarSetOps::IsMember(this, fgCurDefSet, varDsc->lvVarIndex))
+                            {
+                                VarSetOps::AddElemD(this, fgCurUseSet, varDsc->lvVarIndex);
+                            }
                         }
                     }
                 }
@@ -862,6 +860,8 @@ void Compiler::fgLiveVarAnalysis()
 
 void Compiler::fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call)
 {
+    assert(!compRationalIRForm);
+
     if (!compMethodRequiresPInvokeFrame() || opts.ShouldUsePInvokeHelpers())
     {
         return;
@@ -1187,10 +1187,6 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                     {
                         fgStmtRemoved = true;
                     }
-                }
-                else
-                {
-                    fgComputeLifeCall(life, call);
                 }
                 break;
             }
