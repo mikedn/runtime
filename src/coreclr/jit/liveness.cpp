@@ -1586,15 +1586,11 @@ void Compiler::fgInterBlockLocalVarLiveness()
     // keep track if a bbLiveIn changed due to dead store removal
     fgLocalVarLivenessChanged = false;
 
-    /* Compute the IN and OUT sets for tracked variables */
-
-    fgLiveVarAnalysis();
-
-    /* For debuggable code, we mark vars as live over their entire
-     * reported scope, so that it will be visible over the entire scope
-     */
-
-    if (opts.compDbgCode && (info.compVarScopesCount > 0))
+    if (!opts.compDbgCode)
+    {
+        fgLiveVarAnalysis();
+    }
+    else if (info.compVarScopesCount > 0)
     {
         fgExtendDbgLifetimes();
     }
