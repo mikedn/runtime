@@ -165,11 +165,9 @@ void Compiler::fgLocalVarLiveness()
 
     fgBBVarSetsInited = true;
 
-    fgLocalVarLivenessChanged = false;
     do
     {
         fgPerBlockLocalVarLiveness();
-        fgStmtRemoved = false;
         fgInterBlockLocalVarLiveness();
     } while (fgStmtRemoved && fgLocalVarLivenessChanged);
 
