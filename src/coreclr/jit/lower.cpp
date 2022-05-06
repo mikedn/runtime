@@ -4910,7 +4910,7 @@ PhaseStatus Lowering::DoPhase()
 
         if (m_lsra->willEnregisterLocalVars())
         {
-            comp->fgLocalVarLiveness();
+            comp->fgLocalVarLivenessUntracked();
         }
         else
         {
