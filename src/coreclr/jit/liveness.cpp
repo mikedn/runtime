@@ -167,7 +167,14 @@ void Compiler::fgLocalVarLiveness()
 
     do
     {
-        fgPerBlockLocalVarLiveness();
+        if (compRationalIRForm)
+        {
+            fgPerBlockLocalVarLivenessLIR();
+        }
+        else
+        {
+            fgPerBlockLocalVarLiveness();
+        }
     } while (fgInterBlockLocalVarLiveness());
 
     EndPhase(PHASE_LCLVARLIVENESS);
@@ -379,30 +386,6 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
     }
 }
 
-void Compiler::fgPerNodeLocalVarLivenessLIR(GenTree* tree)
-{
-    switch (tree->GetOper())
-    {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
-            if (!lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
-            {
-                fgMarkUseDef(tree->AsLclVarCommon());
-            }
-            break;
-
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
-            assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
-            break;
-
-        default:
-            break;
-    }
-}
-
 void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
 {
     assert(!compRationalIRForm);
@@ -443,6 +426,8 @@ void Compiler::fgPerBlockLocalVarLiveness()
 {
     JITDUMP("*************** In fgPerBlockLocalVarLiveness()\n");
 
+    assert(!compRationalIRForm);
+
     unsigned livenessVarEpoch = GetCurLVEpoch();
 
     BasicBlock* block;
@@ -461,49 +446,40 @@ void Compiler::fgPerBlockLocalVarLiveness()
         fgCurMemoryHavoc = false;
 
         compCurBB = block;
-        if (block->IsLIR())
+
+        for (Statement* const stmt : block->NonPhiStatements())
         {
-            for (GenTree* node : LIR::AsRange(block))
+            compCurStmt = stmt;
+            for (GenTree* const node : stmt->TreeList())
             {
-                fgPerNodeLocalVarLivenessLIR(node);
+                fgPerNodeLocalVarLiveness(node);
             }
         }
-        else
+
+        // Mark the FrameListRoot as used, if applicable.
+
+        if (block->bbJumpKind == BBJ_RETURN && compMethodRequiresPInvokeFrame())
         {
-            for (Statement* const stmt : block->NonPhiStatements())
+            assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
+            if (!opts.ShouldUsePInvokeHelpers())
             {
-                compCurStmt = stmt;
-                for (GenTree* const node : stmt->TreeList())
-                {
-                    fgPerNodeLocalVarLiveness(node);
-                }
-            }
+                noway_assert(info.compLvFrameListRoot < lvaCount);
 
-            // Mark the FrameListRoot as used, if applicable.
-
-            if (block->bbJumpKind == BBJ_RETURN && compMethodRequiresPInvokeFrame())
-            {
-                assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-                if (!opts.ShouldUsePInvokeHelpers())
-                {
-                    noway_assert(info.compLvFrameListRoot < lvaCount);
-
-                    // 32-bit targets always pop the frame in the epilog.
-                    // For 64-bit targets, we only do this in the epilog for IL stubs;
-                    // for non-IL stubs the frame is popped after every PInvoke call.
-                    CLANG_FORMAT_COMMENT_ANCHOR;
+                // 32-bit targets always pop the frame in the epilog.
+                // For 64-bit targets, we only do this in the epilog for IL stubs;
+                // for non-IL stubs the frame is popped after every PInvoke call.
+                CLANG_FORMAT_COMMENT_ANCHOR;
 #ifdef TARGET_64BIT
-                    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
+                if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
 #endif
-                    {
-                        LclVarDsc* varDsc = &lvaTable[info.compLvFrameListRoot];
+                {
+                    LclVarDsc* varDsc = &lvaTable[info.compLvFrameListRoot];
 
-                        if (varDsc->lvTracked)
+                    if (varDsc->lvTracked)
+                    {
+                        if (!VarSetOps::IsMember(this, fgCurDefSet, varDsc->lvVarIndex))
                         {
-                            if (!VarSetOps::IsMember(this, fgCurDefSet, varDsc->lvVarIndex))
-                            {
-                                VarSetOps::AddElemD(this, fgCurUseSet, varDsc->lvVarIndex);
-                            }
+                            VarSetOps::AddElemD(this, fgCurUseSet, varDsc->lvVarIndex);
                         }
                     }
                 }
@@ -525,6 +501,44 @@ void Compiler::fgPerBlockLocalVarLiveness()
     }
 
     noway_assert(livenessVarEpoch == GetCurLVEpoch());
+}
+
+void Compiler::fgPerBlockLocalVarLivenessLIR()
+{
+    assert(compRationalIRForm);
+
+    // Avoid per block allocations in the long case.
+    fgCurUseSet = VarSetOps::MakeEmpty(this);
+    fgCurDefSet = VarSetOps::MakeEmpty(this);
+
+    for (BasicBlock* block : Blocks())
+    {
+        VarSetOps::ClearD(this, fgCurUseSet);
+        VarSetOps::ClearD(this, fgCurDefSet);
+
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+            {
+                if (!lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed())
+                {
+                    fgMarkUseDef(node->AsLclVarCommon());
+                }
+            }
+            else if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+            {
+                assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            }
+        }
+
+        VarSetOps::Assign(this, block->bbVarUse, fgCurUseSet);
+        VarSetOps::Assign(this, block->bbVarDef, fgCurDefSet);
+
+        // also initialize the IN set, just in case we will do multiple DFAs
+        block->bbLiveIn = VarSetOps::MakeEmpty(this);
+
+        DBEXEC(verbose, fgDispBBLocalLiveness(block))
+    }
 }
 
 void Compiler::fgExtendDbgLifetimes()
