@@ -738,7 +738,7 @@ class LiveVarAnalysis
     {
     }
 
-    bool PerBlockAnalysis(BasicBlock* block, bool updateInternalOnly, bool keepAliveThis)
+    bool PerBlockAnalysis(BasicBlock* block, bool keepAliveThis)
     {
         /* Compute the 'liveOut' set */
         VarSetOps::ClearD(m_compiler, m_liveOut);
@@ -804,35 +804,8 @@ class LiveVarAnalysis
         bool liveInChanged = !VarSetOps::Equal(m_compiler, block->bbLiveIn, m_liveIn);
         if (liveInChanged || !VarSetOps::Equal(m_compiler, block->bbLiveOut, m_liveOut))
         {
-            if (updateInternalOnly)
-            {
-                // Only "extend" liveness over BBF_INTERNAL blocks
-
-                noway_assert(block->bbFlags & BBF_INTERNAL);
-
-                liveInChanged = !VarSetOps::IsSubset(m_compiler, m_liveIn, block->bbLiveIn);
-                if (liveInChanged || !VarSetOps::IsSubset(m_compiler, m_liveOut, block->bbLiveOut))
-                {
-#ifdef DEBUG
-                    if (m_compiler->verbose)
-                    {
-                        printf("Scope info: block " FMT_BB " LiveIn+ ", block->bbNum);
-                        dumpConvertedVarSet(m_compiler, VarSetOps::Diff(m_compiler, m_liveIn, block->bbLiveIn));
-                        printf(", LiveOut+ ");
-                        dumpConvertedVarSet(m_compiler, VarSetOps::Diff(m_compiler, m_liveOut, block->bbLiveOut));
-                        printf("\n");
-                    }
-#endif // DEBUG
-
-                    VarSetOps::UnionD(m_compiler, block->bbLiveIn, m_liveIn);
-                    VarSetOps::UnionD(m_compiler, block->bbLiveOut, m_liveOut);
-                }
-            }
-            else
-            {
-                VarSetOps::Assign(m_compiler, block->bbLiveIn, m_liveIn);
-                VarSetOps::Assign(m_compiler, block->bbLiveOut, m_liveOut);
-            }
+            VarSetOps::Assign(m_compiler, block->bbLiveIn, m_liveIn);
+            VarSetOps::Assign(m_compiler, block->bbLiveOut, m_liveOut);
         }
 
         const bool memoryLiveInChanged = (block->bbMemoryLiveIn != m_memoryLiveIn);
@@ -845,7 +818,7 @@ class LiveVarAnalysis
         return liveInChanged || memoryLiveInChanged;
     }
 
-    void Run(bool updateInternalOnly)
+    void Run()
     {
         const bool keepAliveThis =
             m_compiler->lvaKeepAliveAndReportThis() && m_compiler->lvaTable[m_compiler->info.compThisArg].lvTracked;
@@ -873,20 +846,7 @@ class LiveVarAnalysis
                     m_hasPossibleBackEdge = true;
                 }
 
-                if (updateInternalOnly)
-                {
-                    /* Only update BBF_INTERNAL blocks as they may be
-                       syntactically out of sequence. */
-
-                    noway_assert(m_compiler->opts.compDbgCode && (m_compiler->info.compVarScopesCount > 0));
-
-                    if (!(block->bbFlags & BBF_INTERNAL))
-                    {
-                        continue;
-                    }
-                }
-
-                if (PerBlockAnalysis(block, updateInternalOnly, keepAliveThis))
+                if (PerBlockAnalysis(block, keepAliveThis))
                 {
                     changed = true;
                 }
@@ -901,10 +861,10 @@ class LiveVarAnalysis
     }
 
 public:
-    static void Run(Compiler* compiler, bool updateInternalOnly)
+    static void Run(Compiler* compiler)
     {
         LiveVarAnalysis analysis(compiler);
-        analysis.Run(updateInternalOnly);
+        analysis.Run();
     }
 };
 
@@ -914,12 +874,12 @@ public:
  *  If updateInternalOnly==true, only update BBF_INTERNAL blocks.
  */
 
-void Compiler::fgLiveVarAnalysis(bool updateInternalOnly)
+void Compiler::fgLiveVarAnalysis()
 {
-    LiveVarAnalysis::Run(this, updateInternalOnly);
+    LiveVarAnalysis::Run(this);
 
 #ifdef DEBUG
-    if (verbose && !updateInternalOnly)
+    if (verbose)
     {
         printf("\nBB liveness after fgLiveVarAnalysis():\n\n");
         fgDispBBLiveness();

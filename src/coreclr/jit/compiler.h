@@ -3817,7 +3817,7 @@ public:
 
     VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
 
-    void fgLiveVarAnalysis(bool updateInternalOnly = false);
+    void fgLiveVarAnalysis();
 
     void fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call);
 
