@@ -3839,7 +3839,7 @@ public:
     void fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block);
     GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
 
-    void fgInterBlockLocalVarLiveness();
+    bool fgInterBlockLocalVarLiveness();
 
     // Blocks: convenience methods for enabling range-based `for` iteration over the function's blocks, e.g.:
     // 1.   for (BasicBlock* const block : compiler->Blocks()) ...
@@ -7081,7 +7081,6 @@ public:
 #endif                                      // DEBUG
 
     bool fgLocalVarLivenessDone; // Note that this one is used outside of debug.
-    bool fgLocalVarLivenessChanged;
     bool compLSRADone;
     bool compRationalIRForm;
 

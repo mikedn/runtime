@@ -168,8 +168,7 @@ void Compiler::fgLocalVarLiveness()
     do
     {
         fgPerBlockLocalVarLiveness();
-        fgInterBlockLocalVarLiveness();
-    } while (fgStmtRemoved && fgLocalVarLivenessChanged);
+    } while (fgInterBlockLocalVarLiveness());
 
     EndPhase(PHASE_LCLVARLIVENESS);
 }
@@ -1544,7 +1543,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
  *  Iterative data flow for live variable info and availability of range
  *  check index expressions.
  */
-void Compiler::fgInterBlockLocalVarLiveness()
+bool Compiler::fgInterBlockLocalVarLiveness()
 {
 #ifdef DEBUG
     if (verbose)
@@ -1552,13 +1551,6 @@ void Compiler::fgInterBlockLocalVarLiveness()
         printf("*************** In fgInterBlockLocalVarLiveness()\n");
     }
 #endif
-
-    /* This global flag is set whenever we remove a statement */
-
-    fgStmtRemoved = false;
-
-    // keep track if a bbLiveIn changed due to dead store removal
-    fgLocalVarLivenessChanged = false;
 
     if (!opts.compDbgCode)
     {
@@ -1652,6 +1644,9 @@ void Compiler::fgInterBlockLocalVarLiveness()
      * Now fill in liveness info within each basic block - Backward DataFlow
      */
 
+    fgStmtRemoved                = false;
+    bool localVarLivenessChanged = false;
+
     for (BasicBlock* const block : Blocks())
     {
         /* Tell everyone what block we're working on */
@@ -1717,7 +1712,7 @@ void Compiler::fgInterBlockLocalVarLiveness()
 
             // We changed the liveIn of the block, which may affect liveOut of others,
             // which may expose more dead stores.
-            fgLocalVarLivenessChanged = true;
+            localVarLivenessChanged = true;
 
             noway_assert(VarSetOps::IsSubset(this, life, block->bbLiveIn));
 
@@ -1735,6 +1730,8 @@ void Compiler::fgInterBlockLocalVarLiveness()
     }
 
     fgLocalVarLivenessDone = true;
+
+    return fgStmtRemoved && localVarLivenessChanged;
 }
 
 #ifdef DEBUG
