@@ -4875,7 +4875,7 @@ private:
 
     void fgMarkUseDef(GenTreeLclVarCommon* tree);
 
-    void fgExtendDbgLifetimes(bool alwaysLive);
+    void fgExtendDbgLifetimes();
 
     //-------------------------------------------------------------------------
     //

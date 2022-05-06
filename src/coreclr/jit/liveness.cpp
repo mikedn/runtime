@@ -128,7 +128,7 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
 
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
     {
-        fgExtendDbgLifetimes(true);
+        fgExtendDbgLifetimes();
     }
 
     fgLocalVarLivenessDone = true;
@@ -536,7 +536,7 @@ void Compiler::fgPerBlockLocalVarLiveness()
  * by marking them live over their entire scope.
  */
 
-void Compiler::fgExtendDbgLifetimes(bool alwaysLive)
+void Compiler::fgExtendDbgLifetimes()
 {
 #ifdef DEBUG
     if (verbose)
@@ -545,12 +545,7 @@ void Compiler::fgExtendDbgLifetimes(bool alwaysLive)
     }
 #endif // DEBUG
 
-    assert(opts.compDbgCode && (info.compVarScopesCount > 0) && (lvaTrackedCount == 0));
-
-    if (!alwaysLive)
-    {
-        fgLiveVarAnalysis(true);
-    }
+    assert(compRationalIRForm && opts.compDbgCode && (info.compVarScopesCount > 0) && (lvaTrackedCount == 0));
 
     /* For compDbgCode, we prepend an empty BB which will hold the
        initializations of variables which are in scope at IL offset 0 (but
@@ -573,15 +568,6 @@ void Compiler::fgExtendDbgLifetimes(bool alwaysLive)
             lcl->lvImplicitlyReferenced = true;
         }
     }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nBB liveness after fgExtendDbgLifetimes():\n\n");
-        fgDispBBLiveness();
-        printf("\n");
-    }
-#endif // DEBUG
 }
 
 //------------------------------------------------------------------------
@@ -1650,7 +1636,7 @@ void Compiler::fgInterBlockLocalVarLiveness()
 
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
     {
-        fgExtendDbgLifetimes(false);
+        fgExtendDbgLifetimes();
     }
 
     //-------------------------------------------------------------------------
