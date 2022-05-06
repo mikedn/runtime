@@ -1464,98 +1464,73 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
 
 bool Compiler::fgInterBlockLocalVarLiveness()
 {
-    // Variables involved in exception-handlers and finally blocks need
-    // to be specially marked
-
-    VARSET_TP exceptVars(VarSetOps::MakeEmpty(this));  // vars live on entry to a handler
-    VARSET_TP finallyVars(VarSetOps::MakeEmpty(this)); // vars live on exit of a 'finally' block
+    VARSET_TP handlerLive    = VarSetOps::MakeEmpty(this);
+    VARSET_TP finallyLiveOut = VarSetOps::MakeEmpty(this);
 
     for (BasicBlock* const block : Blocks())
     {
         if (block->hasEHBoundaryIn())
         {
-            // Note the set of variables live on entry to exception handler.
-            VarSetOps::UnionD(this, exceptVars, block->bbLiveIn);
+            VarSetOps::UnionD(this, handlerLive, block->bbLiveIn);
         }
 
         if (block->hasEHBoundaryOut())
         {
-            // Get the set of live variables on exit from an exception region.
-            VarSetOps::UnionD(this, exceptVars, block->bbLiveOut);
+            VarSetOps::UnionD(this, handlerLive, block->bbLiveOut);
+
             if (block->bbJumpKind == BBJ_EHFINALLYRET)
             {
-                // Live on exit from finally.
-                // We track these separately because, in addition to having EH live-out semantics,
-                // they are must-init.
-                VarSetOps::UnionD(this, finallyVars, block->bbLiveOut);
+                // Live on exit from finally - we track these separately because,
+                // in addition to having EH live-out semantics, they are must-init.
+                VarSetOps::UnionD(this, finallyLiveOut, block->bbLiveOut);
             }
         }
     }
 
-    LclVarDsc* varDsc;
-    unsigned   varNum;
-
-    for (varNum = 0, varDsc = lvaTable; varNum < lvaCount; varNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        // Ignore the variable if it's not tracked
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (!varDsc->lvTracked)
+        if (!lcl->HasLiveness())
         {
             continue;
         }
 
-        // Un-init locals may need auto-initialization. Note that the
-        // liveness of such locals will bubble to the top (fgFirstBB)
-        // in fgInterBlockLocalVarLiveness()
+        // Uninitialized locals may need auto-initialization. Note that the liveness of
+        // such locals will bubble to the top (fgFirstBB) in fgInterBlockLocalVarLiveness.
 
-        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit on them since
-        // the whole parent struct will be initialized; however, lvLiveInOutOfHndlr should be set on them
-        // as appropriate.
+        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit
+        // on them since the whole parent struct will be initialized; however, lvLiveInOutOfHndlr
+        // should be set on them as appropriate.
 
-        if (!varDsc->IsParam() && VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, varDsc->lvVarIndex) &&
-            (info.compInitMem || varTypeIsGC(varDsc->GetType())) && !varDsc->IsDependentPromotedField(this))
+        if (!lcl->IsParam() && VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()) &&
+            (info.compInitMem || varTypeIsGC(lcl->GetType())) && !lcl->IsDependentPromotedField(this))
         {
-            varDsc->lvMustInit = true;
+            lcl->lvMustInit = true;
         }
 
         // Mark all variables that are live on entry to an exception handler
         // or on exit from a filter handler or finally.
 
-        bool isFinallyVar = VarSetOps::IsMember(this, finallyVars, varDsc->lvVarIndex);
-        if (isFinallyVar || VarSetOps::IsMember(this, exceptVars, varDsc->lvVarIndex))
+        bool isFinallyLiveOut = VarSetOps::IsMember(this, finallyLiveOut, lcl->GetLivenessBitIndex());
+
+        if (isFinallyLiveOut || VarSetOps::IsMember(this, handlerLive, lcl->GetLivenessBitIndex()))
         {
-            // Mark the variable appropriately.
-            lvaSetVarLiveInOutOfHandler(varNum);
+            lvaSetVarLiveInOutOfHandler(lclNum);
 
-            // Mark all pointer variables live on exit from a 'finally' block as
-            // 'explicitly initialized' (must-init) for GC-ref types.
-
-            if (isFinallyVar)
+            if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->TypeGet()))
             {
-                // Set lvMustInit only if we have a non-arg, GC pointer.
-                if (!varDsc->lvIsParam && varTypeIsGC(varDsc->TypeGet()))
-                {
-                    varDsc->lvMustInit = true;
-                }
+                lcl->lvMustInit = true;
             }
         }
     }
-
-    /*-------------------------------------------------------------------------
-     * Now fill in liveness info within each basic block - Backward DataFlow
-     */
 
     fgStmtRemoved                = false;
     bool localVarLivenessChanged = false;
 
     for (BasicBlock* const block : Blocks())
     {
-        /* Tell everyone what block we're working on */
-
         compCurBB = block;
-
-        /* Remember those vars live on entry to exception handlers */
-        /* if we are part of a try block */
 
         VARSET_TP keepAlive = VarSetOps::MakeEmpty(this);
 
@@ -1563,14 +1538,10 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         {
             VarSetOps::Assign(this, keepAlive, fgGetHandlerLiveVars(block));
 
-            noway_assert(VarSetOps::IsSubset(this, keepAlive, exceptVars));
+            noway_assert(VarSetOps::IsSubset(this, keepAlive, handlerLive));
         }
 
-        /* Start with the variables live on exit from the block */
-
-        VARSET_TP life(VarSetOps::MakeCopy(this, block->bbLiveOut));
-
-        /* Mark any interference we might have at the end of the block */
+        VARSET_TP life = VarSetOps::MakeCopy(this, block->bbLiveOut);
 
         if (block->IsLIR())
         {
@@ -1578,16 +1549,12 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
         else
         {
-            /* Get the first statement in the block */
-
             Statement* firstStmt = block->FirstNonPhiDef();
 
             if (firstStmt == nullptr)
             {
                 continue;
             }
-
-            /* Walk all the statements of the block backwards - Get the LAST stmt */
 
             Statement* nextStmt = block->lastStmt();
 
@@ -1602,32 +1569,21 @@ bool Compiler::fgInterBlockLocalVarLiveness()
             } while (compCurStmt != firstStmt);
         }
 
-        /* Done with the current block - if we removed any statements, some
-         * variables may have become dead at the beginning of the block
-         * -> have to update bbLiveIn */
-
         if (!VarSetOps::Equal(this, life, block->bbLiveIn))
         {
-            /* some variables have become dead all across the block
-               So life should be a subset of block->bbLiveIn */
-
-            // We changed the liveIn of the block, which may affect liveOut of others,
-            // which may expose more dead stores.
-            localVarLivenessChanged = true;
-
+            // Some variables have become dead all across the block
+            // so life should be a subset of block->bbLiveIn
             noway_assert(VarSetOps::IsSubset(this, life, block->bbLiveIn));
-
-            /* set the new bbLiveIn */
 
             VarSetOps::Assign(this, block->bbLiveIn, life);
 
-            /* compute the new bbLiveOut for all the predecessors of this block */
+            // We changed the liveIn of the block, which may affect liveOut
+            // of others, which may expose more dead stores.
+            localVarLivenessChanged = true;
         }
 
         noway_assert(compCurBB == block);
-#ifdef DEBUG
-        compCurBB = nullptr;
-#endif
+        INDEBUG(compCurBB = nullptr);
     }
 
     fgLocalVarLivenessDone = true;
