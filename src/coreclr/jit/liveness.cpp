@@ -178,6 +178,16 @@ void Compiler::fgLocalVarLiveness()
         {
             fgPerBlockLocalVarLiveness();
         }
+
+        if (!opts.compDbgCode)
+        {
+            fgLiveVarAnalysis();
+        }
+        else if (info.compVarScopesCount > 0)
+        {
+            fgExtendDbgLifetimes();
+        }
+
     } while (fgInterBlockLocalVarLiveness());
 
     EndPhase(PHASE_LCLVARLIVENESS);
@@ -1489,33 +1499,10 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
     return asgNode;
 }
 
-/*****************************************************************************
- *
- *  Iterative data flow for live variable info and availability of range
- *  check index expressions.
- */
 bool Compiler::fgInterBlockLocalVarLiveness()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgInterBlockLocalVarLiveness()\n");
-    }
-#endif
-
-    if (!opts.compDbgCode)
-    {
-        fgLiveVarAnalysis();
-    }
-    else if (info.compVarScopesCount > 0)
-    {
-        fgExtendDbgLifetimes();
-    }
-
-    //-------------------------------------------------------------------------
     // Variables involved in exception-handlers and finally blocks need
     // to be specially marked
-    //
 
     VARSET_TP exceptVars(VarSetOps::MakeEmpty(this));  // vars live on entry to a handler
     VARSET_TP finallyVars(VarSetOps::MakeEmpty(this)); // vars live on exit of a 'finally' block
