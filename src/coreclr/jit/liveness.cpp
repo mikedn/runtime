@@ -427,11 +427,7 @@ void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
 
 void Compiler::fgPerBlockLocalVarLiveness()
 {
-    JITDUMP("*************** In fgPerBlockLocalVarLiveness()\n");
-
     assert(!compRationalIRForm);
-
-    unsigned livenessVarEpoch = GetCurLVEpoch();
 
     for (BasicBlock* block : Blocks())
     {
@@ -450,7 +446,8 @@ void Compiler::fgPerBlockLocalVarLiveness()
         for (Statement* const stmt : block->NonPhiStatements())
         {
             compCurStmt = stmt;
-            for (GenTree* const node : stmt->TreeList())
+
+            for (GenTree* const node : stmt->Nodes())
             {
                 fgPerNodeLocalVarLiveness(node);
             }
@@ -458,49 +455,45 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
         // Mark the FrameListRoot as used, if applicable.
 
-        if (block->bbJumpKind == BBJ_RETURN && compMethodRequiresPInvokeFrame())
+        if ((block->bbJumpKind == BBJ_RETURN) && compMethodRequiresPInvokeFrame())
         {
-            assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-            if (!opts.ShouldUsePInvokeHelpers())
+            if (opts.ShouldUsePInvokeHelpers())
             {
-                noway_assert(info.compLvFrameListRoot < lvaCount);
-
+                assert(info.compLvFrameListRoot == BAD_VAR_NUM);
+            }
+            else
+            {
+#ifdef TARGET_64BIT
                 // 32-bit targets always pop the frame in the epilog.
                 // For 64-bit targets, we only do this in the epilog for IL stubs;
                 // for non-IL stubs the frame is popped after every PInvoke call.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef TARGET_64BIT
                 if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
 #endif
                 {
-                    LclVarDsc* varDsc = &lvaTable[info.compLvFrameListRoot];
+                    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
 
-                    if (varDsc->lvTracked)
+                    if (lcl->HasLiveness())
                     {
-                        if (!VarSetOps::IsMember(this, fgCurDefSet, varDsc->lvVarIndex))
-                        {
-                            VarSetOps::AddElemD(this, fgCurUseSet, varDsc->lvVarIndex);
-                        }
+                        VarSetOps::AddElemD(this, fgCurUseSet, lcl->GetLivenessBitIndex());
                     }
                 }
             }
         }
 
-        block->bbVarUse      = fgCurUseSet;
-        block->bbVarDef      = fgCurDefSet;
+        block->bbVarUse = fgCurUseSet;
+        block->bbVarDef = fgCurDefSet;
+
         block->bbMemoryUse   = fgCurMemoryUse;
         block->bbMemoryDef   = fgCurMemoryDef;
         block->bbMemoryHavoc = fgCurMemoryHavoc;
 
-        /* also initialize the IN set, just in case we will do multiple DFAs */
+        // Also clear the IN set, just in case we will do multiple DFAs
+        VarSetOps::ClearD(this, block->bbLiveIn);
 
-        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
         block->bbMemoryLiveIn = false;
 
         DBEXEC(verbose, fgDispBBLocalLiveness(block))
     }
-
-    noway_assert(livenessVarEpoch == GetCurLVEpoch());
 }
 
 void Compiler::fgPerBlockLocalVarLivenessLIR()
@@ -533,7 +526,7 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
         block->bbVarUse = fgCurUseSet;
         block->bbVarDef = fgCurDefSet;
 
-        // also clear the IN set, just in case we will do multiple DFAs
+        // Also clear the IN set, just in case we will do multiple DFAs
         VarSetOps::ClearD(this, block->bbLiveIn);
 
         DBEXEC(verbose, fgDispBBLocalLiveness(block))
