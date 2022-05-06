@@ -530,30 +530,9 @@ void Compiler::fgPerBlockLocalVarLiveness()
     noway_assert(livenessVarEpoch == GetCurLVEpoch());
 }
 
-/*****************************************************************************
- *
- * For debuggable code, we allow redundant assignments to vars
- * by marking them live over their entire scope.
- */
-
 void Compiler::fgExtendDbgLifetimes()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgExtendDbgLifetimes()\n");
-    }
-#endif // DEBUG
-
     assert(compRationalIRForm && opts.compDbgCode && (info.compVarScopesCount > 0) && (lvaTrackedCount == 0));
-
-    /* For compDbgCode, we prepend an empty BB which will hold the
-       initializations of variables which are in scope at IL offset 0 (but
-       not initialized by the IL code). Since they will currently be
-       marked as live on entry to fgFirstBB, unmark the liveness so that
-       the following code will know to add the initializations. */
-
-    assert(fgFirstBBisScratch());
 
     // raMarkStkVars() reserves stack space for unused variables (which needs
     // to be initialized). However, arguments don't need to be initialized.

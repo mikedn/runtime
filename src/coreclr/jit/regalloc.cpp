@@ -322,11 +322,14 @@ void Compiler::raMarkStkVars()
 #endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
-            /* For debugging, note that we have to reserve space even for
-               unused variables if they are ever in scope. However, this is not
-               an issue as fgExtendDbgLifetimes() adds an initialization and
-               variables in scope will not have a zero ref-cnt.
-             */
+            // For debugging, note that we have to reserve space even for
+            // unused variables if they are ever in scope. However, this is not
+            // an issue as fgExtendDbgLifetimes() adds an initialization and
+            // variables in scope will not have a zero ref-cnt.
+
+            // TODO-MIKE-Review: Actually fgExtendDbgLifetimes() was dead code
+            // and didn't add any initialization...
+
             if (opts.compDbgCode && !varDsc->lvIsParam && varDsc->lvTracked)
             {
                 for (unsigned scopeNum = 0; scopeNum < info.compVarScopesCount; scopeNum++)

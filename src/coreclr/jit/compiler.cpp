@@ -2607,11 +2607,8 @@ void Compiler::compInitDebuggingInfo()
 
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
     {
-        /* Create a new empty basic block. fgExtendDbgLifetimes() may add
-           initialization of variables which are in scope right from the
-           start of the (real) first BB (and therefore artificially marked
-           as alive) into this block.
-         */
+        // TODO-MIKE-Review: This was done for fgExtendDbgLifetimes which is gone now.
+        // Can it be removed? Other places may rely on this block being present so...
 
         fgEnsureFirstBBisScratch();
 
