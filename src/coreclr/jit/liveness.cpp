@@ -148,10 +148,7 @@ void Compiler::fgLocalVarLiveness()
     }
 #endif // DEBUG
 
-    // Init liveness data structures.
     fgLocalVarLivenessInit();
-
-    EndPhase(PHASE_LCLVARLIVENESS_INIT);
 
     for (BasicBlock* const block : Blocks())
     {
@@ -171,17 +168,12 @@ void Compiler::fgLocalVarLiveness()
     fgLocalVarLivenessChanged = false;
     do
     {
-        /* Figure out use/def info for all basic blocks */
         fgPerBlockLocalVarLiveness();
-        EndPhase(PHASE_LCLVARLIVENESS_PERBLOCK);
-
-        /* Live variable analysis. */
-
         fgStmtRemoved = false;
         fgInterBlockLocalVarLiveness();
     } while (fgStmtRemoved && fgLocalVarLivenessChanged);
 
-    EndPhase(PHASE_LCLVARLIVENESS_INTERBLOCK);
+    EndPhase(PHASE_LCLVARLIVENESS);
 }
 
 void Compiler::livInitNewBlock(BasicBlock* block)
