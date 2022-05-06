@@ -3831,6 +3831,7 @@ public:
                                      LclVarDsc*           lcl,
                                      GenTreeLclVarCommon* node);
 
+    void fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
     void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
     void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 

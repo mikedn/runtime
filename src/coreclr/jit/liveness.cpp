@@ -1021,6 +1021,28 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
+void Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, BasicBlock* block)
+{
+    Statement* firstStmt = block->FirstNonPhiDef();
+
+    if (firstStmt == nullptr)
+    {
+        return;
+    }
+
+    Statement* nextStmt = block->lastStmt();
+
+    do
+    {
+        noway_assert(nextStmt != nullptr);
+
+        compCurStmt = nextStmt;
+        nextStmt    = nextStmt->GetPrevStmt();
+
+        fgComputeLifeStmt(life, keepAlive, compCurStmt);
+    } while (compCurStmt != firstStmt);
+}
+
 void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt)
 {
     bool updateStmt = false;
@@ -1484,30 +1506,13 @@ void Compiler::fgInterBlockLocalVarLivenessUntracked()
     {
         compCurBB = block;
 
-        if (block->IsLIR())
+        if (compRationalIRForm)
         {
             fgComputeLifeLIR(life, keepAlive, block);
         }
         else
         {
-            Statement* firstStmt = block->FirstNonPhiDef();
-
-            if (firstStmt == nullptr)
-            {
-                continue;
-            }
-
-            Statement* nextStmt = block->lastStmt();
-
-            do
-            {
-                noway_assert(nextStmt != nullptr);
-
-                compCurStmt = nextStmt;
-                nextStmt    = nextStmt->GetPrevStmt();
-
-                fgComputeLifeStmt(life, keepAlive, compCurStmt);
-            } while (compCurStmt != firstStmt);
+            fgComputeLifeBlock(life, keepAlive, block);
         }
 
         noway_assert(compCurBB == block);
@@ -1602,30 +1607,13 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
         VarSetOps::Assign(this, life, block->bbLiveOut);
 
-        if (block->IsLIR())
+        if (compRationalIRForm)
         {
             fgComputeLifeLIR(life, keepAlive, block);
         }
         else
         {
-            Statement* firstStmt = block->FirstNonPhiDef();
-
-            if (firstStmt == nullptr)
-            {
-                continue;
-            }
-
-            Statement* nextStmt = block->lastStmt();
-
-            do
-            {
-                noway_assert(nextStmt != nullptr);
-
-                compCurStmt = nextStmt;
-                nextStmt    = nextStmt->GetPrevStmt();
-
-                fgComputeLifeStmt(life, keepAlive, compCurStmt);
-            } while (compCurStmt != firstStmt);
+            fgComputeLifeBlock(life, keepAlive, block);
         }
 
         if (!VarSetOps::Equal(this, life, block->bbLiveIn))
