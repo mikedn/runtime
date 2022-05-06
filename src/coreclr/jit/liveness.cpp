@@ -433,14 +433,11 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
     unsigned livenessVarEpoch = GetCurLVEpoch();
 
-    BasicBlock* block;
-
-    // Avoid allocations in the long case.
-    VarSetOps::AssignNoCopy(this, fgCurUseSet, VarSetOps::MakeEmpty(this));
-    VarSetOps::AssignNoCopy(this, fgCurDefSet, VarSetOps::MakeEmpty(this));
-
-    for (block = fgFirstBB; block; block = block->bbNext)
+    for (BasicBlock* block : Blocks())
     {
+        fgCurUseSet = block->bbVarUse;
+        fgCurDefSet = block->bbVarDef;
+
         VarSetOps::ClearD(this, fgCurUseSet);
         VarSetOps::ClearD(this, fgCurDefSet);
 
@@ -489,8 +486,8 @@ void Compiler::fgPerBlockLocalVarLiveness()
             }
         }
 
-        VarSetOps::Assign(this, block->bbVarUse, fgCurUseSet);
-        VarSetOps::Assign(this, block->bbVarDef, fgCurDefSet);
+        block->bbVarUse      = fgCurUseSet;
+        block->bbVarDef      = fgCurDefSet;
         block->bbMemoryUse   = fgCurMemoryUse;
         block->bbMemoryDef   = fgCurMemoryDef;
         block->bbMemoryHavoc = fgCurMemoryHavoc;
