@@ -8427,11 +8427,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                 printf(" %s.%s", className, methodName);
             }
 
-            if ((call->gtFlags & GTF_CALL_UNMANAGED) && (call->gtCallMoreFlags & GTF_CALL_M_FRAME_VAR_DEATH))
-            {
-                printf(" (FramesRoot last use)");
-            }
-
             if (((call->gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0) && (call->gtInlineCandidateInfo != nullptr) &&
                 (call->gtInlineCandidateInfo->exactContextHnd != nullptr))
             {

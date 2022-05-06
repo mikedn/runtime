@@ -904,32 +904,11 @@ void Compiler::fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call)
         assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
         if (!opts.ShouldUsePInvokeHelpers() && !call->IsSuppressGCTransition())
         {
-            noway_assert(info.compLvFrameListRoot < lvaCount);
+            LclVarDsc* frameVarDsc = lvaGetDesc(info.compLvFrameListRoot);
 
-            LclVarDsc* frameVarDsc = &lvaTable[info.compLvFrameListRoot];
-
-            if (frameVarDsc->lvTracked)
+            if (frameVarDsc->HasLiveness())
             {
-                unsigned varIndex = frameVarDsc->lvVarIndex;
-                noway_assert(varIndex < lvaTrackedCount);
-
-                // Is the variable already known to be alive?
-                //
-                if (VarSetOps::IsMember(this, life, varIndex))
-                {
-                    // Since we may call this multiple times, clear the GTF_CALL_M_FRAME_VAR_DEATH if set.
-                    //
-                    call->gtCallMoreFlags &= ~GTF_CALL_M_FRAME_VAR_DEATH;
-                }
-                else
-                {
-                    // The variable is just coming to life
-                    // Since this is a backwards walk of the trees
-                    // that makes this change in liveness a 'last-use'
-                    //
-                    VarSetOps::AddElemD(this, life, varIndex);
-                    call->gtCallMoreFlags |= GTF_CALL_M_FRAME_VAR_DEATH;
-                }
+                VarSetOps::AddElemD(this, life, frameVarDsc->GetLivenessBitIndex());
             }
         }
     }
