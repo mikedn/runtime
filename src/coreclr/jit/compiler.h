@@ -4878,13 +4878,6 @@ private:
 
     void fgMarkUseDef(GenTreeLclVarCommon* tree);
 
-    void fgBeginScopeLife(VARSET_TP* inScope, VarScopeDsc* var);
-    void fgEndScopeLife(VARSET_TP* inScope, VarScopeDsc* var);
-
-    void fgMarkInScope(BasicBlock* block, VARSET_VALARG_TP inScope);
-    void fgUnmarkInScope(BasicBlock* block, VARSET_VALARG_TP unmarkScope);
-
-    void fgExtendDbgScopes();
     void fgExtendDbgLifetimes(bool alwaysLive);
 
 #ifdef DEBUG
@@ -8022,11 +8015,6 @@ public:
     VarScopeDsc* compGetNextEnterScope(unsigned offs, bool scan = false);
 
     VarScopeDsc* compGetNextExitScope(unsigned offs, bool scan = false);
-
-    void compProcessScopesUntil(unsigned   offset,
-                                VARSET_TP* inScope,
-                                void (Compiler::*enterScopeFn)(VARSET_TP* inScope, VarScopeDsc*),
-                                void (Compiler::*exitScopeFn)(VARSET_TP* inScope, VarScopeDsc*));
 
 #ifdef DEBUG
     void compDispScopeLists();
