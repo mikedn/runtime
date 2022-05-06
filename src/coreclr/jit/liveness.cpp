@@ -560,21 +560,17 @@ void Compiler::fgExtendDbgLifetimes(bool alwaysLive)
 
     assert(fgFirstBBisScratch());
 
-    // raMarkStkVars() reserves stack space for unused variables (which
-    //   needs to be initialized). However, arguments don't need to be initialized.
-    //   So just ensure that they don't have a 0 ref cnt
+    // raMarkStkVars() reserves stack space for unused variables (which needs
+    // to be initialized). However, arguments don't need to be initialized.
+    // So just ensure that they don't have a 0 ref cnt
 
-    unsigned lclNum = 0;
-    for (LclVarDsc *varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
     {
-        if (lclNum >= info.compArgsCount)
-        {
-            break; // early exit for loop
-        }
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (varDsc->lvIsRegArg)
+        if (lcl->IsRegParam())
         {
-            varDsc->lvImplicitlyReferenced = true;
+            lcl->lvImplicitlyReferenced = true;
         }
     }
 
