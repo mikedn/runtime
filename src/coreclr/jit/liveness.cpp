@@ -744,7 +744,7 @@ void Compiler::fgExtendDbgLifetimes(bool alwaysLive)
     }
 #endif // DEBUG
 
-    noway_assert(opts.compDbgCode && (info.compVarScopesCount > 0));
+    assert(opts.compDbgCode && (info.compVarScopesCount > 0) && (lvaTrackedCount == 0));
 
     /*-------------------------------------------------------------------------
      *   Extend the lifetimes over the entire reported scope of the variable.
