@@ -169,7 +169,10 @@ void Compiler::fgLocalVarLiveness()
     {
         if (compRationalIRForm)
         {
-            fgPerBlockLocalVarLivenessLIR();
+            if (lvaTrackedCount != 0)
+            {
+                fgPerBlockLocalVarLivenessLIR();
+            }
         }
         else
         {
@@ -505,7 +508,7 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
 void Compiler::fgPerBlockLocalVarLivenessLIR()
 {
-    assert(compRationalIRForm);
+    assert(compRationalIRForm && (lvaTrackedCount != 0));
 
     for (BasicBlock* block : Blocks())
     {
