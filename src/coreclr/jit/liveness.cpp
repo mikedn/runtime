@@ -728,6 +728,7 @@ class LiveVarAnalysis
     VARSET_TP m_liveIn;
     VARSET_TP m_liveOut;
 
+public:
     LiveVarAnalysis(Compiler* compiler)
         : m_compiler(compiler)
         , m_hasPossibleBackEdge(false)
@@ -859,13 +860,6 @@ class LiveVarAnalysis
             }
         } while (changed);
     }
-
-public:
-    static void Run(Compiler* compiler)
-    {
-        LiveVarAnalysis analysis(compiler);
-        analysis.Run();
-    }
 };
 
 /*****************************************************************************
@@ -876,7 +870,8 @@ public:
 
 void Compiler::fgLiveVarAnalysis()
 {
-    LiveVarAnalysis::Run(this);
+    LiveVarAnalysis analysis(this);
+    analysis.Run();
 
 #ifdef DEBUG
     if (verbose)
