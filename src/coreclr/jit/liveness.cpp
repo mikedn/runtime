@@ -134,6 +134,45 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
     fgLocalVarLivenessDone = true;
 }
 
+void Compiler::fgLocalVarLivenessUntracked()
+{
+    assert(lvaTrackedCount == 0);
+
+    for (BasicBlock* const block : Blocks())
+    {
+        block->bbVarUse  = VarSetOps::UninitVal();
+        block->bbVarDef  = VarSetOps::UninitVal();
+        block->bbLiveIn  = VarSetOps::UninitVal();
+        block->bbLiveOut = VarSetOps::UninitVal();
+
+        block->bbMemoryUse     = false;
+        block->bbMemoryDef     = false;
+        block->bbMemoryLiveIn  = false;
+        block->bbMemoryLiveOut = false;
+    }
+
+    fgBBVarSetsInited = true;
+
+    if (compRationalIRForm)
+    {
+        if (opts.compDbgCode && (info.compVarScopesCount > 0))
+        {
+            fgExtendDbgLifetimes();
+        }
+    }
+    else
+    {
+        assert(opts.OptimizationEnabled());
+
+        fgPerBlockLocalVarLiveness();
+        fgLiveVarAnalysis();
+    }
+
+    fgInterBlockLocalVarLivenessUntracked();
+
+    EndPhase(PHASE_LCLVARLIVENESS);
+}
+
 void Compiler::fgLocalVarLiveness()
 {
 #ifdef DEBUG
@@ -149,6 +188,12 @@ void Compiler::fgLocalVarLiveness()
 #endif // DEBUG
 
     fgLocalVarLivenessInit();
+
+    if (lvaTrackedCount == 0)
+    {
+        fgLocalVarLivenessUntracked();
+        return;
+    }
 
     for (BasicBlock* const block : Blocks())
     {
@@ -169,35 +214,19 @@ void Compiler::fgLocalVarLiveness()
     {
         if (compRationalIRForm)
         {
-            if (lvaTrackedCount != 0)
-            {
-                assert(!opts.compDbgCode);
+            assert(!opts.compDbgCode);
 
-                fgPerBlockLocalVarLivenessLIR();
-                fgLiveVarAnalysis();
-            }
-            else if (opts.compDbgCode && (info.compVarScopesCount > 0))
-            {
-                fgExtendDbgLifetimes();
-            }
+            fgPerBlockLocalVarLivenessLIR();
         }
         else
         {
             assert(opts.OptimizationEnabled());
 
             fgPerBlockLocalVarLiveness();
-            fgLiveVarAnalysis();
         }
 
-        if (lvaTrackedCount == 0)
-        {
-            fgInterBlockLocalVarLivenessUntracked();
-            changed = false;
-        }
-        else
-        {
-            changed = fgInterBlockLocalVarLiveness();
-        }
+        fgLiveVarAnalysis();
+        changed = fgInterBlockLocalVarLiveness();
     }
 
     EndPhase(PHASE_LCLVARLIVENESS);

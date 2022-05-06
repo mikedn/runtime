@@ -3806,6 +3806,7 @@ public:
     GenTreeCall* fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls);
 
     void fgLocalVarLiveness();
+    void fgLocalVarLivenessUntracked();
     void fgLocalVarLivenessAlwaysLive();
     void livInitNewBlock(BasicBlock* block);
     void fgLocalVarLivenessInit();
