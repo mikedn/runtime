@@ -1276,19 +1276,6 @@ BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp)
     }
 }
 
-void BasicBlock::InitVarSets(Compiler* comp)
-{
-    VarSetOps::AssignNoCopy(comp, bbVarUse, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbVarDef, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbLiveIn, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbLiveOut, VarSetOps::MakeEmpty(comp));
-
-    bbMemoryUse     = false;
-    bbMemoryDef     = false;
-    bbMemoryLiveIn  = false;
-    bbMemoryLiveOut = false;
-}
-
 // Returns true if the basic block ends with GT_JMP
 bool BasicBlock::endsWithJmpMethod(Compiler* comp) const
 {

@@ -1085,8 +1085,6 @@ struct BasicBlock : private LIR::Range
     unsigned bbMemorySsaNumIn;  // The SSA # of memory on entry to the block.
     unsigned bbMemorySsaNumOut; // The SSA # of memory on exit from the block.
 
-    void InitVarSets(class Compiler* comp);
-
     /* The following are the standard bit sets for dataflow analysis.
      *  We perform CSE and range-checks at the same time
      *  and assertion propagation separately,

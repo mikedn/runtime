@@ -1207,24 +1207,6 @@ BlockSet_ValRet_T Compiler::fgGetDominatorSet(BasicBlock* block)
     return domSet;
 }
 
-//-------------------------------------------------------------
-// fgInitBlockVarSets: Initialize the per-block variable sets (used for liveness analysis).
-//
-// Notes:
-//   Initializes:
-//      bbVarUse, bbVarDef, bbLiveIn, bbLiveOut,
-//      bbMemoryUse, bbMemoryDef, bbMemoryLiveIn, bbMemoryLiveOut
-//
-void Compiler::fgInitBlockVarSets()
-{
-    for (BasicBlock* const block : Blocks())
-    {
-        block->InitVarSets(this);
-    }
-
-    fgBBVarSetsInited = true;
-}
-
 //------------------------------------------------------------------------
 // fgRemoveEmptyBlocks: clean up flow graph after importation
 //

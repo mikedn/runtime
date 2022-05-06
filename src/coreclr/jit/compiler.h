@@ -4175,9 +4175,6 @@ public:
         GCPOLL_INLINE
     };
 
-    // Initialize the per-block variable sets (used for liveness analysis).
-    void fgInitBlockVarSets();
-
     PhaseStatus fgInsertGCPolls();
     BasicBlock* fgCreateGCPoll(GCPollType pollType, BasicBlock* block);
 
