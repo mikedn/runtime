@@ -4416,6 +4416,11 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_SUPPRESS_GC_TRANSITION) != 0;
     }
 
+    bool RequiresPInvokeFrame() const
+    {
+        return IsUnmanaged() && !IsSuppressGCTransition();
+    }
+
     bool IsGuardedDevirtualizationCandidate() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_GUARDED_DEVIRT) != 0;

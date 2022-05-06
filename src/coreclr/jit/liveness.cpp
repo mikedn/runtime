@@ -403,35 +403,18 @@ void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
 {
     assert(!compRationalIRForm);
 
-    // If this is a p/invoke unmanaged call or if this is a tail-call via helper,
-    // and we have an unmanaged p/invoke call in the method,
-    // then we're going to run the p/invoke epilog.
-    // So we mark the FrameRoot as used by this instruction.
-    // This ensures that the block->bbVarUse will contain
-    // the FrameRoot local var if is it a tracked variable.
+    // If this is a tail-call via helper, and we have any unmanaged P/Invoke calls in
+    // the method, then we're going to run the P/Invoke epilog, which uses the frame
+    // list root local too.
 
-    if (!compMethodRequiresPInvokeFrame())
+    if ((info.compLvFrameListRoot != BAD_VAR_NUM) && (call->RequiresPInvokeFrame() || call->IsTailCallViaJitHelper()))
     {
-        return;
-    }
+        LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
 
-    if (!call->IsUnmanaged() && !call->IsTailCallViaJitHelper())
-    {
-        return;
-    }
-
-    assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-
-    if (opts.ShouldUsePInvokeHelpers() || call->IsSuppressGCTransition())
-    {
-        return;
-    }
-
-    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
-
-    if (lcl->lvTracked && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
-    {
-        VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
+        if (lcl->HasLiveness() && !VarSetOps::IsMember(this, fgCurDefSet, lcl->GetLivenessBitIndex()))
+        {
+            VarSetOps::AddElemD(this, fgCurUseSet, lcl->GetLivenessBitIndex());
+        }
     }
 }
 
@@ -465,27 +448,20 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
         // Mark the FrameListRoot as used, if applicable.
 
-        if ((block->bbJumpKind == BBJ_RETURN) && compMethodRequiresPInvokeFrame())
+        if ((block->bbJumpKind == BBJ_RETURN) && (info.compLvFrameListRoot != BAD_VAR_NUM))
         {
-            if (opts.ShouldUsePInvokeHelpers())
-            {
-                assert(info.compLvFrameListRoot == BAD_VAR_NUM);
-            }
-            else
-            {
 #ifdef TARGET_64BIT
-                // 32-bit targets always pop the frame in the epilog.
-                // For 64-bit targets, we only do this in the epilog for IL stubs;
-                // for non-IL stubs the frame is popped after every PInvoke call.
-                if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
+            // 32-bit targets always pop the frame in the epilog.
+            // For 64-bit targets, we only do this in the epilog for IL stubs;
+            // for non-IL stubs the frame is popped after every PInvoke call.
+            if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
 #endif
-                {
-                    LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
+            {
+                LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
 
-                    if (lcl->HasLiveness())
-                    {
-                        VarSetOps::AddElemD(this, fgCurUseSet, lcl->GetLivenessBitIndex());
-                    }
+                if (lcl->HasLiveness())
+                {
+                    VarSetOps::AddElemD(this, fgCurUseSet, lcl->GetLivenessBitIndex());
                 }
             }
         }
@@ -878,28 +854,14 @@ void Compiler::fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call)
 {
     assert(!compRationalIRForm);
 
-    if (!compMethodRequiresPInvokeFrame() || opts.ShouldUsePInvokeHelpers())
-    {
-        return;
-    }
-
-    bool usesFrameListRoot = false;
-
-    // If this is a tail-call via helper, and we have any unmanaged p/invoke calls in
-    // the method, then we're going to run the p/invoke epilog, which uses the frame
-    // list root local.
-    if (call->IsTailCallViaJitHelper())
-    {
-        usesFrameListRoot = true;
-    }
     // TODO: we should generate the code for saving to/restoring from the inlined N/Direct
     // frame instead.
-    else if (call->IsUnmanaged() && !call->IsSuppressGCTransition())
-    {
-        usesFrameListRoot = true;
-    }
 
-    if (usesFrameListRoot)
+    // If this is a tail-call via helper, and we have any unmanaged P/Invoke calls in
+    // the method, then we're going to run the P/Invoke epilog, which uses the frame
+    // list root local too.
+
+    if ((info.compLvFrameListRoot != BAD_VAR_NUM) && (call->RequiresPInvokeFrame() || call->IsTailCallViaJitHelper()))
     {
         LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
 
