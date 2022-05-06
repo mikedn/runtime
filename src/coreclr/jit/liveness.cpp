@@ -173,19 +173,22 @@ void Compiler::fgLocalVarLiveness()
             {
                 fgPerBlockLocalVarLivenessLIR();
             }
+
+            if (!opts.compDbgCode)
+            {
+                fgLiveVarAnalysis();
+            }
+            else if (info.compVarScopesCount > 0)
+            {
+                fgExtendDbgLifetimes();
+            }
         }
         else
         {
-            fgPerBlockLocalVarLiveness();
-        }
+            assert(opts.OptimizationEnabled());
 
-        if (!opts.compDbgCode)
-        {
+            fgPerBlockLocalVarLiveness();
             fgLiveVarAnalysis();
-        }
-        else if (info.compVarScopesCount > 0)
-        {
-            fgExtendDbgLifetimes();
         }
 
     } while (fgInterBlockLocalVarLiveness());
