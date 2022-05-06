@@ -4880,10 +4880,6 @@ private:
 
     void fgExtendDbgLifetimes(bool alwaysLive);
 
-#ifdef DEBUG
-    void fgDispDebugScopes();
-#endif // DEBUG
-
     //-------------------------------------------------------------------------
     //
     //  The following keeps track of any code we've added for things like array

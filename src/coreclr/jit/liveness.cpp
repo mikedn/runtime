@@ -121,8 +121,6 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
                 break;
         }
 
-        block->bbScope = VarSetOps::MakeEmpty(this);
-
         block->bbMemoryUse     = true;
         block->bbMemoryDef     = true;
         block->bbMemoryLiveIn  = true;
@@ -506,22 +504,6 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
     noway_assert(livenessVarEpoch == GetCurLVEpoch());
 }
-
-#ifdef DEBUG
-
-void Compiler::fgDispDebugScopes()
-{
-    printf("\nDebug scopes:\n");
-
-    for (BasicBlock* const block : Blocks())
-    {
-        printf(FMT_BB ": ", block->bbNum);
-        dumpConvertedVarSet(this, block->bbScope);
-        printf("\n");
-    }
-}
-
-#endif // DEBUG
 
 /*****************************************************************************
  *
@@ -1742,20 +1724,18 @@ void Compiler::fgInterBlockLocalVarLiveness()
         /* Remember those vars live on entry to exception handlers */
         /* if we are part of a try block */
 
-        VARSET_TP volatileVars(VarSetOps::MakeEmpty(this));
+        VARSET_TP keepAlive = VarSetOps::MakeEmpty(this);
 
         if (ehBlockHasExnFlowDsc(block))
         {
-            VarSetOps::Assign(this, volatileVars, fgGetHandlerLiveVars(block));
+            VarSetOps::Assign(this, keepAlive, fgGetHandlerLiveVars(block));
 
-            // volatileVars is a subset of exceptVars
-            noway_assert(VarSetOps::IsSubset(this, volatileVars, exceptVars));
+            noway_assert(VarSetOps::IsSubset(this, keepAlive, exceptVars));
         }
 
         /* Start with the variables live on exit from the block */
 
         VARSET_TP life(VarSetOps::MakeCopy(this, block->bbLiveOut));
-        VARSET_TP keepAlive(VarSetOps::Union(this, volatileVars, compCurBB->bbScope));
 
         /* Mark any interference we might have at the end of the block */
 

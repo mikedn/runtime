@@ -751,8 +751,7 @@ bool BasicBlock::CloneBlockState(
     to->bbRefs        = from->bbRefs;
     to->bbCodeOffs    = from->bbCodeOffs;
     to->bbCodeOffsEnd = from->bbCodeOffsEnd;
-    VarSetOps::AssignAllowUninitRhs(compiler, to->bbScope, from->bbScope);
-    to->bbNatLoopNum = from->bbNatLoopNum;
+    to->bbNatLoopNum  = from->bbNatLoopNum;
 #ifdef DEBUG
     to->bbTgtStkDepth = from->bbTgtStkDepth;
 #endif // DEBUG
@@ -1283,7 +1282,6 @@ void BasicBlock::InitVarSets(Compiler* comp)
     VarSetOps::AssignNoCopy(comp, bbVarDef, VarSetOps::MakeEmpty(comp));
     VarSetOps::AssignNoCopy(comp, bbLiveIn, VarSetOps::MakeEmpty(comp));
     VarSetOps::AssignNoCopy(comp, bbLiveOut, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbScope, VarSetOps::MakeEmpty(comp));
 
     bbMemoryUse     = false;
     bbMemoryDef     = false;
@@ -1501,7 +1499,6 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
         VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::MakeEmpty(this));
         VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
         VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbScope, VarSetOps::MakeEmpty(this));
     }
     else
     {
@@ -1509,7 +1506,6 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
         VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::UninitVal());
         VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::UninitVal());
         VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbScope, VarSetOps::UninitVal());
     }
 
     block->bbMemoryUse     = false;

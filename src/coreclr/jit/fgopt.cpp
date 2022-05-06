@@ -1213,8 +1213,7 @@ BlockSet_ValRet_T Compiler::fgGetDominatorSet(BasicBlock* block)
 // Notes:
 //   Initializes:
 //      bbVarUse, bbVarDef, bbLiveIn, bbLiveOut,
-//      bbMemoryUse, bbMemoryDef, bbMemoryLiveIn, bbMemoryLiveOut,
-//      bbScope
+//      bbMemoryUse, bbMemoryDef, bbMemoryLiveIn, bbMemoryLiveOut
 //
 void Compiler::fgInitBlockVarSets()
 {
