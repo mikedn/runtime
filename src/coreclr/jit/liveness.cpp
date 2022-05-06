@@ -507,12 +507,11 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
 {
     assert(compRationalIRForm);
 
-    // Avoid per block allocations in the long case.
-    fgCurUseSet = VarSetOps::MakeEmpty(this);
-    fgCurDefSet = VarSetOps::MakeEmpty(this);
-
     for (BasicBlock* block : Blocks())
     {
+        fgCurUseSet = block->bbVarUse;
+        fgCurDefSet = block->bbVarDef;
+
         VarSetOps::ClearD(this, fgCurUseSet);
         VarSetOps::ClearD(this, fgCurDefSet);
 
@@ -531,11 +530,11 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
             }
         }
 
-        VarSetOps::Assign(this, block->bbVarUse, fgCurUseSet);
-        VarSetOps::Assign(this, block->bbVarDef, fgCurDefSet);
+        block->bbVarUse = fgCurUseSet;
+        block->bbVarDef = fgCurDefSet;
 
-        // also initialize the IN set, just in case we will do multiple DFAs
-        block->bbLiveIn = VarSetOps::MakeEmpty(this);
+        // also clear the IN set, just in case we will do multiple DFAs
+        VarSetOps::ClearD(this, block->bbLiveIn);
 
         DBEXEC(verbose, fgDispBBLocalLiveness(block))
     }
