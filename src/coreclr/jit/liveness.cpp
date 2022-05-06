@@ -1525,14 +1525,14 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    fgStmtRemoved                = false;
-    bool localVarLivenessChanged = false;
+    fgStmtRemoved       = false;
+    bool      changed   = false;
+    VARSET_TP keepAlive = VarSetOps::MakeEmpty(this);
+    VARSET_TP life      = VarSetOps::MakeEmpty(this);
 
     for (BasicBlock* const block : Blocks())
     {
         compCurBB = block;
-
-        VARSET_TP keepAlive = VarSetOps::MakeEmpty(this);
 
         if (ehBlockHasExnFlowDsc(block))
         {
@@ -1540,8 +1540,12 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
             noway_assert(VarSetOps::IsSubset(this, keepAlive, handlerLive));
         }
+        else
+        {
+            VarSetOps::ClearD(this, keepAlive);
+        }
 
-        VARSET_TP life = VarSetOps::MakeCopy(this, block->bbLiveOut);
+        VarSetOps::Assign(this, life, block->bbLiveOut);
 
         if (block->IsLIR())
         {
@@ -1579,7 +1583,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
             // We changed the liveIn of the block, which may affect liveOut
             // of others, which may expose more dead stores.
-            localVarLivenessChanged = true;
+            changed = true;
         }
 
         noway_assert(compCurBB == block);
@@ -1588,7 +1592,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
     fgLocalVarLivenessDone = true;
 
-    return fgStmtRemoved && localVarLivenessChanged;
+    return fgStmtRemoved && changed;
 }
 
 #ifdef DEBUG
