@@ -187,6 +187,32 @@ void Compiler::fgLocalVarLiveness()
     EndPhase(PHASE_LCLVARLIVENESS_INTERBLOCK);
 }
 
+void Compiler::livInitNewBlock(BasicBlock* block)
+{
+    // We will give all the blocks var sets after the number of tracked variables
+    // is determined and frozen.  After that, if we dynamically create a basic block,
+    // we will initialize its var sets.
+    if (fgBBVarSetsInited)
+    {
+        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
+        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
+    }
+    else
+    {
+        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::UninitVal());
+        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::UninitVal());
+        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::UninitVal());
+        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::UninitVal());
+    }
+
+    block->bbMemoryUse     = false;
+    block->bbMemoryDef     = false;
+    block->bbMemoryLiveIn  = false;
+    block->bbMemoryLiveOut = false;
+}
+
 void Compiler::fgLocalVarLivenessInit()
 {
     JITDUMP("In fgLocalVarLivenessInit\n");

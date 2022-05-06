@@ -3807,7 +3807,7 @@ public:
 
     void fgLocalVarLiveness();
     void fgLocalVarLivenessAlwaysLive();
-
+    void livInitNewBlock(BasicBlock* block);
     void fgLocalVarLivenessInit();
 
     void fgPerNodeLocalVarLiveness(GenTree* node);
