@@ -4906,15 +4906,11 @@ PhaseStatus Lowering::DoPhase()
 
     if (comp->opts.OptimizationDisabled())
     {
-        INDEBUG(CheckAllLocalsImplicitlyReferenced());
         assert(!m_lsra->willEnregisterLocalVars());
 
         comp->fgLocalVarLivenessAlwaysLive();
 
-        if (comp->opts.compDbgCode && (comp->info.compVarScopesCount > 0))
-        {
-            MarkRegParamsImplicitlyReferenced();
-        }
+        INDEBUG(CheckAllLocalsImplicitlyReferenced());
     }
     else if (!m_lsra->willEnregisterLocalVars())
     {
@@ -4972,25 +4968,6 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
     }
 }
 #endif // DEBUG
-
-void Lowering::MarkRegParamsImplicitlyReferenced()
-{
-    assert(comp->opts.OptimizationDisabled());
-
-    // raMarkStkVars() reserves stack space for unused locals (which need
-    // to be initialized). However, parameters don't need to be initialized.
-    // So just ensure that they don't have a 0 ref count.
-
-    for (unsigned lclNum = 0; lclNum < comp->info.compArgsCount; lclNum++)
-    {
-        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
-
-        if (lcl->IsRegParam())
-        {
-            lcl->lvImplicitlyReferenced = true;
-        }
-    }
-}
 
 #ifdef DEBUG
 

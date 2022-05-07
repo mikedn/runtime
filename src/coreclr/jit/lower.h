@@ -411,7 +411,6 @@ private:
     }
 
     INDEBUG(void CheckAllLocalsImplicitlyReferenced();)
-    void MarkRegParamsImplicitlyReferenced();
 };
 
 #endif // _LOWER_H_
