@@ -629,6 +629,12 @@ private:
 #define FEATURE_TAILCALL_OPT_SHARED_RETURN 0
 #endif // !FEATURE_TAILCALL_OPT
 
+#ifdef TARGET_XARCH
+#define FEATURE_LOOP_ALIGN 1
+#else
+#define FEATURE_LOOP_ALIGN 0
+#endif
+
 #define CLFLG_CODESIZE 0x00001
 #define CLFLG_CODESPEED 0x00002
 #define CLFLG_CSE 0x00004
@@ -639,19 +645,8 @@ private:
 #define CLFLG_QMARK 0x00080
 #define CLFLG_TREETRANS 0x00100
 #define CLFLG_INLINING 0x00200
-#define CLFLG_CONSTANTFOLD 0x00800
-
-#if FEATURE_STRUCTPROMOTE
 #define CLFLG_STRUCTPROMOTE 0x00400
-#else
-#define CLFLG_STRUCTPROMOTE 0x00000
-#endif
-
-#ifdef TARGET_XARCH
-#define FEATURE_LOOP_ALIGN 1
-#else
-#define FEATURE_LOOP_ALIGN 0
-#endif
+#define CLFLG_CONSTANTFOLD 0x00800
 
 #define CLFLG_MAXOPT                                                                                                   \
     (CLFLG_CSE | CLFLG_REGVAR | CLFLG_RNGCHKOPT | CLFLG_DEADASGN | CLFLG_CODEMOTION | CLFLG_QMARK | CLFLG_TREETRANS |  \
