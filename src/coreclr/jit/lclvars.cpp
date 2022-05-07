@@ -2894,14 +2894,12 @@ void Compiler::lvaComputeRefCountsHIR()
                     // If we have one of these cases:
                     //   1. We have already seen a definition (i.e lvSingleDef is true)
                     //   2. info.CompInitMem is true (thus this would be the second definition)
-                    //   3. the user is not ASG, optAddCopiesCallback does not recognize indirect
-                    //      local definitions (e.g. BLK(ADDR(LCL_VAR)))
                     //
                     // Then we must disqualify this variable for use in optAddCopies()
                     //
                     // Note that all parameters start out with lvSingleDef set to true
 
-                    if (lcl->lvSingleDef || m_compiler->info.compInitMem || !user->OperIs(GT_ASG))
+                    if (lcl->lvSingleDef || m_compiler->info.compInitMem)
                     {
                         DisqualifyAddCopy(lcl);
                     }
