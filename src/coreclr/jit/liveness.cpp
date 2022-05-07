@@ -1195,7 +1195,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                     JITDUMP("Removing dead call:\n");
                     DISPNODE(call);
 
-                    node->VisitOperands([](GenTree* operand) -> GenTree::VisitResult {
+                    node->VisitOperands([](GenTree* operand) {
                         if (operand->IsValue())
                         {
                             operand->SetUnusedValue();
@@ -1264,13 +1264,14 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                 if (isDeadStore)
                 {
+                    assert(!opts.MinOpts());
+
                     JITDUMP("Removing dead store:\n");
                     DISPNODE(lclNode);
 
-                    // Remove the store. DCE will iteratively clean up any ununsed operands.
-                    lclNode->gtOp1->SetUnusedValue();
-
-                    fgRemoveDeadStoreLIR(node, block);
+                    lclNode->GetOp(0)->SetUnusedValue();
+                    blockRange.Remove(node);
+                    fgStmtRemoved = true;
                 }
 
                 break;
@@ -1347,16 +1348,21 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
             case GT_BLK:
             case GT_OBJ:
-            {
-                bool removed = fgTryRemoveNonLocal(node, &blockRange);
-                if (!removed && node->IsUnusedValue())
+                if (node->IsUnusedValue())
                 {
-                    // IR doesn't expect dummy uses of `GT_OBJ/BLK`.
-                    JITDUMP("Transform an unused OBJ/BLK node [%06d]\n", dspTreeID(node));
-                    Lowering::TransformUnusedIndirection(node->AsIndir(), this, block);
+                    if (node->OperMayThrow(this))
+                    {
+                        // IR doesn't expect dummy uses of `GT_OBJ/BLK`.
+                        JITDUMP("Transform an unused OBJ/BLK node [%06u]\n", node->GetID());
+                        Lowering::TransformUnusedIndirection(node->AsIndir(), this, block);
+                    }
+                    else
+                    {
+                        node->AsIndir()->GetAddr()->SetUnusedValue();
+                        blockRange.Remove(node);
+                    }
                 }
-            }
-            break;
+                break;
 
             case GT_NOP:
                 // NOTE: we need to keep some NOPs around because they are referenced by calls. See the dead store
@@ -1367,64 +1373,22 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 }
                 FALLTHROUGH;
             default:
-                fgTryRemoveNonLocal(node, &blockRange);
+                if ((!node->IsValue() || node->IsUnusedValue()) && !node->HasImplicitFlagsDef() &&
+                    !node->OperMayThrow(this))
+                {
+                    JITDUMP("Removing dead node:\n");
+                    DISPNODE(node);
+
+                    node->VisitOperands([](GenTree* operand) {
+                        operand->SetUnusedValue();
+                        return GenTree::VisitResult::Continue;
+                    });
+
+                    blockRange.Remove(node);
+                }
                 break;
         }
     }
-}
-
-//---------------------------------------------------------------------
-// fgTryRemoveNonLocal - try to remove a node if it is unused and has no direct
-//   side effects.
-//
-// Arguments
-//    node       - the non-local node to try;
-//    blockRange - the block range that contains the node.
-//
-// Return value:
-//    None
-//
-// Notes: local nodes are processed independently and are not expected in this function.
-//
-bool Compiler::fgTryRemoveNonLocal(GenTree* node, LIR::Range* blockRange)
-{
-    assert(!node->OperIsLocal());
-    if (!node->IsValue() || node->IsUnusedValue())
-    {
-        // We are only interested in avoiding the removal of nodes with direct side effects
-        // (as opposed to side effects of their children).
-        // This default case should never include calls or assignments.
-        assert(!node->OperRequiresAsgFlag() && !node->OperIs(GT_CALL));
-        if (((node->gtFlags & GTF_SET_FLAGS) == 0) && !node->OperMayThrow(this))
-        {
-            JITDUMP("Removing dead node:\n");
-            DISPNODE(node);
-
-            node->VisitOperands([](GenTree* operand) -> GenTree::VisitResult {
-                operand->SetUnusedValue();
-                return GenTree::VisitResult::Continue;
-            });
-
-            blockRange->Remove(node);
-            return true;
-        }
-    }
-    return false;
-}
-
-void Compiler::fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block)
-{
-    assert(!opts.MinOpts());
-
-    LIR::Range& blockRange = LIR::AsRange(block);
-
-#ifdef DEBUG
-    LIR::Use use;
-    assert(!blockRange.TryGetUse(store, &use));
-#endif
-
-    blockRange.Remove(store);
-    fgStmtRemoved = true;
 }
 
 // Remove a dead assignment. Returns true if the entire statement was removed.

@@ -3836,9 +3836,6 @@ public:
     void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
     void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
-    bool fgTryRemoveNonLocal(GenTree* node, LIR::Range* blockRange);
-
-    void fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block);
     GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
 
     void fgInterBlockLocalVarLivenessUntracked();

@@ -1211,6 +1211,16 @@ public:
         return true;
     }
 
+    bool HasImplicitFlagsDef() const
+    {
+        return (gtFlags & GTF_SET_FLAGS) != 0;
+    }
+
+    bool HasImplicitFlagsUse() const
+    {
+        return (gtFlags & GTF_USE_FLAGS) != 0;
+    }
+
     // LIR flags
     //   These helper methods, along with the flag values they manipulate, are defined in lir.h
     //
