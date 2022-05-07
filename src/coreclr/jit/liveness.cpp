@@ -163,17 +163,7 @@ void Compiler::fgLocalVarLivenessUntracked()
 
 void Compiler::fgLocalVarLiveness()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgLocalVarLiveness()\n");
-
-        if (compRationalIRForm)
-        {
-            lvaTableDump();
-        }
-    }
-#endif // DEBUG
+    JITDUMP("*************** In fgLocalVarLiveness()\n");
 
     fgLocalVarLivenessInit();
 

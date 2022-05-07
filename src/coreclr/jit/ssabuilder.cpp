@@ -1383,9 +1383,11 @@ void SsaBuilder::Build()
     EndPhase(PHASE_BUILD_SSA_DOMS);
 
     // Compute liveness on the graph.
+    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
     m_pCompiler->lvaMarkLivenessTrackedLocals();
     m_pCompiler->fgLocalVarLiveness();
     EndPhase(PHASE_BUILD_SSA_LIVENESS);
+    DBEXEC(m_pCompiler->verbose, m_pCompiler->lvaTableDump());
 
     m_pCompiler->optRemoveRedundantZeroInits();
     EndPhase(PHASE_ZERO_INITS);

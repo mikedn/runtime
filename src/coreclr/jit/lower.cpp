@@ -4913,6 +4913,7 @@ PhaseStatus Lowering::DoPhase()
 
         assert(!comp->fgLocalVarLivenessDone);
         INDEBUG(CheckAllLocalsImplicitlyReferenced());
+        DBEXEC(comp->verbose, comp->lvaTableDump());
     }
     else if (!m_lsra->willEnregisterLocalVars())
     {
@@ -4923,6 +4924,8 @@ PhaseStatus Lowering::DoPhase()
     }
     else
     {
+        DBEXEC(comp->verbose, comp->lvaTableDump());
+
         comp->lvaComputeRefCounts();
         comp->lvaMarkLivenessTrackedLocals();
         comp->fgLocalVarLiveness();
@@ -4942,6 +4945,8 @@ PhaseStatus Lowering::DoPhase()
         // impact of any dead code removal. Note this may leave us with
         // tracked vars that have zero refs.
         comp->lvaComputeRefCounts();
+
+        DBEXEC(comp->verbose, comp->lvaTableDump());
     }
 
     return PhaseStatus::MODIFIED_EVERYTHING;
