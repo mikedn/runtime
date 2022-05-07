@@ -154,10 +154,7 @@ void Compiler::fgLocalVarLivenessUntracked()
 
     if (compRationalIRForm)
     {
-        if (opts.compDbgCode && (info.compVarScopesCount > 0))
-        {
-            fgExtendDbgLifetimes();
-        }
+        assert(!opts.compDbgCode);
     }
     else
     {
