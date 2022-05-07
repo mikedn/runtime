@@ -959,17 +959,13 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
     return false;
 }
 
-bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
-                                           VARSET_VALARG_TP     keepAlive,
-                                           LclVarDsc*           lcl,
-                                           GenTreeLclVarCommon* node)
+bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
+                                          VARSET_VALARG_TP     keepAlive,
+                                          LclVarDsc*           lcl,
+                                          GenTreeLclVarCommon* node)
 {
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-
-    if (lcl->IsAddressExposed() || !lcl->IsPromoted())
-    {
-        return false;
-    }
+    assert(lcl->IsPromoted() && !lcl->IsAddressExposed());
 
     unsigned lclOffset    = 0;
     unsigned lclEndOffset = lcl->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
@@ -1068,9 +1064,9 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
             {
                 fgComputeLifeTrackedLocalUse(liveOut, lcl, lclNode);
             }
-            else
+            else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
             {
-                bool isDeadStore = fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, lclNode);
+                bool isDeadStore = fgComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode);
                 assert(!isDeadStore);
             }
         }
@@ -1080,16 +1076,16 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
             {
                 assert((lclNode->gtFlags & GTF_VAR_DEF) != 0);
 
-                LclVarDsc* lcl = lvaGetDesc(lclNode);
-                bool       isDeadStore;
+                LclVarDsc* lcl         = lvaGetDesc(lclNode);
+                bool       isDeadStore = false;
 
                 if (lcl->HasLiveness())
                 {
                     isDeadStore = fgComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, lclNode);
                 }
-                else
+                else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    isDeadStore = fgComputeLifeUntrackedLocal(liveOut, keepAlive, lcl, lclNode);
+                    isDeadStore = fgComputeLifePromotedLocal(liveOut, keepAlive, lcl, lclNode);
                 }
 
                 if (isDeadStore)
@@ -1188,9 +1184,9 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 {
                     fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
                 }
-                else
+                else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
+                    fgComputeLifePromotedLocal(life, keepAliveVars, lcl, lclNode);
                 }
                 break;
             }
@@ -1240,9 +1236,9 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                         }
                     }
 
-                    if (!isDeadStore)
+                    if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
                     {
-                        isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
+                        isDeadStore = fgComputeLifePromotedLocal(life, keepAliveVars, lcl, lclNode);
                     }
                 }
 

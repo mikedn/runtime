@@ -3827,10 +3827,10 @@ public:
                                       VARSET_VALARG_TP     keepAlive,
                                       LclVarDsc*           lcl,
                                       GenTreeLclVarCommon* node);
-    bool fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
-                                     VARSET_VALARG_TP     keepAlive,
-                                     LclVarDsc*           lcl,
-                                     GenTreeLclVarCommon* node);
+    bool fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
+                                    VARSET_VALARG_TP     keepAlive,
+                                    LclVarDsc*           lcl,
+                                    GenTreeLclVarCommon* node);
 
     void fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
     void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
