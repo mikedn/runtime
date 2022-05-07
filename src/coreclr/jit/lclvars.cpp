@@ -2517,20 +2517,6 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         roundUp((unsigned)lvaTrackedCount, (unsigned)(sizeof(size_t) * 8)) / unsigned(sizeof(size_t) * 8);
 }
 
-#if ASSERTION_PROP
-/*****************************************************************************
- *
- *  This is called by lvaMarkLclRefs to disqualify a variable from being
- *  considered by optAddCopies()
- */
-void LclVarDsc::lvaDisqualifyVar()
-{
-    this->lvDisqualifyAddCopy = true;
-    this->lvSingleDef         = false;
-    this->lvDefStmt           = nullptr;
-}
-#endif // ASSERTION_PROP
-
 unsigned LclVarDsc::lvSize() const // Size needed for storage representation. Only used for structs or TYP_BLK.
 {
     // TODO-Review: Sometimes we get called on ARM with HFA struct variables that have been promoted,
@@ -2821,7 +2807,7 @@ void Compiler::lvaComputeRefCountsHIR()
                     LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclVarCommon());
                     assert(lcl->IsAddressExposed());
 #if ASSERTION_PROP
-                    lcl->lvaDisqualifyVar();
+                    DisqualifyAddCopy(lcl);
 #endif
                     lcl->incRefCnts(m_block->getBBWeight(m_compiler), m_compiler);
                 }
@@ -2876,14 +2862,14 @@ void Compiler::lvaComputeRefCountsHIR()
             {
                 lcl->lvIsBoolean = false;
 #if ASSERTION_PROP
-                lcl->lvaDisqualifyVar();
+                DisqualifyAddCopy(lcl);
 #endif
             }
 
             if (node->OperIs(GT_LCL_FLD))
             {
 #if ASSERTION_PROP
-                lcl->lvaDisqualifyVar();
+                DisqualifyAddCopy(lcl);
 #endif
                 return;
             }
@@ -2917,7 +2903,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
                     if (lcl->lvSingleDef || m_compiler->info.compInitMem || !user->OperIs(GT_ASG))
                     {
-                        lcl->lvaDisqualifyVar();
+                        DisqualifyAddCopy(lcl);
                     }
                     else
                     {
@@ -2975,6 +2961,15 @@ void Compiler::lvaComputeRefCountsHIR()
                     }
                 }
             }
+        }
+
+        void DisqualifyAddCopy(LclVarDsc* lcl)
+        {
+#if ASSERTION_PROP
+            lcl->lvDisqualifyAddCopy = true;
+            lcl->lvSingleDef         = false;
+            lcl->lvDefStmt           = nullptr;
+#endif
         }
     };
 

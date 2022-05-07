@@ -868,9 +868,8 @@ private:
 
 public:
 #if ASSERTION_PROP
-    BlockSet   lvRefBlks;          // Set of blocks that contain refs
-    Statement* lvDefStmt;          // Pointer to the statement with the single definition
-    void       lvaDisqualifyVar(); // Call to disqualify a local variable from use in optAddCopies
+    BlockSet   lvRefBlks; // Set of blocks that contain refs
+    Statement* lvDefStmt; // Pointer to the statement with the single definition
 #endif
     var_types GetType() const
     {
