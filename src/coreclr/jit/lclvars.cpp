@@ -2842,23 +2842,12 @@ void Compiler::lvaComputeRefCountsHIR()
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
         {
-            if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
-            {
-                assert(node->OperIs(GT_LCL_VAR));
-
-                if (!m_compiler->lvaGenericsContextInUse)
-                {
-                    JITDUMP("Generic context in use at [%06u]\n", node->GetID());
-                    m_compiler->lvaGenericsContextInUse = true;
-                }
-            }
-
             unsigned   lclNum = node->GetLclNum();
             LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
             lcl->incRefCnts(m_block->getBBWeight(m_compiler), m_compiler);
 
-            if (lcl->IsAddressExposed())
+            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD))
             {
                 lcl->lvIsBoolean = false;
 #if ASSERTION_PROP
@@ -2868,10 +2857,15 @@ void Compiler::lvaComputeRefCountsHIR()
 
             if (node->OperIs(GT_LCL_FLD))
             {
-#if ASSERTION_PROP
-                DisqualifyAddCopy(lcl);
-#endif
+                assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
+
                 return;
+            }
+
+            if (((node->gtFlags & GTF_VAR_CONTEXT) != 0) && !m_compiler->lvaGenericsContextInUse)
+            {
+                JITDUMP("Generic context in use at [%06u]\n", node->GetID());
+                m_compiler->lvaGenericsContextInUse = true;
             }
 
             noway_assert((node->GetType() == lcl->GetType()) ||
