@@ -121,11 +121,6 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
         }
     }
 
-    if (opts.compDbgCode && (info.compVarScopesCount > 0))
-    {
-        fgExtendDbgLifetimes();
-    }
-
     fgLocalVarLivenessDone = true;
 }
 
@@ -545,25 +540,6 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
         VarSetOps::ClearD(this, block->bbLiveIn);
 
         DBEXEC(verbose, fgDispBBLocalLiveness(block))
-    }
-}
-
-void Compiler::fgExtendDbgLifetimes()
-{
-    assert(compRationalIRForm && opts.compDbgCode && (info.compVarScopesCount > 0) && (lvaTrackedCount == 0));
-
-    // raMarkStkVars() reserves stack space for unused variables (which needs
-    // to be initialized). However, arguments don't need to be initialized.
-    // So just ensure that they don't have a 0 ref cnt
-
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
-    {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-        if (lcl->IsRegParam())
-        {
-            lcl->lvImplicitlyReferenced = true;
-        }
     }
 }
 

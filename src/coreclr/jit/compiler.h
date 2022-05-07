@@ -4873,8 +4873,6 @@ private:
 
     void fgMarkUseDef(GenTreeLclVarCommon* tree);
 
-    void fgExtendDbgLifetimes();
-
     //-------------------------------------------------------------------------
     //
     //  The following keeps track of any code we've added for things like array

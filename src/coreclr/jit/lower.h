@@ -409,6 +409,8 @@ private:
             comp->lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(Compiler::DNER_LocalField));
         }
     }
+
+    void MarkRegParamsImplicitlyReferenced();
 };
 
 #endif // _LOWER_H_
