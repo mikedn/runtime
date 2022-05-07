@@ -4910,8 +4910,6 @@ PhaseStatus Lowering::DoPhase()
         assert(!m_lsra->willEnregisterLocalVars());
 
         comp->fgLocalVarLivenessAlwaysLive();
-
-        INDEBUG(comp->lvaCheckZeroRefCountsLIR());
     }
     else if (!m_lsra->willEnregisterLocalVars())
     {
