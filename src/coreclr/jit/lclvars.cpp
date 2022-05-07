@@ -2897,7 +2897,11 @@ void Compiler::lvaComputeRefCountsHIR()
                     //
                     // Then we must disqualify this variable for use in optAddCopies()
                     //
-                    // Note that all parameters start out with lvSingleDef set to true
+                    // Note that all parameters start out with lvSingleDef set to true.
+
+                    // TODO-MIKE-Consider: "single def" doesn't apply to address exposed locals.
+                    // There's a pretty good chance that a local that's not AX will be in SSA,
+                    // can we simply check the SSA def count instead?
 
                     if (lcl->lvSingleDef || m_compiler->info.compInitMem)
                     {
