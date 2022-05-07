@@ -2916,7 +2916,7 @@ _SetMinOpts:
 
     if (opts.OptimizationDisabled())
     {
-        opts.optFlags = static_cast<OptFlags>((opts.optFlags & ~CLFLG_MAXOPT) | CLFLG_MINOPT);
+        opts.optFlags = CLFLG_MINOPT;
     }
 
     if (!compIsForInlining())
