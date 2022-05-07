@@ -1209,7 +1209,17 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 else
                 {
                     // We have accurate ref counts when running late liveness so we can eliminate
-                    // some stores if the local has a ref count of 1.
+                    // some stores if the local has a ref count of 1. Note that local addresses
+                    // also count so a ref count of 1 here implies that the local is not address
+                    // taken. It may still be marked as address exposed though - local address
+                    // nodes may have been dead and removed earlier.
+
+                    // Optimizations have to be enabled, otherwise all locals are implicitly
+                    // referenced and have ref count 1.
+                    assert(opts.OptimizationEnabled());
+
+                    // TODO-MIKE-Review: Should implicitly referenced locals be excluded here?
+
                     if ((lcl->lvRefCnt() == 1) && !lcl->lvPinned)
                     {
                         if (lcl->IsPromotedField())
