@@ -1135,7 +1135,6 @@ class LinearScanInterface
 public:
     virtual void doLinearScan()                                = 0;
     virtual void recordVarLocationsAtStartOfBB(BasicBlock* bb) = 0;
-    virtual bool willEnregisterLocalVars() const               = 0;
 #if TRACK_LSRA_STATS
     virtual void dumpLsraStatsCsv(FILE* file)     = 0;
     virtual void dumpLsraStatsSummary(FILE* file) = 0;

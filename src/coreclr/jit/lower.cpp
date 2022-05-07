@@ -4906,7 +4906,7 @@ PhaseStatus Lowering::DoPhase()
 
     if (comp->opts.OptimizationDisabled())
     {
-        assert(!m_lsra->willEnregisterLocalVars());
+        assert(!comp->compEnregLocals());
 
         // TODO-MIKE-Review: Check if this is really needed in minopts.
         comp->fgLocalVarLivenessInit();
@@ -4915,7 +4915,7 @@ PhaseStatus Lowering::DoPhase()
         INDEBUG(CheckAllLocalsImplicitlyReferenced());
         DBEXEC(comp->verbose, comp->lvaTableDump());
     }
-    else if (!m_lsra->willEnregisterLocalVars())
+    else if (!comp->compEnregLocals())
     {
         comp->fgUpdateFlowGraph();
         comp->lvaComputeRefCounts();
