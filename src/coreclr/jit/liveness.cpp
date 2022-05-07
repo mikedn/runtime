@@ -121,8 +121,6 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
         }
     }
 
-    fgBBVarSetsInited = true;
-
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
     {
         fgExtendDbgLifetimes();
@@ -149,8 +147,6 @@ void Compiler::fgLocalVarLivenessUntracked()
         block->bbMemoryLiveIn  = false;
         block->bbMemoryLiveOut = false;
     }
-
-    fgBBVarSetsInited = true;
 
     if (compRationalIRForm)
     {
@@ -204,8 +200,6 @@ void Compiler::fgLocalVarLiveness()
         block->bbMemoryLiveOut = false;
     }
 
-    fgBBVarSetsInited = true;
-
     for (bool changed = true; changed;)
     {
         if (compRationalIRForm)
@@ -230,22 +224,19 @@ void Compiler::fgLocalVarLiveness()
 
 void Compiler::livInitNewBlock(BasicBlock* block)
 {
-    // We will give all the blocks var sets after the number of tracked variables
-    // is determined and frozen.  After that, if we dynamically create a basic block,
-    // we will initialize its var sets.
-    if (fgBBVarSetsInited)
+    if (lvaTrackedCount != 0)
     {
-        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
+        block->bbVarUse  = VarSetOps::MakeEmpty(this);
+        block->bbVarDef  = VarSetOps::MakeEmpty(this);
+        block->bbLiveIn  = VarSetOps::MakeEmpty(this);
+        block->bbLiveOut = VarSetOps::MakeEmpty(this);
     }
     else
     {
-        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::UninitVal());
+        block->bbVarUse  = VarSetOps::UninitVal();
+        block->bbVarDef  = VarSetOps::UninitVal();
+        block->bbLiveIn  = VarSetOps::UninitVal();
+        block->bbLiveOut = VarSetOps::UninitVal();
     }
 
     block->bbMemoryUse     = false;

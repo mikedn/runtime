@@ -3509,8 +3509,6 @@ public:
     // in order to avoid the need for SSA reconstruction and an "out of SSA" phase).
     DomTreeNode* fgSsaDomTree;
 
-    bool fgBBVarSetsInited;
-
     // Allocate array like T* a = new T[fgBBNumMax + 1];
     // Using helper so we don't keep forgetting +1.
     template <typename T>
