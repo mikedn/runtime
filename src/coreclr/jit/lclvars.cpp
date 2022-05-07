@@ -2807,18 +2807,15 @@ void Compiler::lvaComputeRefCountsHIR()
 #endif
 
                 case GT_CALL:
-                    // TODO-MIKE-Fix: Moron wrote comment. Morong forgot to write the code as well...
-                    /* Is this a call to unmanaged code ? */
-                    if (m_compiler->compMethodRequiresPInvokeFrame())
-                    {
-                        assert((!m_compiler->opts.ShouldUsePInvokeHelpers()) ||
-                               (m_compiler->info.compLvFrameListRoot == BAD_VAR_NUM));
-                        if (!m_compiler->opts.ShouldUsePInvokeHelpers())
-                        {
-                            MarkPInvokeFrameRefs();
-                        }
-                    }
+                    // TODO-MIKE-Fix: Moron wrote comment. Moron forgot to write the code as well.
+                    // Fixing this results in a few diffs, due to this skewing CSE weights, do it
+                    // when it's all done. Also, prolog/epilog frame list uses aren't counted.
 
+                    /* Is this a call to unmanaged code ? */
+                    if (m_compiler->info.compLvFrameListRoot != BAD_VAR_NUM)
+                    {
+                        MarkPInvokeFrameRefs();
+                    }
                     break;
 
                 case GT_LCL_VAR_ADDR:
@@ -2847,16 +2844,10 @@ void Compiler::lvaComputeRefCountsHIR()
 
         void MarkPInvokeFrameRefs()
         {
-            /* Get the special variable descriptor */
-
-            unsigned lclNum = m_compiler->info.compLvFrameListRoot;
-
-            noway_assert(lclNum <= m_compiler->lvaCount);
-            LclVarDsc* varDsc = m_compiler->lvaTable + lclNum;
-
-            /* Increment the ref counts twice */
-            varDsc->incRefCnts(m_weight, m_compiler);
-            varDsc->incRefCnts(m_weight, m_compiler);
+            LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->info.compLvFrameListRoot);
+            // TODO-MIKE-Review: Hmm, why only 2, there are 3 uses per call...
+            lcl->incRefCnts(m_weight, m_compiler);
+            lcl->incRefCnts(m_weight, m_compiler);
         }
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
