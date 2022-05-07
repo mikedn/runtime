@@ -458,8 +458,9 @@ public:
 
 #if ASSERTION_PROP
     unsigned char lvDisqualify : 1;   // variable is no longer OK for add copy optimization
-    unsigned char lvVolatileHint : 1; // hint for AssertionProp
 #endif
+
+    unsigned char lvVolatileHint : 1; // local has EH references
 
 #ifndef TARGET_64BIT
     unsigned char lvStructDoubleAlign : 1; // Must we double align this struct?

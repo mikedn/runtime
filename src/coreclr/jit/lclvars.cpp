@@ -2895,12 +2895,12 @@ void Compiler::lvaComputeRefCountsHIR()
                          (node->TypeIs(TYP_I_IMPL) && lcl->TypeIs(TYP_BYREF)) ||
                          (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && (node->gtFlags & GTF_VAR_DEF) == 0));
 
-#if ASSERTION_PROP
             if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
             {
                 lcl->lvVolatileHint = true;
             }
 
+#if ASSERTION_PROP
             if (!lcl->lvDisqualify)
             {
                 if ((node->gtFlags & GTF_VAR_DEF) != 0)
