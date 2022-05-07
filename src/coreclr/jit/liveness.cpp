@@ -669,6 +669,7 @@ VARSET_VALRET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
     return liveVars;
 }
 
+// This is the classic algorithm for live variable analysis.
 class LiveVarAnalysis
 {
     Compiler* m_compiler;
@@ -813,12 +814,6 @@ public:
         } while (changed);
     }
 };
-
-/*****************************************************************************
- *
- *  This is the classic algorithm for Live Variable Analysis.
- *  If updateInternalOnly==true, only update BBF_INTERNAL blocks.
- */
 
 void Compiler::fgLiveVarAnalysis()
 {
