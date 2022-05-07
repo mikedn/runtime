@@ -2525,9 +2525,9 @@ void Compiler::lvaMarkLivenessTrackedLocals()
  */
 void LclVarDsc::lvaDisqualifyVar()
 {
-    this->lvDisqualify = true;
-    this->lvSingleDef  = false;
-    this->lvDefStmt    = nullptr;
+    this->lvDisqualifyAddCopy = true;
+    this->lvSingleDef         = false;
+    this->lvDefStmt           = nullptr;
 }
 #endif // ASSERTION_PROP
 
@@ -2901,7 +2901,7 @@ void Compiler::lvaComputeRefCountsHIR()
             }
 
 #if ASSERTION_PROP
-            if (!lcl->lvDisqualify)
+            if (!lcl->lvDisqualifyAddCopy)
             {
                 if ((node->gtFlags & GTF_VAR_DEF) != 0)
                 {

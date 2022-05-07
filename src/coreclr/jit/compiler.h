@@ -457,7 +457,7 @@ public:
                                           // in LSRA.
 
 #if ASSERTION_PROP
-    unsigned char lvDisqualify : 1;   // variable is no longer OK for add copy optimization
+    unsigned char lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
 #endif
 
     unsigned char lvVolatileHint : 1; // local has EH references
