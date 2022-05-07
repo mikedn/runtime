@@ -366,10 +366,6 @@ void BasicBlock::dspFlags()
     {
         printf("m ");
     }
-    if (bbFlags & BBF_CHANGED)
-    {
-        printf("! ");
-    }
     if (bbFlags & BBF_REMOVED)
     {
         printf("del ");

@@ -443,7 +443,6 @@ enum BasicBlockFlags : uint64_t
 
     BBF_VISITED              = MAKE_BBFLAG( 0), // BB visited during optimizations
     BBF_MARKED               = MAKE_BBFLAG( 1), // BB marked  during optimizations
-    BBF_CHANGED              = MAKE_BBFLAG( 2), // input/output of this block has changed
     BBF_REMOVED              = MAKE_BBFLAG( 3), // BB has been removed from bb-list
 
     BBF_DONT_REMOVE          = MAKE_BBFLAG( 4), // BB should not be removed during flow graph optimizations
@@ -513,12 +512,12 @@ enum BasicBlockFlags : uint64_t
 
     // Flags to update when two blocks are compacted
 
-    BBF_COMPACT_UPD = BBF_CHANGED | BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_HAS_IDX_LEN | BBF_BACKWARD_JUMP | BBF_HAS_NEWARRAY | \
+    BBF_COMPACT_UPD = BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_HAS_IDX_LEN | BBF_BACKWARD_JUMP | BBF_HAS_NEWARRAY | \
                       BBF_HAS_NEWOBJ | BBF_HAS_NULLCHECK,
 
     // Flags a block should not have had before it is split.
 
-    BBF_SPLIT_NONEXIST = BBF_CHANGED | BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1 | BBF_RETLESS_CALL | BBF_LOOP_PREHEADER | BBF_COLD,
+    BBF_SPLIT_NONEXIST = BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1 | BBF_RETLESS_CALL | BBF_LOOP_PREHEADER | BBF_COLD,
 
     // Flags lost by the top block when a block is split.
     // Note, this is a conservative guess.
