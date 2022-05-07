@@ -2751,8 +2751,9 @@ void Compiler::lvaComputeRefCountsHIR()
 {
     class MarkLocalVarsVisitor final : public GenTreeVisitor<MarkLocalVarsVisitor>
     {
-        BasicBlock* m_block;
-        Statement*  m_stmt;
+        BasicBlock*          m_block;
+        BasicBlock::weight_t m_weight;
+        Statement*           m_stmt;
 
     public:
         enum
@@ -2760,9 +2761,28 @@ void Compiler::lvaComputeRefCountsHIR()
             DoPreOrder = true,
         };
 
-        MarkLocalVarsVisitor(Compiler* compiler, BasicBlock* block, Statement* stmt)
-            : GenTreeVisitor<MarkLocalVarsVisitor>(compiler), m_block(block), m_stmt(stmt)
+        MarkLocalVarsVisitor(Compiler* compiler) : GenTreeVisitor<MarkLocalVarsVisitor>(compiler)
         {
+        }
+
+        void Visit()
+        {
+            for (BasicBlock* block : m_compiler->Blocks())
+            {
+                m_block  = block;
+                m_weight = block->getBBWeight(m_compiler);
+
+                JITDUMP("Marking local variables in block " FMT_BB " (weight %s)\n", block->bbNum,
+                        refCntWtd2str(m_weight));
+
+                for (Statement* stmt : block->NonPhiStatements())
+                {
+                    m_stmt = stmt;
+
+                    DISPSTMT(stmt);
+                    WalkTree(stmt->GetRootNodePointer(), nullptr);
+                }
+            }
         }
 
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
@@ -2809,7 +2829,7 @@ void Compiler::lvaComputeRefCountsHIR()
 #if ASSERTION_PROP
                     DisqualifyAddCopy(lcl);
 #endif
-                    lcl->incRefCnts(m_block->getBBWeight(m_compiler), m_compiler);
+                    lcl->incRefCnts(m_weight, m_compiler);
                 }
                 break;
 
@@ -2832,12 +2852,11 @@ void Compiler::lvaComputeRefCountsHIR()
             unsigned lclNum = m_compiler->info.compLvFrameListRoot;
 
             noway_assert(lclNum <= m_compiler->lvaCount);
-            LclVarDsc*                 varDsc = m_compiler->lvaTable + lclNum;
-            const BasicBlock::weight_t weight = m_block->getBBWeight(m_compiler);
+            LclVarDsc* varDsc = m_compiler->lvaTable + lclNum;
 
             /* Increment the ref counts twice */
-            varDsc->incRefCnts(weight, m_compiler);
-            varDsc->incRefCnts(weight, m_compiler);
+            varDsc->incRefCnts(m_weight, m_compiler);
+            varDsc->incRefCnts(m_weight, m_compiler);
         }
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
@@ -2845,7 +2864,7 @@ void Compiler::lvaComputeRefCountsHIR()
             unsigned   lclNum = node->GetLclNum();
             LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
-            lcl->incRefCnts(m_block->getBBWeight(m_compiler), m_compiler);
+            lcl->incRefCnts(m_weight, m_compiler);
 
             if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD))
             {
@@ -2963,18 +2982,8 @@ void Compiler::lvaComputeRefCountsHIR()
         }
     };
 
-    for (BasicBlock* block : Blocks())
-    {
-        JITDUMP("\n*** marking local variables in block " FMT_BB " (weight=%s)\n", block->bbNum,
-                refCntWtd2str(block->getBBWeight(this)));
-
-        for (Statement* const stmt : block->NonPhiStatements())
-        {
-            MarkLocalVarsVisitor visitor(this, block, stmt);
-            DISPSTMT(stmt);
-            visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
-        }
-    }
+    MarkLocalVarsVisitor visitor(this);
+    visitor.Visit();
 }
 
 void Compiler::lvaComputeRefCountsLIR()
