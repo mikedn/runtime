@@ -3175,13 +3175,14 @@ void Compiler::lvaMarkLocalVars()
     // Ref counting is now enabled normally.
     lvaRefCountState = RCS_NORMAL;
 
-    lvaComputeRefCounts();
-
-    // If we're not optimizing, we're done.
     if (opts.OptimizationDisabled())
     {
+        // If we don't optimize we make all locals implicitly referenced, with a ref count of 1.
+        lvaMarkImplictlyReferenced();
         return;
     }
+
+    lvaComputeRefCounts();
 
     const bool reportParamTypeArg = lvaReportParamTypeArg();
 
@@ -3212,16 +3213,45 @@ bool Compiler::lvaIsX86VarargsStackParam(unsigned lclNum)
 #endif
 }
 
+void Compiler::lvaMarkImplictlyReferenced()
+{
+    assert(opts.OptimizationDisabled());
+    assert(!compRationalIRForm);
+
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
+
+        // Using lvImplicitlyReferenced here ensures that locals don't accidentally become
+        // unreferenced by decrementing the ref count to zero. If we want to allow locals
+        // to become unreferenced later, we'll have to explicitly clear this bit.
+        // X86 varargs stack params must remain unreferenced.
+
+        if (lvaIsX86VarargsStackParam(lclNum))
+        {
+            assert(lcl->lvRefCnt() == 0);
+            assert(lcl->lvRefCntWtd() == 0);
+        }
+        else
+        {
+            lcl->lvImplicitlyReferenced = 1;
+
+            assert(lcl->lvRefCnt() == 1);
+            assert(lcl->lvRefCntWtd() == BB_UNITY_WEIGHT);
+        }
+
+        assert(!lcl->lvTracked);
+    }
+}
+
 //------------------------------------------------------------------------
 // lvaComputeRefCounts: compute ref counts for locals
 //
 // Notes:
 //    Some implicit references are given actual counts or weight bumps here
 //    to match pre-existing behavior.
-//
-//    In fast-jitting modes where we don't ref count locals, this bypasses
-//    actual counting, and makes all locals implicitly referenced on first
-//    compute. It asserts all locals are implicitly referenced on recompute.
 //
 //    When optimizing we also recompute lvaGenericsContextInUse based
 //    on specially flagged LCL_VAR appearances.
@@ -3230,47 +3260,8 @@ void Compiler::lvaComputeRefCounts()
 {
     JITDUMP("\n*** lvaComputeRefCounts ***\n");
 
-    // Fast path for minopts and debug codegen.
-    //
-    // On first compute: mark all locals as implicitly referenced and untracked.
-    // On recompute: do nothing.
-    if (opts.OptimizationDisabled())
-    {
-        assert(!compRationalIRForm);
+    assert(opts.OptimizationEnabled());
 
-        // First compute.
-        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
-        {
-            LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-            assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
-
-            // Using lvImplicitlyReferenced here ensures that locals don't accidentally become
-            // unreferenced by decrementing the ref count to zero. If we want to allow locals
-            // to become unreferenced later, we'll have to explicitly clear this bit.
-            // X86 varargs stack params must remain unreferenced.
-
-            if (lvaIsX86VarargsStackParam(lclNum))
-            {
-                assert(lcl->lvRefCnt() == 0);
-                assert(lcl->lvRefCntWtd() == 0);
-            }
-            else
-            {
-                lcl->lvImplicitlyReferenced = 1;
-
-                assert(lcl->lvRefCnt() == 1);
-                assert(lcl->lvRefCntWtd() == BB_UNITY_WEIGHT);
-            }
-
-            assert(!lcl->lvTracked);
-        }
-
-        return;
-    }
-
-    // Slower path we take when optimizing, to get accurate counts.
-    //
     // First, reset all explicit ref counts and weights.
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {

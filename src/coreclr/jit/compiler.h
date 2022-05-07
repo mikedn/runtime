@@ -2664,6 +2664,7 @@ public:
     void lvaMarkLivenessTrackedLocals();
 
     void lvaMarkLocalVars(); // Local variable ref-counting
+    void lvaMarkImplictlyReferenced();
     void lvaComputeRefCounts();
     void lvaComputeRefCountsHIR();
     void lvaComputeRefCountsLIR();
