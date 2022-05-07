@@ -96,10 +96,7 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
     assert(compRationalIRForm);
 
     // TODO-MIKE-Review: Check if this is really needed in minopts.
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
-    {
-        lvaGetDesc(lclNum)->lvMustInit = false;
-    }
+    fgLocalVarLivenessInit();
 
     for (BasicBlock* const block : Blocks())
     {
@@ -262,8 +259,6 @@ void Compiler::livInitNewBlock(BasicBlock* block)
 
 void Compiler::fgLocalVarLivenessInit()
 {
-    JITDUMP("In fgLocalVarLivenessInit\n");
-
     // We mark a lcl as must-init in a first pass of local variable
     // liveness (Liveness1), then assertion prop eliminates the
     // uninit-use of a variable Vk, asserting it will be init'ed to
@@ -1251,19 +1246,6 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 break;
             }
 
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
-                assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
-
-                if (node->IsUnusedValue())
-                {
-                    JITDUMP("Removing dead LclVar address:\n");
-                    DISPNODE(node);
-
-                    blockRange.Delete(this, block, node);
-                }
-                break;
-
             case GT_STORE_LCL_VAR:
             case GT_STORE_LCL_FLD:
             {
@@ -1294,6 +1276,10 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 break;
             }
 
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+                FALLTHROUGH;
             case GT_LABEL:
             case GT_FTN_ADDR:
             case GT_CNS_INT:
@@ -1359,18 +1345,6 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 // Properly modeling this would allow these nodes to be removed.
                 break;
 
-            case GT_NOP:
-            {
-                // NOTE: we need to keep some NOPs around because they are referenced by calls. See the dead store
-                // removal code above (case GT_STORE_LCL_VAR) for more explanation.
-                if ((node->gtFlags & GTF_ORDER_SIDEEFF) != 0)
-                {
-                    break;
-                }
-                fgTryRemoveNonLocal(node, &blockRange);
-            }
-            break;
-
             case GT_BLK:
             case GT_OBJ:
             {
@@ -1384,6 +1358,14 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             }
             break;
 
+            case GT_NOP:
+                // NOTE: we need to keep some NOPs around because they are referenced by calls. See the dead store
+                // removal code above (case GT_STORE_LCL_VAR) for more explanation.
+                if ((node->gtFlags & GTF_ORDER_SIDEEFF) != 0)
+                {
+                    break;
+                }
+                FALLTHROUGH;
             default:
                 fgTryRemoveNonLocal(node, &blockRange);
                 break;
