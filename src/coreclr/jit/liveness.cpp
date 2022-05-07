@@ -100,12 +100,10 @@ void Compiler::fgLocalVarLivenessAlwaysLive()
 
     for (BasicBlock* const block : Blocks())
     {
-        // Strictly speaking, the assignments for the "Def" cases aren't necessary here.
-        // The empty set would do as well.  Use means "use-before-def", so as long as that's
-        // "all", this has the right effect.
+        // We don't need these in LIR.
+        block->bbVarUse = VarSetOps::UninitVal();
+        block->bbVarDef = VarSetOps::UninitVal();
 
-        block->bbVarUse = VarSetOps::MakeFull(this);
-        block->bbVarDef = VarSetOps::MakeFull(this);
         block->bbLiveIn = VarSetOps::MakeFull(this);
 
         switch (block->bbJumpKind)
