@@ -4908,8 +4908,10 @@ PhaseStatus Lowering::DoPhase()
     {
         assert(!m_lsra->willEnregisterLocalVars());
 
-        comp->fgLocalVarLivenessAlwaysLive();
+        // TODO-MIKE-Review: Check if this is really needed in minopts.
+        comp->fgLocalVarLivenessInit();
 
+        assert(!comp->fgLocalVarLivenessDone);
         INDEBUG(CheckAllLocalsImplicitlyReferenced());
     }
     else if (!m_lsra->willEnregisterLocalVars())
