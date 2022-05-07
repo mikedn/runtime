@@ -231,13 +231,6 @@ void Compiler::livInitNewBlock(BasicBlock* block)
         block->bbLiveIn  = VarSetOps::MakeEmpty(this);
         block->bbLiveOut = VarSetOps::MakeEmpty(this);
     }
-    else
-    {
-        block->bbVarUse  = VarSetOps::UninitVal();
-        block->bbVarDef  = VarSetOps::UninitVal();
-        block->bbLiveIn  = VarSetOps::UninitVal();
-        block->bbLiveOut = VarSetOps::UninitVal();
-    }
 
     block->bbMemoryUse     = false;
     block->bbMemoryDef     = false;

@@ -1223,10 +1223,11 @@ struct BasicBlock : private LIR::Range
     Statement* FirstNonPhiDef() const;
     Statement* FirstNonPhiDefOrCatchArgAsg() const;
 
-    BasicBlock() : bbStmtList(nullptr), bbLiveIn(VarSetOps::UninitVal()), bbLiveOut(VarSetOps::UninitVal())
+    BasicBlock()
     {
+        // TODO-MIKE-Throughput: Check if proper member initialization isn't faster.
+        memset(this, 0, sizeof(BasicBlock));
     }
-
     // Iteratable collection of successors of a block.
     template <typename TPosition>
     class Successors
