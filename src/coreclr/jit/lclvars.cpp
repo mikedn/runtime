@@ -2877,7 +2877,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
             if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
             {
-                lcl->lvVolatileHint = true;
+                lcl->lvEHLive = true;
             }
 
 #if ASSERTION_PROP

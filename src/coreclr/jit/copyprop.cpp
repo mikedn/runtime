@@ -267,7 +267,7 @@ public:
                 continue;
             }
 
-            if (!lcl->lvVolatileHint && newLcl->lvVolatileHint)
+            if (!lcl->lvEHLive && newLcl->lvEHLive)
             {
                 continue;
             }

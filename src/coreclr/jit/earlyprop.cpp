@@ -748,8 +748,7 @@ bool Compiler::optCanMoveNullCheckPastTree(GenTree* tree,
             else if (isInsideTry)
             {
                 // Inside try we allow only assignments to locals not live in handlers.
-                // lvVolatileHint is set to true on variables that are line in handlers.
-                result = (lhs->OperGet() == GT_LCL_VAR) && !lvaTable[lhs->AsLclVarCommon()->GetLclNum()].lvVolatileHint;
+                result = lhs->OperIs(GT_LCL_VAR) && !lvaGetDesc(lhs->AsLclVar())->lvEHLive;
             }
             else
             {

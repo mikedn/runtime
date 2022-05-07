@@ -124,7 +124,7 @@ void Compiler::optAddCopies()
         isFloatParam = varDsc->lvIsParam && varTypeIsFloating(typ);
 #endif
 
-        if (!isFloatParam && !varDsc->lvVolatileHint)
+        if (!isFloatParam && !varDsc->lvEHLive)
         {
             continue;
         }
@@ -260,10 +260,9 @@ void Compiler::optAddCopies()
 
         // For us to add a new copy:
         // we require that we have a floating point parameter
-        // or a lvVolatile variable that is always reached from the first BB
+        // or an EH live variable that is always reached from the first BB
         // and we have at least one block available in paramImportantUseDom
-        //
-        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvVolatileHint)) &&
+        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvEHLive)) &&
                       !BlockSetOps::IsEmpty(this, paramImportantUseDom);
 
         // Under stress mode we expand the number of candidates
