@@ -2781,71 +2781,81 @@ void Compiler::lvaComputeRefCountsHIR()
 
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            MarkLclRefs(*use, user);
+            GenTree* node = *use;
+
+            switch (node->GetOper())
+            {
+#if OPT_BOOL_OPS
+                case GT_ASG:
+                {
+                    GenTree* op1 = node->AsOp()->GetOp(0);
+                    GenTree* op2 = node->AsOp()->GetOp(1);
+
+                    if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
+                        !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
+                    {
+                        m_compiler->lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
+                    }
+                }
+                break;
+#endif
+
+                case GT_CALL:
+                    // TODO-MIKE-Fix: Moron wrote comment. Morong forgot to write the code as well...
+                    /* Is this a call to unmanaged code ? */
+                    if (m_compiler->compMethodRequiresPInvokeFrame())
+                    {
+                        assert((!m_compiler->opts.ShouldUsePInvokeHelpers()) ||
+                               (m_compiler->info.compLvFrameListRoot == BAD_VAR_NUM));
+                        if (!m_compiler->opts.ShouldUsePInvokeHelpers())
+                        {
+                            MarkPInvokeFrameRefs();
+                        }
+                    }
+
+                    break;
+
+                case GT_LCL_VAR_ADDR:
+                case GT_LCL_FLD_ADDR:
+                {
+                    LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclVarCommon());
+                    assert(lcl->IsAddressExposed());
+#if ASSERTION_PROP
+                    lcl->lvaDisqualifyVar();
+#endif
+                    lcl->incRefCnts(m_block->getBBWeight(m_compiler), m_compiler);
+                }
+                break;
+
+                case GT_LCL_VAR:
+                case GT_LCL_FLD:
+                    MarkLclRefs(node->AsLclVarCommon(), user);
+                    break;
+
+                default:
+                    break;
+            }
+
             return WALK_CONTINUE;
         }
 
-        void MarkLclRefs(GenTree* tree, GenTree* user)
+        void MarkPInvokeFrameRefs()
         {
+            /* Get the special variable descriptor */
+
+            unsigned lclNum = m_compiler->info.compLvFrameListRoot;
+
+            noway_assert(lclNum <= m_compiler->lvaCount);
+            LclVarDsc*                 varDsc = m_compiler->lvaTable + lclNum;
             const BasicBlock::weight_t weight = m_block->getBBWeight(m_compiler);
 
-            if (tree->OperIs(GT_ASG))
-            {
-#if OPT_BOOL_OPS
-                GenTree* op1 = tree->AsOp()->GetOp(0);
-                GenTree* op2 = tree->AsOp()->GetOp(1);
+            /* Increment the ref counts twice */
+            varDsc->incRefCnts(weight, m_compiler);
+            varDsc->incRefCnts(weight, m_compiler);
+        }
 
-                if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
-                    !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
-                {
-                    m_compiler->lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
-                }
-#endif // OPT_BOOL_OPS
-
-                return;
-            }
-
-            // TODO-MIKE-Fix: Moron wrote comment. Morong forgot to write the code as well...
-            /* Is this a call to unmanaged code ? */
-            if (tree->IsCall() && m_compiler->compMethodRequiresPInvokeFrame())
-            {
-                assert((!m_compiler->opts.ShouldUsePInvokeHelpers()) ||
-                       (m_compiler->info.compLvFrameListRoot == BAD_VAR_NUM));
-                if (!m_compiler->opts.ShouldUsePInvokeHelpers())
-                {
-                    /* Get the special variable descriptor */
-
-                    unsigned lclNum = m_compiler->info.compLvFrameListRoot;
-
-                    noway_assert(lclNum <= m_compiler->lvaCount);
-                    LclVarDsc* varDsc = m_compiler->lvaTable + lclNum;
-
-                    /* Increment the ref counts twice */
-                    varDsc->incRefCnts(weight, m_compiler);
-                    varDsc->incRefCnts(weight, m_compiler);
-                }
-            }
-
-            if (tree->OperIsLocalAddr())
-            {
-                LclVarDsc* lcl = m_compiler->lvaGetDesc(tree->AsLclVarCommon());
-                assert(lcl->IsAddressExposed());
-
-#if ASSERTION_PROP
-                lcl->lvaDisqualifyVar();
-#endif
-                lcl->incRefCnts(weight, m_compiler);
-
-                return;
-            }
-
-            if (!tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-            {
-                return;
-            }
-
-            /* This must be a local variable reference */
-
+        void MarkLclRefs(GenTreeLclVarCommon* tree, GenTree* user)
+        {
             // See if this is a generics context use.
             if ((tree->gtFlags & GTF_VAR_CONTEXT) != 0)
             {
@@ -2864,7 +2874,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
             /* Increment the reference counts */
 
-            varDsc->incRefCnts(weight, m_compiler);
+            varDsc->incRefCnts(m_block->getBBWeight(m_compiler), m_compiler);
 
             if (varDsc->IsAddressExposed())
             {
