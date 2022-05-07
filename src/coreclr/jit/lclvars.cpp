@@ -2829,7 +2829,7 @@ void Compiler::lvaComputeRefCountsHIR()
 #if ASSERTION_PROP
                     DisqualifyAddCopy(lcl);
 #endif
-                    lcl->incRefCnts(m_weight, m_compiler);
+                    lcl->incRefCnts(0, m_compiler);
                 }
                 break;
 
