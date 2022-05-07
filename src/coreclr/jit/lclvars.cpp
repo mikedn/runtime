@@ -2750,237 +2750,6 @@ void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, bool pro
 }
 
 //------------------------------------------------------------------------
-// lvaMarkLclRefs: increment local var references counts and more
-//
-// Arguments:
-//     tree - some node in a tree
-//     user - the user of the node
-//     block - block that the tree node belongs to
-//     stmt - stmt that the tree node belongs to
-//
-// Notes:
-//     Invoked via the MarkLocalVarsVisitor
-//
-//     Primarily increments the regular and weighted local var ref
-//     counts for any local referred to directly by tree.
-//
-//     Also:
-//
-//     Accounts for implicit references to frame list root for
-//     pinvokes that will be expanded later.
-//
-//     Determines if locals of TYP_BOOL can safely be considered
-//     to hold only 0 or 1 or may have a broader range of true values.
-//
-//     Does some setup work for assertion prop, noting locals that are
-//     eligible for assertion prop, single defs, and tracking which blocks
-//     hold uses.
-//
-//     Looks for uses of generic context and sets lvaGenericsContextInUse.
-//
-//     In checked builds:
-//
-//     Verifies that local accesses are consistenly typed.
-//     Verifies that casts remain in bounds.
-
-void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt)
-{
-    const BasicBlock::weight_t weight = block->getBBWeight(this);
-
-    if (tree->OperIs(GT_ASG))
-    {
-#if OPT_BOOL_OPS
-        GenTree* op1 = tree->AsOp()->GetOp(0);
-        GenTree* op2 = tree->AsOp()->GetOp(1);
-
-        if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() && !op2->IsIntegralConst(0) &&
-            !op2->IsIntegralConst(1))
-        {
-            lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
-        }
-#endif // OPT_BOOL_OPS
-
-        return;
-    }
-
-    /* Is this a call to unmanaged code ? */
-    if (tree->IsCall() && compMethodRequiresPInvokeFrame())
-    {
-        assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-        if (!opts.ShouldUsePInvokeHelpers())
-        {
-            /* Get the special variable descriptor */
-
-            unsigned lclNum = info.compLvFrameListRoot;
-
-            noway_assert(lclNum <= lvaCount);
-            LclVarDsc* varDsc = lvaTable + lclNum;
-
-            /* Increment the ref counts twice */
-            varDsc->incRefCnts(weight, this);
-            varDsc->incRefCnts(weight, this);
-        }
-    }
-
-    if (tree->OperIsLocalAddr())
-    {
-        LclVarDsc* lcl = lvaGetDesc(tree->AsLclVarCommon());
-        assert(lcl->IsAddressExposed());
-
-#if ASSERTION_PROP
-        lcl->lvaDisqualifyVar();
-#endif
-        lcl->incRefCnts(weight, this);
-
-        return;
-    }
-
-    if (!tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        return;
-    }
-
-    /* This must be a local variable reference */
-
-    // See if this is a generics context use.
-    if ((tree->gtFlags & GTF_VAR_CONTEXT) != 0)
-    {
-        assert(tree->OperIs(GT_LCL_VAR));
-        if (!lvaGenericsContextInUse)
-        {
-            JITDUMP("-- generic context in use at [%06u]\n", dspTreeID(tree));
-            lvaGenericsContextInUse = true;
-        }
-    }
-
-    unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
-
-    noway_assert(lclNum < lvaCount);
-    LclVarDsc* varDsc = lvaTable + lclNum;
-
-    /* Increment the reference counts */
-
-    varDsc->incRefCnts(weight, this);
-
-    if (varDsc->IsAddressExposed())
-    {
-        varDsc->lvIsBoolean = false;
-#if ASSERTION_PROP
-        varDsc->lvaDisqualifyVar();
-#endif
-    }
-
-    if (tree->gtOper == GT_LCL_FLD)
-    {
-#if ASSERTION_PROP
-        // variables that have uses inside a GT_LCL_FLD
-        // cause problems, so we will disqualify them here
-        varDsc->lvaDisqualifyVar();
-#endif // ASSERTION_PROP
-        return;
-    }
-
-#if ASSERTION_PROP
-    if (fgDomsComputed && IsDominatedByExceptionalEntry(block))
-    {
-        varDsc->lvVolatileHint = true;
-    }
-
-    /* Record if the variable has a single def or not */
-
-    if (!varDsc->lvDisqualify) // If this variable is already disqualified, we can skip this
-    {
-        if (tree->gtFlags & GTF_VAR_DEF) // Is this is a def of our variable
-        {
-            // If we have one of these cases:
-            //     1.    We have already seen a definition (i.e lvSingleDef is true)
-            //     2. or info.CompInitMem is true (thus this would be the second definition)
-            //     3. the user is not ASG, optAddCopiesCallback does not recognize indirect
-            //        local definitions (e.g. BLK(ADDR(LCL_VAR)))
-            //
-            // Then we must disqualify this variable for use in optAddCopies()
-            //
-            // Note that all parameters start out with lvSingleDef set to true
-
-            if (varDsc->lvSingleDef || info.compInitMem || !user->OperIs(GT_ASG))
-            {
-                varDsc->lvaDisqualifyVar();
-            }
-            else
-            {
-                varDsc->lvSingleDef = true;
-                varDsc->lvDefStmt   = stmt;
-            }
-        }
-        else // otherwise this is a ref of our variable
-        {
-            if (BlockSetOps::MayBeUninit(varDsc->lvRefBlks))
-            {
-                // Lazy initialization
-                BlockSetOps::AssignNoCopy(this, varDsc->lvRefBlks, BlockSetOps::MakeEmpty(this));
-            }
-            BlockSetOps::AddElemD(this, varDsc->lvRefBlks, block->bbNum);
-        }
-    }
-#endif // ASSERTION_PROP
-
-    if (!varDsc->lvDisqualifySingleDefRegCandidate) // If this var is already disqualified, we can skip this
-    {
-        if (tree->gtFlags & GTF_VAR_DEF) // Is this is a def of our variable
-        {
-            bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
-            bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
-            // TODO: Zero-inits in LSRA are created with below condition. Try to use similar condition here as well.
-            // if (compiler->info.compInitMem || varTypeIsGC(lcl->TypeGet()))
-            bool needsExplicitZeroInit = fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
-
-            // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
-            // broken. For a multireg store lvSingleDefRegCandidate probably needs to be set
-            // on the fields of the local.
-            if (varDsc->lvSingleDefRegCandidate || needsExplicitZeroInit || varDsc->lvIsMultiRegRet)
-            {
-#ifdef DEBUG
-                if (needsExplicitZeroInit)
-                {
-                    varDsc->lvSingleDefDisqualifyReason = 'Z';
-                    JITDUMP("V%02u needs explicit zero init. Disqualified as a single-def register candidate.\n",
-                            lclNum);
-                }
-                else
-                {
-                    varDsc->lvSingleDefDisqualifyReason = 'M';
-                    JITDUMP("V%02u has multiple definitions. Disqualified as a single-def register candidate.\n",
-                            lclNum);
-                }
-
-#endif // DEBUG
-                varDsc->lvSingleDefRegCandidate           = false;
-                varDsc->lvDisqualifySingleDefRegCandidate = true;
-            }
-            else
-            {
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                // TODO-CQ: If the varType needs partial callee save, conservatively do not enregister
-                // such variable. In future, need to enable enregisteration for such variables.
-                if (!varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
-#endif
-                {
-                    varDsc->lvSingleDefRegCandidate = true;
-                    JITDUMP("Marking EH Var V%02u as a register candidate.\n", lclNum);
-                }
-            }
-        }
-    }
-
-    noway_assert((tree->GetType() == varDsc->GetType()) ||
-                 (tree->TypeIs(TYP_INT) && varTypeIsSmall(varDsc->GetType())) ||
-                 (tree->TypeIs(TYP_UBYTE) && varDsc->TypeIs(TYP_BOOL)) ||
-                 (tree->TypeIs(TYP_BYREF) && varDsc->TypeIs(TYP_I_IMPL)) ||
-                 (tree->TypeIs(TYP_I_IMPL) && varDsc->TypeIs(TYP_BYREF)) ||
-                 (tree->TypeIs(TYP_INT) && varDsc->TypeIs(TYP_LONG) && (tree->gtFlags & GTF_VAR_DEF) == 0));
-}
-
-//------------------------------------------------------------------------
 // IsDominatedByExceptionalEntry: Check is the block dominated by an exception entry block.
 //
 // Arguments:
@@ -3012,8 +2781,210 @@ void Compiler::lvaComputeRefCountsHIR()
 
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            m_compiler->lvaMarkLclRefs(*use, user, m_block, m_stmt);
+            MarkLclRefs(*use, user);
             return WALK_CONTINUE;
+        }
+
+        void MarkLclRefs(GenTree* tree, GenTree* user)
+        {
+            const BasicBlock::weight_t weight = m_block->getBBWeight(m_compiler);
+
+            if (tree->OperIs(GT_ASG))
+            {
+#if OPT_BOOL_OPS
+                GenTree* op1 = tree->AsOp()->GetOp(0);
+                GenTree* op2 = tree->AsOp()->GetOp(1);
+
+                if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
+                    !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
+                {
+                    m_compiler->lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
+                }
+#endif // OPT_BOOL_OPS
+
+                return;
+            }
+
+            // TODO-MIKE-Fix: Moron wrote comment. Morong forgot to write the code as well...
+            /* Is this a call to unmanaged code ? */
+            if (tree->IsCall() && m_compiler->compMethodRequiresPInvokeFrame())
+            {
+                assert((!m_compiler->opts.ShouldUsePInvokeHelpers()) ||
+                       (m_compiler->info.compLvFrameListRoot == BAD_VAR_NUM));
+                if (!m_compiler->opts.ShouldUsePInvokeHelpers())
+                {
+                    /* Get the special variable descriptor */
+
+                    unsigned lclNum = m_compiler->info.compLvFrameListRoot;
+
+                    noway_assert(lclNum <= m_compiler->lvaCount);
+                    LclVarDsc* varDsc = m_compiler->lvaTable + lclNum;
+
+                    /* Increment the ref counts twice */
+                    varDsc->incRefCnts(weight, m_compiler);
+                    varDsc->incRefCnts(weight, m_compiler);
+                }
+            }
+
+            if (tree->OperIsLocalAddr())
+            {
+                LclVarDsc* lcl = m_compiler->lvaGetDesc(tree->AsLclVarCommon());
+                assert(lcl->IsAddressExposed());
+
+#if ASSERTION_PROP
+                lcl->lvaDisqualifyVar();
+#endif
+                lcl->incRefCnts(weight, m_compiler);
+
+                return;
+            }
+
+            if (!tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            {
+                return;
+            }
+
+            /* This must be a local variable reference */
+
+            // See if this is a generics context use.
+            if ((tree->gtFlags & GTF_VAR_CONTEXT) != 0)
+            {
+                assert(tree->OperIs(GT_LCL_VAR));
+                if (!m_compiler->lvaGenericsContextInUse)
+                {
+                    JITDUMP("-- generic context in use at [%06u]\n", dspTreeID(tree));
+                    m_compiler->lvaGenericsContextInUse = true;
+                }
+            }
+
+            unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
+
+            noway_assert(lclNum < m_compiler->lvaCount);
+            LclVarDsc* varDsc = m_compiler->lvaTable + lclNum;
+
+            /* Increment the reference counts */
+
+            varDsc->incRefCnts(weight, m_compiler);
+
+            if (varDsc->IsAddressExposed())
+            {
+                varDsc->lvIsBoolean = false;
+#if ASSERTION_PROP
+                varDsc->lvaDisqualifyVar();
+#endif
+            }
+
+            if (tree->gtOper == GT_LCL_FLD)
+            {
+#if ASSERTION_PROP
+                // variables that have uses inside a GT_LCL_FLD
+                // cause problems, so we will disqualify them here
+                varDsc->lvaDisqualifyVar();
+#endif // ASSERTION_PROP
+                return;
+            }
+
+#if ASSERTION_PROP
+            if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
+            {
+                varDsc->lvVolatileHint = true;
+            }
+
+            /* Record if the variable has a single def or not */
+
+            if (!varDsc->lvDisqualify) // If this variable is already disqualified, we can skip this
+            {
+                if (tree->gtFlags & GTF_VAR_DEF) // Is this is a def of our variable
+                {
+                    // If we have one of these cases:
+                    //     1.    We have already seen a definition (i.e lvSingleDef is true)
+                    //     2. or info.CompInitMem is true (thus this would be the second definition)
+                    //     3. the user is not ASG, optAddCopiesCallback does not recognize indirect
+                    //        local definitions (e.g. BLK(ADDR(LCL_VAR)))
+                    //
+                    // Then we must disqualify this variable for use in optAddCopies()
+                    //
+                    // Note that all parameters start out with lvSingleDef set to true
+
+                    if (varDsc->lvSingleDef || m_compiler->info.compInitMem || !user->OperIs(GT_ASG))
+                    {
+                        varDsc->lvaDisqualifyVar();
+                    }
+                    else
+                    {
+                        varDsc->lvSingleDef = true;
+                        varDsc->lvDefStmt   = m_stmt;
+                    }
+                }
+                else // otherwise this is a ref of our variable
+                {
+                    if (BlockSetOps::MayBeUninit(varDsc->lvRefBlks))
+                    {
+                        // Lazy initialization
+                        BlockSetOps::AssignNoCopy(m_compiler, varDsc->lvRefBlks, BlockSetOps::MakeEmpty(m_compiler));
+                    }
+                    BlockSetOps::AddElemD(m_compiler, varDsc->lvRefBlks, m_block->bbNum);
+                }
+            }
+#endif // ASSERTION_PROP
+
+            if (!varDsc->lvDisqualifySingleDefRegCandidate) // If this var is already disqualified, we can skip this
+            {
+                if (tree->gtFlags & GTF_VAR_DEF) // Is this is a def of our variable
+                {
+                    bool bbInALoop  = (m_block->bbFlags & BBF_BACKWARD_JUMP) != 0;
+                    bool bbIsReturn = m_block->bbJumpKind == BBJ_RETURN;
+                    // TODO: Zero-inits in LSRA are created with below condition. Try to use similar condition here as
+                    // well.
+                    // if (compiler->info.compInitMem || varTypeIsGC(lcl->TypeGet()))
+                    bool needsExplicitZeroInit = m_compiler->fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
+
+                    // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
+                    // broken. For a multireg store lvSingleDefRegCandidate probably needs to be set
+                    // on the fields of the local.
+                    if (varDsc->lvSingleDefRegCandidate || needsExplicitZeroInit || varDsc->lvIsMultiRegRet)
+                    {
+#ifdef DEBUG
+                        if (needsExplicitZeroInit)
+                        {
+                            varDsc->lvSingleDefDisqualifyReason = 'Z';
+                            JITDUMP(
+                                "V%02u needs explicit zero init. Disqualified as a single-def register candidate.\n",
+                                lclNum);
+                        }
+                        else
+                        {
+                            varDsc->lvSingleDefDisqualifyReason = 'M';
+                            JITDUMP(
+                                "V%02u has multiple definitions. Disqualified as a single-def register candidate.\n",
+                                lclNum);
+                        }
+
+#endif // DEBUG
+                        varDsc->lvSingleDefRegCandidate           = false;
+                        varDsc->lvDisqualifySingleDefRegCandidate = true;
+                    }
+                    else
+                    {
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+                        // TODO-CQ: If the varType needs partial callee save, conservatively do not enregister
+                        // such variable. In future, need to enable enregisteration for such variables.
+                        if (!varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
+#endif
+                        {
+                            varDsc->lvSingleDefRegCandidate = true;
+                            JITDUMP("Marking EH Var V%02u as a register candidate.\n", lclNum);
+                        }
+                    }
+                }
+            }
+
+            noway_assert((tree->GetType() == varDsc->GetType()) ||
+                         (tree->TypeIs(TYP_INT) && varTypeIsSmall(varDsc->GetType())) ||
+                         (tree->TypeIs(TYP_UBYTE) && varDsc->TypeIs(TYP_BOOL)) ||
+                         (tree->TypeIs(TYP_BYREF) && varDsc->TypeIs(TYP_I_IMPL)) ||
+                         (tree->TypeIs(TYP_I_IMPL) && varDsc->TypeIs(TYP_BYREF)) ||
+                         (tree->TypeIs(TYP_INT) && varDsc->TypeIs(TYP_LONG) && (tree->gtFlags & GTF_VAR_DEF) == 0));
         }
     };
 
