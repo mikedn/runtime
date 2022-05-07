@@ -167,7 +167,7 @@ void Compiler::optAddCopies()
         // We must have a ref in a block that is dominated only by the entry block
         //
 
-        if (BlockSetOps::MayBeUninit(varDsc->lvRefBlks))
+        if (BlockSetOps::MayBeUninit(varDsc->lvUseBlocks))
         {
             // No references
             continue;
@@ -175,7 +175,7 @@ void Compiler::optAddCopies()
 
         bool isDominatedByFirstBB = false;
 
-        BlockSetOps::Iter iter(this, varDsc->lvRefBlks);
+        BlockSetOps::Iter iter(this, varDsc->lvUseBlocks);
         unsigned          bbNum = 0;
         while (iter.NextElem(&bbNum))
         {
@@ -423,7 +423,7 @@ void Compiler::optAddCopies()
             {
                 printf("        Insert copy at the %s of " FMT_BB "\n",
                        (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                        BlockSetOps::IsMember(this, varDsc->lvRefBlks, bestBlock->bbNum))
+                        BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
                            ? "start"
                            : "end",
                        bestBlock->bbNum);
@@ -431,7 +431,7 @@ void Compiler::optAddCopies()
 #endif
 
             if (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                BlockSetOps::IsMember(this, varDsc->lvRefBlks, bestBlock->bbNum))
+                BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
             {
                 stmt = fgNewStmtAtBeg(bestBlock, copyAsgn);
             }

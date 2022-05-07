@@ -342,9 +342,6 @@ public:
         // It is expected that the memory allocated for LclVarDsc is already zeroed.
         assert(lvType == TYP_UNDEF);
         assert(lvClassHnd == NO_CLASS_HANDLE);
-#if ASSERTION_PROP
-        assert(lvRefBlks == BlockSetOps::UninitVal());
-#endif
     }
 
     var_types lvType;
@@ -868,8 +865,8 @@ private:
 
 public:
 #if ASSERTION_PROP
-    BlockSet   lvRefBlks; // Set of blocks that contain refs
-    Statement* lvDefStmt; // Pointer to the statement with the single definition
+    BlockSet   lvUseBlocks; // Set of blocks that contain uses
+    Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
     var_types GetType() const
     {

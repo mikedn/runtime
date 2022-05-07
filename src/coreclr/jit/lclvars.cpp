@@ -2903,12 +2903,12 @@ void Compiler::lvaComputeRefCountsHIR()
                 }
                 else
                 {
-                    if (BlockSetOps::MayBeUninit(lcl->lvRefBlks))
+                    if (BlockSetOps::MayBeUninit(lcl->lvUseBlocks))
                     {
-                        lcl->lvRefBlks = BlockSetOps::MakeEmpty(m_compiler);
+                        lcl->lvUseBlocks = BlockSetOps::MakeEmpty(m_compiler);
                     }
 
-                    BlockSetOps::AddElemD(m_compiler, lcl->lvRefBlks, m_block->bbNum);
+                    BlockSetOps::AddElemD(m_compiler, lcl->lvUseBlocks, m_block->bbNum);
                 }
             }
 #endif // ASSERTION_PROP
