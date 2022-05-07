@@ -1230,7 +1230,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     blockRange.Delete(this, block, node);
 
-                    if (lcl->lvTracked && !opts.MinOpts())
+                    if (lcl->lvTracked)
                     {
                         fgStmtRemoved = true;
                     }
