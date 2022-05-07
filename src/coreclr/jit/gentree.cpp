@@ -7954,6 +7954,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
         node->HasLastUse())
     {
         printf("%slast-use", prefix);
+        prefix = ", ";
     }
 
     if (lcl->lvRegister)
