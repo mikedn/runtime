@@ -1552,7 +1552,7 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
         {
             noway_assert(lvaTable[i].lvIsStructField);
             lvaTable[i].lvLiveInOutOfHndlr = 1;
-            // For now, only enregister an EH Var if it is a single def and whose refCnt > 1.
+            // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
             if (!lvaEnregEHVars || !lvaTable[i].lvSingleDefRegCandidate || lvaTable[i].lvRefCnt() <= 1)
             {
                 lvaSetVarDoNotEnregister(i DEBUGARG(DNER_LiveInOutOfHandler));
@@ -1560,7 +1560,7 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
         }
     }
 
-    // For now, only enregister an EH Var if it is a single def and whose refCnt > 1.
+    // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
     if (!lvaEnregEHVars || !varDsc->lvSingleDefRegCandidate || varDsc->lvRefCnt() <= 1)
     {
         lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LiveInOutOfHandler));
@@ -2694,79 +2694,59 @@ var_types LclVarDsc::GetActualRegisterType() const
 void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, bool propagate)
 {
     assert(comp->opts.OptimizationEnabled());
+    assert(comp->lvaRefCountState == RCS_NORMAL);
 
-    // Increment counts on the local itself.
-    if ((lvType != TYP_STRUCT) || !IsIndependentPromoted())
+    if (!TypeIs(TYP_STRUCT) || !IsIndependentPromoted())
     {
-        // We increment ref counts of this local for primitive types, including structs that have been retyped as their
-        // only field, as well as for structs whose fields are not independently promoted.
+        uint16_t refCount = lvRefCnt();
 
-        //
-        // Increment lvRefCnt
-        //
-        int newRefCnt = lvRefCnt(RCS_NORMAL) + 1;
-        if (newRefCnt == (unsigned short)newRefCnt) // lvRefCnt is an "unsigned short". Don't overflow it.
+        if (refCount != UINT16_MAX)
         {
-            setLvRefCnt((unsigned short)newRefCnt, RCS_NORMAL);
+            setLvRefCnt(static_cast<uint16_t>(refCount + 1));
         }
 
-        //
-        // Increment lvRefCntWtd
-        //
         if (weight != 0)
         {
             // We double the weight of internal temps
-
             bool doubleWeight = lvIsTemp;
-
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
             // and, for the time being, implicit byref params
             doubleWeight |= lvIsImplicitByRef;
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#endif
 
             if (doubleWeight && (weight * 2 > weight))
             {
                 weight *= 2;
             }
 
-            BasicBlock::weight_t newWeight = lvRefCntWtd(RCS_NORMAL) + weight;
-            assert(newWeight >= lvRefCntWtd(RCS_NORMAL));
-            setLvRefCntWtd(newWeight, RCS_NORMAL);
+            BasicBlock::weight_t newWeight = lvRefCntWtd() + weight;
+            assert(newWeight >= lvRefCntWtd());
+            setLvRefCntWtd(newWeight);
         }
     }
 
-    if (varTypeIsStruct(lvType) && propagate)
+    if (propagate)
     {
-        // For promoted struct locals, increment lvRefCnt on its field locals as well.
-        if (lvPromoted)
+        if (IsPromotedField())
         {
-            for (unsigned i = lvFieldLclStart; i < lvFieldLclStart + lvFieldCnt; ++i)
+            LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
+
+            if (parentLcl->IsDependentPromoted())
             {
-                comp->lvaTable[i].incRefCnts(weight, comp, false); // Don't propagate
+                parentLcl->incRefCnts(weight, comp, false);
+            }
+        }
+        else if (IsPromoted() && varTypeIsStruct(GetType()))
+        {
+            for (unsigned i = 0; i < GetPromotedFieldCount(); ++i)
+            {
+                comp->lvaGetDesc(GetPromotedFieldLclNum(i))->incRefCnts(weight, comp, false);
             }
         }
     }
 
-    if (lvIsStructField && propagate)
-    {
-        LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
-
-        // Depending on the promotion type, increment the ref count for the parent struct as well.
-        if (parentLcl->IsDependentPromoted())
-        {
-            parentLcl->incRefCnts(weight, comp, false); // Don't propagate
-        }
-    }
-
-#ifdef DEBUG
-    if (comp->verbose)
-    {
-        unsigned varNum = (unsigned)(this - comp->lvaTable);
-        assert(&comp->lvaTable[varNum] == this);
-        printf("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", varNum, lvRefCnt(RCS_NORMAL),
-               refCntWtd2str(lvRefCntWtd(RCS_NORMAL)));
-    }
-#endif
+    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", static_cast<unsigned>(this - comp->lvaTable),
+            lvRefCnt(), refCntWtd2str(lvRefCntWtd()));
 }
 
 //------------------------------------------------------------------------
