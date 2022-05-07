@@ -3101,16 +3101,6 @@ void Compiler::lvaComputeRefCountsLIR()
 
 void Compiler::lvaMarkLocalVars()
 {
-    // If we have direct pinvokes, verify the frame list root local was set up properly
-    if (compMethodRequiresPInvokeFrame())
-    {
-        assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-        if (!opts.ShouldUsePInvokeHelpers())
-        {
-            noway_assert(info.compLvFrameListRoot >= info.compLocalsCount && info.compLvFrameListRoot < lvaCount);
-        }
-    }
-
 #if !defined(FEATURE_EH_FUNCLETS)
 
     // Grab space for exception handling
