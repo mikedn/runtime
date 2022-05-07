@@ -6047,6 +6047,12 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         printf(";  ");
         gtDispLclVar(lclNum);
 
+        if (lvaRefCountState != RCS_INVALID)
+        {
+            printf(" (%3u,%*s)", varDsc->lvRefCnt(lvaRefCountState), (int)refCntWtdWidth,
+                   refCntWtd2str(varDsc->lvRefCntWtd()));
+        }
+
         printf(" %7s ", varTypeName(type));
         gtDispLclVarStructType(lclNum);
     }
@@ -6306,11 +6312,11 @@ void Compiler::lvaTableDump(FrameLayoutState curState)
 
     size_t refCntWtdWidth = 6; // Use 6 as the minimum width
 
-    if (curState != INITIAL_FRAME_LAYOUT) // don't need this info for INITIAL_FRAME_LAYOUT
+    if (lvaRefCountState != RCS_INVALID)
     {
         for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
         {
-            size_t width = strlen(refCntWtd2str(varDsc->lvRefCntWtd()));
+            size_t width = strlen(refCntWtd2str(varDsc->lvRefCntWtd(lvaRefCountState)));
             if (width > refCntWtdWidth)
             {
                 refCntWtdWidth = width;
