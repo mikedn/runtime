@@ -4906,7 +4906,7 @@ PhaseStatus Lowering::DoPhase()
 
     if (comp->opts.OptimizationDisabled())
     {
-        INDEBUG(comp->lvaCheckZeroRefCountsLIR());
+        INDEBUG(CheckAllLocalsImplicitlyReferenced());
         assert(!m_lsra->willEnregisterLocalVars());
 
         comp->fgLocalVarLivenessAlwaysLive();
@@ -4948,6 +4948,30 @@ PhaseStatus Lowering::DoPhase()
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
+
+#ifdef DEBUG
+void Lowering::CheckAllLocalsImplicitlyReferenced()
+{
+    for (unsigned lclNum = 0; lclNum < comp->lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+
+        assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
+
+        if (comp->lvaIsX86VarargsStackParam(lclNum))
+        {
+            assert(lcl->lvRefCnt() == 0);
+        }
+        else
+        {
+            // lvaGrabTemp should automatically set lvImplicitlyReferenced after lvaMarkLocalVars phase.
+            assert(lcl->lvImplicitlyReferenced);
+        }
+
+        assert(!lcl->lvTracked);
+    }
+}
+#endif // DEBUG
 
 void Lowering::MarkRegParamsImplicitlyReferenced()
 {

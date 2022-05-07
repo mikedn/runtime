@@ -410,6 +410,7 @@ private:
         }
     }
 
+    INDEBUG(void CheckAllLocalsImplicitlyReferenced();)
     void MarkRegParamsImplicitlyReferenced();
 };
 
