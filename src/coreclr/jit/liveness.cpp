@@ -91,37 +91,6 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
     }
 }
 
-void Compiler::fgLocalVarLivenessAlwaysLive()
-{
-    assert(compRationalIRForm);
-
-    // TODO-MIKE-Review: Check if this is really needed in minopts.
-    fgLocalVarLivenessInit();
-
-    for (BasicBlock* const block : Blocks())
-    {
-        // We don't need these in LIR.
-        block->bbVarUse = VarSetOps::UninitVal();
-        block->bbVarDef = VarSetOps::UninitVal();
-
-        block->bbLiveIn = VarSetOps::MakeFull(this);
-
-        switch (block->bbJumpKind)
-        {
-            case BBJ_EHFINALLYRET:
-            case BBJ_THROW:
-            case BBJ_RETURN:
-                block->bbLiveOut = VarSetOps::MakeEmpty(this);
-                break;
-            default:
-                block->bbLiveOut = VarSetOps::MakeFull(this);
-                break;
-        }
-    }
-
-    fgLocalVarLivenessDone = true;
-}
-
 void Compiler::fgLocalVarLivenessUntracked()
 {
     assert(lvaTrackedCount == 0);

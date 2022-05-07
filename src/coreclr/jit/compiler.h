@@ -3803,7 +3803,6 @@ public:
 
     void fgLocalVarLiveness();
     void fgLocalVarLivenessUntracked();
-    void fgLocalVarLivenessAlwaysLive();
     void livInitNewBlock(BasicBlock* block);
     void fgLocalVarLivenessInit();
 

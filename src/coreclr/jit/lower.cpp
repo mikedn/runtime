@@ -4915,15 +4915,10 @@ PhaseStatus Lowering::DoPhase()
         INDEBUG(CheckAllLocalsImplicitlyReferenced());
         DBEXEC(comp->verbose, comp->lvaTableDump());
     }
-    else if (!comp->compEnregLocals())
-    {
-        comp->fgUpdateFlowGraph();
-        comp->lvaComputeRefCounts();
-        comp->lvaMarkLivenessTrackedLocals();
-        comp->fgLocalVarLivenessAlwaysLive();
-    }
     else
     {
+        assert(comp->compEnregLocals());
+
         DBEXEC(comp->verbose, comp->lvaTableDump());
 
         comp->lvaComputeRefCounts();
