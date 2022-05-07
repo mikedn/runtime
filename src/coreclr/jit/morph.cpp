@@ -566,7 +566,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 // Try to narrow the operand of the cast and discard the cast
                 // Note: Do not narrow a cast that is marked as a CSE
                 // And do not narrow if the oper is marked as a CSE either
-                if (!cast->gtOverflow() && !gtIsActiveCSE_Candidate(src) && ((opts.compFlags & CLFLG_TREETRANS) != 0) &&
+                if (!cast->gtOverflow() && !gtIsActiveCSE_Candidate(src) && opts.OptEnabled(CLFLG_TREETRANS) &&
                     optNarrowTree(src, srcType, dstType, cast->gtVNPair, false))
                 {
                     optNarrowTree(src, srcType, dstType, cast->gtVNPair, true);
@@ -11855,16 +11855,10 @@ DONE_MORPHING_CHILDREN:
         }
     }
 
-    /*-------------------------------------------------------------------------
-     * Optional morphing is done if tree transformations is permitted
-     */
-
-    if ((opts.compFlags & CLFLG_TREETRANS) == 0)
+    if (opts.OptEnabled(CLFLG_TREETRANS))
     {
-        return tree;
+        tree = fgMorphSmpOpOptional(tree->AsOp());
     }
-
-    tree = fgMorphSmpOpOptional(tree->AsOp());
 
     return tree;
 }

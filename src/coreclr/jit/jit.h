@@ -635,22 +635,17 @@ private:
 #define FEATURE_LOOP_ALIGN 0
 #endif
 
-#define CLFLG_CSE 0x00004
-#define CLFLG_REGVAR 0x00008
-#define CLFLG_RNGCHKOPT 0x00010
-#define CLFLG_DEADASGN 0x00020
-#define CLFLG_CODEMOTION 0x00040
-#define CLFLG_QMARK 0x00080
-#define CLFLG_TREETRANS 0x00100
-#define CLFLG_INLINING 0x00200
-#define CLFLG_STRUCTPROMOTE 0x00400
-#define CLFLG_CONSTANTFOLD 0x00800
+enum OptFlags : unsigned
+{
+    CLFLG_REGVAR        = 0x01,
+    CLFLG_TREETRANS     = 0x02,
+    CLFLG_INLINING      = 0x04,
+    CLFLG_STRUCTPROMOTE = 0x08,
+    CLFLG_CONSTANTFOLD  = 0x10,
 
-#define CLFLG_MAXOPT                                                                                                   \
-    (CLFLG_CSE | CLFLG_REGVAR | CLFLG_RNGCHKOPT | CLFLG_DEADASGN | CLFLG_CODEMOTION | CLFLG_QMARK | CLFLG_TREETRANS |  \
-     CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD)
-
-#define CLFLG_MINOPT (CLFLG_TREETRANS)
+    CLFLG_MINOPT = CLFLG_TREETRANS,
+    CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_TREETRANS | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
+};
 
 /*****************************************************************************/
 

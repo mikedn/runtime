@@ -1568,7 +1568,7 @@ void CodeGen::genGenerateMachineCode()
             printf("; OSR variant for entry point 0x%x\n", compiler->info.compILEntry);
         }
 
-        if ((compiler->opts.compFlags & CLFLG_MAXOPT) == CLFLG_MAXOPT)
+        if ((compiler->opts.optFlags & CLFLG_MAXOPT) == CLFLG_MAXOPT)
         {
             printf("; optimized code\n");
         }

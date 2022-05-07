@@ -1539,19 +1539,19 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS));
     }
 
-    opts.jitFlags  = jitFlags;
-    opts.compFlags = CLFLG_MAXOPT; // Default value is for full optimization
+    opts.jitFlags = jitFlags;
+    opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization
 
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE) || jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) ||
         jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
     {
-        opts.compFlags = CLFLG_MINOPT;
+        opts.optFlags = CLFLG_MINOPT;
     }
     // Don't optimize .cctors (except prejit) or if we're an inlinee
     else if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR) &&
              !compIsForInlining())
     {
-        opts.compFlags = CLFLG_MINOPT;
+        opts.optFlags = CLFLG_MINOPT;
     }
 
     // Default value is to generate a blend of size and speed optimizations
@@ -2688,7 +2688,7 @@ void Compiler::compSetOptimizationLevel()
 
     theMinOptsValue = false;
 
-    if (opts.compFlags == CLFLG_MINOPT)
+    if (opts.optFlags == CLFLG_MINOPT)
     {
         JITLOG((LL_INFO100, "CLFLG_MINOPT set for method %s\n", info.compFullName));
         theMinOptsValue = true;
@@ -2914,12 +2914,9 @@ _SetMinOpts:
     }
 #endif
 
-    /* Control the optimizations */
-
     if (opts.OptimizationDisabled())
     {
-        opts.compFlags &= ~CLFLG_MAXOPT;
-        opts.compFlags |= CLFLG_MINOPT;
+        opts.optFlags = static_cast<OptFlags>((opts.optFlags & ~CLFLG_MAXOPT) | CLFLG_MINOPT);
     }
 
     if (!compIsForInlining())

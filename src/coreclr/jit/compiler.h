@@ -7136,7 +7136,7 @@ public:
             compSupportsISA = isas.GetFlagsRaw();
         }
 
-        unsigned compFlags; // method attributes
+        OptFlags optFlags;
         unsigned instrCount;
         unsigned lvRefCount;
 
@@ -7198,10 +7198,9 @@ public:
             compMinOptsIsSet = true;
         }
 
-        // true if the CLFLG_* for an optimization is set.
-        bool OptEnabled(unsigned optFlag)
+        bool OptEnabled(OptFlags optFlag)
         {
-            return !!(compFlags & optFlag);
+            return (optFlags & optFlag) != 0;
         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -7740,7 +7739,7 @@ public:
 
     bool compEnregLocals()
     {
-        return ((opts.compFlags & CLFLG_REGVAR) != 0);
+        return opts.OptEnabled(CLFLG_REGVAR);
     }
 
     bool compEnregStructLocals()
