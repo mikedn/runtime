@@ -2885,24 +2885,18 @@ void Compiler::lvaComputeRefCountsHIR()
             {
                 if ((node->gtFlags & GTF_VAR_DEF) != 0)
                 {
-                    // If we have one of these cases:
-                    //   1. We have already seen a definition (i.e lvSingleDef is true)
-                    //   2. info.CompInitMem is true (thus this would be the second definition)
-                    //
-                    // Then we must disqualify this variable for use in optAddCopies()
-                    //
-                    // Note that all parameters start out with lvSingleDef set to true.
-
                     // TODO-MIKE-Consider: "single def" doesn't apply to address exposed locals.
                     // There's a pretty good chance that a local that's not AX will be in SSA,
                     // can we simply check the SSA def count instead?
 
-                    if (lcl->lvSingleDef || m_compiler->info.compInitMem)
+                    if (lcl->lvSingleDef)
                     {
+                        // It's already single-def so this must be a second def.
                         DisqualifyAddCopy(lcl);
                     }
                     else
                     {
+                        // It's neither single-def nor disqualified, this must be the first def.
                         lcl->lvSingleDef = true;
                         lcl->lvDefStmt   = m_stmt;
                     }
@@ -3210,7 +3204,7 @@ void Compiler::lvaComputeLclRefCounts()
         // cloning/unrolling could do that, but it looks like this loop defs aren't candidates.
         if (!compRationalIRForm)
         {
-            lcl->lvSingleDef             = lcl->IsParam();
+            lcl->lvSingleDef             = lcl->IsParam() || info.compInitMem;
             lcl->lvSingleDefRegCandidate = lcl->IsParam();
         }
     }
