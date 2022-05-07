@@ -1177,46 +1177,18 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
     LIR::Range& blockRange = LIR::AsRange(block);
     GenTree*    firstNode  = blockRange.FirstNode();
+
     if (firstNode == nullptr)
     {
         return;
     }
-    for (GenTree *node = blockRange.LastNode(), *next = nullptr, *end = firstNode->gtPrev; node != end; node = next)
+
+    for (GenTree *node = blockRange.LastNode(), *next, *end = firstNode->gtPrev; node != end; node = next)
     {
         next = node->gtPrev;
 
         switch (node->OperGet())
         {
-            case GT_CALL:
-            {
-                GenTreeCall* const call = node->AsCall();
-                if (((call->TypeGet() == TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(this))
-                {
-                    JITDUMP("Removing dead call:\n");
-                    DISPNODE(call);
-
-                    node->VisitOperands([](GenTree* operand) {
-                        if (operand->IsValue())
-                        {
-                            operand->SetUnusedValue();
-                        }
-
-                        // Special-case PUTARG_STK: since this operator is not considered a value, DCE will not remove
-                        // these nodes.
-                        if (operand->OperIs(GT_PUTARG_STK))
-                        {
-                            operand->AsPutArgStk()->gtOp1->SetUnusedValue();
-                            operand->ChangeToNothingNode();
-                        }
-
-                        return GenTree::VisitResult::Continue;
-                    });
-
-                    blockRange.Remove(node);
-                }
-                break;
-            }
-
             case GT_LCL_VAR:
             case GT_LCL_FLD:
             {
@@ -1299,52 +1271,35 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 }
                 break;
 
-            case GT_LOCKADD:
-            case GT_XORR:
-            case GT_XAND:
-            case GT_XADD:
-            case GT_XCHG:
-            case GT_CMPXCHG:
-            case GT_MEMORYBARRIER:
-            case GT_JMP:
-            case GT_STOREIND:
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif
-            case GT_STORE_OBJ:
-            case GT_STORE_BLK:
-            case GT_COPY_BLK:
-            case GT_INIT_BLK:
-            case GT_JCMP:
-            case GT_CMP:
-            case GT_JCC:
-            case GT_JTRUE:
-            case GT_RETURN:
-            case GT_SWITCH:
-            case GT_RETFILT:
-            case GT_START_NONGC:
-            case GT_START_PREEMPTGC:
-            case GT_PROF_HOOK:
-#if !defined(FEATURE_EH_FUNCLETS)
-            case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
-            case GT_SWITCH_TABLE:
-            case GT_PINVOKE_PROLOG:
-            case GT_PINVOKE_EPILOG:
-            case GT_RETURNTRAP:
-            case GT_PUTARG_STK:
-            case GT_IL_OFFSET:
-            case GT_KEEPALIVE:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-#endif // FEATURE_HW_INTRINSICS
-                // Never remove these nodes, as they are always side-effecting.
-                //
-                // NOTE: the only side-effect of some of these nodes (GT_CMP, GT_SUB_HI) is a write to the flags
-                // register.
-                // Properly modeling this would allow these nodes to be removed.
+            case GT_CALL:
+            {
+                GenTreeCall* const call = node->AsCall();
+                if ((call->TypeIs(TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(this))
+                {
+                    JITDUMP("Removing dead call:\n");
+                    DISPNODE(call);
+
+                    node->VisitOperands([](GenTree* operand) {
+                        if (operand->IsValue())
+                        {
+                            operand->SetUnusedValue();
+                        }
+
+                        // Special-case PUTARG_STK: since this operator is not considered a value,
+                        // DCE will not remove these nodes.
+                        if (operand->OperIs(GT_PUTARG_STK))
+                        {
+                            operand->AsPutArgStk()->GetOp(0)->SetUnusedValue();
+                            operand->ChangeToNothingNode();
+                        }
+
+                        return GenTree::VisitResult::Continue;
+                    });
+
+                    blockRange.Remove(node);
+                }
                 break;
+            }
 
             case GT_BLK:
             case GT_OBJ:
@@ -1364,9 +1319,60 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 }
                 break;
 
+            case GT_LOCKADD:
+            case GT_XORR:
+            case GT_XAND:
+            case GT_XADD:
+            case GT_XCHG:
+            case GT_CMPXCHG:
+            case GT_MEMORYBARRIER:
+            case GT_STOREIND:
+            case GT_STORE_OBJ:
+            case GT_STORE_BLK:
+            case GT_COPY_BLK:
+            case GT_INIT_BLK:
+            case GT_JMP:
+            case GT_JCMP:
+            case GT_CMP:
+            case GT_JCC:
+            case GT_JTRUE:
+            case GT_RETURN:
+            case GT_SWITCH:
+            case GT_RETFILT:
+            case GT_START_NONGC:
+            case GT_START_PREEMPTGC:
+            case GT_PROF_HOOK:
+#ifndef FEATURE_EH_FUNCLETS
+            case GT_END_LFIN:
+#endif
+            case GT_SWITCH_TABLE:
+            case GT_PINVOKE_PROLOG:
+            case GT_PINVOKE_EPILOG:
+            case GT_RETURNTRAP:
+            case GT_PUTARG_STK:
+            case GT_IL_OFFSET:
+            case GT_KEEPALIVE:
+            case GT_ARR_BOUNDS_CHECK:
+#ifdef FEATURE_HW_INTRINSICS
+            case GT_HW_INTRINSIC_CHK:
+            case GT_HWINTRINSIC:
+#endif
+                // These nodes cannot be removed, some always have side effects, some are flow
+                // control related and can only be removed by flowgraph updates, some just have
+                // special meaning, like IL_OFFSET.
+                //
+                // TODO-MIKE-Review: Can we get rid of all this and just use the default case
+                // that checks for all sorts of things anyway? Though as is now it will happily
+                // remove a JTRUE. One way or another this looks rather bug prone. It would be
+                // better to have a list of nodes that can be removed so if we miss something
+                // we don't accidentally remove needed stuff.
+                break;
+
             case GT_NOP:
-                // NOTE: we need to keep some NOPs around because they are referenced by calls. See the dead store
-                // removal code above (case GT_STORE_LCL_VAR) for more explanation.
+                // NOTE: we need to keep some NOPs around because they are referenced by calls.
+                // See the dead store removal code above (case GT_STORE_LCL_VAR) for more explanation.
+                //
+                // TODO-MIKE-Review: Well, there's no explanation above...
                 if ((node->gtFlags & GTF_ORDER_SIDEEFF) != 0)
                 {
                     break;
