@@ -128,8 +128,6 @@ void Compiler::fgLocalVarLivenessUntracked()
 {
     assert(lvaTrackedCount == 0);
 
-    fgLocalVarLivenessInit();
-
     for (BasicBlock* const block : Blocks())
     {
         block->bbVarUse  = VarSetOps::UninitVal();
@@ -177,13 +175,13 @@ void Compiler::fgLocalVarLiveness()
     }
 #endif // DEBUG
 
+    fgLocalVarLivenessInit();
+
     if (lvaTrackedCount == 0)
     {
         fgLocalVarLivenessUntracked();
         return;
     }
-
-    fgLocalVarLivenessInit();
 
     for (BasicBlock* const block : Blocks())
     {
