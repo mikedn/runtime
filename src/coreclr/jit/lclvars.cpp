@@ -3205,13 +3205,15 @@ void Compiler::lvaComputeLclRefCounts()
         lcl->setLvRefCnt(0);
         lcl->setLvRefCntWtd(BB_ZERO_WEIGHT);
 
-        // TODO-MIKE-Review: Check why this isn't done in LIR. Transforms such as loop cloning
-        // could introduce new defs so it's not like if it was single def before LIR it's also
-        // single def in LIR.
+        // TODO-MIKE-Review: lvSingleDef isn't used in LIR so we might as well set it and be done with it.
+        // lvSingleDefRegCandidate is bizarre. It's mainly a LSRA thing yet we're computing it before LIR.
+        // It can influence DNER so computing it early may be a good thing but it's still a bit odd that
+        // it is not recomputed. Are we guaranteed that there's transform that introduces new defs? Loop
+        // cloning/unrolling could do that, but it looks like this loop defs aren't candidates.
         if (!compRationalIRForm)
         {
-            lcl->lvSingleDef             = lcl->lvIsParam;
-            lcl->lvSingleDefRegCandidate = lcl->lvIsParam;
+            lcl->lvSingleDef             = lcl->IsParam();
+            lcl->lvSingleDefRegCandidate = lcl->IsParam();
         }
     }
 
