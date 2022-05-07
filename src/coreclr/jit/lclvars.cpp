@@ -3172,7 +3172,7 @@ void Compiler::lvaMarkLocalVars()
         return;
     }
 
-    lvaComputeRefCounts();
+    lvaComputeLclRefCounts();
 
     const bool reportParamTypeArg = lvaReportParamTypeArg();
 
@@ -3236,49 +3236,37 @@ void Compiler::lvaMarkImplictlyReferenced()
     }
 }
 
-//------------------------------------------------------------------------
-// lvaComputeRefCounts: compute ref counts for locals
-//
-// Notes:
-//    Some implicit references are given actual counts or weight bumps here
-//    to match pre-existing behavior.
-//
-//    When optimizing we also recompute lvaGenericsContextInUse based
-//    on specially flagged LCL_VAR appearances.
-//
-void Compiler::lvaComputeRefCounts()
+void Compiler::lvaComputeLclRefCounts()
 {
-    JITDUMP("\n*** lvaComputeRefCounts ***\n");
+    JITDUMP("\n*** lvaComputeLclRefCounts ***\n");
 
     assert(opts.OptimizationEnabled());
 
     // First, reset all explicit ref counts and weights.
+
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        varDsc->setLvRefCnt(0);
-        varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
+        lcl->setLvRefCnt(0);
+        lcl->setLvRefCntWtd(BB_ZERO_WEIGHT);
 
-        // Set initial value for lvSingleDef for explicit and implicit
-        // argument locals as they are "defined" on entry.
-        // However, if we are just recomputing the ref counts in LIR, retain the value
-        // that was set by past phases.
+        // TODO-MIKE-Review: Check why this isn't done in LIR. Transforms such as loop cloning
+        // could introduce new defs so it's not like if it was single def before LIR it's also
+        // single def in LIR.
         if (!compRationalIRForm)
         {
-            varDsc->lvSingleDef             = varDsc->lvIsParam;
-            varDsc->lvSingleDefRegCandidate = varDsc->lvIsParam;
+            lcl->lvSingleDef             = lcl->lvIsParam;
+            lcl->lvSingleDefRegCandidate = lcl->lvIsParam;
         }
     }
 
-    // Remember current state of generic context use, and prepare
-    // to compute new state.
-    const bool oldLvaGenericsContextInUse = lvaGenericsContextInUse;
-    lvaGenericsContextInUse               = false;
+    // Second, count all explicit local variable references. This will also set
+    // lvaGenericsContextInUse again if the generics context is still used.
 
-    JITDUMP("\n*** lvaComputeRefCounts -- explicit counts ***\n");
+    INDEBUG(const bool oldGenericsContextInUse = lvaGenericsContextInUse);
+    lvaGenericsContextInUse = false;
 
-    // Second, account for all explicit local variable references
     if (compRationalIRForm)
     {
         lvaComputeRefCountsLIR();
@@ -3288,56 +3276,49 @@ void Compiler::lvaComputeRefCounts()
         lvaComputeRefCountsHIR();
     }
 
-    if (oldLvaGenericsContextInUse && !lvaGenericsContextInUse)
+#ifdef DEBUG
+    if (oldGenericsContextInUse && !lvaGenericsContextInUse)
     {
-        // Context was in use but no longer is. This can happen
-        // if we're able to optimize, so just leave a note.
         JITDUMP("\n** Generics context no longer in use\n");
     }
-    else if (lvaGenericsContextInUse && !oldLvaGenericsContextInUse)
+    else if (lvaGenericsContextInUse && !oldGenericsContextInUse)
     {
-        // Context was not in use but now is.
-        //
-        // Changing from unused->used should never happen; creation of any new IR
-        // for context use should also be settting lvaGenericsContextInUse.
-        assert(!"unexpected new use of generics context");
+        assert(!"New generic context use pulled ouf of a hat");
     }
-
-    JITDUMP("\n*** lvaComputeRefCounts -- implicit counts ***\n");
+#endif
 
     // Third, bump ref counts for some implicit prolog references
+
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        // Todo: review justification for these count bumps.
-        if (varDsc->lvIsRegArg)
+        // TODO-MIKE-Review: It seems like nobody knows why is this done...
+        if (lcl->IsRegParam())
         {
-            if ((lclNum < info.compArgsCount) && (varDsc->lvRefCnt() > 0))
+            if ((lclNum < info.compArgsCount) && (lcl->lvRefCnt() > 0))
             {
-                // Fix 388376 ARM JitStress WP7
-                varDsc->incRefCnts(BB_UNITY_WEIGHT, this);
-                varDsc->incRefCnts(BB_UNITY_WEIGHT, this);
+                lcl->incRefCnts(BB_UNITY_WEIGHT, this);
+                lcl->incRefCnts(BB_UNITY_WEIGHT, this);
             }
 
-            // Ref count bump that was in lvaPromoteStructVar
-            //
-            // This was formerly done during RCS_MORPH counting,
-            // and we did not used to reset counts like we do now.
-            if (varDsc->lvIsStructField)
+            if (lcl->IsPromotedField())
             {
-                varDsc->incRefCnts(BB_UNITY_WEIGHT, this);
+                lcl->incRefCnts(BB_UNITY_WEIGHT, this);
             }
         }
 
-        // If we have JMP, all arguments must have a location even if we don't use them
-        // inside the method. Except when we have varargs and the argument is passed on
-        // the stack. In that case, it's important for the ref count to be zero, so that
-        // we don't attempt to track them for GC info (which is not possible since we
-        // don't know their offset in the stack). See the assert at the end of raMarkStkVars.
-        if (compJmpOpUsed && varDsc->IsParam() && (varDsc->lvRefCnt() == 0) && !lvaIsX86VarargsStackParam(lclNum))
+        if (compJmpOpUsed && lcl->IsParam())
         {
-            varDsc->lvImplicitlyReferenced = 1;
+            // If we have JMP, all parameters must have a location even if we don't use them
+            // inside the method. Except when we have varargs and the argument is passed on
+            // the stack. In that case, it's important for the ref count to be zero, so that
+            // we don't attempt to track them for GC info (which is not possible since we
+            // don't know their offset in the stack). See the assert at the end of raMarkStkVars.
+            if ((lcl->lvRefCnt() == 0) && !lvaIsX86VarargsStackParam(lclNum))
+            {
+                lcl->lvImplicitlyReferenced = 1;
+            }
         }
     }
 }

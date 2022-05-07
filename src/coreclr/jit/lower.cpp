@@ -4921,7 +4921,7 @@ PhaseStatus Lowering::DoPhase()
 
         DBEXEC(comp->verbose, comp->lvaTableDump());
 
-        comp->lvaComputeRefCounts();
+        comp->lvaComputeLclRefCounts();
         comp->lvaMarkLivenessTrackedLocals();
         comp->fgLocalVarLiveness();
 
@@ -4939,7 +4939,7 @@ PhaseStatus Lowering::DoPhase()
         // Recompute local var ref counts again after liveness to reflect
         // impact of any dead code removal. Note this may leave us with
         // tracked vars that have zero refs.
-        comp->lvaComputeRefCounts();
+        comp->lvaComputeLclRefCounts();
 
         DBEXEC(comp->verbose, comp->lvaTableDump());
     }

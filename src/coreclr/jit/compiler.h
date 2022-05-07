@@ -2665,7 +2665,7 @@ public:
 
     void lvaMarkLocalVars(); // Local variable ref-counting
     void lvaMarkImplictlyReferenced();
-    void lvaComputeRefCounts();
+    void lvaComputeLclRefCounts();
     void lvaComputeRefCountsHIR();
     void lvaComputeRefCountsLIR();
 
