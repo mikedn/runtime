@@ -2951,7 +2951,7 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
             bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
             bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
             // TODO: Zero-inits in LSRA are created with below condition. Try to use similar condition here as well.
-            // if (compiler->info.compInitMem || varTypeIsGC(varDsc->TypeGet()))
+            // if (compiler->info.compInitMem || varTypeIsGC(lcl->TypeGet()))
             bool needsExplicitZeroInit = fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
 
             // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
@@ -3059,43 +3059,50 @@ void Compiler::lvaComputeRefCountsLIR()
 
         for (GenTree* node : LIR::AsRange(block))
         {
+            auto       refWeight = weight;
+            LclVarDsc* lcl       = nullptr;
+
             switch (node->GetOper())
             {
                 case GT_LCL_VAR_ADDR:
                 case GT_LCL_FLD_ADDR:
-                    lvaGetDesc(node->AsLclVarCommon())->incRefCnts(0, this);
+                    refWeight = 0;
+                    lcl       = lvaGetDesc(node->AsLclVarCommon());
                     break;
 
                 case GT_LCL_VAR:
                 case GT_LCL_FLD:
-                case GT_STORE_LCL_VAR:
-                case GT_STORE_LCL_FLD:
-                {
-                    LclVarDsc* varDsc = lvaGetDesc(node->AsLclVarCommon());
-                    // If this is an EH var, use a zero weight for defs, so that we don't
-                    // count those in our heuristic for register allocation, since they always
-                    // must be stored, so there's no value in enregistering them at defs; only
-                    // if there are enough uses to justify it.
-                    if (varDsc->lvLiveInOutOfHndlr && !varDsc->lvDoNotEnregister &&
-                        ((node->gtFlags & GTF_VAR_DEF) != 0))
-                    {
-                        varDsc->incRefCnts(0, this);
-                    }
-                    else
-                    {
-                        varDsc->incRefCnts(weight, this);
-                    }
-
                     if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
                     {
                         assert(node->OperIs(GT_LCL_VAR));
                         lvaGenericsContextInUse = true;
                     }
+
+                    lcl = lvaGetDesc(node->AsLclVarCommon());
                     break;
-                }
+
+                case GT_STORE_LCL_VAR:
+                case GT_STORE_LCL_FLD:
+                    assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
+                    lcl = lvaGetDesc(node->AsLclVarCommon());
+
+                    // If this is an EH var, use a zero weight for defs, so that we don't
+                    // count those in our heuristic for register allocation, since they always
+                    // must be stored, so there's no value in enregistering them at defs; only
+                    // if there are enough uses to justify it.
+                    if (lcl->lvLiveInOutOfHndlr && !lcl->lvDoNotEnregister)
+                    {
+                        refWeight = 0;
+                    }
+                    break;
 
                 default:
                     break;
+            }
+
+            if (lcl != nullptr)
+            {
+                lcl->incRefCnts(refWeight, this);
             }
         }
     }
