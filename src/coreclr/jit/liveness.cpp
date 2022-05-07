@@ -966,30 +966,6 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
 {
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    bool isDef = ((node->gtFlags & GTF_VAR_DEF) != 0);
-
-    // We have accurate ref counts when running late liveness so we can eliminate
-    // some stores if the local has a ref count of 1.
-    if (isDef && compRationalIRForm && (lcl->lvRefCnt() == 1) && !lcl->lvPinned)
-    {
-        if (lcl->IsPromotedField())
-        {
-            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
-
-            if ((parentLcl->lvRefCnt() == 1) && parentLcl->IsDependentPromoted())
-            {
-                return true;
-            }
-        }
-        else
-        {
-            if (!lcl->IsIndependentPromoted())
-            {
-                return true;
-            }
-        }
-    }
-
     if (lcl->IsAddressExposed() || !lcl->IsPromoted())
     {
         return false;
@@ -1005,6 +981,7 @@ bool Compiler::fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
                                                                : varTypeSize(lclFld->GetType()));
     }
 
+    bool isDef     = ((node->gtFlags & GTF_VAR_DEF) != 0);
     bool isLastUse = true;
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
@@ -1221,9 +1198,9 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_STORE_LCL_VAR:
             case GT_STORE_LCL_FLD:
             {
-                GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                LclVarDsc*           lcl     = lvaGetDesc(lclNode);
-                bool                 isDeadStore;
+                GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
+                LclVarDsc*           lcl         = lvaGetDesc(lclNode);
+                bool                 isDeadStore = false;
 
                 if (lcl->lvTracked)
                 {
@@ -1231,7 +1208,32 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 }
                 else
                 {
-                    isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
+                    // We have accurate ref counts when running late liveness so we can eliminate
+                    // some stores if the local has a ref count of 1.
+                    if ((lcl->lvRefCnt() == 1) && !lcl->lvPinned)
+                    {
+                        if (lcl->IsPromotedField())
+                        {
+                            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+
+                            if ((parentLcl->lvRefCnt() == 1) && parentLcl->IsDependentPromoted())
+                            {
+                                isDeadStore = true;
+                            }
+                        }
+                        else
+                        {
+                            if (!lcl->IsIndependentPromoted())
+                            {
+                                isDeadStore = true;
+                            }
+                        }
+                    }
+
+                    if (!isDeadStore)
+                    {
+                        isDeadStore = fgComputeLifeUntrackedLocal(life, keepAliveVars, lcl, lclNode);
+                    }
                 }
 
                 if (isDeadStore)
