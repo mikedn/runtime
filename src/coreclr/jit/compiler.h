@@ -943,8 +943,6 @@ public:
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
-    void incRefCnts(BasicBlock::weight_t weight, Compiler* pComp, bool propagate = true);
-
     bool IsFloatRegType() const
     {
         return varTypeUsesFloatReg(lvType) || lvIsHfaRegArg();
@@ -2654,6 +2652,7 @@ public:
     void lvaComputeLclRefCounts();
     void lvaComputeRefCountsHIR();
     void lvaComputeRefCountsLIR();
+    void lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate = true);
 
     void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
 

@@ -2848,13 +2848,13 @@ public:
                 }
                 else
                 {
-                    cseLcl->incRefCnts(curWeight, m_pCompiler);
+                    m_pCompiler->lvaAddRef(cseLcl, curWeight);
                 }
 
                 // A CSE Def references the LclVar twice
                 if (isDef)
                 {
-                    cseLcl->incRefCnts(curWeight, m_pCompiler);
+                    m_pCompiler->lvaAddRef(cseLcl, curWeight);
                 }
             }
             lst = lst->tslNext;

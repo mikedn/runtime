@@ -2629,27 +2629,27 @@ var_types LclVarDsc::GetActualRegisterType() const
     return genActualType(GetRegisterType());
 }
 
-void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, bool propagate)
+void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate)
 {
-    assert(comp->opts.OptimizationEnabled());
-    assert(comp->lvaRefCountState == RCS_NORMAL);
+    assert(opts.OptimizationEnabled());
+    assert(lvaRefCountState == RCS_NORMAL);
 
-    if (!TypeIs(TYP_STRUCT) || !IsIndependentPromoted())
+    if (!lcl->TypeIs(TYP_STRUCT) || !lcl->IsIndependentPromoted())
     {
-        uint16_t refCount = lvRefCnt();
+        uint16_t refCount = lcl->lvRefCnt();
 
         if (refCount != UINT16_MAX)
         {
-            setLvRefCnt(static_cast<uint16_t>(refCount + 1));
+            lcl->setLvRefCnt(static_cast<uint16_t>(refCount + 1));
         }
 
         if (weight != 0)
         {
             // We double the weight of internal temps
-            bool doubleWeight = lvIsTemp;
+            bool doubleWeight = lcl->lvIsTemp;
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
             // and, for the time being, implicit byref params
-            doubleWeight |= lvIsImplicitByRef;
+            doubleWeight |= lcl->lvIsImplicitByRef;
 #endif
 
             if (doubleWeight && (weight * 2 > weight))
@@ -2657,34 +2657,34 @@ void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, bool pro
                 weight *= 2;
             }
 
-            BasicBlock::weight_t newWeight = lvRefCntWtd() + weight;
-            assert(newWeight >= lvRefCntWtd());
-            setLvRefCntWtd(newWeight);
+            BasicBlock::weight_t newWeight = lcl->lvRefCntWtd() + weight;
+            assert(newWeight >= lcl->lvRefCntWtd());
+            lcl->setLvRefCntWtd(newWeight);
         }
     }
 
     if (propagate)
     {
-        if (IsPromotedField())
+        if (lcl->IsPromotedField())
         {
-            LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
+            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
             if (parentLcl->IsDependentPromoted())
             {
-                parentLcl->incRefCnts(weight, comp, false);
+                lvaAddRef(parentLcl, weight, false);
             }
         }
-        else if (IsPromoted() && varTypeIsStruct(GetType()))
+        else if (lcl->IsPromoted() && varTypeIsStruct(lcl->GetType()))
         {
-            for (unsigned i = 0; i < GetPromotedFieldCount(); ++i)
+            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
             {
-                comp->lvaGetDesc(GetPromotedFieldLclNum(i))->incRefCnts(weight, comp, false);
+                lvaAddRef(lvaGetDesc(lcl->GetPromotedFieldLclNum(i)), weight, false);
             }
         }
     }
 
-    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", static_cast<unsigned>(this - comp->lvaTable),
-            lvRefCnt(), refCntWtd2str(lvRefCntWtd()));
+    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", static_cast<unsigned>(lcl - lvaTable),
+            lcl->lvRefCnt(), refCntWtd2str(lcl->lvRefCntWtd()));
 }
 
 //------------------------------------------------------------------------
@@ -2778,7 +2778,7 @@ void Compiler::lvaComputeRefCountsHIR()
 #if ASSERTION_PROP
                     DisqualifyAddCopy(lcl);
 #endif
-                    lcl->incRefCnts(0, m_compiler);
+                    m_compiler->lvaAddRef(lcl, 0);
                 }
                 break;
 
@@ -2798,8 +2798,8 @@ void Compiler::lvaComputeRefCountsHIR()
         {
             LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->info.compLvFrameListRoot);
             // TODO-MIKE-Review: Hmm, why only 2, there are 3 uses per call...
-            lcl->incRefCnts(m_weight, m_compiler);
-            lcl->incRefCnts(m_weight, m_compiler);
+            m_compiler->lvaAddRef(lcl, m_weight);
+            m_compiler->lvaAddRef(lcl, m_weight);
         }
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
@@ -2807,7 +2807,7 @@ void Compiler::lvaComputeRefCountsHIR()
             unsigned   lclNum = node->GetLclNum();
             LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
 
-            lcl->incRefCnts(m_weight, m_compiler);
+            m_compiler->lvaAddRef(lcl, m_weight);
 
             if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD))
             {
@@ -2980,7 +2980,7 @@ void Compiler::lvaComputeRefCountsLIR()
 
             if (lcl != nullptr)
             {
-                lcl->incRefCnts(refWeight, this);
+                lvaAddRef(lcl, refWeight);
             }
         }
     }
@@ -3200,13 +3200,13 @@ void Compiler::lvaComputeLclRefCounts()
         {
             if ((lclNum < info.compArgsCount) && (lcl->lvRefCnt() > 0))
             {
-                lcl->incRefCnts(BB_UNITY_WEIGHT, this);
-                lcl->incRefCnts(BB_UNITY_WEIGHT, this);
+                lvaAddRef(lcl, BB_UNITY_WEIGHT);
+                lvaAddRef(lcl, BB_UNITY_WEIGHT);
             }
 
             if (lcl->IsPromotedField())
             {
-                lcl->incRefCnts(BB_UNITY_WEIGHT, this);
+                lvaAddRef(lcl, BB_UNITY_WEIGHT);
             }
         }
 
