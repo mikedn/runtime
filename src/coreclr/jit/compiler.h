@@ -896,8 +896,9 @@ public:
 
     void SetBlockType(unsigned size)
     {
-        lvType      = TYP_BLK;
-        lvExactSize = size;
+        lvType            = TYP_BLK;
+        lvExactSize       = size;
+        lvDoNotEnregister = true;
     }
 
     unsigned GetBlockSize() const
