@@ -1448,8 +1448,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     {
         case TYP_FLOAT:
         case TYP_DOUBLE:
-            return !compiler->opts.compDbgCode;
-
         case TYP_INT:
         case TYP_LONG:
         case TYP_REF:
