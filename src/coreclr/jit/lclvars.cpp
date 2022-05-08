@@ -1506,6 +1506,7 @@ void Compiler::lvaSetVarAddrExposed(unsigned varNum)
     LclVarDsc* varDsc = &lvaTable[varNum];
 
     varDsc->lvAddrExposed = 1;
+    lvaSetVarDoNotEnregister(varDsc DEBUGARG(DNER_AddrExposed));
 
     if (varDsc->lvPromoted)
     {
@@ -1513,13 +1514,12 @@ void Compiler::lvaSetVarAddrExposed(unsigned varNum)
 
         for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
         {
-            noway_assert(lvaTable[i].lvIsStructField);
-            lvaTable[i].lvAddrExposed = 1; // Make field local as address-exposed.
-            lvaSetVarDoNotEnregister(i DEBUGARG(DNER_AddrExposed));
+            LclVarDsc* fieldLcl = lvaGetDesc(i);
+
+            fieldLcl->lvAddrExposed = 1;
+            lvaSetVarDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
         }
     }
-
-    lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_AddrExposed));
 }
 
 //------------------------------------------------------------------------
@@ -1542,12 +1542,14 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
 
         for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
         {
-            noway_assert(lvaTable[i].lvIsStructField);
-            lvaTable[i].lvLiveInOutOfHndlr = 1;
+            LclVarDsc* fieldLcl = lvaGetDesc(i);
+
+            fieldLcl->lvLiveInOutOfHndlr = 1;
+
             // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
-            if (!lvaEnregEHVars || !lvaTable[i].lvSingleDefRegCandidate || lvaTable[i].lvRefCnt() <= 1)
+            if (!lvaEnregEHVars || !fieldLcl->lvSingleDefRegCandidate || fieldLcl->lvRefCnt() <= 1)
             {
-                lvaSetVarDoNotEnregister(i DEBUGARG(DNER_LiveInOutOfHandler));
+                lvaSetVarDoNotEnregister(fieldLcl DEBUGARG(DNER_LiveInOutOfHandler));
             }
         }
     }
@@ -1555,7 +1557,7 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
     // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
     if (!lvaEnregEHVars || !varDsc->lvSingleDefRegCandidate || varDsc->lvRefCnt() <= 1)
     {
-        lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LiveInOutOfHandler));
+        lvaSetVarDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
     }
 #ifdef JIT32_GCENCODER
     else if (lvaKeepAliveAndReportThis() && (varNum == info.compThisArg))
@@ -1563,7 +1565,7 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
         // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
         // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever
         // keep it in a register, since it must also be live on the stack. Therefore, we won't attempt to allocate it.
-        lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LiveInOutOfHandler));
+        lvaSetVarDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
     }
 #endif // JIT32_GCENCODER
 }

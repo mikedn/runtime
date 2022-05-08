@@ -399,14 +399,14 @@ private:
     // This ensures that the local's value is valid on-stack as expected for a *LCL_FLD.
     void verifyLclFldDoNotEnregister(unsigned lclNum)
     {
-        LclVarDsc* varDsc = &(comp->lvaTable[lclNum]);
+        LclVarDsc* varDsc = comp->lvaGetDesc(lclNum);
         // Do a couple of simple checks before setting lvDoNotEnregister.
         // This may not cover all cases in 'isRegCandidate()' but we don't want to
         // do an expensive check here. For non-candidates it is not harmful to set lvDoNotEnregister.
         if (varDsc->lvTracked && !varDsc->lvDoNotEnregister)
         {
             assert(!m_lsra->isRegCandidate(varDsc));
-            comp->lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(Compiler::DNER_LocalField));
+            comp->lvaSetVarDoNotEnregister(varDsc DEBUG_ARG(Compiler::DNER_LocalField));
         }
     }
 

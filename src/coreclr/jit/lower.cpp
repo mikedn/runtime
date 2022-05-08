@@ -2505,7 +2505,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     {
         // TODO-1stClassStructs: We can no longer independently promote
         // or enregister this struct, since it is referenced as a whole.
-        comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
+        comp->lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
     }
 
     if (lcl->lvDoNotEnregister)
@@ -5185,7 +5185,7 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            comp->lvaSetVarDoNotEnregister(store->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
+            comp->lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
         }
     }
 }
@@ -5421,12 +5421,14 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     }
     else if (src->OperIs(GT_LCL_VAR))
     {
-        if (comp->lvaGetDesc(src->AsLclVar())->lvDoNotEnregister)
+        LclVarDsc* srcLcl = comp->lvaGetDesc(src->AsLclVar());
+
+        if (srcLcl->lvDoNotEnregister)
         {
             // If it's not a register candidate then we can turn it into a LCL_FLD and retype it.
             src->ChangeOper(GT_LCL_FLD);
             src->SetType(bitcast->GetType());
-            comp->lvaSetVarDoNotEnregister(src->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+            comp->lvaSetVarDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
             remove = true;
         }
         else
@@ -6015,8 +6017,9 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
         // to store a SIMD register in order to extract an element from it. But if
         // it's TYP_BLK then it won't have SIMD alignment. Bleah.
 
-        comp->lvaGetDesc(tempLclNum)->lvType = type;
-        comp->lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(Compiler::DNER_LocalField));
+        LclVarDsc* lclTemp = comp->lvaGetDesc(tempLclNum);
+        lclTemp->lvType    = type;
+        comp->lvaSetVarDoNotEnregister(lclTemp DEBUGARG(Compiler::DNER_LocalField));
     }
 
     return tempLclNum;

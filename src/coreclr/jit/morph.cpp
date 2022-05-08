@@ -4629,18 +4629,16 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // then this temp is never read from.
     ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
-    unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
+    unsigned   tempLclNum = abiAllocateStructArgTemp(argLayout);
+    LclVarDsc* tempLcl    = lvaGetDesc(tempLclNum);
 
     // These temps are passed by reference so they're always address taken.
     // TODO-MIKE-Cleanup: Aren't they actually address exposed? If we only
     // make them DNER they may still be tracked unnecessarily.
-    lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(DNER_IsStructArg));
+    lvaSetVarDoNotEnregister(tempLcl DEBUGARG(DNER_IsStructArg));
 
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
-
-    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
-    GenTree*   dest;
 
     // Due to single field struct promotion it is possible that the argument has SIMD
     // type while the temp has STRUCT type. Store the arg to the temp using LCL_FLD
@@ -4656,6 +4654,8 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // the arg type isn't correct.
 
     // TODO-MIKE-CQ: SIMD12 stores should be widened to SIMD16 on 64 bit targets.
+
+    GenTree* dest;
 
     if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
     {
@@ -8224,7 +8224,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
                 if (initType == TYP_STRUCT)
                 {
-                    lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+                    lvaSetVarDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
                 }
                 else
                 {
@@ -8252,7 +8252,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
     if (destLclVar != nullptr)
     {
-        lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+        lvaSetVarDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
     }
 
     JITDUMPTREE(asg, "fgMorphInitStruct (after):\n");
@@ -9124,12 +9124,12 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         {
             if (srcLclVar != nullptr)
             {
-                lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_BlockOp));
+                lvaSetVarDoNotEnregister(srcLclVar DEBUGARG(DNER_BlockOp));
             }
 
             if (destLclVar != nullptr)
             {
-                lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+                lvaSetVarDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
             }
         }
         else
@@ -9217,7 +9217,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             fields[i] = field;
         }
 
-        lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
+        lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
     };
 
     auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, unsigned promotedLclNum,
