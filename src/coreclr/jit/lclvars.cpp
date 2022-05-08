@@ -1622,10 +1622,6 @@ void Compiler::lvaSetVarDoNotEnregister(LclVarDsc* varDsc DEBUGARG(DoNotEnregist
         case DNER_LiveInOutOfHandler:
             JITDUMP("live in/out of a handler\n");
             break;
-        case DNER_LiveAcrossUnmanagedCall:
-            JITDUMP("live across unmanaged call\n");
-            varDsc->lvLiveAcrossUCall = 1;
-            break;
         case DNER_DepField:
             JITDUMP("field of a dependently promoted struct\n");
             assert(varDsc->IsDependentPromotedField(this));
@@ -1634,22 +1630,15 @@ void Compiler::lvaSetVarDoNotEnregister(LclVarDsc* varDsc DEBUGARG(DoNotEnregist
             JITDUMP("opts.compFlags & CLFLG_REGVAR is not set\n");
             assert(!compEnregLocals());
             break;
-        case DNER_MinOptsGC:
-            JITDUMP("It is a GC Ref and we are compiling MinOpts\n");
-            assert(!JitConfig.JitMinOptsTrackGCrefs() && varTypeIsGC(varDsc->TypeGet()));
-            break;
 #ifdef JIT32_GCENCODER
         case DNER_PinningRef:
             JITDUMP("pinning ref\n");
             assert(varDsc->lvPinned);
             break;
 #endif
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
         case DNER_LongParamField:
             JITDUMP("it is a decomposed field of a long parameter\n");
-            break;
-        case DNER_LongParamVar:
-            JITDUMP("it is a long parameter\n");
             break;
 #endif
         default:
@@ -6010,10 +5999,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         if (varDsc->lvLclBlockOpAddr)
         {
             printf("B");
-        }
-        if (varDsc->lvLiveAcrossUCall)
-        {
-            printf("U");
         }
         if (varDsc->lvIsMultiRegArg)
         {

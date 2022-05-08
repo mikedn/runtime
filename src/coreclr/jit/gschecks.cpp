@@ -445,7 +445,6 @@ void Compiler::gsParamsToShadows()
 #ifdef DEBUG
         shadowLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
         shadowLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
-        shadowLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
 #endif
     }
 

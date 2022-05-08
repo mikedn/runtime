@@ -3585,7 +3585,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLclBlockOpAddr   = lcl->lvLclBlockOpAddr;
                 structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
-                structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
 #endif // DEBUG
 
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)

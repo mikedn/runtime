@@ -2179,7 +2179,6 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 #ifdef DEBUG
         thisCopyLcl->lvLiveInOutOfHndlr = thisLcl->lvLiveInOutOfHndlr;
         thisCopyLcl->lvLclFieldExpr     = thisLcl->lvLclFieldExpr;
-        thisCopyLcl->lvLiveAcrossUCall  = thisLcl->lvLiveAcrossUCall;
 #endif
 
         thisLcl->lvAddrExposed  = false;

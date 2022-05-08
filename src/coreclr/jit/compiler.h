@@ -373,10 +373,9 @@ public:
     // These further document the reasons for setting "lvDoNotEnregister".  (Note that "lvAddrExposed" is one of the
     // reasons;
     // also, lvType == TYP_STRUCT prevents enregistration.  At least one of the reasons should be true.
-    unsigned char lvLclFieldExpr : 1;    // The variable is not a struct, but was accessed like one (e.g., reading a
-                                         // particular byte from an int).
-    unsigned char lvLclBlockOpAddr : 1;  // The variable was written to via a block operation that took its address.
-    unsigned char lvLiveAcrossUCall : 1; // The variable is live across an unmanaged call.
+    unsigned char lvLclFieldExpr : 1;   // The variable is not a struct, but was accessed like one (e.g., reading a
+                                        // particular byte from an int).
+    unsigned char lvLclBlockOpAddr : 1; // The variable was written to via a block operation that took its address.
 #endif
     unsigned char lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
     unsigned char lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
@@ -2443,14 +2442,11 @@ public:
         DNER_IsStruct,
         DNER_LocalField,
         DNER_LiveInOutOfHandler,
-        DNER_LiveAcrossUnmanagedCall,
         DNER_BlockOp,     // Is read or written via a block operation that explicitly takes the address.
         DNER_IsStructArg, // Is a struct passed as an argument in a way that requires a stack location.
         DNER_DepField,    // It is a field of a dependently promoted struct
         DNER_NoRegVars,   // opts.compFlags & CLFLG_REGVAR is not set
-        DNER_MinOptsGC,   // It is a GC Ref and we are compiling MinOpts
-#if !defined(TARGET_64BIT)
-        DNER_LongParamVar,   // It is a long parameter.
+#ifndef TARGET_64BIT
         DNER_LongParamField, // It is a decomposed field of a long parameter.
 #endif
 #ifdef JIT32_GCENCODER
