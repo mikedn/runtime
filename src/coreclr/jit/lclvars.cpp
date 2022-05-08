@@ -2372,7 +2372,12 @@ void Compiler::lvaMarkLivenessTrackedLocals()
             tracked[trackedCount++] = lclNum;
         }
 
-        if (lcl->IsDependentPromotedField(this))
+        if (compJmpOpUsed && lcl->IsRegParam())
+        {
+            // If we have JMP, reg args must be put on the stack
+            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
+        }
+        else if (lcl->IsDependentPromotedField(this))
         {
             lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_DepField));
         }

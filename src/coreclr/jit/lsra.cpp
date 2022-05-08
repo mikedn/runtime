@@ -1406,12 +1406,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-    // If we have JMP, reg args must be put on the stack
-    if (compiler->compJmpOpUsed && varDsc->IsRegParam())
-    {
-        return false;
-    }
-
     switch (varActualType(varDsc->GetType()))
     {
         case TYP_STRUCT:
