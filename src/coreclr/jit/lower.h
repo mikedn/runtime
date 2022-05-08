@@ -393,23 +393,6 @@ private:
         return LIR::AsRange(m_block);
     }
 
-    // Any tracked lclVar accessed by a LCL_FLD or STORE_LCL_FLD should be marked doNotEnregister.
-    // This method checks, and asserts in the DEBUG case if it is not so marked,
-    // but in the non-DEBUG case (asserts disabled) set the flag so that we don't generate bad code.
-    // This ensures that the local's value is valid on-stack as expected for a *LCL_FLD.
-    void verifyLclFldDoNotEnregister(unsigned lclNum)
-    {
-        LclVarDsc* varDsc = comp->lvaGetDesc(lclNum);
-        // Do a couple of simple checks before setting lvDoNotEnregister.
-        // This may not cover all cases in 'isRegCandidate()' but we don't want to
-        // do an expensive check here. For non-candidates it is not harmful to set lvDoNotEnregister.
-        if (varDsc->lvTracked && !varDsc->lvDoNotEnregister)
-        {
-            assert(!m_lsra->isRegCandidate(varDsc));
-            comp->lvaSetVarDoNotEnregister(varDsc DEBUG_ARG(Compiler::DNER_LocalField));
-        }
-    }
-
     INDEBUG(void CheckAllLocalsImplicitlyReferenced();)
 };
 

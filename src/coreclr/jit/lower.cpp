@@ -2262,14 +2262,14 @@ void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
 {
     assert(lclFld->OperIs(GT_LCL_FLD));
 
-    verifyLclFldDoNotEnregister(lclFld->GetLclNum());
+    comp->lvaSetVarDoNotEnregister(lclFld->GetLclNum() DEBUG_ARG(Compiler::DNER_LocalField));
 }
 
 void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
 
-    verifyLclFldDoNotEnregister(store->GetLclNum());
+    comp->lvaSetVarDoNotEnregister(store->GetLclNum() DEBUG_ARG(Compiler::DNER_LocalField));
 
     GenTree* value = store->GetOp(0);
 
