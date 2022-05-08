@@ -1584,13 +1584,18 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
 void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregisterReason reason))
 {
     noway_assert(varNum < lvaCount);
-    LclVarDsc* varDsc         = &lvaTable[varNum];
+    LclVarDsc* varDsc = &lvaTable[varNum];
+    lvaSetVarDoNotEnregister(varDsc DEBUGARG(reason));
+}
+
+void Compiler::lvaSetVarDoNotEnregister(LclVarDsc* varDsc DEBUGARG(DoNotEnregisterReason reason))
+{
     varDsc->lvDoNotEnregister = 1;
 
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nLocal V%02u should not be enregistered because: ", varNum);
+        printf("\nLocal V%02u should not be enregistered because: ", varDsc - lvaTable);
     }
     switch (reason)
     {
@@ -2318,8 +2323,6 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         return;
     }
 
-    /* We'll sort the variables by ref count - allocate the sorted table */
-
     if (lvaTrackedToVarNumSize < lvaCount)
     {
         lvaTrackedToVarNumSize = lvaCount;
@@ -2329,116 +2332,104 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     unsigned  trackedCount = 0;
     unsigned* tracked      = lvaTrackedToVarNum;
 
-    // Fill in the table used for sorting
-
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         // Start by assuming that the variable will be tracked.
-        varDsc->lvTracked = 1;
+        lcl->lvTracked = 1;
 
-        if (varDsc->lvRefCnt() == 0)
+        if (lcl->lvRefCnt() == 0)
         {
-            assert(varDsc->lvRefCntWtd() == 0);
+            assert(lcl->lvRefCntWtd() == 0);
 
-            varDsc->lvTracked = 0;
+            lcl->lvTracked = 0;
         }
 
-#if !defined(TARGET_64BIT)
-        if (varTypeIsLong(varDsc) && varDsc->lvPromoted)
+        if (lcl->IsPromoted())
         {
-            varDsc->lvTracked = 0;
+            lcl->lvTracked = 0;
         }
-#endif // !defined(TARGET_64BIT)
 
-        // Variables that are address-exposed, and all struct locals, are never enregistered, or tracked.
-        // (The struct may be promoted, and its field variables enregistered/tracked, or the VM may "normalize"
-        // its type so that its not seen by the JIT as a struct.)
-        // Pinned variables may not be tracked (a condition of the GCInfo representation)
-        // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
-        // references when using the general GC encoding.
-        if (varDsc->IsAddressExposed())
+        if (lcl->IsAddressExposed())
         {
-            assert(varDsc->lvDoNotEnregister);
+            assert(lcl->lvDoNotEnregister);
 
-            varDsc->lvTracked = 0;
+            lcl->lvTracked = 0;
         }
-        if (varTypeIsStruct(varDsc->GetType()))
-        {
-            // Promoted structs will never be considered for enregistration anyway,
-            // and the DoNotEnregister flag was used to indicate whether promotion was
-            // independent or dependent.
-            if (varDsc->IsPromoted())
-            {
-                varDsc->lvTracked = 0;
-            }
-            else if (!varDsc->IsEnregisterableType())
-            {
-                lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
-            }
-            else if (varDsc->TypeIs(TYP_STRUCT))
-            {
-                if (!compEnregStructLocals())
-                {
-                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
-                }
-                else if (varDsc->lvIsMultiRegArg || varDsc->lvIsMultiRegRet)
-                {
-                    // Prolog and return generators do not support SIMD<->general register moves.
-                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStructArg));
-                }
-#if defined(TARGET_ARM) || defined(TARGET_X86)
-                else if (varDsc->IsParam())
-                {
-                    // On arm we prespill all struct args,
-                    // TODO-Arm-CQ: keep them in registers, it will need a fix
-                    // to "On the ARM we will spill any incoming struct args" logic in codegencommon.
-                    // TODO-MIKE-CQ: This also affects x86, not clear how come main
-                    // doesn't have this problem. Probably because they still can't generate sane IR
-                    // to begin with and end up DNERing structs anyway...
-                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStructArg));
-                }
-#endif
-            }
-        }
-        if (varDsc->IsDependentPromotedField(this))
-        {
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_DepField));
-        }
-        if (varDsc->lvPinned)
-        {
-            varDsc->lvTracked = 0;
-#ifdef JIT32_GCENCODER
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_PinningRef));
-#endif
-        }
-        if (!compEnregLocals())
-        {
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_NoRegVars));
-        }
+
 #if defined(JIT32_GCENCODER) && defined(FEATURE_EH_FUNCLETS)
         if (lvaIsOriginalThisArg(lclNum) && (info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0)
         {
-            // For x86/Linux, we need to track "this".
-            // However we cannot have it in tracked variables, so we set "this" pointer always untracked
-            varDsc->lvTracked = 0;
+            // For x86/Linux, we need to track "this". However we cannot have it in tracked locals,
+            // so we make "this" pointer always untracked.
+            lcl->lvTracked = 0;
         }
 #endif
 
-        if (varDsc->TypeIs(TYP_BLK))
+        if (lcl->TypeIs(TYP_BLK))
         {
             // BLK locals are rare and rather special (e.g. outgoing args area), it's not worth tracking them.
-            varDsc->lvTracked = 0;
+            lcl->lvTracked = 0;
         }
 
-        if (varDsc->lvTracked)
+        if (lcl->IsPinning())
+        {
+            // Pinning locals may not be tracked (a condition of the GCInfo representation)
+            // or enregistered, on x86 -- it is believed that we can enregister pinning
+            // references when using the general GC encoding.
+            lcl->lvTracked = 0;
+#ifdef JIT32_GCENCODER
+            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_PinningRef));
+#endif
+        }
+
+        if (lcl->lvTracked)
         {
             tracked[trackedCount++] = lclNum;
         }
+
+        if (!compEnregLocals())
+        {
+            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_NoRegVars));
+        }
+        else if (lcl->IsDependentPromotedField(this))
+        {
+            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_DepField));
+        }
+        else if (varTypeIsStruct(lcl->GetType()) && !lcl->IsPromoted())
+        {
+            if (!lcl->IsEnregisterableType())
+            {
+                lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+            }
+            else if (lcl->TypeIs(TYP_STRUCT))
+            {
+                if (!compEnregStructLocals())
+                {
+                    lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+                }
+                else if (lcl->lvIsMultiRegArg || lcl->lvIsMultiRegRet)
+                {
+                    // Prolog and return generators do not support vector - integer register moves.
+                    lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
+                }
+#if defined(TARGET_ARM) || defined(TARGET_X86)
+                else if (lcl->IsParam())
+                {
+                    // On ARM we prespill all struct args.
+                    // TODO-ARM-CQ: Keep them in registers, it will need a fix to
+                    // "On the ARM we will spill any incoming struct args" logic in codegencommon.
+                    // TODO-MIKE-CQ: This also affects x86, not clear how come main
+                    // doesn't have this problem. Probably because they still can't generate sane IR
+                    // to begin with and end up DNERing structs anyway...
+                    lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
+                }
+#endif
+            }
+        }
     }
 
-    // Now sort the tracked variable table by ref-count
     if (compCodeOpt() == SMALL_CODE)
     {
         jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_SmallCode_Less(lvaTable DEBUGARG(lvaCount)));
@@ -2448,36 +2439,41 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_BlendedCode_Less(lvaTable DEBUGARG(lvaCount)));
     }
 
-    lvaTrackedCount = min((unsigned)JitConfig.JitMaxLocalsToTrack(), trackedCount);
+    lvaTrackedCount = min(static_cast<unsigned>(JitConfig.JitMaxLocalsToTrack()), trackedCount);
 
-    JITDUMP("Tracked variable (%u out of %u) table:\n", lvaTrackedCount, lvaCount);
+    JITDUMP("Tracked local (%u out of %u) table:\n", lvaTrackedCount, lvaCount);
 
-    // Assign indices to all the variables we've decided to track
-    for (unsigned varIndex = 0; varIndex < lvaTrackedCount; varIndex++)
+    for (unsigned trackedIndex = 0; trackedIndex < lvaTrackedCount; trackedIndex++)
     {
-        LclVarDsc* varDsc = lvaGetDesc(tracked[varIndex]);
-        assert(varDsc->lvTracked);
-        varDsc->lvVarIndex = static_cast<unsigned short>(varIndex);
+        LclVarDsc* lcl = lvaGetDesc(tracked[trackedIndex]);
 
-        INDEBUG(if (verbose) { gtDispLclVar(tracked[varIndex]); })
-        JITDUMP(" [%6s]: refCnt = %4u, refCntWtd = %6s\n", varTypeName(varDsc->TypeGet()), varDsc->lvRefCnt(),
-                refCntWtd2str(varDsc->lvRefCntWtd()));
+        assert(lcl->lvTracked);
+        lcl->lvVarIndex = static_cast<uint16_t>(trackedIndex);
+
+        DBEXEC(verbose, gtDispLclVar(tracked[trackedIndex]))
+        JITDUMP("Tracked V%02u: refCnt = %4u, refCntWtd = %6s\n", tracked[trackedIndex], lcl->lvRefCnt(),
+                refCntWtd2str(lcl->lvRefCntWtd()));
+    }
+
+    // If we have too many tracked locals mark the rest as untracked. This does not remove
+    // them from lvaTrackedToVarNum but lvaTrackedCount reflects the actual tracked count.
+    for (unsigned trackedIndex = lvaTrackedCount; trackedIndex < trackedCount; trackedIndex++)
+    {
+        LclVarDsc* lcl = lvaGetDesc(tracked[trackedIndex]);
+
+        assert(lcl->lvTracked);
+        lcl->lvTracked = 0;
+
+        DBEXEC(verbose, gtDispLclVar(tracked[trackedIndex]))
+        JITDUMP("Untracked V%02u: refCnt = %4u, refCntWtd = %6s\n", tracked[trackedIndex], lcl->lvRefCnt(),
+                refCntWtd2str(lcl->lvRefCntWtd()));
     }
 
     JITDUMP("\n");
 
-    // Mark all variables past the first 'lclMAX_TRACKED' as untracked
-    for (unsigned varIndex = lvaTrackedCount; varIndex < trackedCount; varIndex++)
-    {
-        LclVarDsc* varDsc = lvaGetDesc(tracked[varIndex]);
-        assert(varDsc->lvTracked);
-        varDsc->lvTracked = 0;
-    }
-
-    // We have a new epoch, and also cache the tracked var count in terms of size_t's sufficient to hold that many bits.
     lvaCurEpoch++;
     lvaTrackedCountInSizeTUnits =
-        roundUp((unsigned)lvaTrackedCount, (unsigned)(sizeof(size_t) * 8)) / unsigned(sizeof(size_t) * 8);
+        roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
 }
 
 unsigned LclVarDsc::lvSize() const // Size needed for storage representation. Only used for structs or TYP_BLK.

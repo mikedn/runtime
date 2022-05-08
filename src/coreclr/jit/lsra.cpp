@@ -1432,11 +1432,10 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     // Pinned variables may not be tracked (a condition of the GCInfo representation)
     // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
     // references when using the general GC encoding.
-    unsigned lclNum = (unsigned)(varDsc - compiler->lvaTable);
 
     if (!varDsc->IsEnregisterableType() || (!compiler->compEnregStructLocals() && varDsc->TypeIs(TYP_STRUCT)))
     {
-        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_IsStruct));
+        compiler->lvaSetVarDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_IsStruct));
         return false;
     }
 

@@ -422,6 +422,11 @@ public:
 #endif
     }
 
+    bool IsPinning() const
+    {
+        return lvPinned;
+    }
+
     bool IsAddressExposed() const
     {
         return lvAddrExposed;
@@ -2454,7 +2459,8 @@ public:
     };
 
 #endif
-    void lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregisterReason reason));
+    void lvaSetVarDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason));
+    void lvaSetVarDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
 
     unsigned lvaVarargsHandleArg;
 #ifdef TARGET_X86
