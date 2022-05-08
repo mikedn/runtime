@@ -1010,15 +1010,6 @@ public:
         return GetRegisterType() != TYP_UNDEF;
     }
 
-    bool IsEnregisterableLcl() const
-    {
-        if (lvDoNotEnregister)
-        {
-            return false;
-        }
-        return IsEnregisterableType();
-    }
-
     //-----------------------------------------------------------------------------
     //  IsAlwaysAliveInMemory: Determines if this variable's value is always
     //     up-to-date on stack. This is possible if this is an EH-var or
