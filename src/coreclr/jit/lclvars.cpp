@@ -2378,7 +2378,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         }
         else if (varTypeIsStruct(lcl->GetType()) && !lcl->IsPromoted())
         {
-            if (!lcl->IsEnregisterableType())
+            if (lcl->GetRegisterType() == TYP_UNDEF)
             {
                 lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
             }

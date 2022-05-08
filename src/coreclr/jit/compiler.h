@@ -1005,11 +1005,6 @@ public:
 
     var_types GetActualRegisterType() const;
 
-    bool IsEnregisterableType() const
-    {
-        return GetRegisterType() != TYP_UNDEF;
-    }
-
     //-----------------------------------------------------------------------------
     //  IsAlwaysAliveInMemory: Determines if this variable's value is always
     //     up-to-date on stack. This is possible if this is an EH-var or
