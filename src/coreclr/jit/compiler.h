@@ -2428,7 +2428,6 @@ public:
 
     void lvaSetVarAddrExposed(unsigned varNum);
     void lvaSetVarLiveInOutOfHandler(unsigned varNum);
-    bool lvaVarDoNotEnregister(unsigned varNum);
 
     void lvSetMinOptsDoNotEnreg();
 

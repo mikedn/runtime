@@ -1471,14 +1471,6 @@ void Compiler::lvaResizeTable(unsigned newSize)
     lvaTable     = newTable;
 }
 
-bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
-{
-    noway_assert(varNum < lvaCount);
-    LclVarDsc* varDsc = &lvaTable[varNum];
-
-    return varDsc->lvDoNotEnregister;
-}
-
 bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
 {
     return lvIsStructField && !compiler->lvaGetDesc(lvParentLcl)->IsIndependentPromoted();
