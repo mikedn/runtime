@@ -1394,6 +1394,8 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
+    assert(!varDsc->lvPinned);
+
     // Ttracked locals normally have non-zero ref count but we don't mark
     // locals again after dead code removal so we may end up with tracked
     // but unreferenced locals.
@@ -1435,15 +1437,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     if (!varDsc->IsEnregisterableType() || (!compiler->compEnregStructLocals() && varDsc->TypeIs(TYP_STRUCT)))
     {
         compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_IsStruct));
-        return false;
-    }
-
-    if (varDsc->lvPinned)
-    {
-        varDsc->lvTracked = 0;
-#ifdef JIT32_GCENCODER
-        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_PinningRef));
-#endif // JIT32_GCENCODER
         return false;
     }
 
