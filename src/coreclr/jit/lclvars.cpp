@@ -2294,7 +2294,7 @@ public:
 
 void Compiler::lvaMarkLivenessTrackedLocals()
 {
-    assert(opts.OptimizationEnabled());
+    assert(opts.OptimizationEnabled() && compEnregLocals());
 
     lvaTrackedCount             = 0;
     lvaTrackedCountInSizeTUnits = 0;
@@ -2370,11 +2370,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
             tracked[trackedCount++] = lclNum;
         }
 
-        if (!compEnregLocals())
-        {
-            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_NoRegVars));
-        }
-        else if (lcl->IsDependentPromotedField(this))
+        if (lcl->IsDependentPromotedField(this))
         {
             lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_DepField));
         }
