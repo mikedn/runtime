@@ -1394,7 +1394,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-    assert(!varDsc->lvPinned);
+    assert(!varDsc->IsPromoted() && !varDsc->IsPinning());
 
     // Ttracked locals normally have non-zero ref count but we don't mark
     // locals again after dead code removal so we may end up with tracked
@@ -1406,18 +1406,8 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-#if !defined(TARGET_64BIT)
-    if (varDsc->lvType == TYP_LONG)
-    {
-        // Long variables should not be register candidates.
-        // Lowering will have split any candidate lclVars into lo/hi vars.
-        return false;
-    }
-#endif // !defined(TARGET_64BIT)
-
     // If we have JMP, reg args must be put on the stack
-
-    if (compiler->compJmpOpUsed && varDsc->lvIsRegArg)
+    if (compiler->compJmpOpUsed && varDsc->IsRegParam())
     {
         return false;
     }
@@ -1428,41 +1418,27 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-    // A struct may be promoted, and a struct that fits in a register may be fully enregistered.
-    // Pinned variables may not be tracked (a condition of the GCInfo representation)
-    // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
-    // references when using the general GC encoding.
-
-    if ((varDsc->GetRegisterType() == TYP_UNDEF) || (!compiler->compEnregStructLocals() && varDsc->TypeIs(TYP_STRUCT)))
-    {
-        compiler->lvaSetVarDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_IsStruct));
-        return false;
-    }
-
     switch (varActualType(varDsc->GetType()))
     {
+        case TYP_STRUCT:
+            assert(compiler->compEnregStructLocals() && !varDsc->HasGCPtr());
+            FALLTHROUGH;
         case TYP_FLOAT:
         case TYP_DOUBLE:
         case TYP_INT:
+#ifdef TARGET_64BIT
         case TYP_LONG:
+#endif
         case TYP_REF:
         case TYP_BYREF:
-            return true;
-
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
-            return !varDsc->lvPromoted;
-#endif // FEATURE_SIMD
-
-        case TYP_STRUCT:
-            // TODO-1stClassStructs: support vars with GC pointers. The issue is that such
-            // vars will have `lvMustInit` set, because emitter has poor support for struct liveness,
-            // but if the variable is tracked the prolog generator would expect it to be in liveIn set,
-            // so an assert in `genFnProlog` will fire.
-            return compiler->compEnregStructLocals() && !varDsc->HasGCPtr();
+#endif
+            assert(varDsc->GetRegisterType() != TYP_UNDEF);
+            return true;
 
         default:
             return false;
@@ -1599,6 +1575,8 @@ void LinearScan::identifyCandidates()
             continue;
         }
 
+        bool regCandidate = isRegCandidate(varDsc);
+
 #if DOUBLE_ALIGN
         if (checkDoubleAlign)
         {
@@ -1606,7 +1584,7 @@ void LinearScan::identifyCandidates()
             {
                 refCntStkParam += varDsc->lvRefCnt();
             }
-            else if (!isRegCandidate(varDsc))
+            else if (!regCandidate)
             {
                 refCntStk += varDsc->lvRefCnt();
                 if (varDsc->TypeIs(TYP_DOUBLE) || ((varTypeIsStruct(varDsc->GetType()) && varDsc->lvStructDoubleAlign &&
@@ -1631,7 +1609,7 @@ void LinearScan::identifyCandidates()
         // the same register assignment throughout
         varDsc->lvRegister = false;
 
-        if (!isRegCandidate(varDsc))
+        if (!regCandidate)
         {
             varDsc->lvLRACandidate = 0;
             if (varDsc->lvTracked)
