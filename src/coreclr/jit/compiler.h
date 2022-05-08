@@ -2434,6 +2434,7 @@ public:
         DNER_NoRegVars,   // opts.compFlags & CLFLG_REGVAR is not set
 #ifndef TARGET_64BIT
         DNER_LongParamField, // It is a decomposed field of a long parameter.
+        DNER_LongUnpromoted,
 #endif
 #ifdef JIT32_GCENCODER
         DNER_PinningRef,

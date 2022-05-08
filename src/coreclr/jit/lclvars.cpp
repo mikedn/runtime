@@ -1634,6 +1634,9 @@ void Compiler::lvaSetVarDoNotEnregister(LclVarDsc* varDsc DEBUGARG(DoNotEnregist
         case DNER_LongParamField:
             JITDUMP("it is a decomposed field of a long parameter\n");
             break;
+        case DNER_LongUnpromoted:
+            JITDUMP("it is unpromoted LONG\n");
+            break;
 #endif
         default:
             unreached();
@@ -2353,6 +2356,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         if (lcl->TypeIs(TYP_BLK))
         {
             // BLK locals are rare and rather special (e.g. outgoing args area), it's not worth tracking them.
+            // LONG locals are never enregistered on 32 bit targets (if they're promoted their fields may be).
             lcl->lvTracked = 0;
         }
 
@@ -3218,6 +3222,13 @@ void Compiler::lvaComputeLclRefCounts()
                 lcl->lvImplicitlyReferenced = 1;
             }
         }
+
+#ifndef TARGET_64BIT
+        if (compRationalIRForm && lcl->TypeIs(TYP_LONG) && !lcl->IsPromoted())
+        {
+            lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LongUnpromoted));
+        }
+#endif
     }
 }
 

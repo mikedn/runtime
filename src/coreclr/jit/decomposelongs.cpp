@@ -2092,47 +2092,36 @@ genTreeOps DecomposeLongs::GetLoOper(genTreeOps oper)
 //
 void DecomposeLongs::PromoteLongVars()
 {
-    if (!m_compiler->compEnregLocals())
+    if (!m_compiler->compEnregLocals() || m_compiler->fgNoStructPromotion)
     {
         return;
     }
 
-    // The lvaTable might grow as we grab temps. Make a local copy here.
-    unsigned startLvaCount = m_compiler->lvaCount;
-    for (unsigned lclNum = 0; lclNum < startLvaCount; lclNum++)
+    for (unsigned lclNum = 0, count = m_compiler->lvaCount; lclNum < count; lclNum++)
     {
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-        if (!varTypeIsLong(varDsc))
+
+        if (!varDsc->TypeIs(TYP_LONG))
         {
             continue;
         }
-        if (varDsc->lvDoNotEnregister)
+
+        if ((varDsc->lvRefCnt() == 0) || varDsc->lvDoNotEnregister || varDsc->IsPromotedField())
         {
             continue;
         }
-        if (varDsc->lvRefCnt() == 0)
-        {
-            continue;
-        }
-        if (varDsc->lvIsStructField)
-        {
-            continue;
-        }
-        if (m_compiler->fgNoStructPromotion)
-        {
-            continue;
-        }
+
 #ifdef DEBUG
-        if (m_compiler->fgNoStructParamPromotion && varDsc->lvIsParam)
+        if (varDsc->IsParam() && m_compiler->fgNoStructParamPromotion)
         {
             continue;
         }
 #endif
 
 #ifdef TARGET_ARM
+        // TODO-MIKE-CQ: Promote ARM long params.
         if (varDsc->IsParam())
         {
-            // TODO-MIKE-CQ: Promote ARM long params.
             continue;
         }
 #endif
