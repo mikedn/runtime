@@ -1389,7 +1389,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
 
     assert(compiler->compEnregLocals() && compiler->opts.OptimizationEnabled() && !compiler->opts.MinOpts());
 
-    if (!varDsc->lvTracked)
+    if (!varDsc->lvTracked || varDsc->lvDoNotEnregister)
     {
         return false;
     }
@@ -1436,11 +1436,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     if (!varDsc->IsEnregisterableType() || (!compiler->compEnregStructLocals() && varDsc->TypeIs(TYP_STRUCT)))
     {
         compiler->lvaSetVarDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_IsStruct));
-        return false;
-    }
-
-    if (varDsc->lvDoNotEnregister)
-    {
         return false;
     }
 
@@ -1611,7 +1606,7 @@ void LinearScan::identifyCandidates()
             {
                 refCntStkParam += varDsc->lvRefCnt();
             }
-            else if (!isRegCandidate(varDsc) || varDsc->lvDoNotEnregister)
+            else if (!isRegCandidate(varDsc))
             {
                 refCntStk += varDsc->lvRefCnt();
                 if (varDsc->TypeIs(TYP_DOUBLE) || ((varTypeIsStruct(varDsc->GetType()) && varDsc->lvStructDoubleAlign &&
