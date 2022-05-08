@@ -4925,14 +4925,12 @@ PhaseStatus Lowering::DoPhase()
         comp->lvaMarkLivenessTrackedLocals();
         comp->fgLocalVarLiveness();
 
-        // local var liveness can delete code, which may create empty blocks
+        // Liveness can delete code, which may create empty blocks.
         comp->optLoopsMarked = false;
-        bool modified        = comp->fgUpdateFlowGraph();
-        if (modified)
-        {
-            JITDUMP("had to run another liveness pass:\n");
 
-            comp->lvaMarkLivenessTrackedLocals();
+        if (comp->fgUpdateFlowGraph())
+        {
+            JITDUMP("Flowgraph was modified, running liveness again\n");
             comp->fgLocalVarLiveness();
         }
 
