@@ -1394,7 +1394,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-    assert(!varDsc->IsPromoted() && !varDsc->IsPinning());
+    assert(!varDsc->IsPromoted() && !varDsc->IsPinning() && !varDsc->IsDependentPromotedField(compiler));
 
     // Ttracked locals normally have non-zero ref count but we don't mark
     // locals again after dead code removal so we may end up with tracked
@@ -1408,12 +1408,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
 
     // If we have JMP, reg args must be put on the stack
     if (compiler->compJmpOpUsed && varDsc->IsRegParam())
-    {
-        return false;
-    }
-
-    // Don't allocate registers for dependently promoted struct fields
-    if (varDsc->IsDependentPromotedField(compiler))
     {
         return false;
     }
