@@ -1616,7 +1616,6 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
             break;
         case DNER_LiveInOutOfHandler:
             JITDUMP("live in/out of a handler\n");
-            varDsc->lvLiveInOutOfHndlr = 1;
             break;
         case DNER_LiveAcrossUnmanagedCall:
             JITDUMP("live across unmanaged call\n");
@@ -2414,11 +2413,6 @@ void Compiler::lvaMarkLivenessTrackedLocals()
             lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_PinningRef));
 #endif
         }
-        if (opts.MinOpts() && !JitConfig.JitMinOptsTrackGCrefs() && varTypeIsGC(varDsc->TypeGet()))
-        {
-            varDsc->lvTracked = 0;
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_MinOptsGC));
-        }
         if (!compEnregLocals())
         {
             lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_NoRegVars));
@@ -2432,41 +2426,29 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         }
 #endif
 
-        //  Are we not optimizing and we have exception handlers?
-        //   if so mark all args and locals "do not enregister".
-        //
-        if (opts.MinOpts() && compHndBBtabCount > 0)
+        switch (varActualType(varDsc->TypeGet()))
         {
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LiveInOutOfHandler));
-        }
-        else
-        {
-            var_types type = genActualType(varDsc->TypeGet());
-
-            switch (type)
-            {
-                case TYP_FLOAT:
-                case TYP_DOUBLE:
-                case TYP_INT:
-                case TYP_LONG:
-                case TYP_REF:
-                case TYP_BYREF:
+            case TYP_FLOAT:
+            case TYP_DOUBLE:
+            case TYP_INT:
+            case TYP_LONG:
+            case TYP_REF:
+            case TYP_BYREF:
 #ifdef FEATURE_SIMD
-                case TYP_SIMD8:
-                case TYP_SIMD12:
-                case TYP_SIMD16:
-                case TYP_SIMD32:
+            case TYP_SIMD8:
+            case TYP_SIMD12:
+            case TYP_SIMD16:
+            case TYP_SIMD32:
 #endif // FEATURE_SIMD
-                case TYP_STRUCT:
-                    break;
+            case TYP_STRUCT:
+                break;
 
-                case TYP_UNDEF:
-                case TYP_UNKNOWN:
-                    noway_assert(!"lvType not set correctly");
-                    FALLTHROUGH;
-                default:
-                    varDsc->lvTracked = 0;
-            }
+            case TYP_UNDEF:
+            case TYP_UNKNOWN:
+                noway_assert(!"lvType not set correctly");
+                FALLTHROUGH;
+            default:
+                varDsc->lvTracked = 0;
         }
 
         if (varDsc->lvTracked)

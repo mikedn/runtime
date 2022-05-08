@@ -1386,7 +1386,8 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     {
         return false;
     }
-    assert(compiler->compEnregLocals());
+
+    assert(compiler->compEnregLocals() && compiler->opts.OptimizationEnabled() && !compiler->opts.MinOpts());
 
     if (!varDsc->lvTracked)
     {
@@ -1455,15 +1456,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_PinningRef));
 #endif // JIT32_GCENCODER
         return false;
-    }
-
-    //  Are we not optimizing and we have exception handlers?
-    //   if so mark all args and locals as volatile, so that they
-    //   won't ever get enregistered.
-    //
-    if (compiler->opts.MinOpts() && compiler->compHndBBtabCount > 0)
-    {
-        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LiveInOutOfHandler));
     }
 
     if (varDsc->lvDoNotEnregister)
