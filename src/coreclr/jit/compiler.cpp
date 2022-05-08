@@ -3970,14 +3970,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     ///////////////////////////////////////////////////////////////////////////////
     fgDomsComputed = false;
 
-    // Create LinearScan before Lowering, so that Lowering can call LinearScan methods
-    // for determining whether locals are register candidates and (for xarch) whether
-    // a node is a containable memory op.
-    m_pLinearScan = getLinearScanAllocator(this);
-
-    // Lower
-    //
-    m_pLowering = new (this, CMK_LSRA) Lowering(this, m_pLinearScan); // PHASE_LOWERING
+    m_pLowering = new (this, CMK_LSRA) Lowering(this);
     m_pLowering->Run();
 
 #if !defined(OSX_ARM64_ABI)
@@ -3988,10 +3981,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     stackLevelSetter.Run();
 #endif // !OSX_ARM64_ABI
 
-    // Now that lowering is completed we can proceed to perform register allocation
-    //
-    auto linearScanPhase = [this]() { m_pLinearScan->doLinearScan(); };
-    DoPhase(this, PHASE_LINEAR_SCAN, linearScanPhase);
+    m_pLinearScan = getLinearScanAllocator(this);
+    DoPhase(this, PHASE_LINEAR_SCAN, [this]() { m_pLinearScan->doLinearScan(); });
 
     // Copied from rpPredictRegUse()
     SetFullPtrRegMapRequired(codeGen->GetInterruptible() || !codeGen->isFramePointerUsed());

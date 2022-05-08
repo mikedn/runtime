@@ -21,7 +21,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 class Lowering final : public Phase
 {
-    LinearScan*   m_lsra;
     SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
     BasicBlock*   m_block;
     unsigned      vtableCallTemp = BAD_VAR_NUM; // local variable we use as a temp for vtable calls
@@ -36,10 +35,8 @@ class Lowering final : public Phase
 #endif // FEATURE_HW_INTRINSICS
 
 public:
-    inline Lowering(Compiler* compiler, LinearScanInterface* lsra)
-        : Phase(compiler, PHASE_LOWERING), m_lsra(static_cast<LinearScan*>(lsra))
+    Lowering(Compiler* compiler) : Phase(compiler, PHASE_LOWERING)
     {
-        assert(m_lsra != nullptr);
     }
 
     virtual PhaseStatus DoPhase() override;
@@ -48,7 +45,7 @@ public:
     // so it creates its own instance of Lowering to do so.
     void LowerRange(BasicBlock* block, LIR::ReadOnlyRange& range)
     {
-        Lowering lowerer(comp, m_lsra);
+        Lowering lowerer(comp);
         lowerer.m_block = block;
 
         lowerer.LowerRange(range);

@@ -2220,20 +2220,21 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 
     assert(!lcl->IsIndependentPromoted() || store->IsMultiReg());
 
+    // TODO-MIKE-Cleanup: This code doesn't make any sense, it's most likely dead.
     if (!src->TypeIs(TYP_STRUCT) && (varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(src->GetType())))
     {
-        if (m_lsra->isRegCandidate(lcl))
+        if (lcl->lvDoNotEnregister)
+        {
+            // This is an actual store, we'll just retype it.
+            store->SetType(src->GetType());
+        }
+        else
         {
             GenTreeUnOp* bitcast = comp->gtNewBitCastNode(store->GetType(), src);
             store->SetOp(0, bitcast);
             BlockRange().InsertBefore(store, bitcast);
             LowerBitCast(bitcast);
             src = bitcast;
-        }
-        else
-        {
-            // This is an actual store, we'll just retype it.
-            store->SetType(src->GetType());
         }
     }
 
