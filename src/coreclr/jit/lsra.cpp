@@ -1469,10 +1469,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
             // so an assert in `genFnProlog` will fire.
             return compiler->compEnregStructLocals() && !varDsc->HasGCPtr();
 
-        case TYP_UNDEF:
-        case TYP_UNKNOWN:
-            noway_assert(!"lvType not set correctly");
-            FALLTHROUGH;
         default:
             return false;
     }
