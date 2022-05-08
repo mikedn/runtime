@@ -2341,9 +2341,9 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 
         if (varDsc->lvRefCnt() == 0)
         {
-            // Zero ref count, make this untracked.
+            assert(varDsc->lvRefCntWtd() == 0);
+
             varDsc->lvTracked = 0;
-            varDsc->setLvRefCntWtd(0);
         }
 
 #if !defined(TARGET_64BIT)

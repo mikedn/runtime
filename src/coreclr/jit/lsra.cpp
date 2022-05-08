@@ -1393,6 +1393,16 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
+    // Ttracked locals normally have non-zero ref count but we don't mark
+    // locals again after dead code removal so we may end up with tracked
+    // but unreferenced locals.
+    if (varDsc->lvRefCnt() == 0)
+    {
+        assert(varDsc->lvRefCntWtd() == 0);
+
+        return false;
+    }
+
 #if !defined(TARGET_64BIT)
     if (varDsc->lvType == TYP_LONG)
     {
@@ -1412,13 +1422,6 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
     // Don't allocate registers for dependently promoted struct fields
     if (varDsc->IsDependentPromotedField(compiler))
     {
-        return false;
-    }
-
-    // Don't enregister if the ref count is zero.
-    if (varDsc->lvRefCnt() == 0)
-    {
-        varDsc->setLvRefCntWtd(0);
         return false;
     }
 
