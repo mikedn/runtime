@@ -2426,29 +2426,10 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         }
 #endif
 
-        switch (varActualType(varDsc->TypeGet()))
+        if (varDsc->TypeIs(TYP_BLK))
         {
-            case TYP_FLOAT:
-            case TYP_DOUBLE:
-            case TYP_INT:
-            case TYP_LONG:
-            case TYP_REF:
-            case TYP_BYREF:
-#ifdef FEATURE_SIMD
-            case TYP_SIMD8:
-            case TYP_SIMD12:
-            case TYP_SIMD16:
-            case TYP_SIMD32:
-#endif // FEATURE_SIMD
-            case TYP_STRUCT:
-                break;
-
-            case TYP_UNDEF:
-            case TYP_UNKNOWN:
-                noway_assert(!"lvType not set correctly");
-                FALLTHROUGH;
-            default:
-                varDsc->lvTracked = 0;
+            // BLK locals are rare and rather special (e.g. outgoing args area), it's not worth tracking them.
+            varDsc->lvTracked = 0;
         }
 
         if (varDsc->lvTracked)
@@ -3140,7 +3121,7 @@ void Compiler::lvaMarkImplictlyReferenced()
     {
         LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
+        noway_assert(varTypeIsValidLclType(lcl->GetType()));
 
         // Using lvImplicitlyReferenced here ensures that locals don't accidentally become
         // unreferenced by decrementing the ref count to zero. If we want to allow locals
@@ -3175,6 +3156,8 @@ void Compiler::lvaComputeLclRefCounts()
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
         LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        noway_assert(varTypeIsValidLclType(lcl->GetType()));
 
         lcl->setLvRefCnt(0);
         lcl->setLvRefCntWtd(BB_ZERO_WEIGHT);
