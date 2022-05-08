@@ -1426,11 +1426,14 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         case TYP_SIMD32:
 #endif
             assert(varDsc->GetRegisterType() != TYP_UNDEF);
-            return true;
+            break;
 
         default:
-            return false;
+            assert(!"Missing DNER or weird local type");
+            break;
     }
+
+    return true;
 }
 
 // Identify locals & compiler temps that are register candidates
@@ -1607,7 +1610,7 @@ void LinearScan::identifyCandidates()
             // The current implementation of multi-reg structs that are referenced collectively
             // (i.e. by refering to the parent lclVar rather than each field separately) relies
             // on all or none of the fields being candidates.
-            // 
+            //
             // TODO-MIKE-Review: This sucks. Not necessarily because a DNER fields makes all
             // other fields DNER, that's probably not that common. But because an unused field
             // isn't tracked and thus not a reg candidate. This happens with promoted LONG on
