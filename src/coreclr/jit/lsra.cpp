@@ -1607,6 +1607,12 @@ void LinearScan::identifyCandidates()
             // The current implementation of multi-reg structs that are referenced collectively
             // (i.e. by refering to the parent lclVar rather than each field separately) relies
             // on all or none of the fields being candidates.
+            // 
+            // TODO-MIKE-Review: This sucks. Not necessarily because a DNER fields makes all
+            // other fields DNER, that's probably not that common. But because an unused field
+            // isn't tracked and thus not a reg candidate. This happens with promoted LONG on
+            // 32 bit too, there are cases where only one half (usually the low one) is used.
+            // And this is done way too late, in general we want to DNER as early as possible.
             if (varDsc->lvIsStructField)
             {
                 LclVarDsc* parentVarDsc = compiler->lvaGetDesc(varDsc->lvParentLcl);
@@ -1621,6 +1627,7 @@ void LinearScan::identifyCandidates()
                         if (fieldVarDsc->lvTracked)
                         {
                             fieldVarDsc->lvLRACandidate                = 0;
+                            fieldVarDsc->lvDoNotEnregister             = true;
                             localVarIntervals[fieldVarDsc->lvVarIndex] = nullptr;
                             VarSetOps::RemoveElemD(compiler, registerCandidateVars, fieldVarDsc->lvVarIndex);
                             JITDUMP("*");
