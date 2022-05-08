@@ -1426,30 +1426,19 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-    // Variables that are address-exposed are never enregistered, or tracked.
     // A struct may be promoted, and a struct that fits in a register may be fully enregistered.
     // Pinned variables may not be tracked (a condition of the GCInfo representation)
     // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
     // references when using the general GC encoding.
     unsigned lclNum = (unsigned)(varDsc - compiler->lvaTable);
-    if (varDsc->lvAddrExposed || !varDsc->IsEnregisterableType() ||
-        (!compiler->compEnregStructLocals() && (varDsc->lvType == TYP_STRUCT)))
+
+    if (!varDsc->IsEnregisterableType() || (!compiler->compEnregStructLocals() && varDsc->TypeIs(TYP_STRUCT)))
     {
-#ifdef DEBUG
-        Compiler::DoNotEnregisterReason dner;
-        if (varDsc->lvAddrExposed)
-        {
-            dner = Compiler::DNER_AddrExposed;
-        }
-        else
-        {
-            dner = Compiler::DNER_IsStruct;
-        }
-#endif // DEBUG
-        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(dner));
+        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_IsStruct));
         return false;
     }
-    else if (varDsc->lvPinned)
+
+    if (varDsc->lvPinned)
     {
         varDsc->lvTracked = 0;
 #ifdef JIT32_GCENCODER
