@@ -4907,14 +4907,7 @@ PhaseStatus Lowering::DoPhase()
 
     if (comp->opts.OptimizationDisabled())
     {
-        assert(!comp->compEnregLocals());
-
-        // TODO-MIKE-Review: Check if this is really needed in minopts.
-        comp->fgLocalVarLivenessInit();
-
-        assert(!comp->fgLocalVarLivenessDone);
         INDEBUG(CheckAllLocalsImplicitlyReferenced());
-        DBEXEC(comp->verbose, comp->lvaTableDump());
     }
     else
     {
@@ -4939,9 +4932,9 @@ PhaseStatus Lowering::DoPhase()
         // impact of any dead code removal. Note this may leave us with
         // tracked vars that have zero refs.
         comp->lvaComputeLclRefCounts();
-
-        DBEXEC(comp->verbose, comp->lvaTableDump());
     }
+
+    DBEXEC(comp->verbose, comp->lvaTableDump());
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
@@ -4949,6 +4942,10 @@ PhaseStatus Lowering::DoPhase()
 #ifdef DEBUG
 void Lowering::CheckAllLocalsImplicitlyReferenced()
 {
+    assert(comp->opts.OptimizationDisabled());
+    assert(!comp->compEnregLocals());
+    assert(!comp->fgLocalVarLivenessDone);
+
     for (unsigned lclNum = 0; lclNum < comp->lvaCount; lclNum++)
     {
         LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
@@ -4966,6 +4963,7 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
         }
 
         assert(!lcl->lvTracked);
+        assert(!lcl->lvMustInit);
     }
 }
 #endif // DEBUG
