@@ -4950,7 +4950,7 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
     {
         LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
 
-        assert(!lcl->TypeIs(TYP_UNDEF, TYP_VOID, TYP_UINT, TYP_ULONG, TYP_UNKNOWN));
+        assert(varTypeIsValidLclType(lcl->GetType()));
 
         if (comp->lvaIsX86VarargsStackParam(lclNum))
         {

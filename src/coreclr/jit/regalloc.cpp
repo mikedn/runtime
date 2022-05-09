@@ -336,9 +336,6 @@ void Compiler::raMarkStkVars()
         }
 
     ON_STK:
-        /* The variable (or part of it) lives on the stack frame */
-
-        noway_assert((varDsc->lvType != TYP_UNDEF) && (varDsc->lvType != TYP_VOID) && (varDsc->lvType != TYP_UNKNOWN));
 #if FEATURE_FIXED_OUT_ARGS
         noway_assert((lclNum == lvaOutgoingArgSpaceVar) || lvaLclSize(lclNum) != 0);
 #else  // FEATURE_FIXED_OUT_ARGS
