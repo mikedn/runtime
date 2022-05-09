@@ -3016,6 +3016,7 @@ void Lowering::InsertPInvokeMethodProlog()
 
     GenTree* frameAddr =
         comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfFrameVptr, nullptr);
+    comp->lvaSetVarAddrExposed(comp->lvaInlinedPInvokeFrameVar);
 
     // Call runtime helper to fill in our InlinedCallFrame and push it on the Frame list:
     //     TCB = CORINFO_HELP_INIT_PINVOKE_FRAME(&symFrameStart, secretArg);

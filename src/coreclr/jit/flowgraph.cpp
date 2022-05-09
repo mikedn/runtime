@@ -2426,12 +2426,20 @@ void Compiler::fgAddInternal()
         // TCB variable if we're not using them.
         if (!opts.ShouldUsePInvokeHelpers())
         {
-            info.compLvFrameListRoot = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Pinvoke FrameListRoot"));
-            lvaGetDesc(info.compLvFrameListRoot)->lvImplicitlyReferenced = 1;
+            info.compLvFrameListRoot = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"));
+
+            // TODO-MIKE-Cleanup: This isn't needed. Removing it causes a few diffs in methods
+            // where PInvoke calls area dead and the local cannot be eliminated due to this.
+            lvaGetDesc(info.compLvFrameListRoot)->lvImplicitlyReferenced = true;
         }
 
-        lvaInlinedPInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Pinvoke FrameVar"));
+        lvaInlinedPInvokeFrameVar = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
         lvaGetDesc(lvaInlinedPInvokeFrameVar)->SetBlockType(eeGetEEInfo()->inlinedCallFrameInfo.size);
+
+        // TODO-MIKE-Cleanup: This isn't needed. Lowering does this when creating the associated IR.
+        // Removing this causes a few diffs due to fgMorphPotentialTailCall being conservative in
+        // in the presence of address exposed locals.
+        lvaGetDesc(lvaInlinedPInvokeFrameVar)->lvAddrExposed = true;
     }
 
     // Do we need to insert a "JustMyCode" callback?
