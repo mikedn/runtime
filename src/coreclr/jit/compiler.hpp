@@ -1545,42 +1545,6 @@ inline unsigned Compiler::lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG
 }
 
 /*****************************************************************************
- *
- *  The following returns the mask of all tracked locals
- *  referenced in a statement.
- */
-
-inline VARSET_VALRET_TP Compiler::lvaStmtLclMask(Statement* stmt)
-{
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-    VARSET_TP  lclMask(VarSetOps::MakeEmpty(this));
-
-    assert(fgStmtListThreaded);
-
-    for (GenTree* const tree : stmt->TreeList())
-    {
-        if (tree->gtOper != GT_LCL_VAR)
-        {
-            continue;
-        }
-
-        varNum = tree->AsLclVarCommon()->GetLclNum();
-        assert(varNum < lvaCount);
-        varDsc = lvaTable + varNum;
-
-        if (!varDsc->lvTracked)
-        {
-            continue;
-        }
-
-        VarSetOps::UnionD(this, lclMask, VarSetOps::MakeSingleton(this, varDsc->lvVarIndex));
-    }
-
-    return lclMask;
-}
-
-/*****************************************************************************
  Is this a synchronized instance method? If so, we will need to report "this"
  in the GC information, so that the EE can release the object lock
  in case of an exception
