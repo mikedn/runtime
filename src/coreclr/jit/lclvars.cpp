@@ -22,17 +22,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitstd/algorithm.h"
 #include "patchpointinfo.h"
 
-/*****************************************************************************/
-
-#ifdef DEBUG
-#if DOUBLE_ALIGN
-/* static */
-unsigned Compiler::s_lvaDoubleAlignedProcsCount = 0;
-#endif
-#endif
-
-/*****************************************************************************/
-
 void Compiler::lvaInit()
 {
     /* We haven't allocated stack variables yet */

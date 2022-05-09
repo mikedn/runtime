@@ -2404,13 +2404,6 @@ public:
     unsigned  lvaTrackedToVarNumSize;
     unsigned* lvaTrackedToVarNum;
 
-#if DOUBLE_ALIGN
-#ifdef DEBUG
-    // # of procs compiled a with double-aligned stack
-    static unsigned s_lvaDoubleAlignedProcsCount;
-#endif
-#endif
-
     void lvaSetVarAddrExposed(unsigned varNum);
     void lvaSetVarLiveInOutOfHandler(unsigned varNum);
 

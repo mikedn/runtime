@@ -726,13 +726,6 @@ void Compiler::compShutdown()
                     totalNCsize - grossNCsize, 100 * (totalNCsize - grossNCsize) / grossVMsize,
                     100 * (totalNCsize - grossNCsize) / grossNCsize, Target::g_tgtCPUName);
         }
-
-#ifdef DEBUG
-#if DOUBLE_ALIGN
-        fprintf(fout, "%u out of %u methods generated with double-aligned stack\n",
-                Compiler::s_lvaDoubleAlignedProcsCount, genMethodCnt);
-#endif
-#endif
     }
 
 #endif // DISPLAY_SIZES
