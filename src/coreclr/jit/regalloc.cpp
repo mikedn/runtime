@@ -301,6 +301,10 @@ void Compiler::raMarkStkVars()
         else if (varDsc->lvRefCnt() == 0)
         {
             assert(!opts.compDbgCode || lvaIsX86VarargsStackParam(lclNum));
+#if FEATURE_FIXED_OUT_ARGS
+            // lvaOutgoingArgSpaceVar is implicitly referenced.
+            assert(lclNum != lvaOutgoingArgSpaceVar);
+#endif
 
             bool needSlot = false;
 
@@ -315,10 +319,6 @@ void Compiler::raMarkStkVars()
             {
                 needSlot |= varDsc->lvAddrExposed;
             }
-
-#if FEATURE_FIXED_OUT_ARGS
-            needSlot |= (lclNum == lvaOutgoingArgSpaceVar);
-#endif
 
             varDsc->lvOnFrame = needSlot;
 
