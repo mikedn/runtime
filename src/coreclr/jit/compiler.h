@@ -2430,6 +2430,7 @@ public:
 #ifdef JIT32_GCENCODER
         DNER_PinningRef,
 #endif
+        DNER_HasImplicitRefs
     };
 
 #endif

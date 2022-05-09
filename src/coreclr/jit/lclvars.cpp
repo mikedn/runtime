@@ -338,8 +338,25 @@ void Compiler::lvaInitTypeRef()
     {
         // Ensure that there will be at least one stack variable since
         // we require that the GSCookie does not have a 0 stack offset.
-        unsigned lclNum = lvaGrabTempWithImplicitUse(false DEBUGARG("GSCookie dummy"));
-        lvaGetDesc(lclNum)->SetType(TYP_INT);
+
+        // TODO-MIKE-Cleanup: This is a bunch of crap. It mainly exists due to the stress
+        // code above, which blindly introduces GC cookies in methods that have no locals.
+        // Normally we'd need a GS cookie only if the method has a local with an unsafe
+        // buffer or if it uses localloc, and in the later case it would be difficult for
+        // the method to do anything useful if it doesn't also have some other locals.
+        // Funnily enough, this is done so early that it doesn't catch the localloc case.
+        // And it's added unconditionally, even if other stack locals are already present.
+        // Note that the inliner does something similar, but not quite the the same. It
+        // adds it after import so it does detect localloc. It's not even clear why is this
+        // done here, when the actual cookie is added later, after global morph. Go figure.
+        // This could probably be added just before register allocation when we could
+        // check if it's actually needed. But it would be even better to not need this
+        // dummy and have frame allocation take care of this.
+        // Removing this causes a few diffs so keep it for now.
+
+        unsigned lclNum                            = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaGetDesc(lclNum)->lvImplicitlyReferenced = true;
+        lvaSetVarAddrExposed(lclNum);
     }
 
     // Allocate the lvaOutgoingArgSpaceVar now because we can run into problems in the
@@ -1626,6 +1643,9 @@ void Compiler::lvaSetVarDoNotEnregister(LclVarDsc* varDsc DEBUGARG(DoNotEnregist
             JITDUMP("it is unpromoted LONG\n");
             break;
 #endif
+        case DNER_HasImplicitRefs:
+            JITDUMP("it has implicit references\n");
+            break;
         default:
             unreached();
             break;

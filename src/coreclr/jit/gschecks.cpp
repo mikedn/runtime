@@ -17,10 +17,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Compiler::gsGSChecksInitCookie()
 {
-    lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GS cookie"));
-    // Prevent cookie from being optimized
+    lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
+
     lvaGetDesc(lvaGSSecurityCookie)->lvImplicitlyReferenced = true;
-    lvaSetVarAddrExposed(lvaGSSecurityCookie);
+    lvaSetVarDoNotEnregister(lvaGSSecurityCookie DEBUGARG(DNER_HasImplicitRefs));
 
     info.compCompHnd->getGSCookie(&gsGlobalSecurityCookieVal, &gsGlobalSecurityCookieAddr);
 }

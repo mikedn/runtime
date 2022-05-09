@@ -1999,8 +1999,11 @@ void Compiler::inlPropagateInlineeCompilerState()
     if (!getNeedsGSSecurityCookie() && InlineeCompiler->getNeedsGSSecurityCookie())
     {
         setNeedsGSSecurityCookie();
-        unsigned dummy = lvaGrabTempWithImplicitUse(false DEBUGARG("GSCookie dummy for inlinee"));
-        lvaGetDesc(dummy)->SetType(TYP_INT);
+
+        unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+
+        lvaGetDesc(lclNum)->lvImplicitlyReferenced = true;
+        lvaSetVarAddrExposed(lclNum);
     }
 }
 
