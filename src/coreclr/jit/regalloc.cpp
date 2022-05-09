@@ -300,6 +300,8 @@ void Compiler::raMarkStkVars()
         /* Unused variables typically don't get any frame space */
         else if (varDsc->lvRefCnt() == 0)
         {
+            assert(!opts.compDbgCode || lvaIsX86VarargsStackParam(lclNum));
+
             bool needSlot = false;
 
             bool stkFixedArgInVarArgs =
@@ -315,55 +317,13 @@ void Compiler::raMarkStkVars()
             }
 
 #if FEATURE_FIXED_OUT_ARGS
-
-            /* Is this the dummy variable representing GT_LCLBLK ? */
             needSlot |= (lclNum == lvaOutgoingArgSpaceVar);
-
-#endif // FEATURE_FIXED_OUT_ARGS
-
-#ifdef DEBUG
-            // For debugging, note that we have to reserve space even for
-            // unused variables if they are ever in scope. However, this is not
-            // an issue as fgExtendDbgLifetimes() adds an initialization and
-            // variables in scope will not have a zero ref-cnt.
-
-            // TODO-MIKE-Review: Actually fgExtendDbgLifetimes() was dead code
-            // and didn't add any initialization...
-
-            if (opts.compDbgCode && !varDsc->lvIsParam && varDsc->lvTracked)
-            {
-                for (unsigned scopeNum = 0; scopeNum < info.compVarScopesCount; scopeNum++)
-                {
-                    noway_assert(info.compVarScopes[scopeNum].vsdVarNum != lclNum);
-                }
-            }
 #endif
-            /*
-              For Debug Code, we have to reserve space even if the variable is never
-              in scope. We will also need to initialize it if it is a GC var.
-              So we set lvMustInit and verify it has a nonzero ref-cnt.
-             */
-
-            if (opts.compDbgCode && !stkFixedArgInVarArgs && lclNum < info.compLocalsCount)
-            {
-                if (varDsc->lvRefCnt() == 0)
-                {
-                    assert(!"unreferenced local in debug codegen");
-                    varDsc->lvImplicitlyReferenced = 1;
-                }
-
-                needSlot |= true;
-
-                if (!varDsc->lvIsParam)
-                {
-                    varDsc->lvMustInit = true;
-                }
-            }
 
             varDsc->lvOnFrame = needSlot;
+
             if (!needSlot)
             {
-                /* Clear the lvMustInit flag in case it is set */
                 varDsc->lvMustInit = false;
 
                 goto NOT_STK;
