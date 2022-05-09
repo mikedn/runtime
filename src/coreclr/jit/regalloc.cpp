@@ -308,14 +308,11 @@ void Compiler::raMarkStkVars()
 
             bool needSlot = false;
 
-            bool stkFixedArgInVarArgs =
-                info.compIsVarArgs && varDsc->lvIsParam && !varDsc->lvIsRegArg && lclNum != lvaVarargsHandleArg;
-
             // If its address has been exposed, ignore lvRefCnt. However, exclude
             // fixed arguments in varargs method as lvOnFrame shouldn't be set
             // for them as we don't want to explicitly report them to GC.
 
-            if (!stkFixedArgInVarArgs)
+            if (!lvaIsX86VarargsStackParam(lclNum))
             {
                 needSlot |= varDsc->lvAddrExposed;
             }
