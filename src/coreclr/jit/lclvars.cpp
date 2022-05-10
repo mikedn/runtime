@@ -3046,8 +3046,10 @@ void Compiler::lvaMarkLocalVars()
 #if defined(FEATURE_EH_FUNCLETS)
         if (ehNeedsPSPSym())
         {
-            lvaPSPSym = lvaGrabTempWithImplicitUse(false DEBUGARG("PSPSym"));
-            lvaGetDesc(lvaPSPSym)->SetType(TYP_I_IMPL);
+            lvaPSPSym = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PSPSym"));
+
+            lvaGetDesc(lvaPSPSym)->lvImplicitlyReferenced = true;
+            lvaSetVarDoNotEnregister(lvaPSPSym DEBUGARG(DNER_HasImplicitRefs));
         }
 #endif // FEATURE_EH_FUNCLETS
 
