@@ -6006,7 +6006,7 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
 
     if (tempLclNum == BAD_VAR_NUM)
     {
-        tempLclNum = comp->lvaGrabTempWithImplicitUse(false DEBUGARG("Vector GetElement temp"));
+        tempLclNum = comp->lvaGrabTemp(false DEBUGARG("Vector GetElement temp"));
 
         // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
         // so it doesn't set layout, exact size etc. It happens to work because it
