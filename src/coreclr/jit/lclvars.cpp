@@ -3033,8 +3033,9 @@ void Compiler::lvaMarkLocalVars()
         // For zero-termination of the shadow-Stack-pointer chain
         slotsNeeded++;
 
-        lvaShadowSPslotsVar = lvaGrabTempWithImplicitUse(false DEBUGARG("lvaShadowSPslotsVar"));
+        lvaShadowSPslotsVar = lvaGrabTemp(false DEBUGARG("ShadowSPslots"));
         lvaGetDesc(lvaShadowSPslotsVar)->SetBlockType(slotsNeeded * REGSIZE_BYTES);
+        lvaGetDesc(lvaShadowSPslotsVar)->lvImplicitlyReferenced = true;
     }
 
 #endif // !FEATURE_EH_FUNCLETS
