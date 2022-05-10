@@ -2901,6 +2901,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
     if (intrinsicID == CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr)
     {
         // must be done regardless of DbgCode and MinOpts
+        lvaSetVarAddrExposed(lvaStubArgumentVar);
         return gtNewLclVarAddrNode(lvaStubArgumentVar, TYP_I_IMPL);
     }
 #else

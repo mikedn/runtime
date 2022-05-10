@@ -3358,8 +3358,20 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         if (info.compPublishStubParam)
         {
             assert(lvaStubArgumentVar == BAD_VAR_NUM);
-            lvaStubArgumentVar = lvaGrabTempWithImplicitUse(false DEBUGARG("stub argument"));
-            lvaGetDesc(lvaStubArgumentVar)->SetType(TYP_I_IMPL);
+
+            lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("stub argument"));
+
+            lvaGetDesc(lvaStubArgumentVar)->lvImplicitlyReferenced = true;
+            lvaSetVarDoNotEnregister(lvaStubArgumentVar DEBUGARG(DNER_HasImplicitRefs));
+
+            // TODO-MIKE-CQ: This doesn't seem necessary, only GetStubContextAddr
+            // uses the address and the importer sets AX when encounters it. Keep
+            // it for now as it causes a few diffs.
+            // Also, this local is unnecessarily created when inlining because
+            // compPublishStubParam is "inherited" from the inlinee compiler.
+            // Obviously that's incorrect, only the inlinee local will contain the
+            // appropiate value.
+            lvaSetVarAddrExposed(lvaStubArgumentVar);
         }
     };
     DoPhase(this, PHASE_PRE_IMPORT, preImportPhase);

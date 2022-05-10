@@ -1528,22 +1528,6 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
     return lclNum;
 }
 
-// Allocate a temporary variable which is implicitly used by codegen.
-// There will be no explicit references to the temp, and so it needs
-// to be forced to be kept alive, and not be optimized away.
-inline unsigned Compiler::lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason))
-{
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-
-    lvaTable[lclNum].lvImplicitlyReferenced = 1;
-    // This will prevent it from being optimized away.
-    // TODO-MIKE-Review: Shouldn't lvImplicitlyReferenced be enough to prevent
-    // it from being optimized away? What does "optimized away" means anyway,
-    // local variables are not deleted...
-    lvaSetVarAddrExposed(lclNum);
-    return lclNum;
-}
-
 /*****************************************************************************
  Is this a synchronized instance method? If so, we will need to report "this"
  in the GC information, so that the EE can release the object lock
