@@ -3496,14 +3496,18 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 #ifdef TARGET_XARCH
         if (opts.compStackCheckOnRet)
         {
-            lvaReturnSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("ReturnSpCheck"));
-            lvaGetDesc(lvaReturnSpCheck)->SetType(TYP_I_IMPL);
+            lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
+
+            lvaGetDesc(lvaReturnSpCheck)->lvImplicitlyReferenced = true;
+            lvaSetVarDoNotEnregister(lvaReturnSpCheck DEBUGARG(DNER_HasImplicitRefs));
         }
 #ifdef TARGET_X86
         if (opts.compStackCheckOnCall)
         {
-            lvaCallSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("CallSpCheck"));
-            lvaGetDesc(lvaCallSpCheck)->SetType(TYP_I_IMPL);
+            lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
+
+            lvaGetDesc(lvaCallSpCheck)->lvImplicitlyReferenced = true;
+            lvaSetVarDoNotEnregister(lvaCallSpCheck DEBUGARG(DNER_HasImplicitRefs));
         }
 #endif // TARGET_X86
 #endif // TARGET_XARCH
