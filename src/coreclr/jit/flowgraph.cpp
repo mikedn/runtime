@@ -1711,8 +1711,9 @@ void Compiler::fgAddReversePInvokeEnterExit()
 {
     assert(opts.IsReversePInvoke());
 
-    lvaReversePInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Reverse Pinvoke FrameVar"));
+    lvaReversePInvokeFrameVar = lvaGrabTemp(false DEBUGARG("ReversePInvokeFrame"));
     lvaGetDesc(lvaReversePInvokeFrameVar)->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
+    lvaSetVarAddrExposed(lvaReversePInvokeFrameVar);
 
     // Add enter pinvoke exit callout at the start of prolog
 
