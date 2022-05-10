@@ -2468,16 +2468,11 @@ public:
     unsigned lvaRetAddrVar;
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-
-    unsigned lvaReturnSpCheck; // Stores SP to confirm it is not corrupted on return.
-
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
-
-#if defined(DEBUG) && defined(TARGET_X86)
-
-    unsigned lvaCallSpCheck; // Stores SP to confirm it is not corrupted after every call.
-
-#endif // defined(DEBUG) && defined(TARGET_X86)
+    // Stores SP to confirm it is not corrupted on return.
+    unsigned lvaReturnSpCheck;
+    // Stores SP to confirm it is not corrupted after every call.
+    X86_ONLY(unsigned lvaCallSpCheck;)
+#endif
 
     bool lvaAddressExposedLocalsMarked;
 
@@ -7225,20 +7220,15 @@ public:
 #endif
 
 #ifdef DEBUG
-        bool compGcChecks; // Check arguments and return values to ensure they are sane
-#endif
-
-#if defined(DEBUG) && defined(TARGET_XARCH)
-
-        bool compStackCheckOnRet; // Check stack pointer on return to ensure it is correct.
-
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
-
-#if defined(DEBUG) && defined(TARGET_X86)
-
-        bool compStackCheckOnCall; // Check stack pointer after call to ensure it is correct. Only for x86.
-
-#endif // defined(DEBUG) && defined(TARGET_X86)
+        // Check arguments and return values to ensure they are sane
+        bool compGcChecks;
+#if defined(TARGET_XARCH)
+        // Check stack pointer on return to ensure it is correct.
+        bool compStackCheckOnRet;
+        // Check stack pointer after call to ensure it is correct.
+        X86_ONLY(bool compStackCheckOnCall;)
+#endif // TARGET_XARCH
+#endif // DEBUG
 
         bool compReloc; // Generate relocs for pointers in code, true for all ngen/prejit codegen
 

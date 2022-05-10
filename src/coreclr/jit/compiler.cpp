@@ -2130,9 +2130,8 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #ifdef DEBUG
     assert(!codeGen->isGCTypeFixed());
     opts.compGcChecks = (JitConfig.JitGCChecks() != 0) || compStressCompile(STRESS_GENERIC_VARN, 5);
-#endif
 
-#if defined(DEBUG) && defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     enum
     {
         STACK_CHECK_ON_RETURN = 0x1,
@@ -2140,16 +2139,15 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         STACK_CHECK_ALL       = 0x3
     };
 
-    DWORD dwJitStackChecks = JitConfig.JitStackChecks();
+    int jitStackChecks = JitConfig.JitStackChecks();
     if (compStressCompile(STRESS_GENERIC_VARN, 5))
     {
-        dwJitStackChecks = STACK_CHECK_ALL;
+        jitStackChecks = STACK_CHECK_ALL;
     }
-    opts.compStackCheckOnRet = (dwJitStackChecks & DWORD(STACK_CHECK_ON_RETURN)) != 0;
-#if defined(TARGET_X86)
-    opts.compStackCheckOnCall = (dwJitStackChecks & DWORD(STACK_CHECK_ON_CALL)) != 0;
-#endif // defined(TARGET_X86)
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+    opts.compStackCheckOnRet = (jitStackChecks & STACK_CHECK_ON_RETURN) != 0;
+    X86_ONLY(opts.compStackCheckOnCall = (jitStackChecks & STACK_CHECK_ON_CALL) != 0);
+#endif // TARGET_XARCH
+#endif // DEBUG
 
 #if MEASURE_MEM_ALLOC
     s_dspMemStats = (JitConfig.DisplayMemStats() != 0);
@@ -3494,23 +3492,22 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
                 }
             }
         }
-#endif // DEBUG
 
-#if defined(DEBUG) && defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
         if (opts.compStackCheckOnRet)
         {
             lvaReturnSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("ReturnSpCheck"));
             lvaGetDesc(lvaReturnSpCheck)->SetType(TYP_I_IMPL);
         }
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
-
-#if defined(DEBUG) && defined(TARGET_X86)
+#ifdef TARGET_X86
         if (opts.compStackCheckOnCall)
         {
             lvaCallSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("CallSpCheck"));
             lvaGetDesc(lvaCallSpCheck)->SetType(TYP_I_IMPL);
         }
-#endif // defined(DEBUG) && defined(TARGET_X86)
+#endif // TARGET_X86
+#endif // TARGET_XARCH
+#endif // DEBUG
 
         // Filter out unimported BBs
         fgRemoveEmptyBlocks();

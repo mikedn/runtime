@@ -2066,7 +2066,7 @@ void CodeGen::genLclHeap(GenTree* tree)
     target_ssize_t lastTouchDelta = (target_ssize_t)-1;
 
 #ifdef DEBUG
-    if (compiler->opts.compStackCheckOnRet)
+    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
         genStackPointerCheck(compiler->lvaReturnSpCheck);
     }
@@ -2342,12 +2342,11 @@ BAILOUT:
 
 #ifdef DEBUG
     // Update local variable to reflect the new stack pointer.
-    if (compiler->opts.compStackCheckOnRet)
+    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
-        noway_assert(compiler->lvaReturnSpCheck != 0xCCCCCCCC &&
-                     compiler->lvaTable[compiler->lvaReturnSpCheck].lvDoNotEnregister &&
-                     compiler->lvaTable[compiler->lvaReturnSpCheck].lvOnFrame);
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
+        assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
     }
 #endif
 
@@ -4919,12 +4918,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
 #if defined(DEBUG) && defined(TARGET_X86)
     // Store the stack pointer so we can check it after the call.
-    if (compiler->opts.compStackCheckOnCall && call->gtCallType == CT_USER_FUNC)
+    if ((compiler->lvaCallSpCheck != BAD_VAR_NUM) && call->IsUserCall())
     {
-        noway_assert(compiler->lvaCallSpCheck != 0xCCCCCCCC &&
-                     compiler->lvaTable[compiler->lvaCallSpCheck].lvDoNotEnregister &&
-                     compiler->lvaTable[compiler->lvaCallSpCheck].lvOnFrame);
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaCallSpCheck, 0);
+        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaCallSpCheck);
+        assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, compiler->lvaCallSpCheck, 0);
     }
 #endif // defined(DEBUG) && defined(TARGET_X86)
 
@@ -5217,11 +5215,10 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
 #if defined(DEBUG) && defined(TARGET_X86)
-    if (compiler->opts.compStackCheckOnCall && call->gtCallType == CT_USER_FUNC)
+    if ((compiler->lvaCallSpCheck != BAD_VAR_NUM) && call->IsUserCall())
     {
-        noway_assert(compiler->lvaCallSpCheck != 0xCCCCCCCC &&
-                     compiler->lvaTable[compiler->lvaCallSpCheck].lvDoNotEnregister &&
-                     compiler->lvaTable[compiler->lvaCallSpCheck].lvOnFrame);
+        regNumber spRegCheck = REG_SPBASE;
+
         if (!fCallerPop && (stackArgBytes != 0))
         {
             // ECX is trashed, so can be used to compute the expected SP. We saved the shift of SP
@@ -5230,13 +5227,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
             GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_ARG_0, stackArgBytes);
             GetEmitter()->emitIns_S_R(INS_cmp, EA_4BYTE, REG_ARG_0, compiler->lvaCallSpCheck, 0);
-        }
-        else
-        {
-            GetEmitter()->emitIns_S_R(INS_cmp, EA_4BYTE, REG_SPBASE, compiler->lvaCallSpCheck, 0);
+            spRegCheck = REG_ARG_0;
         }
 
         BasicBlock* sp_check = genCreateTempLabel();
+        GetEmitter()->emitIns_S_R(INS_cmp, EA_4BYTE, spRegCheck, compiler->lvaCallSpCheck, 0);
         GetEmitter()->emitIns_J(INS_je, sp_check);
         instGen(INS_BREAKPOINT);
         genDefineTempLabel(sp_check);

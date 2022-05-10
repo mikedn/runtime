@@ -6890,12 +6890,11 @@ void CodeGen::genFnProlog()
 #endif // TARGET_X86
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->opts.compStackCheckOnRet)
+    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
-        noway_assert(compiler->lvaReturnSpCheck != 0xCCCCCCCC &&
-                     compiler->lvaTable[compiler->lvaReturnSpCheck].lvDoNotEnregister &&
-                     compiler->lvaTable[compiler->lvaReturnSpCheck].lvOnFrame);
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
+        assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
     }
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
 
@@ -10069,7 +10068,7 @@ void CodeGen::genReturn(GenTree* ret)
 #endif // PROFILING_SUPPORTED
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->opts.compStackCheckOnRet)
+    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
         genStackPointerCheck(compiler->lvaReturnSpCheck);
     }
@@ -10227,8 +10226,9 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 //
 void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 {
-    noway_assert(lvaStackPointerVar != 0xCCCCCCCC && compiler->lvaTable[lvaStackPointerVar].lvDoNotEnregister &&
-                 compiler->lvaTable[lvaStackPointerVar].lvOnFrame);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lvaStackPointerVar);
+    assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+
     GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lvaStackPointerVar, 0);
 
     BasicBlock* sp_check = genCreateTempLabel();

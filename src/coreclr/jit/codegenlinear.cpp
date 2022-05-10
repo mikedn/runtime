@@ -124,34 +124,26 @@ void CodeGen::genCodeForBBlist()
 
 #ifdef DEBUG
     genInterruptibleUsed = true;
-
     // You have to be careful if you create basic blocks from now on
     compiler->fgSafeBasicBlockCreation = false;
-#endif // DEBUG
 
-#if defined(DEBUG) && defined(TARGET_X86)
-
-    // Check stack pointer on call stress mode is not compatible with fully interruptible GC. REVIEW: why?
-    //
-    if (GetInterruptible() && compiler->opts.compStackCheckOnCall)
-    {
-        compiler->opts.compStackCheckOnCall = false;
-    }
-
-#endif // defined(DEBUG) && defined(TARGET_X86)
-
-#if defined(DEBUG) && defined(TARGET_XARCH)
-
+#ifdef TARGET_XARCH
     // Check stack pointer on return stress mode is not compatible with fully interruptible GC. REVIEW: why?
     // It is also not compatible with any function that makes a tailcall: we aren't smart enough to only
     // insert the SP check in the non-tailcall returns.
-    //
-    if ((GetInterruptible() || compiler->compTailCallUsed) && compiler->opts.compStackCheckOnRet)
+    if ((GetInterruptible() || compiler->compTailCallUsed) && (compiler->lvaReturnSpCheck != BAD_VAR_NUM))
     {
-        compiler->opts.compStackCheckOnRet = false;
+        compiler->lvaReturnSpCheck = BAD_VAR_NUM;
     }
-
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+#ifdef TARGET_X86
+    // Check stack pointer on call stress mode is not compatible with fully interruptible GC. REVIEW: why?
+    if (GetInterruptible() && (compiler->lvaCallSpCheck != BAD_VAR_NUM))
+    {
+        compiler->lvaCallSpCheck = BAD_VAR_NUM;
+    }
+#endif // TARGET_X86
+#endif // TARGET_XARCH
+#endif // DEBUG
 
     genMarkLabelsForCodegen();
 

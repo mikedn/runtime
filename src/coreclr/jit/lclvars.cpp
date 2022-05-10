@@ -63,6 +63,10 @@ void Compiler::lvaInit()
 #if defined(FEATURE_EH_FUNCLETS)
     lvaPSPSym = BAD_VAR_NUM;
 #endif
+#if defined(DEBUG) && defined(TARGET_XARCH)
+    lvaReturnSpCheck = BAD_VAR_NUM;
+    X86_ONLY(lvaCallSpCheck = BAD_VAR_NUM);
+#endif
 
     lvaAddressExposedLocalsMarked = false;
 
