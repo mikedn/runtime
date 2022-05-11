@@ -1466,20 +1466,23 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     lcl->lvOnFrame = true;
     INDEBUG(lcl->lvReason = reason;)
 
-    // If we've started normal ref counting, bump the ref count of this
-    // local, as we no longer do any incremental counting, and we presume
-    // this new local will be referenced.
+    // TODO-MIKE-Review: Minopts needs this because it does not do a ref count,
+    // though we could probably just set the ref count to 1 after lowering.
+    // It's not clear if there's any need to also do this if optimizations are
+    // enabled. Anyway the ref count is likely wrong, a typical temp will have
+    // one def and at least one use.
+    // And then minopts shouldn't really need any ref count values, it's just
+    // that code like raMarkStkVars ignores lvImplicitlyReferenced.
+
     if (lvaLocalVarRefCounted())
     {
         if (opts.OptimizationDisabled())
         {
-            lcl->lvImplicitlyReferenced = 1;
+            lcl->lvImplicitlyReferenced = true;
         }
-        else
-        {
-            lcl->SetRefCount(1);
-            lcl->SetRefWeight(BB_UNITY_WEIGHT);
-        }
+
+        lcl->SetRefCount(1);
+        lcl->SetRefWeight(BB_UNITY_WEIGHT);
     }
 
     JITDUMP("\nAllocated %stemp V%02u for \"%s\"\n", shortLifetime ? "" : "long lifetime ", lclNum, reason);
@@ -3766,7 +3769,7 @@ inline unsigned LclVarDsc::GetRefCount() const
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
-    return lvImplicitlyReferenced && (m_refCount == 0) ? 1 : m_refCount;
+    return m_refCount;
 }
 
 inline void LclVarDsc::SetRefCount(unsigned count)
@@ -3780,9 +3783,7 @@ inline BasicBlock::weight_t LclVarDsc::GetRefWeight() const
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
-    BasicBlock::weight_t weight = jitstd::bit_cast<BasicBlock::weight_t>(m_refWeight);
-
-    return lvImplicitlyReferenced && (weight == 0) ? BB_UNITY_WEIGHT : weight;
+    return jitstd::bit_cast<BasicBlock::weight_t>(m_refWeight);
 }
 
 inline void LclVarDsc::SetRefWeight(BasicBlock::weight_t weight)

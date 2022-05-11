@@ -1509,6 +1509,10 @@ void Compiler::lvaSetImplicitlyReferenced(unsigned lclNum)
 
     lcl->lvImplicitlyReferenced = true;
     lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_HasImplicitRefs));
+
+    // Currently this is only used before ref counting starts
+    // so there's no need to bother with setting ref counts.
+    assert(!lvaLocalVarRefCounted());
 }
 
 /*****************************************************************************
@@ -3086,7 +3090,7 @@ void Compiler::lvaMarkLocalVars()
 
     if (opts.OptimizationDisabled())
     {
-        // If we don't optimize we make all locals implicitly referenced, with a ref count of 1.
+        // If we don't optimize we make all locals implicitly referenced.
         lvaSetImplictlyReferenced();
         return;
     }
@@ -3094,17 +3098,31 @@ void Compiler::lvaMarkLocalVars()
     lvaComputeLclRefCounts();
 
     const bool reportParamTypeArg = lvaReportParamTypeArg();
+    LclVarDsc* paramTypeLcl       = nullptr;
 
-    // Update bookkeeping on the generic context.
     if (lvaKeepAliveAndReportThis())
     {
-        lvaGetDesc(0u)->lvImplicitlyReferenced = reportParamTypeArg;
+        paramTypeLcl = lvaGetDesc(0u);
     }
-    else if (lvaReportParamTypeArg())
+    else if (reportParamTypeArg)
     {
-        // We should have a context arg.
-        assert(info.compTypeCtxtArg != (int)BAD_VAR_NUM);
-        lvaGetDesc(info.compTypeCtxtArg)->lvImplicitlyReferenced = reportParamTypeArg;
+        paramTypeLcl = lvaGetDesc(info.compTypeCtxtArg);
+    }
+
+    if (paramTypeLcl != nullptr)
+    {
+        // TODO-MIKE-Review: There's something dubious going on here, for lvaKeepAliveAndReportThis
+        // it sets "implicitly referenced" based on lvaReportParamTypeArg, which could be false.
+        // But lvImplicitlyReferenced wasn't previously set on `this` so doing this has no effect.
+        // Was the intention to always set lvImplicitlyReferenced to `true` perhaps?
+
+        paramTypeLcl->lvImplicitlyReferenced = reportParamTypeArg;
+
+        if (reportParamTypeArg && (paramTypeLcl->GetRefCount() == 0))
+        {
+            paramTypeLcl->SetRefCount(1);
+            paramTypeLcl->SetRefWeight(BB_UNITY_WEIGHT);
+        }
     }
 }
 
@@ -3132,26 +3150,21 @@ void Compiler::lvaSetImplictlyReferenced()
         LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         noway_assert(varTypeIsValidLclType(lcl->GetType()));
+        assert(!lcl->lvTracked);
 
-        // Using lvImplicitlyReferenced here ensures that locals don't accidentally become
-        // unreferenced by decrementing the ref count to zero. If we want to allow locals
-        // to become unreferenced later, we'll have to explicitly clear this bit.
         // X86 varargs stack params must remain unreferenced.
-
         if (lvaIsX86VarargsStackParam(lclNum))
         {
+            assert(!lcl->lvImplicitlyReferenced);
             assert(lcl->GetRefCount() == 0);
             assert(lcl->GetRefWeight() == 0);
-        }
-        else
-        {
-            lcl->lvImplicitlyReferenced = 1;
 
-            assert(lcl->GetRefCount() == 1);
-            assert(lcl->GetRefWeight() == BB_UNITY_WEIGHT);
+            continue;
         }
 
-        assert(!lcl->lvTracked);
+        lcl->lvImplicitlyReferenced = true;
+        lcl->SetRefCount(1);
+        lcl->SetRefWeight(BB_UNITY_WEIGHT);
     }
 }
 
@@ -3169,8 +3182,16 @@ void Compiler::lvaComputeLclRefCounts()
 
         noway_assert(varTypeIsValidLclType(lcl->GetType()));
 
-        lcl->SetRefCount(0);
-        lcl->SetRefWeight(BB_ZERO_WEIGHT);
+        if (lcl->lvImplicitlyReferenced && !lvaIsX86VarargsStackParam(lclNum))
+        {
+            lcl->SetRefCount(1);
+            lcl->SetRefWeight(BB_UNITY_WEIGHT);
+        }
+        else
+        {
+            lcl->SetRefCount(0);
+            lcl->SetRefWeight(BB_ZERO_WEIGHT);
+        }
 
         // TODO-MIKE-Review: lvSingleDef isn't used in LIR so we might as well set it and be done with it.
         // lvSingleDefRegCandidate is bizarre. It's mainly a LSRA thing yet we're computing it before LIR.
@@ -3240,7 +3261,9 @@ void Compiler::lvaComputeLclRefCounts()
             // don't know their offset in the stack). See the assert at the end of raMarkStkVars.
             if ((lcl->GetRefCount() == 0) && !lvaIsX86VarargsStackParam(lclNum))
             {
-                lcl->lvImplicitlyReferenced = 1;
+                lcl->lvImplicitlyReferenced = true;
+                lcl->SetRefCount(1);
+                lcl->SetRefWeight(BB_UNITY_WEIGHT);
             }
         }
 

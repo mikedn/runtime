@@ -2430,7 +2430,7 @@ void Compiler::fgAddInternal()
             info.compLvFrameListRoot = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"));
 
             // TODO-MIKE-Cleanup: This isn't needed. Removing it causes a few diffs in methods
-            // where PInvoke calls area dead and the local cannot be eliminated due to this.
+            // where PInvoke calls are dead and the local cannot be eliminated due to this.
             lvaGetDesc(info.compLvFrameListRoot)->lvImplicitlyReferenced = true;
         }
 
