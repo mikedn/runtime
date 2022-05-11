@@ -5079,13 +5079,8 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-        {
-            GenTreeLclFld*   lclFld = node->AsLclFld();
-            const unsigned   lclNum = lclFld->GetLclNum();
-            const LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-            assert(varDsc->lvDoNotEnregister);
-        }
-        break;
+            assert(compiler->lvaGetDesc(node->AsLclFld())->lvDoNotEnregister);
+            break;
 
         default:
             break;
