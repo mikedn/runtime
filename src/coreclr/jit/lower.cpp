@@ -344,13 +344,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_LCL_FLD_ADDR:
         case GT_LCL_VAR_ADDR:
-        {
-            // TODO-Cleanup: this is definitely not the best place for this detection,
-            // but for now it is the easiest. Move it to morph.
-            const GenTreeLclVarCommon* lclAddr = node->AsLclVarCommon();
-            comp->lvaSetVarDoNotEnregister(lclAddr->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
-        }
-        break;
+            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            break;
 
         default:
             break;
