@@ -2416,7 +2416,16 @@ public:
     unsigned* lvaTrackedToVarNum;
 
     void lvaSetImplicitlyReferenced(unsigned lclNum);
-    void lvaSetVarAddrExposed(unsigned varNum);
+
+    void lvaSetAddressExposed(unsigned lclNum);
+    void lvaSetAddressExposed(LclVarDsc* lcl);
+
+    // [[deprecated]]
+    void lvaSetVarAddrExposed(unsigned lclNum)
+    {
+        lvaSetAddressExposed(lclNum);
+    }
+
     void lvaSetVarLiveInOutOfHandler(unsigned varNum);
 
     void lvSetMinOptsDoNotEnreg();

@@ -1515,28 +1515,26 @@ void Compiler::lvaSetImplicitlyReferenced(unsigned lclNum)
     assert(!lvaLocalVarRefCounted());
 }
 
-/*****************************************************************************
- *
- *  Set the local var "varNum" as address-exposed.
- *  If this is a promoted struct, label it's fields the same way.
- */
-
-void Compiler::lvaSetVarAddrExposed(unsigned varNum)
+void Compiler::lvaSetAddressExposed(unsigned lclNum)
 {
-    noway_assert(varNum < lvaCount);
+    lvaSetAddressExposed(lvaGetDesc(lclNum));
+}
 
-    LclVarDsc* varDsc = &lvaTable[varNum];
+void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
+{
+    lcl->lvAddrExposed = 1;
+    lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_AddrExposed));
 
-    varDsc->lvAddrExposed = 1;
-    lvaSetVarDoNotEnregister(varDsc DEBUGARG(DNER_AddrExposed));
+    // For promoted locals we make all fields address exposed. However, if the local
+    // is a promoted field we don't make the parent nor other fields address exposed.
+    // It is assumed that the caller specifically wants only the specified field to
+    // be address exposed, otherwise it would just make the parent address exposed.
 
-    if (varDsc->lvPromoted)
+    if (lcl->IsPromoted())
     {
-        noway_assert(varTypeIsStruct(varDsc));
-
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            LclVarDsc* fieldLcl = lvaGetDesc(i);
+            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
             fieldLcl->lvAddrExposed = 1;
             lvaSetVarDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
