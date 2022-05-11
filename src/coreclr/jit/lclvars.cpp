@@ -1534,7 +1534,7 @@ void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReas
 {
     lcl->lvDoNotEnregister = 1;
 
-    // TODO-MIKE-Review: Shouldn't this make promoted fields DNER too?
+// TODO-MIKE-Review: Shouldn't this make promoted fields DNER too?
 
 #ifdef DEBUG
     if (verbose)
@@ -3142,6 +3142,7 @@ void Compiler::lvaSetImplictlyReferenced()
             continue;
         }
 
+        lcl->lvDoNotEnregister      = true;
         lcl->lvImplicitlyReferenced = true;
         lcl->SetRefCount(1);
         lcl->SetRefWeight(BB_UNITY_WEIGHT);
