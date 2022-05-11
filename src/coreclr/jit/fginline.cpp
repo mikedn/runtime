@@ -2001,8 +2001,9 @@ void Compiler::inlPropagateInlineeCompilerState()
         setNeedsGSSecurityCookie();
 
         unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaSetImplicitlyReferenced(lclNum);
 
-        lvaGetDesc(lclNum)->lvImplicitlyReferenced = true;
+        // TODO-MIKE-Cleanup: This isn't needed, see similar code in lvaInitTypeRef.
         lvaSetVarAddrExposed(lclNum);
     }
 }

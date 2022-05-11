@@ -358,8 +358,9 @@ void Compiler::lvaInitTypeRef()
         // dummy and have frame allocation take care of this.
         // Removing this causes a few diffs so keep it for now.
 
-        unsigned lclNum                            = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
-        lvaGetDesc(lclNum)->lvImplicitlyReferenced = true;
+        unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaSetImplicitlyReferenced(lclNum);
+
         lvaSetVarAddrExposed(lclNum);
     }
 
@@ -1500,6 +1501,14 @@ void Compiler::lvSetMinOptsDoNotEnreg()
     {
         lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_NoRegVars));
     }
+}
+
+void Compiler::lvaSetImplicitlyReferenced(unsigned lclNum)
+{
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    lcl->lvImplicitlyReferenced = true;
+    lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_HasImplicitRefs));
 }
 
 /*****************************************************************************
@@ -3035,7 +3044,7 @@ void Compiler::lvaMarkLocalVars()
 
         lvaShadowSPslotsVar = lvaGrabTemp(false DEBUGARG("ShadowSPslots"));
         lvaGetDesc(lvaShadowSPslotsVar)->SetBlockType(slotsNeeded * REGSIZE_BYTES);
-        lvaGetDesc(lvaShadowSPslotsVar)->lvImplicitlyReferenced = true;
+        lvaSetImplicitlyReferenced(lvaShadowSPslotsVar);
     }
 
 #endif // !FEATURE_EH_FUNCLETS
@@ -3047,9 +3056,7 @@ void Compiler::lvaMarkLocalVars()
         if (ehNeedsPSPSym())
         {
             lvaPSPSym = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PSPSym"));
-
-            lvaGetDesc(lvaPSPSym)->lvImplicitlyReferenced = true;
-            lvaSetVarDoNotEnregister(lvaPSPSym DEBUGARG(DNER_HasImplicitRefs));
+            lvaSetImplicitlyReferenced(lvaPSPSym);
         }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -3070,9 +3077,7 @@ void Compiler::lvaMarkLocalVars()
         if (compLocallocUsed)
         {
             lvaLocAllocSPvar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("LocAllocSP"));
-
-            lvaGetDesc(lvaLocAllocSPvar)->lvImplicitlyReferenced = true;
-            lvaSetVarDoNotEnregister(lvaLocAllocSPvar DEBUGARG(DNER_HasImplicitRefs));
+            lvaSetImplicitlyReferenced(lvaLocAllocSPvar);
 
             // TODO-MIKE-CQ: This is not needed. Removing it causes a few diffs due to AX
             // resulting in zero initialization of the local.
@@ -3087,7 +3092,7 @@ void Compiler::lvaMarkLocalVars()
     if (opts.OptimizationDisabled())
     {
         // If we don't optimize we make all locals implicitly referenced, with a ref count of 1.
-        lvaMarkImplictlyReferenced();
+        lvaSetImplictlyReferenced();
         return;
     }
 
@@ -3122,7 +3127,7 @@ bool Compiler::lvaIsX86VarargsStackParam(unsigned lclNum)
 #endif
 }
 
-void Compiler::lvaMarkImplictlyReferenced()
+void Compiler::lvaSetImplictlyReferenced()
 {
     assert(opts.OptimizationDisabled());
     assert(!compRationalIRForm);
@@ -3259,10 +3264,8 @@ void Compiler::lvaAllocOutgoingArgSpaceVar()
     if (lvaOutgoingArgSpaceVar == BAD_VAR_NUM)
     {
         lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
-
-        LclVarDsc* lcl = lvaGetDesc(lvaOutgoingArgSpaceVar);
-        lcl->SetBlockType(0);
-        lcl->lvImplicitlyReferenced = 1;
+        lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(0);
+        lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceSize);
     }
 
     noway_assert(lvaOutgoingArgSpaceVar >= info.compLocalsCount);

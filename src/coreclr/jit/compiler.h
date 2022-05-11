@@ -2404,6 +2404,7 @@ public:
     unsigned  lvaTrackedToVarNumSize;
     unsigned* lvaTrackedToVarNum;
 
+    void lvaSetImplicitlyReferenced(unsigned lclNum);
     void lvaSetVarAddrExposed(unsigned varNum);
     void lvaSetVarLiveInOutOfHandler(unsigned varNum);
 
@@ -2627,13 +2628,13 @@ public:
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
-    
+
     void lvaResizeTable(unsigned newSize);
 
     void lvaMarkLivenessTrackedLocals();
 
     void lvaMarkLocalVars(); // Local variable ref-counting
-    void lvaMarkImplictlyReferenced();
+    void lvaSetImplictlyReferenced();
     void lvaComputeLclRefCounts();
     void lvaComputeRefCountsHIR();
     void lvaComputeRefCountsLIR();

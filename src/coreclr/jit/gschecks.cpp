@@ -18,9 +18,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 void Compiler::gsGSChecksInitCookie()
 {
     lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
-
-    lvaGetDesc(lvaGSSecurityCookie)->lvImplicitlyReferenced = true;
-    lvaSetVarDoNotEnregister(lvaGSSecurityCookie DEBUGARG(DNER_HasImplicitRefs));
+    lvaSetImplicitlyReferenced(lvaGSSecurityCookie);
 
     info.compCompHnd->getGSCookie(&gsGlobalSecurityCookieVal, &gsGlobalSecurityCookieAddr);
 }

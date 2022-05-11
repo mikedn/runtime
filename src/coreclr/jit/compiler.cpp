@@ -3360,9 +3360,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
             assert(lvaStubArgumentVar == BAD_VAR_NUM);
 
             lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("stub argument"));
-
-            lvaGetDesc(lvaStubArgumentVar)->lvImplicitlyReferenced = true;
-            lvaSetVarDoNotEnregister(lvaStubArgumentVar DEBUGARG(DNER_HasImplicitRefs));
+            lvaSetImplicitlyReferenced(lvaStubArgumentVar);
 
             // TODO-MIKE-CQ: This doesn't seem necessary, only GetStubContextAddr
             // uses the address and the importer sets AX when encounters it. Keep
@@ -3509,17 +3507,13 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         if (opts.compStackCheckOnRet)
         {
             lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
-
-            lvaGetDesc(lvaReturnSpCheck)->lvImplicitlyReferenced = true;
-            lvaSetVarDoNotEnregister(lvaReturnSpCheck DEBUGARG(DNER_HasImplicitRefs));
+            lvaSetImplicitlyReferenced(lvaReturnSpCheck);
         }
 #ifdef TARGET_X86
         if (opts.compStackCheckOnCall)
         {
             lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
-
-            lvaGetDesc(lvaCallSpCheck)->lvImplicitlyReferenced = true;
-            lvaSetVarDoNotEnregister(lvaCallSpCheck DEBUGARG(DNER_HasImplicitRefs));
+            lvaSetImplicitlyReferenced(lvaCallSpCheck);
         }
 #endif // TARGET_X86
 #endif // TARGET_XARCH
