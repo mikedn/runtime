@@ -2501,7 +2501,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     {
         // TODO-1stClassStructs: We can no longer independently promote
         // or enregister this struct, since it is referenced as a whole.
-        comp->lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
+        comp->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
     }
 
     if (lcl->lvDoNotEnregister)
@@ -5180,7 +5180,7 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            comp->lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
+            comp->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
         }
     }
 }
@@ -5423,7 +5423,7 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
             // If it's not a register candidate then we can turn it into a LCL_FLD and retype it.
             src->ChangeOper(GT_LCL_FLD);
             src->SetType(bitcast->GetType());
-            comp->lvaSetVarDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
+            comp->lvaSetDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
             remove = true;
         }
         else
@@ -6014,7 +6014,7 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
 
         LclVarDsc* lclTemp = comp->lvaGetDesc(tempLclNum);
         lclTemp->lvType    = type;
-        comp->lvaSetVarDoNotEnregister(lclTemp DEBUGARG(Compiler::DNER_LocalField));
+        comp->lvaSetDoNotEnregister(lclTemp DEBUGARG(Compiler::DNER_LocalField));
     }
 
     return tempLclNum;

@@ -1486,29 +1486,12 @@ bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
     return lvIsStructField && !compiler->lvaGetDesc(lvParentLcl)->IsIndependentPromoted();
 }
 
-//------------------------------------------------------------------------
-// lvInitializeDoNotEnregFlag: a helper to initialize `lvDoNotEnregister` flag
-//    for locals that were created before the compiler decided its optimization level.
-//
-// Assumptions:
-//    compEnregLocals() value is finalized and is set to false.
-//
-void Compiler::lvSetMinOptsDoNotEnreg()
-{
-    JITDUMP("compEnregLocals() is false, setting doNotEnreg flag for all locals.");
-    assert(!compEnregLocals());
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
-    {
-        lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_NoRegVars));
-    }
-}
-
 void Compiler::lvaSetImplicitlyReferenced(unsigned lclNum)
 {
     LclVarDsc* lcl = lvaGetDesc(lclNum);
 
     lcl->lvImplicitlyReferenced = true;
-    lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_HasImplicitRefs));
+    lvaSetDoNotEnregister(lcl DEBUGARG(DNER_HasImplicitRefs));
 
     // Currently this is only used before ref counting starts
     // so there's no need to bother with setting ref counts.
@@ -1523,7 +1506,7 @@ void Compiler::lvaSetAddressExposed(unsigned lclNum)
 void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
 {
     lcl->lvAddrExposed = 1;
-    lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_AddrExposed));
+    lvaSetDoNotEnregister(lcl DEBUGARG(DNER_AddrExposed));
 
     // For promoted locals we make all fields address exposed. However, if the local
     // is a promoted field we don't make the parent nor other fields address exposed.
@@ -1537,8 +1520,95 @@ void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
             LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
             fieldLcl->lvAddrExposed = 1;
-            lvaSetVarDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
+            lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
         }
+    }
+}
+
+void Compiler::lvaSetDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason))
+{
+    lvaSetDoNotEnregister(lvaGetDesc(lclNum) DEBUGARG(reason));
+}
+
+void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason))
+{
+    lcl->lvDoNotEnregister = 1;
+
+    // TODO-MIKE-Review: Shouldn't this make promoted fields DNER too?
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        const char* message;
+
+        switch (reason)
+        {
+            case DNER_AddrExposed:
+                assert(lcl->IsAddressExposed());
+                message = "it is address exposed";
+                break;
+            case DNER_IsStruct:
+                assert(varTypeIsStruct(lcl->GetType()));
+                message = "it is a struct";
+                break;
+            case DNER_IsStructArg:
+                assert(varTypeIsStruct(lcl->GetType()));
+                message = "it is a struct arg";
+                break;
+            case DNER_BlockOp:
+                lcl->lvLclBlockOpAddr = 1;
+                message               = "written in a block op";
+                break;
+            case DNER_LocalField:
+                lcl->lvLclFieldExpr = 1;
+                message             = "was accessed as a local field";
+                break;
+            case DNER_LiveInOutOfHandler:
+                message = "live in/out of a handler";
+                break;
+            case DNER_DepField:
+                assert(lcl->IsDependentPromotedField(this));
+                message = "field of a dependently promoted struct";
+                break;
+            case DNER_NoRegVars:
+                assert(!compEnregLocals());
+                message = "opts.compFlags & CLFLG_REGVAR is not set";
+                break;
+#ifdef JIT32_GCENCODER
+            case DNER_PinningRef:
+                assert(lcl->IsPinning());
+                message = "pinning ref";
+                break;
+#endif
+#ifndef TARGET_64BIT
+            case DNER_LongParamField:
+                message = "it is a decomposed field of a long parameter";
+                break;
+            case DNER_LongUnpromoted:
+                message = "it is unpromoted LONG";
+                break;
+#endif
+            case DNER_HasImplicitRefs:
+                message = "it has implicit references";
+                break;
+            default:
+                message = "???";
+                break;
+        }
+
+        printf("\nLocal V%02u should not be enregistered: %s\n", lcl - lvaTable, message);
+    }
+#endif
+}
+
+void Compiler::lvSetMinOptsDoNotEnreg()
+{
+    JITDUMP("compEnregLocals() is false, setting doNotEnreg flag for all locals.");
+    assert(!compEnregLocals());
+
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    {
+        lvaSetDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_NoRegVars));
     }
 }
 
@@ -1569,7 +1639,7 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
             // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
             if (!lvaEnregEHVars || !fieldLcl->lvSingleDefRegCandidate || fieldLcl->lvRefCnt() <= 1)
             {
-                lvaSetVarDoNotEnregister(fieldLcl DEBUGARG(DNER_LiveInOutOfHandler));
+                lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_LiveInOutOfHandler));
             }
         }
     }
@@ -1577,7 +1647,7 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
     // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
     if (!lvaEnregEHVars || !varDsc->lvSingleDefRegCandidate || varDsc->lvRefCnt() <= 1)
     {
-        lvaSetVarDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
+        lvaSetDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
     }
 #ifdef JIT32_GCENCODER
     else if (lvaKeepAliveAndReportThis() && (varNum == info.compThisArg))
@@ -1585,87 +1655,9 @@ void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
         // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
         // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever
         // keep it in a register, since it must also be live on the stack. Therefore, we won't attempt to allocate it.
-        lvaSetVarDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
+        lvaSetDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
     }
 #endif // JIT32_GCENCODER
-}
-
-/*****************************************************************************
- *
- *  Record that the local var "varNum" should not be enregistered (for one of several reasons.)
- */
-
-void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregisterReason reason))
-{
-    noway_assert(varNum < lvaCount);
-    LclVarDsc* varDsc = &lvaTable[varNum];
-    lvaSetVarDoNotEnregister(varDsc DEBUGARG(reason));
-}
-
-void Compiler::lvaSetVarDoNotEnregister(LclVarDsc* varDsc DEBUGARG(DoNotEnregisterReason reason))
-{
-    varDsc->lvDoNotEnregister = 1;
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nLocal V%02u should not be enregistered because: ", varDsc - lvaTable);
-    }
-    switch (reason)
-    {
-        case DNER_AddrExposed:
-            JITDUMP("it is address exposed\n");
-            assert(varDsc->lvAddrExposed);
-            break;
-        case DNER_IsStruct:
-            JITDUMP("it is a struct\n");
-            assert(varTypeIsStruct(varDsc));
-            break;
-        case DNER_IsStructArg:
-            JITDUMP("it is a struct arg\n");
-            assert(varTypeIsStruct(varDsc));
-            break;
-        case DNER_BlockOp:
-            JITDUMP("written in a block op\n");
-            varDsc->lvLclBlockOpAddr = 1;
-            break;
-        case DNER_LocalField:
-            JITDUMP("was accessed as a local field\n");
-            varDsc->lvLclFieldExpr = 1;
-            break;
-        case DNER_LiveInOutOfHandler:
-            JITDUMP("live in/out of a handler\n");
-            break;
-        case DNER_DepField:
-            JITDUMP("field of a dependently promoted struct\n");
-            assert(varDsc->IsDependentPromotedField(this));
-            break;
-        case DNER_NoRegVars:
-            JITDUMP("opts.compFlags & CLFLG_REGVAR is not set\n");
-            assert(!compEnregLocals());
-            break;
-#ifdef JIT32_GCENCODER
-        case DNER_PinningRef:
-            JITDUMP("pinning ref\n");
-            assert(varDsc->lvPinned);
-            break;
-#endif
-#ifndef TARGET_64BIT
-        case DNER_LongParamField:
-            JITDUMP("it is a decomposed field of a long parameter\n");
-            break;
-        case DNER_LongUnpromoted:
-            JITDUMP("it is unpromoted LONG\n");
-            break;
-#endif
-        case DNER_HasImplicitRefs:
-            JITDUMP("it has implicit references\n");
-            break;
-        default:
-            unreached();
-            break;
-    }
-#endif
 }
 
 bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
@@ -2390,7 +2382,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
             // references when using the general GC encoding.
             lcl->lvTracked = 0;
 #ifdef JIT32_GCENCODER
-            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_PinningRef));
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_PinningRef));
 #endif
         }
 
@@ -2402,21 +2394,21 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         if (compJmpOpUsed && lcl->IsRegParam())
         {
             // If we have JMP, reg args must be put on the stack
-            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
         }
         else if (lcl->IsDependentPromotedField(this))
         {
-            lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_DepField));
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_DepField));
         }
         else if (lcl->TypeIs(TYP_STRUCT) && !lcl->IsPromoted())
         {
             if (!compEnregStructLocals())
             {
-                lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
             }
             else if (lcl->GetRegisterType() == TYP_UNDEF)
             {
-                lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
             }
             else if (lcl->HasGCPtr())
             {
@@ -2424,12 +2416,12 @@ void Compiler::lvaMarkLivenessTrackedLocals()
                 // vars will have `lvMustInit` set, because emitter has poor support for struct
                 // liveness, but if the variable is tracked the prolog generator would expect it
                 // to be in liveIn set, so an assert in `genFnProlog` will fire.
-                lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
             }
             else if (lcl->lvIsMultiRegArg || lcl->lvIsMultiRegRet)
             {
                 // Prolog and return generators do not support vector - integer register moves.
-                lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
             }
 #if defined(TARGET_ARM) || defined(TARGET_X86)
             else if (lcl->IsParam())
@@ -2440,7 +2432,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
                 // TODO-MIKE-CQ: This also affects x86, not clear how come main
                 // doesn't have this problem. Probably because they still can't generate sane IR
                 // to begin with and end up DNERing structs anyway...
-                lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
             }
 #endif
         }
@@ -3268,7 +3260,7 @@ void Compiler::lvaComputeLclRefCounts()
 #ifndef TARGET_64BIT
         if (compRationalIRForm && lcl->TypeIs(TYP_LONG) && !lcl->IsPromoted())
         {
-            lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LongUnpromoted));
+            lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LongUnpromoted));
         }
 #endif
     }

@@ -4637,7 +4637,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // These temps are passed by reference so they're always address taken.
     // TODO-MIKE-Cleanup: Aren't they actually address exposed? If we only
     // make them DNER they may still be tracked unnecessarily.
-    lvaSetVarDoNotEnregister(tempLcl DEBUGARG(DNER_IsStructArg));
+    lvaSetDoNotEnregister(tempLcl DEBUGARG(DNER_IsStructArg));
 
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
@@ -8226,7 +8226,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
                 if (initType == TYP_STRUCT)
                 {
-                    lvaSetVarDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
+                    lvaSetDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
                 }
                 else
                 {
@@ -8254,7 +8254,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
     if (destLclVar != nullptr)
     {
-        lvaSetVarDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
+        lvaSetDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
     }
 
     JITDUMPTREE(asg, "fgMorphInitStruct (after):\n");
@@ -9126,12 +9126,12 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         {
             if (srcLclVar != nullptr)
             {
-                lvaSetVarDoNotEnregister(srcLclVar DEBUGARG(DNER_BlockOp));
+                lvaSetDoNotEnregister(srcLclVar DEBUGARG(DNER_BlockOp));
             }
 
             if (destLclVar != nullptr)
             {
-                lvaSetVarDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
+                lvaSetDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
             }
         }
         else
@@ -9219,7 +9219,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             fields[i] = field;
         }
 
-        lvaSetVarDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
     };
 
     auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, unsigned promotedLclNum,

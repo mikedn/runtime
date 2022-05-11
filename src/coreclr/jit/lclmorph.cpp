@@ -577,7 +577,7 @@ public:
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
                             lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
                         {
-                            m_compiler->lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
+                            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
                         }
                     }
 
@@ -889,7 +889,7 @@ private:
         {
             if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclFld(), lcl))
             {
-                m_compiler->lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+                m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
             }
 
             return;
@@ -1503,7 +1503,7 @@ private:
                     }
                 }
 
-                m_compiler->lvaSetVarDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
+                m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
             }
 
             INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ);)
@@ -1662,7 +1662,7 @@ private:
 
             // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
             // later transformed into a LCL_VAR and the variable cannot be enregistered.
-            m_compiler->lvaSetVarDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
+            m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
         }
 
         GenTreeFlags flags = GTF_EMPTY;
@@ -2090,7 +2090,7 @@ private:
 
             structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
 
-            m_compiler->lvaSetVarDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
 
         if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))

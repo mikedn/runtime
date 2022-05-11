@@ -2453,10 +2453,16 @@ public:
 #endif
         DNER_HasImplicitRefs
     };
-
 #endif
-    void lvaSetVarDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason));
-    void lvaSetVarDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
+
+    void lvaSetDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason));
+    void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
+
+    // [[deprecated]]
+    void lvaSetVarDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason))
+    {
+        lvaSetDoNotEnregister(lclNum DEBUGARG(reason));
+    }
 
     unsigned lvaVarargsHandleArg;
 #ifdef TARGET_X86
