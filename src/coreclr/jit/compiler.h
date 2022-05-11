@@ -2426,7 +2426,7 @@ public:
         lvaSetAddressExposed(lclNum);
     }
 
-    void lvaSetVarLiveInOutOfHandler(unsigned varNum);
+    void lvaSetLiveInOutOfHandler(unsigned lclNum);
 
     void lvSetMinOptsDoNotEnreg();
 

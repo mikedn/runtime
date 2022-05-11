@@ -1612,52 +1612,42 @@ void Compiler::lvSetMinOptsDoNotEnreg()
     }
 }
 
-//------------------------------------------------------------------------
-// lvaSetVarLiveInOutOfHandler: Set the local varNum as being live in and/or out of a handler
-//
-// Arguments:
-//    varNum - the varNum of the local
-//
-void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
+void Compiler::lvaSetLiveInOutOfHandler(unsigned lclNum)
 {
-    noway_assert(varNum < lvaCount);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    LclVarDsc* varDsc = &lvaTable[varNum];
+    lcl->lvLiveInOutOfHndlr = true;
 
-    varDsc->lvLiveInOutOfHndlr = 1;
-
-    if (varDsc->lvPromoted)
+    // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
+    if (!lvaEnregEHVars || !lcl->lvSingleDefRegCandidate || (lcl->GetRefCount() <= 1))
     {
-        noway_assert(varTypeIsStruct(varDsc));
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LiveInOutOfHandler));
+    }
+#ifdef JIT32_GCENCODER
+    else if (lvaKeepAliveAndReportThis() && (lclNum == info.compThisArg))
+    {
+        // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
+        // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever
+        // keep it in a register, since it must also be live on the stack. Therefore, we won't attempt to allocate it.
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LiveInOutOfHandler));
+    }
+#endif
 
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
+    if (lcl->IsPromoted())
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            LclVarDsc* fieldLcl = lvaGetDesc(i);
+            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
             fieldLcl->lvLiveInOutOfHndlr = 1;
 
             // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
-            if (!lvaEnregEHVars || !fieldLcl->lvSingleDefRegCandidate || fieldLcl->lvRefCnt() <= 1)
+            if (!lvaEnregEHVars || !fieldLcl->lvSingleDefRegCandidate || (fieldLcl->GetRefCount() <= 1))
             {
                 lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_LiveInOutOfHandler));
             }
         }
     }
-
-    // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
-    if (!lvaEnregEHVars || !varDsc->lvSingleDefRegCandidate || varDsc->lvRefCnt() <= 1)
-    {
-        lvaSetDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
-    }
-#ifdef JIT32_GCENCODER
-    else if (lvaKeepAliveAndReportThis() && (varNum == info.compThisArg))
-    {
-        // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
-        // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever
-        // keep it in a register, since it must also be live on the stack. Therefore, we won't attempt to allocate it.
-        lvaSetDoNotEnregister(varDsc DEBUGARG(DNER_LiveInOutOfHandler));
-    }
-#endif // JIT32_GCENCODER
 }
 
 bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
