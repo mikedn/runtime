@@ -562,6 +562,7 @@ LinearScan::LinearScan(Compiler* theCompiler)
     : compiler(theCompiler)
     , intervals(theCompiler->getAllocator(CMK_LSRA_Interval))
     , allocationPassComplete(false)
+    , enregisterLocalVars(theCompiler->lvaTrackedCount != 0)
     , refPositions(theCompiler->getAllocator(CMK_LSRA_RefPosition))
     , listNodePool(theCompiler)
 {
@@ -634,12 +635,6 @@ LinearScan::LinearScan(Compiler* theCompiler)
 #endif // 0
 #endif // DEBUG
 
-    // Assume that we will enregister local variables if it's not disabled. We'll reset it if we
-    // have no tracked locals when we start allocating. Note that new tracked lclVars may be added
-    // after the first liveness analysis - either by optimizations or by Lowering, and the tracked
-    // set won't be recomputed until after Lowering (and this constructor is called prior to Lowering),
-    // so we don't want to check that yet.
-    enregisterLocalVars = compiler->compEnregLocals();
 #ifdef TARGET_ARM64
     availableIntRegs = (RBM_ALLINT & ~(RBM_PR | RBM_FP | RBM_LR) & ~compiler->codeGen->regSet.rsMaskResvd);
 #else
@@ -1192,15 +1187,6 @@ BasicBlock* LinearScan::getNextBlock()
 
 void LinearScan::doLinearScan()
 {
-    // Check to see whether we have any local variables to enregister.
-    // We initialize this in the constructor based on opt settings,
-    // but we don't want to spend time on the lclVar parts of LinearScan
-    // if we have no tracked locals.
-    if (enregisterLocalVars && (compiler->lvaTrackedCount == 0))
-    {
-        enregisterLocalVars = false;
-    }
-
     splitBBNumToTargetBBNumMap = nullptr;
 
     // This is complicated by the fact that physical registers have refs associated
@@ -1382,12 +1368,7 @@ void LinearScan::identifyCandidatesExceptionDataflow()
 
 bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
 {
-    if (!enregisterLocalVars)
-    {
-        return false;
-    }
-
-    assert(compiler->compEnregLocals() && compiler->opts.OptimizationEnabled() && !compiler->opts.MinOpts());
+    assert(enregisterLocalVars && compiler->opts.OptimizationEnabled() && !compiler->opts.MinOpts());
 
     if (!varDsc->lvTracked || varDsc->lvDoNotEnregister)
     {
