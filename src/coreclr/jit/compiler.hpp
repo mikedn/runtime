@@ -1479,6 +1479,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
         if (opts.OptimizationDisabled())
         {
             lcl->lvImplicitlyReferenced = true;
+            lcl->lvDoNotEnregister      = true;
         }
 
         lcl->SetRefCount(1);
@@ -1521,6 +1522,12 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
         assert(lcl->lvIsTemp == false);
         lcl->lvOnFrame = true;
         INDEBUG(lcl->lvReason = reason;)
+
+        if (opts.OptimizationDisabled())
+        {
+            lcl->lvImplicitlyReferenced = true;
+            lcl->lvDoNotEnregister      = true;
+        }
     }
 
     // Could handle this like in lvaGrabTemp probably...
