@@ -18,7 +18,7 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
     {
         JITDUMP("Found reference to V%02u with zero refCnt.\n", node->GetLclNum());
         assert(!"We should never encounter a reference to a lclVar that has a zero refCnt.");
-        lcl->setLvRefCnt(1);
+        lcl->SetRefCount(1);
     }
 
     const bool isDef = (node->gtFlags & GTF_VAR_DEF) != 0;

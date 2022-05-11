@@ -2657,12 +2657,7 @@ void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propa
 
     if (!lcl->TypeIs(TYP_STRUCT) || !lcl->IsIndependentPromoted())
     {
-        uint16_t refCount = lcl->lvRefCnt();
-
-        if (refCount != UINT16_MAX)
-        {
-            lcl->setLvRefCnt(static_cast<uint16_t>(refCount + 1));
-        }
+        lcl->SetRefCount(lcl->GetRefCount() + 1);
 
         if (weight != 0)
         {
@@ -2678,9 +2673,9 @@ void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propa
                 weight *= 2;
             }
 
-            BasicBlock::weight_t newWeight = lcl->lvRefCntWtd() + weight;
-            assert(newWeight >= lcl->lvRefCntWtd());
-            lcl->setLvRefCntWtd(newWeight);
+            BasicBlock::weight_t newWeight = lcl->GetRefWeight() + weight;
+            assert(newWeight >= lcl->GetRefWeight());
+            lcl->SetRefWeight(newWeight);
         }
     }
 
@@ -3145,15 +3140,15 @@ void Compiler::lvaSetImplictlyReferenced()
 
         if (lvaIsX86VarargsStackParam(lclNum))
         {
-            assert(lcl->lvRefCnt() == 0);
-            assert(lcl->lvRefCntWtd() == 0);
+            assert(lcl->GetRefCount() == 0);
+            assert(lcl->GetRefWeight() == 0);
         }
         else
         {
             lcl->lvImplicitlyReferenced = 1;
 
-            assert(lcl->lvRefCnt() == 1);
-            assert(lcl->lvRefCntWtd() == BB_UNITY_WEIGHT);
+            assert(lcl->GetRefCount() == 1);
+            assert(lcl->GetRefWeight() == BB_UNITY_WEIGHT);
         }
 
         assert(!lcl->lvTracked);
@@ -3174,8 +3169,8 @@ void Compiler::lvaComputeLclRefCounts()
 
         noway_assert(varTypeIsValidLclType(lcl->GetType()));
 
-        lcl->setLvRefCnt(0);
-        lcl->setLvRefCntWtd(BB_ZERO_WEIGHT);
+        lcl->SetRefCount(0);
+        lcl->SetRefWeight(BB_ZERO_WEIGHT);
 
         // TODO-MIKE-Review: lvSingleDef isn't used in LIR so we might as well set it and be done with it.
         // lvSingleDefRegCandidate is bizarre. It's mainly a LSRA thing yet we're computing it before LIR.
@@ -3224,7 +3219,7 @@ void Compiler::lvaComputeLclRefCounts()
         // TODO-MIKE-Review: It seems like nobody knows why is this done...
         if (lcl->IsRegParam())
         {
-            if ((lclNum < info.compArgsCount) && (lcl->lvRefCnt() > 0))
+            if ((lclNum < info.compArgsCount) && (lcl->GetRefCount() > 0))
             {
                 lvaAddRef(lcl, BB_UNITY_WEIGHT);
                 lvaAddRef(lcl, BB_UNITY_WEIGHT);
@@ -3243,7 +3238,7 @@ void Compiler::lvaComputeLclRefCounts()
             // the stack. In that case, it's important for the ref count to be zero, so that
             // we don't attempt to track them for GC info (which is not possible since we
             // don't know their offset in the stack). See the assert at the end of raMarkStkVars.
-            if ((lcl->lvRefCnt() == 0) && !lvaIsX86VarargsStackParam(lclNum))
+            if ((lcl->GetRefCount() == 0) && !lvaIsX86VarargsStackParam(lclNum))
             {
                 lcl->lvImplicitlyReferenced = 1;
             }
@@ -3265,7 +3260,7 @@ void Compiler::lvaAllocOutgoingArgSpaceVar()
     {
         lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
         lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(0);
-        lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceSize);
+        lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceVar);
     }
 
     noway_assert(lvaOutgoingArgSpaceVar >= info.compLocalsCount);
@@ -5929,18 +5924,24 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         printf(";  ");
         gtDispLclVar(lclNum);
 
-        if (lvaRefCountState != RCS_INVALID)
+        if (lvaRefCountState == RCS_NORMAL)
         {
-            printf(" (%3u,%*s)", varDsc->lvRefCnt(lvaRefCountState), (int)refCntWtdWidth,
-                   refCntWtd2str(varDsc->lvRefCntWtd()));
+            printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
         }
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        else if (lvaRefCountState == RCS_MORPH)
+        {
+            printf(" (%3u,%3u)", varDsc->GetImplicitByRefParamAnyRefCount(),
+                   varDsc->GetImplicitByRefParamCallRefCount());
+        }
+#endif
 
         printf(" %7s ", varTypeName(type));
         gtDispLclVarStructType(lclNum);
     }
     else
     {
-        if (varDsc->lvRefCnt() == 0)
+        if (varDsc->GetRefCount() == 0)
         {
             // Print this with a special indicator that the variable is unused. Even though the
             // variable itself is unused, it might be a struct that is promoted, so seeing it
@@ -5975,7 +5976,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
             printf("    ]");
         }
 
-        printf(" (%3u,%*s)", varDsc->lvRefCnt(), (int)refCntWtdWidth, refCntWtd2str(varDsc->lvRefCntWtd()));
+        printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
 
         printf(" %7s ", varTypeName(type));
         if (genTypeSize(type) == 0)
@@ -5988,7 +5989,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         }
 
         // The register or stack location field is 11 characters wide.
-        if (varDsc->lvRefCnt() == 0)
+        if (varDsc->GetRefCount() == 0)
         {
             printf("zero-ref   ");
         }
@@ -6190,11 +6191,11 @@ void Compiler::lvaTableDump(FrameLayoutState curState)
 
     size_t refCntWtdWidth = 6; // Use 6 as the minimum width
 
-    if (lvaRefCountState != RCS_INVALID)
+    if (lvaRefCountState == RCS_NORMAL)
     {
         for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
         {
-            size_t width = strlen(refCntWtd2str(varDsc->lvRefCntWtd(lvaRefCountState)));
+            size_t width = strlen(refCntWtd2str(varDsc->GetRefWeight()));
             if (width > refCntWtdWidth)
             {
                 refCntWtdWidth = width;

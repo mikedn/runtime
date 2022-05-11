@@ -4818,7 +4818,7 @@ public:
 
     bool IsImplicitByRef() const
     {
-#ifdef TARGET_64BIT
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         return m_isImplicitByRef;
 #else
         return false;
@@ -4829,7 +4829,7 @@ public:
     {
 // UNIX_AMD64_ABI has implicit by-ref parameters but they're C++ specific
 // and thus not expected to appear in CLR programs.
-#if defined(TARGET_64BIT) && !defined(UNIX_AMD64_ABI)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         m_isImplicitByRef = isImplicitByRef;
 #else
         assert(!isImplicitByRef);

@@ -2248,6 +2248,7 @@ private:
 #endif
     }
 
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     //------------------------------------------------------------------------
     // UpdateImplicitByRefParamRefCounts: updates the ref count for implicit byref params.
     //
@@ -2271,9 +2272,9 @@ private:
             return;
         }
 
-        JITDUMP("LocalAddressVisitor incrementing ref count from " FMT_WT " to " FMT_WT " for implict byref V%02u\n",
-                lcl->lvRefCnt(RCS_MORPH), lcl->lvRefCnt(RCS_MORPH) + 1, lclNum);
-        lcl->incLvRefCnt(1, RCS_MORPH);
+        JITDUMP("Adding V%02u implicit-by-ref param any ref\n", lclNum);
+
+        lcl->AddImplicitByRefParamAnyRef();
 
         // See if this struct is an argument to a call. This information is recorded
         // via the weighted early ref count for the local, and feeds the undo promotion
@@ -2293,12 +2294,12 @@ private:
             ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
-            JITDUMP("LocalAddressVisitor incrementing weighted ref count from %f to %f"
-                    " for implict byref V%02d arg passed to call\n",
-                    lcl->lvRefCntWtd(RCS_MORPH), lcl->lvRefCntWtd(RCS_MORPH) + 1, lclNum);
-            lcl->incLvRefCntWtd(1, RCS_MORPH);
+            JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lclNum);
+
+            lcl->AddImplicitByRefParamCallRef();
         }
     }
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
     GenTreeUnOp* NewBitCastNode(var_types type, GenTree* op)
     {
@@ -3103,6 +3104,8 @@ void Compiler::fgMarkAddressExposedLocals()
 
     lvaAddressExposedLocalsMarked = true;
 
+    DBEXEC(verbose, lvaTableDump());
+
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     lvaRetypeImplicitByRefParams();
 #endif
@@ -3450,6 +3453,35 @@ public:
 };
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+
+void LclVarDsc::AddImplicitByRefParamAnyRef()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    m_refWeight++;
+}
+
+unsigned LclVarDsc::GetImplicitByRefParamAnyRefCount()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    return m_refWeight;
+}
+
+void LclVarDsc::AddImplicitByRefParamCallRef()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    m_refCount = m_refCount == UINT16_MAX ? UINT16_MAX : (m_refCount + 1);
+}
+
+unsigned LclVarDsc::GetImplicitByRefParamCallRefCount()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    return m_refCount;
+}
+
 // Reset the ref count of implicit byref params; fgMarkAddressTakenLocals
 // will increment it per appearance of implicit byref param so that call
 // arg morphing can do an optimization for single-use implicit byref
@@ -3468,8 +3500,8 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
         if (lcl->IsImplicitByRefParam())
         {
             // We haven't use ref counts until now so they should be 0.
-            assert(lcl->lvRefCnt(RCS_MORPH) == 0);
-            assert(lcl->lvRefCntWtd(RCS_MORPH) == 0);
+            assert(lcl->GetImplicitByRefParamAnyRefCount() == 0);
+            assert(lcl->GetImplicitByRefParamCallRefCount() == 0);
 
             lvaHasImplicitByRefParams = true;
         }
@@ -3528,8 +3560,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
             // total number of references to the struct or some field, and how many of these
             // are arguments to calls. We undo promotion unless we see enough non-call uses.
 
-            unsigned totalAppearances = lcl->lvRefCnt(RCS_MORPH);
-            unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_MORPH));
+            unsigned totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
+            unsigned callAppearances  = lcl->GetImplicitByRefParamCallRefCount();
             assert(totalAppearances >= callAppearances);
             unsigned nonCallAppearances  = totalAppearances - callAppearances;
             bool     isDependentPromoted = lcl->IsDependentPromoted();

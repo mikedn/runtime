@@ -798,23 +798,34 @@ public:
     }
 
 private:
-    unsigned short m_lvRefCnt; // unweighted (real) reference count.  For implicit by reference
-                               // parameters, this gets hijacked from lvaResetImplicitByRefRefCount
-                               // through lvaDemoteImplicitByRefParams, to provide a static
-                               // appearance count (computed during address-exposed analysis)
-                               // that abiMakeImplicityByRefStructArgCopy consults during global morph
-                               // to determine if eliding its copy is legal.
-
-    BasicBlock::weight_t m_lvRefCntWtd; // weighted reference count
+    uint16_t m_refCount;
+    uint32_t m_refWeight;
 
 public:
-    unsigned short lvRefCnt(RefCountState state = RCS_NORMAL) const;
-    void incLvRefCnt(unsigned short delta, RefCountState state = RCS_NORMAL);
-    void setLvRefCnt(unsigned short newValue, RefCountState state = RCS_NORMAL);
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    void     AddImplicitByRefParamAnyRef();
+    void     AddImplicitByRefParamCallRef();
+    unsigned GetImplicitByRefParamAnyRefCount();
+    unsigned GetImplicitByRefParamCallRefCount();
+#endif
 
-    BasicBlock::weight_t lvRefCntWtd(RefCountState state = RCS_NORMAL) const;
-    void incLvRefCntWtd(BasicBlock::weight_t delta, RefCountState state = RCS_NORMAL);
-    void setLvRefCntWtd(BasicBlock::weight_t newValue, RefCountState state = RCS_NORMAL);
+    unsigned GetRefCount() const;
+    void SetRefCount(unsigned count);
+
+    // [[deprecated]]
+    unsigned lvRefCnt() const
+    {
+        return GetRefCount();
+    }
+
+    BasicBlock::weight_t GetRefWeight() const;
+    void SetRefWeight(BasicBlock::weight_t weight);
+
+    // [[deprecated]]
+    BasicBlock::weight_t lvRefCntWtd() const
+    {
+        return GetRefWeight();
+    }
 
 private:
     int lvStkOffs; // stack offset of home in bytes.
@@ -4736,7 +4747,7 @@ public:
 private:
     GenTree* fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
-#if FEATURE_FASTTAILCALL
+#if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
 #endif
     bool     fgCheckStmtAfterTailCall();

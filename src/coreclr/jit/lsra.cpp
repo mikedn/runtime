@@ -1637,7 +1637,7 @@ void LinearScan::identifyCandidates()
                         }
                         // This is not accurate, but we need a non-zero refCnt for the parent so that it will
                         // be allocated to the stack.
-                        parentVarDsc->setLvRefCnt(parentVarDsc->lvRefCnt() + fieldVarDsc->lvRefCnt());
+                        parentVarDsc->SetRefCount(parentVarDsc->GetRefCount() + fieldVarDsc->GetRefCount());
                     }
                     JITDUMP("\n");
                 }

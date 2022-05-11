@@ -2679,7 +2679,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             continue;
         }
 
-#ifdef TARGET_64BIT
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         if (argInfo->IsImplicitByRef())
         {
             assert(argInfo->IsSingleRegOrSlot());
@@ -4562,7 +4562,9 @@ void Compiler::abiFreeAllStructArgTemps()
     }
 }
 
-#if TARGET_64BIT
+#endif // !TARGET_X86
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
 void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
@@ -4592,7 +4594,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
         {
             const unsigned   lclNum           = lclNode->GetLclNum();
             LclVarDsc* const lcl              = lvaGetDesc(lclNum);
-            const unsigned   totalAppearances = lcl->lvRefCnt(RCS_MORPH);
+            const unsigned   totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
 
             // We don't have liveness so we rely on other indications of last use.
             //
@@ -4677,9 +4679,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     argInfo->SetTempLclNum(tempLclNum);
 }
 
-#endif // TARGET_64BIT
-
-#endif // !TARGET_X86
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
 /*****************************************************************************
  *
@@ -5537,6 +5537,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         return false;
     }
 
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     // For Windows some struct parameters are copied on the local frame
     // and then passed by reference. We cannot fast tail call in these situation
     // as we need to keep our frame around.
@@ -5545,6 +5546,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         reportFastTailCallDecision("Callee has a byref parameter");
         return false;
     }
+#endif
 
     reportFastTailCallDecision(nullptr);
     return true;
@@ -5555,7 +5557,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 #endif
 }
 
-#if FEATURE_FASTTAILCALL
+#if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
 //------------------------------------------------------------------------
 // fgCallHasMustCopyByrefParameter: Check to see if this call has a byref parameter that
 //                                  requires a struct copy in the caller.
@@ -5601,8 +5603,8 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
         JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->gtTreeID,
                 lclNode->GetLclNum());
 
-        const unsigned totalAppearances = lcl->lvRefCnt(RCS_MORPH);
-        const unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_MORPH));
+        const unsigned totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
+        const unsigned callAppearances  = lcl->GetImplicitByRefParamCallRefCount();
         assert(totalAppearances >= callAppearances);
 
         if (totalAppearances == 1)
@@ -5712,7 +5714,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 
     return false;
 }
-#endif
+#endif // FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
 
 //------------------------------------------------------------------------
 // fgMorphPotentialTailCall: Attempt to morph a call that the importer has
