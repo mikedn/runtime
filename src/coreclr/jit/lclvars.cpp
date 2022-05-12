@@ -362,8 +362,6 @@ void Compiler::lvaInitTypeRef()
 
         unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
         lvaSetImplicitlyReferenced(lclNum);
-
-        lvaSetVarAddrExposed(lclNum);
     }
 
     // Allocate the lvaOutgoingArgSpaceVar now because we can run into problems in the
