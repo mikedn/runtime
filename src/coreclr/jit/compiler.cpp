@@ -3344,34 +3344,13 @@ void Compiler::EndPhase(Phases phase)
 //
 void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFlags* compileFlags)
 {
-    // Prepare for importation
-    //
-    auto preImportPhase = [this]() {
-        if (compIsForInlining())
-        {
+    if (compIsForInlining())
+    {
+        DoPhase(this, PHASE_PRE_IMPORT, [this]() {
             // Notify root instance that an inline attempt is about to import IL
             impInlineRoot()->m_inlineStrategy->NoteImport();
-        }
-
-        // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
-        if (info.compPublishStubParam)
-        {
-            assert(lvaStubArgumentVar == BAD_VAR_NUM);
-
-            lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("stub argument"));
-            lvaSetImplicitlyReferenced(lvaStubArgumentVar);
-
-            // TODO-MIKE-CQ: This doesn't seem necessary, only GetStubContextAddr
-            // uses the address and the importer sets AX when encounters it. Keep
-            // it for now as it causes a few diffs.
-            // Also, this local is unnecessarily created when inlining because
-            // compPublishStubParam is "inherited" from the inlinee compiler.
-            // Obviously that's incorrect, only the inlinee local will contain the
-            // appropiate value.
-            lvaSetVarAddrExposed(lvaStubArgumentVar);
-        }
-    };
-    DoPhase(this, PHASE_PRE_IMPORT, preImportPhase);
+        });
+    }
 
     compFunctionTraceStart();
 
