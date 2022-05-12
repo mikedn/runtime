@@ -215,27 +215,12 @@ void Compiler::lvaInitTypeRef()
 
     if (compIsForInlining())
     {
-        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
-        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
-        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
+        Compiler* inlinerCompiler = impInlineInfo->InlinerCompiler;
 
-        // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
-        if (info.compPublishStubParam)
-        {
-            assert(lvaStubArgumentVar == BAD_VAR_NUM);
-
-            lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("stub argument"));
-            lvaSetImplicitlyReferenced(lvaStubArgumentVar);
-
-            // TODO-MIKE-CQ: This doesn't seem necessary, only GetStubContextAddr
-            // uses the address and the importer sets AX when encounters it. Keep
-            // it for now as it causes a few diffs.
-            // Also, this local is unnecessarily created when inlining because
-            // compPublishStubParam is "inherited" from the inlinee compiler.
-            // Obviously that's incorrect, only the inlinee local will contain the
-            // appropiate value.
-            lvaSetVarAddrExposed(lvaStubArgumentVar);
-        }
+        lvaTable           = inlinerCompiler->lvaTable;
+        lvaCount           = inlinerCompiler->lvaCount;
+        lvaTableSize       = inlinerCompiler->lvaTableSize;
+        lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
 
         return;
     }
@@ -388,8 +373,6 @@ void Compiler::lvaInitTypeRef()
     // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
     if (info.compPublishStubParam)
     {
-        assert(lvaStubArgumentVar == BAD_VAR_NUM);
-
         lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("stub argument"));
         lvaSetImplicitlyReferenced(lvaStubArgumentVar);
 

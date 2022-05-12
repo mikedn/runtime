@@ -539,6 +539,7 @@ void jitInlineCode(InlineInfo* inlineInfo)
             compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
             compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
             compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
+            compileFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
 
             compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
