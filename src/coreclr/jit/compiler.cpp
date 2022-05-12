@@ -1030,6 +1030,8 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     compJitTelemetry.Initialize(this);
 #endif
 
+    hashBv::Init(this);
+
     fgInit();
     lvaInit();
 
@@ -1037,7 +1039,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     {
         codeGen = getCodeGenerator(this);
         optInit();
-        hashBv::Init(this);
 
         compVarScopeMap = nullptr;
 
@@ -3351,8 +3352,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
             // Notify root instance that an inline attempt is about to import IL
             impInlineRoot()->m_inlineStrategy->NoteImport();
         }
-
-        hashBv::Init(this);
 
         // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
         if (info.compPublishStubParam)
