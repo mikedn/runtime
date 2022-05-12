@@ -3063,10 +3063,6 @@ void Compiler::lvaMarkLocalVars()
         {
             lvaLocAllocSPvar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("LocAllocSP"));
             lvaSetImplicitlyReferenced(lvaLocAllocSPvar);
-
-            // TODO-MIKE-CQ: This is not needed. Removing it causes a few diffs due to AX
-            // resulting in zero initialization of the local.
-            lvaSetVarAddrExposed(lvaLocAllocSPvar);
         }
 #endif // JIT32_GCENCODER
     }
