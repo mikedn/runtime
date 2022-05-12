@@ -5469,6 +5469,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
             if (src->OperIs(GT_LCL_VAR))
             {
                 src->ChangeOper(GT_LCL_FLD);
+                comp->lvaSetVarDoNotEnregister(src->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
             }
 
             src->SetType(dstType);
