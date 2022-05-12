@@ -370,20 +370,10 @@ void Compiler::lvaInitTypeRef()
     // emitter when the varNum is greater that 32767 (see emitLclVarAddr::initLclVarAddr)
     lvaAllocOutgoingArgSpaceVar();
 
-    // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
     if (info.compPublishStubParam)
     {
-        lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("stub argument"));
+        lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("StubParam"));
         lvaSetImplicitlyReferenced(lvaStubArgumentVar);
-
-        // TODO-MIKE-CQ: This doesn't seem necessary, only GetStubContextAddr
-        // uses the address and the importer sets AX when encounters it. Keep
-        // it for now as it causes a few diffs.
-        // Also, this local is unnecessarily created when inlining because
-        // compPublishStubParam is "inherited" from the inlinee compiler.
-        // Obviously that's incorrect, only the inlinee local will contain the
-        // appropiate value.
-        lvaSetVarAddrExposed(lvaStubArgumentVar);
     }
 
 #ifdef DEBUG

@@ -7308,6 +7308,10 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
             {
                 ilName = "MergedReturn";
             }
+            else if (lclNum == lvaStubArgumentVar)
+            {
+                ilName = "StubParam";
+            }
 #if FEATURE_FIXED_OUT_ARGS
             else if (lclNum == lvaOutgoingArgSpaceVar)
             {
