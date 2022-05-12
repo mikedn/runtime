@@ -2436,11 +2436,6 @@ void Compiler::fgAddInternal()
 
         lvaInlinedPInvokeFrameVar = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
         lvaGetDesc(lvaInlinedPInvokeFrameVar)->SetBlockType(eeGetEEInfo()->inlinedCallFrameInfo.size);
-
-        // TODO-MIKE-Cleanup: This isn't needed. Lowering does this when creating the associated IR.
-        // Removing this causes a few diffs due to fgMorphPotentialTailCall being conservative in
-        // in the presence of address exposed locals.
-        lvaGetDesc(lvaInlinedPInvokeFrameVar)->lvAddrExposed = true;
     }
 
     // Do we need to insert a "JustMyCode" callback?
