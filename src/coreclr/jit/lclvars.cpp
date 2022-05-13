@@ -2764,18 +2764,6 @@ void Compiler::lvaComputeRefCountsHIR()
                 break;
 #endif
 
-                case GT_CALL:
-                    // TODO-MIKE-Fix: Moron wrote comment. Moron forgot to write the code as well.
-                    // Fixing this results in a few diffs, due to this skewing CSE weights, do it
-                    // when it's all done. Also, prolog/epilog frame list uses aren't counted.
-
-                    /* Is this a call to unmanaged code ? */
-                    if (m_compiler->info.compLvFrameListRoot != BAD_VAR_NUM)
-                    {
-                        MarkPInvokeFrameRefs();
-                    }
-                    break;
-
                 case GT_LCL_VAR_ADDR:
                 case GT_LCL_FLD_ADDR:
                 {
@@ -2798,14 +2786,6 @@ void Compiler::lvaComputeRefCountsHIR()
             }
 
             return WALK_CONTINUE;
-        }
-
-        void MarkPInvokeFrameRefs()
-        {
-            LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->info.compLvFrameListRoot);
-            // TODO-MIKE-Review: Hmm, why only 2, there are 3 uses per call...
-            m_compiler->lvaAddRef(lcl, m_weight);
-            m_compiler->lvaAddRef(lcl, m_weight);
         }
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)

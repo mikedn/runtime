@@ -327,8 +327,6 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
                 fgCurMemoryDef   = true;
                 fgCurMemoryHavoc = true;
             }
-
-            fgPInvokeFrameLiveness(call);
             break;
         }
 
@@ -371,25 +369,6 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
     }
 }
 
-void Compiler::fgPInvokeFrameLiveness(GenTreeCall* call)
-{
-    assert(!compRationalIRForm);
-
-    // If this is a tail-call via helper, and we have any unmanaged P/Invoke calls in
-    // the method, then we're going to run the P/Invoke epilog, which uses the frame
-    // list root local too.
-
-    if ((info.compLvFrameListRoot != BAD_VAR_NUM) && (call->RequiresPInvokeFrame() || call->IsTailCallViaJitHelper()))
-    {
-        LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
-
-        if (lcl->HasLiveness() && !VarSetOps::IsMember(this, fgCurDefSet, lcl->GetLivenessBitIndex()))
-        {
-            VarSetOps::AddElemD(this, fgCurUseSet, lcl->GetLivenessBitIndex());
-        }
-    }
-}
-
 void Compiler::fgPerBlockLocalVarLiveness()
 {
     assert(!compRationalIRForm);
@@ -415,26 +394,6 @@ void Compiler::fgPerBlockLocalVarLiveness()
             for (GenTree* const node : stmt->Nodes())
             {
                 fgPerNodeLocalVarLiveness(node);
-            }
-        }
-
-        // Mark the FrameListRoot as used, if applicable.
-
-        if ((block->bbJumpKind == BBJ_RETURN) && (info.compLvFrameListRoot != BAD_VAR_NUM))
-        {
-#ifdef TARGET_64BIT
-            // 32-bit targets always pop the frame in the epilog.
-            // For 64-bit targets, we only do this in the epilog for IL stubs;
-            // for non-IL stubs the frame is popped after every PInvoke call.
-            if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
-#endif
-            {
-                LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
-
-                if (lcl->HasLiveness())
-                {
-                    VarSetOps::AddElemD(this, fgCurUseSet, lcl->GetLivenessBitIndex());
-                }
             }
         }
 
@@ -798,28 +757,6 @@ void Compiler::fgLiveVarAnalysis()
 #endif // DEBUG
 }
 
-void Compiler::fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call)
-{
-    assert(!compRationalIRForm);
-
-    // TODO: we should generate the code for saving to/restoring from the inlined N/Direct
-    // frame instead.
-
-    // If this is a tail-call via helper, and we have any unmanaged P/Invoke calls in
-    // the method, then we're going to run the P/Invoke epilog, which uses the frame
-    // list root local too.
-
-    if ((info.compLvFrameListRoot != BAD_VAR_NUM) && (call->RequiresPInvokeFrame() || call->IsTailCallViaJitHelper()))
-    {
-        LclVarDsc* lcl = lvaGetDesc(info.compLvFrameListRoot);
-
-        if (lcl->HasLiveness())
-        {
-            VarSetOps::AddElemD(this, life, lcl->GetLivenessBitIndex());
-        }
-    }
-}
-
 void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node)
 {
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD));
@@ -963,11 +900,7 @@ void Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
 
     for (GenTree* node = stmt->GetRootNode(); node != nullptr;)
     {
-        if (node->OperIs(GT_CALL))
-        {
-            fgComputeLifeCall(liveOut, node->AsCall());
-        }
-        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((node->gtFlags & GTF_VAR_DEF) == 0))
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((node->gtFlags & GTF_VAR_DEF) == 0))
         {
             GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
             LclVarDsc*           lcl     = lvaGetDesc(lclNode);

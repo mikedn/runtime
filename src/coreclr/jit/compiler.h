@@ -3803,15 +3803,12 @@ public:
     void fgLocalVarLivenessInit();
 
     void fgPerNodeLocalVarLiveness(GenTree* node);
-    void fgPInvokeFrameLiveness(GenTreeCall* call);
     void fgPerBlockLocalVarLiveness();
     void fgPerBlockLocalVarLivenessLIR();
 
     VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
 
     void fgLiveVarAnalysis();
-
-    void fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call);
 
     void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node);
     bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
