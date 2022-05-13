@@ -3016,13 +3016,18 @@ void Lowering::InsertPInvokeMethodProlog()
 
     // Call runtime helper to fill in our InlinedCallFrame and push it on the Frame list:
     //     TCB = CORINFO_HELP_INIT_PINVOKE_FRAME(&symFrameStart, secretArg);
-    // for x86, don't pass the secretArg.
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if defined(TARGET_X86) || defined(TARGET_ARM)
     GenTreeCall::Use* argList = comp->gtNewCallArgs(frameAddr);
-#else
-    GenTreeCall::Use*     argList = comp->gtNewCallArgs(frameAddr, PhysReg(REG_SECRET_STUB_PARAM));
+
+#if !defined(TARGET_X86) && !defined(TARGET_ARM)
+    if (comp->info.compPublishStubParam)
+    {
+        comp->gtInsertNewCallArgAfter(comp->gtNewPhysRegNode(REG_SECRET_STUB_PARAM, TYP_I_IMPL), argList);
+    }
+    else
+    {
+        comp->gtInsertNewCallArgAfter(comp->gtNewIconNode(0, TYP_I_IMPL), argList);
+    }
 #endif
 
     GenTree* insertionPoint = firstBlockRange.FirstNonCatchArgNode();
@@ -3177,7 +3182,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         GenTree*          stackBytes     = comp->gtNewIconNode(numStkArgBytes, TYP_INT);
         GenTreeCall::Use* args           = comp->gtNewCallArgs(frameAddr, stackBytes);
 #else
-        GenTreeCall::Use* args    = comp->gtNewCallArgs(frameAddr);
+        GenTreeCall::Use* args = comp->gtNewCallArgs(frameAddr);
 #endif
         GenTreeCall* pInvokeBegin = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_BEGIN, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), insertBefore, pInvokeBegin);

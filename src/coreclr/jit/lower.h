@@ -193,16 +193,6 @@ private:
         return comp->gtNewOperNode(GT_IND, type, tree);
     }
 
-    GenTreePhysReg* PhysReg(regNumber reg, var_types type = TYP_I_IMPL)
-    {
-        return comp->gtNewPhysRegNode(reg, type);
-    }
-
-    GenTreePhysReg* ThisReg(GenTreeCall* call)
-    {
-        return comp->gtNewPhysRegNode(comp->codeGen->genGetThisArgReg(call), TYP_REF);
-    }
-
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
     GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM)
