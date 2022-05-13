@@ -806,7 +806,7 @@ private:
             }
         }
 
-        m_compiler->lvaSetVarAddrExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : lclNum);
+        m_compiler->lvaSetAddressExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : lclNum);
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -1267,7 +1267,7 @@ private:
         GenTree* node = val.Node();
         GenTree* addr = node->AsIndir()->GetAddr();
 
-        m_compiler->lvaSetVarAddrExposed(val.LclNum());
+        m_compiler->lvaSetAddressExposed(val.LclNum());
 
         Value addrVal(addr);
         addrVal.Address(val.LclNum(), val.Offset(), val.FieldSeq());

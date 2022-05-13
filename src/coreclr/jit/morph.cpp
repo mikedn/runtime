@@ -6686,7 +6686,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         // and copy the value back to the caller return buffer after that.
         unsigned tmpRetBufNum =
             lvaNewTemp(origCall->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
-        lvaSetVarAddrExposed(tmpRetBufNum);
+        lvaSetAddressExposed(tmpRetBufNum);
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
 
@@ -6721,7 +6721,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
             newRetLcl->SetType(origCall->GetType());
         }
 
-        lvaSetVarAddrExposed(newRetLclNum);
+        lvaSetAddressExposed(newRetLclNum);
 
         if (varTypeIsSmall(origCall->GetRetSigType()))
         {
@@ -6758,7 +6758,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     if (lvaRetAddrVar == BAD_VAR_NUM)
     {
         lvaRetAddrVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
-        lvaSetVarAddrExposed(lvaRetAddrVar);
+        lvaSetAddressExposed(lvaRetAddrVar);
     }
 
     GenTree* retAddrSlot           = gtNewLclVarAddrNode(lvaRetAddrVar);
