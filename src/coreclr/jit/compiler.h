@@ -2470,6 +2470,7 @@ public:
                                       // arguments
 #endif                                // TARGET_X86
 
+    unsigned lvaPInvokeFrameListVar;    // lclNum for the Frame root
     unsigned lvaInlinedPInvokeFrameVar; // variable representing the InlinedCallFrame
     unsigned lvaReversePInvokeFrameVar; // variable representing the reverse PInvoke frame
     unsigned lvaMonAcquired;            // boolean variable introduced into in synchronized methods
@@ -7675,10 +7676,9 @@ public:
 
         CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
 
-        unsigned compLvFrameListRoot; // lclNum for the Frame root
-        unsigned compXcptnsCount;     // Number of exception-handling clauses read in the method's IL.
-                                      // You should generally use compHndBBtabCount instead: it is the
-                                      // current number of EH clauses (after additions like synchronized
+        unsigned compXcptnsCount; // Number of exception-handling clauses read in the method's IL.
+                                  // You should generally use compHndBBtabCount instead: it is the
+                                  // current number of EH clauses (after additions like synchronized
         // methods and funclets, and removals like unreachable code deletion).
 
         Target::ArgOrder compArgOrder;

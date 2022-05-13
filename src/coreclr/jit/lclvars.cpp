@@ -39,6 +39,7 @@ void Compiler::lvaInit()
 #if !defined(FEATURE_EH_FUNCLETS)
     lvaShadowSPslotsVar = BAD_VAR_NUM;
 #endif // !FEATURE_EH_FUNCLETS
+    lvaPInvokeFrameListVar    = BAD_VAR_NUM;
     lvaInlinedPInvokeFrameVar = BAD_VAR_NUM;
     lvaReversePInvokeFrameVar = BAD_VAR_NUM;
 #if FEATURE_FIXED_OUT_ARGS

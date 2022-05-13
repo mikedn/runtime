@@ -5002,7 +5002,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     }
 
     info.compUnmanagedCallCountWithGCTransition = 0;
-    info.compLvFrameListRoot                    = BAD_VAR_NUM;
 
     info.compInitMem = ((methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0);
 

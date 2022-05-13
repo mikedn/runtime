@@ -7284,9 +7284,9 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
         }
         else
         {
-            if (lclNum == info.compLvFrameListRoot)
+            if (lclNum == lvaPInvokeFrameListVar)
             {
-                ilName = "FramesRoot";
+                ilName = "FrameList";
             }
             else if (lclNum == lvaInlinedPInvokeFrameVar)
             {

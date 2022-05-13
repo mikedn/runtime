@@ -6427,16 +6427,13 @@ void CodeGen::genFnProlog()
     {
         excludeMask |= RBM_PINVOKE_FRAME;
 
-        assert((!compiler->opts.ShouldUsePInvokeHelpers()) || (compiler->info.compLvFrameListRoot == BAD_VAR_NUM));
+        assert((!compiler->opts.ShouldUsePInvokeHelpers()) || (compiler->lvaPInvokeFrameListVar == BAD_VAR_NUM));
         if (!compiler->opts.ShouldUsePInvokeHelpers())
         {
-            noway_assert(compiler->info.compLvFrameListRoot < compiler->lvaCount);
-
             excludeMask |= (RBM_PINVOKE_TCB | RBM_PINVOKE_SCRATCH);
 
-            // We also must exclude the register used by compLvFrameListRoot when it is enregistered
-            //
-            LclVarDsc* varDsc = &compiler->lvaTable[compiler->info.compLvFrameListRoot];
+            // We also must exclude the register used by lvaPInvokeFrameListVar when it is enregistered
+            LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaPInvokeFrameListVar);
             if (varDsc->lvRegister)
             {
                 excludeMask |= genRegMask(varDsc->GetRegNum());

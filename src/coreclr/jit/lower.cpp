@@ -2891,7 +2891,7 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
 
     const CORINFO_EE_INFO* pInfo = comp->eeGetEEInfo();
 
-    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->info.compLvFrameListRoot);
+    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
 
     GenTree* stateNode = new (comp, GT_CNS_INT) GenTreeIntCon(TYP_BYTE, state);
     GenTree* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, pInfo->offsetOfGCState);
@@ -2920,7 +2920,7 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     const CORINFO_EE_INFO*                       pInfo         = comp->eeGetEEInfo();
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = pInfo->inlinedCallFrameInfo;
 
-    GenTree* TCB = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->info.compLvFrameListRoot);
+    GenTree* TCB = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
 
     // Thread->m_pFrame
     GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, TCB, nullptr, 1, pInfo->offsetOfThreadFrame);
@@ -3034,7 +3034,7 @@ void Lowering::InsertPInvokeMethodProlog()
 
     GenTreeCall* pInvokeInitFrame = comp->gtNewHelperCallNode(CORINFO_HELP_INIT_PINVOKE_FRAME, TYP_I_IMPL, argList);
     LIR::InsertHelperCallBefore(comp, firstBlockRange, insertionPoint, pInvokeInitFrame);
-    GenTree* store = comp->gtNewStoreLclVar(comp->info.compLvFrameListRoot, TYP_I_IMPL, pInvokeInitFrame);
+    GenTree* store = comp->gtNewStoreLclVar(comp->lvaPInvokeFrameListVar, TYP_I_IMPL, pInvokeInitFrame);
     firstBlockRange.InsertBefore(insertionPoint, store);
 
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
