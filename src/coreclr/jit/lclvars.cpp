@@ -2383,6 +2383,13 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 #endif
         }
 
+        // TODO-MIKE-Cleanup: Implicitly referenced locals should not be tracked. Most have
+        // no explicit references in IR so tracking achieves nothing, except eating into the
+        // tracking count limit. And lvaStubArgumentVar is weird in that it does have uses
+        // in IR but the definition is implicit. This makes it live in and the start of the
+        // method so we risk treating it as zero iniitialized in VN if compInitMem is set.
+        // Luckily that doesn't happen because generated stubs do not use .localsinit now.
+
         if (lcl->lvTracked)
         {
             tracked[trackedCount++] = lclNum;
