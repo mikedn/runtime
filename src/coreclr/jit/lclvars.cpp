@@ -22,17 +22,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitstd/algorithm.h"
 #include "patchpointinfo.h"
 
-/*****************************************************************************/
-
-#ifdef DEBUG
-#if DOUBLE_ALIGN
-/* static */
-unsigned Compiler::s_lvaDoubleAlignedProcsCount = 0;
-#endif
-#endif
-
-/*****************************************************************************/
-
 void Compiler::lvaInit()
 {
     /* We haven't allocated stack variables yet */
@@ -40,19 +29,22 @@ void Compiler::lvaInit()
 
     lvaGenericsContextInUse = false;
 
-    lvaTrackedToVarNumSize = 0;
-    lvaTrackedToVarNum     = nullptr;
+    lvaTrackedCount             = 0;
+    lvaTrackedCountInSizeTUnits = 0;
+    lvaCurEpoch                 = 0;
+    lvaTrackedToVarNumSize      = 0;
+    lvaTrackedToVarNum          = nullptr;
 
     lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 #if !defined(FEATURE_EH_FUNCLETS)
     lvaShadowSPslotsVar = BAD_VAR_NUM;
 #endif // !FEATURE_EH_FUNCLETS
+    lvaPInvokeFrameListVar    = BAD_VAR_NUM;
     lvaInlinedPInvokeFrameVar = BAD_VAR_NUM;
     lvaReversePInvokeFrameVar = BAD_VAR_NUM;
 #if FEATURE_FIXED_OUT_ARGS
-    lvaPInvokeFrameRegSaveVar = BAD_VAR_NUM;
-    lvaOutgoingArgSpaceVar    = BAD_VAR_NUM;
-    lvaOutgoingArgSpaceSize   = PhasedVar<unsigned>();
+    lvaOutgoingArgSpaceVar  = BAD_VAR_NUM;
+    lvaOutgoingArgSpaceSize = PhasedVar<unsigned>();
 #endif // FEATURE_FIXED_OUT_ARGS
 #ifdef JIT32_GCENCODER
     lvaLocAllocSPvar = BAD_VAR_NUM;
@@ -72,7 +64,10 @@ void Compiler::lvaInit()
 #if defined(FEATURE_EH_FUNCLETS)
     lvaPSPSym = BAD_VAR_NUM;
 #endif
-    lvaCurEpoch = 0;
+#if defined(DEBUG) && defined(TARGET_XARCH)
+    lvaReturnSpCheck = BAD_VAR_NUM;
+    X86_ONLY(lvaCallSpCheck = BAD_VAR_NUM);
+#endif
 
     lvaAddressExposedLocalsMarked = false;
 
@@ -221,11 +216,13 @@ void Compiler::lvaInitTypeRef()
 
     if (compIsForInlining())
     {
-        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
-        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
-        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
+        Compiler* inlinerCompiler = impInlineInfo->InlinerCompiler;
 
-        // No more stuff needs to be done.
+        lvaTable           = inlinerCompiler->lvaTable;
+        lvaCount           = inlinerCompiler->lvaCount;
+        lvaTableSize       = inlinerCompiler->lvaTableSize;
+        lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
+
         return;
     }
 
@@ -348,13 +345,35 @@ void Compiler::lvaInitTypeRef()
     {
         // Ensure that there will be at least one stack variable since
         // we require that the GSCookie does not have a 0 stack offset.
-        unsigned lclNum = lvaGrabTempWithImplicitUse(false DEBUGARG("GSCookie dummy"));
-        lvaGetDesc(lclNum)->SetType(TYP_INT);
+
+        // TODO-MIKE-Cleanup: This is a bunch of crap. It mainly exists due to the stress
+        // code above, which blindly introduces GC cookies in methods that have no locals.
+        // Normally we'd need a GS cookie only if the method has a local with an unsafe
+        // buffer or if it uses localloc, and in the later case it would be difficult for
+        // the method to do anything useful if it doesn't also have some other locals.
+        // Funnily enough, this is done so early that it doesn't catch the localloc case.
+        // And it's added unconditionally, even if other stack locals are already present.
+        // Note that the inliner does something similar, but not quite the the same. It
+        // adds it after import so it does detect localloc. It's not even clear why is this
+        // done here, when the actual cookie is added later, after global morph. Go figure.
+        // This could probably be added just before register allocation when we could
+        // check if it's actually needed. But it would be even better to not need this
+        // dummy and have frame allocation take care of this.
+        // Removing this causes a few diffs so keep it for now.
+
+        unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaSetImplicitlyReferenced(lclNum);
     }
 
     // Allocate the lvaOutgoingArgSpaceVar now because we can run into problems in the
     // emitter when the varNum is greater that 32767 (see emitLclVarAddr::initLclVarAddr)
     lvaAllocOutgoingArgSpaceVar();
+
+    if (info.compPublishStubParam)
+    {
+        lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("StubParam"));
+        lvaSetImplicitlyReferenced(lvaStubArgumentVar);
+    }
 
 #ifdef DEBUG
     if (verbose)
@@ -1469,188 +1488,173 @@ void Compiler::lvaResizeTable(unsigned newSize)
     lvaTable     = newTable;
 }
 
-bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
-{
-    noway_assert(varNum < lvaCount);
-    LclVarDsc* varDsc = &lvaTable[varNum];
-
-    return varDsc->lvDoNotEnregister;
-}
-
 bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
 {
     return lvIsStructField && !compiler->lvaGetDesc(lvParentLcl)->IsIndependentPromoted();
 }
 
-//------------------------------------------------------------------------
-// lvInitializeDoNotEnregFlag: a helper to initialize `lvDoNotEnregister` flag
-//    for locals that were created before the compiler decided its optimization level.
-//
-// Assumptions:
-//    compEnregLocals() value is finalized and is set to false.
-//
-void Compiler::lvSetMinOptsDoNotEnreg()
+void Compiler::lvaSetImplicitlyReferenced(unsigned lclNum)
 {
-    JITDUMP("compEnregLocals() is false, setting doNotEnreg flag for all locals.");
-    assert(!compEnregLocals());
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
-    {
-        lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_NoRegVars));
-    }
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    lcl->lvImplicitlyReferenced = true;
+    lvaSetDoNotEnregister(lcl DEBUGARG(DNER_HasImplicitRefs));
+
+    // Currently this is only used before ref counting starts
+    // so there's no need to bother with setting ref counts.
+    assert(!lvaLocalVarRefCounted());
 }
 
-/*****************************************************************************
- *
- *  Set the local var "varNum" as address-exposed.
- *  If this is a promoted struct, label it's fields the same way.
- */
-
-void Compiler::lvaSetVarAddrExposed(unsigned varNum)
+void Compiler::lvaSetAddressExposed(unsigned lclNum)
 {
-    noway_assert(varNum < lvaCount);
+    lvaSetAddressExposed(lvaGetDesc(lclNum));
+}
 
-    LclVarDsc* varDsc = &lvaTable[varNum];
+void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
+{
+    lcl->lvAddrExposed = 1;
+    lvaSetDoNotEnregister(lcl DEBUGARG(DNER_AddrExposed));
 
-    varDsc->lvAddrExposed = 1;
+    // For promoted locals we make all fields address exposed. However, if the local
+    // is a promoted field we don't make the parent nor other fields address exposed.
+    // It is assumed that the caller specifically wants only the specified field to
+    // be address exposed, otherwise it would just make the parent address exposed.
 
-    if (varDsc->lvPromoted)
+    if (lcl->IsPromoted())
     {
-        noway_assert(varTypeIsStruct(varDsc));
-
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            noway_assert(lvaTable[i].lvIsStructField);
-            lvaTable[i].lvAddrExposed = 1; // Make field local as address-exposed.
-            lvaSetVarDoNotEnregister(i DEBUGARG(DNER_AddrExposed));
+            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+            fieldLcl->lvAddrExposed = 1;
+            lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
         }
     }
-
-    lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_AddrExposed));
 }
 
-//------------------------------------------------------------------------
-// lvaSetVarLiveInOutOfHandler: Set the local varNum as being live in and/or out of a handler
-//
-// Arguments:
-//    varNum - the varNum of the local
-//
-void Compiler::lvaSetVarLiveInOutOfHandler(unsigned varNum)
+void Compiler::lvaSetDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason))
 {
-    noway_assert(varNum < lvaCount);
-
-    LclVarDsc* varDsc = &lvaTable[varNum];
-
-    varDsc->lvLiveInOutOfHndlr = 1;
-
-    if (varDsc->lvPromoted)
-    {
-        noway_assert(varTypeIsStruct(varDsc));
-
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
-        {
-            noway_assert(lvaTable[i].lvIsStructField);
-            lvaTable[i].lvLiveInOutOfHndlr = 1;
-            // For now, only enregister an EH Var if it is a single def and whose refCnt > 1.
-            if (!lvaEnregEHVars || !lvaTable[i].lvSingleDefRegCandidate || lvaTable[i].lvRefCnt() <= 1)
-            {
-                lvaSetVarDoNotEnregister(i DEBUGARG(DNER_LiveInOutOfHandler));
-            }
-        }
-    }
-
-    // For now, only enregister an EH Var if it is a single def and whose refCnt > 1.
-    if (!lvaEnregEHVars || !varDsc->lvSingleDefRegCandidate || varDsc->lvRefCnt() <= 1)
-    {
-        lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LiveInOutOfHandler));
-    }
-#ifdef JIT32_GCENCODER
-    else if (lvaKeepAliveAndReportThis() && (varNum == info.compThisArg))
-    {
-        // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
-        // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever
-        // keep it in a register, since it must also be live on the stack. Therefore, we won't attempt to allocate it.
-        lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LiveInOutOfHandler));
-    }
-#endif // JIT32_GCENCODER
+    lvaSetDoNotEnregister(lvaGetDesc(lclNum) DEBUGARG(reason));
 }
 
-/*****************************************************************************
- *
- *  Record that the local var "varNum" should not be enregistered (for one of several reasons.)
- */
-
-void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregisterReason reason))
+void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason))
 {
-    noway_assert(varNum < lvaCount);
-    LclVarDsc* varDsc         = &lvaTable[varNum];
-    varDsc->lvDoNotEnregister = 1;
+    lcl->lvDoNotEnregister = 1;
+
+// TODO-MIKE-Review: Shouldn't this make promoted fields DNER too?
 
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nLocal V%02u should not be enregistered because: ", varNum);
-    }
-    switch (reason)
-    {
-        case DNER_AddrExposed:
-            JITDUMP("it is address exposed\n");
-            assert(varDsc->lvAddrExposed);
-            break;
-        case DNER_IsStruct:
-            JITDUMP("it is a struct\n");
-            assert(varTypeIsStruct(varDsc));
-            break;
-        case DNER_IsStructArg:
-            JITDUMP("it is a struct arg\n");
-            assert(varTypeIsStruct(varDsc));
-            break;
-        case DNER_BlockOp:
-            JITDUMP("written in a block op\n");
-            varDsc->lvLclBlockOpAddr = 1;
-            break;
-        case DNER_LocalField:
-            JITDUMP("was accessed as a local field\n");
-            varDsc->lvLclFieldExpr = 1;
-            break;
-        case DNER_LiveInOutOfHandler:
-            JITDUMP("live in/out of a handler\n");
-            varDsc->lvLiveInOutOfHndlr = 1;
-            break;
-        case DNER_LiveAcrossUnmanagedCall:
-            JITDUMP("live across unmanaged call\n");
-            varDsc->lvLiveAcrossUCall = 1;
-            break;
-        case DNER_DepField:
-            JITDUMP("field of a dependently promoted struct\n");
-            assert(varDsc->IsDependentPromotedField(this));
-            break;
-        case DNER_NoRegVars:
-            JITDUMP("opts.compFlags & CLFLG_REGVAR is not set\n");
-            assert(!compEnregLocals());
-            break;
-        case DNER_MinOptsGC:
-            JITDUMP("It is a GC Ref and we are compiling MinOpts\n");
-            assert(!JitConfig.JitMinOptsTrackGCrefs() && varTypeIsGC(varDsc->TypeGet()));
-            break;
+        const char* message;
+
+        switch (reason)
+        {
+            case DNER_AddrExposed:
+                assert(lcl->IsAddressExposed());
+                message = "it is address exposed";
+                break;
+            case DNER_IsStruct:
+                assert(varTypeIsStruct(lcl->GetType()));
+                message = "it is a struct";
+                break;
+            case DNER_IsStructArg:
+                assert(varTypeIsStruct(lcl->GetType()));
+                message = "it is a struct arg";
+                break;
+            case DNER_BlockOp:
+                lcl->lvLclBlockOpAddr = 1;
+                message               = "written in a block op";
+                break;
+            case DNER_LocalField:
+                lcl->lvLclFieldExpr = 1;
+                message             = "was accessed as a local field";
+                break;
+            case DNER_LiveInOutOfHandler:
+                message = "live in/out of a handler";
+                break;
+            case DNER_DepField:
+                assert(lcl->IsDependentPromotedField(this));
+                message = "field of a dependently promoted struct";
+                break;
+            case DNER_NoRegVars:
+                assert(!compEnregLocals());
+                message = "opts.compFlags & CLFLG_REGVAR is not set";
+                break;
 #ifdef JIT32_GCENCODER
-        case DNER_PinningRef:
-            JITDUMP("pinning ref\n");
-            assert(varDsc->lvPinned);
-            break;
+            case DNER_PinningRef:
+                assert(lcl->IsPinning());
+                message = "pinning ref";
+                break;
 #endif
-#if !defined(TARGET_64BIT)
-        case DNER_LongParamField:
-            JITDUMP("it is a decomposed field of a long parameter\n");
-            break;
-        case DNER_LongParamVar:
-            JITDUMP("it is a long parameter\n");
-            break;
+#ifndef TARGET_64BIT
+            case DNER_LongParamField:
+                message = "it is a decomposed field of a long parameter";
+                break;
+            case DNER_LongUnpromoted:
+                message = "it is unpromoted LONG";
+                break;
 #endif
-        default:
-            unreached();
-            break;
+            case DNER_HasImplicitRefs:
+                message = "it has implicit references";
+                break;
+            default:
+                message = "???";
+                break;
+        }
+
+        printf("\nLocal V%02u should not be enregistered: %s\n", lcl - lvaTable, message);
     }
 #endif
+}
+
+void Compiler::lvSetMinOptsDoNotEnreg()
+{
+    JITDUMP("compEnregLocals() is false, setting doNotEnreg flag for all locals.");
+    assert(!compEnregLocals());
+
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    {
+        lvaSetDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_NoRegVars));
+    }
+}
+
+void Compiler::lvaSetLiveInOutOfHandler(unsigned lclNum)
+{
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    lcl->lvLiveInOutOfHndlr = true;
+
+    // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
+    if (!lvaEnregEHVars || !lcl->lvSingleDefRegCandidate || (lcl->GetRefCount() <= 1))
+    {
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LiveInOutOfHandler));
+    }
+#ifdef JIT32_GCENCODER
+    else if (lvaKeepAliveAndReportThis() && (lclNum == info.compThisArg))
+    {
+        // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
+        // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever
+        // keep it in a register, since it must also be live on the stack. Therefore, we won't attempt to allocate it.
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LiveInOutOfHandler));
+    }
+#endif
+
+    if (lcl->IsPromoted())
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+        {
+            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+            fieldLcl->lvLiveInOutOfHndlr = 1;
+
+            // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
+            if (!lvaEnregEHVars || !fieldLcl->lvSingleDefRegCandidate || (fieldLcl->GetRefCount() <= 1))
+            {
+                lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_LiveInOutOfHandler));
+            }
+        }
+    }
 }
 
 bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
@@ -2305,13 +2309,10 @@ public:
     }
 };
 
-/*****************************************************************************
- *
- *  Sort the local variable table by refcount and assign tracking indices.
- */
-
-void Compiler::lvaSortByRefCount()
+void Compiler::lvaMarkLivenessTrackedLocals()
 {
+    assert(opts.OptimizationEnabled() && compEnregLocals());
+
     lvaTrackedCount             = 0;
     lvaTrackedCountInSizeTUnits = 0;
 
@@ -2319,8 +2320,6 @@ void Compiler::lvaSortByRefCount()
     {
         return;
     }
-
-    /* We'll sort the variables by ref count - allocate the sorted table */
 
     if (lvaTrackedToVarNumSize < lvaCount)
     {
@@ -2331,152 +2330,118 @@ void Compiler::lvaSortByRefCount()
     unsigned  trackedCount = 0;
     unsigned* tracked      = lvaTrackedToVarNum;
 
-    // Fill in the table used for sorting
-
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         // Start by assuming that the variable will be tracked.
-        varDsc->lvTracked = 1;
+        lcl->lvTracked = 1;
 
-        if (varDsc->lvRefCnt() == 0)
+        if (lcl->lvRefCnt() == 0)
         {
-            // Zero ref count, make this untracked.
-            varDsc->lvTracked = 0;
-            varDsc->setLvRefCntWtd(0);
+            assert(lcl->lvRefCntWtd() == 0);
+
+            lcl->lvTracked = 0;
         }
 
-#if !defined(TARGET_64BIT)
-        if (varTypeIsLong(varDsc) && varDsc->lvPromoted)
+        if (lcl->IsPromoted())
         {
-            varDsc->lvTracked = 0;
+            lcl->lvTracked = 0;
         }
-#endif // !defined(TARGET_64BIT)
 
-        // Variables that are address-exposed, and all struct locals, are never enregistered, or tracked.
-        // (The struct may be promoted, and its field variables enregistered/tracked, or the VM may "normalize"
-        // its type so that its not seen by the JIT as a struct.)
-        // Pinned variables may not be tracked (a condition of the GCInfo representation)
-        // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
-        // references when using the general GC encoding.
-        if (varDsc->IsAddressExposed())
+        if (lcl->IsAddressExposed())
         {
-            assert(varDsc->lvDoNotEnregister);
+            assert(lcl->lvDoNotEnregister);
 
-            varDsc->lvTracked = 0;
+            lcl->lvTracked = 0;
         }
-        if (varTypeIsStruct(varDsc->GetType()))
-        {
-            // Promoted structs will never be considered for enregistration anyway,
-            // and the DoNotEnregister flag was used to indicate whether promotion was
-            // independent or dependent.
-            if (varDsc->IsPromoted())
-            {
-                varDsc->lvTracked = 0;
-            }
-            else if (!varDsc->IsEnregisterableType())
-            {
-                lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
-            }
-            else if (varDsc->TypeIs(TYP_STRUCT))
-            {
-                if (!compEnregStructLocals())
-                {
-                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStruct));
-                }
-                else if (varDsc->lvIsMultiRegArg || varDsc->lvIsMultiRegRet)
-                {
-                    // Prolog and return generators do not support SIMD<->general register moves.
-                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStructArg));
-                }
-#if defined(TARGET_ARM) || defined(TARGET_X86)
-                else if (varDsc->IsParam())
-                {
-                    // On arm we prespill all struct args,
-                    // TODO-Arm-CQ: keep them in registers, it will need a fix
-                    // to "On the ARM we will spill any incoming struct args" logic in codegencommon.
-                    // TODO-MIKE-CQ: This also affects x86, not clear how come main
-                    // doesn't have this problem. Probably because they still can't generate sane IR
-                    // to begin with and end up DNERing structs anyway...
-                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_IsStructArg));
-                }
-#endif
-            }
-        }
-        if (varDsc->IsDependentPromotedField(this))
-        {
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_DepField));
-        }
-        if (varDsc->lvPinned)
-        {
-            varDsc->lvTracked = 0;
-#ifdef JIT32_GCENCODER
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_PinningRef));
-#endif
-        }
-        if (opts.MinOpts() && !JitConfig.JitMinOptsTrackGCrefs() && varTypeIsGC(varDsc->TypeGet()))
-        {
-            varDsc->lvTracked = 0;
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_MinOptsGC));
-        }
-        if (!compEnregLocals())
-        {
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_NoRegVars));
-        }
+
 #if defined(JIT32_GCENCODER) && defined(FEATURE_EH_FUNCLETS)
         if (lvaIsOriginalThisArg(lclNum) && (info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0)
         {
-            // For x86/Linux, we need to track "this".
-            // However we cannot have it in tracked variables, so we set "this" pointer always untracked
-            varDsc->lvTracked = 0;
+            // For x86/Linux, we need to track "this". However we cannot have it in tracked locals,
+            // so we make "this" pointer always untracked.
+            lcl->lvTracked = 0;
         }
 #endif
 
-        //  Are we not optimizing and we have exception handlers?
-        //   if so mark all args and locals "do not enregister".
-        //
-        if (opts.MinOpts() && compHndBBtabCount > 0)
+        if (lcl->TypeIs(TYP_BLK))
         {
-            lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LiveInOutOfHandler));
-        }
-        else
-        {
-            var_types type = genActualType(varDsc->TypeGet());
-
-            switch (type)
-            {
-                case TYP_FLOAT:
-                case TYP_DOUBLE:
-                case TYP_INT:
-                case TYP_LONG:
-                case TYP_REF:
-                case TYP_BYREF:
-#ifdef FEATURE_SIMD
-                case TYP_SIMD8:
-                case TYP_SIMD12:
-                case TYP_SIMD16:
-                case TYP_SIMD32:
-#endif // FEATURE_SIMD
-                case TYP_STRUCT:
-                    break;
-
-                case TYP_UNDEF:
-                case TYP_UNKNOWN:
-                    noway_assert(!"lvType not set correctly");
-                    FALLTHROUGH;
-                default:
-                    varDsc->lvTracked = 0;
-            }
+            // BLK locals are rare and rather special (e.g. outgoing args area), it's not worth tracking them.
+            // LONG locals are never enregistered on 32 bit targets (if they're promoted their fields may be).
+            lcl->lvTracked = 0;
         }
 
-        if (varDsc->lvTracked)
+        if (lcl->IsPinning())
+        {
+            // Pinning locals may not be tracked (a condition of the GCInfo representation)
+            // or enregistered, on x86 -- it is believed that we can enregister pinning
+            // references when using the general GC encoding.
+            lcl->lvTracked = 0;
+#ifdef JIT32_GCENCODER
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_PinningRef));
+#endif
+        }
+
+        // TODO-MIKE-Cleanup: Implicitly referenced locals should not be tracked. Most have
+        // no explicit references in IR so tracking achieves nothing, except eating into the
+        // tracking count limit. And lvaStubArgumentVar is weird in that it does have uses
+        // in IR but the definition is implicit. This makes it live in and the start of the
+        // method so we risk treating it as zero iniitialized in VN if compInitMem is set.
+        // Luckily that doesn't happen because generated stubs do not use .localsinit now.
+
+        if (lcl->lvTracked)
         {
             tracked[trackedCount++] = lclNum;
         }
+
+        if (compJmpOpUsed && lcl->IsRegParam())
+        {
+            // If we have JMP, reg args must be put on the stack
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
+        }
+        else if (lcl->IsDependentPromotedField(this))
+        {
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_DepField));
+        }
+        else if (lcl->TypeIs(TYP_STRUCT) && !lcl->IsPromoted())
+        {
+            if (!compEnregStructLocals())
+            {
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+            }
+            else if (lcl->GetRegisterType() == TYP_UNDEF)
+            {
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+            }
+            else if (lcl->HasGCPtr())
+            {
+                // TODO-1stClassStructs: support vars with GC pointers. The issue is that such
+                // vars will have `lvMustInit` set, because emitter has poor support for struct
+                // liveness, but if the variable is tracked the prolog generator would expect it
+                // to be in liveIn set, so an assert in `genFnProlog` will fire.
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStruct));
+            }
+            else if (lcl->lvIsMultiRegArg || lcl->lvIsMultiRegRet)
+            {
+                // Prolog and return generators do not support vector - integer register moves.
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
+            }
+#if defined(TARGET_ARM) || defined(TARGET_X86)
+            else if (lcl->IsParam())
+            {
+                // On ARM we prespill all struct args.
+                // TODO-ARM-CQ: Keep them in registers, it will need a fix to
+                // "On the ARM we will spill any incoming struct args" logic in codegencommon.
+                // TODO-MIKE-CQ: This also affects x86, not clear how come main
+                // doesn't have this problem. Probably because they still can't generate sane IR
+                // to begin with and end up DNERing structs anyway...
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
+            }
+#endif
+        }
     }
 
-    // Now sort the tracked variable table by ref-count
     if (compCodeOpt() == SMALL_CODE)
     {
         jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_SmallCode_Less(lvaTable DEBUGARG(lvaCount)));
@@ -2486,51 +2451,42 @@ void Compiler::lvaSortByRefCount()
         jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_BlendedCode_Less(lvaTable DEBUGARG(lvaCount)));
     }
 
-    lvaTrackedCount = min((unsigned)JitConfig.JitMaxLocalsToTrack(), trackedCount);
+    lvaTrackedCount = min(static_cast<unsigned>(JitConfig.JitMaxLocalsToTrack()), trackedCount);
 
-    JITDUMP("Tracked variable (%u out of %u) table:\n", lvaTrackedCount, lvaCount);
+    JITDUMP("Tracked local (%u out of %u) table:\n", lvaTrackedCount, lvaCount);
 
-    // Assign indices to all the variables we've decided to track
-    for (unsigned varIndex = 0; varIndex < lvaTrackedCount; varIndex++)
+    for (unsigned trackedIndex = 0; trackedIndex < lvaTrackedCount; trackedIndex++)
     {
-        LclVarDsc* varDsc = lvaGetDesc(tracked[varIndex]);
-        assert(varDsc->lvTracked);
-        varDsc->lvVarIndex = static_cast<unsigned short>(varIndex);
+        LclVarDsc* lcl = lvaGetDesc(tracked[trackedIndex]);
 
-        INDEBUG(if (verbose) { gtDispLclVar(tracked[varIndex]); })
-        JITDUMP(" [%6s]: refCnt = %4u, refCntWtd = %6s\n", varTypeName(varDsc->TypeGet()), varDsc->lvRefCnt(),
-                refCntWtd2str(varDsc->lvRefCntWtd()));
+        assert(lcl->lvTracked);
+        lcl->lvVarIndex = static_cast<uint16_t>(trackedIndex);
+
+        DBEXEC(verbose, gtDispLclVar(tracked[trackedIndex]))
+        JITDUMP("Tracked V%02u: refCnt = %4u, refCntWtd = %6s\n", tracked[trackedIndex], lcl->lvRefCnt(),
+                refCntWtd2str(lcl->lvRefCntWtd()));
+    }
+
+    // If we have too many tracked locals mark the rest as untracked. This does not remove
+    // them from lvaTrackedToVarNum but lvaTrackedCount reflects the actual tracked count.
+    for (unsigned trackedIndex = lvaTrackedCount; trackedIndex < trackedCount; trackedIndex++)
+    {
+        LclVarDsc* lcl = lvaGetDesc(tracked[trackedIndex]);
+
+        assert(lcl->lvTracked);
+        lcl->lvTracked = 0;
+
+        DBEXEC(verbose, gtDispLclVar(tracked[trackedIndex]))
+        JITDUMP("Untracked V%02u: refCnt = %4u, refCntWtd = %6s\n", tracked[trackedIndex], lcl->lvRefCnt(),
+                refCntWtd2str(lcl->lvRefCntWtd()));
     }
 
     JITDUMP("\n");
 
-    // Mark all variables past the first 'lclMAX_TRACKED' as untracked
-    for (unsigned varIndex = lvaTrackedCount; varIndex < trackedCount; varIndex++)
-    {
-        LclVarDsc* varDsc = lvaGetDesc(tracked[varIndex]);
-        assert(varDsc->lvTracked);
-        varDsc->lvTracked = 0;
-    }
-
-    // We have a new epoch, and also cache the tracked var count in terms of size_t's sufficient to hold that many bits.
     lvaCurEpoch++;
     lvaTrackedCountInSizeTUnits =
-        roundUp((unsigned)lvaTrackedCount, (unsigned)(sizeof(size_t) * 8)) / unsigned(sizeof(size_t) * 8);
+        roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
 }
-
-#if ASSERTION_PROP
-/*****************************************************************************
- *
- *  This is called by lvaMarkLclRefs to disqualify a variable from being
- *  considered by optAddCopies()
- */
-void LclVarDsc::lvaDisqualifyVar()
-{
-    this->lvDisqualify = true;
-    this->lvSingleDef  = false;
-    this->lvDefStmt    = nullptr;
-}
-#endif // ASSERTION_PROP
 
 unsigned LclVarDsc::lvSize() const // Size needed for storage representation. Only used for structs or TYP_BLK.
 {
@@ -2692,244 +2648,57 @@ var_types LclVarDsc::GetActualRegisterType() const
     return genActualType(GetRegisterType());
 }
 
-//------------------------------------------------------------------------
-// lvaMarkLclRefs: increment local var references counts and more
-//
-// Arguments:
-//     tree - some node in a tree
-//     user - the user of the node
-//     block - block that the tree node belongs to
-//     stmt - stmt that the tree node belongs to
-//     isRecompute - true if we should just recompute counts
-//
-// Notes:
-//     Invoked via the MarkLocalVarsVisitor
-//
-//     Primarily increments the regular and weighted local var ref
-//     counts for any local referred to directly by tree.
-//
-//     Also:
-//
-//     Accounts for implicit references to frame list root for
-//     pinvokes that will be expanded later.
-//
-//     Determines if locals of TYP_BOOL can safely be considered
-//     to hold only 0 or 1 or may have a broader range of true values.
-//
-//     Does some setup work for assertion prop, noting locals that are
-//     eligible for assertion prop, single defs, and tracking which blocks
-//     hold uses.
-//
-//     Looks for uses of generic context and sets lvaGenericsContextInUse.
-//
-//     In checked builds:
-//
-//     Verifies that local accesses are consistenly typed.
-//     Verifies that casts remain in bounds.
-
-void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt, bool isRecompute)
+void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate)
 {
-    const BasicBlock::weight_t weight = block->getBBWeight(this);
+    assert(opts.OptimizationEnabled());
+    assert(lvaRefCountState == RCS_NORMAL);
 
-    if (tree->OperIs(GT_ASG))
+    if (!lcl->TypeIs(TYP_STRUCT) || !lcl->IsIndependentPromoted())
     {
-#if OPT_BOOL_OPS
-        if (!isRecompute)
+        lcl->SetRefCount(lcl->GetRefCount() + 1);
+
+        if (weight != 0)
         {
-            GenTree* op1 = tree->AsOp()->GetOp(0);
-            GenTree* op2 = tree->AsOp()->GetOp(1);
-
-            if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
-                !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
-            {
-                lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
-            }
-        }
-#endif // OPT_BOOL_OPS
-
-        return;
-    }
-
-    /* Is this a call to unmanaged code ? */
-    if (tree->IsCall() && compMethodRequiresPInvokeFrame())
-    {
-        assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-        if (!opts.ShouldUsePInvokeHelpers())
-        {
-            /* Get the special variable descriptor */
-
-            unsigned lclNum = info.compLvFrameListRoot;
-
-            noway_assert(lclNum <= lvaCount);
-            LclVarDsc* varDsc = lvaTable + lclNum;
-
-            /* Increment the ref counts twice */
-            varDsc->incRefCnts(weight, this);
-            varDsc->incRefCnts(weight, this);
-        }
-    }
-
-    if (tree->OperIsLocalAddr())
-    {
-        LclVarDsc* lcl = lvaGetDesc(tree->AsLclVarCommon());
-        assert(lcl->IsAddressExposed());
-
-#if ASSERTION_PROP
-        lcl->lvaDisqualifyVar();
+            // We double the weight of internal temps
+            bool doubleWeight = lcl->lvIsTemp;
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+            // and, for the time being, implicit byref params
+            doubleWeight |= lcl->lvIsImplicitByRef;
 #endif
-        lcl->incRefCnts(weight, this);
 
-        return;
-    }
-
-    if ((tree->gtOper != GT_LCL_VAR) && (tree->gtOper != GT_LCL_FLD))
-    {
-        return;
-    }
-
-    /* This must be a local variable reference */
-
-    // See if this is a generics context use.
-    if ((tree->gtFlags & GTF_VAR_CONTEXT) != 0)
-    {
-        assert(tree->OperIs(GT_LCL_VAR));
-        if (!lvaGenericsContextInUse)
-        {
-            JITDUMP("-- generic context in use at [%06u]\n", dspTreeID(tree));
-            lvaGenericsContextInUse = true;
-        }
-    }
-
-    assert((tree->gtOper == GT_LCL_VAR) || (tree->gtOper == GT_LCL_FLD));
-    unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
-
-    noway_assert(lclNum < lvaCount);
-    LclVarDsc* varDsc = lvaTable + lclNum;
-
-    /* Increment the reference counts */
-
-    varDsc->incRefCnts(weight, this);
-
-    if (!isRecompute)
-    {
-        if (varDsc->IsAddressExposed())
-        {
-            varDsc->lvIsBoolean = false;
-#if ASSERTION_PROP
-            varDsc->lvaDisqualifyVar();
-#endif
-        }
-
-        if (tree->gtOper == GT_LCL_FLD)
-        {
-#if ASSERTION_PROP
-            // variables that have uses inside a GT_LCL_FLD
-            // cause problems, so we will disqualify them here
-            varDsc->lvaDisqualifyVar();
-#endif // ASSERTION_PROP
-            return;
-        }
-
-#if ASSERTION_PROP
-        if (fgDomsComputed && IsDominatedByExceptionalEntry(block))
-        {
-            SetVolatileHint(varDsc);
-        }
-
-        /* Record if the variable has a single def or not */
-
-        if (!varDsc->lvDisqualify) // If this variable is already disqualified, we can skip this
-        {
-            if (tree->gtFlags & GTF_VAR_DEF) // Is this is a def of our variable
+            if (doubleWeight && (weight * 2 > weight))
             {
-                // If we have one of these cases:
-                //     1.    We have already seen a definition (i.e lvSingleDef is true)
-                //     2. or info.CompInitMem is true (thus this would be the second definition)
-                //     3. the user is not ASG, optAddCopiesCallback does not recognize indirect
-                //        local definitions (e.g. BLK(ADDR(LCL_VAR)))
-                //
-                // Then we must disqualify this variable for use in optAddCopies()
-                //
-                // Note that all parameters start out with lvSingleDef set to true
-
-                if (varDsc->lvSingleDef || info.compInitMem || !user->OperIs(GT_ASG))
-                {
-                    varDsc->lvaDisqualifyVar();
-                }
-                else
-                {
-                    varDsc->lvSingleDef = true;
-                    varDsc->lvDefStmt   = stmt;
-                }
+                weight *= 2;
             }
-            else // otherwise this is a ref of our variable
+
+            BasicBlock::weight_t newWeight = lcl->GetRefWeight() + weight;
+            assert(newWeight >= lcl->GetRefWeight());
+            lcl->SetRefWeight(newWeight);
+        }
+    }
+
+    if (propagate)
+    {
+        if (lcl->IsPromotedField())
+        {
+            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+
+            if (parentLcl->IsDependentPromoted())
             {
-                if (BlockSetOps::MayBeUninit(varDsc->lvRefBlks))
-                {
-                    // Lazy initialization
-                    BlockSetOps::AssignNoCopy(this, varDsc->lvRefBlks, BlockSetOps::MakeEmpty(this));
-                }
-                BlockSetOps::AddElemD(this, varDsc->lvRefBlks, block->bbNum);
+                lvaAddRef(parentLcl, weight, false);
             }
         }
-
-        if (!varDsc->lvDisqualifySingleDefRegCandidate) // If this var is already disqualified, we can skip this
+        else if (lcl->IsPromoted() && varTypeIsStruct(lcl->GetType()))
         {
-            if (tree->gtFlags & GTF_VAR_DEF) // Is this is a def of our variable
+            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
             {
-                bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
-                bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
-                // TODO: Zero-inits in LSRA are created with below condition. Try to use similar condition here as well.
-                // if (compiler->info.compInitMem || varTypeIsGC(varDsc->TypeGet()))
-                bool needsExplicitZeroInit = fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
-
-                // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
-                // broken. For a multireg store lvSingleDefRegCandidate probably needs to be set
-                // on the fields of the local.
-                if (varDsc->lvSingleDefRegCandidate || needsExplicitZeroInit || varDsc->lvIsMultiRegRet)
-                {
-#ifdef DEBUG
-                    if (needsExplicitZeroInit)
-                    {
-                        varDsc->lvSingleDefDisqualifyReason = 'Z';
-                        JITDUMP("V%02u needs explicit zero init. Disqualified as a single-def register candidate.\n",
-                                lclNum);
-                    }
-                    else
-                    {
-                        varDsc->lvSingleDefDisqualifyReason = 'M';
-                        JITDUMP("V%02u has multiple definitions. Disqualified as a single-def register candidate.\n",
-                                lclNum);
-                    }
-
-#endif // DEBUG
-                    varDsc->lvSingleDefRegCandidate           = false;
-                    varDsc->lvDisqualifySingleDefRegCandidate = true;
-                }
-                else
-                {
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                    // TODO-CQ: If the varType needs partial callee save, conservatively do not enregister
-                    // such variable. In future, need to enable enregisteration for such variables.
-                    if (!varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
-#endif
-                    {
-                        varDsc->lvSingleDefRegCandidate = true;
-                        JITDUMP("Marking EH Var V%02u as a register candidate.\n", lclNum);
-                    }
-                }
+                lvaAddRef(lvaGetDesc(lcl->GetPromotedFieldLclNum(i)), weight, false);
             }
         }
-
-#endif // ASSERTION_PROP
-
-        noway_assert((tree->GetType() == varDsc->GetType()) ||
-                     (tree->TypeIs(TYP_INT) && varTypeIsSmall(varDsc->GetType())) ||
-                     (tree->TypeIs(TYP_UBYTE) && varDsc->TypeIs(TYP_BOOL)) ||
-                     (tree->TypeIs(TYP_BYREF) && varDsc->TypeIs(TYP_I_IMPL)) ||
-                     (tree->TypeIs(TYP_I_IMPL) && varDsc->TypeIs(TYP_BYREF)) ||
-                     (tree->TypeIs(TYP_INT) && varDsc->TypeIs(TYP_LONG) && (tree->gtFlags & GTF_VAR_DEF) == 0));
     }
+
+    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", static_cast<unsigned>(lcl - lvaTable),
+            lcl->lvRefCnt(), refCntWtd2str(lcl->lvRefCntWtd()));
 }
 
 //------------------------------------------------------------------------
@@ -2944,36 +2713,13 @@ bool Compiler::IsDominatedByExceptionalEntry(BasicBlock* block)
     return block->IsDominatedByExceptionalEntryFlag();
 }
 
-//------------------------------------------------------------------------
-// SetVolatileHint: Set a local var's volatile hint.
-//
-// Arguments:
-//    lcl - the local variable that needs the hint.
-//
-void Compiler::SetVolatileHint(LclVarDsc* varDsc)
-{
-    varDsc->lvVolatileHint = true;
-}
-
-//------------------------------------------------------------------------
-// lvaMarkLocalVars: update local var ref counts for IR in a basic block
-//
-// Arguments:
-//    block - the block in question
-//    isRecompute - true if counts are being recomputed
-//
-// Notes:
-//    Invokes lvaMarkLclRefs on each tree node for each
-//    statement in the block.
-
-void Compiler::lvaMarkLocalVars(BasicBlock* block, bool isRecompute)
+void Compiler::lvaComputeRefCountsHIR()
 {
     class MarkLocalVarsVisitor final : public GenTreeVisitor<MarkLocalVarsVisitor>
     {
-    private:
-        BasicBlock* m_block;
-        Statement*  m_stmt;
-        bool        m_isRecompute;
+        BasicBlock*          m_block;
+        BasicBlock::weight_t m_weight;
+        Statement*           m_stmt;
 
     public:
         enum
@@ -2981,26 +2727,256 @@ void Compiler::lvaMarkLocalVars(BasicBlock* block, bool isRecompute)
             DoPreOrder = true,
         };
 
-        MarkLocalVarsVisitor(Compiler* compiler, BasicBlock* block, Statement* stmt, bool isRecompute)
-            : GenTreeVisitor<MarkLocalVarsVisitor>(compiler), m_block(block), m_stmt(stmt), m_isRecompute(isRecompute)
+        MarkLocalVarsVisitor(Compiler* compiler) : GenTreeVisitor<MarkLocalVarsVisitor>(compiler)
         {
+        }
+
+        void Visit()
+        {
+            for (BasicBlock* block : m_compiler->Blocks())
+            {
+                m_block  = block;
+                m_weight = block->getBBWeight(m_compiler);
+
+                JITDUMP("Marking local variables in block " FMT_BB " (weight %s)\n", block->bbNum,
+                        refCntWtd2str(m_weight));
+
+                for (Statement* stmt : block->NonPhiStatements())
+                {
+                    m_stmt = stmt;
+
+                    DISPSTMT(stmt);
+                    WalkTree(stmt->GetRootNodePointer(), nullptr);
+                }
+            }
         }
 
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            m_compiler->lvaMarkLclRefs(*use, user, m_block, m_stmt, m_isRecompute);
+            GenTree* node = *use;
+
+            switch (node->GetOper())
+            {
+#if OPT_BOOL_OPS
+                case GT_ASG:
+                {
+                    GenTree* op1 = node->AsOp()->GetOp(0);
+                    GenTree* op2 = node->AsOp()->GetOp(1);
+
+                    if (op1->OperIs(GT_LCL_VAR) && !op2->TypeIs(TYP_BOOL) && !op2->OperIsCompare() &&
+                        !op2->IsIntegralConst(0) && !op2->IsIntegralConst(1))
+                    {
+                        m_compiler->lvaGetDesc(op1->AsLclVar())->lvIsBoolean = false;
+                    }
+                }
+                break;
+#endif
+
+                case GT_LCL_VAR_ADDR:
+                case GT_LCL_FLD_ADDR:
+                {
+                    LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclVarCommon());
+                    assert(lcl->IsAddressExposed());
+#if ASSERTION_PROP
+                    DisqualifyAddCopy(lcl);
+#endif
+                    m_compiler->lvaAddRef(lcl, 0);
+                }
+                break;
+
+                case GT_LCL_VAR:
+                case GT_LCL_FLD:
+                    MarkLclRefs(node->AsLclVarCommon(), user);
+                    break;
+
+                default:
+                    break;
+            }
+
             return WALK_CONTINUE;
+        }
+
+        void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
+        {
+            unsigned   lclNum = node->GetLclNum();
+            LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+
+            m_compiler->lvaAddRef(lcl, m_weight);
+
+            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD))
+            {
+                lcl->lvIsBoolean = false;
+#if ASSERTION_PROP
+                DisqualifyAddCopy(lcl);
+#endif
+            }
+
+            if (node->OperIs(GT_LCL_FLD))
+            {
+                assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
+
+                return;
+            }
+
+            if (((node->gtFlags & GTF_VAR_CONTEXT) != 0) && !m_compiler->lvaGenericsContextInUse)
+            {
+                JITDUMP("Generic context in use at [%06u]\n", node->GetID());
+                m_compiler->lvaGenericsContextInUse = true;
+            }
+
+            noway_assert((node->GetType() == lcl->GetType()) ||
+                         (node->TypeIs(TYP_INT) && varTypeIsSmall(lcl->GetType())) ||
+                         (node->TypeIs(TYP_UBYTE) && lcl->TypeIs(TYP_BOOL)) ||
+                         (node->TypeIs(TYP_BYREF) && lcl->TypeIs(TYP_I_IMPL)) ||
+                         (node->TypeIs(TYP_I_IMPL) && lcl->TypeIs(TYP_BYREF)) ||
+                         (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && (node->gtFlags & GTF_VAR_DEF) == 0));
+
+            if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
+            {
+                lcl->lvEHLive = true;
+            }
+
+#if ASSERTION_PROP
+            if (!lcl->lvDisqualifyAddCopy)
+            {
+                if ((node->gtFlags & GTF_VAR_DEF) != 0)
+                {
+                    // TODO-MIKE-Consider: "single def" doesn't apply to address exposed locals.
+                    // There's a pretty good chance that a local that's not AX will be in SSA,
+                    // can we simply check the SSA def count instead?
+
+                    if (lcl->lvSingleDef)
+                    {
+                        // It's already single-def so this must be a second def.
+                        DisqualifyAddCopy(lcl);
+                    }
+                    else
+                    {
+                        // It's neither single-def nor disqualified, this must be the first def.
+                        lcl->lvSingleDef = true;
+                        lcl->lvDefStmt   = m_stmt;
+                    }
+                }
+                else
+                {
+                    if (BlockSetOps::MayBeUninit(lcl->lvUseBlocks))
+                    {
+                        lcl->lvUseBlocks = BlockSetOps::MakeEmpty(m_compiler);
+                    }
+
+                    BlockSetOps::AddElemD(m_compiler, lcl->lvUseBlocks, m_block->bbNum);
+                }
+            }
+#endif // ASSERTION_PROP
+
+            if (!lcl->lvDisqualifySingleDefRegCandidate && ((node->gtFlags & GTF_VAR_DEF) != 0))
+            {
+                bool bbInALoop  = (m_block->bbFlags & BBF_BACKWARD_JUMP) != 0;
+                bool bbIsReturn = m_block->bbJumpKind == BBJ_RETURN;
+
+                // TODO: Zero-inits in LSRA are created with below condition. Try to use
+                // similar condition here as well.
+                // if (compiler->info.compInitMem || varTypeIsGC(lcl->TypeGet()))
+
+                bool needsExplicitZeroInit = m_compiler->fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
+
+                // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
+                // broken. For a multireg store lvSingleDefRegCandidate probably needs to be set
+                // on the fields of the local.
+
+                if (lcl->lvSingleDefRegCandidate || needsExplicitZeroInit || lcl->lvIsMultiRegRet)
+                {
+                    JITDUMP("V%02u %s. Disqualified as a single-def register candidate.\n", lclNum,
+                            needsExplicitZeroInit ? "needs explicit zero init" : "has multiple definitions");
+
+                    INDEBUG(lcl->lvSingleDefDisqualifyReason = needsExplicitZeroInit ? 'Z' : 'M');
+                    lcl->lvSingleDefRegCandidate           = false;
+                    lcl->lvDisqualifySingleDefRegCandidate = true;
+                }
+                else
+                {
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+                    // TODO-CQ: If the varType needs partial callee save, conservatively do not enregister
+                    // such variable. In future, need to enable enregisteration for such variables.
+                    if (!varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
+#endif
+                    {
+                        lcl->lvSingleDefRegCandidate = true;
+
+                        JITDUMP("Marking EH V%02u as a single-def register candidate.\n", lclNum);
+                    }
+                }
+            }
+        }
+
+        void DisqualifyAddCopy(LclVarDsc* lcl)
+        {
+#if ASSERTION_PROP
+            lcl->lvDisqualifyAddCopy = true;
+            lcl->lvSingleDef         = false;
+            lcl->lvDefStmt           = nullptr;
+#endif
         }
     };
 
-    JITDUMP("\n*** %s local variables in block " FMT_BB " (weight=%s)\n", isRecompute ? "recomputing" : "marking",
-            block->bbNum, refCntWtd2str(block->getBBWeight(this)));
+    MarkLocalVarsVisitor visitor(this);
+    visitor.Visit();
+}
 
-    for (Statement* const stmt : block->NonPhiStatements())
+void Compiler::lvaComputeRefCountsLIR()
+{
+    for (BasicBlock* block : Blocks())
     {
-        MarkLocalVarsVisitor visitor(this, block, stmt, isRecompute);
-        DISPSTMT(stmt);
-        visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
+        const BasicBlock::weight_t weight = block->getBBWeight(this);
+
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            auto       refWeight = weight;
+            LclVarDsc* lcl       = nullptr;
+
+            switch (node->GetOper())
+            {
+                case GT_LCL_VAR_ADDR:
+                case GT_LCL_FLD_ADDR:
+                    refWeight = 0;
+                    lcl       = lvaGetDesc(node->AsLclVarCommon());
+                    break;
+
+                case GT_LCL_VAR:
+                case GT_LCL_FLD:
+                    if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
+                    {
+                        assert(node->OperIs(GT_LCL_VAR));
+                        lvaGenericsContextInUse = true;
+                    }
+
+                    lcl = lvaGetDesc(node->AsLclVarCommon());
+                    break;
+
+                case GT_STORE_LCL_VAR:
+                case GT_STORE_LCL_FLD:
+                    assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
+                    lcl = lvaGetDesc(node->AsLclVarCommon());
+
+                    // If this is an EH var, use a zero weight for defs, so that we don't
+                    // count those in our heuristic for register allocation, since they always
+                    // must be stored, so there's no value in enregistering them at defs; only
+                    // if there are enough uses to justify it.
+                    if (lcl->lvLiveInOutOfHndlr && !lcl->lvDoNotEnregister)
+                    {
+                        refWeight = 0;
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+
+            if (lcl != nullptr)
+            {
+                lvaAddRef(lcl, refWeight);
+            }
+        }
     }
 }
 
@@ -3017,19 +2993,6 @@ void Compiler::lvaMarkLocalVars(BasicBlock* block, bool isRecompute)
 
 void Compiler::lvaMarkLocalVars()
 {
-
-    JITDUMP("\n*************** In lvaMarkLocalVars()");
-
-    // If we have direct pinvokes, verify the frame list root local was set up properly
-    if (compMethodRequiresPInvokeFrame())
-    {
-        assert((!opts.ShouldUsePInvokeHelpers()) || (info.compLvFrameListRoot == BAD_VAR_NUM));
-        if (!opts.ShouldUsePInvokeHelpers())
-        {
-            noway_assert(info.compLvFrameListRoot >= info.compLocalsCount && info.compLvFrameListRoot < lvaCount);
-        }
-    }
-
 #if !defined(FEATURE_EH_FUNCLETS)
 
     // Grab space for exception handling
@@ -3052,8 +3015,9 @@ void Compiler::lvaMarkLocalVars()
         // For zero-termination of the shadow-Stack-pointer chain
         slotsNeeded++;
 
-        lvaShadowSPslotsVar = lvaGrabTempWithImplicitUse(false DEBUGARG("lvaShadowSPslotsVar"));
+        lvaShadowSPslotsVar = lvaGrabTemp(false DEBUGARG("ShadowSPslots"));
         lvaGetDesc(lvaShadowSPslotsVar)->SetBlockType(slotsNeeded * REGSIZE_BYTES);
+        lvaSetImplicitlyReferenced(lvaShadowSPslotsVar);
     }
 
 #endif // !FEATURE_EH_FUNCLETS
@@ -3064,8 +3028,8 @@ void Compiler::lvaMarkLocalVars()
 #if defined(FEATURE_EH_FUNCLETS)
         if (ehNeedsPSPSym())
         {
-            lvaPSPSym = lvaGrabTempWithImplicitUse(false DEBUGARG("PSPSym"));
-            lvaGetDesc(lvaPSPSym)->SetType(TYP_I_IMPL);
+            lvaPSPSym = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PSPSym"));
+            lvaSetImplicitlyReferenced(lvaPSPSym);
         }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -3085,8 +3049,8 @@ void Compiler::lvaMarkLocalVars()
         // See also eetwain.cpp::GetLocallocSPOffset() and its callers.
         if (compLocallocUsed)
         {
-            lvaLocAllocSPvar = lvaGrabTempWithImplicitUse(false DEBUGARG("LocAllocSPvar"));
-            lvaGetDesc(lvaLocAllocSPvar)->SetType(TYP_I_IMPL);
+            lvaLocAllocSPvar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("LocAllocSP"));
+            lvaSetImplicitlyReferenced(lvaLocAllocSPvar);
         }
 #endif // JIT32_GCENCODER
     }
@@ -3094,275 +3058,192 @@ void Compiler::lvaMarkLocalVars()
     // Ref counting is now enabled normally.
     lvaRefCountState = RCS_NORMAL;
 
-#if defined(DEBUG)
-    const bool setSlotNumbers = true;
-#else
-    const bool setSlotNumbers = opts.compScopeInfo && (info.compVarScopesCount > 0);
-#endif // defined(DEBUG)
-
-    const bool isRecompute = false;
-    lvaComputeRefCounts(isRecompute, setSlotNumbers);
-
-    // If we're not optimizing, we're done.
     if (opts.OptimizationDisabled())
     {
+        // If we don't optimize we make all locals implicitly referenced.
+        lvaSetImplictlyReferenced();
         return;
     }
 
-    const bool reportParamTypeArg = lvaReportParamTypeArg();
+    lvaComputeLclRefCounts();
 
-    // Update bookkeeping on the generic context.
+    const bool reportParamTypeArg = lvaReportParamTypeArg();
+    LclVarDsc* paramTypeLcl       = nullptr;
+
     if (lvaKeepAliveAndReportThis())
     {
-        lvaGetDesc(0u)->lvImplicitlyReferenced = reportParamTypeArg;
+        paramTypeLcl = lvaGetDesc(0u);
     }
-    else if (lvaReportParamTypeArg())
+    else if (reportParamTypeArg)
     {
-        // We should have a context arg.
-        assert(info.compTypeCtxtArg != (int)BAD_VAR_NUM);
-        lvaGetDesc(info.compTypeCtxtArg)->lvImplicitlyReferenced = reportParamTypeArg;
+        paramTypeLcl = lvaGetDesc(info.compTypeCtxtArg);
+    }
+
+    if (paramTypeLcl != nullptr)
+    {
+        // TODO-MIKE-Review: There's something dubious going on here, for lvaKeepAliveAndReportThis
+        // it sets "implicitly referenced" based on lvaReportParamTypeArg, which could be false.
+        // But lvImplicitlyReferenced wasn't previously set on `this` so doing this has no effect.
+        // Was the intention to always set lvImplicitlyReferenced to `true` perhaps?
+
+        paramTypeLcl->lvImplicitlyReferenced = reportParamTypeArg;
+
+        if (reportParamTypeArg && (paramTypeLcl->GetRefCount() == 0))
+        {
+            paramTypeLcl->SetRefCount(1);
+            paramTypeLcl->SetRefWeight(BB_UNITY_WEIGHT);
+        }
     }
 }
 
-//------------------------------------------------------------------------
-// lvaComputeRefCounts: compute ref counts for locals
-//
-// Arguments:
-//    isRecompute -- true if we just want ref counts and no other side effects;
-//                   false means to also look for true boolean locals, lay
-//                   groundwork for assertion prop, check type consistency, etc.
-//                   See lvaMarkLclRefs for details on what else goes on.
-//    setSlotNumbers -- true if local slot numbers should be assigned.
-//
-// Notes:
-//    Some implicit references are given actual counts or weight bumps here
-//    to match pre-existing behavior.
-//
-//    In fast-jitting modes where we don't ref count locals, this bypasses
-//    actual counting, and makes all locals implicitly referenced on first
-//    compute. It asserts all locals are implicitly referenced on recompute.
-//
-//    When optimizing we also recompute lvaGenericsContextInUse based
-//    on specially flagged LCL_VAR appearances.
-//
-void Compiler::lvaComputeRefCounts(bool isRecompute, bool setSlotNumbers)
+// Check for a stack passed parameter in a X86 varargs method.
+// Such parameters are not accessed directly, they're accessed via an indirection
+// based on the address passed in lvaVarargsHandleArg and they cannot be tracked
+// by GC (their offsets in the stack are not known at compile time).
+bool Compiler::lvaIsX86VarargsStackParam(unsigned lclNum)
 {
-    JITDUMP("\n*** lvaComputeRefCounts ***\n");
-    unsigned   lclNum = 0;
-    LclVarDsc* varDsc = nullptr;
+#ifdef TARGET_X86
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    return info.compIsVarArgs && lcl->IsParam() && !lcl->IsRegParam() && (lclNum != lvaVarargsHandleArg);
+#else
+    return false;
+#endif
+}
 
-    // Fast path for minopts and debug codegen.
-    //
-    // On first compute: mark all locals as implicitly referenced and untracked.
-    // On recompute: do nothing.
-    if (opts.OptimizationDisabled())
+void Compiler::lvaSetImplictlyReferenced()
+{
+    assert(opts.OptimizationDisabled());
+    assert(!compRationalIRForm);
+
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        if (isRecompute)
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        noway_assert(varTypeIsValidLclType(lcl->GetType()));
+        assert(!lcl->lvTracked);
+
+        // X86 varargs stack params must remain unreferenced.
+        if (lvaIsX86VarargsStackParam(lclNum))
         {
+            assert(!lcl->lvImplicitlyReferenced);
+            assert(lcl->GetRefCount() == 0);
+            assert(lcl->GetRefWeight() == 0);
 
-#if defined(DEBUG)
-            // All local vars should be marked as implicitly referenced
-            // and not tracked.
-            for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
-            {
-                const bool isSpecialVarargsParam = varDsc->lvIsParam && raIsVarargsStackArg(lclNum);
-
-                if (isSpecialVarargsParam)
-                {
-                    assert(varDsc->lvRefCnt() == 0);
-                }
-                else
-                {
-                    assert(varDsc->lvImplicitlyReferenced);
-                }
-
-                assert(!varDsc->lvTracked);
-            }
-#endif // defined (DEBUG)
-
-            return;
+            continue;
         }
 
-        // First compute.
-        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
-        {
-            // Using lvImplicitlyReferenced here ensures that we can't
-            // accidentally make locals be unreferenced later by decrementing
-            // the ref count to zero.
-            //
-            // If, in minopts/debug, we really want to allow locals to become
-            // unreferenced later, we'll have to explicitly clear this bit.
-            varDsc->setLvRefCnt(0);
-            varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
-
-            // Special case for some varargs params ... these must
-            // remain unreferenced.
-            const bool isSpecialVarargsParam = varDsc->lvIsParam && raIsVarargsStackArg(lclNum);
-
-            if (!isSpecialVarargsParam)
-            {
-                varDsc->lvImplicitlyReferenced = 1;
-            }
-
-            varDsc->lvTracked = 0;
-
-            if (setSlotNumbers)
-            {
-                varDsc->lvSlotNum = lclNum;
-            }
-
-            // Assert that it's ok to bypass the type repair logic in lvaMarkLclRefs
-            assert((varDsc->lvType != TYP_UNDEF) && (varDsc->lvType != TYP_VOID) && (varDsc->lvType != TYP_UNKNOWN));
-        }
-
-        lvaCurEpoch++;
-        lvaTrackedCount             = 0;
-        lvaTrackedCountInSizeTUnits = 0;
-        return;
+        lcl->lvDoNotEnregister      = true;
+        lcl->lvImplicitlyReferenced = true;
+        lcl->SetRefCount(1);
+        lcl->SetRefWeight(BB_UNITY_WEIGHT);
     }
+}
 
-    // Slower path we take when optimizing, to get accurate counts.
-    //
+void Compiler::lvaComputeLclRefCounts()
+{
+    JITDUMP("\n*** lvaComputeLclRefCounts ***\n");
+
+    assert(opts.OptimizationEnabled());
+
     // First, reset all explicit ref counts and weights.
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        varDsc->setLvRefCnt(0);
-        varDsc->setLvRefCntWtd(BB_ZERO_WEIGHT);
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (setSlotNumbers)
+        noway_assert(varTypeIsValidLclType(lcl->GetType()));
+
+        if (lcl->lvImplicitlyReferenced && !lvaIsX86VarargsStackParam(lclNum))
         {
-            varDsc->lvSlotNum = lclNum;
-        }
-
-        // Set initial value for lvSingleDef for explicit and implicit
-        // argument locals as they are "defined" on entry.
-        // However, if we are just recomputing the ref counts, retain the value
-        // that was set by past phases.
-        if (!isRecompute)
-        {
-            varDsc->lvSingleDef             = varDsc->lvIsParam;
-            varDsc->lvSingleDefRegCandidate = varDsc->lvIsParam;
-        }
-    }
-
-    // Remember current state of generic context use, and prepare
-    // to compute new state.
-    const bool oldLvaGenericsContextInUse = lvaGenericsContextInUse;
-    lvaGenericsContextInUse               = false;
-
-    JITDUMP("\n*** lvaComputeRefCounts -- explicit counts ***\n");
-
-    // Second, account for all explicit local variable references
-    for (BasicBlock* const block : Blocks())
-    {
-        if (block->IsLIR())
-        {
-            assert(isRecompute);
-
-            const BasicBlock::weight_t weight = block->getBBWeight(this);
-            for (GenTree* node : LIR::AsRange(block))
-            {
-                switch (node->OperGet())
-                {
-                    case GT_LCL_VAR_ADDR:
-                    case GT_LCL_FLD_ADDR:
-                        lvaGetDesc(node->AsLclVarCommon())->incRefCnts(0, this);
-                        break;
-
-                    case GT_LCL_VAR:
-                    case GT_LCL_FLD:
-                    case GT_STORE_LCL_VAR:
-                    case GT_STORE_LCL_FLD:
-                    {
-                        LclVarDsc* varDsc = lvaGetDesc(node->AsLclVarCommon());
-                        // If this is an EH var, use a zero weight for defs, so that we don't
-                        // count those in our heuristic for register allocation, since they always
-                        // must be stored, so there's no value in enregistering them at defs; only
-                        // if there are enough uses to justify it.
-                        if (varDsc->lvLiveInOutOfHndlr && !varDsc->lvDoNotEnregister &&
-                            ((node->gtFlags & GTF_VAR_DEF) != 0))
-                        {
-                            varDsc->incRefCnts(0, this);
-                        }
-                        else
-                        {
-                            varDsc->incRefCnts(weight, this);
-                        }
-
-                        if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
-                        {
-                            assert(node->OperIs(GT_LCL_VAR));
-                            lvaGenericsContextInUse = true;
-                        }
-                        break;
-                    }
-
-                    default:
-                        break;
-                }
-            }
+            lcl->SetRefCount(1);
+            lcl->SetRefWeight(BB_UNITY_WEIGHT);
         }
         else
         {
-            lvaMarkLocalVars(block, isRecompute);
+            lcl->SetRefCount(0);
+            lcl->SetRefWeight(BB_ZERO_WEIGHT);
+        }
+
+        // TODO-MIKE-Review: lvSingleDef isn't used in LIR so we might as well set it and be done with it.
+        // lvSingleDefRegCandidate is bizarre. It's mainly a LSRA thing yet we're computing it before LIR.
+        // It can influence DNER so computing it early may be a good thing but it's still a bit odd that
+        // it is not recomputed. Are we guaranteed that there's transform that introduces new defs? Loop
+        // cloning/unrolling could do that, but it looks like this loop defs aren't candidates.
+        if (!compRationalIRForm)
+        {
+            lcl->lvSingleDef             = lcl->IsParam() || info.compInitMem;
+            lcl->lvSingleDefRegCandidate = lcl->IsParam();
         }
     }
 
-    if (oldLvaGenericsContextInUse && !lvaGenericsContextInUse)
+    // Second, count all explicit local variable references. This will also set
+    // lvaGenericsContextInUse again if the generics context is still used.
+
+    INDEBUG(const bool oldGenericsContextInUse = lvaGenericsContextInUse);
+    lvaGenericsContextInUse = false;
+
+    if (compRationalIRForm)
     {
-        // Context was in use but no longer is. This can happen
-        // if we're able to optimize, so just leave a note.
+        lvaComputeRefCountsLIR();
+    }
+    else
+    {
+        lvaComputeRefCountsHIR();
+    }
+
+#ifdef DEBUG
+    if (oldGenericsContextInUse && !lvaGenericsContextInUse)
+    {
         JITDUMP("\n** Generics context no longer in use\n");
     }
-    else if (lvaGenericsContextInUse && !oldLvaGenericsContextInUse)
+    else if (lvaGenericsContextInUse && !oldGenericsContextInUse)
     {
-        // Context was not in use but now is.
-        //
-        // Changing from unused->used should never happen; creation of any new IR
-        // for context use should also be settting lvaGenericsContextInUse.
-        assert(!"unexpected new use of generics context");
+        assert(!"New generic context use pulled ouf of a hat");
     }
-
-    JITDUMP("\n*** lvaComputeRefCounts -- implicit counts ***\n");
+#endif
 
     // Third, bump ref counts for some implicit prolog references
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        // Todo: review justification for these count bumps.
-        if (varDsc->lvIsRegArg)
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        // TODO-MIKE-Review: It seems like nobody knows why is this done...
+        if (lcl->IsRegParam())
         {
-            if ((lclNum < info.compArgsCount) && (varDsc->lvRefCnt() > 0))
+            if ((lclNum < info.compArgsCount) && (lcl->GetRefCount() > 0))
             {
-                // Fix 388376 ARM JitStress WP7
-                varDsc->incRefCnts(BB_UNITY_WEIGHT, this);
-                varDsc->incRefCnts(BB_UNITY_WEIGHT, this);
+                lvaAddRef(lcl, BB_UNITY_WEIGHT);
+                lvaAddRef(lcl, BB_UNITY_WEIGHT);
             }
 
-            // Ref count bump that was in lvaPromoteStructVar
-            //
-            // This was formerly done during RCS_EARLY counting,
-            // and we did not used to reset counts like we do now.
-            if (varDsc->lvIsStructField)
+            if (lcl->IsPromotedField())
             {
-                varDsc->incRefCnts(BB_UNITY_WEIGHT, this);
+                lvaAddRef(lcl, BB_UNITY_WEIGHT);
             }
         }
 
-        // If we have JMP, all arguments must have a location
-        // even if we don't use them inside the method
-        if (compJmpOpUsed && varDsc->lvIsParam && (varDsc->lvRefCnt() == 0))
+        if (compJmpOpUsed && lcl->IsParam())
         {
-            // except when we have varargs and the argument is
-            // passed on the stack.  In that case, it's important
-            // for the ref count to be zero, so that we don't attempt
-            // to track them for GC info (which is not possible since we
-            // don't know their offset in the stack).  See the assert at the
-            // end of raMarkStkVars and bug #28949 for more info.
-            if (!raIsVarargsStackArg(lclNum))
+            // If we have JMP, all parameters must have a location even if we don't use them
+            // inside the method. Except when we have varargs and the argument is passed on
+            // the stack. In that case, it's important for the ref count to be zero, so that
+            // we don't attempt to track them for GC info (which is not possible since we
+            // don't know their offset in the stack). See the assert at the end of raMarkStkVars.
+            if ((lcl->GetRefCount() == 0) && !lvaIsX86VarargsStackParam(lclNum))
             {
-                varDsc->lvImplicitlyReferenced = 1;
+                lcl->lvImplicitlyReferenced = true;
+                lcl->SetRefCount(1);
+                lcl->SetRefWeight(BB_UNITY_WEIGHT);
             }
         }
+
+#ifndef TARGET_64BIT
+        if (compRationalIRForm && lcl->TypeIs(TYP_LONG) && !lcl->IsPromoted())
+        {
+            lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LongUnpromoted));
+        }
+#endif
     }
 }
 
@@ -3372,10 +3253,8 @@ void Compiler::lvaAllocOutgoingArgSpaceVar()
     if (lvaOutgoingArgSpaceVar == BAD_VAR_NUM)
     {
         lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
-
-        LclVarDsc* lcl = lvaGetDesc(lvaOutgoingArgSpaceVar);
-        lcl->SetBlockType(0);
-        lcl->lvImplicitlyReferenced = 1;
+        lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(0);
+        lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceVar);
     }
 
     noway_assert(lvaOutgoingArgSpaceVar >= info.compLocalsCount);
@@ -6039,12 +5918,24 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         printf(";  ");
         gtDispLclVar(lclNum);
 
+        if (lvaRefCountState == RCS_NORMAL)
+        {
+            printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
+        }
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        else if (lvaRefCountState == RCS_MORPH)
+        {
+            printf(" (%3u,%3u)", varDsc->GetImplicitByRefParamAnyRefCount(),
+                   varDsc->GetImplicitByRefParamCallRefCount());
+        }
+#endif
+
         printf(" %7s ", varTypeName(type));
         gtDispLclVarStructType(lclNum);
     }
     else
     {
-        if (varDsc->lvRefCnt() == 0)
+        if (varDsc->GetRefCount() == 0)
         {
             // Print this with a special indicator that the variable is unused. Even though the
             // variable itself is unused, it might be a struct that is promoted, so seeing it
@@ -6079,7 +5970,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
             printf("    ]");
         }
 
-        printf(" (%3u,%*s)", varDsc->lvRefCnt(), (int)refCntWtdWidth, refCntWtd2str(varDsc->lvRefCntWtd()));
+        printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
 
         printf(" %7s ", varTypeName(type));
         if (genTypeSize(type) == 0)
@@ -6092,7 +5983,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         }
 
         // The register or stack location field is 11 characters wide.
-        if (varDsc->lvRefCnt() == 0)
+        if (varDsc->GetRefCount() == 0)
         {
             printf("zero-ref   ");
         }
@@ -6138,10 +6029,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         if (varDsc->lvLclBlockOpAddr)
         {
             printf("B");
-        }
-        if (varDsc->lvLiveAcrossUCall)
-        {
-            printf("U");
         }
         if (varDsc->lvIsMultiRegArg)
         {
@@ -6298,11 +6185,11 @@ void Compiler::lvaTableDump(FrameLayoutState curState)
 
     size_t refCntWtdWidth = 6; // Use 6 as the minimum width
 
-    if (curState != INITIAL_FRAME_LAYOUT) // don't need this info for INITIAL_FRAME_LAYOUT
+    if (lvaRefCountState == RCS_NORMAL)
     {
         for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
         {
-            size_t width = strlen(refCntWtd2str(varDsc->lvRefCntWtd()));
+            size_t width = strlen(refCntWtd2str(varDsc->GetRefWeight()));
             if (width > refCntWtdWidth)
             {
                 refCntWtdWidth = width;

@@ -726,13 +726,6 @@ void Compiler::compShutdown()
                     totalNCsize - grossNCsize, 100 * (totalNCsize - grossNCsize) / grossVMsize,
                     100 * (totalNCsize - grossNCsize) / grossNCsize, Target::g_tgtCPUName);
         }
-
-#ifdef DEBUG
-#if DOUBLE_ALIGN
-        fprintf(fout, "%u out of %u methods generated with double-aligned stack\n",
-                Compiler::s_lvaDoubleAlignedProcsCount, genMethodCnt);
-#endif
-#endif
     }
 
 #endif // DISPLAY_SIZES
@@ -1037,6 +1030,8 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     compJitTelemetry.Initialize(this);
 #endif
 
+    hashBv::Init(this);
+
     fgInit();
     lvaInit();
 
@@ -1044,7 +1039,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     {
         codeGen = getCodeGenerator(this);
         optInit();
-        hashBv::Init(this);
 
         compVarScopeMap = nullptr;
 
@@ -1537,21 +1531,22 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_INFO));
         assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE));
         assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS));
+        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM));
     }
 
-    opts.jitFlags  = jitFlags;
-    opts.compFlags = CLFLG_MAXOPT; // Default value is for full optimization
+    opts.jitFlags = jitFlags;
+    opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization
 
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE) || jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) ||
         jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
     {
-        opts.compFlags = CLFLG_MINOPT;
+        opts.optFlags = CLFLG_MINOPT;
     }
     // Don't optimize .cctors (except prejit) or if we're an inlinee
     else if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR) &&
              !compIsForInlining())
     {
-        opts.compFlags = CLFLG_MINOPT;
+        opts.optFlags = CLFLG_MINOPT;
     }
 
     // Default value is to generate a blend of size and speed optimizations
@@ -2137,9 +2132,8 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #ifdef DEBUG
     assert(!codeGen->isGCTypeFixed());
     opts.compGcChecks = (JitConfig.JitGCChecks() != 0) || compStressCompile(STRESS_GENERIC_VARN, 5);
-#endif
 
-#if defined(DEBUG) && defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     enum
     {
         STACK_CHECK_ON_RETURN = 0x1,
@@ -2147,16 +2141,15 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         STACK_CHECK_ALL       = 0x3
     };
 
-    DWORD dwJitStackChecks = JitConfig.JitStackChecks();
+    int jitStackChecks = JitConfig.JitStackChecks();
     if (compStressCompile(STRESS_GENERIC_VARN, 5))
     {
-        dwJitStackChecks = STACK_CHECK_ALL;
+        jitStackChecks = STACK_CHECK_ALL;
     }
-    opts.compStackCheckOnRet = (dwJitStackChecks & DWORD(STACK_CHECK_ON_RETURN)) != 0;
-#if defined(TARGET_X86)
-    opts.compStackCheckOnCall = (dwJitStackChecks & DWORD(STACK_CHECK_ON_CALL)) != 0;
-#endif // defined(TARGET_X86)
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+    opts.compStackCheckOnRet = (jitStackChecks & STACK_CHECK_ON_RETURN) != 0;
+    X86_ONLY(opts.compStackCheckOnCall = (jitStackChecks & STACK_CHECK_ON_CALL) != 0);
+#endif // TARGET_XARCH
+#endif // DEBUG
 
 #if MEASURE_MEM_ALLOC
     s_dspMemStats = (JitConfig.DisplayMemStats() != 0);
@@ -2607,11 +2600,8 @@ void Compiler::compInitDebuggingInfo()
 
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
     {
-        /* Create a new empty basic block. fgExtendDbgLifetimes() may add
-           initialization of variables which are in scope right from the
-           start of the (real) first BB (and therefore artificially marked
-           as alive) into this block.
-         */
+        // TODO-MIKE-Review: This was done for fgExtendDbgLifetimes which is gone now.
+        // Can it be removed? Other places may rely on this block being present so...
 
         fgEnsureFirstBBisScratch();
 
@@ -2691,7 +2681,7 @@ void Compiler::compSetOptimizationLevel()
 
     theMinOptsValue = false;
 
-    if (opts.compFlags == CLFLG_MINOPT)
+    if (opts.optFlags == CLFLG_MINOPT)
     {
         JITLOG((LL_INFO100, "CLFLG_MINOPT set for method %s\n", info.compFullName));
         theMinOptsValue = true;
@@ -2917,12 +2907,9 @@ _SetMinOpts:
     }
 #endif
 
-    /* Control the optimizations */
-
     if (opts.OptimizationDisabled())
     {
-        opts.compFlags &= ~CLFLG_MAXOPT;
-        opts.compFlags |= CLFLG_MINOPT;
+        opts.optFlags = CLFLG_MINOPT;
     }
 
     if (!compIsForInlining())
@@ -3358,26 +3345,13 @@ void Compiler::EndPhase(Phases phase)
 //
 void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFlags* compileFlags)
 {
-    // Prepare for importation
-    //
-    auto preImportPhase = [this]() {
-        if (compIsForInlining())
-        {
+    if (compIsForInlining())
+    {
+        DoPhase(this, PHASE_PRE_IMPORT, [this]() {
             // Notify root instance that an inline attempt is about to import IL
             impInlineRoot()->m_inlineStrategy->NoteImport();
-        }
-
-        hashBv::Init(this);
-
-        // The temp holding the secret stub argument is used by fgImport() when importing the intrinsic.
-        if (info.compPublishStubParam)
-        {
-            assert(lvaStubArgumentVar == BAD_VAR_NUM);
-            lvaStubArgumentVar = lvaGrabTempWithImplicitUse(false DEBUGARG("stub argument"));
-            lvaGetDesc(lvaStubArgumentVar)->SetType(TYP_I_IMPL);
-        }
-    };
-    DoPhase(this, PHASE_PRE_IMPORT, preImportPhase);
+        });
+    }
 
     compFunctionTraceStart();
 
@@ -3507,23 +3481,22 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
                 }
             }
         }
-#endif // DEBUG
 
-#if defined(DEBUG) && defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
         if (opts.compStackCheckOnRet)
         {
-            lvaReturnSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("ReturnSpCheck"));
-            lvaGetDesc(lvaReturnSpCheck)->SetType(TYP_I_IMPL);
+            lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
+            lvaSetImplicitlyReferenced(lvaReturnSpCheck);
         }
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
-
-#if defined(DEBUG) && defined(TARGET_X86)
+#ifdef TARGET_X86
         if (opts.compStackCheckOnCall)
         {
-            lvaCallSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("CallSpCheck"));
-            lvaGetDesc(lvaCallSpCheck)->SetType(TYP_I_IMPL);
+            lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
+            lvaSetImplicitlyReferenced(lvaCallSpCheck);
         }
-#endif // defined(DEBUG) && defined(TARGET_X86)
+#endif // TARGET_X86
+#endif // TARGET_XARCH
+#endif // DEBUG
 
         // Filter out unimported BBs
         fgRemoveEmptyBlocks();
@@ -3976,14 +3949,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     ///////////////////////////////////////////////////////////////////////////////
     fgDomsComputed = false;
 
-    // Create LinearScan before Lowering, so that Lowering can call LinearScan methods
-    // for determining whether locals are register candidates and (for xarch) whether
-    // a node is a containable memory op.
-    m_pLinearScan = getLinearScanAllocator(this);
-
-    // Lower
-    //
-    m_pLowering = new (this, CMK_LSRA) Lowering(this, m_pLinearScan); // PHASE_LOWERING
+    m_pLowering = new (this, CMK_LSRA) Lowering(this);
     m_pLowering->Run();
 
 #if !defined(OSX_ARM64_ABI)
@@ -3994,10 +3960,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     stackLevelSetter.Run();
 #endif // !OSX_ARM64_ABI
 
-    // Now that lowering is completed we can proceed to perform register allocation
-    //
-    auto linearScanPhase = [this]() { m_pLinearScan->doLinearScan(); };
-    DoPhase(this, PHASE_LINEAR_SCAN, linearScanPhase);
+    m_pLinearScan = getLinearScanAllocator(this);
+    DoPhase(this, PHASE_LINEAR_SCAN, [this]() { m_pLinearScan->doLinearScan(); });
 
     // Copied from rpPredictRegUse()
     SetFullPtrRegMapRequired(codeGen->GetInterruptible() || !codeGen->isFramePointerUsed());
@@ -5038,7 +5002,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     }
 
     info.compUnmanagedCallCountWithGCTransition = 0;
-    info.compLvFrameListRoot                    = BAD_VAR_NUM;
 
     info.compInitMem = ((methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0);
 
@@ -5501,94 +5464,6 @@ VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs, bool scan)
     }
 
     return nullptr;
-}
-
-// The function will call the callback functions for scopes with boundaries
-// at instrs from the current status of the scope lists to 'offset',
-// ordered by instrs.
-
-void Compiler::compProcessScopesUntil(unsigned   offset,
-                                      VARSET_TP* inScope,
-                                      void (Compiler::*enterScopeFn)(VARSET_TP* inScope, VarScopeDsc*),
-                                      void (Compiler::*exitScopeFn)(VARSET_TP* inScope, VarScopeDsc*))
-{
-    assert(offset != BAD_IL_OFFSET);
-    assert(inScope != nullptr);
-
-    bool         foundExit = false, foundEnter = true;
-    VarScopeDsc* scope;
-    VarScopeDsc* nextExitScope  = nullptr;
-    VarScopeDsc* nextEnterScope = nullptr;
-    unsigned     offs = offset, curEnterOffs = 0;
-
-    goto START_FINDING_SCOPES;
-
-    // We need to determine the scopes which are open for the current block.
-    // This loop walks over the missing blocks between the current and the
-    // previous block, keeping the enter and exit offsets in lockstep.
-
-    do
-    {
-        foundExit = foundEnter = false;
-
-        if (nextExitScope)
-        {
-            (this->*exitScopeFn)(inScope, nextExitScope);
-            nextExitScope = nullptr;
-            foundExit     = true;
-        }
-
-        offs = nextEnterScope ? nextEnterScope->vsdLifeBeg : offset;
-
-        while ((scope = compGetNextExitScope(offs, true)) != nullptr)
-        {
-            foundExit = true;
-
-            if (!nextEnterScope || scope->vsdLifeEnd > nextEnterScope->vsdLifeBeg)
-            {
-                // We overshot the last found Enter scope. Save the scope for later
-                // and find an entering scope
-
-                nextExitScope = scope;
-                break;
-            }
-
-            (this->*exitScopeFn)(inScope, scope);
-        }
-
-        if (nextEnterScope)
-        {
-            (this->*enterScopeFn)(inScope, nextEnterScope);
-            curEnterOffs   = nextEnterScope->vsdLifeBeg;
-            nextEnterScope = nullptr;
-            foundEnter     = true;
-        }
-
-        offs = nextExitScope ? nextExitScope->vsdLifeEnd : offset;
-
-    START_FINDING_SCOPES:
-
-        while ((scope = compGetNextEnterScope(offs, true)) != nullptr)
-        {
-            foundEnter = true;
-
-            if ((nextExitScope && scope->vsdLifeBeg >= nextExitScope->vsdLifeEnd) || (scope->vsdLifeBeg > curEnterOffs))
-            {
-                // We overshot the last found exit scope. Save the scope for later
-                // and find an exiting scope
-
-                nextEnterScope = scope;
-                break;
-            }
-
-            (this->*enterScopeFn)(inScope, scope);
-
-            if (!nextExitScope)
-            {
-                curEnterOffs = scope->vsdLifeBeg;
-            }
-        }
-    } while (foundExit || foundEnter);
 }
 
 #if defined(DEBUG)
@@ -6903,12 +6778,13 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars)
     pVarNumSet            = (BYTE*)_alloca(varNumSetBytes);
     memset(pVarNumSet, 0, varNumSetBytes); // empty the set
 
-    VarSetOps::Iter iter(comp, vars);
-    unsigned        varIndex = 0;
-    while (iter.NextElem(&varIndex))
+    if (!VarSetOps::MayBeUninit(vars))
     {
-        unsigned varNum    = comp->lvaTrackedIndexToLclNum(varIndex);
-        pVarNumSet[varNum] = 1; // This varNum is in the set
+        VarSetOps::Iter iter(comp, vars);
+        for (unsigned varIndex = 0; iter.NextElem(&varIndex);)
+        {
+            pVarNumSet[comp->lvaTrackedIndexToLclNum(varIndex)] = 1;
+        }
     }
 
     bool first = true;
@@ -7741,10 +7617,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                         }
                     }
 
-                    if (call->gtCallMoreFlags & GTF_CALL_M_FRAME_VAR_DEATH)
-                    {
-                        chars += printf("[CALL_M_FRAME_VAR_DEATH]");
-                    }
                     if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER)
                     {
                         chars += printf("[CALL_M_TAILCALL_VIA_JIT_HELPER]");

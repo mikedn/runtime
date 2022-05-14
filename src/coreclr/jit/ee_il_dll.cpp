@@ -711,11 +711,9 @@ void Compiler::eeGetVars()
         info.compVarScopesCount++;
     }
 
-    /* If extendOthers is set, then assume the scope of unreported vars
-       is the entire method. Note that this will cause fgExtendDbgLifetimes()
-       to zero-initalize all of them. This will be expensive if it's used
-       for too many variables.
-     */
+    // TODO-MIKE-Review: Why do we need to allocate an array that basically
+    // tells us that all IL args & locals are live everywhere?!?
+
     if (extendOthers)
     {
         // Allocate a bit-array for all the variables and initialize to false

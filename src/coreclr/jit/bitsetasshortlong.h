@@ -461,22 +461,11 @@ public:
     {
         if (IsShort(env))
         {
-            // Can't just shift by numBits+1, since that might be 32 (and (1 << 32( == 1, for an unsigned).
             unsigned numBits = BitSetTraits::GetSize(env);
-            if (numBits == BitsInSizeT)
-            {
-                // Can't use the implementation below to get all 1's...
-                return BitSetShortLongRep(size_t(-1));
-            }
-            else
-            {
-                return BitSetShortLongRep((size_t(1) << numBits) - 1);
-            }
+            return BitSetShortLongRep(numBits == 0 ? 0 : (SIZE_T_MAX >> (BitsInSizeT - numBits)));
         }
-        else
-        {
-            return MakeFullArrayBits(env);
-        }
+
+        return MakeFullArrayBits(env);
     }
 
     class Iter
@@ -795,18 +784,22 @@ BitSetShortLongRep BitSetOps</*BitSetType*/ BitSetShortLongRep,
                              /*Env*/ Env,
                              /*BitSetTraits*/ BitSetTraits>::MakeFullArrayBits(Env env)
 {
-    assert(!IsShort(env));
     unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-    assert(len > 1); // Or else would not require an array.
-    BitSetShortLongRep res = (BitSetShortLongRep)(BitSetTraits::Alloc(env, len * sizeof(size_t)));
+    assert(len > 1);
+
+    unsigned lastElemNumBits = BitSetTraits::GetSize(env) - (len - 1) * BitsInSizeT;
+    size_t   lastElemtBits   = SIZE_T_MAX >> (BitsInSizeT - lastElemNumBits);
+
+    BitSetShortLongRep bits = static_cast<BitSetShortLongRep>(BitSetTraits::Alloc(env, len * sizeof(size_t)));
+
     for (unsigned i = 0; i < len - 1; i++)
     {
-        res[i] = size_t(-1);
+        bits[i] = SIZE_T_MAX;
     }
-    // Start with all ones, shift in zeros in the last elem.
-    unsigned lastElemBits = (BitSetTraits::GetSize(env) - 1) % BitsInSizeT + 1;
-    res[len - 1]          = (size_t(-1) >> (BitsInSizeT - lastElemBits));
-    return res;
+
+    bits[len - 1] = lastElemtBits;
+
+    return bits;
 }
 
 template <typename Env, typename BitSetTraits>

@@ -344,13 +344,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_LCL_FLD_ADDR:
         case GT_LCL_VAR_ADDR:
-        {
-            // TODO-Cleanup: this is definitely not the best place for this detection,
-            // but for now it is the easiest. Move it to morph.
-            const GenTreeLclVarCommon* lclAddr = node->AsLclVarCommon();
-            comp->lvaSetVarDoNotEnregister(lclAddr->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
-        }
-        break;
+            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            break;
 
         default:
             break;
@@ -2220,20 +2215,21 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 
     assert(!lcl->IsIndependentPromoted() || store->IsMultiReg());
 
+    // TODO-MIKE-Cleanup: This code doesn't make any sense, it's most likely dead.
     if (!src->TypeIs(TYP_STRUCT) && (varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(src->GetType())))
     {
-        if (m_lsra->isRegCandidate(lcl))
+        if (lcl->lvDoNotEnregister)
+        {
+            // This is an actual store, we'll just retype it.
+            store->SetType(src->GetType());
+        }
+        else
         {
             GenTreeUnOp* bitcast = comp->gtNewBitCastNode(store->GetType(), src);
             store->SetOp(0, bitcast);
             BlockRange().InsertBefore(store, bitcast);
             LowerBitCast(bitcast);
             src = bitcast;
-        }
-        else
-        {
-            // This is an actual store, we'll just retype it.
-            store->SetType(src->GetType());
         }
     }
 
@@ -2262,14 +2258,14 @@ void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
 {
     assert(lclFld->OperIs(GT_LCL_FLD));
 
-    verifyLclFldDoNotEnregister(lclFld->GetLclNum());
+    comp->lvaSetVarDoNotEnregister(lclFld->GetLclNum() DEBUG_ARG(Compiler::DNER_LocalField));
 }
 
 void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
 
-    verifyLclFldDoNotEnregister(store->GetLclNum());
+    comp->lvaSetVarDoNotEnregister(store->GetLclNum() DEBUG_ARG(Compiler::DNER_LocalField));
 
     GenTree* value = store->GetOp(0);
 
@@ -2505,7 +2501,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     {
         // TODO-1stClassStructs: We can no longer independently promote
         // or enregister this struct, since it is referenced as a whole.
-        comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
+        comp->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
     }
 
     if (lcl->lvDoNotEnregister)
@@ -2895,7 +2891,7 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
 
     const CORINFO_EE_INFO* pInfo = comp->eeGetEEInfo();
 
-    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->info.compLvFrameListRoot);
+    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
 
     GenTree* stateNode = new (comp, GT_CNS_INT) GenTreeIntCon(TYP_BYTE, state);
     GenTree* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, pInfo->offsetOfGCState);
@@ -2924,7 +2920,7 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     const CORINFO_EE_INFO*                       pInfo         = comp->eeGetEEInfo();
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = pInfo->inlinedCallFrameInfo;
 
-    GenTree* TCB = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->info.compLvFrameListRoot);
+    GenTree* TCB = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
 
     // Thread->m_pFrame
     GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, TCB, nullptr, 1, pInfo->offsetOfThreadFrame);
@@ -2935,6 +2931,7 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     {
         // Thread->m_pFrame = &inlinedCallFrame;
         data = comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfFrameVptr, nullptr);
+        comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
     }
     else
     {
@@ -3015,23 +3012,29 @@ void Lowering::InsertPInvokeMethodProlog()
 
     GenTree* frameAddr =
         comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfFrameVptr, nullptr);
+    comp->lvaSetVarAddrExposed(comp->lvaInlinedPInvokeFrameVar);
 
     // Call runtime helper to fill in our InlinedCallFrame and push it on the Frame list:
     //     TCB = CORINFO_HELP_INIT_PINVOKE_FRAME(&symFrameStart, secretArg);
-    // for x86, don't pass the secretArg.
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if defined(TARGET_X86) || defined(TARGET_ARM)
     GenTreeCall::Use* argList = comp->gtNewCallArgs(frameAddr);
-#else
-    GenTreeCall::Use*     argList = comp->gtNewCallArgs(frameAddr, PhysReg(REG_SECRET_STUB_PARAM));
+
+#if !defined(TARGET_X86) && !defined(TARGET_ARM)
+    if (comp->info.compPublishStubParam)
+    {
+        comp->gtInsertNewCallArgAfter(comp->gtNewPhysRegNode(REG_SECRET_STUB_PARAM, TYP_I_IMPL), argList);
+    }
+    else
+    {
+        comp->gtInsertNewCallArgAfter(comp->gtNewIconNode(0, TYP_I_IMPL), argList);
+    }
 #endif
 
     GenTree* insertionPoint = firstBlockRange.FirstNonCatchArgNode();
 
     GenTreeCall* pInvokeInitFrame = comp->gtNewHelperCallNode(CORINFO_HELP_INIT_PINVOKE_FRAME, TYP_I_IMPL, argList);
     LIR::InsertHelperCallBefore(comp, firstBlockRange, insertionPoint, pInvokeInitFrame);
-    GenTree* store = comp->gtNewStoreLclVar(comp->info.compLvFrameListRoot, TYP_I_IMPL, pInvokeInitFrame);
+    GenTree* store = comp->gtNewStoreLclVar(comp->lvaPInvokeFrameListVar, TYP_I_IMPL, pInvokeInitFrame);
     firstBlockRange.InsertBefore(insertionPoint, store);
 
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
@@ -3169,6 +3172,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     {
         // First argument is the address of the frame variable.
         GenTree* frameAddr = comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar);
+        comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
 
 #if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
         // On x86 targets, PInvoke calls need the size of the stack args in InlinedCallFrame.m_Datum.
@@ -3178,7 +3182,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         GenTree*          stackBytes     = comp->gtNewIconNode(numStkArgBytes, TYP_INT);
         GenTreeCall::Use* args           = comp->gtNewCallArgs(frameAddr, stackBytes);
 #else
-        GenTreeCall::Use* args    = comp->gtNewCallArgs(frameAddr);
+        GenTreeCall::Use* args = comp->gtNewCallArgs(frameAddr);
 #endif
         GenTreeCall* pInvokeBegin = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_BEGIN, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), insertBefore, pInvokeBegin);
@@ -3312,8 +3316,9 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
     {
         noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
 
-        GenTreeCall::Use* args       = comp->gtNewCallArgs(comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar));
-        GenTreeCall*      pInvokeEnd = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_END, TYP_VOID, args);
+        GenTreeCall::Use* args = comp->gtNewCallArgs(comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar));
+        comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
+        GenTreeCall* pInvokeEnd = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_END, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), call->gtNext, pInvokeEnd);
 
         return;
@@ -4871,16 +4876,6 @@ PhaseStatus Lowering::DoPhase()
     }
 #endif // !defined(TARGET_64BIT)
 
-    if (!comp->compEnregLocals())
-    {
-        // Lowering is checking if lvDoNotEnregister is already set for contained optimizations.
-        // If we are running without `CLFLG_REGVAR` flag set (`compEnregLocals() == false`)
-        // then we already know that we won't enregister any locals and it is better to set
-        // `lvDoNotEnregister` flag before we start reading it.
-        // The main reason why this flag is not set is that we are running in minOpts.
-        comp->lvSetMinOptsDoNotEnreg();
-    }
-
     for (BasicBlock* const block : comp->Blocks())
     {
         /* Make the block publicly available */
@@ -4904,32 +4899,68 @@ PhaseStatus Lowering::DoPhase()
     }
 #endif
 
-    // Recompute local var ref counts before potentially sorting for liveness.
-    // Note this does minimal work in cases where we are not going to sort.
-    const bool isRecompute    = true;
-    const bool setSlotNumbers = false;
-    comp->lvaComputeRefCounts(isRecompute, setSlotNumbers);
-
-    comp->fgLocalVarLiveness();
-    // local var liveness can delete code, which may create empty blocks
-    if (comp->opts.OptimizationEnabled())
+    if (comp->opts.OptimizationDisabled())
     {
+        INDEBUG(CheckAllLocalsImplicitlyReferenced());
+    }
+    else
+    {
+        assert(comp->compEnregLocals());
+
+        DBEXEC(comp->verbose, comp->lvaTableDump());
+
+        comp->lvaComputeLclRefCounts();
+        comp->lvaMarkLivenessTrackedLocals();
+        comp->fgLocalVarLiveness();
+
+        // Liveness can delete code, which may create empty blocks.
         comp->optLoopsMarked = false;
-        bool modified        = comp->fgUpdateFlowGraph();
-        if (modified)
+
+        if (comp->fgUpdateFlowGraph())
         {
-            JITDUMP("had to run another liveness pass:\n");
+            JITDUMP("Flowgraph was modified, running liveness again\n");
             comp->fgLocalVarLiveness();
         }
+
+        // Recompute local var ref counts again after liveness to reflect
+        // impact of any dead code removal. Note this may leave us with
+        // tracked vars that have zero refs.
+        comp->lvaComputeLclRefCounts();
     }
 
-    // Recompute local var ref counts again after liveness to reflect
-    // impact of any dead code removal. Note this may leave us with
-    // tracked vars that have zero refs.
-    comp->lvaComputeRefCounts(isRecompute, setSlotNumbers);
+    DBEXEC(comp->verbose, comp->lvaTableDump());
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
+
+#ifdef DEBUG
+void Lowering::CheckAllLocalsImplicitlyReferenced()
+{
+    assert(comp->opts.OptimizationDisabled());
+    assert(!comp->compEnregLocals());
+    assert(!comp->fgLocalVarLivenessDone);
+
+    for (unsigned lclNum = 0; lclNum < comp->lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+
+        assert(varTypeIsValidLclType(lcl->GetType()));
+
+        if (comp->lvaIsX86VarargsStackParam(lclNum))
+        {
+            assert(lcl->lvRefCnt() == 0);
+        }
+        else
+        {
+            // lvaGrabTemp should automatically set lvImplicitlyReferenced after lvaMarkLocalVars phase.
+            assert(lcl->lvImplicitlyReferenced);
+        }
+
+        assert(!lcl->lvTracked);
+        assert(!lcl->lvMustInit);
+    }
+}
+#endif // DEBUG
 
 #ifdef DEBUG
 
@@ -5046,13 +5077,8 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-        {
-            GenTreeLclFld*   lclFld = node->AsLclFld();
-            const unsigned   lclNum = lclFld->GetLclNum();
-            const LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-            assert(varDsc->lvDoNotEnregister);
-        }
-        break;
+            assert(compiler->lvaGetDesc(node->AsLclFld())->lvDoNotEnregister);
+            break;
 
         default:
             break;
@@ -5147,7 +5173,7 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            comp->lvaSetVarDoNotEnregister(store->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
+            comp->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
         }
     }
 }
@@ -5383,12 +5409,14 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     }
     else if (src->OperIs(GT_LCL_VAR))
     {
-        if (comp->lvaGetDesc(src->AsLclVar())->lvDoNotEnregister)
+        LclVarDsc* srcLcl = comp->lvaGetDesc(src->AsLclVar());
+
+        if (srcLcl->lvDoNotEnregister)
         {
             // If it's not a register candidate then we can turn it into a LCL_FLD and retype it.
             src->ChangeOper(GT_LCL_FLD);
             src->SetType(bitcast->GetType());
-            comp->lvaSetVarDoNotEnregister(src->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+            comp->lvaSetDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
             remove = true;
         }
         else
@@ -5469,6 +5497,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
             if (src->OperIs(GT_LCL_VAR))
             {
                 src->ChangeOper(GT_LCL_FLD);
+                comp->lvaSetVarDoNotEnregister(src->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
             }
 
             src->SetType(dstType);
@@ -5965,7 +5994,7 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
 
     if (tempLclNum == BAD_VAR_NUM)
     {
-        tempLclNum = comp->lvaGrabTempWithImplicitUse(false DEBUGARG("Vector GetElement temp"));
+        tempLclNum = comp->lvaGrabTemp(false DEBUGARG("Vector GetElement temp"));
 
         // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
         // so it doesn't set layout, exact size etc. It happens to work because it
@@ -5976,8 +6005,9 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
         // to store a SIMD register in order to extract an element from it. But if
         // it's TYP_BLK then it won't have SIMD alignment. Bleah.
 
-        comp->lvaGetDesc(tempLclNum)->lvType = type;
-        comp->lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(Compiler::DNER_LocalField));
+        LclVarDsc* lclTemp = comp->lvaGetDesc(tempLclNum);
+        lclTemp->lvType    = type;
+        comp->lvaSetDoNotEnregister(lclTemp DEBUGARG(Compiler::DNER_LocalField));
     }
 
     return tempLclNum;
@@ -6154,7 +6184,7 @@ bool Lowering::IsContainableMemoryOp(GenTree* node)
 
     if (node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        return !comp->compEnregLocals() || comp->lvaGetDesc(node->AsLclVar())->lvDoNotEnregister;
+        return comp->lvaGetDesc(node->AsLclVar())->lvDoNotEnregister;
     }
 
     return false;

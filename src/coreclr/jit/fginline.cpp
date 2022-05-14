@@ -539,6 +539,7 @@ void jitInlineCode(InlineInfo* inlineInfo)
             compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
             compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
             compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
+            compileFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
 
             compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
@@ -1999,8 +2000,9 @@ void Compiler::inlPropagateInlineeCompilerState()
     if (!getNeedsGSSecurityCookie() && InlineeCompiler->getNeedsGSSecurityCookie())
     {
         setNeedsGSSecurityCookie();
-        unsigned dummy = lvaGrabTempWithImplicitUse(false DEBUGARG("GSCookie dummy for inlinee"));
-        lvaGetDesc(dummy)->SetType(TYP_INT);
+
+        unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaSetImplicitlyReferenced(lclNum);
     }
 }
 

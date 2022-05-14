@@ -7478,7 +7478,7 @@ void Compiler::fgValueNumber()
             }
 
 #ifdef TARGET_X86
-            if ((lclNum == lvaVarargsBaseOfStkArgs) || (lclNum == lvaVarargsHandleArg))
+            if (lclNum == lvaVarargsBaseOfStkArgs)
             {
                 isZeroed = false;
             }

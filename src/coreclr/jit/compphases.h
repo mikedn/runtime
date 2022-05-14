@@ -89,12 +89,7 @@ CompPhaseNameMacro(PHASE_INSERT_GC_POLLS,        "Insert GC Polls",             
 CompPhaseNameMacro(PHASE_DETERMINE_FIRST_COLD_BLOCK, "Determine first cold block", "COLD-BLK", false, -1, true)
 CompPhaseNameMacro(PHASE_RATIONALIZE,            "Rationalize IR",                 "RAT",      false, -1, false)
 CompPhaseNameMacro(PHASE_SIMPLE_LOWERING,        "Do 'simple' lowering",           "SMP-LWR",  false, -1, false)
-
-CompPhaseNameMacro(PHASE_LCLVARLIVENESS,         "Local var liveness",             "LIVENESS", true, -1, false)
-CompPhaseNameMacro(PHASE_LCLVARLIVENESS_INIT,    "Local var liveness init",        "LIV-INIT", false, PHASE_LCLVARLIVENESS, false)
-CompPhaseNameMacro(PHASE_LCLVARLIVENESS_PERBLOCK,"Per block local var liveness",   "LIV-BLK",  false, PHASE_LCLVARLIVENESS, false)
-CompPhaseNameMacro(PHASE_LCLVARLIVENESS_INTERBLOCK,  "Global local var liveness",  "LIV-GLBL", false, PHASE_LCLVARLIVENESS, false)
-
+CompPhaseNameMacro(PHASE_LCLVARLIVENESS,         "Local var liveness",             "LIVENESS", false, -1, false)
 CompPhaseNameMacro(PHASE_LOWERING_DECOMP,        "Lowering decomposition",         "LWR-DEC",  false, -1, false)
 CompPhaseNameMacro(PHASE_LOWERING,               "Lowering",                       "LWR",      false, -1, true)
 CompPhaseNameMacro(PHASE_STACK_LEVEL_SETTER,     "Calculate stack level slots",    "STK-SET",  false, -1, false)

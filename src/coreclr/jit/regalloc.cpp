@@ -270,167 +270,104 @@ bool Compiler::rpMustCreateEBPFrame(INDEBUG(const char** wbReason))
     return result;
 }
 
-/*****************************************************************************
- *
- *  Mark all variables as to whether they live on the stack frame
- *  (part or whole), and if so what the base is (FP or SP).
- */
-
 void Compiler::raMarkStkVars()
 {
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        // lvOnFrame is set by LSRA, except in the case of zero-ref, which is set below.
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (varDsc->IsDependentPromotedField(this))
+        // X86 varargs methods must not contain direct references to parameters
+        // other than 'this', the arglist parameter (which is not a GC pointer)
+        // and the struct return buffer parameter, if present. We cannot report
+        // any other parameters to the GC becaue they do not have correct frame
+        // offsets.
+        if (lvaIsX86VarargsStackParam(lclNum))
         {
-            noway_assert(!varDsc->lvRegister);
+            assert((lcl->lvRefCnt() == 0) && !lcl->lvRegister);
+
+            lcl->lvOnFrame  = false;
+            lcl->lvMustInit = false;
+
+            goto NOT_STK;
+        }
+
+        if (lcl->IsDependentPromotedField(this))
+        {
+            noway_assert(!lcl->lvRegister);
+
+            lcl->lvOnFrame = true;
+
             goto ON_STK;
         }
 
-        /* Fully enregistered variables don't need any frame space */
-
-        if (varDsc->lvRegister)
+        // Fully enregistered variables don't need any frame space.
+        if (lcl->lvRegister)
         {
             goto NOT_STK;
         }
-        /* Unused variables typically don't get any frame space */
-        else if (varDsc->lvRefCnt() == 0)
+
+        if (lcl->lvRefCnt() != 0)
         {
-            bool needSlot = false;
-
-            bool stkFixedArgInVarArgs =
-                info.compIsVarArgs && varDsc->lvIsParam && !varDsc->lvIsRegArg && lclNum != lvaVarargsHandleArg;
-
-            // If its address has been exposed, ignore lvRefCnt. However, exclude
-            // fixed arguments in varargs method as lvOnFrame shouldn't be set
-            // for them as we don't want to explicitly report them to GC.
-
-            if (!stkFixedArgInVarArgs)
+            if (lcl->lvOnFrame)
             {
-                needSlot |= varDsc->lvAddrExposed;
+                goto ON_STK;
             }
-
-#if FEATURE_FIXED_OUT_ARGS
-
-            /* Is this the dummy variable representing GT_LCLBLK ? */
-            needSlot |= (lclNum == lvaOutgoingArgSpaceVar);
-
-#endif // FEATURE_FIXED_OUT_ARGS
-
-#ifdef DEBUG
-            /* For debugging, note that we have to reserve space even for
-               unused variables if they are ever in scope. However, this is not
-               an issue as fgExtendDbgLifetimes() adds an initialization and
-               variables in scope will not have a zero ref-cnt.
-             */
-            if (opts.compDbgCode && !varDsc->lvIsParam && varDsc->lvTracked)
+            else
             {
-                for (unsigned scopeNum = 0; scopeNum < info.compVarScopesCount; scopeNum++)
-                {
-                    noway_assert(info.compVarScopes[scopeNum].vsdVarNum != lclNum);
-                }
-            }
-#endif
-            /*
-              For Debug Code, we have to reserve space even if the variable is never
-              in scope. We will also need to initialize it if it is a GC var.
-              So we set lvMustInit and verify it has a nonzero ref-cnt.
-             */
-
-            if (opts.compDbgCode && !stkFixedArgInVarArgs && lclNum < info.compLocalsCount)
-            {
-                if (varDsc->lvRefCnt() == 0)
-                {
-                    assert(!"unreferenced local in debug codegen");
-                    varDsc->lvImplicitlyReferenced = 1;
-                }
-
-                needSlot |= true;
-
-                if (!varDsc->lvIsParam)
-                {
-                    varDsc->lvMustInit = true;
-                }
-            }
-
-            varDsc->lvOnFrame = needSlot;
-            if (!needSlot)
-            {
-                /* Clear the lvMustInit flag in case it is set */
-                varDsc->lvMustInit = false;
-
                 goto NOT_STK;
             }
         }
 
-        if (!varDsc->lvOnFrame)
+        // Unreferenced locals will get a frame location if they're address exposed.
+        // TODO-MIKE-Review: Why? Probably because AX is sometimes used simply to
+        // block optimizations and require frame allocation. Sounds like "implicitly
+        // referenced" should be used instead.
+
+        assert(!opts.compDbgCode);
+#if FEATURE_FIXED_OUT_ARGS
+        // lvaOutgoingArgSpaceVar is implicitly referenced.
+        assert(lclNum != lvaOutgoingArgSpaceVar);
+#endif
+
+        if (lcl->IsAddressExposed())
         {
+            lcl->lvOnFrame = true;
+
+            goto ON_STK;
+        }
+        else
+        {
+            lcl->lvOnFrame  = false;
+            lcl->lvMustInit = false;
+
             goto NOT_STK;
         }
 
     ON_STK:
-        /* The variable (or part of it) lives on the stack frame */
-
-        noway_assert((varDsc->lvType != TYP_UNDEF) && (varDsc->lvType != TYP_VOID) && (varDsc->lvType != TYP_UNKNOWN));
 #if FEATURE_FIXED_OUT_ARGS
         noway_assert((lclNum == lvaOutgoingArgSpaceVar) || lvaLclSize(lclNum) != 0);
-#else  // FEATURE_FIXED_OUT_ARGS
+#else
         noway_assert(lvaLclSize(lclNum) != 0);
-#endif // FEATURE_FIXED_OUT_ARGS
-
-        varDsc->lvOnFrame = true; // Our prediction is that the final home for this local variable will be in the
-                                  // stack frame
+#endif
 
     NOT_STK:;
-        varDsc->lvFramePointerBased = codeGen->isFramePointerUsed();
+        lcl->lvFramePointerBased = codeGen->isFramePointerUsed();
 
 #if DOUBLE_ALIGN
-
         if (codeGen->doDoubleAlign())
         {
-            noway_assert(codeGen->isFramePointerUsed() == false);
+            noway_assert(!codeGen->isFramePointerUsed());
 
-            /* All arguments are off of EBP with double-aligned frames */
-
-            if (varDsc->lvIsParam && !varDsc->lvIsRegArg)
+            if (lcl->IsParam() && !lcl->IsRegParam())
             {
-                varDsc->lvFramePointerBased = true;
+                lcl->lvFramePointerBased = true;
             }
         }
-
 #endif
-
-        /* Some basic checks */
 
         // It must be in a register, on frame, or have zero references.
-
-        noway_assert(varDsc->lvIsInReg() || varDsc->lvOnFrame || varDsc->lvRefCnt() == 0);
-
+        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame || (lcl->lvRefCnt() == 0));
         // We can't have both lvRegister and lvOnFrame
-        noway_assert(!varDsc->lvRegister || !varDsc->lvOnFrame);
-
-#ifdef DEBUG
-
-        // For varargs functions, there should be no direct references to
-        // parameter variables except for 'this' (because these were morphed
-        // in the importer) and the 'arglist' parameter (which is not a GC
-        // pointer). and the return buffer argument (if we are returning a
-        // struct).
-        // This is important because we don't want to try to report them
-        // to the GC, as the frame offsets in these local varables would
-        // not be correct.
-
-        if (varDsc->lvIsParam && raIsVarargsStackArg(lclNum))
-        {
-            if (!varDsc->lvPromoted && !varDsc->lvIsStructField)
-            {
-                noway_assert(varDsc->lvRefCnt() == 0 && !varDsc->lvRegister && !varDsc->lvOnFrame);
-            }
-        }
-#endif
+        noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
     }
 }

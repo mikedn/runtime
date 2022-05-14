@@ -512,7 +512,7 @@ bool Compiler::fgCanSwitchToOptimized()
     if (result)
     {
         // Ensure that it would be safe to change the opt level
-        assert(opts.compFlags == CLFLG_MINOPT);
+        assert(opts.optFlags == CLFLG_MINOPT);
         assert(!opts.IsMinOptsSet());
     }
 
@@ -1711,8 +1711,9 @@ void Compiler::fgAddReversePInvokeEnterExit()
 {
     assert(opts.IsReversePInvoke());
 
-    lvaReversePInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Reverse Pinvoke FrameVar"));
+    lvaReversePInvokeFrameVar = lvaGrabTemp(false DEBUGARG("ReversePInvokeFrame"));
     lvaGetDesc(lvaReversePInvokeFrameVar)->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
+    lvaSetAddressExposed(lvaReversePInvokeFrameVar);
 
     // Add enter pinvoke exit callout at the start of prolog
 
@@ -2426,23 +2427,11 @@ void Compiler::fgAddInternal()
         // TCB variable if we're not using them.
         if (!opts.ShouldUsePInvokeHelpers())
         {
-            info.compLvFrameListRoot = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Pinvoke FrameListRoot"));
-            lvaGetDesc(info.compLvFrameListRoot)->lvImplicitlyReferenced = 1;
+            lvaPInvokeFrameListVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"));
         }
 
-        lvaInlinedPInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Pinvoke FrameVar"));
+        lvaInlinedPInvokeFrameVar = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
         lvaGetDesc(lvaInlinedPInvokeFrameVar)->SetBlockType(eeGetEEInfo()->inlinedCallFrameInfo.size);
-
-#if FEATURE_FIXED_OUT_ARGS
-        // Grab and reserve space for TCB, Frame regs used in PInvoke epilog to pop the inlined frame.
-        // See genPInvokeMethodEpilog() for use of the grabbed var. This is only necessary if we are
-        // not using the P/Invoke helpers.
-        if (!opts.ShouldUsePInvokeHelpers() && compJmpOpUsed)
-        {
-            lvaPInvokeFrameRegSaveVar = lvaGrabTempWithImplicitUse(false DEBUGARG("PInvokeFrameRegSave Var"));
-            lvaGetDesc(lvaPInvokeFrameRegSaveVar)->SetBlockType(2 * REGSIZE_BYTES);
-        }
-#endif
     }
 
     // Do we need to insert a "JustMyCode" callback?

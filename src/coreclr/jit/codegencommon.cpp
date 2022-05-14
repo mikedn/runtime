@@ -1568,7 +1568,7 @@ void CodeGen::genGenerateMachineCode()
             printf("; OSR variant for entry point 0x%x\n", compiler->info.compILEntry);
         }
 
-        if ((compiler->opts.compFlags & CLFLG_MAXOPT) == CLFLG_MAXOPT)
+        if ((compiler->opts.optFlags & CLFLG_MAXOPT) == CLFLG_MAXOPT)
         {
             printf("; optimized code\n");
         }
@@ -2595,10 +2595,9 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 #endif // !UNIX_AMD64_ABI
     } regArgTab[max(MAX_REG_ARG + 1, MAX_FLOAT_REG_ARG)] = {};
 
-    unsigned   varNum;
     LclVarDsc* varDsc;
 
-    for (varNum = 0; varNum < compiler->lvaCount; ++varNum)
+    for (unsigned varNum = 0; varNum < compiler->lvaCount; ++varNum)
     {
         varDsc = compiler->lvaTable + varNum;
 
@@ -2962,7 +2961,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     continue;
                 }
 
-                varNum = regArgTab[argNum].varNum;
+                unsigned varNum = regArgTab[argNum].varNum;
                 noway_assert(varNum < compiler->lvaCount);
                 varDsc                     = compiler->lvaTable + varNum;
                 const var_types varRegType = varDsc->GetRegisterType();
@@ -3099,7 +3098,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             continue;
         }
 
-        varNum = regArgTab[argNum].varNum;
+        unsigned varNum = regArgTab[argNum].varNum;
         noway_assert(varNum < compiler->lvaCount);
         varDsc = compiler->lvaTable + varNum;
 
@@ -3320,7 +3319,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 /* only 2 registers form the circular dependency - use "xchg" */
 
-                varNum = regArgTab[argNum].varNum;
+                unsigned varNum = regArgTab[argNum].varNum;
                 noway_assert(varNum < compiler->lvaCount);
                 varDsc = compiler->lvaTable + varNum;
                 noway_assert(varDsc->lvIsParam && varDsc->lvIsRegArg);
@@ -3516,7 +3515,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 continue;
             }
 
-            varNum = regArgTab[argNum].varNum;
+            unsigned varNum = regArgTab[argNum].varNum;
             noway_assert(varNum < compiler->lvaCount);
             varDsc                     = compiler->lvaTable + varNum;
             const var_types regType    = regArgTab[argNum].getRegType(compiler);
@@ -6428,16 +6427,13 @@ void CodeGen::genFnProlog()
     {
         excludeMask |= RBM_PINVOKE_FRAME;
 
-        assert((!compiler->opts.ShouldUsePInvokeHelpers()) || (compiler->info.compLvFrameListRoot == BAD_VAR_NUM));
+        assert((!compiler->opts.ShouldUsePInvokeHelpers()) || (compiler->lvaPInvokeFrameListVar == BAD_VAR_NUM));
         if (!compiler->opts.ShouldUsePInvokeHelpers())
         {
-            noway_assert(compiler->info.compLvFrameListRoot < compiler->lvaCount);
-
             excludeMask |= (RBM_PINVOKE_TCB | RBM_PINVOKE_SCRATCH);
 
-            // We also must exclude the register used by compLvFrameListRoot when it is enregistered
-            //
-            LclVarDsc* varDsc = &compiler->lvaTable[compiler->info.compLvFrameListRoot];
+            // We also must exclude the register used by lvaPInvokeFrameListVar when it is enregistered
+            LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaPInvokeFrameListVar);
             if (varDsc->lvRegister)
             {
                 excludeMask |= genRegMask(varDsc->GetRegNum());
@@ -6891,12 +6887,11 @@ void CodeGen::genFnProlog()
 #endif // TARGET_X86
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->opts.compStackCheckOnRet)
+    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
-        noway_assert(compiler->lvaReturnSpCheck != 0xCCCCCCCC &&
-                     compiler->lvaTable[compiler->lvaReturnSpCheck].lvDoNotEnregister &&
-                     compiler->lvaTable[compiler->lvaReturnSpCheck].lvOnFrame);
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
+        assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
     }
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
 
@@ -10070,7 +10065,7 @@ void CodeGen::genReturn(GenTree* ret)
 #endif // PROFILING_SUPPORTED
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->opts.compStackCheckOnRet)
+    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
         genStackPointerCheck(compiler->lvaReturnSpCheck);
     }
@@ -10228,8 +10223,9 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 //
 void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 {
-    noway_assert(lvaStackPointerVar != 0xCCCCCCCC && compiler->lvaTable[lvaStackPointerVar].lvDoNotEnregister &&
-                 compiler->lvaTable[lvaStackPointerVar].lvOnFrame);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lvaStackPointerVar);
+    assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+
     GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lvaStackPointerVar, 0);
 
     BasicBlock* sp_check = genCreateTempLabel();

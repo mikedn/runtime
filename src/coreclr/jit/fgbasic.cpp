@@ -62,11 +62,10 @@ void Compiler::fgInit()
     fgBBcountAtCodegen = 0;
 #endif // DEBUG
 
-    fgBBNumMax        = 0;
-    fgEdgeCount       = 0;
-    fgDomBBcount      = 0;
-    fgBBVarSetsInited = false;
-    fgReturnCount     = 0;
+    fgBBNumMax    = 0;
+    fgEdgeCount   = 0;
+    fgDomBBcount  = 0;
+    fgReturnCount = 0;
 
     // Initialize BlockSet data.
     fgCurBBEpoch             = 0;
@@ -2180,7 +2179,6 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 #ifdef DEBUG
         thisCopyLcl->lvLiveInOutOfHndlr = thisLcl->lvLiveInOutOfHndlr;
         thisCopyLcl->lvLclFieldExpr     = thisLcl->lvLclFieldExpr;
-        thisCopyLcl->lvLiveAcrossUCall  = thisLcl->lvLiveAcrossUCall;
 #endif
 
         thisLcl->lvAddrExposed  = false;

@@ -396,6 +396,21 @@ inline var_types varTypeNodeType(var_types type)
     }
 }
 
+constexpr bool varTypeIsValidLclType(var_types type)
+{
+    switch (type)
+    {
+        case TYP_UNDEF:
+        case TYP_VOID:
+        case TYP_UINT:
+        case TYP_ULONG:
+        case TYP_UNKNOWN:
+            return false;
+        default:
+            return true;
+    }
+}
+
 inline bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
 {
     switch (type)

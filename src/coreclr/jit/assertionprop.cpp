@@ -124,7 +124,7 @@ void Compiler::optAddCopies()
         isFloatParam = varDsc->lvIsParam && varTypeIsFloating(typ);
 #endif
 
-        if (!isFloatParam && !varDsc->lvVolatileHint)
+        if (!isFloatParam && !varDsc->lvEHLive)
         {
             continue;
         }
@@ -167,7 +167,7 @@ void Compiler::optAddCopies()
         // We must have a ref in a block that is dominated only by the entry block
         //
 
-        if (BlockSetOps::MayBeUninit(varDsc->lvRefBlks))
+        if (BlockSetOps::MayBeUninit(varDsc->lvUseBlocks))
         {
             // No references
             continue;
@@ -175,7 +175,7 @@ void Compiler::optAddCopies()
 
         bool isDominatedByFirstBB = false;
 
-        BlockSetOps::Iter iter(this, varDsc->lvRefBlks);
+        BlockSetOps::Iter iter(this, varDsc->lvUseBlocks);
         unsigned          bbNum = 0;
         while (iter.NextElem(&bbNum))
         {
@@ -260,10 +260,9 @@ void Compiler::optAddCopies()
 
         // For us to add a new copy:
         // we require that we have a floating point parameter
-        // or a lvVolatile variable that is always reached from the first BB
+        // or an EH live variable that is always reached from the first BB
         // and we have at least one block available in paramImportantUseDom
-        //
-        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvVolatileHint)) &&
+        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvEHLive)) &&
                       !BlockSetOps::IsEmpty(this, paramImportantUseDom);
 
         // Under stress mode we expand the number of candidates
@@ -424,7 +423,7 @@ void Compiler::optAddCopies()
             {
                 printf("        Insert copy at the %s of " FMT_BB "\n",
                        (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                        BlockSetOps::IsMember(this, varDsc->lvRefBlks, bestBlock->bbNum))
+                        BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
                            ? "start"
                            : "end",
                        bestBlock->bbNum);
@@ -432,7 +431,7 @@ void Compiler::optAddCopies()
 #endif
 
             if (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                BlockSetOps::IsMember(this, varDsc->lvRefBlks, bestBlock->bbNum))
+                BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
             {
                 stmt = fgNewStmtAtBeg(bestBlock, copyAsgn);
             }

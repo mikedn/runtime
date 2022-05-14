@@ -1211,6 +1211,16 @@ public:
         return true;
     }
 
+    bool HasImplicitFlagsDef() const
+    {
+        return (gtFlags & GTF_SET_FLAGS) != 0;
+    }
+
+    bool HasImplicitFlagsUse() const
+    {
+        return (gtFlags & GTF_USE_FLAGS) != 0;
+    }
+
     // LIR flags
     //   These helper methods, along with the flag values they manipulate, are defined in lir.h
     //
@@ -3685,7 +3695,6 @@ enum GenTreeCallFlags : unsigned int
     GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
     GTF_CALL_M_VIRTSTUB_REL_INDIRECT   = 0x00000080, // the virtstub is indirected through a relative address (only for GTF_CALL_VIRT_STUB)
     GTF_CALL_M_NONVIRT_SAME_THIS       = 0x00000080, // callee "this" pointer is equal to caller this pointer (only for GTF_CALL_NONVIRT)
-    GTF_CALL_M_FRAME_VAR_DEATH         = 0x00000100, // the compLvFrameListRoot variable dies here (last use)
     GTF_CALL_M_TAILCALL_VIA_JIT_HELPER = 0x00000200, // call is a tail call dispatched via tail call JIT helper.
 
 #if FEATURE_TAILCALL_OPT
@@ -4417,6 +4426,11 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_SUPPRESS_GC_TRANSITION) != 0;
     }
 
+    bool RequiresPInvokeFrame() const
+    {
+        return IsUnmanaged() && !IsSuppressGCTransition();
+    }
+
     bool IsGuardedDevirtualizationCandidate() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_GUARDED_DEVIRT) != 0;
@@ -4804,7 +4818,7 @@ public:
 
     bool IsImplicitByRef() const
     {
-#ifdef TARGET_64BIT
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         return m_isImplicitByRef;
 #else
         return false;
@@ -4815,7 +4829,7 @@ public:
     {
 // UNIX_AMD64_ABI has implicit by-ref parameters but they're C++ specific
 // and thus not expected to appear in CLR programs.
-#if defined(TARGET_64BIT) && !defined(UNIX_AMD64_ABI)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         m_isImplicitByRef = isImplicitByRef;
 #else
         assert(!isImplicitByRef);

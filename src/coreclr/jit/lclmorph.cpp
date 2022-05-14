@@ -420,7 +420,7 @@ public:
         GenTree* node = *use;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        if (m_compiler->lvaHasImplicitByRefParams &&
+        if ((m_compiler->lvaRefCountState == RCS_MORPH) &&
             node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
         {
             UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
@@ -577,7 +577,7 @@ public:
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
                             lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
                         {
-                            m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
+                            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
                         }
                     }
 
@@ -806,7 +806,7 @@ private:
             }
         }
 
-        m_compiler->lvaSetVarAddrExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : lclNum);
+        m_compiler->lvaSetAddressExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : lclNum);
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -889,7 +889,7 @@ private:
         {
             if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclFld(), lcl))
             {
-                m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
+                m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
             }
 
             return;
@@ -1267,7 +1267,7 @@ private:
         GenTree* node = val.Node();
         GenTree* addr = node->AsIndir()->GetAddr();
 
-        m_compiler->lvaSetVarAddrExposed(val.LclNum());
+        m_compiler->lvaSetAddressExposed(val.LclNum());
 
         Value addrVal(addr);
         addrVal.Address(val.LclNum(), val.Offset(), val.FieldSeq());
@@ -1503,7 +1503,7 @@ private:
                     }
                 }
 
-                m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
+                m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
             }
 
             INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ);)
@@ -1662,7 +1662,7 @@ private:
 
             // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
             // later transformed into a LCL_VAR and the variable cannot be enregistered.
-            m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
+            m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
         }
 
         GenTreeFlags flags = GTF_EMPTY;
@@ -2090,7 +2090,7 @@ private:
 
             structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
 
-            m_compiler->lvaSetVarDoNotEnregister(structLcl->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
 
         if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
@@ -2248,6 +2248,7 @@ private:
 #endif
     }
 
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     //------------------------------------------------------------------------
     // UpdateImplicitByRefParamRefCounts: updates the ref count for implicit byref params.
     //
@@ -2271,9 +2272,9 @@ private:
             return;
         }
 
-        JITDUMP("LocalAddressVisitor incrementing ref count from " FMT_WT " to " FMT_WT " for implict byref V%02u\n",
-                lcl->lvRefCnt(RCS_EARLY), lcl->lvRefCnt(RCS_EARLY) + 1, lclNum);
-        lcl->incLvRefCnt(1, RCS_EARLY);
+        JITDUMP("Adding V%02u implicit-by-ref param any ref\n", lclNum);
+
+        lcl->AddImplicitByRefParamAnyRef();
 
         // See if this struct is an argument to a call. This information is recorded
         // via the weighted early ref count for the local, and feeds the undo promotion
@@ -2293,12 +2294,12 @@ private:
             ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
-            JITDUMP("LocalAddressVisitor incrementing weighted ref count from %f to %f"
-                    " for implict byref V%02d arg passed to call\n",
-                    lcl->lvRefCntWtd(RCS_EARLY), lcl->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
-            lcl->incLvRefCntWtd(1, RCS_EARLY);
+            JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lclNum);
+
+            lcl->AddImplicitByRefParamCallRef();
         }
     }
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
     GenTreeUnOp* NewBitCastNode(var_types type, GenTree* op)
     {
@@ -3103,6 +3104,8 @@ void Compiler::fgMarkAddressExposedLocals()
 
     lvaAddressExposedLocalsMarked = true;
 
+    DBEXEC(verbose, lvaTableDump());
+
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     lvaRetypeImplicitByRefParams();
 #endif
@@ -3450,6 +3453,35 @@ public:
 };
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+
+void LclVarDsc::AddImplicitByRefParamAnyRef()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    m_refWeight++;
+}
+
+unsigned LclVarDsc::GetImplicitByRefParamAnyRefCount()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    return m_refWeight;
+}
+
+void LclVarDsc::AddImplicitByRefParamCallRef()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    m_refCount = m_refCount == UINT16_MAX ? UINT16_MAX : (m_refCount + 1);
+}
+
+unsigned LclVarDsc::GetImplicitByRefParamCallRefCount()
+{
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
+
+    return m_refCount;
+}
+
 // Reset the ref count of implicit byref params; fgMarkAddressTakenLocals
 // will increment it per appearance of implicit byref param so that call
 // arg morphing can do an optimization for single-use implicit byref
@@ -3458,7 +3490,7 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 {
     JITDUMP("\n*************** In lvaResetImplicitByRefParamsRefCount()\n");
 
-    lvaRefCountState          = RCS_EARLY;
+    lvaRefCountState          = RCS_MORPH;
     lvaHasImplicitByRefParams = false;
 
     for (unsigned lclNum = 0; lclNum < info.compArgsCount; ++lclNum)
@@ -3468,11 +3500,17 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
         if (lcl->IsImplicitByRefParam())
         {
             // We haven't use ref counts until now so they should be 0.
-            assert(lcl->lvRefCnt(RCS_EARLY) == 0);
-            assert(lcl->lvRefCntWtd(RCS_EARLY) == 0);
+            assert(lcl->GetImplicitByRefParamAnyRefCount() == 0);
+            assert(lcl->GetImplicitByRefParamCallRefCount() == 0);
 
             lvaHasImplicitByRefParams = true;
         }
+    }
+
+    if (!opts.OptimizationEnabled() || !lvaHasImplicitByRefParams)
+    {
+        // It turns out that we do not actually need ref counting.
+        lvaRefCountState = RCS_INVALID;
     }
 }
 
@@ -3522,8 +3560,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
             // total number of references to the struct or some field, and how many of these
             // are arguments to calls. We undo promotion unless we see enough non-call uses.
 
-            unsigned totalAppearances = lcl->lvRefCnt(RCS_EARLY);
-            unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
+            unsigned totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
+            unsigned callAppearances  = lcl->GetImplicitByRefParamCallRefCount();
             assert(totalAppearances >= callAppearances);
             unsigned nonCallAppearances  = totalAppearances - callAppearances;
             bool     isDependentPromoted = lcl->IsDependentPromoted();
@@ -3579,7 +3617,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLclBlockOpAddr   = lcl->lvLclBlockOpAddr;
                 structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
-                structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
 #endif // DEBUG
 
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)

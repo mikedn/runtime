@@ -21,7 +21,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 class Lowering final : public Phase
 {
-    LinearScan*   m_lsra;
     SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
     BasicBlock*   m_block;
     unsigned      vtableCallTemp = BAD_VAR_NUM; // local variable we use as a temp for vtable calls
@@ -36,10 +35,8 @@ class Lowering final : public Phase
 #endif // FEATURE_HW_INTRINSICS
 
 public:
-    inline Lowering(Compiler* compiler, LinearScanInterface* lsra)
-        : Phase(compiler, PHASE_LOWERING), m_lsra(static_cast<LinearScan*>(lsra))
+    Lowering(Compiler* compiler) : Phase(compiler, PHASE_LOWERING)
     {
-        assert(m_lsra != nullptr);
     }
 
     virtual PhaseStatus DoPhase() override;
@@ -48,7 +45,7 @@ public:
     // so it creates its own instance of Lowering to do so.
     void LowerRange(BasicBlock* block, LIR::ReadOnlyRange& range)
     {
-        Lowering lowerer(comp, m_lsra);
+        Lowering lowerer(comp);
         lowerer.m_block = block;
 
         lowerer.LowerRange(range);
@@ -194,16 +191,6 @@ private:
     GenTree* Ind(GenTree* tree, var_types type = TYP_I_IMPL)
     {
         return comp->gtNewOperNode(GT_IND, type, tree);
-    }
-
-    GenTreePhysReg* PhysReg(regNumber reg, var_types type = TYP_I_IMPL)
-    {
-        return comp->gtNewPhysRegNode(reg, type);
-    }
-
-    GenTreePhysReg* ThisReg(GenTreeCall* call)
-    {
-        return comp->gtNewPhysRegNode(comp->codeGen->genGetThisArgReg(call), TYP_REF);
     }
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
@@ -393,22 +380,7 @@ private:
         return LIR::AsRange(m_block);
     }
 
-    // Any tracked lclVar accessed by a LCL_FLD or STORE_LCL_FLD should be marked doNotEnregister.
-    // This method checks, and asserts in the DEBUG case if it is not so marked,
-    // but in the non-DEBUG case (asserts disabled) set the flag so that we don't generate bad code.
-    // This ensures that the local's value is valid on-stack as expected for a *LCL_FLD.
-    void verifyLclFldDoNotEnregister(unsigned lclNum)
-    {
-        LclVarDsc* varDsc = &(comp->lvaTable[lclNum]);
-        // Do a couple of simple checks before setting lvDoNotEnregister.
-        // This may not cover all cases in 'isRegCandidate()' but we don't want to
-        // do an expensive check here. For non-candidates it is not harmful to set lvDoNotEnregister.
-        if (varDsc->lvTracked && !varDsc->lvDoNotEnregister)
-        {
-            assert(!m_lsra->isRegCandidate(varDsc));
-            comp->lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(Compiler::DNER_LocalField));
-        }
-    }
+    INDEBUG(void CheckAllLocalsImplicitlyReferenced();)
 };
 
 #endif // _LOWER_H_

@@ -562,6 +562,7 @@ LinearScan::LinearScan(Compiler* theCompiler)
     : compiler(theCompiler)
     , intervals(theCompiler->getAllocator(CMK_LSRA_Interval))
     , allocationPassComplete(false)
+    , enregisterLocalVars(theCompiler->lvaTrackedCount != 0)
     , refPositions(theCompiler->getAllocator(CMK_LSRA_RefPosition))
     , listNodePool(theCompiler)
 {
@@ -634,12 +635,6 @@ LinearScan::LinearScan(Compiler* theCompiler)
 #endif // 0
 #endif // DEBUG
 
-    // Assume that we will enregister local variables if it's not disabled. We'll reset it if we
-    // have no tracked locals when we start allocating. Note that new tracked lclVars may be added
-    // after the first liveness analysis - either by optimizations or by Lowering, and the tracked
-    // set won't be recomputed until after Lowering (and this constructor is called prior to Lowering),
-    // so we don't want to check that yet.
-    enregisterLocalVars = compiler->compEnregLocals();
 #ifdef TARGET_ARM64
     availableIntRegs = (RBM_ALLINT & ~(RBM_PR | RBM_FP | RBM_LR) & ~compiler->codeGen->regSet.rsMaskResvd);
 #else
@@ -1192,15 +1187,6 @@ BasicBlock* LinearScan::getNextBlock()
 
 void LinearScan::doLinearScan()
 {
-    // Check to see whether we have any local variables to enregister.
-    // We initialize this in the constructor based on opt settings,
-    // but we don't want to spend time on the lclVar parts of LinearScan
-    // if we have no tracked locals.
-    if (enregisterLocalVars && (compiler->lvaTrackedCount == 0))
-    {
-        enregisterLocalVars = false;
-    }
-
     splitBBNumToTargetBBNumMap = nullptr;
 
     // This is complicated by the fact that physical registers have refs associated
@@ -1382,131 +1368,56 @@ void LinearScan::identifyCandidatesExceptionDataflow()
 
 bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
 {
-    if (!enregisterLocalVars)
-    {
-        return false;
-    }
-    assert(compiler->compEnregLocals());
+    assert(enregisterLocalVars && compiler->opts.OptimizationEnabled() && !compiler->opts.MinOpts());
 
-    if (!varDsc->lvTracked)
+    if (!varDsc->lvTracked || varDsc->lvDoNotEnregister)
     {
         return false;
     }
 
-#if !defined(TARGET_64BIT)
-    if (varDsc->lvType == TYP_LONG)
-    {
-        // Long variables should not be register candidates.
-        // Lowering will have split any candidate lclVars into lo/hi vars.
-        return false;
-    }
-#endif // !defined(TARGET_64BIT)
+    assert(!varDsc->IsPromoted() && !varDsc->IsPinning() && !varDsc->IsDependentPromotedField(compiler));
 
-    // If we have JMP, reg args must be put on the stack
-
-    if (compiler->compJmpOpUsed && varDsc->lvIsRegArg)
-    {
-        return false;
-    }
-
-    // Don't allocate registers for dependently promoted struct fields
-    if (varDsc->IsDependentPromotedField(compiler))
-    {
-        return false;
-    }
-
-    // Don't enregister if the ref count is zero.
+    // Ttracked locals normally have non-zero ref count but we don't mark
+    // locals again after dead code removal so we may end up with tracked
+    // but unreferenced locals.
     if (varDsc->lvRefCnt() == 0)
     {
-        varDsc->setLvRefCntWtd(0);
-        return false;
-    }
+        assert(varDsc->lvRefCntWtd() == 0);
 
-    // Variables that are address-exposed are never enregistered, or tracked.
-    // A struct may be promoted, and a struct that fits in a register may be fully enregistered.
-    // Pinned variables may not be tracked (a condition of the GCInfo representation)
-    // or enregistered, on x86 -- it is believed that we can enregister pinned (more properly, "pinning")
-    // references when using the general GC encoding.
-    unsigned lclNum = (unsigned)(varDsc - compiler->lvaTable);
-    if (varDsc->lvAddrExposed || !varDsc->IsEnregisterableType() ||
-        (!compiler->compEnregStructLocals() && (varDsc->lvType == TYP_STRUCT)))
-    {
-#ifdef DEBUG
-        Compiler::DoNotEnregisterReason dner;
-        if (varDsc->lvAddrExposed)
-        {
-            dner = Compiler::DNER_AddrExposed;
-        }
-        else
-        {
-            dner = Compiler::DNER_IsStruct;
-        }
-#endif // DEBUG
-        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(dner));
-        return false;
-    }
-    else if (varDsc->lvPinned)
-    {
-        varDsc->lvTracked = 0;
-#ifdef JIT32_GCENCODER
-        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_PinningRef));
-#endif // JIT32_GCENCODER
-        return false;
-    }
-
-    //  Are we not optimizing and we have exception handlers?
-    //   if so mark all args and locals as volatile, so that they
-    //   won't ever get enregistered.
-    //
-    if (compiler->opts.MinOpts() && compiler->compHndBBtabCount > 0)
-    {
-        compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LiveInOutOfHandler));
-    }
-
-    if (varDsc->lvDoNotEnregister)
-    {
         return false;
     }
 
     switch (varActualType(varDsc->GetType()))
     {
+        case TYP_STRUCT:
+            assert(compiler->compEnregStructLocals() && !varDsc->HasGCPtr());
+            FALLTHROUGH;
         case TYP_FLOAT:
         case TYP_DOUBLE:
-            return !compiler->opts.compDbgCode;
-
         case TYP_INT:
+#ifdef TARGET_64BIT
         case TYP_LONG:
+#endif
         case TYP_REF:
         case TYP_BYREF:
-            return true;
-
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
-            return !varDsc->lvPromoted;
-#endif // FEATURE_SIMD
+#endif
+            assert(varDsc->GetRegisterType() != TYP_UNDEF);
+            break;
 
-        case TYP_STRUCT:
-            // TODO-1stClassStructs: support vars with GC pointers. The issue is that such
-            // vars will have `lvMustInit` set, because emitter has poor support for struct liveness,
-            // but if the variable is tracked the prolog generator would expect it to be in liveIn set,
-            // so an assert in `genFnProlog` will fire.
-            return compiler->compEnregStructLocals() && !varDsc->HasGCPtr();
-
-        case TYP_UNDEF:
-        case TYP_UNKNOWN:
-            noway_assert(!"lvType not set correctly");
-            FALLTHROUGH;
         default:
-            return false;
+            assert(!"Missing DNER or weird local type");
+            break;
     }
+
+    return true;
 }
 
 // Identify locals & compiler temps that are register candidates
-// TODO-Cleanup: This was cloned from Compiler::lvaSortByRefCount() in lclvars.cpp in order
-// to avoid perturbation, but should be merged.
 
 void LinearScan::identifyCandidates()
 {
@@ -1636,6 +1547,8 @@ void LinearScan::identifyCandidates()
             continue;
         }
 
+        bool regCandidate = isRegCandidate(varDsc);
+
 #if DOUBLE_ALIGN
         if (checkDoubleAlign)
         {
@@ -1643,7 +1556,7 @@ void LinearScan::identifyCandidates()
             {
                 refCntStkParam += varDsc->lvRefCnt();
             }
-            else if (!isRegCandidate(varDsc) || varDsc->lvDoNotEnregister)
+            else if (!regCandidate)
             {
                 refCntStk += varDsc->lvRefCnt();
                 if (varDsc->TypeIs(TYP_DOUBLE) || ((varTypeIsStruct(varDsc->GetType()) && varDsc->lvStructDoubleAlign &&
@@ -1668,7 +1581,7 @@ void LinearScan::identifyCandidates()
         // the same register assignment throughout
         varDsc->lvRegister = false;
 
-        if (!isRegCandidate(varDsc))
+        if (!regCandidate)
         {
             varDsc->lvLRACandidate = 0;
             if (varDsc->lvTracked)
@@ -1678,13 +1591,19 @@ void LinearScan::identifyCandidates()
             // The current implementation of multi-reg structs that are referenced collectively
             // (i.e. by refering to the parent lclVar rather than each field separately) relies
             // on all or none of the fields being candidates.
+            //
+            // TODO-MIKE-Review: This sucks. Not necessarily because a DNER fields makes all
+            // other fields DNER, that's probably not that common. But because an unused field
+            // isn't tracked and thus not a reg candidate. This happens with promoted LONG on
+            // 32 bit too, there are cases where only one half (usually the low one) is used.
+            // And this is done way too late, in general we want to DNER as early as possible.
             if (varDsc->lvIsStructField)
             {
                 LclVarDsc* parentVarDsc = compiler->lvaGetDesc(varDsc->lvParentLcl);
                 if (parentVarDsc->lvIsMultiRegRet && !parentVarDsc->lvDoNotEnregister)
                 {
                     JITDUMP("Setting multi-reg struct V%02u as not enregisterable:", varDsc->lvParentLcl);
-                    compiler->lvaSetVarDoNotEnregister(varDsc->lvParentLcl DEBUGARG(Compiler::DNER_BlockOp));
+                    compiler->lvaSetDoNotEnregister(parentVarDsc DEBUGARG(Compiler::DNER_BlockOp));
                     for (unsigned int i = 0; i < parentVarDsc->lvFieldCnt; i++)
                     {
                         LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(parentVarDsc->lvFieldLclStart + i);
@@ -1692,13 +1611,14 @@ void LinearScan::identifyCandidates()
                         if (fieldVarDsc->lvTracked)
                         {
                             fieldVarDsc->lvLRACandidate                = 0;
+                            fieldVarDsc->lvDoNotEnregister             = true;
                             localVarIntervals[fieldVarDsc->lvVarIndex] = nullptr;
                             VarSetOps::RemoveElemD(compiler, registerCandidateVars, fieldVarDsc->lvVarIndex);
                             JITDUMP("*");
                         }
                         // This is not accurate, but we need a non-zero refCnt for the parent so that it will
                         // be allocated to the stack.
-                        parentVarDsc->setLvRefCnt(parentVarDsc->lvRefCnt() + fieldVarDsc->lvRefCnt());
+                        parentVarDsc->SetRefCount(parentVarDsc->GetRefCount() + fieldVarDsc->GetRefCount());
                     }
                     JITDUMP("\n");
                 }

@@ -566,7 +566,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 // Try to narrow the operand of the cast and discard the cast
                 // Note: Do not narrow a cast that is marked as a CSE
                 // And do not narrow if the oper is marked as a CSE either
-                if (!cast->gtOverflow() && !gtIsActiveCSE_Candidate(src) && ((opts.compFlags & CLFLG_TREETRANS) != 0) &&
+                if (!cast->gtOverflow() && !gtIsActiveCSE_Candidate(src) && opts.OptEnabled(CLFLG_TREETRANS) &&
                     optNarrowTree(src, srcType, dstType, cast->gtVNPair, false))
                 {
                     optNarrowTree(src, srcType, dstType, cast->gtVNPair, true);
@@ -2679,7 +2679,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             continue;
         }
 
-#ifdef TARGET_64BIT
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         if (argInfo->IsImplicitByRef())
         {
             assert(argInfo->IsSingleRegOrSlot());
@@ -4562,7 +4562,9 @@ void Compiler::abiFreeAllStructArgTemps()
     }
 }
 
-#if TARGET_64BIT
+#endif // !TARGET_X86
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
 void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
@@ -4592,7 +4594,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
         {
             const unsigned   lclNum           = lclNode->GetLclNum();
             LclVarDsc* const lcl              = lvaGetDesc(lclNum);
-            const unsigned   totalAppearances = lcl->lvRefCnt(RCS_EARLY);
+            const unsigned   totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
 
             // We don't have liveness so we rely on other indications of last use.
             //
@@ -4629,18 +4631,16 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // then this temp is never read from.
     ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
-    unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
+    unsigned   tempLclNum = abiAllocateStructArgTemp(argLayout);
+    LclVarDsc* tempLcl    = lvaGetDesc(tempLclNum);
 
     // These temps are passed by reference so they're always address taken.
     // TODO-MIKE-Cleanup: Aren't they actually address exposed? If we only
     // make them DNER they may still be tracked unnecessarily.
-    lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(DNER_IsStructArg));
+    lvaSetDoNotEnregister(tempLcl DEBUGARG(DNER_IsStructArg));
 
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
-
-    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
-    GenTree*   dest;
 
     // Due to single field struct promotion it is possible that the argument has SIMD
     // type while the temp has STRUCT type. Store the arg to the temp using LCL_FLD
@@ -4656,6 +4656,8 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // the arg type isn't correct.
 
     // TODO-MIKE-CQ: SIMD12 stores should be widened to SIMD16 on 64 bit targets.
+
+    GenTree* dest;
 
     if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
     {
@@ -4677,9 +4679,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     argInfo->SetTempLclNum(tempLclNum);
 }
 
-#endif // TARGET_64BIT
-
-#endif // !TARGET_X86
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
 /*****************************************************************************
  *
@@ -5537,6 +5537,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         return false;
     }
 
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     // For Windows some struct parameters are copied on the local frame
     // and then passed by reference. We cannot fast tail call in these situation
     // as we need to keep our frame around.
@@ -5545,6 +5546,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         reportFastTailCallDecision("Callee has a byref parameter");
         return false;
     }
+#endif
 
     reportFastTailCallDecision(nullptr);
     return true;
@@ -5555,7 +5557,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 #endif
 }
 
-#if FEATURE_FASTTAILCALL
+#if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
 //------------------------------------------------------------------------
 // fgCallHasMustCopyByrefParameter: Check to see if this call has a byref parameter that
 //                                  requires a struct copy in the caller.
@@ -5601,8 +5603,8 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
         JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->gtTreeID,
                 lclNode->GetLclNum());
 
-        const unsigned totalAppearances = lcl->lvRefCnt(RCS_EARLY);
-        const unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
+        const unsigned totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
+        const unsigned callAppearances  = lcl->GetImplicitByRefParamCallRefCount();
         assert(totalAppearances >= callAppearances);
 
         if (totalAppearances == 1)
@@ -5712,7 +5714,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 
     return false;
 }
-#endif
+#endif // FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
 
 //------------------------------------------------------------------------
 // fgMorphPotentialTailCall: Attempt to morph a call that the importer has
@@ -6684,7 +6686,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         // and copy the value back to the caller return buffer after that.
         unsigned tmpRetBufNum =
             lvaNewTemp(origCall->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
-        lvaSetVarAddrExposed(tmpRetBufNum);
+        lvaSetAddressExposed(tmpRetBufNum);
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
 
@@ -6719,7 +6721,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
             newRetLcl->SetType(origCall->GetType());
         }
 
-        lvaSetVarAddrExposed(newRetLclNum);
+        lvaSetAddressExposed(newRetLclNum);
 
         if (varTypeIsSmall(origCall->GetRetSigType()))
         {
@@ -6756,7 +6758,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     if (lvaRetAddrVar == BAD_VAR_NUM)
     {
         lvaRetAddrVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
-        lvaSetVarAddrExposed(lvaRetAddrVar);
+        lvaSetAddressExposed(lvaRetAddrVar);
     }
 
     GenTree* retAddrSlot           = gtNewLclVarAddrNode(lvaRetAddrVar);
@@ -8224,7 +8226,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
                 if (initType == TYP_STRUCT)
                 {
-                    lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+                    lvaSetDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
                 }
                 else
                 {
@@ -8252,7 +8254,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
     if (destLclVar != nullptr)
     {
-        lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+        lvaSetDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
     }
 
     JITDUMPTREE(asg, "fgMorphInitStruct (after):\n");
@@ -9124,12 +9126,12 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         {
             if (srcLclVar != nullptr)
             {
-                lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_BlockOp));
+                lvaSetDoNotEnregister(srcLclVar DEBUGARG(DNER_BlockOp));
             }
 
             if (destLclVar != nullptr)
             {
-                lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+                lvaSetDoNotEnregister(destLclVar DEBUGARG(DNER_BlockOp));
             }
         }
         else
@@ -9217,7 +9219,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
             fields[i] = field;
         }
 
-        lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
     };
 
     auto SplitIndir = [this](GenTree* fields[], GenTreeIndir* indir, unsigned promotedLclNum,
@@ -11855,16 +11857,10 @@ DONE_MORPHING_CHILDREN:
         }
     }
 
-    /*-------------------------------------------------------------------------
-     * Optional morphing is done if tree transformations is permitted
-     */
-
-    if ((opts.compFlags & CLFLG_TREETRANS) == 0)
+    if (opts.OptEnabled(CLFLG_TREETRANS))
     {
-        return tree;
+        tree = fgMorphSmpOpOptional(tree->AsOp());
     }
-
-    tree = fgMorphSmpOpOptional(tree->AsOp());
 
     return tree;
 }

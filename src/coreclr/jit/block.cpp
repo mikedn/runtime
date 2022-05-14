@@ -366,10 +366,6 @@ void BasicBlock::dspFlags()
     {
         printf("m ");
     }
-    if (bbFlags & BBF_CHANGED)
-    {
-        printf("! ");
-    }
     if (bbFlags & BBF_REMOVED)
     {
         printf("del ");
@@ -751,8 +747,7 @@ bool BasicBlock::CloneBlockState(
     to->bbRefs        = from->bbRefs;
     to->bbCodeOffs    = from->bbCodeOffs;
     to->bbCodeOffsEnd = from->bbCodeOffsEnd;
-    VarSetOps::AssignAllowUninitRhs(compiler, to->bbScope, from->bbScope);
-    to->bbNatLoopNum = from->bbNatLoopNum;
+    to->bbNatLoopNum  = from->bbNatLoopNum;
 #ifdef DEBUG
     to->bbTgtStkDepth = from->bbTgtStkDepth;
 #endif // DEBUG
@@ -1277,20 +1272,6 @@ BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp)
     }
 }
 
-void BasicBlock::InitVarSets(Compiler* comp)
-{
-    VarSetOps::AssignNoCopy(comp, bbVarUse, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbVarDef, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbLiveIn, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbLiveOut, VarSetOps::MakeEmpty(comp));
-    VarSetOps::AssignNoCopy(comp, bbScope, VarSetOps::MakeEmpty(comp));
-
-    bbMemoryUse     = false;
-    bbMemoryDef     = false;
-    bbMemoryLiveIn  = false;
-    bbMemoryLiveOut = false;
-}
-
 // Returns true if the basic block ends with GT_JMP
 bool BasicBlock::endsWithJmpMethod(Compiler* comp) const
 {
@@ -1437,10 +1418,6 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
     fgBBs = (BasicBlock**)0xCDCD;
 #endif
 
-    // TODO-Throughput: The following memset is pretty expensive - do something else?
-    // Note that some fields have to be initialized to 0 (like bbFPStateX87)
-    memset(block, 0, sizeof(*block));
-
     // scopeInfo needs to be able to differentiate between blocks which
     // correspond to some instrs (and so may have some LocalVarInfo
     // boundaries), or have been inserted by the JIT
@@ -1492,30 +1469,7 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
     }
 #endif
 
-    // We will give all the blocks var sets after the number of tracked variables
-    // is determined and frozen.  After that, if we dynamically create a basic block,
-    // we will initialize its var sets.
-    if (fgBBVarSetsInited)
-    {
-        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::MakeEmpty(this));
-        VarSetOps::AssignNoCopy(this, block->bbScope, VarSetOps::MakeEmpty(this));
-    }
-    else
-    {
-        VarSetOps::AssignNoCopy(this, block->bbVarUse, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbVarDef, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbLiveIn, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbLiveOut, VarSetOps::UninitVal());
-        VarSetOps::AssignNoCopy(this, block->bbScope, VarSetOps::UninitVal());
-    }
-
-    block->bbMemoryUse     = false;
-    block->bbMemoryDef     = false;
-    block->bbMemoryLiveIn  = false;
-    block->bbMemoryLiveOut = false;
+    livInitNewBlock(block);
 
     block->bbMemorySsaPhiFunc = nullptr;
     block->bbMemorySsaNumIn   = 0;

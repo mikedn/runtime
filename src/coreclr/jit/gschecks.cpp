@@ -17,10 +17,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Compiler::gsGSChecksInitCookie()
 {
-    lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GS cookie"));
-    // Prevent cookie from being optimized
-    lvaGetDesc(lvaGSSecurityCookie)->lvImplicitlyReferenced = true;
-    lvaSetVarAddrExposed(lvaGSSecurityCookie);
+    lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
+    lvaSetImplicitlyReferenced(lvaGSSecurityCookie);
 
     info.compCompHnd->getGSCookie(&gsGlobalSecurityCookieVal, &gsGlobalSecurityCookieAddr);
 }
@@ -445,7 +443,6 @@ void Compiler::gsParamsToShadows()
 #ifdef DEBUG
         shadowLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
         shadowLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
-        shadowLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
 #endif
     }
 

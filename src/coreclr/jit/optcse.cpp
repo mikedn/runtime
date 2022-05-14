@@ -1882,7 +1882,7 @@ public:
             {
                 if (CodeOptKind() == Compiler::SMALL_CODE)
                 {
-                    aggressiveRefCnt = varDsc->lvRefCnt();
+                    aggressiveRefCnt = static_cast<BasicBlock::weight_t>(varDsc->GetRefCount());
                 }
                 else
                 {
@@ -1894,7 +1894,7 @@ public:
             {
                 if (CodeOptKind() == Compiler::SMALL_CODE)
                 {
-                    moderateRefCnt = varDsc->lvRefCnt();
+                    moderateRefCnt = static_cast<BasicBlock::weight_t>(varDsc->GetRefCount());
                 }
                 else
                 {
@@ -2842,19 +2842,19 @@ public:
 
                 if (setRefCnt)
                 {
-                    cseLcl->setLvRefCnt(1);
-                    cseLcl->setLvRefCntWtd(curWeight);
+                    cseLcl->SetRefCount(1);
+                    cseLcl->SetRefWeight(curWeight);
                     setRefCnt = false;
                 }
                 else
                 {
-                    cseLcl->incRefCnts(curWeight, m_pCompiler);
+                    m_pCompiler->lvaAddRef(cseLcl, curWeight);
                 }
 
                 // A CSE Def references the LclVar twice
                 if (isDef)
                 {
-                    cseLcl->incRefCnts(curWeight, m_pCompiler);
+                    m_pCompiler->lvaAddRef(cseLcl, curWeight);
                 }
             }
             lst = lst->tslNext;

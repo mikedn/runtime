@@ -1296,7 +1296,6 @@ void CodeGen::siCheckVarScope(unsigned varNum, IL_OFFSET offs)
         }
     }
 
-    // Look up the compiler->info.compVarScopes[] to find the local var info for (varNum->lvSlotNum, offs)
     VarScopeDsc* varScope = compiler->compFindLocalVar(varNum, offs);
     if (varScope == nullptr)
     {
@@ -1798,7 +1797,7 @@ void CodeGen::psiMoveToReg(unsigned varNum, regNumber reg, regNumber otherReg)
     // Works as psiEndPrologScope does not change scPrev
     for (scope = psiOpenScopeLast; scope != &psiOpenScopeList; scope = scope->scPrev)
     {
-        if (scope->scSlotNum != compiler->lvaTable[varNum].lvSlotNum)
+        if (scope->scSlotNum != varNum)
             continue;
 
         psiScope* newScope      = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
@@ -1844,7 +1843,7 @@ void CodeGen::psiMoveToStack(unsigned varNum)
     // Works as psiEndPrologScope does not change scPrev
     for (scope = psiOpenScopeLast; scope != &psiOpenScopeList; scope = scope->scPrev)
     {
-        if (scope->scSlotNum != compiler->lvaTable[varNum].lvSlotNum)
+        if (scope->scSlotNum != varNum)
             continue;
 
         /* The param must be currently sitting in the register in which it

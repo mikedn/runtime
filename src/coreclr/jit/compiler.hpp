@@ -1466,20 +1466,24 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     lcl->lvOnFrame = true;
     INDEBUG(lcl->lvReason = reason;)
 
-    // If we've started normal ref counting, bump the ref count of this
-    // local, as we no longer do any incremental counting, and we presume
-    // this new local will be referenced.
+    // TODO-MIKE-Review: Minopts needs this because it does not do a ref count,
+    // though we could probably just set the ref count to 1 after lowering.
+    // It's not clear if there's any need to also do this if optimizations are
+    // enabled. Anyway the ref count is likely wrong, a typical temp will have
+    // one def and at least one use.
+    // And then minopts shouldn't really need any ref count values, it's just
+    // that code like raMarkStkVars ignores lvImplicitlyReferenced.
+
     if (lvaLocalVarRefCounted())
     {
         if (opts.OptimizationDisabled())
         {
-            lcl->lvImplicitlyReferenced = 1;
+            lcl->lvImplicitlyReferenced = true;
+            lcl->lvDoNotEnregister      = true;
         }
-        else
-        {
-            lcl->setLvRefCnt(1);
-            lcl->setLvRefCntWtd(BB_UNITY_WEIGHT);
-        }
+
+        lcl->SetRefCount(1);
+        lcl->SetRefWeight(BB_UNITY_WEIGHT);
     }
 
     JITDUMP("\nAllocated %stemp V%02u for \"%s\"\n", shortLifetime ? "" : "long lifetime ", lclNum, reason);
@@ -1518,6 +1522,12 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
         assert(lcl->lvIsTemp == false);
         lcl->lvOnFrame = true;
         INDEBUG(lcl->lvReason = reason;)
+
+        if (opts.OptimizationDisabled())
+        {
+            lcl->lvImplicitlyReferenced = true;
+            lcl->lvDoNotEnregister      = true;
+        }
     }
 
     // Could handle this like in lvaGrabTemp probably...
@@ -1526,147 +1536,6 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
     JITDUMP("\nAllocated %u long lifetime temps V%02u..V%02u for \"%s\"\n", count, lclNum, lclNum + count - 1, reason);
 
     return lclNum;
-}
-
-// Allocate a temporary variable which is implicitly used by codegen.
-// There will be no explicit references to the temp, and so it needs
-// to be forced to be kept alive, and not be optimized away.
-inline unsigned Compiler::lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason))
-{
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-
-    lvaTable[lclNum].lvImplicitlyReferenced = 1;
-    // This will prevent it from being optimized away.
-    // TODO-MIKE-Review: Shouldn't lvImplicitlyReferenced be enough to prevent
-    // it from being optimized away? What does "optimized away" means anyway,
-    // local variables are not deleted...
-    lvaSetVarAddrExposed(lclNum);
-    return lclNum;
-}
-
-/*****************************************************************************
- *
- *  Increment the ref counts for a local variable
- */
-
-inline void LclVarDsc::incRefCnts(BasicBlock::weight_t weight, Compiler* comp, RefCountState state, bool propagate)
-{
-    // In minopts and debug codegen, we don't maintain normal ref counts.
-    if ((state == RCS_NORMAL) && comp->opts.OptimizationDisabled())
-    {
-        // Note, at least, that there is at least one reference.
-        lvImplicitlyReferenced = 1;
-        return;
-    }
-
-    // Increment counts on the local itself.
-    if ((lvType != TYP_STRUCT) || !IsIndependentPromoted())
-    {
-        // We increment ref counts of this local for primitive types, including structs that have been retyped as their
-        // only field, as well as for structs whose fields are not independently promoted.
-
-        //
-        // Increment lvRefCnt
-        //
-        int newRefCnt = lvRefCnt(state) + 1;
-        if (newRefCnt == (unsigned short)newRefCnt) // lvRefCnt is an "unsigned short". Don't overflow it.
-        {
-            setLvRefCnt((unsigned short)newRefCnt, state);
-        }
-
-        //
-        // Increment lvRefCntWtd
-        //
-        if (weight != 0)
-        {
-            // We double the weight of internal temps
-
-            bool doubleWeight = lvIsTemp;
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-            // and, for the time being, implicit byref params
-            doubleWeight |= lvIsImplicitByRef;
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-            if (doubleWeight && (weight * 2 > weight))
-            {
-                weight *= 2;
-            }
-
-            BasicBlock::weight_t newWeight = lvRefCntWtd(state) + weight;
-            assert(newWeight >= lvRefCntWtd(state));
-            setLvRefCntWtd(newWeight, state);
-        }
-    }
-
-    if (varTypeIsStruct(lvType) && propagate)
-    {
-        // For promoted struct locals, increment lvRefCnt on its field locals as well.
-        if (lvPromoted)
-        {
-            for (unsigned i = lvFieldLclStart; i < lvFieldLclStart + lvFieldCnt; ++i)
-            {
-                comp->lvaTable[i].incRefCnts(weight, comp, state, false); // Don't propagate
-            }
-        }
-    }
-
-    if (lvIsStructField && propagate)
-    {
-        LclVarDsc* parentLcl = comp->lvaGetDesc(lvParentLcl);
-
-        // Depending on the promotion type, increment the ref count for the parent struct as well.
-        if (parentLcl->IsDependentPromoted())
-        {
-            parentLcl->incRefCnts(weight, comp, state, false); // Don't propagate
-        }
-    }
-
-#ifdef DEBUG
-    if (comp->verbose)
-    {
-        unsigned varNum = (unsigned)(this - comp->lvaTable);
-        assert(&comp->lvaTable[varNum] == this);
-        printf("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", varNum, lvRefCnt(state),
-               refCntWtd2str(lvRefCntWtd(state)));
-    }
-#endif
-}
-
-/*****************************************************************************
- *
- *  The following returns the mask of all tracked locals
- *  referenced in a statement.
- */
-
-inline VARSET_VALRET_TP Compiler::lvaStmtLclMask(Statement* stmt)
-{
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-    VARSET_TP  lclMask(VarSetOps::MakeEmpty(this));
-
-    assert(fgStmtListThreaded);
-
-    for (GenTree* const tree : stmt->TreeList())
-    {
-        if (tree->gtOper != GT_LCL_VAR)
-        {
-            continue;
-        }
-
-        varNum = tree->AsLclVarCommon()->GetLclNum();
-        assert(varNum < lvaCount);
-        varDsc = lvaTable + varNum;
-
-        if (!varDsc->lvTracked)
-        {
-            continue;
-        }
-
-        VarSetOps::UnionD(this, lclMask, VarSetOps::MakeSingleton(this, varDsc->lvVarIndex));
-    }
-
-    return lclMask;
 }
 
 /*****************************************************************************
@@ -3453,7 +3322,7 @@ bool Compiler::fgVarIsNeverZeroInitializedInProlog(unsigned varNum)
                   (varNum == lvaInlinedPInvokeFrameVar) || (varNum == lvaStubArgumentVar) || (varNum == lvaRetAddrVar);
 
 #if FEATURE_FIXED_OUT_ARGS
-    result = result || (varNum == lvaPInvokeFrameRegSaveVar) || (varNum == lvaOutgoingArgSpaceVar);
+    result = result || (varNum == lvaOutgoingArgSpaceVar);
 #endif
 
 #if defined(FEATURE_EH_FUNCLETS)
@@ -3903,152 +3772,32 @@ inline void DEBUG_DESTROY_NODE(GenTree* tree)
 #endif
 }
 
-//------------------------------------------------------------------------------
-// lvRefCnt: access reference count for this local var
-//
-// Arguments:
-//    state: the requestor's expected ref count state; defaults to RCS_NORMAL
-//
-// Return Value:
-//    Ref count for the local.
-
-inline unsigned short LclVarDsc::lvRefCnt(RefCountState state) const
+inline unsigned LclVarDsc::GetRefCount() const
 {
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
-#if defined(DEBUG)
-    assert(state != RCS_INVALID);
-    Compiler* compiler = JitTls::GetCompiler();
-    assert(compiler->lvaRefCountState == state);
-#endif
-
-    if (lvImplicitlyReferenced && (m_lvRefCnt == 0))
-    {
-        return 1;
-    }
-
-    return m_lvRefCnt;
+    return m_refCount;
 }
 
-//------------------------------------------------------------------------------
-// incLvRefCnt: increment reference count for this local var
-//
-// Arguments:
-//    delta: the amount of the increment
-//    state: the requestor's expected ref count state; defaults to RCS_NORMAL
-//
-// Notes:
-//    It is currently the caller's responsibilty to ensure this increment
-//    will not cause overflow.
-
-inline void LclVarDsc::incLvRefCnt(unsigned short delta, RefCountState state)
+inline void LclVarDsc::SetRefCount(unsigned count)
 {
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
-#if defined(DEBUG)
-    assert(state != RCS_INVALID);
-    Compiler* compiler = JitTls::GetCompiler();
-    assert(compiler->lvaRefCountState == state);
-#endif
-
-    unsigned short oldRefCnt = m_lvRefCnt;
-    m_lvRefCnt += delta;
-    assert(m_lvRefCnt >= oldRefCnt);
+    m_refCount = static_cast<uint16_t>(count > UINT16_MAX ? UINT16_MAX : count);
 }
 
-//------------------------------------------------------------------------------
-// setLvRefCnt: set the reference count for this local var
-//
-// Arguments:
-//    newValue: the desired new reference count
-//    state: the requestor's expected ref count state; defaults to RCS_NORMAL
-//
-// Notes:
-//    Generally after calling v->setLvRefCnt(Y), v->lvRefCnt() == Y.
-//    However this may not be true when v->lvImplicitlyReferenced == 1.
-
-inline void LclVarDsc::setLvRefCnt(unsigned short newValue, RefCountState state)
+inline BasicBlock::weight_t LclVarDsc::GetRefWeight() const
 {
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
-#if defined(DEBUG)
-    assert(state != RCS_INVALID);
-    Compiler* compiler = JitTls::GetCompiler();
-    assert(compiler->lvaRefCountState == state);
-#endif
-
-    m_lvRefCnt = newValue;
+    return jitstd::bit_cast<BasicBlock::weight_t>(m_refWeight);
 }
 
-//------------------------------------------------------------------------------
-// lvRefCntWtd: access wighted reference count for this local var
-//
-// Arguments:
-//    state: the requestor's expected ref count state; defaults to RCS_NORMAL
-//
-// Return Value:
-//    Weighted ref count for the local.
-
-inline BasicBlock::weight_t LclVarDsc::lvRefCntWtd(RefCountState state) const
+inline void LclVarDsc::SetRefWeight(BasicBlock::weight_t weight)
 {
+    assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
-#if defined(DEBUG)
-    assert(state != RCS_INVALID);
-    Compiler* compiler = JitTls::GetCompiler();
-    assert(compiler->lvaRefCountState == state);
-#endif
-
-    if (lvImplicitlyReferenced && (m_lvRefCntWtd == 0))
-    {
-        return BB_UNITY_WEIGHT;
-    }
-
-    return m_lvRefCntWtd;
-}
-
-//------------------------------------------------------------------------------
-// incLvRefCntWtd: increment weighted reference count for this local var
-//
-// Arguments:
-//    delta: the amount of the increment
-//    state: the requestor's expected ref count state; defaults to RCS_NORMAL
-//
-// Notes:
-//    It is currently the caller's responsibilty to ensure this increment
-//    will not cause overflow.
-
-inline void LclVarDsc::incLvRefCntWtd(BasicBlock::weight_t delta, RefCountState state)
-{
-
-#if defined(DEBUG)
-    assert(state != RCS_INVALID);
-    Compiler* compiler = JitTls::GetCompiler();
-    assert(compiler->lvaRefCountState == state);
-#endif
-
-    BasicBlock::weight_t oldRefCntWtd = m_lvRefCntWtd;
-    m_lvRefCntWtd += delta;
-    assert(m_lvRefCntWtd >= oldRefCntWtd);
-}
-
-//------------------------------------------------------------------------------
-// setLvRefCntWtd: set the weighted reference count for this local var
-//
-// Arguments:
-//    newValue: the desired new weighted reference count
-//    state: the requestor's expected ref count state; defaults to RCS_NORMAL
-//
-// Notes:
-//    Generally after calling v->setLvRefCntWtd(Y), v->lvRefCntWtd() == Y.
-//    However this may not be true when v->lvImplicitlyReferenced == 1.
-
-inline void LclVarDsc::setLvRefCntWtd(BasicBlock::weight_t newValue, RefCountState state)
-{
-
-#if defined(DEBUG)
-    assert(state != RCS_INVALID);
-    Compiler* compiler = JitTls::GetCompiler();
-    assert(compiler->lvaRefCountState == state);
-#endif
-
-    m_lvRefCntWtd = newValue;
+    m_refWeight = jitstd::bit_cast<uint32_t>(weight);
 }
 
 /*****************************************************************************/

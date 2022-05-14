@@ -326,7 +326,7 @@ public:
 enum RefCountState
 {
     RCS_INVALID, // not valid to get/set ref counts
-    RCS_EARLY,   // early counts for struct promotion and struct passing
+    RCS_MORPH,   // morphing uses the 2 LclVarDsc ref count members for implicit by ref optimizations
     RCS_NORMAL,  // normal ref counts (from lvaMarkRefs onward)
 };
 
@@ -342,9 +342,6 @@ public:
         // It is expected that the memory allocated for LclVarDsc is already zeroed.
         assert(lvType == TYP_UNDEF);
         assert(lvClassHnd == NO_CLASS_HANDLE);
-#if ASSERTION_PROP
-        assert(lvRefBlks == BlockSetOps::UninitVal());
-#endif
     }
 
     var_types lvType;
@@ -376,10 +373,9 @@ public:
     // These further document the reasons for setting "lvDoNotEnregister".  (Note that "lvAddrExposed" is one of the
     // reasons;
     // also, lvType == TYP_STRUCT prevents enregistration.  At least one of the reasons should be true.
-    unsigned char lvLclFieldExpr : 1;    // The variable is not a struct, but was accessed like one (e.g., reading a
-                                         // particular byte from an int).
-    unsigned char lvLclBlockOpAddr : 1;  // The variable was written to via a block operation that took its address.
-    unsigned char lvLiveAcrossUCall : 1; // The variable is live across an unmanaged call.
+    unsigned char lvLclFieldExpr : 1;   // The variable is not a struct, but was accessed like one (e.g., reading a
+                                        // particular byte from an int).
+    unsigned char lvLclBlockOpAddr : 1; // The variable was written to via a block operation that took its address.
 #endif
     unsigned char lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
     unsigned char lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
@@ -425,6 +421,11 @@ public:
 #endif
     }
 
+    bool IsPinning() const
+    {
+        return lvPinned;
+    }
+
     bool IsAddressExposed() const
     {
         return lvAddrExposed;
@@ -457,9 +458,10 @@ public:
                                           // in LSRA.
 
 #if ASSERTION_PROP
-    unsigned char lvDisqualify : 1;   // variable is no longer OK for add copy optimization
-    unsigned char lvVolatileHint : 1; // hint for AssertionProp
+    unsigned char lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
 #endif
+
+    unsigned char lvEHLive : 1; // local has EH references
 
 #ifndef TARGET_64BIT
     unsigned char lvStructDoubleAlign : 1; // Must we double align this struct?
@@ -796,23 +798,34 @@ public:
     }
 
 private:
-    unsigned short m_lvRefCnt; // unweighted (real) reference count.  For implicit by reference
-                               // parameters, this gets hijacked from lvaResetImplicitByRefRefCount
-                               // through lvaDemoteImplicitByRefParams, to provide a static
-                               // appearance count (computed during address-exposed analysis)
-                               // that abiMakeImplicityByRefStructArgCopy consults during global morph
-                               // to determine if eliding its copy is legal.
-
-    BasicBlock::weight_t m_lvRefCntWtd; // weighted reference count
+    uint16_t m_refCount;
+    uint32_t m_refWeight;
 
 public:
-    unsigned short lvRefCnt(RefCountState state = RCS_NORMAL) const;
-    void incLvRefCnt(unsigned short delta, RefCountState state = RCS_NORMAL);
-    void setLvRefCnt(unsigned short newValue, RefCountState state = RCS_NORMAL);
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    void     AddImplicitByRefParamAnyRef();
+    void     AddImplicitByRefParamCallRef();
+    unsigned GetImplicitByRefParamAnyRefCount();
+    unsigned GetImplicitByRefParamCallRefCount();
+#endif
 
-    BasicBlock::weight_t lvRefCntWtd(RefCountState state = RCS_NORMAL) const;
-    void incLvRefCntWtd(BasicBlock::weight_t delta, RefCountState state = RCS_NORMAL);
-    void setLvRefCntWtd(BasicBlock::weight_t newValue, RefCountState state = RCS_NORMAL);
+    unsigned GetRefCount() const;
+    void SetRefCount(unsigned count);
+
+    // [[deprecated]]
+    unsigned lvRefCnt() const
+    {
+        return GetRefCount();
+    }
+
+    BasicBlock::weight_t GetRefWeight() const;
+    void SetRefWeight(BasicBlock::weight_t weight);
+
+    // [[deprecated]]
+    BasicBlock::weight_t lvRefCntWtd() const
+    {
+        return GetRefWeight();
+    }
 
 private:
     int lvStkOffs; // stack offset of home in bytes.
@@ -848,8 +861,6 @@ public:
 
     unsigned lvSize() const;
 
-    unsigned lvSlotNum; // original slot # (if remapped)
-
     // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
     // since the rest of the bits in typeInfo aren't very useful, they can be recreated
     // from the local's type. Also:
@@ -869,9 +880,8 @@ private:
 
 public:
 #if ASSERTION_PROP
-    BlockSet   lvRefBlks;          // Set of blocks that contain refs
-    Statement* lvDefStmt;          // Pointer to the statement with the single definition
-    void       lvaDisqualifyVar(); // Call to disqualify a local variable from use in optAddCopies
+    BlockSet   lvUseBlocks; // Set of blocks that contain uses
+    Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
     var_types GetType() const
     {
@@ -897,8 +907,9 @@ public:
 
     void SetBlockType(unsigned size)
     {
-        lvType      = TYP_BLK;
-        lvExactSize = size;
+        lvType            = TYP_BLK;
+        lvExactSize       = size;
+        lvDoNotEnregister = true;
     }
 
     unsigned GetBlockSize() const
@@ -943,10 +954,6 @@ public:
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
-    void incRefCnts(BasicBlock::weight_t weight,
-                    Compiler*            pComp,
-                    RefCountState        state     = RCS_NORMAL,
-                    bool                 propagate = true);
     bool IsFloatRegType() const
     {
         return varTypeUsesFloatReg(lvType) || lvIsHfaRegArg();
@@ -1007,20 +1014,6 @@ public:
     var_types GetRegisterType() const;
 
     var_types GetActualRegisterType() const;
-
-    bool IsEnregisterableType() const
-    {
-        return GetRegisterType() != TYP_UNDEF;
-    }
-
-    bool IsEnregisterableLcl() const
-    {
-        if (lvDoNotEnregister)
-        {
-            return false;
-        }
-        return IsEnregisterableType();
-    }
 
     //-----------------------------------------------------------------------------
     //  IsAlwaysAliveInMemory: Determines if this variable's value is always
@@ -1139,7 +1132,6 @@ class LinearScanInterface
 public:
     virtual void doLinearScan()                                = 0;
     virtual void recordVarLocationsAtStartOfBB(BasicBlock* bb) = 0;
-    virtual bool willEnregisterLocalVars() const               = 0;
 #if TRACK_LSRA_STATS
     virtual void dumpLsraStatsCsv(FILE* file)     = 0;
     virtual void dumpLsraStatsSummary(FILE* file) = 0;
@@ -2423,16 +2415,18 @@ public:
     unsigned  lvaTrackedToVarNumSize;
     unsigned* lvaTrackedToVarNum;
 
-#if DOUBLE_ALIGN
-#ifdef DEBUG
-    // # of procs compiled a with double-aligned stack
-    static unsigned s_lvaDoubleAlignedProcsCount;
-#endif
-#endif
+    void lvaSetImplicitlyReferenced(unsigned lclNum);
 
-    void lvaSetVarAddrExposed(unsigned varNum);
-    void lvaSetVarLiveInOutOfHandler(unsigned varNum);
-    bool lvaVarDoNotEnregister(unsigned varNum);
+    void lvaSetAddressExposed(unsigned lclNum);
+    void lvaSetAddressExposed(LclVarDsc* lcl);
+
+    // [[deprecated]]
+    void lvaSetVarAddrExposed(unsigned lclNum)
+    {
+        lvaSetAddressExposed(lclNum);
+    }
+
+    void lvaSetLiveInOutOfHandler(unsigned lclNum);
 
     void lvSetMinOptsDoNotEnreg();
 
@@ -2446,23 +2440,29 @@ public:
         DNER_IsStruct,
         DNER_LocalField,
         DNER_LiveInOutOfHandler,
-        DNER_LiveAcrossUnmanagedCall,
         DNER_BlockOp,     // Is read or written via a block operation that explicitly takes the address.
         DNER_IsStructArg, // Is a struct passed as an argument in a way that requires a stack location.
         DNER_DepField,    // It is a field of a dependently promoted struct
         DNER_NoRegVars,   // opts.compFlags & CLFLG_REGVAR is not set
-        DNER_MinOptsGC,   // It is a GC Ref and we are compiling MinOpts
-#if !defined(TARGET_64BIT)
-        DNER_LongParamVar,   // It is a long parameter.
+#ifndef TARGET_64BIT
         DNER_LongParamField, // It is a decomposed field of a long parameter.
+        DNER_LongUnpromoted,
 #endif
 #ifdef JIT32_GCENCODER
         DNER_PinningRef,
 #endif
+        DNER_HasImplicitRefs
     };
-
 #endif
-    void lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregisterReason reason));
+
+    void lvaSetDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason));
+    void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
+
+    // [[deprecated]]
+    void lvaSetVarDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason))
+    {
+        lvaSetDoNotEnregister(lclNum DEBUGARG(reason));
+    }
 
     unsigned lvaVarargsHandleArg;
 #ifdef TARGET_X86
@@ -2470,13 +2470,11 @@ public:
                                       // arguments
 #endif                                // TARGET_X86
 
+    unsigned lvaPInvokeFrameListVar;    // lclNum for the Frame root
     unsigned lvaInlinedPInvokeFrameVar; // variable representing the InlinedCallFrame
     unsigned lvaReversePInvokeFrameVar; // variable representing the reverse PInvoke frame
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned lvaPInvokeFrameRegSaveVar; // variable representing the RegSave for PInvoke inlining.
-#endif
-    unsigned lvaMonAcquired; // boolean variable introduced into in synchronized methods
-                             // that tracks whether the lock has been taken
+    unsigned lvaMonAcquired;            // boolean variable introduced into in synchronized methods
+                                        // that tracks whether the lock has been taken
 
     unsigned lvaArg0Var; // The lclNum of arg0. Normally this will be info.compThisArg.
                          // However, if there is a "ldarga 0" or "starg 0" in the IL,
@@ -2498,16 +2496,11 @@ public:
     unsigned lvaRetAddrVar;
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-
-    unsigned lvaReturnSpCheck; // Stores SP to confirm it is not corrupted on return.
-
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
-
-#if defined(DEBUG) && defined(TARGET_X86)
-
-    unsigned lvaCallSpCheck; // Stores SP to confirm it is not corrupted after every call.
-
-#endif // defined(DEBUG) && defined(TARGET_X86)
+    // Stores SP to confirm it is not corrupted on return.
+    unsigned lvaReturnSpCheck;
+    // Stores SP to confirm it is not corrupted after every call.
+    X86_ONLY(unsigned lvaCallSpCheck;)
+#endif
 
     bool lvaAddressExposedLocalsMarked;
 
@@ -2662,19 +2655,19 @@ public:
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
-    unsigned lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason));
 
     void lvaResizeTable(unsigned newSize);
 
-    void lvaSortByRefCount();
+    void lvaMarkLivenessTrackedLocals();
 
     void lvaMarkLocalVars(); // Local variable ref-counting
-    void lvaComputeRefCounts(bool isRecompute, bool setSlotNumbers);
-    void lvaMarkLocalVars(BasicBlock* block, bool isRecompute);
+    void lvaSetImplictlyReferenced();
+    void lvaComputeLclRefCounts();
+    void lvaComputeRefCountsHIR();
+    void lvaComputeRefCountsLIR();
+    void lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate = true);
 
     void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
-
-    VARSET_VALRET_TP lvaStmtLclMask(Statement* stmt);
 
 #ifdef DEBUG
     void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
@@ -2748,7 +2741,7 @@ public:
         return lvaTable[lclNum].lvInSsa;
     }
 
-    unsigned lvaStubArgumentVar; // variable representing the secret stub argument coming in EAX
+    unsigned lvaStubArgumentVar; // variable representing the secret stub argument
 
 #if defined(FEATURE_EH_FUNCLETS)
     unsigned lvaPSPSym; // variable representing the PSPSym
@@ -2778,9 +2771,8 @@ public:
 protected:
     //---------------- Local variable ref-counting ----------------------------
 
-    void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt, bool isRecompute);
+    void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt);
     bool IsDominatedByExceptionalEntry(BasicBlock* block);
-    void SetVolatileHint(LclVarDsc* varDsc);
 
     // Keeps the mapping from SSA #'s to VN's for the implicit memory variables.
     SsaDefArray<SsaMemDef> lvMemoryPerSsaData;
@@ -3512,8 +3504,6 @@ public:
     // in order to avoid the need for SSA reconstruction and an "out of SSA" phase).
     DomTreeNode* fgSsaDomTree;
 
-    bool fgBBVarSetsInited;
-
     // Allocate array like T* a = new T[fgBBNumMax + 1];
     // Using helper so we don't keep forgetting +1.
     template <typename T>
@@ -3808,45 +3798,36 @@ public:
 
     GenTreeCall* fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls);
 
-    bool backendRequiresLocalVarLifetimes()
-    {
-        return !opts.MinOpts() || m_pLinearScan->willEnregisterLocalVars();
-    }
-
     void fgLocalVarLiveness();
-
-    void fgLocalVarLivenessInit();
+    void fgLocalVarLivenessUntracked();
+    void livInitNewBlock(BasicBlock* block);
 
     void fgPerNodeLocalVarLiveness(GenTree* node);
-    void fgPerNodeLocalVarLivenessLIR(GenTree* node);
-    void fgPInvokeFrameLiveness(GenTreeCall* call);
     void fgPerBlockLocalVarLiveness();
+    void fgPerBlockLocalVarLivenessLIR();
 
     VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
 
-    void fgLiveVarAnalysis(bool updateInternalOnly = false);
-
-    void fgComputeLifeCall(VARSET_TP& life, GenTreeCall* call);
+    void fgLiveVarAnalysis();
 
     void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node);
     bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
                                       VARSET_VALARG_TP     keepAlive,
                                       LclVarDsc*           lcl,
                                       GenTreeLclVarCommon* node);
-    bool fgComputeLifeUntrackedLocal(VARSET_TP&           liveOut,
-                                     VARSET_VALARG_TP     keepAlive,
-                                     LclVarDsc*           lcl,
-                                     GenTreeLclVarCommon* node);
+    bool fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
+                                    VARSET_VALARG_TP     keepAlive,
+                                    LclVarDsc*           lcl,
+                                    GenTreeLclVarCommon* node);
 
+    void fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
     void fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt);
     void fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
 
-    bool fgTryRemoveNonLocal(GenTree* node, LIR::Range* blockRange);
-
-    void fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block);
     GenTree* fgRemoveDeadStore(GenTreeOp* asgNode);
 
-    void fgInterBlockLocalVarLiveness();
+    void fgInterBlockLocalVarLivenessUntracked();
+    bool fgInterBlockLocalVarLiveness();
 
     // Blocks: convenience methods for enabling range-based `for` iteration over the function's blocks, e.g.:
     // 1.   for (BasicBlock* const block : compiler->Blocks()) ...
@@ -4181,9 +4162,6 @@ public:
         GCPOLL_CALL,
         GCPOLL_INLINE
     };
-
-    // Initialize the per-block variable sets (used for liveness analysis).
-    void fgInitBlockVarSets();
 
     PhaseStatus fgInsertGCPolls();
     BasicBlock* fgCreateGCPoll(GCPollType pollType, BasicBlock* block);
@@ -4781,7 +4759,7 @@ public:
 private:
     GenTree* fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
-#if FEATURE_FASTTAILCALL
+#if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
 #endif
     bool     fgCheckStmtAfterTailCall();
@@ -4884,19 +4862,6 @@ private:
     bool fgCurMemoryHavoc : 1; // True if  the current basic block is known to set memory to a "havoc" value.
 
     void fgMarkUseDef(GenTreeLclVarCommon* tree);
-
-    void fgBeginScopeLife(VARSET_TP* inScope, VarScopeDsc* var);
-    void fgEndScopeLife(VARSET_TP* inScope, VarScopeDsc* var);
-
-    void fgMarkInScope(BasicBlock* block, VARSET_VALARG_TP inScope);
-    void fgUnmarkInScope(BasicBlock* block, VARSET_VALARG_TP unmarkScope);
-
-    void fgExtendDbgScopes();
-    void fgExtendDbgLifetimes();
-
-#ifdef DEBUG
-    void fgDispDebugScopes();
-#endif // DEBUG
 
     //-------------------------------------------------------------------------
     //
@@ -6374,31 +6339,7 @@ private:
     Lowering*            m_pLowering;   // Lowering; needed to Lower IR that's added or modified after Lowering.
     LinearScanInterface* m_pLinearScan; // Linear Scan allocator
 
-    /* raIsVarargsStackArg is called by raMaskStkVars and by
-       lvaComputeRefCounts.  It identifies the special case
-       where a varargs function has a parameter passed on the
-       stack, other than the special varargs handle.  Such parameters
-       require special treatment, because they cannot be tracked
-       by the GC (their offsets in the stack are not known
-       at compile time).
-    */
-
-    bool raIsVarargsStackArg(unsigned lclNum)
-    {
-#ifdef TARGET_X86
-
-        LclVarDsc* varDsc = &lvaTable[lclNum];
-
-        assert(varDsc->lvIsParam);
-
-        return (info.compIsVarArgs && !varDsc->lvIsRegArg && (lclNum != lvaVarargsHandleArg));
-
-#else // TARGET_X86
-
-        return false;
-
-#endif // TARGET_X86
-    }
+    bool lvaIsX86VarargsStackParam(unsigned lclNum);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -7126,7 +7067,6 @@ public:
 #endif                                      // DEBUG
 
     bool fgLocalVarLivenessDone; // Note that this one is used outside of debug.
-    bool fgLocalVarLivenessChanged;
     bool compLSRADone;
     bool compRationalIRForm;
 
@@ -7182,7 +7122,7 @@ public:
             compSupportsISA = isas.GetFlagsRaw();
         }
 
-        unsigned compFlags; // method attributes
+        OptFlags optFlags;
         unsigned instrCount;
         unsigned lvRefCount;
 
@@ -7244,10 +7184,9 @@ public:
             compMinOptsIsSet = true;
         }
 
-        // true if the CLFLG_* for an optimization is set.
-        bool OptEnabled(unsigned optFlag)
+        bool OptEnabled(OptFlags optFlag)
         {
-            return !!(compFlags & optFlag);
+            return (optFlags & optFlag) != 0;
         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -7304,20 +7243,15 @@ public:
 #endif
 
 #ifdef DEBUG
-        bool compGcChecks; // Check arguments and return values to ensure they are sane
-#endif
-
-#if defined(DEBUG) && defined(TARGET_XARCH)
-
-        bool compStackCheckOnRet; // Check stack pointer on return to ensure it is correct.
-
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
-
-#if defined(DEBUG) && defined(TARGET_X86)
-
-        bool compStackCheckOnCall; // Check stack pointer after call to ensure it is correct. Only for x86.
-
-#endif // defined(DEBUG) && defined(TARGET_X86)
+        // Check arguments and return values to ensure they are sane
+        bool compGcChecks;
+#if defined(TARGET_XARCH)
+        // Check stack pointer on return to ensure it is correct.
+        bool compStackCheckOnRet;
+        // Check stack pointer after call to ensure it is correct.
+        X86_ONLY(bool compStackCheckOnCall;)
+#endif // TARGET_XARCH
+#endif // DEBUG
 
         bool compReloc; // Generate relocs for pointers in code, true for all ngen/prejit codegen
 
@@ -7741,10 +7675,9 @@ public:
 
         CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
 
-        unsigned compLvFrameListRoot; // lclNum for the Frame root
-        unsigned compXcptnsCount;     // Number of exception-handling clauses read in the method's IL.
-                                      // You should generally use compHndBBtabCount instead: it is the
-                                      // current number of EH clauses (after additions like synchronized
+        unsigned compXcptnsCount; // Number of exception-handling clauses read in the method's IL.
+                                  // You should generally use compHndBBtabCount instead: it is the
+                                  // current number of EH clauses (after additions like synchronized
         // methods and funclets, and removals like unreachable code deletion).
 
         Target::ArgOrder compArgOrder;
@@ -7786,7 +7719,7 @@ public:
 
     bool compEnregLocals()
     {
-        return ((opts.compFlags & CLFLG_REGVAR) != 0);
+        return opts.OptEnabled(CLFLG_REGVAR);
     }
 
     bool compEnregStructLocals()
@@ -8053,11 +7986,6 @@ public:
     VarScopeDsc* compGetNextEnterScope(unsigned offs, bool scan = false);
 
     VarScopeDsc* compGetNextExitScope(unsigned offs, bool scan = false);
-
-    void compProcessScopesUntil(unsigned   offset,
-                                VARSET_TP* inScope,
-                                void (Compiler::*enterScopeFn)(VARSET_TP* inScope, VarScopeDsc*),
-                                void (Compiler::*exitScopeFn)(VARSET_TP* inScope, VarScopeDsc*));
 
 #ifdef DEBUG
     void compDispScopeLists();

@@ -123,7 +123,7 @@ inline static bool ShouldThrowOnNoway(
 }
 
 /*****************************************************************************/
-void noWayAssertBodyConditional(
+void NOINLINE noWayAssertBodyConditional(
 #ifdef FEATURE_TRACELOGGING
     const char* filename, unsigned line
 #endif

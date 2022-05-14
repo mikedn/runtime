@@ -2892,15 +2892,19 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
     genTreeOps interlockedOperator;
 #endif
 
+    // These intrinsics must be supported regardless of DbgCode and MinOpts.
+
     if (intrinsicID == CORINFO_INTRINSIC_StubHelpers_GetStubContext)
     {
-        // must be done regardless of DbgCode and MinOpts
+        noway_assert(lvaStubArgumentVar != BAD_VAR_NUM);
         return gtNewLclvNode(lvaStubArgumentVar, TYP_I_IMPL);
     }
+
 #ifdef TARGET_64BIT
     if (intrinsicID == CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr)
     {
-        // must be done regardless of DbgCode and MinOpts
+        noway_assert(lvaStubArgumentVar != BAD_VAR_NUM);
+        lvaSetAddressExposed(lvaStubArgumentVar);
         return gtNewLclVarAddrNode(lvaStubArgumentVar, TYP_I_IMPL);
     }
 #else
@@ -5167,7 +5171,7 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
             argsLcl = lvaGetDesc(lvaNewObjArrayArgs);
             argsLcl->SetBlockType(0);
 
-            lvaSetVarAddrExposed(lvaNewObjArrayArgs);
+            lvaSetAddressExposed(lvaNewObjArrayArgs);
         }
         else
         {

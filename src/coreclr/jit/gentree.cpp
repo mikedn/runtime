@@ -7284,9 +7284,9 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
         }
         else
         {
-            if (lclNum == info.compLvFrameListRoot)
+            if (lclNum == lvaPInvokeFrameListVar)
             {
-                ilName = "FramesRoot";
+                ilName = "FrameList";
             }
             else if (lclNum == lvaInlinedPInvokeFrameVar)
             {
@@ -7308,11 +7308,11 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
             {
                 ilName = "MergedReturn";
             }
-#if FEATURE_FIXED_OUT_ARGS
-            else if (lclNum == lvaPInvokeFrameRegSaveVar)
+            else if (lclNum == lvaStubArgumentVar)
             {
-                ilName = "PInvokeFrameRegSave";
+                ilName = "StubParam";
             }
+#if FEATURE_FIXED_OUT_ARGS
             else if (lclNum == lvaOutgoingArgSpaceVar)
             {
                 ilName = "OutArgs";
@@ -7954,6 +7954,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
         node->HasLastUse())
     {
         printf("%slast-use", prefix);
+        prefix = ", ";
     }
 
     if (lcl->lvRegister)
@@ -8425,11 +8426,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                 methodName = eeGetMethodName(call->gtCallMethHnd, &className);
 
                 printf(" %s.%s", className, methodName);
-            }
-
-            if ((call->gtFlags & GTF_CALL_UNMANAGED) && (call->gtCallMoreFlags & GTF_CALL_M_FRAME_VAR_DEATH))
-            {
-                printf(" (FramesRoot last use)");
             }
 
             if (((call->gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0) && (call->gtInlineCandidateInfo != nullptr) &&
