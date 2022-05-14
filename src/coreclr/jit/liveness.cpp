@@ -108,14 +108,9 @@ void Compiler::fgLocalVarLivenessUntracked()
         block->bbMemoryLiveOut = false;
     }
 
-    if (compRationalIRForm)
+    if (!compRationalIRForm)
     {
-        assert(!opts.compDbgCode);
-    }
-    else
-    {
-        assert(opts.OptimizationEnabled());
-
+        // Even if there are no tracked locals we still use memory liveness.
         fgPerBlockLocalVarLiveness();
         fgLiveVarAnalysis();
     }
@@ -131,6 +126,8 @@ void Compiler::fgLocalVarLivenessUntracked()
 void Compiler::fgLocalVarLiveness()
 {
     JITDUMP("*************** In fgLocalVarLiveness()\n");
+
+    assert(opts.OptimizationEnabled());
 
     fgLocalVarLivenessInit();
 
@@ -157,14 +154,10 @@ void Compiler::fgLocalVarLiveness()
     {
         if (compRationalIRForm)
         {
-            assert(!opts.compDbgCode);
-
             fgPerBlockLocalVarLivenessLIR();
         }
         else
         {
-            assert(opts.OptimizationEnabled());
-
             fgPerBlockLocalVarLiveness();
         }
 
