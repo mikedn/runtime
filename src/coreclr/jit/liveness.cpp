@@ -129,7 +129,12 @@ void Compiler::fgLocalVarLiveness()
 
     assert(opts.OptimizationEnabled());
 
-    fgLocalVarLivenessInit();
+    // TODO-MIKE-Review: See if we can simply reset these during liveness computation
+    // (e.g. if it's not live in then set it to false).
+    for (unsigned lclNum = 0; lclNum < lvaCount; ++lclNum)
+    {
+        lvaTable[lclNum].lvMustInit = false;
+    }
 
     if (lvaTrackedCount == 0)
     {
@@ -184,29 +189,6 @@ void Compiler::livInitNewBlock(BasicBlock* block)
     block->bbMemoryDef     = false;
     block->bbMemoryLiveIn  = false;
     block->bbMemoryLiveOut = false;
-}
-
-void Compiler::fgLocalVarLivenessInit()
-{
-    // We mark a lcl as must-init in a first pass of local variable
-    // liveness (Liveness1), then assertion prop eliminates the
-    // uninit-use of a variable Vk, asserting it will be init'ed to
-    // null.  Then, in a second local-var liveness (Liveness2), the
-    // variable Vk is no longer live on entry to the method, since its
-    // uses have been replaced via constant propagation.
-    //
-    // This leads to a bug: since Vk is no longer live on entry, the
-    // register allocator sees Vk and an argument Vj as having
-    // disjoint lifetimes, and allocates them to the same register.
-    // But Vk is still marked "must-init", and this initialization (of
-    // the register) trashes the value in Vj.
-    //
-    // Therefore, initialize must-init to false for all variables in
-    // each liveness phase.
-    for (unsigned lclNum = 0; lclNum < lvaCount; ++lclNum)
-    {
-        lvaTable[lclNum].lvMustInit = false;
-    }
 }
 
 void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
