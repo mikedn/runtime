@@ -510,278 +510,6 @@ void Compiler::optAssertionInit()
     bbJtrueAssertionOut  = nullptr;
 }
 
-#ifdef DEBUG
-void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* = 0 */)
-{
-    if (curAssertion->op1.kind == O1K_EXACT_TYPE)
-    {
-        printf("Type     ");
-    }
-    else if (curAssertion->op1.kind == O1K_ARR_BND)
-    {
-        printf("ArrBnds  ");
-    }
-    else if (curAssertion->op1.kind == O1K_SUBTYPE)
-    {
-        printf("Subtype  ");
-    }
-    else if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
-    {
-        printf("Copy     ");
-    }
-    else if ((curAssertion->op2.kind == O2K_CONST_INT) || (curAssertion->op2.kind == O2K_CONST_LONG) ||
-             (curAssertion->op2.kind == O2K_CONST_DOUBLE))
-    {
-        printf("Constant ");
-    }
-    else if (curAssertion->op2.kind == O2K_SUBRANGE)
-    {
-        printf("Subrange ");
-    }
-    else
-    {
-        printf("?assertion classification? ");
-    }
-    printf("Assertion: ");
-    printf("(" FMT_VN "," FMT_VN ") ", curAssertion->op1.vn, curAssertion->op2.vn);
-
-    if ((curAssertion->op1.kind == O1K_LCLVAR) || (curAssertion->op1.kind == O1K_EXACT_TYPE) ||
-        (curAssertion->op1.kind == O1K_SUBTYPE))
-    {
-        printf("V%02u", curAssertion->op1.lcl.lclNum);
-        if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-        {
-            printf(".%02u", curAssertion->op1.lcl.ssaNum);
-        }
-    }
-    else if (curAssertion->op1.kind == O1K_ARR_BND)
-    {
-        printf("[idx:");
-        vnStore->vnDump(this, curAssertion->op1.bnd.vnIdx);
-        printf(";len:");
-        vnStore->vnDump(this, curAssertion->op1.bnd.vnLen);
-        printf("]");
-    }
-    else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
-    {
-        printf("Oper_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
-    }
-    else if (curAssertion->op1.kind == O1K_BOUND_LOOP_BND)
-    {
-        printf("Loop_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
-    }
-    else if (curAssertion->op1.kind == O1K_CONSTANT_LOOP_BND)
-    {
-        printf("Const_Loop_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
-    }
-    else if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
-    {
-        printf("Value_Number");
-        vnStore->vnDump(this, curAssertion->op1.vn);
-    }
-    else
-    {
-        printf("?thisArg.kind?");
-    }
-
-    if (curAssertion->assertionKind == OAK_SUBRANGE)
-    {
-        printf(" in ");
-    }
-    else if (curAssertion->assertionKind == OAK_EQUAL)
-    {
-        if (curAssertion->op1.kind == O1K_LCLVAR)
-        {
-            printf(" == ");
-        }
-        else
-        {
-            printf(" is ");
-        }
-    }
-    else if (curAssertion->assertionKind == OAK_NO_THROW)
-    {
-        printf(" in range ");
-    }
-    else if (curAssertion->assertionKind == OAK_NOT_EQUAL)
-    {
-        if (curAssertion->op1.kind == O1K_LCLVAR)
-        {
-            printf(" != ");
-        }
-        else
-        {
-            printf(" is not ");
-        }
-    }
-    else
-    {
-        printf(" ?assertionKind? ");
-    }
-
-    if (curAssertion->op1.kind != O1K_ARR_BND)
-    {
-        switch (curAssertion->op2.kind)
-        {
-            case O2K_LCLVAR_COPY:
-                printf("V%02u", curAssertion->op2.lcl.lclNum);
-                if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-                {
-                    printf(".%02u", curAssertion->op1.lcl.ssaNum);
-                }
-                break;
-
-            case O2K_CONST_INT:
-            case O2K_IND_CNS_INT:
-                if (curAssertion->op1.kind == O1K_EXACT_TYPE)
-                {
-                    printf("Exact Type MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
-                }
-                else if (curAssertion->op1.kind == O1K_SUBTYPE)
-                {
-                    printf("MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
-                }
-                else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
-                {
-                    vnStore->vnDump(this, curAssertion->op2.vn);
-                }
-                else if (curAssertion->op1.kind == O1K_BOUND_LOOP_BND)
-                {
-                    vnStore->vnDump(this, curAssertion->op2.vn);
-                }
-                else if (curAssertion->op1.kind == O1K_CONSTANT_LOOP_BND)
-                {
-                    vnStore->vnDump(this, curAssertion->op2.vn);
-                }
-                else
-                {
-                    var_types op1Type;
-
-                    if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
-                    {
-                        op1Type = vnStore->TypeOfVN(curAssertion->op1.vn);
-                    }
-                    else
-                    {
-                        unsigned lclNum = curAssertion->op1.lcl.lclNum;
-                        assert(lclNum < lvaCount);
-                        LclVarDsc* varDsc = lvaTable + lclNum;
-                        op1Type           = varDsc->lvType;
-                    }
-
-                    if (op1Type == TYP_REF)
-                    {
-                        assert(curAssertion->op2.u1.iconVal == 0);
-                        printf("null");
-                    }
-                    else
-                    {
-                        if ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
-                        {
-                            printf("[%08p]", dspPtr(curAssertion->op2.u1.iconVal));
-                        }
-                        else
-                        {
-                            printf("%d", curAssertion->op2.u1.iconVal);
-                        }
-                    }
-                }
-                break;
-
-            case O2K_CONST_LONG:
-                printf("0x%016llx", curAssertion->op2.lconVal);
-                break;
-
-            case O2K_CONST_DOUBLE:
-                if (*((__int64*)&curAssertion->op2.dconVal) == (__int64)I64(0x8000000000000000))
-                {
-                    printf("-0.00000");
-                }
-                else
-                {
-                    printf("%#lg", curAssertion->op2.dconVal);
-                }
-                break;
-
-            case O2K_SUBRANGE:
-                printf("[%u..%u]", curAssertion->op2.u2.loBound, curAssertion->op2.u2.hiBound);
-                break;
-
-            default:
-                printf("?op2.kind?");
-                break;
-        }
-    }
-
-    if (assertionIndex > 0)
-    {
-        printf(", index = ");
-        optPrintAssertionIndex(assertionIndex);
-    }
-    printf("\n");
-}
-
-void Compiler::optPrintAssertionIndex(AssertionIndex index)
-{
-    if (index == NO_ASSERTION_INDEX)
-    {
-        printf("#NA");
-        return;
-    }
-
-    printf("#%02u", index);
-}
-
-void Compiler::optPrintAssertionIndices(ASSERT_TP assertions)
-{
-    if (BitVecOps::IsEmpty(apTraits, assertions))
-    {
-        optPrintAssertionIndex(NO_ASSERTION_INDEX);
-        return;
-    }
-
-    BitVecOps::Iter iter(apTraits, assertions);
-    unsigned        bitIndex = 0;
-    if (iter.NextElem(&bitIndex))
-    {
-        optPrintAssertionIndex(static_cast<AssertionIndex>(bitIndex + 1));
-        while (iter.NextElem(&bitIndex))
-        {
-            printf(" ");
-            optPrintAssertionIndex(static_cast<AssertionIndex>(bitIndex + 1));
-        }
-    }
-}
-#endif // DEBUG
-
-/* static */
-void Compiler::optDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer /* = nullptr */)
-{
-#ifdef DEBUG
-    Compiler* compiler = JitTls::GetCompiler();
-    if (compiler->verbose)
-    {
-        printf(header);
-        compiler->optPrintAssertionIndices(assertions);
-        if (footer != nullptr)
-        {
-            printf(footer);
-        }
-    }
-#endif // DEBUG
-}
-
-/* static */
-void Compiler::optDumpAssertionIndices(ASSERT_TP assertions, const char* footer /* = nullptr */)
-{
-    optDumpAssertionIndices("", assertions, footer);
-}
-
 /******************************************************************************
  *
  * Helper to retrieve the "assertIndex" assertion. Note that assertIndex 0
@@ -1402,25 +1130,6 @@ bool Compiler::optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTree
     return false;
 }
 
-#ifdef DEBUG
-/*****************************************************************************
- *
- * Print the assertions related to a VN for all VNs.
- *
- */
-void Compiler::optPrintVnAssertionMapping()
-{
-    printf("\nVN Assertion Mapping\n");
-    printf("---------------------\n");
-    for (ValueNumToAssertsMap::KeyIterator ki = optValueNumToAsserts->Begin(); !ki.Equal(optValueNumToAsserts->End());
-         ++ki)
-    {
-        printf("(%d => ", ki.Get());
-        printf("%s)\n", BitVecOps::ToString(apTraits, ki.GetValue()));
-    }
-}
-#endif
-
 /*****************************************************************************
  *
  * Maintain a map "optValueNumToAsserts" i.e., vn -> to set of assertions
@@ -1525,97 +1234,6 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
 #endif
     return optAssertionCount;
 }
-
-#ifdef DEBUG
-void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
-{
-    assert(assertion->assertionKind < OAK_COUNT);
-    assert(assertion->op1.kind < O1K_COUNT);
-    assert(assertion->op2.kind < O2K_COUNT);
-    // It would be good to check that op1.vn and op2.vn are valid value numbers.
-
-    switch (assertion->op1.kind)
-    {
-        case O1K_LCLVAR:
-        case O1K_EXACT_TYPE:
-        case O1K_SUBTYPE:
-            assert(assertion->op1.lcl.lclNum < lvaCount);
-            assert(lvaTable[assertion->op1.lcl.lclNum].lvPerSsaData.IsValidSsaNum(assertion->op1.lcl.ssaNum));
-            break;
-        case O1K_ARR_BND:
-            // It would be good to check that bnd.vnIdx and bnd.vnLen are valid value numbers.
-            break;
-        case O1K_BOUND_OPER_BND:
-        case O1K_BOUND_LOOP_BND:
-        case O1K_CONSTANT_LOOP_BND:
-        case O1K_VALUE_NUMBER:
-            break;
-        default:
-            break;
-    }
-    switch (assertion->op2.kind)
-    {
-        case O2K_IND_CNS_INT:
-        case O2K_CONST_INT:
-        {
-// The only flags that can be set are those in the GTF_ICON_HDL_MASK, or GTF_ASSERTION_PROP_LONG, which is
-// used to indicate a long constant.
-#ifdef TARGET_64BIT
-            assert((assertion->op2.u1.iconFlags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
-#else
-            assert((assertion->op2.u1.iconFlags & ~GTF_ICON_HDL_MASK) == 0);
-#endif
-            switch (assertion->op1.kind)
-            {
-                case O1K_EXACT_TYPE:
-                case O1K_SUBTYPE:
-                    assert(assertion->op2.u1.iconFlags != GTF_EMPTY);
-                    break;
-                case O1K_LCLVAR:
-                    assert((lvaTable[assertion->op1.lcl.lclNum].lvType != TYP_REF) ||
-                           (assertion->op2.u1.iconVal == 0) || doesMethodHaveFrozenString());
-                    break;
-                case O1K_VALUE_NUMBER:
-                    assert((vnStore->TypeOfVN(assertion->op1.vn) != TYP_REF) || (assertion->op2.u1.iconVal == 0));
-                    break;
-                default:
-                    break;
-            }
-        }
-        break;
-
-        case O2K_CONST_LONG:
-        {
-            // All handles should be represented by O2K_CONST_INT,
-            // so no handle bits should be set here.
-            assert((assertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) == 0);
-        }
-        break;
-
-        default:
-            // for all other 'assertion->op2.kind' values we don't check anything
-            break;
-    }
-}
-
-/*****************************************************************************
- *
- *  Verify that assertion prop related assumptions are valid. If "index"
- *  is 0 (i.e., NO_ASSERTION_INDEX) then verify all assertions in the table.
- *  If "index" is between 1 and optAssertionCount, then verify the assertion
- *  desc corresponding to "index."
- */
-void Compiler::optDebugCheckAssertions(AssertionIndex index)
-{
-    AssertionIndex start = (index == NO_ASSERTION_INDEX) ? 1 : index;
-    AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? optAssertionCount : index;
-    for (AssertionIndex ind = start; ind <= end; ++ind)
-    {
-        AssertionDsc* assertion = optGetAssertion(ind);
-        optDebugCheckAssertion(assertion);
-    }
-}
-#endif
 
 void Compiler::apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex)
 {
@@ -3945,7 +3563,6 @@ void Compiler::optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionD
  */
 class AssertionPropFlowCallback
 {
-private:
     ASSERT_TP preMergeOut;
     ASSERT_TP preMergeJumpDestOut;
 
@@ -3953,25 +3570,31 @@ private:
     ASSERT_TP* mJumpDestGen;
 
     BitVecTraits* apTraits;
+    INDEBUG(Compiler* compiler;)
 
 public:
-    AssertionPropFlowCallback(Compiler* pCompiler, ASSERT_TP* jumpDestOut, ASSERT_TP* jumpDestGen)
+    AssertionPropFlowCallback(Compiler* compiler, ASSERT_TP* jumpDestOut, ASSERT_TP* jumpDestGen)
         : preMergeOut(BitVecOps::UninitVal())
         , preMergeJumpDestOut(BitVecOps::UninitVal())
         , mJumpDestOut(jumpDestOut)
         , mJumpDestGen(jumpDestGen)
-        , apTraits(pCompiler->apTraits)
+        , apTraits(compiler->apTraits)
+#ifdef DEBUG
+        , compiler(compiler)
+#endif
     {
     }
 
     // At the start of the merge function of the dataflow equations, initialize premerge state (to detect change.)
     void StartMerge(BasicBlock* block)
     {
+#ifdef DEBUG
         if (VerboseDataflow())
         {
-            JITDUMP("StartMerge: " FMT_BB " ", block->bbNum);
-            Compiler::optDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n");
+            printf("StartMerge: " FMT_BB " ", block->bbNum);
+            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n");
         }
+#endif
 
         BitVecOps::Assign(apTraits, preMergeOut, block->bbAssertionOut);
         BitVecOps::Assign(apTraits, preMergeJumpDestOut, mJumpDestOut[block->bbNum]);
@@ -3993,14 +3616,16 @@ public:
                 assert(predBlock->bbNext == block);
                 BitVecOps::IntersectionD(apTraits, pAssertionOut, predBlock->bbAssertionOut);
 
+#ifdef DEBUG
                 if (VerboseDataflow())
                 {
-                    JITDUMP("Merge     : Duplicate flow, " FMT_BB " ", block->bbNum);
-                    Compiler::optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
-                    JITDUMP("pred " FMT_BB " ", predBlock->bbNum);
-                    Compiler::optDumpAssertionIndices("out1 -> ", mJumpDestOut[predBlock->bbNum], "; ");
-                    Compiler::optDumpAssertionIndices("out2 -> ", predBlock->bbAssertionOut, "\n");
+                    printf("Merge     : Duplicate flow, " FMT_BB " ", block->bbNum);
+                    compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+                    printf("pred " FMT_BB " ", predBlock->bbNum);
+                    compiler->optDumpAssertionIndices("out1 -> ", mJumpDestOut[predBlock->bbNum], "; ");
+                    compiler->optDumpAssertionIndices("out2 -> ", predBlock->bbAssertionOut, "\n");
                 }
+#endif
             }
         }
         else
@@ -4008,13 +3633,15 @@ public:
             pAssertionOut = predBlock->bbAssertionOut;
         }
 
+#ifdef DEBUG
         if (VerboseDataflow())
         {
-            JITDUMP("Merge     : " FMT_BB " ", block->bbNum);
-            Compiler::optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
-            JITDUMP("pred " FMT_BB " ", predBlock->bbNum);
-            Compiler::optDumpAssertionIndices("out -> ", pAssertionOut, "\n");
+            printf("Merge     : " FMT_BB " ", block->bbNum);
+            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+            printf("pred " FMT_BB " ", predBlock->bbNum);
+            compiler->optDumpAssertionIndices("out -> ", pAssertionOut, "\n");
         }
+#endif
 
         BitVecOps::IntersectionD(apTraits, block->bbAssertionIn, pAssertionOut);
     }
@@ -4032,15 +3659,18 @@ public:
     //   It means we can propagate only assertions that are valid for the whole try region.
     void MergeHandler(BasicBlock* block, BasicBlock* firstTryBlock, BasicBlock* lastTryBlock)
     {
+#ifdef DEBUG
         if (VerboseDataflow())
         {
-            JITDUMP("Merge     : " FMT_BB " ", block->bbNum);
-            Compiler::optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
-            JITDUMP("firstTryBlock " FMT_BB " ", firstTryBlock->bbNum);
-            Compiler::optDumpAssertionIndices("in -> ", firstTryBlock->bbAssertionIn, "; ");
-            JITDUMP("lastTryBlock " FMT_BB " ", lastTryBlock->bbNum);
-            Compiler::optDumpAssertionIndices("out -> ", lastTryBlock->bbAssertionOut, "\n");
+            printf("Merge     : " FMT_BB " ", block->bbNum);
+            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+            printf("firstTryBlock " FMT_BB " ", firstTryBlock->bbNum);
+            compiler->optDumpAssertionIndices("in -> ", firstTryBlock->bbAssertionIn, "; ");
+            printf("lastTryBlock " FMT_BB " ", lastTryBlock->bbNum);
+            compiler->optDumpAssertionIndices("out -> ", lastTryBlock->bbAssertionOut, "\n");
         }
+#endif
+
         BitVecOps::IntersectionD(apTraits, block->bbAssertionIn, firstTryBlock->bbAssertionIn);
         BitVecOps::IntersectionD(apTraits, block->bbAssertionIn, lastTryBlock->bbAssertionOut);
     }
@@ -4048,11 +3678,13 @@ public:
     // At the end of the merge store results of the dataflow equations, in a postmerge state.
     bool EndMerge(BasicBlock* block)
     {
+#ifdef DEBUG
         if (VerboseDataflow())
         {
-            JITDUMP("EndMerge  : " FMT_BB " ", block->bbNum);
-            Compiler::optDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n\n");
+            printf("EndMerge  : " FMT_BB " ", block->bbNum);
+            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n\n");
         }
+#endif
 
         BitVecOps::DataFlowD(apTraits, block->bbAssertionOut, block->bbAssertionGen, block->bbAssertionIn);
         BitVecOps::DataFlowD(apTraits, mJumpDestOut[block->bbNum], mJumpDestGen[block->bbNum], block->bbAssertionIn);
@@ -4060,23 +3692,25 @@ public:
         bool changed = (!BitVecOps::Equal(apTraits, preMergeOut, block->bbAssertionOut) ||
                         !BitVecOps::Equal(apTraits, preMergeJumpDestOut, mJumpDestOut[block->bbNum]));
 
+#ifdef DEBUG
         if (VerboseDataflow())
         {
             if (changed)
             {
-                JITDUMP("Changed   : " FMT_BB " ", block->bbNum);
-                Compiler::optDumpAssertionIndices("before out -> ", preMergeOut, "; ");
-                Compiler::optDumpAssertionIndices("after out -> ", block->bbAssertionOut, ";\n        ");
-                Compiler::optDumpAssertionIndices("jumpDest before out -> ", preMergeJumpDestOut, "; ");
-                Compiler::optDumpAssertionIndices("jumpDest after out -> ", mJumpDestOut[block->bbNum], ";\n\n");
+                printf("Changed   : " FMT_BB " ", block->bbNum);
+                compiler->optDumpAssertionIndices("before out -> ", preMergeOut, "; ");
+                compiler->optDumpAssertionIndices("after out -> ", block->bbAssertionOut, ";\n        ");
+                compiler->optDumpAssertionIndices("jumpDest before out -> ", preMergeJumpDestOut, "; ");
+                compiler->optDumpAssertionIndices("jumpDest after out -> ", mJumpDestOut[block->bbNum], ";\n\n");
             }
             else
             {
-                JITDUMP("Unchanged : " FMT_BB " ", block->bbNum);
-                Compiler::optDumpAssertionIndices("out -> ", block->bbAssertionOut, "; ");
-                Compiler::optDumpAssertionIndices("jumpDest out -> ", mJumpDestOut[block->bbNum], "\n\n");
+                printf("Unchanged : " FMT_BB " ", block->bbNum);
+                compiler->optDumpAssertionIndices("out -> ", block->bbAssertionOut, "; ");
+                compiler->optDumpAssertionIndices("jumpDest out -> ", mJumpDestOut[block->bbNum], "\n\n");
             }
         }
+#endif
 
         return changed;
     }
@@ -4085,7 +3719,7 @@ public:
     bool VerboseDataflow()
     {
 #if 0
-        return VERBOSE;
+        return compiler->verbose;
 #endif
         return false;
     }
@@ -5096,7 +4730,7 @@ void Compiler::optVNAssertionProp()
 
             for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
             {
-                optDumpAssertionIndices("Propagating ", assertions, " ");
+                INDEBUG(optDumpAssertionIndices("Propagating ", assertions, " "));
                 JITDUMP("for " FMT_BB ", stmt " FMT_STMT ", tree [%06d]", block->bbNum, stmt->GetID(), dspTreeID(tree));
                 JITDUMP(", tree -> ");
                 JITDUMPEXEC(optPrintAssertionIndex(tree->GetAssertionInfo().GetAssertionIndex()));
@@ -5144,3 +4778,366 @@ void Compiler::optVNAssertionProp()
     fgDebugCheckLinks();
 #endif
 }
+
+#ifdef DEBUG
+
+void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
+{
+    assert(assertion->assertionKind < OAK_COUNT);
+    assert(assertion->op1.kind < O1K_COUNT);
+    assert(assertion->op2.kind < O2K_COUNT);
+    // It would be good to check that op1.vn and op2.vn are valid value numbers.
+
+    switch (assertion->op1.kind)
+    {
+        case O1K_LCLVAR:
+        case O1K_EXACT_TYPE:
+        case O1K_SUBTYPE:
+            assert(assertion->op1.lcl.lclNum < lvaCount);
+            assert(lvaTable[assertion->op1.lcl.lclNum].lvPerSsaData.IsValidSsaNum(assertion->op1.lcl.ssaNum));
+            break;
+        case O1K_ARR_BND:
+            // It would be good to check that bnd.vnIdx and bnd.vnLen are valid value numbers.
+            break;
+        case O1K_BOUND_OPER_BND:
+        case O1K_BOUND_LOOP_BND:
+        case O1K_CONSTANT_LOOP_BND:
+        case O1K_VALUE_NUMBER:
+            break;
+        default:
+            break;
+    }
+    switch (assertion->op2.kind)
+    {
+        case O2K_IND_CNS_INT:
+        case O2K_CONST_INT:
+        {
+// The only flags that can be set are those in the GTF_ICON_HDL_MASK, or GTF_ASSERTION_PROP_LONG, which is
+// used to indicate a long constant.
+#ifdef TARGET_64BIT
+            assert((assertion->op2.u1.iconFlags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
+#else
+            assert((assertion->op2.u1.iconFlags & ~GTF_ICON_HDL_MASK) == 0);
+#endif
+            switch (assertion->op1.kind)
+            {
+                case O1K_EXACT_TYPE:
+                case O1K_SUBTYPE:
+                    assert(assertion->op2.u1.iconFlags != GTF_EMPTY);
+                    break;
+                case O1K_LCLVAR:
+                    assert((lvaTable[assertion->op1.lcl.lclNum].lvType != TYP_REF) ||
+                           (assertion->op2.u1.iconVal == 0) || doesMethodHaveFrozenString());
+                    break;
+                case O1K_VALUE_NUMBER:
+                    assert((vnStore->TypeOfVN(assertion->op1.vn) != TYP_REF) || (assertion->op2.u1.iconVal == 0));
+                    break;
+                default:
+                    break;
+            }
+        }
+        break;
+
+        case O2K_CONST_LONG:
+        {
+            // All handles should be represented by O2K_CONST_INT,
+            // so no handle bits should be set here.
+            assert((assertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) == 0);
+        }
+        break;
+
+        default:
+            // for all other 'assertion->op2.kind' values we don't check anything
+            break;
+    }
+}
+
+void Compiler::optDebugCheckAssertions(AssertionIndex index)
+{
+    AssertionIndex start = (index == NO_ASSERTION_INDEX) ? 1 : index;
+    AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? optAssertionCount : index;
+    for (AssertionIndex ind = start; ind <= end; ++ind)
+    {
+        AssertionDsc* assertion = optGetAssertion(ind);
+        optDebugCheckAssertion(assertion);
+    }
+}
+
+void Compiler::optPrintVnAssertionMapping()
+{
+    printf("\nVN Assertion Mapping\n");
+    printf("---------------------\n");
+    for (ValueNumToAssertsMap::KeyIterator ki = optValueNumToAsserts->Begin(); !ki.Equal(optValueNumToAsserts->End());
+         ++ki)
+    {
+        printf("(%d => ", ki.Get());
+        printf("%s)\n", BitVecOps::ToString(apTraits, ki.GetValue()));
+    }
+}
+
+void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* = 0 */)
+{
+    if (curAssertion->op1.kind == O1K_EXACT_TYPE)
+    {
+        printf("Type     ");
+    }
+    else if (curAssertion->op1.kind == O1K_ARR_BND)
+    {
+        printf("ArrBnds  ");
+    }
+    else if (curAssertion->op1.kind == O1K_SUBTYPE)
+    {
+        printf("Subtype  ");
+    }
+    else if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
+    {
+        printf("Copy     ");
+    }
+    else if ((curAssertion->op2.kind == O2K_CONST_INT) || (curAssertion->op2.kind == O2K_CONST_LONG) ||
+             (curAssertion->op2.kind == O2K_CONST_DOUBLE))
+    {
+        printf("Constant ");
+    }
+    else if (curAssertion->op2.kind == O2K_SUBRANGE)
+    {
+        printf("Subrange ");
+    }
+    else
+    {
+        printf("?assertion classification? ");
+    }
+    printf("Assertion: ");
+    printf("(" FMT_VN "," FMT_VN ") ", curAssertion->op1.vn, curAssertion->op2.vn);
+
+    if ((curAssertion->op1.kind == O1K_LCLVAR) || (curAssertion->op1.kind == O1K_EXACT_TYPE) ||
+        (curAssertion->op1.kind == O1K_SUBTYPE))
+    {
+        printf("V%02u", curAssertion->op1.lcl.lclNum);
+        if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
+        {
+            printf(".%02u", curAssertion->op1.lcl.ssaNum);
+        }
+    }
+    else if (curAssertion->op1.kind == O1K_ARR_BND)
+    {
+        printf("[idx:");
+        vnStore->vnDump(this, curAssertion->op1.bnd.vnIdx);
+        printf(";len:");
+        vnStore->vnDump(this, curAssertion->op1.bnd.vnLen);
+        printf("]");
+    }
+    else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
+    {
+        printf("Oper_Bnd");
+        vnStore->vnDump(this, curAssertion->op1.vn);
+    }
+    else if (curAssertion->op1.kind == O1K_BOUND_LOOP_BND)
+    {
+        printf("Loop_Bnd");
+        vnStore->vnDump(this, curAssertion->op1.vn);
+    }
+    else if (curAssertion->op1.kind == O1K_CONSTANT_LOOP_BND)
+    {
+        printf("Const_Loop_Bnd");
+        vnStore->vnDump(this, curAssertion->op1.vn);
+    }
+    else if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
+    {
+        printf("Value_Number");
+        vnStore->vnDump(this, curAssertion->op1.vn);
+    }
+    else
+    {
+        printf("?thisArg.kind?");
+    }
+
+    if (curAssertion->assertionKind == OAK_SUBRANGE)
+    {
+        printf(" in ");
+    }
+    else if (curAssertion->assertionKind == OAK_EQUAL)
+    {
+        if (curAssertion->op1.kind == O1K_LCLVAR)
+        {
+            printf(" == ");
+        }
+        else
+        {
+            printf(" is ");
+        }
+    }
+    else if (curAssertion->assertionKind == OAK_NO_THROW)
+    {
+        printf(" in range ");
+    }
+    else if (curAssertion->assertionKind == OAK_NOT_EQUAL)
+    {
+        if (curAssertion->op1.kind == O1K_LCLVAR)
+        {
+            printf(" != ");
+        }
+        else
+        {
+            printf(" is not ");
+        }
+    }
+    else
+    {
+        printf(" ?assertionKind? ");
+    }
+
+    if (curAssertion->op1.kind != O1K_ARR_BND)
+    {
+        switch (curAssertion->op2.kind)
+        {
+            case O2K_LCLVAR_COPY:
+                printf("V%02u", curAssertion->op2.lcl.lclNum);
+                if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
+                {
+                    printf(".%02u", curAssertion->op1.lcl.ssaNum);
+                }
+                break;
+
+            case O2K_CONST_INT:
+            case O2K_IND_CNS_INT:
+                if (curAssertion->op1.kind == O1K_EXACT_TYPE)
+                {
+                    printf("Exact Type MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
+                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
+                }
+                else if (curAssertion->op1.kind == O1K_SUBTYPE)
+                {
+                    printf("MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
+                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
+                }
+                else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
+                {
+                    vnStore->vnDump(this, curAssertion->op2.vn);
+                }
+                else if (curAssertion->op1.kind == O1K_BOUND_LOOP_BND)
+                {
+                    vnStore->vnDump(this, curAssertion->op2.vn);
+                }
+                else if (curAssertion->op1.kind == O1K_CONSTANT_LOOP_BND)
+                {
+                    vnStore->vnDump(this, curAssertion->op2.vn);
+                }
+                else
+                {
+                    var_types op1Type;
+
+                    if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
+                    {
+                        op1Type = vnStore->TypeOfVN(curAssertion->op1.vn);
+                    }
+                    else
+                    {
+                        unsigned lclNum = curAssertion->op1.lcl.lclNum;
+                        assert(lclNum < lvaCount);
+                        LclVarDsc* varDsc = lvaTable + lclNum;
+                        op1Type           = varDsc->lvType;
+                    }
+
+                    if (op1Type == TYP_REF)
+                    {
+                        assert(curAssertion->op2.u1.iconVal == 0);
+                        printf("null");
+                    }
+                    else
+                    {
+                        if ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
+                        {
+                            printf("[%08p]", dspPtr(curAssertion->op2.u1.iconVal));
+                        }
+                        else
+                        {
+                            printf("%d", curAssertion->op2.u1.iconVal);
+                        }
+                    }
+                }
+                break;
+
+            case O2K_CONST_LONG:
+                printf("0x%016llx", curAssertion->op2.lconVal);
+                break;
+
+            case O2K_CONST_DOUBLE:
+                if (*((__int64*)&curAssertion->op2.dconVal) == (__int64)I64(0x8000000000000000))
+                {
+                    printf("-0.00000");
+                }
+                else
+                {
+                    printf("%#lg", curAssertion->op2.dconVal);
+                }
+                break;
+
+            case O2K_SUBRANGE:
+                printf("[%u..%u]", curAssertion->op2.u2.loBound, curAssertion->op2.u2.hiBound);
+                break;
+
+            default:
+                printf("?op2.kind?");
+                break;
+        }
+    }
+
+    if (assertionIndex > 0)
+    {
+        printf(", index = ");
+        optPrintAssertionIndex(assertionIndex);
+    }
+    printf("\n");
+}
+
+void Compiler::optPrintAssertionIndex(AssertionIndex index)
+{
+    if (index == NO_ASSERTION_INDEX)
+    {
+        printf("#NA");
+        return;
+    }
+
+    printf("#%02u", index);
+}
+
+void Compiler::optPrintAssertionIndices(ASSERT_TP assertions)
+{
+    if (BitVecOps::IsEmpty(apTraits, assertions))
+    {
+        optPrintAssertionIndex(NO_ASSERTION_INDEX);
+        return;
+    }
+
+    BitVecOps::Iter iter(apTraits, assertions);
+    unsigned        bitIndex = 0;
+    if (iter.NextElem(&bitIndex))
+    {
+        optPrintAssertionIndex(static_cast<AssertionIndex>(bitIndex + 1));
+        while (iter.NextElem(&bitIndex))
+        {
+            printf(" ");
+            optPrintAssertionIndex(static_cast<AssertionIndex>(bitIndex + 1));
+        }
+    }
+}
+
+void Compiler::optDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer /* = nullptr */)
+{
+    if (verbose)
+    {
+        printf(header);
+        optPrintAssertionIndices(assertions);
+        if (footer != nullptr)
+        {
+            printf(footer);
+        }
+    }
+}
+
+void Compiler::optDumpAssertionIndices(ASSERT_TP assertions, const char* footer /* = nullptr */)
+{
+    optDumpAssertionIndices("", assertions, footer);
+}
+
+#endif // DEBUG

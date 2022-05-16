@@ -777,7 +777,7 @@ void RangeCheck::MergeAssertion(BasicBlock* block, GenTree* op, Range* pRange DE
         {
             assertions = pred->bbAssertionOut;
             JITDUMP("Merge assertions from pred " FMT_BB " edge: ", pred->bbNum);
-            Compiler::optDumpAssertionIndices(assertions, "\n");
+            INDEBUG(m_pCompiler->optDumpAssertionIndices(assertions, "\n"));
         }
         else if ((pred->bbJumpKind == BBJ_COND || pred->bbJumpKind == BBJ_ALWAYS) && pred->bbJumpDest == block)
         {
@@ -785,7 +785,7 @@ void RangeCheck::MergeAssertion(BasicBlock* block, GenTree* op, Range* pRange DE
             {
                 assertions = m_pCompiler->bbJtrueAssertionOut[pred->bbNum];
                 JITDUMP("Merge assertions from pred " FMT_BB " JTrue edge: ", pred->bbNum);
-                Compiler::optDumpAssertionIndices(assertions, "\n");
+                INDEBUG(m_pCompiler->optDumpAssertionIndices(assertions, "\n"));
             }
         }
     }
@@ -924,7 +924,7 @@ Range RangeCheck::ComputeRangeForLocalDef(BasicBlock*          block,
     if (!BitVecOps::MayBeUninit(block->bbAssertionIn) && (m_pCompiler->GetAssertionCount() > 0))
     {
         JITDUMP("Merge assertions from " FMT_BB ": ", block->bbNum);
-        Compiler::optDumpAssertionIndices(block->bbAssertionIn, " ");
+        INDEBUG(m_pCompiler->optDumpAssertionIndices(block->bbAssertionIn, " "));
         JITDUMP("for assignment about [%06d]\n", Compiler::dspTreeID(ssaDef->GetAssignment()->gtGetOp1()))
 
         MergeEdgeAssertions(ssaDef->GetAssignment()->gtGetOp1()->AsLclVarCommon(), block->bbAssertionIn, &range);

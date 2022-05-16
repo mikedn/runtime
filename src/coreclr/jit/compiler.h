@@ -6233,9 +6233,9 @@ public:
     void optPrintAssertionIndices(ASSERT_TP assertions);
     void optDebugCheckAssertion(AssertionDsc* assertion);
     void optDebugCheckAssertions(AssertionIndex AssertionIndex);
+    void optDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer = nullptr);
+    void optDumpAssertionIndices(ASSERT_TP assertions, const char* footer = nullptr);
 #endif
-    static void optDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer = nullptr);
-    static void optDumpAssertionIndices(ASSERT_TP assertions, const char* footer = nullptr);
 
     void optAddCopies();
 #endif // ASSERTION_PROP
