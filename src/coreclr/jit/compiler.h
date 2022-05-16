@@ -6171,7 +6171,6 @@ public:
     AssertionIndex optAssertionGenPhiDefn(GenTree* tree);
     AssertionInfo optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue);
     AssertionInfo optAssertionGenJtrue(GenTreeUnOp* jtrue);
-    AssertionIndex optCreateJtrueAssertions(GenTreeLclVar* op1, GenTree* op2, optAssertionKind assertionKind);
     AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kidn);
     AssertionIndex apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, optAssertionKind kind);
     AssertionIndex optFindComplementary(AssertionIndex assertionIndex);

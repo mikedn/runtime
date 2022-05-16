@@ -1008,14 +1008,11 @@ AssertionIndex Compiler::apCreateSubrangeAssertion(GenTreeCast* cast)
     return optAddAssertion(&assertion);
 }
 
-AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind assertionKind)
+AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kind)
 {
     assert((op1 != nullptr) && (op2 != nullptr));
     assert(op1->OperIs(GT_LCL_VAR));
-    assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
-
-    AssertionDsc assertion;
-    memset(&assertion, 0, sizeof(AssertionDsc));
+    assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
     LclVarDsc* lcl = lvaGetDesc(op1->AsLclVar());
 
@@ -1025,14 +1022,15 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
     }
 
     // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-    if (op1->AsLclVar()->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
+    if (op1->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
     {
         return NO_ASSERTION_INDEX;
     }
 
-    assertion.assertionKind = assertionKind;
-
     op2 = op2->SkipComma();
+
+    AssertionDsc assertion;
+    memset(&assertion, 0, sizeof(AssertionDsc));
 
     switch (op2->GetOper())
     {
@@ -1082,7 +1080,7 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
 
         case GT_LCL_VAR:
         {
-            if (op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+            if (op1->GetLclNum() == op2->AsLclVar()->GetLclNum())
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1149,12 +1147,7 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
             }
 
         SUBRANGE_COMMON:
-            if (assertionKind != OAK_EQUAL)
-            {
-                return NO_ASSERTION_INDEX;
-            }
-
-            if (varTypeIsFloating(op1->TypeGet()))
+            if (varTypeIsFloating(op1->GetType()))
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1180,9 +1173,8 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
                     return NO_ASSERTION_INDEX;
             }
 
-            assertion.assertionKind = OAK_SUBRANGE;
-            assertion.op2.kind      = O2K_SUBRANGE;
-            assertion.op2.u2        = range;
+            assertion.op2.kind = O2K_SUBRANGE;
+            assertion.op2.u2   = range;
         }
         break;
 
@@ -1190,18 +1182,36 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
             return NO_ASSERTION_INDEX;
     }
 
-    assertion.op1.kind       = O1K_LCLVAR;
-    assertion.op1.vn         = vnStore->VNNormalValue(op1->GetConservativeVN());
-    assertion.op1.lcl.lclNum = op1->AsLclVar()->GetLclNum();
-    assertion.op1.lcl.ssaNum = op1->AsLclVar()->GetSsaNum();
-
-    if ((assertion.op1.vn == ValueNumStore::NoVN) || (assertion.op2.vn == ValueNumStore::NoVN) ||
-        (assertion.op1.vn == ValueNumStore::VNForVoid()) || (assertion.op2.vn == ValueNumStore::VNForVoid()))
+    if (assertion.op2.vn == NoVN)
     {
         return NO_ASSERTION_INDEX;
     }
 
-    return optAddAssertion(&assertion);
+    assertion.assertionKind  = kind;
+    assertion.op1.kind       = O1K_LCLVAR;
+    assertion.op1.vn         = vnStore->VNNormalValue(op1->GetConservativeVN());
+    assertion.op1.lcl.lclNum = op1->GetLclNum();
+    assertion.op1.lcl.ssaNum = op1->GetSsaNum();
+
+    if (assertion.op1.vn == NoVN)
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    if (assertion.op2.kind == O2K_SUBRANGE)
+    {
+        return kind == OAK_EQUAL ? optAddAssertion(&assertion) : NO_ASSERTION_INDEX;
+    }
+
+    AssertionIndex index = optAddAssertion(&assertion);
+
+    if (index != NO_ASSERTION_INDEX)
+    {
+        assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+        optMapComplementary(index, optAddAssertion(&assertion));
+    }
+
+    return index;
 }
 
 AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, optAssertionKind kind)
@@ -1624,50 +1634,6 @@ void Compiler::apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex
     optAddAssertion(&dsc);
 }
 
-//------------------------------------------------------------------------
-// optCreateJtrueAssertions: Create assertions about a JTRUE's relop operands.
-//
-// Arguments:
-//    op1 - the first assertion operand
-//    op2 - the second assertion operand
-//    assertionKind - the assertion kind
-//    helperCallArgs - when true this indicates that the assertion operands
-//                     are the arguments of a type cast helper call such as
-//                     CORINFO_HELP_ISINSTANCEOFCLASS
-// Return Value:
-//    The new assertion index or NO_ASSERTION_INDEX if a new assertion
-//    was not created.
-//
-// Notes:
-//    Assertion creation may fail either because the provided assertion
-//    operands aren't supported or because the assertion table is full.
-//    If an assertion is created succesfully then an attempt is made to also
-//    create a second, complementary assertion. This may too fail, for the
-//    same reasons as the first one.
-//
-AssertionIndex Compiler::optCreateJtrueAssertions(GenTreeLclVar* op1, GenTree* op2, optAssertionKind assertionKind)
-{
-    AssertionIndex assertionIndex = apCreateEqualityAssertion(op1, op2, assertionKind);
-    // Don't bother if we don't have an assertion on the JTrue False path. Current implementation
-    // allows for a complementary only if there is an assertion on the False path (tree->HasAssertion()).
-    if (assertionIndex == NO_ASSERTION_INDEX)
-    {
-        return NO_ASSERTION_INDEX;
-    }
-
-    AssertionDsc& assertion = *optGetAssertion(assertionIndex);
-
-    assert((assertion.op1.kind != O1K_BOUND_OPER_BND) && (assertion.op1.kind != O1K_BOUND_LOOP_BND) &&
-           (assertion.op1.kind != O1K_CONSTANT_LOOP_BND) && (assertion.op1.kind != O1K_SUBTYPE) &&
-           (assertion.op1.kind != O1K_EXACT_TYPE));
-
-    assertionKind = assertion.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-
-    AssertionIndex index = apCreateEqualityAssertion(op1, op2, assertionKind);
-    optMapComplementary(index, assertionIndex);
-    return assertionIndex;
-}
-
 AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
 {
     GenTree* relop = jtrue->GetOp(0);
@@ -1873,7 +1839,7 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTreeUnOp* jtrue)
 
     if (op1->OperIs(GT_LCL_VAR) && (op2->OperIsConst() || op2->OperIs(GT_LCL_VAR)))
     {
-        return optCreateJtrueAssertions(op1->AsLclVar(), op2, assertionKind);
+        return apCreateEqualityAssertion(op1->AsLclVar(), op2, assertionKind);
     }
 
     ValueNum op1VN = vnStore->VNNormalValue(op1->GetConservativeVN());
