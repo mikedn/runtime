@@ -1008,10 +1008,7 @@ AssertionIndex Compiler::apCreateSubrangeAssertion(GenTreeCast* cast)
     return optAddAssertion(&assertion);
 }
 
-AssertionIndex Compiler::apCreateEqualityAssertion(GenTree*         op1,
-                                                   GenTree*         op2,
-                                                   optAssertionKind assertionKind,
-                                                   bool             helperCallArgs)
+AssertionIndex Compiler::apCreateEqualityAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind)
 {
     assert((op1 != nullptr) && (op2 != nullptr));
     assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
@@ -1034,200 +1031,170 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTree*         op1,
             return NO_ASSERTION_INDEX;
         }
 
-        if (helperCallArgs)
+        assertion.assertionKind = assertionKind;
+
+        op2 = op2->SkipComma();
+
+        switch (op2->GetOper())
         {
-            if (op2->OperIs(GT_IND))
-            {
-                op2 = op2->AsIndir()->GetAddr();
+            var_types toType;
 
-                assertion.op2.kind = O2K_IND_CNS_INT;
-            }
-            else
-            {
-                assertion.op2.kind = O2K_CONST_INT;
-            }
-
-            if (!op2->OperIs(GT_CNS_INT))
-            {
-                return NO_ASSERTION_INDEX;
-            }
-
-            assertion.assertionKind    = assertionKind;
-            assertion.op1.kind         = O1K_SUBTYPE;
-            assertion.op1.vn           = vnStore->VNNormalValue(op1->GetConservativeVN());
-            assertion.op1.lcl.lclNum   = op1->AsLclVar()->GetLclNum();
-            assertion.op1.lcl.ssaNum   = op1->AsLclVar()->GetSsaNum();
-            assertion.op2.vn           = vnStore->VNNormalValue(op2->GetConservativeVN());
-            assertion.op2.u1.iconVal   = op2->AsIntCon()->GetValue();
-            assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
-        }
-        else
-        {
-            assertion.assertionKind = assertionKind;
-
-            op2 = op2->SkipComma();
-
-            switch (op2->GetOper())
-            {
-                var_types toType;
-
-                case GT_CNS_INT:
+            case GT_CNS_INT:
 #ifdef TARGET_ARM
-                    if (!codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-#endif
-
-                    if (lcl->TypeIs(TYP_LONG) && !op2->TypeIs(TYP_LONG))
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    assertion.op2.kind         = O2K_CONST_INT;
-                    assertion.op2.vn           = vnStore->VNNormalValue(op2->GetConservativeVN());
-                    assertion.op2.u1.iconVal   = op2->AsIntCon()->GetValue(lcl->GetType());
-                    assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
-#ifdef TARGET_64BIT
-                    if (op2->TypeIs(TYP_LONG, TYP_BYREF))
-                    {
-                        assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
-                    }
-#endif
-                    break;
-
-                case GT_CNS_LNG:
-                    assertion.op2.kind    = O2K_CONST_LONG;
-                    assertion.op2.vn      = vnStore->VNNormalValue(op2->GetConservativeVN());
-                    assertion.op2.lconVal = op2->AsLngCon()->GetValue();
-                    break;
-
-                case GT_CNS_DBL:
-                    if (_isnan(op2->AsDblCon()->GetValue()))
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    assertion.op2.kind    = O2K_CONST_DOUBLE;
-                    assertion.op2.vn      = vnStore->VNNormalValue(op2->GetConservativeVN());
-                    assertion.op2.dconVal = op2->AsDblCon()->GetValue();
-                    break;
-
-                case GT_LCL_VAR:
+                if (!codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
                 {
-                    if (op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum())
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
+                    return NO_ASSERTION_INDEX;
+                }
+#endif
 
-                    LclVarDsc* valLcl = lvaGetDesc(op2->AsLclVar());
-
-                    if (lcl->GetType() != valLcl->GetType())
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    if (valLcl->IsAddressExposed())
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    assertion.op2.kind       = O2K_LCLVAR_COPY;
-                    assertion.op2.vn         = vnStore->VNNormalValue(op2->GetConservativeVN());
-                    assertion.op2.lcl.lclNum = op2->AsLclVar()->GetLclNum();
-                    assertion.op2.lcl.ssaNum = op2->AsLclVar()->GetSsaNum();
-                    break;
+                if (lcl->TypeIs(TYP_LONG) && !op2->TypeIs(TYP_LONG))
+                {
+                    return NO_ASSERTION_INDEX;
                 }
 
-                case GT_EQ:
-                case GT_NE:
-                case GT_LT:
-                case GT_LE:
-                case GT_GT:
-                case GT_GE:
-                    toType = TYP_BOOL;
-                    goto SUBRANGE_COMMON;
-                case GT_LCL_FLD:
-                    toType = op2->GetType();
-                    goto SUBRANGE_COMMON;
-                case GT_IND:
-                    toType = op2->GetType();
-                    goto SUBRANGE_COMMON;
-
-                case GT_CAST:
-                {
-                    if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    toType = op2->AsCast()->GetCastType();
-
-                    // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
-                    // except in overflow cases which we do not yet handle. To avoid
-                    // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
-                    // based on an assertion created from CAST(uint <- ulong), normalize the
-                    // type for the range here. Note that TYP_ULONG theoretically has the same
-                    // problem, but we do not create assertions for it.
-                    // TODO-Cleanup: this assertion is not useful - this code exists to preserve
-                    // previous behavior. Refactor it to stop generating such assertions.
-                    if (toType == TYP_UINT)
-                    {
-                        toType = TYP_INT;
-                    }
-
-                SUBRANGE_COMMON:
-                    if (assertionKind != OAK_EQUAL)
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    if (varTypeIsFloating(op1->TypeGet()))
-                    {
-                        return NO_ASSERTION_INDEX;
-                    }
-
-                    AssertionDsc::AssertionDscOp2::Range range;
-
-                    switch (toType)
-                    {
-                        case TYP_BOOL:
-                        case TYP_BYTE:
-                        case TYP_UBYTE:
-                        case TYP_SHORT:
-                        case TYP_USHORT:
+                assertion.op2.kind         = O2K_CONST_INT;
+                assertion.op2.vn           = vnStore->VNNormalValue(op2->GetConservativeVN());
+                assertion.op2.u1.iconVal   = op2->AsIntCon()->GetValue(lcl->GetType());
+                assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
 #ifdef TARGET_64BIT
-                        case TYP_UINT:
-                        case TYP_INT:
-#endif
-                            range = {AssertionDsc::GetLowerBoundForIntegralType(toType),
-                                     AssertionDsc::GetUpperBoundForIntegralType(toType)};
-                            break;
-
-                        default:
-                            return NO_ASSERTION_INDEX;
-                    }
-
-                    assertion.assertionKind = OAK_SUBRANGE;
-                    assertion.op2.kind      = O2K_SUBRANGE;
-                    assertion.op2.u2        = range;
+                if (op2->TypeIs(TYP_LONG, TYP_BYREF))
+                {
+                    assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
                 }
+#endif
                 break;
 
-                default:
+            case GT_CNS_LNG:
+                assertion.op2.kind    = O2K_CONST_LONG;
+                assertion.op2.vn      = vnStore->VNNormalValue(op2->GetConservativeVN());
+                assertion.op2.lconVal = op2->AsLngCon()->GetValue();
+                break;
+
+            case GT_CNS_DBL:
+                if (_isnan(op2->AsDblCon()->GetValue()))
+                {
                     return NO_ASSERTION_INDEX;
+                }
+
+                assertion.op2.kind    = O2K_CONST_DOUBLE;
+                assertion.op2.vn      = vnStore->VNNormalValue(op2->GetConservativeVN());
+                assertion.op2.dconVal = op2->AsDblCon()->GetValue();
+                break;
+
+            case GT_LCL_VAR:
+            {
+                if (op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                LclVarDsc* valLcl = lvaGetDesc(op2->AsLclVar());
+
+                if (lcl->GetType() != valLcl->GetType())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                if (valLcl->lvNormalizeOnLoad() && !lcl->lvNormalizeOnLoad())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                if (valLcl->IsAddressExposed())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                assertion.op2.kind       = O2K_LCLVAR_COPY;
+                assertion.op2.vn         = vnStore->VNNormalValue(op2->GetConservativeVN());
+                assertion.op2.lcl.lclNum = op2->AsLclVar()->GetLclNum();
+                assertion.op2.lcl.ssaNum = op2->AsLclVar()->GetSsaNum();
+                break;
             }
 
-            assertion.op1.kind       = O1K_LCLVAR;
-            assertion.op1.vn         = vnStore->VNNormalValue(op1->GetConservativeVN());
-            assertion.op1.lcl.lclNum = op1->AsLclVar()->GetLclNum();
-            assertion.op1.lcl.ssaNum = op1->AsLclVar()->GetSsaNum();
+            case GT_EQ:
+            case GT_NE:
+            case GT_LT:
+            case GT_LE:
+            case GT_GT:
+            case GT_GE:
+                toType = TYP_BOOL;
+                goto SUBRANGE_COMMON;
+            case GT_LCL_FLD:
+                toType = op2->GetType();
+                goto SUBRANGE_COMMON;
+            case GT_IND:
+                toType = op2->GetType();
+                goto SUBRANGE_COMMON;
+
+            case GT_CAST:
+            {
+                if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                toType = op2->AsCast()->GetCastType();
+
+                // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
+                // except in overflow cases which we do not yet handle. To avoid
+                // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
+                // based on an assertion created from CAST(uint <- ulong), normalize the
+                // type for the range here. Note that TYP_ULONG theoretically has the same
+                // problem, but we do not create assertions for it.
+                // TODO-Cleanup: this assertion is not useful - this code exists to preserve
+                // previous behavior. Refactor it to stop generating such assertions.
+                if (toType == TYP_UINT)
+                {
+                    toType = TYP_INT;
+                }
+
+            SUBRANGE_COMMON:
+                if (assertionKind != OAK_EQUAL)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                if (varTypeIsFloating(op1->TypeGet()))
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                AssertionDsc::AssertionDscOp2::Range range;
+
+                switch (toType)
+                {
+                    case TYP_BOOL:
+                    case TYP_BYTE:
+                    case TYP_UBYTE:
+                    case TYP_SHORT:
+                    case TYP_USHORT:
+#ifdef TARGET_64BIT
+                    case TYP_UINT:
+                    case TYP_INT:
+#endif
+                        range = {AssertionDsc::GetLowerBoundForIntegralType(toType),
+                                 AssertionDsc::GetUpperBoundForIntegralType(toType)};
+                        break;
+
+                    default:
+                        return NO_ASSERTION_INDEX;
+                }
+
+                assertion.assertionKind = OAK_SUBRANGE;
+                assertion.op2.kind      = O2K_SUBRANGE;
+                assertion.op2.u2        = range;
+            }
+            break;
+
+            default:
+                return NO_ASSERTION_INDEX;
         }
+
+        assertion.op1.kind       = O1K_LCLVAR;
+        assertion.op1.vn         = vnStore->VNNormalValue(op1->GetConservativeVN());
+        assertion.op1.lcl.lclNum = op1->AsLclVar()->GetLclNum();
+        assertion.op1.lcl.ssaNum = op1->AsLclVar()->GetSsaNum();
     }
     else if (op1->OperIs(GT_IND))
     {
@@ -1308,6 +1275,71 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTree*         op1,
     }
 
     return optAddAssertion(&assertion);
+}
+
+AssertionIndex Compiler::apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kind)
+{
+    assert((op1 != nullptr) && (op2 != nullptr));
+    assert(op1->OperIs(GT_LCL_VAR));
+    assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
+
+    // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
+    if (op1->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    if (lvaGetDesc(op1)->IsAddressExposed())
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    AssertionDsc assertion;
+    memset(&assertion, 0, sizeof(AssertionDsc));
+
+    if (op2->OperIs(GT_IND))
+    {
+        op2 = op2->AsIndir()->GetAddr();
+
+        assertion.op2.kind = O2K_IND_CNS_INT;
+    }
+    else
+    {
+        assertion.op2.kind = O2K_CONST_INT;
+    }
+
+    if (!op2->IsIntCon())
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
+    ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
+
+    if ((vn1 == NoVN) || (vn2 == NoVN))
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    assertion.assertionKind    = kind;
+    assertion.op1.kind         = O1K_SUBTYPE;
+    assertion.op1.vn           = vn1;
+    assertion.op1.lcl.lclNum   = op1->AsLclVar()->GetLclNum();
+    assertion.op1.lcl.ssaNum   = op1->AsLclVar()->GetSsaNum();
+    assertion.op2.vn           = vn2;
+    assertion.op2.u1.iconVal   = op2->AsIntCon()->GetValue();
+    assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
+
+    AssertionIndex index = optAddAssertion(&assertion);
+
+    if (index != NO_ASSERTION_INDEX)
+    {
+        assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+        optMapComplementary(index, optAddAssertion(&assertion));
+        apCreateNotNullAssertion(op1);
+    }
+
+    return index;
 }
 
 /*****************************************************************************
@@ -1598,12 +1630,9 @@ void Compiler::apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex
 //    create a second, complementary assertion. This may too fail, for the
 //    same reasons as the first one.
 //
-AssertionIndex Compiler::optCreateJtrueAssertions(GenTree*                   op1,
-                                                  GenTree*                   op2,
-                                                  Compiler::optAssertionKind assertionKind,
-                                                  bool                       helperCallArgs)
+AssertionIndex Compiler::optCreateJtrueAssertions(GenTree* op1, GenTree* op2, Compiler::optAssertionKind assertionKind)
 {
-    AssertionIndex assertionIndex = apCreateEqualityAssertion(op1, op2, assertionKind, helperCallArgs);
+    AssertionIndex assertionIndex = apCreateEqualityAssertion(op1, op2, assertionKind);
     // Don't bother if we don't have an assertion on the JTrue False path. Current implementation
     // allows for a complementary only if there is an assertion on the False path (tree->HasAssertion()).
     if (assertionIndex == NO_ASSERTION_INDEX)
@@ -1614,15 +1643,14 @@ AssertionIndex Compiler::optCreateJtrueAssertions(GenTree*                   op1
     AssertionDsc& assertion = *optGetAssertion(assertionIndex);
 
     assert((assertion.op1.kind != O1K_BOUND_OPER_BND) && (assertion.op1.kind != O1K_BOUND_LOOP_BND) &&
-           (assertion.op1.kind != O1K_CONSTANT_LOOP_BND));
+           (assertion.op1.kind != O1K_CONSTANT_LOOP_BND) && (assertion.op1.kind != O1K_SUBTYPE));
 
     assertionKind = assertion.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
 
-    AssertionIndex index = apCreateEqualityAssertion(op1, op2, assertionKind, helperCallArgs);
+    AssertionIndex index = apCreateEqualityAssertion(op1, op2, assertionKind);
     optMapComplementary(index, assertionIndex);
 
-    // Are we making a subtype or exact type assertion?
-    if ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE))
+    if (assertion.op1.kind == O1K_EXACT_TYPE)
     {
         apCreateNotNullAssertion(op1);
     }
@@ -1924,7 +1952,7 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTreeUnOp* jtrue)
                 // Reverse the assertion
                 assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
 
-                return optCreateJtrueAssertions(objectArg, methodTableArg, assertionKind, /* helperCallArgs */ true);
+                return apCreateSubtypeAssertion(objectArg->AsLclVar(), methodTableArg, assertionKind);
             }
         }
     }

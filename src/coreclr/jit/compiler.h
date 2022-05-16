@@ -6171,20 +6171,15 @@ public:
     AssertionIndex optAssertionGenPhiDefn(GenTree* tree);
     AssertionInfo optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue);
     AssertionInfo optAssertionGenJtrue(GenTreeUnOp* jtrue);
-    AssertionIndex optCreateJtrueAssertions(GenTree*                   op1,
-                                            GenTree*                   op2,
-                                            Compiler::optAssertionKind assertionKind,
-                                            bool                       helperCallArgs = false);
+    AssertionIndex optCreateJtrueAssertions(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
+    AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kidn);
     AssertionIndex optFindComplementary(AssertionIndex assertionIndex);
     void optMapComplementary(AssertionIndex assertionIndex, AssertionIndex index);
 
     AssertionIndex apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk);
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);
     AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast);
-    AssertionIndex apCreateEqualityAssertion(GenTree*         op1,
-                                             GenTree*         op2,
-                                             optAssertionKind assertionKind,
-                                             bool             helperCallArgs = false);
+    AssertionIndex apCreateEqualityAssertion(GenTree* op1, GenTree* op2, optAssertionKind assertionKind);
     void apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex);
 
     bool optAssertionVnInvolvesNan(AssertionDsc* assertion);
