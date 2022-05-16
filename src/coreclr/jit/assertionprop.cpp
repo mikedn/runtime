@@ -814,13 +814,143 @@ AssertionIndex Compiler::apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk)
     return optAddAssertion(&assertion);
 }
 
+AssertionIndex Compiler::apCreateNotNullAssertion(GenTree* op1)
+{
+    AssertionDsc assertion;
+    memset(&assertion, 0, sizeof(AssertionDsc));
+    assert(assertion.assertionKind == OAK_INVALID);
+
+    //
+    // Set op1 to the instance pointer of the indirection
+    //
+
+    ssize_t offset = 0;
+    while ((op1->gtOper == GT_ADD) && (op1->gtType == TYP_BYREF))
+    {
+        if (op1->gtGetOp2()->IsCnsIntOrI())
+        {
+            offset += op1->gtGetOp2()->AsIntCon()->gtIconVal;
+            op1 = op1->gtGetOp1();
+        }
+        else if (op1->gtGetOp1()->IsCnsIntOrI())
+        {
+            offset += op1->gtGetOp1()->AsIntCon()->gtIconVal;
+            op1 = op1->gtGetOp2();
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (fgIsBigOffset(offset) || op1->gtOper != GT_LCL_VAR)
+    {
+        goto DONE_ASSERTION; // Don't make an assertion
+    }
+
+    unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
+    noway_assert(lclNum < lvaCount);
+    LclVarDsc* lclVar = &lvaTable[lclNum];
+
+    ValueNum vn;
+
+    //
+    // We only perform null-checks on GC refs
+    // so only make non-null assertions about GC refs or byrefs if we can't determine
+    // the corresponding ref.
+    //
+    if (lclVar->TypeGet() != TYP_REF)
+    {
+        if (lclVar->TypeGet() != TYP_BYREF)
+        {
+            goto DONE_ASSERTION; // Don't make an assertion
+        }
+
+        vn = vnStore->VNConservativeNormalValue(op1->gtVNPair);
+        VNFuncApp funcAttr;
+
+        // Try to get value number corresponding to the GC ref of the indirection
+        while (vnStore->GetVNFunc(vn, &funcAttr) && (funcAttr.m_func == (VNFunc)GT_ADD) &&
+               (vnStore->TypeOfVN(vn) == TYP_BYREF))
+        {
+            if (vnStore->IsVNConstant(funcAttr.m_args[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[1])))
+            {
+                offset += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[1]);
+                vn = funcAttr.m_args[0];
+            }
+            else if (vnStore->IsVNConstant(funcAttr.m_args[0]) &&
+                     varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[0])))
+            {
+                offset += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[0]);
+                vn = funcAttr.m_args[1];
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (fgIsBigOffset(offset))
+        {
+            goto DONE_ASSERTION; // Don't make an assertion
+        }
+
+        assertion.op1.kind = O1K_VALUE_NUMBER;
+    }
+    else
+    {
+        //  If the local variable has its address exposed then bail
+        if (lclVar->lvAddrExposed)
+        {
+            goto DONE_ASSERTION; // Don't make an assertion
+        }
+
+        assertion.op1.kind       = O1K_LCLVAR;
+        assertion.op1.lcl.lclNum = lclNum;
+        assertion.op1.lcl.ssaNum = op1->AsLclVarCommon()->GetSsaNum();
+        vn                       = vnStore->VNConservativeNormalValue(op1->gtVNPair);
+    }
+
+    assertion.op1.vn           = vn;
+    assertion.assertionKind    = OAK_NOT_EQUAL;
+    assertion.op2.kind         = O2K_CONST_INT;
+    assertion.op2.vn           = ValueNumStore::VNForNull();
+    assertion.op2.u1.iconVal   = 0;
+    assertion.op2.u1.iconFlags = GTF_EMPTY;
+#ifdef TARGET_64BIT
+    assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
+#endif
+
+DONE_ASSERTION:
+    if (assertion.assertionKind == OAK_INVALID)
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    if ((assertion.op1.vn == ValueNumStore::NoVN) || (assertion.op2.vn == ValueNumStore::NoVN) ||
+        (assertion.op1.vn == ValueNumStore::VNForVoid()) || (assertion.op2.vn == ValueNumStore::VNForVoid()))
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
+    if ((assertion.op1.kind != O1K_VALUE_NUMBER) && (assertion.op1.lcl.ssaNum == SsaConfig::RESERVED_SSA_NUM))
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    // Now add the assertion to our assertion table
+    noway_assert(assertion.op1.kind != O1K_INVALID);
+    noway_assert((assertion.op1.kind == O1K_ARR_BND) || (assertion.op2.kind != O2K_INVALID));
+    return optAddAssertion(&assertion);
+}
+
 AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
                                             GenTree*         op2,
                                             optAssertionKind assertionKind,
                                             bool             helperCallArgs)
 {
-    assert(op1 != nullptr);
-    assert(!helperCallArgs || (op2 != nullptr));
+    assert((op1 != nullptr) && (op2 != nullptr));
     assert(assertionKind != OAK_NO_THROW);
 
     AssertionDsc assertion;
@@ -830,121 +960,9 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
     var_types toType;
 
     //
-    // Are we trying to make a non-null assertion?
-    //
-    if (op2 == nullptr)
-    {
-        //
-        // Must be an OAK_NOT_EQUAL assertion
-        //
-        noway_assert(assertionKind == OAK_NOT_EQUAL);
-
-        //
-        // Set op1 to the instance pointer of the indirection
-        //
-
-        ssize_t offset = 0;
-        while ((op1->gtOper == GT_ADD) && (op1->gtType == TYP_BYREF))
-        {
-            if (op1->gtGetOp2()->IsCnsIntOrI())
-            {
-                offset += op1->gtGetOp2()->AsIntCon()->gtIconVal;
-                op1 = op1->gtGetOp1();
-            }
-            else if (op1->gtGetOp1()->IsCnsIntOrI())
-            {
-                offset += op1->gtGetOp1()->AsIntCon()->gtIconVal;
-                op1 = op1->gtGetOp2();
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        if (fgIsBigOffset(offset) || op1->gtOper != GT_LCL_VAR)
-        {
-            goto DONE_ASSERTION; // Don't make an assertion
-        }
-
-        unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
-        noway_assert(lclNum < lvaCount);
-        LclVarDsc* lclVar = &lvaTable[lclNum];
-
-        ValueNum vn;
-
-        //
-        // We only perform null-checks on GC refs
-        // so only make non-null assertions about GC refs or byrefs if we can't determine
-        // the corresponding ref.
-        //
-        if (lclVar->TypeGet() != TYP_REF)
-        {
-            if (lclVar->TypeGet() != TYP_BYREF)
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
-            vn = vnStore->VNConservativeNormalValue(op1->gtVNPair);
-            VNFuncApp funcAttr;
-
-            // Try to get value number corresponding to the GC ref of the indirection
-            while (vnStore->GetVNFunc(vn, &funcAttr) && (funcAttr.m_func == (VNFunc)GT_ADD) &&
-                   (vnStore->TypeOfVN(vn) == TYP_BYREF))
-            {
-                if (vnStore->IsVNConstant(funcAttr.m_args[1]) &&
-                    varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[1])))
-                {
-                    offset += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[1]);
-                    vn = funcAttr.m_args[0];
-                }
-                else if (vnStore->IsVNConstant(funcAttr.m_args[0]) &&
-                         varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[0])))
-                {
-                    offset += vnStore->CoercedConstantValue<ssize_t>(funcAttr.m_args[0]);
-                    vn = funcAttr.m_args[1];
-                }
-                else
-                {
-                    break;
-                }
-            }
-
-            if (fgIsBigOffset(offset))
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
-            assertion.op1.kind = O1K_VALUE_NUMBER;
-        }
-        else
-        {
-            //  If the local variable has its address exposed then bail
-            if (lclVar->lvAddrExposed)
-            {
-                goto DONE_ASSERTION; // Don't make an assertion
-            }
-
-            assertion.op1.kind       = O1K_LCLVAR;
-            assertion.op1.lcl.lclNum = lclNum;
-            assertion.op1.lcl.ssaNum = op1->AsLclVarCommon()->GetSsaNum();
-            vn                       = vnStore->VNConservativeNormalValue(op1->gtVNPair);
-        }
-
-        assertion.op1.vn           = vn;
-        assertion.assertionKind    = assertionKind;
-        assertion.op2.kind         = O2K_CONST_INT;
-        assertion.op2.vn           = ValueNumStore::VNForNull();
-        assertion.op2.u1.iconVal   = 0;
-        assertion.op2.u1.iconFlags = GTF_EMPTY;
-#ifdef TARGET_64BIT
-        assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
-#endif
-    }
-    //
     // Are we making an assertion about a local variable?
     //
-    else if (op1->gtOper == GT_LCL_VAR)
+    if (op1->gtOper == GT_LCL_VAR)
     {
         unsigned lclNum = op1->AsLclVarCommon()->GetLclNum();
         noway_assert(lclNum < lvaCount);
@@ -1671,7 +1689,7 @@ void Compiler::optCreateComplementaryAssertion(AssertionIndex assertionIndex,
     // Are we making a subtype or exact type assertion?
     if ((candidateAssertion.op1.kind == O1K_SUBTYPE) || (candidateAssertion.op1.kind == O1K_EXACT_TYPE))
     {
-        optCreateAssertion(op1, nullptr, OAK_NOT_EQUAL);
+        apCreateNotNullAssertion(op1);
     }
 }
 
@@ -2042,8 +2060,9 @@ AssertionIndex Compiler::optAssertionGenPhiDefn(GenTree* tree)
     // All phi arguments are non-null implies phi rhs is non-null.
     if (isNonNull)
     {
-        return optCreateAssertion(tree->AsOp()->gtOp1, nullptr, OAK_NOT_EQUAL);
+        return apCreateNotNullAssertion(tree->AsOp()->GetOp(0));
     }
+
     return NO_ASSERTION_INDEX;
 }
 
@@ -2078,11 +2097,11 @@ void Compiler::optAssertionGen(GenTree* tree)
         case GT_IND:
         case GT_NULLCHECK:
             // All indirections create non-null assertions
-            assertionInfo = optCreateAssertion(tree->AsIndir()->Addr(), nullptr, OAK_NOT_EQUAL);
+            assertionInfo = apCreateNotNullAssertion(tree->AsIndir()->GetAddr());
             break;
 
         case GT_ARR_LENGTH:
-            assertionInfo = optCreateAssertion(tree->AsArrLen()->GetArray(), nullptr, OAK_NOT_EQUAL);
+            assertionInfo = apCreateNotNullAssertion(tree->AsArrLen()->GetArray());
             break;
 
         case GT_ARR_BOUNDS_CHECK:
@@ -2091,7 +2110,7 @@ void Compiler::optAssertionGen(GenTree* tree)
 
         case GT_ARR_ELEM:
             // An array element reference can create a non-null assertion
-            assertionInfo = optCreateAssertion(tree->AsArrElem()->gtArrObj, nullptr, OAK_NOT_EQUAL);
+            assertionInfo = apCreateNotNullAssertion(tree->AsArrElem()->GetArray());
             break;
 
         case GT_CALL:
@@ -2102,7 +2121,7 @@ void Compiler::optAssertionGen(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                assertionInfo = optCreateAssertion(call->GetThisArg(), nullptr, OAK_NOT_EQUAL);
+                assertionInfo = apCreateNotNullAssertion(call->GetThisArg());
             }
         }
         break;

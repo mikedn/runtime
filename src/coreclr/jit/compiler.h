@@ -6179,6 +6179,7 @@ public:
     void optMapComplementary(AssertionIndex assertionIndex, AssertionIndex index);
 
     AssertionIndex apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk);
+    AssertionIndex apCreateNotNullAssertion(GenTree* op1);
     AssertionIndex optCreateAssertion(GenTree*         op1,
                                       GenTree*         op2,
                                       optAssertionKind assertionKind,
