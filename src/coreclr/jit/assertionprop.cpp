@@ -1902,15 +1902,8 @@ AssertionIndex Compiler::optCreateJtrueAssertions(GenTree*                   op1
 
     AssertionDsc& candidateAssertion = *optGetAssertion(assertionIndex);
 
-    if (candidateAssertion.op1.kind == O1K_BOUND_OPER_BND || candidateAssertion.op1.kind == O1K_BOUND_LOOP_BND ||
-        candidateAssertion.op1.kind == O1K_CONSTANT_LOOP_BND)
-    {
-        AssertionDsc dsc  = candidateAssertion;
-        dsc.assertionKind = dsc.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        optAddAssertion(&dsc);
-
-        return assertionIndex;
-    }
+    assert((candidateAssertion.op1.kind != O1K_BOUND_OPER_BND) && (candidateAssertion.op1.kind != O1K_BOUND_LOOP_BND) &&
+           (candidateAssertion.op1.kind != O1K_CONSTANT_LOOP_BND));
 
     if (candidateAssertion.assertionKind == OAK_EQUAL)
     {
