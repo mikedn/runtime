@@ -1630,9 +1630,9 @@ AssertionIndex Compiler::optCreateJtrueAssertions(GenTree*                   op1
     return assertionIndex;
 }
 
-AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
+AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
 {
-    GenTree* relop = tree->gtGetOp1();
+    GenTree* relop = jtrue->GetOp(0);
     if (!relop->OperIsCompare())
     {
         return NO_ASSERTION_INDEX;
@@ -1780,28 +1780,25 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
     return NO_ASSERTION_INDEX;
 }
 
-/*****************************************************************************
- *
- *  Compute assertions for the JTrue node.
- */
-AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
+AssertionInfo Compiler::optAssertionGenJtrue(GenTreeUnOp* jtrue)
 {
-    GenTree* relop = tree->AsOp()->gtOp1;
+    GenTree* relop = jtrue->GetOp(0);
+
     if (!relop->OperIsCompare())
     {
         return NO_ASSERTION_INDEX;
     }
 
-    Compiler::optAssertionKind assertionKind = OAK_INVALID;
+    AssertionInfo info = optCreateJTrueBoundsAssertion(jtrue);
 
-    AssertionInfo info = optCreateJTrueBoundsAssertion(tree);
     if (info.HasAssertion())
     {
         return info;
     }
 
-    // Find assertion kind.
-    switch (relop->gtOper)
+    Compiler::optAssertionKind assertionKind = OAK_INVALID;
+
+    switch (relop->GetOper())
     {
         case GT_EQ:
             assertionKind = OAK_EQUAL;
@@ -1817,24 +1814,23 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
 
     // Look through any CSEs so we see the actual trees providing values, if possible.
     // This is important for exact type assertions, which need to see the GT_IND.
-    //
-    GenTree* op1 = relop->AsOp()->gtOp1->gtCommaAssignVal();
-    GenTree* op2 = relop->AsOp()->gtOp2->gtCommaAssignVal();
+    GenTree* op1 = relop->AsOp()->GetOp(0)->gtCommaAssignVal();
+    GenTree* op2 = relop->AsOp()->GetOp(1)->gtCommaAssignVal();
 
-    // Check for op1 or op2 to be lcl var and if so, keep it in op1.
-    if ((op1->gtOper != GT_LCL_VAR) && (op2->gtOper == GT_LCL_VAR))
+    if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
     {
         std::swap(op1, op2);
     }
 
-    ValueNum op1VN = vnStore->VNConservativeNormalValue(op1->gtVNPair);
-    ValueNum op2VN = vnStore->VNConservativeNormalValue(op2->gtVNPair);
-    // If op1 is lcl and op2 is const or lcl, create assertion.
     if (op1->OperIs(GT_LCL_VAR) && (op2->OperIsConst() || op2->OperIs(GT_LCL_VAR)))
     {
         return optCreateJtrueAssertions(op1, op2, assertionKind);
     }
-    else if (vnStore->IsVNCheckedBound(op1VN) && vnStore->IsVNInt32Constant(op2VN))
+
+    ValueNum op1VN = vnStore->VNNormalValue(op1->GetConservativeVN());
+    ValueNum op2VN = vnStore->VNNormalValue(op2->GetConservativeVN());
+
+    if (vnStore->IsVNCheckedBound(op1VN) && vnStore->IsVNInt32Constant(op2VN))
     {
         assert(relop->OperIs(GT_EQ, GT_NE));
 
@@ -1843,8 +1839,6 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
         {
             AssertionDsc dsc;
 
-            // For arr.Length != 0, we know that 0 is a valid index
-            // For arr.Length == con, we know that con - 1 is the greatest valid index
             if (con == 0)
             {
                 dsc.assertionKind = OAK_NOT_EQUAL;
@@ -1856,78 +1850,71 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
                 dsc.op1.bnd.vnIdx = vnStore->VNForIntCon(con - 1);
             }
 
-            dsc.op1.vn           = op1VN;
             dsc.op1.kind         = O1K_ARR_BND;
+            dsc.op1.vn           = op1VN;
             dsc.op1.bnd.vnLen    = op1VN;
-            dsc.op2.vn           = vnStore->VNConservativeNormalValue(op2->gtVNPair);
             dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.u1.iconFlags = GTF_EMPTY;
+            dsc.op2.vn           = vnStore->VNNormalValue(op2->GetConservativeVN());
             dsc.op2.u1.iconVal   = 0;
+            dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-            // when con is not zero, create an assertion on the arr.Length == con edge
-            // when con is zero, create an assertion on the arr.Length != 0 edge
             AssertionIndex index = optAddAssertion(&dsc);
+
             if (relop->OperIs(GT_NE) != (con == 0))
             {
                 return AssertionInfo::ForNextEdge(index);
             }
-            else
-            {
-                return index;
-            }
+
+            return AssertionInfo(index);
         }
     }
 
-    // Check op1 and op2 for an indirection of a GT_LCL_VAR and keep it in op1.
-    if (((op1->gtOper != GT_IND) || (op1->AsOp()->gtOp1->gtOper != GT_LCL_VAR)) &&
-        ((op2->gtOper == GT_IND) && (op2->AsOp()->gtOp1->gtOper == GT_LCL_VAR)))
+    if ((!op1->OperIs(GT_IND) || !op1->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR)) &&
+        (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR)))
     {
         std::swap(op1, op2);
     }
-    // If op1 is ind, then extract op1's oper.
-    if ((op1->gtOper == GT_IND) && (op1->AsOp()->gtOp1->gtOper == GT_LCL_VAR))
+
+    if (op1->OperIs(GT_IND) && op1->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
     {
         return optCreateJtrueAssertions(op1, op2, assertionKind);
     }
 
-    // Look for a call to an IsInstanceOf helper compared to a nullptr
-    if ((op2->gtOper != GT_CNS_INT) && (op1->gtOper == GT_CNS_INT))
+    if (!op2->OperIs(GT_CNS_INT) && op1->OperIs(GT_CNS_INT))
     {
         std::swap(op1, op2);
     }
-    // Validate op1 and op2
-    if ((op1->gtOper != GT_CALL) || (op1->AsCall()->gtCallType != CT_HELPER) || (op1->TypeGet() != TYP_REF) || // op1
-        (op2->gtOper != GT_CNS_INT) || (op2->AsIntCon()->gtIconVal != 0))                                      // op2
+
+    if (GenTreeCall* call = op1->IsCall())
     {
-        return NO_ASSERTION_INDEX;
-    }
-
-    GenTreeCall* call = op1->AsCall();
-
-    // Note CORINFO_HELP_READYTORUN_ISINSTANCEOF does not have the same argument pattern.
-    // In particular, it is not possible to deduce what class is being tested from its args.
-    //
-    // Also note The CASTCLASS helpers won't appear in predicates as they throw on failure.
-    // So the helper list here is smaller than the one in optAssertionProp_Call.
-    if ((call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFINTERFACE)) ||
-        (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFARRAY)) ||
-        (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFCLASS)) ||
-        (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFANY)))
-    {
-        CallInfo* argInfo         = call->GetInfo();
-        GenTree*  objectNode      = call->GetArgNodeByArgNum(1);
-        GenTree*  methodTableNode = call->GetArgNodeByArgNum(0);
-
-        assert(objectNode->TypeGet() == TYP_REF);
-        assert(methodTableNode->TypeGet() == TYP_I_IMPL);
-
-        // Reverse the assertion
-        assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
-        assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
-
-        if (objectNode->OperIs(GT_LCL_VAR))
+        if (!call->IsHelperCall() || !call->TypeIs(TYP_REF) || !op2->IsIntegralConst(0))
         {
-            return optCreateJtrueAssertions(objectNode, methodTableNode, assertionKind, /* helperCallArgs */ true);
+            return NO_ASSERTION_INDEX;
+        }
+
+        CorInfoHelpFunc helper = eeGetHelperNum(call->GetMethodHandle());
+
+        // Note CORINFO_HELP_READYTORUN_ISINSTANCEOF does not have the same argument pattern.
+        // In particular, it is not possible to deduce what class is being tested from its args.
+        // Also note The CASTCLASS helpers won't appear in predicates as they throw on failure.
+        // So the helper list here is smaller than the one in optAssertionProp_Call.
+
+        if ((helper == CORINFO_HELP_ISINSTANCEOFINTERFACE) || (helper == CORINFO_HELP_ISINSTANCEOFARRAY) ||
+            (helper == CORINFO_HELP_ISINSTANCEOFCLASS) || (helper == CORINFO_HELP_ISINSTANCEOFANY))
+        {
+            GenTree* objectArg      = call->GetArgNodeByArgNum(1);
+            GenTree* methodTableArg = call->GetArgNodeByArgNum(0);
+
+            assert(objectArg->TypeIs(TYP_REF));
+            assert(methodTableArg->TypeIs(TYP_I_IMPL));
+
+            if (objectArg->OperIs(GT_LCL_VAR))
+            {
+                // Reverse the assertion
+                assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
+
+                return optCreateJtrueAssertions(objectArg, methodTableArg, assertionKind, /* helperCallArgs */ true);
+            }
         }
     }
 
@@ -2036,7 +2023,7 @@ void Compiler::optAssertionGen(GenTree* tree)
             break;
 
         case GT_JTRUE:
-            assertionInfo = optAssertionGenJtrue(tree);
+            assertionInfo = optAssertionGenJtrue(tree->AsUnOp());
             break;
 
         default:

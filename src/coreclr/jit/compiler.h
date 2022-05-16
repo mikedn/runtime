@@ -6169,8 +6169,8 @@ public:
     // Assertion Gen functions.
     void optAssertionGen(GenTree* tree);
     AssertionIndex optAssertionGenPhiDefn(GenTree* tree);
-    AssertionInfo optCreateJTrueBoundsAssertion(GenTree* tree);
-    AssertionInfo optAssertionGenJtrue(GenTree* tree);
+    AssertionInfo optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue);
+    AssertionInfo optAssertionGenJtrue(GenTreeUnOp* jtrue);
     AssertionIndex optCreateJtrueAssertions(GenTree*                   op1,
                                             GenTree*                   op2,
                                             Compiler::optAssertionKind assertionKind,
@@ -6182,9 +6182,9 @@ public:
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);
     AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast);
     AssertionIndex apCreateEqualityAssertion(GenTree*         op1,
-                                      GenTree*         op2,
-                                      optAssertionKind assertionKind,
-                                      bool             helperCallArgs = false);
+                                             GenTree*         op2,
+                                             optAssertionKind assertionKind,
+                                             bool             helperCallArgs = false);
     void apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex);
 
     bool optAssertionVnInvolvesNan(AssertionDsc* assertion);
