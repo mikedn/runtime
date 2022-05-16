@@ -1235,21 +1235,22 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
     return optAssertionCount;
 }
 
-void Compiler::apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex)
+AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
 {
-    if (assertionIndex == NO_ASSERTION_INDEX)
+    AssertionIndex index = optAddAssertion(assertion);
+
+    if (index != NO_ASSERTION_INDEX)
     {
-        return;
+        AssertionDsc complementary = *optGetAssertion(index);
+
+        assert((complementary.op1.kind == O1K_BOUND_OPER_BND) || (complementary.op1.kind == O1K_BOUND_LOOP_BND) ||
+               (complementary.op1.kind == O1K_CONSTANT_LOOP_BND));
+
+        complementary.assertionKind = complementary.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+        optAddAssertion(&complementary);
     }
 
-    AssertionDsc& candidateAssertion = *optGetAssertion(assertionIndex);
-
-    assert((candidateAssertion.op1.kind == O1K_BOUND_OPER_BND) || (candidateAssertion.op1.kind == O1K_BOUND_LOOP_BND) ||
-           (candidateAssertion.op1.kind == O1K_CONSTANT_LOOP_BND));
-
-    AssertionDsc dsc  = candidateAssertion;
-    dsc.assertionKind = dsc.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-    optAddAssertion(&dsc);
+    return index;
 }
 
 AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
@@ -1285,9 +1286,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-        AssertionIndex index = optAddAssertion(&dsc);
-        apCreateComplementaryBoundAssertion(index);
-        return index;
+        return apAddBoundAssertions(&dsc);
     }
 
     // Cases where op1 holds the lhs of the condition and op2 holds the bound arithmetic.
@@ -1303,9 +1302,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-        AssertionIndex index = optAddAssertion(&dsc);
-        apCreateComplementaryBoundAssertion(index);
-        return index;
+        return apAddBoundAssertions(&dsc);
     }
 
     // Cases where op1 holds the upper bound and op2 is 0.
@@ -1321,9 +1318,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-        AssertionIndex index = optAddAssertion(&dsc);
-        apCreateComplementaryBoundAssertion(index);
-        return index;
+        return apAddBoundAssertions(&dsc);
     }
 
     // Cases where op1 holds the lhs of the condition op2 holds the bound.
@@ -1339,9 +1334,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-        AssertionIndex index = optAddAssertion(&dsc);
-        apCreateComplementaryBoundAssertion(index);
-        return index;
+        return apAddBoundAssertions(&dsc);
     }
 
     ValueNumStore::UnsignedCompareCheckedBoundInfo unsignedCompareBnd;
@@ -1387,9 +1380,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-        AssertionIndex index = optAddAssertion(&dsc);
-        apCreateComplementaryBoundAssertion(index);
-        return index;
+        return apAddBoundAssertions(&dsc);
     }
 
     // Cases where op1 holds the lhs of the condition op2 holds rhs.
@@ -1405,9 +1396,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-        AssertionIndex index = optAddAssertion(&dsc);
-        apCreateComplementaryBoundAssertion(index);
-        return index;
+        return apAddBoundAssertions(&dsc);
     }
 
     return NO_ASSERTION_INDEX;

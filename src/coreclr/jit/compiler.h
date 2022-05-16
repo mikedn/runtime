@@ -6180,7 +6180,7 @@ public:
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);
     AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast);
     AssertionIndex apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind assertionKind);
-    void apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex);
+    AssertionIndex apAddBoundAssertions(AssertionDsc* assertion);
 
     bool optAssertionVnInvolvesNan(AssertionDsc* assertion);
     AssertionIndex optAddAssertion(AssertionDsc* assertion);
