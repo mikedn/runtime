@@ -6181,7 +6181,7 @@ public:
     AssertionIndex apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk);
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);
     AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast);
-    AssertionIndex optCreateAssertion(GenTree*         op1,
+    AssertionIndex apCreateEqualityAssertion(GenTree*         op1,
                                       GenTree*         op2,
                                       optAssertionKind assertionKind,
                                       bool             helperCallArgs = false);
