@@ -6189,6 +6189,7 @@ public:
                                          GenTree*       op1,
                                          GenTree*       op2,
                                          bool           helperCallArgs = false);
+    void apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex);
 
     bool optAssertionVnInvolvesNan(AssertionDsc* assertion);
     AssertionIndex optAddAssertion(AssertionDsc* assertion);

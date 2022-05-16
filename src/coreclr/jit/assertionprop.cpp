@@ -1903,6 +1903,23 @@ void Compiler::optCreateComplementaryAssertion(AssertionIndex assertionIndex,
     }
 }
 
+void Compiler::apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex)
+{
+    if (assertionIndex == NO_ASSERTION_INDEX)
+    {
+        return;
+    }
+
+    AssertionDsc& candidateAssertion = *optGetAssertion(assertionIndex);
+
+    assert((candidateAssertion.op1.kind == O1K_BOUND_OPER_BND) || (candidateAssertion.op1.kind == O1K_BOUND_LOOP_BND) ||
+           (candidateAssertion.op1.kind == O1K_CONSTANT_LOOP_BND));
+
+    AssertionDsc dsc  = candidateAssertion;
+    dsc.assertionKind = dsc.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+    optAddAssertion(&dsc);
+}
+
 //------------------------------------------------------------------------
 // optCreateJtrueAssertions: Create assertions about a JTRUE's relop operands.
 //
@@ -1971,7 +1988,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
-        optCreateComplementaryAssertion(index, nullptr, nullptr);
+        apCreateComplementaryBoundAssertion(index);
         return index;
     }
     // Cases where op1 holds the lhs of the condition and op2 holds the bound arithmetic.
@@ -1988,7 +2005,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
-        optCreateComplementaryAssertion(index, nullptr, nullptr);
+        apCreateComplementaryBoundAssertion(index);
         return index;
     }
     // Cases where op1 holds the upper bound and op2 is 0.
@@ -2005,7 +2022,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
-        optCreateComplementaryAssertion(index, nullptr, nullptr);
+        apCreateComplementaryBoundAssertion(index);
         return index;
     }
     // Cases where op1 holds the lhs of the condition op2 holds the bound.
@@ -2022,7 +2039,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
-        optCreateComplementaryAssertion(index, nullptr, nullptr);
+        apCreateComplementaryBoundAssertion(index);
         return index;
     }
     // Loop condition like "(uint)i < (uint)bnd" or equivalent
@@ -2065,7 +2082,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
-        optCreateComplementaryAssertion(index, nullptr, nullptr);
+        apCreateComplementaryBoundAssertion(index);
         return index;
     }
     // Cases where op1 holds the lhs of the condition op2 holds rhs.
@@ -2082,7 +2099,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.u1.iconVal   = 0;
         dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
-        optCreateComplementaryAssertion(index, nullptr, nullptr);
+        apCreateComplementaryBoundAssertion(index);
         return index;
     }
 
