@@ -801,24 +801,19 @@ Compiler::AssertionDsc* Compiler::optGetAssertion(AssertionIndex assertIndex)
     return assertion;
 }
 
-//------------------------------------------------------------------------
-// optCreateAssertion: Create an (op1 assertionKind op2) assertion.
-//
-// Arguments:
-//    op1 - the first assertion operand
-//    op2 - the second assertion operand
-//    assertionKind - the assertion kind
-//    helperCallArgs - when true this indicates that the assertion operands
-//                     are the arguments of a type cast helper call such as
-//                     CORINFO_HELP_ISINSTANCEOFCLASS
-// Return Value:
-//    The new assertion index or NO_ASSERTION_INDEX if a new assertion
-//    was not created.
-//
-// Notes:
-//    Assertion creation may fail either because the provided assertion
-//    operands aren't supported or because the assertion table is full.
-//
+AssertionIndex Compiler::apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk)
+{
+    AssertionDsc assertion;
+    memset(&assertion, 0, sizeof(AssertionDsc));
+
+    assertion.assertionKind = OAK_NO_THROW;
+    assertion.op1.kind      = O1K_ARR_BND;
+    assertion.op1.bnd.vnIdx = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
+    assertion.op1.bnd.vnLen = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+
+    return optAddAssertion(&assertion);
+}
+
 AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
                                             GenTree*         op2,
                                             optAssertionKind assertionKind,
@@ -826,25 +821,13 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
 {
     assert(op1 != nullptr);
     assert(!helperCallArgs || (op2 != nullptr));
+    assert(assertionKind != OAK_NO_THROW);
 
     AssertionDsc assertion;
     memset(&assertion, 0, sizeof(AssertionDsc));
     assert(assertion.assertionKind == OAK_INVALID);
 
     var_types toType;
-
-    if (op1->gtOper == GT_ARR_BOUNDS_CHECK)
-    {
-        if (assertionKind == OAK_NO_THROW)
-        {
-            GenTreeBoundsChk* arrBndsChk = op1->AsBoundsChk();
-            assertion.assertionKind      = assertionKind;
-            assertion.op1.kind           = O1K_ARR_BND;
-            assertion.op1.bnd.vnIdx      = vnStore->VNConservativeNormalValue(arrBndsChk->gtIndex->gtVNPair);
-            assertion.op1.bnd.vnLen      = vnStore->VNConservativeNormalValue(arrBndsChk->gtArrLen->gtVNPair);
-            goto DONE_ASSERTION;
-        }
-    }
 
     //
     // Are we trying to make a non-null assertion?
@@ -2103,7 +2086,7 @@ void Compiler::optAssertionGen(GenTree* tree)
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-            assertionInfo = optCreateAssertion(tree, nullptr, OAK_NO_THROW);
+            assertionInfo = apCreateNoThrowAssertion(tree->AsBoundsChk());
             break;
 
         case GT_ARR_ELEM:
