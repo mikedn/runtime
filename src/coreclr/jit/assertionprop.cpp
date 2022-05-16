@@ -1611,24 +1611,18 @@ AssertionIndex Compiler::optCreateJtrueAssertions(GenTree*                   op1
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionDsc& candidateAssertion = *optGetAssertion(assertionIndex);
+    AssertionDsc& assertion = *optGetAssertion(assertionIndex);
 
-    assert((candidateAssertion.op1.kind != O1K_BOUND_OPER_BND) && (candidateAssertion.op1.kind != O1K_BOUND_LOOP_BND) &&
-           (candidateAssertion.op1.kind != O1K_CONSTANT_LOOP_BND));
+    assert((assertion.op1.kind != O1K_BOUND_OPER_BND) && (assertion.op1.kind != O1K_BOUND_LOOP_BND) &&
+           (assertion.op1.kind != O1K_CONSTANT_LOOP_BND));
 
-    if (candidateAssertion.assertionKind == OAK_EQUAL)
-    {
-        AssertionIndex index = apCreateEqualityAssertion(op1, op2, OAK_NOT_EQUAL, helperCallArgs);
-        optMapComplementary(index, assertionIndex);
-    }
-    else if (candidateAssertion.assertionKind == OAK_NOT_EQUAL)
-    {
-        AssertionIndex index = apCreateEqualityAssertion(op1, op2, OAK_EQUAL, helperCallArgs);
-        optMapComplementary(index, assertionIndex);
-    }
+    assertionKind = assertion.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+
+    AssertionIndex index = apCreateEqualityAssertion(op1, op2, assertionKind, helperCallArgs);
+    optMapComplementary(index, assertionIndex);
 
     // Are we making a subtype or exact type assertion?
-    if ((candidateAssertion.op1.kind == O1K_SUBTYPE) || (candidateAssertion.op1.kind == O1K_EXACT_TYPE))
+    if ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE))
     {
         apCreateNotNullAssertion(op1);
     }
