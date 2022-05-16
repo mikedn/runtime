@@ -1849,60 +1849,6 @@ void Compiler::optDebugCheckAssertions(AssertionIndex index)
 }
 #endif
 
-//------------------------------------------------------------------------
-// optCreateComplementaryAssertion: Create an assertion that is the complementary
-//     of the specified assertion.
-//
-// Arguments:
-//    assertionIndex - the index of the assertion
-//    op1 - the first assertion operand
-//    op2 - the second assertion operand
-//    helperCallArgs - when true this indicates that the assertion operands
-//                     are the arguments of a type cast helper call such as
-//                     CORINFO_HELP_ISINSTANCEOFCLASS
-//
-// Notes:
-//    The created complementary assertion is associated with the original
-//    assertion such that it can be found by optFindComplementary.
-//
-void Compiler::optCreateComplementaryAssertion(AssertionIndex assertionIndex,
-                                               GenTree*       op1,
-                                               GenTree*       op2,
-                                               bool           helperCallArgs)
-{
-    if (assertionIndex == NO_ASSERTION_INDEX)
-    {
-        return;
-    }
-
-    AssertionDsc& candidateAssertion = *optGetAssertion(assertionIndex);
-    if (candidateAssertion.op1.kind == O1K_BOUND_OPER_BND || candidateAssertion.op1.kind == O1K_BOUND_LOOP_BND ||
-        candidateAssertion.op1.kind == O1K_CONSTANT_LOOP_BND)
-    {
-        AssertionDsc dsc  = candidateAssertion;
-        dsc.assertionKind = dsc.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        optAddAssertion(&dsc);
-        return;
-    }
-
-    if (candidateAssertion.assertionKind == OAK_EQUAL)
-    {
-        AssertionIndex index = optCreateAssertion(op1, op2, OAK_NOT_EQUAL, helperCallArgs);
-        optMapComplementary(index, assertionIndex);
-    }
-    else if (candidateAssertion.assertionKind == OAK_NOT_EQUAL)
-    {
-        AssertionIndex index = optCreateAssertion(op1, op2, OAK_EQUAL, helperCallArgs);
-        optMapComplementary(index, assertionIndex);
-    }
-
-    // Are we making a subtype or exact type assertion?
-    if ((candidateAssertion.op1.kind == O1K_SUBTYPE) || (candidateAssertion.op1.kind == O1K_EXACT_TYPE))
-    {
-        apCreateNotNullAssertion(op1);
-    }
-}
-
 void Compiler::apCreateComplementaryBoundAssertion(AssertionIndex assertionIndex)
 {
     if (assertionIndex == NO_ASSERTION_INDEX)
@@ -1949,10 +1895,40 @@ AssertionIndex Compiler::optCreateJtrueAssertions(GenTree*                   op1
     AssertionIndex assertionIndex = optCreateAssertion(op1, op2, assertionKind, helperCallArgs);
     // Don't bother if we don't have an assertion on the JTrue False path. Current implementation
     // allows for a complementary only if there is an assertion on the False path (tree->HasAssertion()).
-    if (assertionIndex != NO_ASSERTION_INDEX)
+    if (assertionIndex == NO_ASSERTION_INDEX)
     {
-        optCreateComplementaryAssertion(assertionIndex, op1, op2, helperCallArgs);
+        return NO_ASSERTION_INDEX;
     }
+
+    AssertionDsc& candidateAssertion = *optGetAssertion(assertionIndex);
+
+    if (candidateAssertion.op1.kind == O1K_BOUND_OPER_BND || candidateAssertion.op1.kind == O1K_BOUND_LOOP_BND ||
+        candidateAssertion.op1.kind == O1K_CONSTANT_LOOP_BND)
+    {
+        AssertionDsc dsc  = candidateAssertion;
+        dsc.assertionKind = dsc.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+        optAddAssertion(&dsc);
+
+        return assertionIndex;
+    }
+
+    if (candidateAssertion.assertionKind == OAK_EQUAL)
+    {
+        AssertionIndex index = optCreateAssertion(op1, op2, OAK_NOT_EQUAL, helperCallArgs);
+        optMapComplementary(index, assertionIndex);
+    }
+    else if (candidateAssertion.assertionKind == OAK_NOT_EQUAL)
+    {
+        AssertionIndex index = optCreateAssertion(op1, op2, OAK_EQUAL, helperCallArgs);
+        optMapComplementary(index, assertionIndex);
+    }
+
+    // Are we making a subtype or exact type assertion?
+    if ((candidateAssertion.op1.kind == O1K_SUBTYPE) || (candidateAssertion.op1.kind == O1K_EXACT_TYPE))
+    {
+        apCreateNotNullAssertion(op1);
+    }
+
     return assertionIndex;
 }
 
