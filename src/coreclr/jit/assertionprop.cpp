@@ -1715,75 +1715,56 @@ AssertionIndex Compiler::optFindComplementary(AssertionIndex assertIndex)
     return NO_ASSERTION_INDEX;
 }
 
-/*****************************************************************************
- *
- *  Given a lclNum, a fromType and a toType, return assertion index of the assertion that
- *  claims that a variable's value is always a valid subrange of the fromType.
- *  Thus we can discard or omit a cast to fromType. Returns NO_ASSERTION_INDEX
- *  if one such assertion could not be found in "assertions."
- */
-
-AssertionIndex Compiler::optAssertionIsSubrange(GenTree*         tree,
-                                                var_types        fromType,
-                                                var_types        toType,
-                                                ASSERT_VALARG_TP assertions)
+AssertionIndex Compiler::apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
+                                               ValueNum         vn,
+                                               var_types        fromType,
+                                               var_types        toType)
 {
-    if (BitVecOps::IsEmpty(apTraits, assertions))
-    {
-        return NO_ASSERTION_INDEX;
-    }
+    BitVecOps::Iter iter(apTraits, assertions);
 
-    for (AssertionIndex index = 1; index <= optAssertionCount; index++)
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionDsc* curAssertion = optGetAssertion(index);
-        if (BitVecOps::IsMember(apTraits, assertions, index - 1) && // either local prop or use propagated assertions
-            (curAssertion->assertionKind == OAK_SUBRANGE) && (curAssertion->op1.kind == O1K_LCLVAR))
+        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  assertion = optGetAssertion(index);
+
+        if ((assertion->assertionKind != OAK_SUBRANGE) || (assertion->op1.kind != O1K_LCLVAR))
         {
-            if (curAssertion->op1.vn != vnStore->VNConservativeNormalValue(tree->gtVNPair))
+            continue;
+        }
+
+        if (assertion->op1.vn != vn)
+        {
+            continue;
+        }
+
+        if (varTypeIsUnsigned(fromType) && (assertion->op2.u2.loBound < 0))
+        {
+            continue;
+        }
+
+        if (varTypeIsSmallInt(toType))
+        {
+            if ((assertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
+                (assertion->op2.u2.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
             {
                 continue;
             }
-
-            // If we have an unsigned fromType, then the loBound can't be negative
-            //
-            if (varTypeIsUnsigned(fromType))
-            {
-                if (curAssertion->op2.u2.loBound < 0)
-                {
-                    continue;
-                }
-            }
-
-            // Make sure the toType is within current assertion's bounds.
-            switch (toType)
-            {
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                    if ((curAssertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
-                        (curAssertion->op2.u2.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
-                    {
-                        continue;
-                    }
-                    break;
-
-                case TYP_UINT:
-                    if (curAssertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
-                    {
-                        continue;
-                    }
-                    break;
-
-                case TYP_INT:
-                    break;
-
-                default:
-                    continue;
-            }
-            return index;
         }
+        else if (toType == TYP_UINT)
+        {
+            if (assertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
+            {
+                continue;
+            }
+        }
+        else if (toType != TYP_INT)
+        {
+            continue;
+        }
+
+        return index;
     }
+
     return NO_ASSERTION_INDEX;
 }
 
@@ -2475,7 +2456,9 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
         return nullptr;
     }
 
-    AssertionIndex index = optAssertionIsSubrange(lcl, fromType, toType, assertions);
+    ValueNum       vn    = vnStore->VNNormalValue(lcl->GetConservativeVN());
+    AssertionIndex index = apAssertionIsSubrange(assertions, vn, fromType, toType);
+
     if (index != NO_ASSERTION_INDEX)
     {
         LclVarDsc* varDsc = &lvaTable[lcl->AsLclVarCommon()->GetLclNum()];
