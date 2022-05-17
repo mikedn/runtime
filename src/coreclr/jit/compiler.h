@@ -5959,48 +5959,6 @@ public:
             return false;
         }
 
-        static ssize_t GetLowerBoundForIntegralType(var_types type)
-        {
-            switch (type)
-            {
-                case TYP_BYTE:
-                    return SCHAR_MIN;
-                case TYP_SHORT:
-                    return SHRT_MIN;
-                case TYP_INT:
-                    return INT_MIN;
-                case TYP_BOOL:
-                case TYP_UBYTE:
-                case TYP_USHORT:
-                case TYP_UINT:
-                    return 0;
-                default:
-                    unreached();
-            }
-        }
-        static ssize_t GetUpperBoundForIntegralType(var_types type)
-        {
-            switch (type)
-            {
-                case TYP_BOOL:
-                    return 1;
-                case TYP_BYTE:
-                    return SCHAR_MAX;
-                case TYP_SHORT:
-                    return SHRT_MAX;
-                case TYP_INT:
-                    return INT_MAX;
-                case TYP_UBYTE:
-                    return UCHAR_MAX;
-                case TYP_USHORT:
-                    return USHRT_MAX;
-                case TYP_UINT:
-                    return UINT_MAX;
-                default:
-                    unreached();
-            }
-        }
-
         bool HasSameOp1(AssertionDsc* that)
         {
             if (op1.kind != that->op1.kind)

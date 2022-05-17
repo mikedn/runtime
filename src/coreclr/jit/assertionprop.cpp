@@ -649,6 +649,49 @@ AssertionIndex Compiler::apCreateNotNullAssertion(GenTree* addr)
     return optAddAssertion(&assertion);
 }
 
+static ssize_t GetLowerBoundForIntegralType(var_types type)
+{
+    switch (type)
+    {
+        case TYP_BYTE:
+            return SCHAR_MIN;
+        case TYP_SHORT:
+            return SHRT_MIN;
+        case TYP_INT:
+            return INT_MIN;
+        case TYP_BOOL:
+        case TYP_UBYTE:
+        case TYP_USHORT:
+        case TYP_UINT:
+            return 0;
+        default:
+            unreached();
+    }
+}
+
+static ssize_t GetUpperBoundForIntegralType(var_types type)
+{
+    switch (type)
+    {
+        case TYP_BOOL:
+            return 1;
+        case TYP_BYTE:
+            return SCHAR_MAX;
+        case TYP_SHORT:
+            return SHRT_MAX;
+        case TYP_INT:
+            return INT_MAX;
+        case TYP_UBYTE:
+            return UCHAR_MAX;
+        case TYP_USHORT:
+            return USHRT_MAX;
+        case TYP_UINT:
+            return UINT_MAX;
+        default:
+            unreached();
+    }
+}
+
 AssertionIndex Compiler::apCreateSubrangeAssertion(GenTreeCast* cast)
 {
     GenTree* value = cast->GetOp(0);
@@ -714,8 +757,7 @@ AssertionIndex Compiler::apCreateSubrangeAssertion(GenTreeCast* cast)
         case TYP_UINT:
         case TYP_INT:
 #endif
-            range = {AssertionDsc::GetLowerBoundForIntegralType(toType),
-                     AssertionDsc::GetUpperBoundForIntegralType(toType)};
+            range = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
             break;
 
         default:
@@ -893,8 +935,7 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
                 case TYP_UINT:
                 case TYP_INT:
 #endif
-                    range = {AssertionDsc::GetLowerBoundForIntegralType(toType),
-                             AssertionDsc::GetUpperBoundForIntegralType(toType)};
+                    range = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
                     break;
 
                 default:
@@ -1744,15 +1785,15 @@ AssertionIndex Compiler::apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
 
         if (varTypeIsSmallInt(toType))
         {
-            if ((assertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType)) ||
-                (assertion->op2.u2.hiBound > AssertionDsc::GetUpperBoundForIntegralType(toType)))
+            if ((assertion->op2.u2.loBound < GetLowerBoundForIntegralType(toType)) ||
+                (assertion->op2.u2.hiBound > GetUpperBoundForIntegralType(toType)))
             {
                 continue;
             }
         }
         else if (toType == TYP_UINT)
         {
-            if (assertion->op2.u2.loBound < AssertionDsc::GetLowerBoundForIntegralType(toType))
+            if (assertion->op2.u2.loBound < GetLowerBoundForIntegralType(toType))
             {
                 continue;
             }
