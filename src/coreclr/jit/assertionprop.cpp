@@ -2964,16 +2964,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
             return optAssertionProp_RelOp(assertions, tree, stmt);
 
         case GT_JTRUE:
-            if (block != nullptr)
-            {
-                // TODO-MIKE-Cleanup: This more or less pointless, we did constant propagation already.
-                // It's here only because VN assertion propagation can generate new constant relops
-                // and optAssertionPropGlobal_RelOp is such a convoluted piece of garbage that sometimes
-                // it actually changes the relop node into a constant node and sometimes only sets a
-                // constant VN on it, which then requires optVNConstantPropJTrue to change it to const.
-                return optVNConstantPropJTrue(block, tree->AsUnOp());
-            }
-            return nullptr;
+            return optVNConstantPropJTrue(block, tree->AsUnOp());
 
         default:
             return nullptr;
