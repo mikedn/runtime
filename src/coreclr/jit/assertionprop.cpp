@@ -2079,39 +2079,29 @@ AssertionIndex Compiler::apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenT
     return NO_ASSERTION_INDEX;
 }
 
-/*****************************************************************************
- *
- *  Given a set of "assertions" to search for, find an assertion that is either
- *  op == 0 or op != 0
- *
- */
-AssertionIndex Compiler::optGlobalAssertionIsEqualOrNotEqualZero(ASSERT_VALARG_TP assertions, GenTree* op1)
+AssertionIndex Compiler::apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1)
 {
-    if (BitVecOps::IsEmpty(apTraits, assertions))
-    {
-        return NO_ASSERTION_INDEX;
-    }
+    ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
+    ValueNum vn2 = vnStore->VNZeroForType(op1->GetType());
+
     BitVecOps::Iter iter(apTraits, assertions);
-    unsigned        index = 0;
-    while (iter.NextElem(&index))
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionIndex assertionIndex = GetAssertionIndex(index);
-        if (assertionIndex > optAssertionCount)
-        {
-            break;
-        }
-        AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
-        if ((curAssertion->assertionKind != OAK_EQUAL && curAssertion->assertionKind != OAK_NOT_EQUAL))
+        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  assertion = optGetAssertion(index);
+
+        if ((assertion->assertionKind != OAK_EQUAL) && (assertion->assertionKind != OAK_NOT_EQUAL))
         {
             continue;
         }
 
-        if ((curAssertion->op1.vn == vnStore->VNConservativeNormalValue(op1->gtVNPair)) &&
-            (curAssertion->op2.vn == vnStore->VNZeroForType(op1->TypeGet())))
+        if ((assertion->op1.vn == vn1) && (assertion->op2.vn == vn2))
         {
-            return assertionIndex;
+            return index;
         }
     }
+
     return NO_ASSERTION_INDEX;
 }
 
@@ -2132,7 +2122,7 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
     GenTree* op2     = tree->AsOp()->gtOp2;
 
     // Look for assertions of the form (tree EQ/NE 0)
-    AssertionIndex index = optGlobalAssertionIsEqualOrNotEqualZero(assertions, tree);
+    AssertionIndex index = apAssertionIsZeroEquality(assertions, tree);
 
     if (index != NO_ASSERTION_INDEX)
     {

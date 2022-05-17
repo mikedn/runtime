@@ -6201,7 +6201,7 @@ public:
 
     // Used for Relop propagation.
     AssertionIndex apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
-    AssertionIndex optGlobalAssertionIsEqualOrNotEqualZero(ASSERT_VALARG_TP assertions, GenTree* op1);
+    AssertionIndex apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1);
     // Assertion prop for lcl var functions.
     GenTree* optConstantAssertionProp(AssertionDsc*        curAssertion,
                                       GenTreeLclVarCommon* tree,
