@@ -2491,22 +2491,18 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
     return nullptr;
 }
 
-/*****************************************************************************
- *
- *  Given a tree with an array bounds check node, eliminate it because it was
- *  checked already in the program.
- */
-GenTree* Compiler::optAssertionProp_Comma(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::apPropagateComma(GenTreeOp* comma, Statement* stmt)
 {
     // Remove the bounds check as part of the GT_COMMA node since we need parent pointer to remove nodes.
     // When processing visits the bounds check, it sets the throw kind to None if the check is redundant.
-    if ((tree->gtGetOp1()->OperGet() == GT_ARR_BOUNDS_CHECK) &&
-        ((tree->gtGetOp1()->gtFlags & GTF_ARR_BOUND_INBND) != 0))
+
+    if (!comma->GetOp(0)->OperIs(GT_ARR_BOUNDS_CHECK) || ((comma->GetOp(0)->gtFlags & GTF_ARR_BOUND_INBND) == 0))
     {
-        optRemoveCommaBasedRangeCheck(tree, stmt);
-        return optAssertionProp_Update(tree, tree, stmt);
+        return nullptr;
     }
-    return nullptr;
+
+    optRemoveCommaBasedRangeCheck(comma, stmt);
+    return optAssertionProp_Update(comma, comma, stmt);
 }
 
 //------------------------------------------------------------------------
@@ -2968,7 +2964,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
             return optAssertionProp_BndsChk(assertions, tree, stmt);
 
         case GT_COMMA:
-            return optAssertionProp_Comma(assertions, tree, stmt);
+            return apPropagateComma(tree->AsOp(), stmt);
 
         case GT_CAST:
             return optAssertionProp_Cast(assertions, tree, stmt);
