@@ -1156,7 +1156,7 @@ bool Compiler::optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTree
         return false;
     }
 
-    // ValueNumber 'vn' indicates that this node evaluates to a constant
+    // ValueNumber 'objectVN' indicates that this node evaluates to a constant
 
     var_types vnType = vnStore->TypeOfVN(vn);
     if (vnType == TYP_INT)
@@ -1178,9 +1178,9 @@ bool Compiler::optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTree
 
 /*****************************************************************************
  *
- * Maintain a map "optValueNumToAsserts" i.e., vn -> to set of assertions
- * about that VN. Given "assertions" about a "vn" add it to the previously
- * mapped assertions about that "vn."
+ * Maintain a map "optValueNumToAsserts" i.e., objectVN -> to set of assertions
+ * about that VN. Given "assertions" about a "objectVN" add it to the previously
+ * mapped assertions about that "objectVN."
  */
 void Compiler::optAddVnAssertionMapping(ValueNum vn, AssertionIndex index)
 {
@@ -1558,7 +1558,7 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTreeUnOp* jtrue)
         // Note CORINFO_HELP_READYTORUN_ISINSTANCEOF does not have the same argument pattern.
         // In particular, it is not possible to deduce what class is being tested from its args.
         // Also note The CASTCLASS helpers won't appear in predicates as they throw on failure.
-        // So the helper list here is smaller than the one in optAssertionProp_Call.
+        // So the helper list here is smaller than the one in apPropagateCall.
 
         if ((helper == CORINFO_HELP_ISINSTANCEOFINTERFACE) || (helper == CORINFO_HELP_ISINSTANCEOFARRAY) ||
             (helper == CORINFO_HELP_ISINSTANCEOFCLASS) || (helper == CORINFO_HELP_ISINSTANCEOFANY))
@@ -2590,29 +2590,24 @@ bool Compiler::apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEB
     return NO_ASSERTION_INDEX;
 }
 
-/*****************************************************************************
- *
- *  Given a tree consisting of a call and a set of available assertions, we
- *  try to propagate a non-null assertion and modify the Call tree if we can.
- *  Returns the modified tree, or nullptr if no assertion prop took place.
- *
- */
-GenTree* Compiler::optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call)
+GenTree* Compiler::apPropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call)
 {
     if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
     {
         return nullptr;
     }
-    GenTree* op1 = call->GetThisArg();
-    noway_assert(op1 != nullptr);
-    if (op1->gtOper != GT_LCL_VAR)
+
+    GenTree* thisArg = call->GetThisArg();
+    noway_assert(thisArg != nullptr);
+
+    if (!thisArg->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
 
     INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
 
-    if (!apAssertionIsNotNull(assertions, op1->GetConservativeVN() DEBUGARG(&index)))
+    if (!apAssertionIsNotNull(assertions, thisArg->GetConservativeVN() DEBUGARG(&index)))
     {
         return nullptr;
     }
@@ -2639,72 +2634,62 @@ GenTree* Compiler::optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, Gen
     return call;
 }
 
-/*****************************************************************************
- *
- *  Given a tree consisting of a call and a set of available assertions, we
- *  try to propagate an assertion and modify the Call tree if we can. Our
- *  current modifications are limited to removing the nullptrCHECK flag from
- *  the call.
- *  We pass in the root of the tree via 'stmt', for local copy prop 'stmt'
- *  will be nullptr. Returns the modified tree, or nullptr if no assertion prop
- *  took place.
- *
- */
-
-GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
+GenTree* Compiler::apPropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
 {
-    if (optNonNullAssertionProp_Call(assertions, call))
+    if (apPropagateCallNotNull(assertions, call))
     {
         return optAssertionProp_Update(call, call, stmt);
     }
-    else if (call->gtCallType == CT_HELPER)
+
+    if (!call->IsHelperCall())
     {
-        if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFINTERFACE) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFARRAY) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFCLASS) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFANY) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_CHKCASTINTERFACE) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_CHKCASTARRAY) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_CHKCASTCLASS) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_CHKCASTANY) ||
-            call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_CHKCASTCLASS_SPECIAL))
-        {
-            GenTree* objectArg = call->GetArgNodeByArgNum(1);
-
-            if (!objectArg->OperIs(GT_LCL_VAR))
-            {
-                return nullptr;
-            }
-
-            ValueNum vn = vnStore->VNNormalValue(objectArg->GetConservativeVN());
-
-            GenTree* methodTableArg = call->GetArgNodeByArgNum(0);
-
-            unsigned index = apAssertionIsSubtype(assertions, vn, methodTableArg);
-
-            if (index != NO_ASSERTION_INDEX)
-            {
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nDid VN based subtype prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
-                    gtDispTree(call, nullptr, nullptr, true);
-                }
-#endif
-                GenTree* list = nullptr;
-                gtExtractSideEffList(call, &list, GTF_SIDE_EFFECT, true);
-                if (list != nullptr)
-                {
-                    objectArg = gtNewCommaNode(list, objectArg);
-                    fgSetTreeSeq(objectArg);
-                }
-
-                return optAssertionProp_Update(objectArg, call, stmt);
-            }
-        }
+        return nullptr;
     }
 
-    return nullptr;
+    CorInfoHelpFunc helper = eeGetHelperNum(call->GetMethodHandle());
+
+    if ((helper != CORINFO_HELP_ISINSTANCEOFINTERFACE) && (helper != CORINFO_HELP_ISINSTANCEOFARRAY) &&
+        (helper != CORINFO_HELP_ISINSTANCEOFCLASS) && (helper != CORINFO_HELP_ISINSTANCEOFANY) &&
+        (helper != CORINFO_HELP_CHKCASTINTERFACE) && (helper != CORINFO_HELP_CHKCASTARRAY) &&
+        (helper != CORINFO_HELP_CHKCASTCLASS) && (helper != CORINFO_HELP_CHKCASTANY) &&
+        (helper != CORINFO_HELP_CHKCASTCLASS_SPECIAL))
+    {
+        return nullptr;
+    }
+
+    GenTree* objectArg = call->GetArgNodeByArgNum(1);
+
+    if (!objectArg->OperIs(GT_LCL_VAR))
+    {
+        return nullptr;
+    }
+
+    ValueNum objectVN = vnStore->VNNormalValue(objectArg->GetConservativeVN());
+    unsigned index    = apAssertionIsSubtype(assertions, objectVN, call->GetArgNodeByArgNum(0));
+
+    if (index == NO_ASSERTION_INDEX)
+    {
+        return nullptr;
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("\nDid VN based subtype prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+        gtDispTree(call, nullptr, nullptr, true);
+    }
+#endif
+
+    GenTree* sideEffects = nullptr;
+    gtExtractSideEffList(call, &sideEffects, GTF_SIDE_EFFECT, true);
+
+    if (sideEffects != nullptr)
+    {
+        objectArg = gtNewCommaNode(sideEffects, objectArg);
+        fgSetTreeSeq(objectArg);
+    }
+
+    return optAssertionProp_Update(objectArg, call, stmt);
 }
 
 /*****************************************************************************
@@ -2931,7 +2916,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
             return apPropagateCast(assertions, tree->AsCast(), stmt);
 
         case GT_CALL:
-            return optAssertionProp_Call(assertions, tree->AsCall(), stmt);
+            return apPropagateCall(assertions, tree->AsCall(), stmt);
 
         case GT_EQ:
         case GT_NE:
@@ -3101,7 +3086,7 @@ void Compiler::optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions)
 //                           we have about the value number.
 //
 // Arguments:
-//      vn - The given value number.
+//      objectVN - The given value number.
 //
 // Return Value:
 //      The assertions we have about the value number.
@@ -4597,7 +4582,7 @@ void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
     assert(assertion->assertionKind < OAK_COUNT);
     assert(assertion->op1.kind < O1K_COUNT);
     assert(assertion->op2.kind < O2K_COUNT);
-    // It would be good to check that op1.vn and op2.vn are valid value numbers.
+    // It would be good to check that op1.objectVN and op2.objectVN are valid value numbers.
 
     switch (assertion->op1.kind)
     {
