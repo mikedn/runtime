@@ -6200,7 +6200,7 @@ public:
                                ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex));
 
     // Used for Relop propagation.
-    AssertionIndex optGlobalAssertionIsEqualOrNotEqual(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
+    AssertionIndex apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
     AssertionIndex optGlobalAssertionIsEqualOrNotEqualZero(ASSERT_VALARG_TP assertions, GenTree* op1);
     // Assertion prop for lcl var functions.
     GenTree* optConstantAssertionProp(AssertionDsc*        curAssertion,

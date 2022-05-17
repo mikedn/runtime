@@ -2036,68 +2036,46 @@ GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeL
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// optGlobalAssertionIsEqualOrNotEqual: Look for an assertion in the specified
-//        set that is one of op1 == op1, op1 != op2, or *op1 == op2,
-//        where equality is based on value numbers.
-//
-// Arguments:
-//      assertions: bit vector describing set of assertions
-//      op1, op2:    the treen nodes in question
-//
-// Returns:
-//      Index of first matching assertion, or NO_ASSERTION_INDEX if no
-//      assertions in the set are matches.
-//
-// Notes:
-//      Assertions based on *op1 are the result of exact type tests and are
-//      only returned when op1 is a local var with ref type and the assertion
-//      is an exact type equality.
-//
-AssertionIndex Compiler::optGlobalAssertionIsEqualOrNotEqual(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
+AssertionIndex Compiler::apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
 {
-    if (BitVecOps::IsEmpty(apTraits, assertions))
-    {
-        return NO_ASSERTION_INDEX;
-    }
+    ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
+    ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
+
     BitVecOps::Iter iter(apTraits, assertions);
-    unsigned        index = 0;
-    while (iter.NextElem(&index))
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionIndex assertionIndex = GetAssertionIndex(index);
-        if (assertionIndex > optAssertionCount)
-        {
-            break;
-        }
-        AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
-        if ((curAssertion->assertionKind != OAK_EQUAL && curAssertion->assertionKind != OAK_NOT_EQUAL))
+        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  assertion = optGetAssertion(index);
+
+        if ((assertion->assertionKind != OAK_EQUAL) && (assertion->assertionKind != OAK_NOT_EQUAL))
         {
             continue;
         }
 
-        if ((curAssertion->op1.vn == vnStore->VNConservativeNormalValue(op1->gtVNPair)) &&
-            (curAssertion->op2.vn == vnStore->VNConservativeNormalValue(op2->gtVNPair)))
+        if (assertion->op2.vn != vn2)
         {
-            return assertionIndex;
+            continue;
         }
 
-        // Look for matching exact type assertions based on vtable accesses
-        if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op1.kind == O1K_EXACT_TYPE) &&
-            op1->OperIs(GT_IND))
+        if (assertion->op1.vn == vn1)
         {
-            GenTree* indirAddr = op1->AsIndir()->Addr();
+            return index;
+        }
 
-            if (indirAddr->OperIs(GT_LCL_VAR) && (indirAddr->TypeGet() == TYP_REF))
+        // Look for matching exact type assertions based on vtable accesses.
+        if ((assertion->assertionKind == OAK_EQUAL) && (assertion->op1.kind == O1K_EXACT_TYPE) && op1->OperIs(GT_IND))
+        {
+            GenTree* addr = op1->AsIndir()->GetAddr();
+
+            if (addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF) &&
+                (assertion->op1.vn == vnStore->VNNormalValue(addr->GetConservativeVN())))
             {
-                // op1 is accessing vtable of a ref type local var
-                if ((curAssertion->op1.vn == vnStore->VNConservativeNormalValue(indirAddr->gtVNPair)) &&
-                    (curAssertion->op2.vn == vnStore->VNConservativeNormalValue(op2->gtVNPair)))
-                {
-                    return assertionIndex;
-                }
+                return index;
             }
         }
     }
+
     return NO_ASSERTION_INDEX;
 }
 
@@ -2212,7 +2190,7 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
     }
 
     // Find an equal or not equal assertion involving "op1" and "op2".
-    index = optGlobalAssertionIsEqualOrNotEqual(assertions, op1, op2);
+    index = apAssertionIsEquality(assertions, op1, op2);
 
     if (index == NO_ASSERTION_INDEX)
     {
