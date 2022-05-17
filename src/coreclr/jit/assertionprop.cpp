@@ -2385,110 +2385,88 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
     return optAssertionProp_Update(newTree, tree, stmt);
 }
 
-/*****************************************************************************
- *
- *  Given a tree consisting of a Cast and a set of available assertions
- *  we try to propagate an assertion and modify the Cast tree if we can.
- *  We pass in the root of the tree via 'stmt', for local copy prop 'stmt'
- *  will be nullptr.
- *
- *  Returns the modified tree, or nullptr if no assertion prop took place.
- */
-GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
 {
-    assert(tree->gtOper == GT_CAST);
+    GenTree*  op1      = cast->GetOp(0);
+    var_types fromType = op1->GetType();
+    var_types toType   = cast->GetCastType();
 
-    var_types fromType = tree->CastFromType();
-    var_types toType   = tree->AsCast()->gtCastType;
-    GenTree*  op1      = tree->AsCast()->CastOp();
-
-    // force the fromType to unsigned if GT_UNSIGNED flag is set
-    if (tree->IsUnsigned())
-    {
-        fromType = varTypeToUnsigned(fromType);
-    }
-
-    // If we have a cast involving floating point types, then bail.
     if (varTypeIsFloating(toType) || varTypeIsFloating(fromType))
     {
         return nullptr;
     }
 
-    GenTree* lcl = op1->SkipComma();
+    if (cast->IsUnsigned())
+    {
+        fromType = varTypeToUnsigned(fromType);
+    }
 
-    if (!lcl->OperIs(GT_LCL_VAR))
+    GenTree* lclVar = op1->SkipComma();
+
+    if (!lclVar->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
 
-    ValueNum       vn    = vnStore->VNNormalValue(lcl->GetConservativeVN());
+    ValueNum       vn    = vnStore->VNNormalValue(lclVar->GetConservativeVN());
     AssertionIndex index = apAssertionIsSubrange(assertions, vn, fromType, toType);
 
-    if (index != NO_ASSERTION_INDEX)
+    if (index == NO_ASSERTION_INDEX)
     {
-        LclVarDsc* varDsc = &lvaTable[lcl->AsLclVarCommon()->GetLclNum()];
-        assert(!varDsc->IsAddressExposed());
+        return nullptr;
+    }
 
-        if (varDsc->lvNormalizeOnLoad() || varTypeIsLong(varDsc->TypeGet()))
+    LclVarDsc* lcl = lvaGetDesc(lclVar->AsLclVar());
+    assert(!lcl->IsAddressExposed());
+
+    if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
+    {
+        return optAssertionProp_Update(op1, cast, stmt);
+    }
+
+    if (varTypeSize(toType) > varTypeSize(lcl->GetType()))
+    {
+        if (!cast->gtOverflow())
         {
-            // For normalize on load variables it must be a narrowing cast to remove
-            if (genTypeSize(toType) > genTypeSize(varDsc->TypeGet()))
-            {
-                // Can we just remove the GTF_OVERFLOW flag?
-                if ((tree->gtFlags & GTF_OVERFLOW) == 0)
-                {
-                    return nullptr;
-                }
-                else
-                {
-
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
-                        gtDispTree(tree, nullptr, nullptr, true);
-                    }
-#endif
-                    tree->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
-                    return optAssertionProp_Update(tree, tree, stmt);
-                }
-            }
-
-            //             GT_CAST   long -> uint -> int
-            //                |
-            //           GT_LCL_VAR long
-            //
-            // Where the lclvar is known to be in the range of [0..MAX_UINT]
-            //
-            // A load of a 32-bit unsigned int is the same as a load of a 32-bit signed int
-            //
-            if (toType == TYP_UINT)
-            {
-                toType = TYP_INT;
-            }
-
-            // Change the "lcl" type to match what the cast wanted, by propagating the type
-            // change down the comma nodes leading to the "lcl", if we skipped them earlier.
-            GenTree* tmp = op1;
-            while (tmp->gtOper == GT_COMMA)
-            {
-                tmp->gtType = toType;
-                tmp         = tmp->AsOp()->gtOp2;
-            }
-            noway_assert(tmp == lcl);
-            tmp->gtType = toType;
+            return nullptr;
         }
 
 #ifdef DEBUG
         if (verbose)
         {
             printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
-            gtDispTree(tree, nullptr, nullptr, true);
+            gtDispTree(cast, nullptr, nullptr, true);
         }
 #endif
-        return optAssertionProp_Update(op1, tree, stmt);
+        cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
+
+        return optAssertionProp_Update(cast, cast, stmt);
     }
-    return nullptr;
+
+    if (toType == TYP_UINT)
+    {
+        toType = TYP_INT;
+    }
+
+    GenTree* tmp = op1;
+
+    while (tmp->OperIs(GT_COMMA))
+    {
+        tmp->SetType(toType);
+        tmp = tmp->AsOp()->GetOp(1);
+    }
+
+    tmp->SetType(toType);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+        gtDispTree(cast, nullptr, nullptr, true);
+    }
+#endif
+
+    return optAssertionProp_Update(op1, cast, stmt);
 }
 
 GenTree* Compiler::apPropagateComma(GenTreeOp* comma, Statement* stmt)
@@ -2950,7 +2928,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
             return apPropagateComma(tree->AsOp(), stmt);
 
         case GT_CAST:
-            return optAssertionProp_Cast(assertions, tree, stmt);
+            return apPropagateCast(assertions, tree->AsCast(), stmt);
 
         case GT_CALL:
             return optAssertionProp_Call(assertions, tree->AsCall(), stmt);
