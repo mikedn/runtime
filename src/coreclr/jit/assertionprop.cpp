@@ -2692,14 +2692,8 @@ GenTree* Compiler::apPropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* cal
     return optAssertionProp_Update(objectArg, call, stmt);
 }
 
-/*****************************************************************************
- *
- *  Given a tree with a bounds check, remove it if it has already been checked in the program flow.
- */
-GenTree* Compiler::optAssertionProp_BndsChk(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt)
 {
-    assert(tree->gtOper == GT_ARR_BOUNDS_CHECK);
-
 #ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
     if (JitConfig.JitNoRangeChks())
     {
@@ -2707,94 +2701,73 @@ GenTree* Compiler::optAssertionProp_BndsChk(ASSERT_VALARG_TP assertions, GenTree
         if (verbose)
         {
             printf("\nFlagging check redundant due to JitNoRangeChks in " FMT_BB ":\n", compCurBB->bbNum);
-            gtDispTree(tree, nullptr, nullptr, true);
+            gtDispTree(boundsChk, nullptr, nullptr, true);
         }
-#endif // DEBUG
-        tree->gtFlags |= GTF_ARR_BOUND_INBND;
+#endif
+
+        boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
         return nullptr;
     }
 #endif // FEATURE_ENABLE_NO_RANGE_CHECKS
 
+    ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
+    ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+
     BitVecOps::Iter iter(apTraits, assertions);
-    unsigned        index = 0;
-    while (iter.NextElem(&index))
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionIndex assertionIndex = GetAssertionIndex(index);
-        if (assertionIndex > optAssertionCount)
-        {
-            break;
-        }
-        // If it is not a nothrow assertion, skip.
-        AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
-        if (!curAssertion->IsBoundsCheckNoThrow())
+        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  assertion = optGetAssertion(index);
+
+        if (assertion->assertionKind != OAK_NO_THROW)
         {
             continue;
         }
 
-        GenTreeBoundsChk* arrBndsChk = tree->AsBoundsChk();
-
-        // Set 'isRedundant' to true if we can determine that 'arrBndsChk' can be
-        // classified as a redundant bounds check using 'curAssertion'
-        bool isRedundant = false;
-#ifdef DEBUG
-        const char* dbgMsg = "Not Set";
-#endif
-
         // Do we have a previous range check involving the same 'vnLen' upper bound?
-        if (curAssertion->op1.bnd.vnLen == vnStore->VNConservativeNormalValue(arrBndsChk->gtArrLen->gtVNPair))
+        if (assertion->op1.bnd.vnLen != lengthVN)
         {
-            ValueNum vnCurIdx = vnStore->VNConservativeNormalValue(arrBndsChk->gtIndex->gtVNPair);
+            continue;
+        }
 
-            // Do we have the exact same lower bound 'vnIdx'?
-            //       a[i] followed by a[i]
-            if (curAssertion->op1.bnd.vnIdx == vnCurIdx)
-            {
-                isRedundant = true;
-#ifdef DEBUG
-                dbgMsg = "a[i] followed by a[i]";
-#endif
-            }
-            // Are we using zero as the index?
-            // It can always be considered as redundant with any previous value
-            //       a[*] followed by a[0]
-            else if (vnCurIdx == vnStore->VNZeroForType(arrBndsChk->gtIndex->TypeGet()))
-            {
-                isRedundant = true;
-#ifdef DEBUG
-                dbgMsg = "a[*] followed by a[0]";
-#endif
-            }
-            // Do we have two constant indexes?
-            else if (vnStore->IsVNConstant(curAssertion->op1.bnd.vnIdx) && vnStore->IsVNConstant(vnCurIdx))
-            {
-                // Make sure the types match.
-                var_types type1 = vnStore->TypeOfVN(curAssertion->op1.bnd.vnIdx);
-                var_types type2 = vnStore->TypeOfVN(vnCurIdx);
+        bool isRedundant = false;
+        INDEBUG(const char* message = "");
 
-                if (type1 == type2 && type1 == TYP_INT)
+        if (assertion->op1.bnd.vnIdx == indexVN)
+        {
+            isRedundant = true;
+            INDEBUG(message = "a[i] followed by a[i]");
+        }
+        else if (indexVN == vnStore->VNZeroForType(boundsChk->GetIndex()->GetType()))
+        {
+            isRedundant = true;
+            INDEBUG(message = "a[*] followed by a[0]");
+        }
+        else if (vnStore->IsVNConstant(assertion->op1.bnd.vnIdx) && vnStore->IsVNConstant(indexVN))
+        {
+            var_types type1 = vnStore->TypeOfVN(assertion->op1.bnd.vnIdx);
+            var_types type2 = vnStore->TypeOfVN(indexVN);
+
+            if ((type1 == type2) && (type1 == TYP_INT))
+            {
+                int index1 = vnStore->ConstantValue<int>(assertion->op1.bnd.vnIdx);
+                int index2 = vnStore->ConstantValue<int>(indexVN);
+
+                assert(index1 != index2);
+
+                if ((index2 >= 0) && (index1 >= index2))
                 {
-                    int index1 = vnStore->ConstantValue<int>(curAssertion->op1.bnd.vnIdx);
-                    int index2 = vnStore->ConstantValue<int>(vnCurIdx);
-
-                    // the case where index1 == index2 should have been handled above
-                    assert(index1 != index2);
-
-                    // It can always be considered as redundant with any previous higher constant value
-                    //       a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2
-                    if (index2 >= 0 && index1 >= index2)
-                    {
-                        isRedundant = true;
-#ifdef DEBUG
-                        dbgMsg = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2";
-#endif
-                    }
+                    isRedundant = true;
+                    INDEBUG(message = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2");
                 }
             }
-            // Extend this to remove additional redundant bounds checks:
-            // i.e.  a[i+1] followed by a[i]  by using the VN(i+1) >= VN(i)
-            //       a[i]   followed by a[j]  when j is known to be >= i
-            //       a[i]   followed by a[5]  when i is known to be >= 5
         }
+
+        // Extend this to remove additional redundant bounds checks:
+        // i.e.  a[i+1] followed by a[i]  by using the VN(i+1) >= VN(i)
+        //       a[i]   followed by a[j]  when j is known to be >= i
+        //       a[i]   followed by a[5]  when i is known to be >= 5
 
         if (!isRedundant)
         {
@@ -2804,26 +2777,21 @@ GenTree* Compiler::optAssertionProp_BndsChk(ASSERT_VALARG_TP assertions, GenTree
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nVN based redundant (%s) bounds check assertion prop for index #%02u in " FMT_BB ":\n", dbgMsg,
-                   assertionIndex, compCurBB->bbNum);
-            gtDispTree(tree, nullptr, nullptr, true);
+            printf("\nVN based redundant (%s) bounds check assertion prop for index #%02u in " FMT_BB ":\n", message,
+                   index, compCurBB->bbNum);
+            gtDispTree(boundsChk, nullptr, nullptr, true);
         }
 #endif
-        if (arrBndsChk == stmt->GetRootNode())
+
+        if (boundsChk == stmt->GetRootNode())
         {
-            // We have a top-level bounds check node.
-            // This can happen when trees are broken up due to inlining.
-            // optRemoveStandaloneRangeCheck will return the modified tree (side effects or a no-op).
-            GenTree* newTree = optRemoveStandaloneRangeCheck(arrBndsChk, stmt);
-
-            return optAssertionProp_Update(newTree, arrBndsChk, stmt);
+            return optAssertionProp_Update(optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
         }
-
-        // Defer actually removing the tree until processing reaches its parent comma, since
-        // optRemoveCommaBasedRangeCheck needs to rewrite the whole comma tree.
-        arrBndsChk->gtFlags |= GTF_ARR_BOUND_INBND;
-
-        return nullptr;
+        else
+        {
+            boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
+            return nullptr;
+        }
     }
 
     return nullptr;
@@ -2907,7 +2875,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
             return apPropagateIndir(assertions, tree->AsIndir(), stmt);
 
         case GT_ARR_BOUNDS_CHECK:
-            return optAssertionProp_BndsChk(assertions, tree, stmt);
+            return apPropagateBoundsChk(assertions, tree->AsBoundsChk(), stmt);
 
         case GT_COMMA:
             return apPropagateComma(tree->AsOp(), stmt);
