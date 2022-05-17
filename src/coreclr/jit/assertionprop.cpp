@@ -931,6 +931,11 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
         return kind == OAK_EQUAL ? optAddAssertion(&assertion) : NO_ASSERTION_INDEX;
     }
 
+    if (apAssertionHasNanVN(&assertion))
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
     AssertionIndex index = optAddAssertion(&assertion);
 
     if (index != NO_ASSERTION_INDEX)
@@ -1149,26 +1154,24 @@ void Compiler::optAddVnAssertionMapping(ValueNum vn, AssertionIndex index)
     }
 }
 
-/*****************************************************************************
- * Statically if we know that this assertion's VN involves a NaN don't bother
- * wasting an assertion table slot.
- */
-bool Compiler::optAssertionVnInvolvesNan(AssertionDsc* assertion)
+bool Compiler::apAssertionHasNanVN(AssertionDsc* assertion)
 {
-    static const int SZ      = 2;
-    ValueNum         vns[SZ] = {assertion->op1.vn, assertion->op2.vn};
-    for (int i = 0; i < SZ; ++i)
+    ValueNum vns[]{assertion->op1.vn, assertion->op2.vn};
+
+    for (ValueNum vn : vns)
     {
-        if (vnStore->IsVNConstant(vns[i]))
+        if (vnStore->IsVNConstant(vn))
         {
-            var_types type = vnStore->TypeOfVN(vns[i]);
-            if ((type == TYP_FLOAT && _isnan(vnStore->ConstantValue<float>(vns[i])) != 0) ||
-                (type == TYP_DOUBLE && _isnan(vnStore->ConstantValue<double>(vns[i])) != 0))
+            var_types type = vnStore->TypeOfVN(vn);
+
+            if (((type == TYP_FLOAT) && _isnan(vnStore->ConstantValue<float>(vn))) ||
+                ((type == TYP_DOUBLE) && _isnan(vnStore->ConstantValue<double>(vn))))
             {
                 return true;
             }
         }
     }
+
     return false;
 }
 
@@ -1185,14 +1188,6 @@ bool Compiler::optAssertionVnInvolvesNan(AssertionDsc* assertion)
 AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
 {
     noway_assert(newAssertion->assertionKind != OAK_INVALID);
-
-    // Even though the propagation step takes care of NaN, just a check
-    // to make sure there is no slot involving a NaN.
-    if (optAssertionVnInvolvesNan(newAssertion))
-    {
-        JITDUMP("Assertion involved Nan not adding\n");
-        return NO_ASSERTION_INDEX;
-    }
 
     // Check if exists already, so we can skip adding new one. Search backwards.
     for (AssertionIndex index = optAssertionCount; index >= 1; index--)

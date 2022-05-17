@@ -6182,7 +6182,7 @@ public:
     AssertionIndex apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind assertionKind);
     AssertionIndex apAddBoundAssertions(AssertionDsc* assertion);
 
-    bool optAssertionVnInvolvesNan(AssertionDsc* assertion);
+    bool apAssertionHasNanVN(AssertionDsc* assertion);
     AssertionIndex optAddAssertion(AssertionDsc* assertion);
     void optAddVnAssertionMapping(ValueNum vn, AssertionIndex index);
 #ifdef DEBUG
