@@ -1218,10 +1218,13 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
     }
 #endif // DEBUG
 
-    optAddVnAssertionMapping(newAssertion->op1.vn, optAssertionCount);
-    if (newAssertion->op2.kind == O2K_LCLVAR_COPY)
+    if (newAssertion->assertionKind != OAK_NO_THROW)
     {
-        optAddVnAssertionMapping(newAssertion->op2.vn, optAssertionCount);
+        optAddVnAssertionMapping(newAssertion->op1.vn, optAssertionCount);
+        if (newAssertion->op2.kind == O2K_LCLVAR_COPY)
+        {
+            optAddVnAssertionMapping(newAssertion->op2.vn, optAssertionCount);
+        }
     }
 
 #ifdef DEBUG
