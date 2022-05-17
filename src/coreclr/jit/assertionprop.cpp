@@ -2149,22 +2149,6 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
 {
     assert(tree->OperIsCompare());
 
-    return optAssertionPropGlobal_RelOp(assertions, tree, stmt);
-}
-
-//------------------------------------------------------------------------
-// optAssertionProp: try and optimize a relop via assertion propagation
-//
-// Arguments:
-//   assertions  - set of live assertions
-//   tree        - tree to possibly optimize
-//   stmt        - statement containing the tree
-//
-// Returns:
-//   The modified tree, or nullptr if no assertion prop took place.
-//
-GenTree* Compiler::optAssertionPropGlobal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
-{
     GenTree* newTree = tree;
     GenTree* op1     = tree->AsOp()->gtOp1;
     GenTree* op2     = tree->AsOp()->gtOp2;
