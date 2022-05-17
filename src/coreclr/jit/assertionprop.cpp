@@ -2505,45 +2505,28 @@ GenTree* Compiler::apPropagateComma(GenTreeOp* comma, Statement* stmt)
     return optAssertionProp_Update(comma, comma, stmt);
 }
 
-//------------------------------------------------------------------------
-// optAssertionProp_Ind: see if we can prove the indirection can't cause
-//    and exception.
-//
-// Arguments:
-//   assertions  - set of live assertions
-//   tree        - tree to possibly optimize
-//   stmt        - statement containing the tree
-//
-// Returns:
-//   The modified tree, or nullptr if no assertion prop took place.
-//
-// Notes:
-//   stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::apPropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* indir, Statement* stmt)
 {
-    assert(tree->OperIsIndir());
-
-    if (!(tree->gtFlags & GTF_EXCEPT))
+    if ((indir->gtFlags & GTF_EXCEPT) == 0)
     {
         return nullptr;
     }
 
-    // Check for add of a constant.
-    GenTree* op1 = tree->AsIndir()->Addr();
-    if ((op1->gtOper == GT_ADD) && (op1->AsOp()->gtOp2->gtOper == GT_CNS_INT))
+    GenTree* addr = indir->GetAddr();
+
+    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
     {
-        op1 = op1->AsOp()->gtOp1;
+        addr = addr->AsOp()->GetOp(0);
     }
 
-    if (op1->gtOper != GT_LCL_VAR)
+    if (!addr->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
 
     INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
 
-    if (!apAssertionIsNotNull(assertions, op1->GetConservativeVN() DEBUGARG(&index)))
+    if (!apAssertionIsNotNull(assertions, addr->GetConservativeVN() DEBUGARG(&index)))
     {
         return nullptr;
     }
@@ -2560,16 +2543,16 @@ GenTree* Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tr
             printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
         }
 
-        gtDispTree(tree, nullptr, nullptr, true);
+        gtDispTree(indir, nullptr, nullptr, true);
     }
 #endif
 
-    tree->gtFlags &= ~GTF_EXCEPT;
-    tree->gtFlags |= GTF_IND_NONFAULTING;
+    indir->gtFlags &= ~GTF_EXCEPT;
+    indir->gtFlags |= GTF_IND_NONFAULTING;
     // Set this flag to prevent reordering
-    tree->gtFlags |= GTF_ORDER_SIDEEFF;
+    indir->gtFlags |= GTF_ORDER_SIDEEFF;
 
-    return optAssertionProp_Update(tree, tree, stmt);
+    return optAssertionProp_Update(indir, indir, stmt);
 }
 
 bool Compiler::apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEBUGARG(AssertionIndex* assertionIndex))
@@ -2958,7 +2941,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
         case GT_BLK:
         case GT_IND:
         case GT_NULLCHECK:
-            return optAssertionProp_Ind(assertions, tree, stmt);
+            return apPropagateIndir(assertions, tree->AsIndir(), stmt);
 
         case GT_ARR_BOUNDS_CHECK:
             return optAssertionProp_BndsChk(assertions, tree, stmt);
