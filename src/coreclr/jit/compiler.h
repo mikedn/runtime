@@ -6051,7 +6051,7 @@ protected:
     AssertionIndex  optMaxAssertionCount;
 
 public:
-    GenTree* optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
+    GenTree* apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
     GenTree* optVNConstantPropExtractSideEffects(GenTree* tree);
 
     AssertionIndex GetAssertionCount()

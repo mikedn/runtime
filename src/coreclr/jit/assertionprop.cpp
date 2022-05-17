@@ -2895,7 +2895,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
             return optAssertionProp_RelOp(assertions, tree, stmt);
 
         case GT_JTRUE:
-            return optVNConstantPropJTrue(block, tree->AsUnOp());
+            return apPropagateJTrue(block, tree->AsUnOp());
 
         default:
             return nullptr;
@@ -3678,33 +3678,7 @@ GenTree* Compiler::optVNConstantPropExtractSideEffects(GenTree* tree)
     return sideEffList;
 }
 
-//------------------------------------------------------------------------------
-// optVNConstantPropJTrue
-//    Constant propagate on the JTrue node by extracting side effects and moving
-//    them into their own statements. The relop node is then modified to yield
-//    true or false, so the branch can be folded.
-//
-// Return Value:
-//    The jmpTrue tree node that has relop of the form "0 =/!= 0".
-//    If "tree" evaluates to "true" relop is "0 == 0". Else relop is "0 != 0".
-//
-// Description:
-//    Special treatment for JTRUE nodes' constant propagation. This is because
-//    for JTRUE(1) or JTRUE(0), if there are side effects they need to be put
-//    in separate statements. This is to prevent relop's constant
-//    propagation from doing a simple minded conversion from
-//    (1) STMT(JTRUE(RELOP(COMMA(sideEffect, OP1), OP2)), S.T. op1 =/!= op2 to
-//    (2) STMT(JTRUE(COMMA(sideEffect, 1/0)).
-//
-//    fgFoldConditional doesn't fold (2), a side-effecting JTRUE's op1. So, let us,
-//    here, convert (1) as two statements: STMT(sideEffect), STMT(JTRUE(1/0)),
-//    so that the JTRUE will get folded by fgFoldConditional.
-//
-//  Note: fgFoldConditional is called from other places as well, which may be
-//  sensitive to adding new statements. Hence the change is not made directly
-//  into fgFoldConditional.
-//
-GenTree* Compiler::optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
+GenTree* Compiler::apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
 {
     GenTree* relop = jtrue->GetOp(0);
 
@@ -3714,13 +3688,11 @@ GenTree* Compiler::optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
         return nullptr;
     }
 
-    // Make sure GTF_RELOP_JMP_USED flag is set so that we don't replace the
-    // relop with a constant when we reach it later in the pre-order walk.
     assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
 
-    ValueNum vnCns = vnStore->VNConservativeNormalValue(relop->gtVNPair);
+    ValueNum relopVN = vnStore->VNNormalValue(relop->GetConservativeVN());
 
-    if (!vnStore->IsVNConstant(vnCns))
+    if (!vnStore->IsVNConstant(relopVN))
     {
         return nullptr;
     }
@@ -3735,9 +3707,9 @@ GenTree* Compiler::optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
     GenTree* op2 = gtNewIconNode(0);
     op2->SetVNs(ValueNumPair(vnZero, vnZero));
     relop->AsOp()->SetOp(1, op2);
-    relop->SetOper(vnStore->CoercedConstantValue<int64_t>(vnCns) != 0 ? GT_EQ : GT_NE);
+    relop->SetOper(vnStore->CoercedConstantValue<int64_t>(relopVN) != 0 ? GT_EQ : GT_NE);
     ValueNum vnLib = vnStore->VNLiberalNormalValue(relop->gtVNPair);
-    relop->SetVNs(ValueNumPair(vnLib, vnCns));
+    relop->SetVNs(ValueNumPair(vnLib, relopVN));
 
     while (sideEffects != nullptr)
     {
