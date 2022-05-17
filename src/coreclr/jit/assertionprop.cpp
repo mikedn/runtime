@@ -1787,66 +1787,51 @@ AssertionIndex Compiler::optAssertionIsSubrange(GenTree*         tree,
     return NO_ASSERTION_INDEX;
 }
 
-/**********************************************************************************
- *
- * Given a "tree" that is usually arg1 of a isinst/cast kind of GT_CALL (a class
- * handle), and "methodTableArg" which is a const int (a class handle), then search
- * if there is an assertion in "assertions", that asserts the equality of the two
- * class handles and then returns the index of the assertion. If one such assertion
- * could not be found, then it returns NO_ASSERTION_INDEX.
- *
- */
-AssertionIndex Compiler::optAssertionIsSubtype(GenTree* tree, GenTree* methodTableArg, ASSERT_VALARG_TP assertions)
+AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
 {
-    if (BitVecOps::IsEmpty(apTraits, assertions))
+    BitVecOps::Iter iter(apTraits, assertions);
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        return NO_ASSERTION_INDEX;
-    }
-    for (AssertionIndex index = 1; index <= optAssertionCount; index++)
-    {
-        if (!BitVecOps::IsMember(apTraits, assertions, index - 1))
+        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  assertion = optGetAssertion(index);
+
+        if ((assertion->assertionKind != OAK_EQUAL) ||
+            ((assertion->op1.kind != O1K_SUBTYPE) && (assertion->op1.kind != O1K_EXACT_TYPE)))
         {
             continue;
         }
 
-        AssertionDsc* curAssertion = optGetAssertion(index);
-        if (curAssertion->assertionKind != OAK_EQUAL ||
-            (curAssertion->op1.kind != O1K_SUBTYPE && curAssertion->op1.kind != O1K_EXACT_TYPE))
+        if (assertion->op1.vn != vn)
         {
             continue;
         }
 
-        // If local assertion prop use "lcl" based comparison, if global assertion prop use vn based comparison.
-        if (curAssertion->op1.vn != vnStore->VNConservativeNormalValue(tree->gtVNPair))
+        if (assertion->op2.kind == O2K_IND_CNS_INT)
         {
-            continue;
-        }
-
-        if (curAssertion->op2.kind == O2K_IND_CNS_INT)
-        {
-            if (methodTableArg->gtOper != GT_IND)
+            if (!methodTable->OperIs(GT_IND))
             {
                 continue;
             }
-            methodTableArg = methodTableArg->AsOp()->gtOp1;
+
+            // TODO-MIKE-Review: This is dubious, it modifies methodTable so on
+            // subsequent assertions it no longer does what it's supposed to do.
+            methodTable = methodTable->AsIndir()->GetAddr();
         }
-        else if (curAssertion->op2.kind != O2K_CONST_INT)
+        else if (assertion->op2.kind != O2K_CONST_INT)
         {
             continue;
         }
 
-        ssize_t      methodTableVal = 0;
-        GenTreeFlags iconFlags      = GTF_EMPTY;
-        if (!optIsTreeKnownIntValue(methodTableArg, &methodTableVal, &iconFlags))
-        {
-            continue;
-        }
+        ssize_t      iconVal   = 0;
+        GenTreeFlags iconFlags = GTF_EMPTY;
 
-        if (curAssertion->op2.u1.iconVal == methodTableVal)
+        if (optIsTreeKnownIntValue(methodTable, &iconVal, &iconFlags) && (assertion->op2.u1.iconVal == iconVal))
         {
             return index;
         }
     }
+
     return NO_ASSERTION_INDEX;
 }
 
@@ -2840,15 +2825,19 @@ GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCal
             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_CHKCASTANY) ||
             call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_CHKCASTCLASS_SPECIAL))
         {
-            GenTree* arg1 = call->GetArgNodeByArgNum(1);
-            if (arg1->gtOper != GT_LCL_VAR)
+            GenTree* objectArg = call->GetArgNodeByArgNum(1);
+
+            if (!objectArg->OperIs(GT_LCL_VAR))
             {
                 return nullptr;
             }
 
-            GenTree* arg2 = call->GetArgNodeByArgNum(0);
+            ValueNum vn = vnStore->VNNormalValue(objectArg->GetConservativeVN());
 
-            unsigned index = optAssertionIsSubtype(arg1, arg2, assertions);
+            GenTree* methodTableArg = call->GetArgNodeByArgNum(0);
+
+            unsigned index = apAssertionIsSubtype(assertions, vn, methodTableArg);
+
             if (index != NO_ASSERTION_INDEX)
             {
 #ifdef DEBUG
@@ -2862,11 +2851,11 @@ GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCal
                 gtExtractSideEffList(call, &list, GTF_SIDE_EFFECT, true);
                 if (list != nullptr)
                 {
-                    arg1 = gtNewCommaNode(list, arg1);
-                    fgSetTreeSeq(arg1);
+                    objectArg = gtNewCommaNode(list, objectArg);
+                    fgSetTreeSeq(objectArg);
                 }
 
-                return optAssertionProp_Update(arg1, call, stmt);
+                return optAssertionProp_Update(objectArg, call, stmt);
             }
         }
     }

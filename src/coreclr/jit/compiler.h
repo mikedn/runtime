@@ -6195,7 +6195,7 @@ public:
                                           var_types        fromType,
                                           var_types        toType,
                                           ASSERT_VALARG_TP assertions);
-    AssertionIndex optAssertionIsSubtype(GenTree* tree, GenTree* methodTableArg, ASSERT_VALARG_TP assertions);
+    AssertionIndex apAssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable);
     AssertionIndex optAssertionIsNonNullInternal(GenTree* op, ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased));
     bool optAssertionIsNonNull(GenTree*         op,
                                ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex));
