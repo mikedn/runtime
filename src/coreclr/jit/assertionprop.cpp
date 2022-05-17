@@ -2532,119 +2532,58 @@ GenTree* Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tr
         return nullptr;
     }
 
-#ifdef DEBUG
-    bool           vnBased = false;
-    AssertionIndex index   = NO_ASSERTION_INDEX;
-#endif
-    if (optAssertionIsNonNull(op1, assertions DEBUGARG(&vnBased) DEBUGARG(&index)))
+    INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
+
+    if (!apAssertionIsNotNull(assertions, op1->GetConservativeVN() DEBUGARG(&index)))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            (vnBased) ? printf("\nVN based non-null prop in " FMT_BB ":\n", compCurBB->bbNum)
-                      : printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
-            gtDispTree(tree, nullptr, nullptr, true);
-        }
-#endif
-        tree->gtFlags &= ~GTF_EXCEPT;
-        tree->gtFlags |= GTF_IND_NONFAULTING;
-
-        // Set this flag to prevent reordering
-        tree->gtFlags |= GTF_ORDER_SIDEEFF;
-
-        return optAssertionProp_Update(tree, tree, stmt);
+        return nullptr;
     }
 
-    return nullptr;
+#ifdef DEBUG
+    if (verbose)
+    {
+        if (index == NO_ASSERTION_INDEX)
+        {
+            printf("\nVN based non-null prop in " FMT_BB ":\n", compCurBB->bbNum);
+        }
+        else
+        {
+            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+        }
+
+        gtDispTree(tree, nullptr, nullptr, true);
+    }
+#endif
+
+    tree->gtFlags &= ~GTF_EXCEPT;
+    tree->gtFlags |= GTF_IND_NONFAULTING;
+    // Set this flag to prevent reordering
+    tree->gtFlags |= GTF_ORDER_SIDEEFF;
+
+    return optAssertionProp_Update(tree, tree, stmt);
 }
 
-//------------------------------------------------------------------------
-// optAssertionIsNonNull: see if we can prove a tree's value will be non-null
-//   based on assertions
-//
-// Arguments:
-//   op - tree to check
-//   assertions  - set of live assertions
-//   pVnBased - [out] set to true if value numbers were used
-//   pIndex - [out] the assertion used in the proof
-//
-// Returns:
-//   true if the tree's value will be non-null
-//
-// Notes:
-//   Sets "pVnBased" if the assertion is value number based. If no matching
-//    assertions are found from the table, then returns "NO_ASSERTION_INDEX."
-//
-//   If both VN and assertion table yield a matching assertion, "pVnBased"
-//   is only set and the return value is "NO_ASSERTION_INDEX."
-//
-bool Compiler::optAssertionIsNonNull(GenTree*         op,
-                                     ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased)
-                                         DEBUGARG(AssertionIndex* pIndex))
+bool Compiler::apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEBUGARG(AssertionIndex* assertionIndex))
 {
-    bool vnBased = vnStore->IsKnownNonNull(op->gtVNPair.GetConservative());
-#ifdef DEBUG
-    *pVnBased = vnBased;
-#endif
-
-    if (vnBased)
+    if (vnStore->IsKnownNonNull(vn))
     {
-#ifdef DEBUG
-        *pIndex = NO_ASSERTION_INDEX;
-#endif
         return true;
     }
 
-    AssertionIndex index = optAssertionIsNonNullInternal(op, assertions DEBUGARG(pVnBased));
-#ifdef DEBUG
-    *pIndex = index;
-#endif
-    return index != NO_ASSERTION_INDEX;
-}
+    // TODO-MIKE-Review: Shouldn't this be done before the IsKnownNonNull above?
+    vn = vnStore->VNNormalValue(vn);
 
-//------------------------------------------------------------------------
-// optAssertionIsNonNullInternal: see if we can prove a tree's value will
-//   be non-null based on assertions
-//
-// Arguments:
-//   op - tree to check
-//   assertions  - set of live assertions
-//   pVnBased - [out] set to true if value numbers were used
-//
-// Returns:
-//   index of assertion, or NO_ASSERTION_INDEX
-//
-AssertionIndex Compiler::optAssertionIsNonNullInternal(GenTree*         op,
-                                                       ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased))
-{
+    ValueNum baseVN = vn;
 
-#ifdef DEBUG
-    // Initialize the out param
-    //
-    *pVnBased = false;
-#endif
-
-    if (BitVecOps::MayBeUninit(assertions) || BitVecOps::IsEmpty(apTraits, assertions))
+    for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) && (funcApp.m_func == static_cast<VNFunc>(GT_ADD));)
     {
-        return NO_ASSERTION_INDEX;
-    }
-
-    // Look at both the top-level vn, and
-    // the vn we get by stripping off any constant adds.
-    //
-    ValueNum  vn     = vnStore->VNConservativeNormalValue(op->gtVNPair);
-    ValueNum  vnBase = vn;
-    VNFuncApp funcAttr;
-
-    while (vnStore->GetVNFunc(vnBase, &funcAttr) && (funcAttr.m_func == (VNFunc)GT_ADD))
-    {
-        if (vnStore->IsVNConstant(funcAttr.m_args[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[1])))
+        if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
         {
-            vnBase = funcAttr.m_args[0];
+            baseVN = funcApp[0];
         }
-        else if (vnStore->IsVNConstant(funcAttr.m_args[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcAttr.m_args[0])))
+        else if (vnStore->IsVNConstant(funcApp[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[0])))
         {
-            vnBase = funcAttr.m_args[1];
+            baseVN = funcApp[1];
         }
         else
         {
@@ -2652,42 +2591,35 @@ AssertionIndex Compiler::optAssertionIsNonNullInternal(GenTree*         op,
         }
     }
 
-    // Check each assertion to find if we have a vn != null assertion.
-    //
     BitVecOps::Iter iter(apTraits, assertions);
-    unsigned        index = 0;
-    while (iter.NextElem(&index))
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionIndex assertionIndex = GetAssertionIndex(index);
-        if (assertionIndex > optAssertionCount)
-        {
-            break;
-        }
-        AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
-        if (curAssertion->assertionKind != OAK_NOT_EQUAL)
+        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  assertion = optGetAssertion(index);
+
+        if (assertion->assertionKind != OAK_NOT_EQUAL)
         {
             continue;
         }
 
-        if (curAssertion->op2.vn != ValueNumStore::VNForNull())
+        if (assertion->op2.vn != ValueNumStore::VNForNull())
         {
             continue;
         }
 
-        if ((curAssertion->op1.vn != vn) && (curAssertion->op1.vn != vnBase))
+        if ((assertion->op1.vn != vn) && (assertion->op1.vn != baseVN))
         {
             continue;
         }
 
-#ifdef DEBUG
-        *pVnBased = true;
-#endif
-
-        return assertionIndex;
+        INDEBUG(*assertionIndex = index);
+        return true;
     }
 
     return NO_ASSERTION_INDEX;
 }
+
 /*****************************************************************************
  *
  *  Given a tree consisting of a call and a set of available assertions, we
@@ -2708,26 +2640,33 @@ GenTree* Compiler::optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, Gen
         return nullptr;
     }
 
-#ifdef DEBUG
-    bool           vnBased = false;
-    AssertionIndex index   = NO_ASSERTION_INDEX;
-#endif
-    if (optAssertionIsNonNull(op1, assertions DEBUGARG(&vnBased) DEBUGARG(&index)))
+    INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
+
+    if (!apAssertionIsNotNull(assertions, op1->GetConservativeVN() DEBUGARG(&index)))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            (vnBased) ? printf("\nVN based non-null prop in " FMT_BB ":\n", compCurBB->bbNum)
-                      : printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
-            gtDispTree(call, nullptr, nullptr, true);
-        }
-#endif
-        call->gtFlags &= ~GTF_CALL_NULLCHECK;
-        call->gtFlags &= ~GTF_EXCEPT;
-        noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
-        return call;
+        return nullptr;
     }
-    return nullptr;
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        if (index == NO_ASSERTION_INDEX)
+        {
+            printf("\nVN based non-null prop in " FMT_BB ":\n", compCurBB->bbNum);
+        }
+        else
+        {
+            printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compCurBB->bbNum);
+        }
+
+        gtDispTree(call, nullptr, nullptr, true);
+    }
+#endif
+
+    call->gtFlags &= ~GTF_CALL_NULLCHECK;
+    call->gtFlags &= ~GTF_EXCEPT;
+    noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
+    return call;
 }
 
 /*****************************************************************************
