@@ -84,10 +84,10 @@ void Compiler::optAddCopies()
         }
 
         /* For lvNormalizeOnLoad(), we need to add a cast to the copy-assignment
-           like "copyLclNum = int(varDsc)" and optAssertionGen() only
+           like "copyLclNum = int(varDsc)" and apGenerateNodeAssertions() only
            tracks simple assignments. The same goes for lvNormalizedOnStore as
            the cast is generated in fgMorphSmpOpAsg. This boils down to not having
-           a copy until optAssertionGen handles this*/
+           a copy until apGenerateNodeAssertions handles this*/
         if (varDsc->lvNormalizeOnLoad() || varDsc->lvNormalizeOnStore())
         {
             continue;
@@ -1659,90 +1659,77 @@ AssertionIndex Compiler::apGeneratePhiAssertions(GenTreeOp* asg)
     return apCreateNotNullAssertion(asg->GetOp(0));
 }
 
-/*****************************************************************************
- *
- *  If this statement creates a value assignment or assertion
- *  then assign an index to the given value assignment by adding
- *  it to the lookup table, if necessary.
- */
-void Compiler::optAssertionGen(GenTree* tree)
+void Compiler::apGenerateNodeAssertions(GenTree* node)
 {
-    tree->ClearAssertion();
+    node->ClearAssertion();
 
-#ifdef DEBUG
-    optAssertionPropCurrentTree = tree;
-#endif
+    INDEBUG(optAssertionPropCurrentTree = node);
 
-    // For most of the assertions that we create below
-    // the assertion is true after the tree is processed
-    bool          assertionProven = true;
+    bool          assertionIsTrue = true;
     AssertionInfo assertionInfo;
-    switch (tree->gtOper)
+
+    switch (node->GetOper())
     {
         case GT_ASG:
-            if (tree->IsPhiDefn())
+            if (node->IsPhiDefn())
             {
-                assertionInfo = apGeneratePhiAssertions(tree->AsOp());
+                assertionInfo = apGeneratePhiAssertions(node->AsOp());
             }
             break;
 
         case GT_BLK:
         case GT_OBJ:
-            assert(tree->AsBlk()->GetLayout()->GetSize() != 0);
+            assert(node->AsBlk()->GetLayout()->GetSize() != 0);
             FALLTHROUGH;
         case GT_IND:
         case GT_NULLCHECK:
-            // All indirections create non-null assertions
-            assertionInfo = apCreateNotNullAssertion(tree->AsIndir()->GetAddr());
+            assertionInfo = apCreateNotNullAssertion(node->AsIndir()->GetAddr());
             break;
-
         case GT_ARR_LENGTH:
-            assertionInfo = apCreateNotNullAssertion(tree->AsArrLen()->GetArray());
+            assertionInfo = apCreateNotNullAssertion(node->AsArrLen()->GetArray());
             break;
-
         case GT_ARR_BOUNDS_CHECK:
-            assertionInfo = apCreateNoThrowAssertion(tree->AsBoundsChk());
+            assertionInfo = apCreateNoThrowAssertion(node->AsBoundsChk());
             break;
-
         case GT_ARR_ELEM:
-            // An array element reference can create a non-null assertion
-            assertionInfo = apCreateNotNullAssertion(tree->AsArrElem()->GetArray());
+            assertionInfo = apCreateNotNullAssertion(node->AsArrElem()->GetArray());
             break;
 
         case GT_CALL:
-        {
-            // A virtual call can create a non-null assertion. We transform some virtual calls into non-virtual calls
-            // with a GTF_CALL_NULLCHECK flag set.
-            // Ignore tail calls because they have 'this` pointer in the regular arg list and an implicit null check.
-            GenTreeCall* const call = tree->AsCall();
-            if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
+            // A virtual call can create a non-null assertion. We transform some virtual calls
+            // into non-virtual calls with a GTF_CALL_NULLCHECK flag set.
+            // Ignore tail calls because they have 'this` pointer in the regular arg list and
+            // an implicit null check.
             {
-                assertionInfo = apCreateNotNullAssertion(call->GetThisArg());
+                GenTreeCall* call = node->AsCall();
+
+                if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
+                {
+                    assertionInfo = apCreateNotNullAssertion(call->GetThisArg());
+                }
             }
-        }
-        break;
+            break;
 
         case GT_CAST:
-            // This represets an assertion that we would like to prove to be true. It is not actually a true
-            // assertion.
-            // If we can prove this assertion true then we can eliminate this cast.
-            assertionInfo   = apCreateSubrangeAssertion(tree->AsCast());
-            assertionProven = false;
+            assertionInfo = apCreateSubrangeAssertion(node->AsCast());
+
+            // This represets an assertion that we would like to prove to be true.
+            // It is not actually a true assertion. If we can prove this assertion
+            // true then we can eliminate this cast.
+            assertionIsTrue = false;
             break;
 
         case GT_JTRUE:
-            assertionInfo = apGenerateJTrueAssertions(tree->AsUnOp());
+            assertionInfo = apGenerateJTrueAssertions(node->AsUnOp());
             break;
 
         default:
-            // All other gtOper node kinds, leave 'assertionIndex' = NO_ASSERTION_INDEX
             break;
     }
 
-    // For global assertion prop we must store the assertion number in the tree node
-    if (assertionInfo.HasAssertion() && assertionProven)
+    if (assertionInfo.HasAssertion() && assertionIsTrue)
     {
-        tree->SetAssertionInfo(assertionInfo);
+        node->SetAssertionInfo(assertionInfo);
     }
 }
 
@@ -4225,7 +4212,7 @@ void Compiler::optVNAssertionProp()
 
             for (GenTree* const tree : stmt->TreeList())
             {
-                optAssertionGen(tree);
+                apGenerateNodeAssertions(tree);
             }
         }
     }

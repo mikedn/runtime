@@ -6125,7 +6125,7 @@ public:
     ASSERT_TP* optComputeAssertionGen();
 
     // Assertion Gen functions.
-    void optAssertionGen(GenTree* tree);
+    void apGenerateNodeAssertions(GenTree* tree);
     AssertionIndex apGeneratePhiAssertions(GenTreeOp* asg);
     AssertionInfo apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue);
     AssertionInfo apGenerateJTrueAssertions(GenTreeUnOp* jtrue);
