@@ -1997,7 +1997,7 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
     }
 #endif
 
-    return optAssertionProp_Update(newTree, tree, stmt);
+    return apUpdateTree(newTree, tree, stmt);
 }
 
 GenTree* Compiler::apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
@@ -2142,7 +2142,7 @@ GenTree* Compiler::apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relo
 
         relop->ChangeToIntCon(assertion->assertionKind != OAK_EQUAL);
 
-        return optAssertionProp_Update(relop, relop, stmt);
+        return apUpdateTree(relop, relop, stmt);
     }
 
     if (!relop->OperIs(GT_EQ, GT_NE))
@@ -2305,10 +2305,10 @@ GenTree* Compiler::apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relo
         gtReverseCond(relop);
     }
 
-    // TODO-MIKE-Review: Why are we morphing here? optAssertionProp_Update will do that anyway.
+    // TODO-MIKE-Review: Why are we morphing here? apUpdateTree will do that anyway.
     GenTree* newTree = fgMorphTree(relop);
     DBEXEC(verbose, gtDispTree(newTree, nullptr, nullptr, true);)
-    return optAssertionProp_Update(newTree, relop, stmt);
+    return apUpdateTree(newTree, relop, stmt);
 }
 
 GenTree* Compiler::apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
@@ -2347,7 +2347,7 @@ GenTree* Compiler::apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cas
 
     if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
     {
-        return optAssertionProp_Update(op1, cast, stmt);
+        return apUpdateTree(op1, cast, stmt);
     }
 
     if (varTypeSize(toType) > varTypeSize(lcl->GetType()))
@@ -2366,7 +2366,7 @@ GenTree* Compiler::apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cas
 #endif
         cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
 
-        return optAssertionProp_Update(cast, cast, stmt);
+        return apUpdateTree(cast, cast, stmt);
     }
 
     if (toType == TYP_UINT)
@@ -2392,12 +2392,12 @@ GenTree* Compiler::apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cas
     }
 #endif
 
-    return optAssertionProp_Update(op1, cast, stmt);
+    return apUpdateTree(op1, cast, stmt);
 }
 
 GenTree* Compiler::apPropagateComma(GenTreeOp* comma, Statement* stmt)
 {
-    // Remove the bounds check as part of the GT_COMMA node since we need parent pointer to remove nodes.
+    // Remove the bounds check as part of the GT_COMMA node since we need user pointer to remove nodes.
     // When processing visits the bounds check, it sets the throw kind to None if the check is redundant.
 
     if (!comma->GetOp(0)->OperIs(GT_ARR_BOUNDS_CHECK) || ((comma->GetOp(0)->gtFlags & GTF_ARR_BOUND_INBND) == 0))
@@ -2406,7 +2406,7 @@ GenTree* Compiler::apPropagateComma(GenTreeOp* comma, Statement* stmt)
     }
 
     optRemoveCommaBasedRangeCheck(comma, stmt);
-    return optAssertionProp_Update(comma, comma, stmt);
+    return apUpdateTree(comma, comma, stmt);
 }
 
 GenTree* Compiler::apPropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* indir, Statement* stmt)
@@ -2456,7 +2456,7 @@ GenTree* Compiler::apPropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* i
     // Set this flag to prevent reordering
     indir->gtFlags |= GTF_ORDER_SIDEEFF;
 
-    return optAssertionProp_Update(indir, indir, stmt);
+    return apUpdateTree(indir, indir, stmt);
 }
 
 bool Compiler::apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEBUGARG(AssertionIndex* assertionIndex))
@@ -2564,7 +2564,7 @@ GenTree* Compiler::apPropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* cal
 {
     if (apPropagateCallNotNull(assertions, call))
     {
-        return optAssertionProp_Update(call, call, stmt);
+        return apUpdateTree(call, call, stmt);
     }
 
     if (!call->IsHelperCall())
@@ -2615,7 +2615,7 @@ GenTree* Compiler::apPropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* cal
         fgSetTreeSeq(objectArg);
     }
 
-    return optAssertionProp_Update(objectArg, call, stmt);
+    return apUpdateTree(objectArg, call, stmt);
 }
 
 GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt)
@@ -2711,7 +2711,7 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
 
         if (boundsChk == stmt->GetRootNode())
         {
-            return optAssertionProp_Update(optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
+            return apUpdateTree(optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
         }
         else
         {
@@ -2723,51 +2723,34 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
     return nullptr;
 }
 
-/*****************************************************************************
- *
- *  Called when we have a successfully performed an assertion prop. We have
- *  the newTree in hand. This method will replace the existing tree in the
- *  stmt with the newTree.
- *
- */
-
-GenTree* Compiler::optAssertionProp_Update(GenTree* newTree, GenTree* tree, Statement* stmt)
+GenTree* Compiler::apUpdateTree(GenTree* newTree, GenTree* tree, Statement* stmt)
 {
     assert(newTree != nullptr);
     assert(tree != nullptr);
-    noway_assert(stmt != nullptr);
+    assert(stmt != nullptr);
 
-    // If newTree == tree then we modified the tree in-place otherwise we have to
-    // locate our parent node and update it so that it points to newTree.
     if (newTree != tree)
     {
-        FindLinkData linkData = gtFindLink(stmt, tree);
-        GenTree**    useEdge  = linkData.result;
-        GenTree*     parent   = linkData.parent;
-        noway_assert(useEdge != nullptr);
-
-        if (parent != nullptr)
+        if (stmt->GetRootNode() == tree)
         {
-            parent->ReplaceOperand(useEdge, newTree);
+            stmt->SetRootNode(newTree);
         }
         else
         {
-            // If there's no parent, the tree being replaced is the root of the
-            // statement.
-            assert((stmt->GetRootNode() == tree) && (stmt->GetRootNodePointer() == useEdge));
-            stmt->SetRootNode(newTree);
+            FindLinkData use = gtFindLink(stmt, tree);
+            noway_assert((use.useEdge != nullptr) && (use.user != nullptr));
+            use.user->ReplaceOperand(use.useEdge, newTree);
         }
 
-        // We only need to ensure that the gtNext field is set as it is used to traverse
-        // to the next node in the tree. We will re-morph this entire statement in
-        // optVNAssertionProp(). It will reset the gtPrev and gtNext links for all nodes.
+        // We need to ensure that the gtNext field is set as it is used to traverse
+        // the statement. Later we'll re-morph and sequence the statement, so that
+        // gtPrev gets updated as well.
         newTree->gtNext = tree->gtNext;
 
-        // Old tree should not be referenced anymore.
         DEBUG_DESTROY_NODE(tree);
     }
 
-    optVNAssertionPropStmtMorphPending = true;
+    apStmtMorphPending = true;
 
     return newTree;
 }
@@ -4388,7 +4371,7 @@ void Compiler::optVNAssertionProp()
             // removes the current stmt.
             Statement* prevStmt = (stmt == block->firstStmt()) ? nullptr : stmt->GetPrevStmt();
 
-            optVNAssertionPropStmtMorphPending = false;
+            apStmtMorphPending = false;
 
             for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
             {
@@ -4401,7 +4384,7 @@ void Compiler::optVNAssertionProp()
                 GenTree* newTree = optAssertionProp(assertions, tree, stmt, block);
                 if (newTree != nullptr)
                 {
-                    assert(optVNAssertionPropStmtMorphPending);
+                    assert(apStmtMorphPending);
                     tree = newTree;
                 }
 
@@ -4414,7 +4397,7 @@ void Compiler::optVNAssertionProp()
                 }
             }
 
-            if (optVNAssertionPropStmtMorphPending)
+            if (apStmtMorphPending)
             {
 #ifdef DEBUG
                 if (verbose)

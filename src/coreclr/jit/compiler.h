@@ -2341,8 +2341,8 @@ public:
     struct FindLinkData
     {
         GenTree*  nodeToFind;
-        GenTree** result;
-        GenTree*  parent;
+        GenTree** useEdge;
+        GenTree*  user;
     };
 
     FindLinkData gtFindLink(Statement* stmt, GenTree* node);
@@ -6041,7 +6041,7 @@ protected:
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    bool optVNAssertionPropStmtMorphPending;
+    bool apStmtMorphPending;
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
@@ -6172,7 +6172,7 @@ public:
     GenTree* apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt);
     GenTree* apPropagateComma(GenTreeOp* comma, Statement* stmt);
     GenTree* apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt);
-    GenTree* optAssertionProp_Update(GenTree* newTree, GenTree* tree, Statement* stmt);
+    GenTree* apUpdateTree(GenTree* newTree, GenTree* tree, Statement* stmt);
     GenTree* apPropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call);
 
     // Implied assertion functions.

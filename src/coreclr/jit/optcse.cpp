@@ -3185,7 +3185,7 @@ public:
             // in the tree is pointing to 'exp'
             //
             Compiler::FindLinkData linkData = m_pCompiler->gtFindLink(stmt, exp);
-            GenTree**              link     = linkData.result;
+            GenTree**              link     = linkData.useEdge;
 
 #ifdef DEBUG
             if (link == nullptr)
