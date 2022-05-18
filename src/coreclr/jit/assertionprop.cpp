@@ -1346,7 +1346,7 @@ AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
     return index;
 }
 
-AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
+AssertionInfo Compiler::apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
 {
     GenTree* relop = jtrue->GetOp(0);
 
@@ -1495,7 +1495,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTreeUnOp* jtrue)
     return NO_ASSERTION_INDEX;
 }
 
-AssertionInfo Compiler::optAssertionGenJtrue(GenTreeUnOp* jtrue)
+AssertionInfo Compiler::apGenerateJTrueAssertions(GenTreeUnOp* jtrue)
 {
     GenTree* relop = jtrue->GetOp(0);
 
@@ -1504,7 +1504,7 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTreeUnOp* jtrue)
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionInfo info = optCreateJTrueBoundsAssertion(jtrue);
+    AssertionInfo info = apGenerateJTrueBoundAssertions(jtrue);
 
     if (info.HasAssertion())
     {
@@ -1738,7 +1738,7 @@ void Compiler::optAssertionGen(GenTree* tree)
             break;
 
         case GT_JTRUE:
-            assertionInfo = optAssertionGenJtrue(tree->AsUnOp());
+            assertionInfo = apGenerateJTrueAssertions(tree->AsUnOp());
             break;
 
         default:
