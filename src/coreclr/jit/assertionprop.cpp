@@ -1021,7 +1021,7 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
     {
         op2 = op2->AsIndir()->GetAddr();
 
-        if (!optIsTreeKnownIntValue(op2, &assertion.op2.u1.iconVal, &assertion.op2.u1.iconFlags))
+        if (!apIsConstInt(op2, &assertion.op2.u1.iconVal, &assertion.op2.u1.iconFlags))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1029,7 +1029,7 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
         assertion.op2.kind = O2K_IND_CNS_INT;
     }
     // JIT case
-    else if (optIsTreeKnownIntValue(op2, &assertion.op2.u1.iconVal, &assertion.op2.u1.iconFlags))
+    else if (apIsConstInt(op2, &assertion.op2.u1.iconVal, &assertion.op2.u1.iconFlags))
     {
         assertion.op2.kind = O2K_CONST_INT;
     }
@@ -1141,39 +1141,34 @@ AssertionIndex Compiler::apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* o
     return index;
 }
 
-/*****************************************************************************
- *
- * If tree is a constant node holding an integral value, retrieve the value in
- * pConstant. If the method returns true, pConstant holds the appropriate
- * constant. Set "vnBased" to true to indicate local or global assertion prop.
- * "pFlags" indicates if the constant is a handle marked by GTF_ICON_HDL_MASK.
- */
-bool Compiler::optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pFlags)
+bool Compiler::apIsConstInt(GenTree* node, ssize_t* value, GenTreeFlags* flags)
 {
-    ValueNum vn = vnStore->VNConservativeNormalValue(tree->gtVNPair);
+    ValueNum vn = vnStore->VNNormalValue(node->GetConservativeVN());
+
     if (!vnStore->IsVNConstant(vn))
     {
         return false;
     }
 
-    // ValueNumber 'objectVN' indicates that this node evaluates to a constant
+    switch (vnStore->TypeOfVN(vn))
+    {
+        case TYP_INT:
+            *value = vnStore->ConstantValue<int>(vn);
+            *flags = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
 
-    var_types vnType = vnStore->TypeOfVN(vn);
-    if (vnType == TYP_INT)
-    {
-        *pConstant = vnStore->ConstantValue<int>(vn);
-        *pFlags    = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
-        return true;
-    }
+            return true;
+
 #ifdef TARGET_64BIT
-    else if (vnType == TYP_LONG)
-    {
-        *pConstant = vnStore->ConstantValue<INT64>(vn);
-        *pFlags    = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
-        return true;
-    }
+        case TYP_LONG:
+            *value = vnStore->ConstantValue<INT64>(vn);
+            *flags = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
+
+            return true;
 #endif
-    return false;
+
+        default:
+            return false;
+    }
 }
 
 bool Compiler::apAssertionHasNanVN(AssertionDsc* assertion)
@@ -1811,7 +1806,7 @@ AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, Value
         ssize_t      iconVal   = 0;
         GenTreeFlags iconFlags = GTF_EMPTY;
 
-        if (optIsTreeKnownIntValue(methodTable, &iconVal, &iconFlags) && (assertion->op2.u1.iconVal == iconVal))
+        if (apIsConstInt(methodTable, &iconVal, &iconFlags) && (assertion->op2.u1.iconVal == iconVal))
         {
             return index;
         }
