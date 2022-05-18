@@ -2755,57 +2755,34 @@ GenTree* Compiler::apUpdateTree(GenTree* newTree, GenTree* tree, Statement* stmt
     return newTree;
 }
 
-//------------------------------------------------------------------------
-// optAssertionProp: try and optimize a tree via assertion propagation
-//
-// Arguments:
-//   assertions  - set of live assertions
-//   tree        - tree to possibly optimize
-//   stmt        - statement containing the tree
-//   block       - block containing the statement
-//
-// Returns:
-//   The modified tree, or nullptr if no assertion prop took place.
-//
-// Notes:
-//   stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block)
+GenTree* Compiler::apPropagateNode(ASSERT_VALARG_TP assertions, GenTree* node, Statement* stmt, BasicBlock* block)
 {
-    switch (tree->gtOper)
+    switch (node->GetOper())
     {
         case GT_LCL_VAR:
-            return apPropagateLclVar(assertions, tree->AsLclVar(), stmt);
-
+            return apPropagateLclVar(assertions, node->AsLclVar(), stmt);
         case GT_OBJ:
         case GT_BLK:
         case GT_IND:
         case GT_NULLCHECK:
-            return apPropagateIndir(assertions, tree->AsIndir(), stmt);
-
+            return apPropagateIndir(assertions, node->AsIndir(), stmt);
         case GT_ARR_BOUNDS_CHECK:
-            return apPropagateBoundsChk(assertions, tree->AsBoundsChk(), stmt);
-
+            return apPropagateBoundsChk(assertions, node->AsBoundsChk(), stmt);
         case GT_COMMA:
-            return apPropagateComma(tree->AsOp(), stmt);
-
+            return apPropagateComma(node->AsOp(), stmt);
         case GT_CAST:
-            return apPropagateCast(assertions, tree->AsCast(), stmt);
-
+            return apPropagateCast(assertions, node->AsCast(), stmt);
         case GT_CALL:
-            return apPropagateCall(assertions, tree->AsCall(), stmt);
-
+            return apPropagateCall(assertions, node->AsCall(), stmt);
         case GT_EQ:
         case GT_NE:
         case GT_LT:
         case GT_LE:
         case GT_GT:
         case GT_GE:
-            return apPropagateRelop(assertions, tree->AsOp(), stmt);
-
+            return apPropagateRelop(assertions, node->AsOp(), stmt);
         case GT_JTRUE:
-            return apPropagateJTrue(block, tree->AsUnOp());
-
+            return apPropagateJTrue(block, node->AsUnOp());
         default:
             return nullptr;
     }
@@ -4381,7 +4358,7 @@ void Compiler::optVNAssertionProp()
                 JITDUMPEXEC(optPrintAssertionIndex(tree->GetAssertionInfo().GetAssertionIndex()));
                 JITDUMP("\n");
 
-                GenTree* newTree = optAssertionProp(assertions, tree, stmt, block);
+                GenTree* newTree = apPropagateNode(assertions, tree, stmt, block);
                 if (newTree != nullptr)
                 {
                     assert(apStmtMorphPending);
