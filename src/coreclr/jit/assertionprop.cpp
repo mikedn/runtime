@@ -2782,7 +2782,7 @@ void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& ac
     else if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op1.kind == O1K_LCLVAR) &&
              (curAssertion->op2.kind == O2K_CONST_INT))
     {
-        optImpliedByConstAssertion(curAssertion, activeAssertions);
+        apAddConstImpliedAssertions(curAssertion, activeAssertions);
     }
 }
 
@@ -2829,79 +2829,64 @@ void Compiler::apAddTypeImpliedNotNullAssertions(ASSERT_TP& assertions)
     }
 }
 
-/*****************************************************************************
- *
- *   Given a const assertion this method computes the set of implied assertions
- *   that are also true
- */
-
-void Compiler::optImpliedByConstAssertion(AssertionDsc* constAssertion, ASSERT_TP& result)
+void Compiler::apAddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_TP& result)
 {
-    noway_assert(constAssertion->assertionKind == OAK_EQUAL);
-    noway_assert(constAssertion->op1.kind == O1K_LCLVAR);
-    noway_assert(constAssertion->op2.kind == O2K_CONST_INT);
+    assert(constAssertion->assertionKind == OAK_EQUAL);
+    assert((constAssertion->op1.kind == O1K_LCLVAR) && (constAssertion->op2.kind == O2K_CONST_INT));
 
-    ssize_t iconVal = constAssertion->op2.u1.iconVal;
+    ssize_t value = constAssertion->op2.u1.iconVal;
 
-    const ASSERT_TP chkAssertions = apGetVNAssertion(constAssertion->op1.vn);
-    if (chkAssertions == nullptr || BitVecOps::IsEmpty(apTraits, chkAssertions))
+    const ASSERT_TP vnAssertions = apGetVNAssertion(constAssertion->op1.vn);
+
+    if (vnAssertions == BitVecOps::UninitVal())
     {
         return;
     }
 
-    // Check each assertion in chkAssertions to see if it can be applied to constAssertion
-    BitVecOps::Iter chkIter(apTraits, chkAssertions);
-    unsigned        chkIndex = 0;
-    while (chkIter.NextElem(&chkIndex))
+    BitVecOps::Iter iter(apTraits, vnAssertions);
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionIndex chkAssertionIndex = GetAssertionIndex(chkIndex);
-        if (chkAssertionIndex > apAssertionCount)
-        {
-            break;
-        }
-        // The impAssertion must be different from the const assertion.
-        AssertionDsc* impAssertion = apGetAssertion(chkAssertionIndex);
-        if (impAssertion == constAssertion)
+        AssertionIndex impliedIndex     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  impliedAssertion = apGetAssertion(impliedIndex);
+
+        if (impliedAssertion == constAssertion)
         {
             continue;
         }
 
-        // The impAssertion must be an assertion about the same local var.
-        if (impAssertion->op1.vn != constAssertion->op1.vn)
+        if (impliedAssertion->op1.vn != constAssertion->op1.vn)
         {
             continue;
         }
 
-        bool usable = false;
-        switch (impAssertion->op2.kind)
+        if (impliedAssertion->op2.kind == O2K_SUBRANGE)
         {
-            case O2K_SUBRANGE:
-                // Is the const assertion's constant, within implied assertion's bounds?
-                usable = ((iconVal >= impAssertion->op2.u2.loBound) && (iconVal <= impAssertion->op2.u2.hiBound));
-                break;
-
-            case O2K_CONST_INT:
-                // Is the const assertion's constant equal/not equal to the implied assertion?
-                usable = ((impAssertion->assertionKind == OAK_EQUAL) && (impAssertion->op2.u1.iconVal == iconVal)) ||
-                         ((impAssertion->assertionKind == OAK_NOT_EQUAL) && (impAssertion->op2.u1.iconVal != iconVal));
-                break;
-
-            default:
-                // leave 'usable' = false;
-                break;
-        }
-
-        if (usable)
-        {
-            BitVecOps::AddElemD(apTraits, result, chkIndex);
-#ifdef DEBUG
-            if (verbose)
+            if ((value < impliedAssertion->op2.u2.loBound) || (impliedAssertion->op2.u2.hiBound < value))
             {
-                AssertionDsc* firstAssertion = apGetAssertion(1);
-                printf("Compiler::optImpliedByConstAssertion: const assertion #%02d implies assertion #%02d\n",
-                       (constAssertion - firstAssertion) + 1, (impAssertion - firstAssertion) + 1);
+                continue;
             }
-#endif
+        }
+        else if (impliedAssertion->op2.kind == O2K_CONST_INT)
+        {
+            // TODO-MIKE-Review: This is dubious, it checks for an "implied" assertion that's actually identical.
+            if (!((impliedAssertion->assertionKind == OAK_EQUAL) && (impliedAssertion->op2.u1.iconVal == value)) &&
+                !((impliedAssertion->assertionKind == OAK_NOT_EQUAL) && (impliedAssertion->op2.u1.iconVal != value)))
+            {
+                continue;
+            }
+        }
+        else
+        {
+            continue;
+        }
+
+        if (BitVecOps::TryAddElemD(apTraits, result, bitIndex))
+        {
+            INDEBUG(AssertionDsc* firstAssertion = apGetAssertion(1));
+            JITDUMP("apAddConstImpliedAssertions: const assertion #%02d implies assertion #%02d\n",
+                    GetAssertionIndex(static_cast<unsigned>(constAssertion - firstAssertion)),
+                    GetAssertionIndex(static_cast<unsigned>(impliedAssertion - firstAssertion)));
         }
     }
 }
@@ -3071,7 +3056,7 @@ void Compiler::optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionD
             // subrange assertion.
             if (depIsConstAssertion)
             {
-                optImpliedByConstAssertion(impAssertion, result);
+                apAddConstImpliedAssertions(impAssertion, result);
             }
         }
     }
