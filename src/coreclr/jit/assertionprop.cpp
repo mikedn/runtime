@@ -510,22 +510,12 @@ void Compiler::optAssertionInit()
     bbJtrueAssertionOut = nullptr;
 }
 
-/******************************************************************************
- *
- * Helper to retrieve the "assertIndex" assertion. Note that assertIndex 0
- * is NO_ASSERTION_INDEX and "optAssertionCount" is the last valid index.
- *
- */
-Compiler::AssertionDsc* Compiler::optGetAssertion(AssertionIndex assertIndex)
+Compiler::AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
 {
-    assert(NO_ASSERTION_INDEX == 0);
-    assert(assertIndex != NO_ASSERTION_INDEX);
-    assert(assertIndex <= optAssertionCount);
-    AssertionDsc* assertion = &optAssertionTabPrivate[assertIndex - 1];
-#ifdef DEBUG
-    optDebugCheckAssertion(assertion);
-#endif
+    assert((1 <= index) && (index <= optAssertionCount));
 
+    AssertionDsc* assertion = &optAssertionTabPrivate[index - 1];
+    INDEBUG(optDebugCheckAssertion(assertion));
     return assertion;
 }
 
@@ -1198,7 +1188,7 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
 
     for (AssertionIndex index = optAssertionCount; index >= 1; index--)
     {
-        if (optGetAssertion(index)->Equals(assertion))
+        if (apGetAssertion(index)->Equals(assertion))
         {
             return index;
         }
@@ -1278,7 +1268,7 @@ AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionDsc* assertion = optGetAssertion(index);
+    AssertionDsc* assertion = apGetAssertion(index);
 
     if ((assertion->assertionKind != OAK_EQUAL) && (assertion->assertionKind != OAK_NOT_EQUAL))
     {
@@ -1296,7 +1286,7 @@ AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
     // assertion when generating assertions?
     for (complementaryIndex = 1; complementaryIndex <= optAssertionCount; ++complementaryIndex)
     {
-        AssertionDsc* complementaryAssertion = optGetAssertion(complementaryIndex);
+        AssertionDsc* complementaryAssertion = apGetAssertion(complementaryIndex);
 
         if (complementaryAssertion->Complementary(assertion))
         {
@@ -1315,7 +1305,7 @@ AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
 
     if (index != NO_ASSERTION_INDEX)
     {
-        AssertionDsc complementary = *optGetAssertion(index);
+        AssertionDsc complementary = *apGetAssertion(index);
 
         assert((complementary.op1.kind == O1K_BOUND_OPER_BND) || (complementary.op1.kind == O1K_BOUND_LOOP_BND) ||
                (complementary.op1.kind == O1K_CONSTANT_LOOP_BND));
@@ -1724,7 +1714,7 @@ AssertionIndex Compiler::apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
     for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
         AssertionIndex index     = GetAssertionIndex(bitIndex);
-        AssertionDsc*  assertion = optGetAssertion(index);
+        AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->assertionKind != OAK_SUBRANGE) || (assertion->op1.kind != O1K_LCLVAR))
         {
@@ -1774,7 +1764,7 @@ AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, Value
     for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
         AssertionIndex index     = GetAssertionIndex(bitIndex);
-        AssertionDsc*  assertion = optGetAssertion(index);
+        AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->assertionKind != OAK_EQUAL) ||
             ((assertion->op1.kind != O1K_SUBTYPE) && (assertion->op1.kind != O1K_EXACT_TYPE)))
@@ -1949,7 +1939,7 @@ GenTree* Compiler::apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar*
     for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
         AssertionIndex index     = GetAssertionIndex(bitIndex);
-        AssertionDsc*  assertion = optGetAssertion(index);
+        AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->assertionKind != OAK_EQUAL) || (assertion->op1.kind != O1K_LCLVAR))
         {
@@ -1994,7 +1984,7 @@ AssertionIndex Compiler::apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenT
     for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
         AssertionIndex index     = GetAssertionIndex(bitIndex);
-        AssertionDsc*  assertion = optGetAssertion(index);
+        AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->assertionKind != OAK_EQUAL) && (assertion->assertionKind != OAK_NOT_EQUAL))
         {
@@ -2037,7 +2027,7 @@ AssertionIndex Compiler::apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, 
     for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
         AssertionIndex index     = GetAssertionIndex(bitIndex);
-        AssertionDsc*  assertion = optGetAssertion(index);
+        AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->assertionKind != OAK_EQUAL) && (assertion->assertionKind != OAK_NOT_EQUAL))
         {
@@ -2064,7 +2054,7 @@ GenTree* Compiler::apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relo
 
     if (index != NO_ASSERTION_INDEX)
     {
-        AssertionDsc* assertion = optGetAssertion(index);
+        AssertionDsc* assertion = apGetAssertion(index);
 
         JITDUMP("Assertion #%02u: relop [%06u] %s 0\n", index, relop->GetID(),
                 (assertion->assertionKind == OAK_EQUAL) ? "==" : "!=");
@@ -2102,7 +2092,7 @@ GenTree* Compiler::apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relo
         return nullptr;
     }
 
-    AssertionDsc* assertion    = optGetAssertion(index);
+    AssertionDsc* assertion    = apGetAssertion(index);
     ValueNum      op2VN        = vnStore->VNNormalValue(op2->GetConservativeVN());
     bool          allowReverse = true;
 
@@ -2427,7 +2417,7 @@ bool Compiler::apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEB
     for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
         AssertionIndex index     = GetAssertionIndex(bitIndex);
-        AssertionDsc*  assertion = optGetAssertion(index);
+        AssertionDsc*  assertion = apGetAssertion(index);
 
         if (assertion->assertionKind != OAK_NOT_EQUAL)
         {
@@ -2579,7 +2569,7 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
     for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
         AssertionIndex index     = GetAssertionIndex(bitIndex);
-        AssertionDsc*  assertion = optGetAssertion(index);
+        AssertionDsc*  assertion = apGetAssertion(index);
 
         if (assertion->assertionKind != OAK_NO_THROW)
         {
@@ -2738,7 +2728,7 @@ void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& ac
     noway_assert(assertionIndex != 0);
     noway_assert(assertionIndex <= optAssertionCount);
 
-    AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
+    AssertionDsc* curAssertion = apGetAssertion(assertionIndex);
     if (!BitVecOps::IsEmpty(apTraits, activeAssertions))
     {
         const ASSERT_TP mappedAssertions = apGetVNAssertion(curAssertion->op1.vn);
@@ -2780,7 +2770,7 @@ void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& ac
             }
 
             // Determine which one is a copy assertion and use the other to check for implied assertions.
-            AssertionDsc* iterAssertion = optGetAssertion(chkAssertionIndex);
+            AssertionDsc* iterAssertion = apGetAssertion(chkAssertionIndex);
             if (curAssertion->IsCopyAssertion())
             {
                 optImpliedByCopyAssertion(curAssertion, iterAssertion, activeAssertions);
@@ -2824,7 +2814,7 @@ void Compiler::optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions)
             break;
         }
         // chkAssertion must be Type/Subtype is equal assertion
-        AssertionDsc* chkAssertion = optGetAssertion(chkAssertionIndex);
+        AssertionDsc* chkAssertion = apGetAssertion(chkAssertionIndex);
         if ((chkAssertion->op1.kind != O1K_SUBTYPE && chkAssertion->op1.kind != O1K_EXACT_TYPE) ||
             (chkAssertion->assertionKind != OAK_EQUAL))
         {
@@ -2834,7 +2824,7 @@ void Compiler::optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions)
         // Search the assertion table for a non-null assertion on op1 that matches chkAssertion
         for (AssertionIndex impIndex = 1; impIndex <= optAssertionCount; impIndex++)
         {
-            AssertionDsc* impAssertion = optGetAssertion(impIndex);
+            AssertionDsc* impAssertion = apGetAssertion(impIndex);
 
             //  The impAssertion must be different from the chkAssertion
             if (impIndex == chkAssertionIndex)
@@ -2901,7 +2891,7 @@ void Compiler::optImpliedByConstAssertion(AssertionDsc* constAssertion, ASSERT_T
             break;
         }
         // The impAssertion must be different from the const assertion.
-        AssertionDsc* impAssertion = optGetAssertion(chkAssertionIndex);
+        AssertionDsc* impAssertion = apGetAssertion(chkAssertionIndex);
         if (impAssertion == constAssertion)
         {
             continue;
@@ -2938,7 +2928,7 @@ void Compiler::optImpliedByConstAssertion(AssertionDsc* constAssertion, ASSERT_T
 #ifdef DEBUG
             if (verbose)
             {
-                AssertionDsc* firstAssertion = optGetAssertion(1);
+                AssertionDsc* firstAssertion = apGetAssertion(1);
                 printf("Compiler::optImpliedByConstAssertion: const assertion #%02d implies assertion #%02d\n",
                        (constAssertion - firstAssertion) + 1, (impAssertion - firstAssertion) + 1);
             }
@@ -3027,7 +3017,7 @@ void Compiler::optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionD
     // The matching assertion is the implied assertion.
     for (AssertionIndex impIndex = 1; impIndex <= optAssertionCount; impIndex++)
     {
-        AssertionDsc* impAssertion = optGetAssertion(impIndex);
+        AssertionDsc* impAssertion = apGetAssertion(impIndex);
 
         //  The impAssertion must be different from the copy and dependent assertions
         if (impAssertion == copyAssertion || impAssertion == depAssertion)
@@ -3101,7 +3091,7 @@ void Compiler::optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionD
 #ifdef DEBUG
             if (verbose)
             {
-                AssertionDsc* firstAssertion = optGetAssertion(1);
+                AssertionDsc* firstAssertion = apGetAssertion(1);
                 printf("\nCompiler::optImpliedByCopyAssertion: copyAssertion #%02d and depAssertion #%02d, implies "
                        "assertion #%02d",
                        (copyAssertion - firstAssertion) + 1, (depAssertion - firstAssertion) + 1,
@@ -4394,7 +4384,7 @@ void Compiler::optDebugCheckAssertions(AssertionIndex index)
     AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? optAssertionCount : index;
     for (AssertionIndex ind = start; ind <= end; ++ind)
     {
-        AssertionDsc* assertion = optGetAssertion(ind);
+        AssertionDsc* assertion = apGetAssertion(ind);
         optDebugCheckAssertion(assertion);
     }
 }

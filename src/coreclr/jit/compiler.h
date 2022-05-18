@@ -6115,7 +6115,7 @@ private:
 
 public:
     // Assertion prop helpers.
-    AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
+    AssertionDsc* apGetAssertion(AssertionIndex assertIndex);
     void optAssertionInit();
 
     // Assertion prop data flow functions.

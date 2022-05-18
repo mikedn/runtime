@@ -508,7 +508,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
     {
         AssertionIndex assertionIndex = GetAssertionIndex(index);
 
-        Compiler::AssertionDsc* curAssertion = m_pCompiler->optGetAssertion(assertionIndex);
+        Compiler::AssertionDsc* curAssertion = m_pCompiler->apGetAssertion(assertionIndex);
 
         Limit      limit(Limit::keUndef);
         genTreeOps cmpOper             = GT_NONE;
