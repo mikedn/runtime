@@ -2755,11 +2755,11 @@ void Compiler::apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertion
 
         if (assertion->IsCopyAssertion())
         {
-            optImpliedByCopyAssertion(assertion, impliedAssertion, assertions);
+            apAddCopyImpliedAssertions(assertion, impliedAssertion, assertions);
         }
         else if (impliedAssertion->IsCopyAssertion())
         {
-            optImpliedByCopyAssertion(impliedAssertion, assertion, assertions);
+            apAddCopyImpliedAssertions(impliedAssertion, assertion, assertions);
         }
     }
 }
@@ -2869,173 +2869,157 @@ void Compiler::apAddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_
     }
 }
 
-/*****************************************************************************
- *
- *  Given a copy assertion and a dependent assertion this method computes the
- *  set of implied assertions that are also true.
- *  For copy assertions, exact SSA num and LCL nums should match, because
- *  we don't have kill sets and we depend on their value num for dataflow.
- */
-
-void Compiler::optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionDsc* depAssertion, ASSERT_TP& result)
+void Compiler::apAddCopyImpliedAssertions(AssertionDsc* copyAssertion, AssertionDsc* assertion, ASSERT_TP& result)
 {
-    noway_assert(copyAssertion->IsCopyAssertion());
+    assert(copyAssertion->assertionKind == OAK_EQUAL);
+    assert((copyAssertion->op1.kind == O1K_LCLVAR) && (copyAssertion->op2.kind == O2K_LCLVAR_COPY));
+    assert(assertion->assertionKind != OAK_NO_THROW);
 
-    // Get the copyAssert's lcl/ssa nums.
-    unsigned copyAssertLclNum = BAD_VAR_NUM;
-    unsigned copyAssertSsaNum = SsaConfig::RESERVED_SSA_NUM;
+    // TODO-MIKE-Cleanup: It looks like we can end up with `assertion` being a
+    // "bound" assertion, for which lcl is not set and may contain garbage.
 
-    // Check if copyAssertion's op1 or op2 matches the depAssertion's op1.
-    if (depAssertion->op1.lcl.lclNum == copyAssertion->op1.lcl.lclNum)
+    AssertionDsc::SsaVar copyLcl{BAD_VAR_NUM, SsaConfig::RESERVED_SSA_NUM};
+
+    if (assertion->op1.lcl.lclNum == copyAssertion->op1.lcl.lclNum)
     {
-        copyAssertLclNum = copyAssertion->op2.lcl.lclNum;
-        copyAssertSsaNum = copyAssertion->op2.lcl.ssaNum;
+        copyLcl = copyAssertion->op2.lcl;
     }
-    else if (depAssertion->op1.lcl.lclNum == copyAssertion->op2.lcl.lclNum)
+    else if (assertion->op1.lcl.lclNum == copyAssertion->op2.lcl.lclNum)
     {
-        copyAssertLclNum = copyAssertion->op1.lcl.lclNum;
-        copyAssertSsaNum = copyAssertion->op1.lcl.ssaNum;
+        copyLcl = copyAssertion->op1.lcl;
     }
-    // Check if copyAssertion's op1 or op2 matches the depAssertion's op2.
-    else if (depAssertion->op2.kind == O2K_LCLVAR_COPY)
+    else if (assertion->op2.kind == O2K_LCLVAR_COPY)
     {
-        if (depAssertion->op2.lcl.lclNum == copyAssertion->op1.lcl.lclNum)
+        if (assertion->op2.lcl.lclNum == copyAssertion->op1.lcl.lclNum)
         {
-            copyAssertLclNum = copyAssertion->op2.lcl.lclNum;
-            copyAssertSsaNum = copyAssertion->op2.lcl.ssaNum;
+            copyLcl = copyAssertion->op2.lcl;
         }
-        else if (depAssertion->op2.lcl.lclNum == copyAssertion->op2.lcl.lclNum)
+        else if (assertion->op2.lcl.lclNum == copyAssertion->op2.lcl.lclNum)
         {
-            copyAssertLclNum = copyAssertion->op1.lcl.lclNum;
-            copyAssertSsaNum = copyAssertion->op1.lcl.ssaNum;
+            copyLcl = copyAssertion->op1.lcl;
         }
     }
 
-    if (copyAssertLclNum == BAD_VAR_NUM || copyAssertSsaNum == SsaConfig::RESERVED_SSA_NUM)
+    if ((copyLcl.lclNum == BAD_VAR_NUM) || (copyLcl.ssaNum == SsaConfig::RESERVED_SSA_NUM))
     {
         return;
     }
 
-    // Get the depAssert's lcl/ssa nums.
-    unsigned depAssertLclNum = BAD_VAR_NUM;
-    unsigned depAssertSsaNum = SsaConfig::RESERVED_SSA_NUM;
-    if ((depAssertion->op1.kind == O1K_LCLVAR) && (depAssertion->op2.kind == O2K_LCLVAR_COPY))
+    AssertionDsc::SsaVar lcl{BAD_VAR_NUM, SsaConfig::RESERVED_SSA_NUM};
+
+    if ((assertion->op1.kind == O1K_LCLVAR) && (assertion->op2.kind == O2K_LCLVAR_COPY))
     {
-        if ((depAssertion->op1.lcl.lclNum == copyAssertion->op1.lcl.lclNum) ||
-            (depAssertion->op1.lcl.lclNum == copyAssertion->op2.lcl.lclNum))
+        if ((assertion->op1.lcl.lclNum == copyAssertion->op1.lcl.lclNum) ||
+            (assertion->op1.lcl.lclNum == copyAssertion->op2.lcl.lclNum))
         {
-            depAssertLclNum = depAssertion->op2.lcl.lclNum;
-            depAssertSsaNum = depAssertion->op2.lcl.ssaNum;
+            lcl = assertion->op2.lcl;
         }
-        else if ((depAssertion->op2.lcl.lclNum == copyAssertion->op1.lcl.lclNum) ||
-                 (depAssertion->op2.lcl.lclNum == copyAssertion->op2.lcl.lclNum))
+        else if ((assertion->op2.lcl.lclNum == copyAssertion->op1.lcl.lclNum) ||
+                 (assertion->op2.lcl.lclNum == copyAssertion->op2.lcl.lclNum))
         {
-            depAssertLclNum = depAssertion->op1.lcl.lclNum;
-            depAssertSsaNum = depAssertion->op1.lcl.ssaNum;
+            lcl = assertion->op1.lcl;
         }
     }
 
-    if (depAssertLclNum == BAD_VAR_NUM || depAssertSsaNum == SsaConfig::RESERVED_SSA_NUM)
+    if ((lcl.lclNum == BAD_VAR_NUM) || (lcl.ssaNum == SsaConfig::RESERVED_SSA_NUM))
     {
         return;
     }
 
-    // Is depAssertion a constant assignment of a 32-bit integer?
-    // (i.e  GT_LVL_VAR X == GT_CNS_INT)
-    bool depIsConstAssertion = ((depAssertion->assertionKind == OAK_EQUAL) && (depAssertion->op1.kind == O1K_LCLVAR) &&
-                                (depAssertion->op2.kind == O2K_CONST_INT));
+    bool isConstAssertion = (assertion->assertionKind == OAK_EQUAL) && (assertion->op1.kind == O1K_LCLVAR) &&
+                            (assertion->op2.kind == O2K_CONST_INT);
 
-    // Search the assertion table for an assertion on op1 that matches depAssertion
-    // The matching assertion is the implied assertion.
-    for (AssertionIndex impIndex = 1; impIndex <= apAssertionCount; impIndex++)
+    for (AssertionIndex impliedIndex = 1; impliedIndex <= apAssertionCount; impliedIndex++)
     {
-        AssertionDsc* impAssertion = apGetAssertion(impIndex);
+        AssertionDsc* impliedAssertion = apGetAssertion(impliedIndex);
 
-        //  The impAssertion must be different from the copy and dependent assertions
-        if (impAssertion == copyAssertion || impAssertion == depAssertion)
+        if ((impliedAssertion == copyAssertion) || (impliedAssertion == assertion))
         {
             continue;
         }
 
-        if (!AssertionDsc::SameKind(depAssertion, impAssertion))
+        if (impliedAssertion->assertionKind != assertion->assertionKind)
         {
             continue;
         }
 
-        bool op1MatchesCopy =
-            (copyAssertLclNum == impAssertion->op1.lcl.lclNum) && (copyAssertSsaNum == impAssertion->op1.lcl.ssaNum);
-
-        bool usable = false;
-        switch (impAssertion->op2.kind)
+        if ((impliedAssertion->op1.kind != assertion->op1.kind) || (impliedAssertion->op2.kind != assertion->op2.kind))
         {
-            case O2K_SUBRANGE:
-                usable = op1MatchesCopy && ((impAssertion->op2.u2.loBound <= depAssertion->op2.u2.loBound) &&
-                                            (impAssertion->op2.u2.hiBound >= depAssertion->op2.u2.hiBound));
-                break;
-
-            case O2K_CONST_LONG:
-                usable = op1MatchesCopy && (impAssertion->op2.lconVal == depAssertion->op2.lconVal);
-                break;
-
-            case O2K_CONST_DOUBLE:
-                // Exact memory match because of positive and negative zero
-                usable = op1MatchesCopy &&
-                         (memcmp(&impAssertion->op2.dconVal, &depAssertion->op2.dconVal, sizeof(double)) == 0);
-                break;
-
-            case O2K_IND_CNS_INT:
-                // This is the ngen case where we have an indirection of an address.
-                noway_assert((impAssertion->op1.kind == O1K_EXACT_TYPE) || (impAssertion->op1.kind == O1K_SUBTYPE));
-
-                FALLTHROUGH;
-
-            case O2K_CONST_INT:
-                usable = op1MatchesCopy && (impAssertion->op2.u1.iconVal == depAssertion->op2.u1.iconVal);
-                break;
-
-            case O2K_LCLVAR_COPY:
-                // Check if op1 of impAssertion matches copyAssertion and also op2 of impAssertion matches depAssertion.
-                if (op1MatchesCopy && (depAssertLclNum == impAssertion->op2.lcl.lclNum &&
-                                       depAssertSsaNum == impAssertion->op2.lcl.ssaNum))
-                {
-                    usable = true;
-                }
-                else
-                {
-                    // Otherwise, op2 of impAssertion should match copyAssertion and also op1 of impAssertion matches
-                    // depAssertion.
-                    usable = ((copyAssertLclNum == impAssertion->op2.lcl.lclNum &&
-                               copyAssertSsaNum == impAssertion->op2.lcl.ssaNum) &&
-                              (depAssertLclNum == impAssertion->op1.lcl.lclNum &&
-                               depAssertSsaNum == impAssertion->op1.lcl.ssaNum));
-                }
-                break;
-
-            default:
-                // leave 'usable' = false;
-                break;
+            continue;
         }
 
-        if (usable)
+        if (impliedAssertion->op1.lcl != copyLcl)
         {
-            BitVecOps::AddElemD(apTraits, result, impIndex - 1);
+            if (!((impliedAssertion->op2.kind == O2K_LCLVAR_COPY) && (impliedAssertion->op2.lcl == copyLcl) &&
+                  (impliedAssertion->op1.lcl == lcl)))
+            {
+                continue;
+            }
+        }
+        else
+        {
+            switch (impliedAssertion->op2.kind)
+            {
+                case O2K_SUBRANGE:
+                    if ((impliedAssertion->op2.u2.loBound > assertion->op2.u2.loBound) ||
+                        (impliedAssertion->op2.u2.hiBound < assertion->op2.u2.hiBound))
+                    {
+                        continue;
+                    }
+                    break;
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                AssertionDsc* firstAssertion = apGetAssertion(1);
-                printf("\nCompiler::optImpliedByCopyAssertion: copyAssertion #%02d and depAssertion #%02d, implies "
-                       "assertion #%02d",
-                       (copyAssertion - firstAssertion) + 1, (depAssertion - firstAssertion) + 1,
-                       (impAssertion - firstAssertion) + 1);
+                case O2K_CONST_LONG:
+                    if (impliedAssertion->op2.lconVal != assertion->op2.lconVal)
+                    {
+                        continue;
+                    }
+                    break;
+
+                case O2K_CONST_DOUBLE:
+                    if (jitstd::bit_cast<uint64_t>(impliedAssertion->op2.dconVal) !=
+                        jitstd::bit_cast<uint64_t>(assertion->op2.dconVal))
+                    {
+                        continue;
+                    }
+                    break;
+
+                case O2K_IND_CNS_INT:
+                    assert((impliedAssertion->op1.kind == O1K_EXACT_TYPE) ||
+                           (impliedAssertion->op1.kind == O1K_SUBTYPE));
+                    FALLTHROUGH;
+                case O2K_CONST_INT:
+                    if (impliedAssertion->op2.u1.iconVal != assertion->op2.u1.iconVal)
+                    {
+                        continue;
+                    }
+                    break;
+
+                case O2K_LCLVAR_COPY:
+                    if (lcl != impliedAssertion->op2.lcl)
+                    {
+                        continue;
+                    }
+                    break;
+
+                default:
+                    break;
             }
-#endif
-            // If the depAssertion is a const assertion then any other assertions that it implies could also imply a
-            // subrange assertion.
-            if (depIsConstAssertion)
-            {
-                apAddConstImpliedAssertions(impAssertion, result);
-            }
+        }
+
+        if (BitVecOps::TryAddElemD(apTraits, result, impliedIndex - 1))
+        {
+            INDEBUG(AssertionDsc* firstAssertion = apGetAssertion(1));
+            JITDUMP("\napAddCopyImpliedAssertions: copy assertion #%02d and assertion #%02d, implies assertion #%02d",
+                    GetAssertionIndex(static_cast<unsigned>(copyAssertion - firstAssertion)),
+                    GetAssertionIndex(static_cast<unsigned>(assertion - firstAssertion)),
+                    GetAssertionIndex(static_cast<unsigned>(impliedAssertion - firstAssertion)));
+        }
+
+        // If the depAssertion is a const assertion then any other assertions
+        // that it implies could also imply a subrange assertion.
+        if (isConstAssertion)
+        {
+            apAddConstImpliedAssertions(impliedAssertion, result);
         }
     }
 }

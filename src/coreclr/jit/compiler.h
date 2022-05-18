@@ -5869,11 +5869,23 @@ public:
     struct AssertionDsc
     {
         optAssertionKind assertionKind;
+
         struct SsaVar
         {
-            unsigned lclNum; // assigned to or property of this local var number
+            unsigned lclNum;
             unsigned ssaNum;
+
+            bool operator==(const SsaVar& other)
+            {
+                return (lclNum == other.lclNum) && (ssaNum == other.ssaNum);
+            }
+
+            bool operator!=(const SsaVar& other)
+            {
+                return (lclNum != other.lclNum) || (ssaNum != other.ssaNum);
+            }
         };
+
         struct ArrBnd
         {
             ValueNum vnIdx;
@@ -6177,7 +6189,7 @@ public:
     // Implied assertion functions.
     void apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions);
     void apAddTypeImpliedNotNullAssertions(ASSERT_TP& activeAssertions);
-    void optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionDsc* depAssertion, ASSERT_TP& result);
+    void apAddCopyImpliedAssertions(AssertionDsc* copyAssertion, AssertionDsc* assertion, ASSERT_TP& result);
     void apAddConstImpliedAssertions(AssertionDsc* curAssertion, ASSERT_TP& result);
 
 #ifdef DEBUG
