@@ -6126,7 +6126,7 @@ public:
 
     // Assertion Gen functions.
     void optAssertionGen(GenTree* tree);
-    AssertionIndex optAssertionGenPhiDefn(GenTree* tree);
+    AssertionIndex apGeneratePhiAssertions(GenTreeOp* asg);
     AssertionInfo apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue);
     AssertionInfo apGenerateJTrueAssertions(GenTreeUnOp* jtrue);
     AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kidn);

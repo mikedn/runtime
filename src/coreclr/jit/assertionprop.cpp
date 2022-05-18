@@ -1636,37 +1636,27 @@ AssertionInfo Compiler::apGenerateJTrueAssertions(GenTreeUnOp* jtrue)
     return NO_ASSERTION_INDEX;
 }
 
-/*****************************************************************************
- *
- *  Create an assertion on the phi node if some information can be gleaned
- *  from all of the constituent phi operands.
- *
- */
-AssertionIndex Compiler::optAssertionGenPhiDefn(GenTree* tree)
+AssertionIndex Compiler::apGeneratePhiAssertions(GenTreeOp* asg)
 {
-    if (!tree->IsPhiDefn())
-    {
-        return NO_ASSERTION_INDEX;
-    }
+    assert(asg->IsPhiDefn());
 
-    // Try to find if all phi arguments are known to be non-null.
-    bool isNonNull = true;
-    for (GenTreePhi::Use& use : tree->AsOp()->gtGetOp2()->AsPhi()->Uses())
+    bool allNotNull = true;
+
+    for (GenTreePhi::Use& use : asg->GetOp(1)->AsPhi()->Uses())
     {
-        if (!vnStore->IsKnownNonNull(use.GetNode()->gtVNPair.GetConservative()))
+        if (!vnStore->IsKnownNonNull(use.GetNode()->GetConservativeVN()))
         {
-            isNonNull = false;
+            allNotNull = false;
             break;
         }
     }
 
-    // All phi arguments are non-null implies phi rhs is non-null.
-    if (isNonNull)
+    if (!allNotNull)
     {
-        return apCreateNotNullAssertion(tree->AsOp()->GetOp(0));
+        return NO_ASSERTION_INDEX;
     }
 
-    return NO_ASSERTION_INDEX;
+    return apCreateNotNullAssertion(asg->GetOp(0));
 }
 
 /*****************************************************************************
@@ -1690,7 +1680,10 @@ void Compiler::optAssertionGen(GenTree* tree)
     switch (tree->gtOper)
     {
         case GT_ASG:
-            assertionInfo = optAssertionGenPhiDefn(tree);
+            if (tree->IsPhiDefn())
+            {
+                assertionInfo = apGeneratePhiAssertions(tree->AsOp());
+            }
             break;
 
         case GT_BLK:
