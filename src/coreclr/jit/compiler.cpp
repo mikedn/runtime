@@ -4735,7 +4735,7 @@ void Compiler::compCompileFinish()
         }
         else
         {
-            printf(" %3d |", optAssertionCount);
+            printf(" %3d |", apAssertionCount);
             printf(" %3d |", optCSEcount);
         }
 

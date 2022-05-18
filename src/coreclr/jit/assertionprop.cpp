@@ -482,39 +482,35 @@ void Compiler::optAddCopies()
     }
 }
 
-/*****************************************************************************
- *
- *  Initialize the assertion prop tracking logic.
- */
-
-void Compiler::optAssertionInit()
+void Compiler::apInit()
 {
     // Use a function countFunc to determine a proper maximum assertion count for the
     // method being compiled. The function is linear to the IL size for small and
     // moderate methods. For large methods, considering throughput impact, we track no
     // more than 64 assertions.
     // Note this tracks at most only 256 assertions.
-    static const AssertionIndex countFunc[] = {64, 128, 256, 64};
-    static const unsigned       upperBound  = _countof(countFunc) - 1;
-    const unsigned              codeSize    = info.compILCodeSize / 512;
-    optMaxAssertionCount                    = countFunc[min(upperBound, codeSize)];
 
-    optAssertionTabPrivate = new (this, CMK_AssertionProp) AssertionDsc[optMaxAssertionCount];
-    apComplementaryAssertions =
-        new (this, CMK_AssertionProp) AssertionIndex[optMaxAssertionCount + 1](); // zero-inited (NO_ASSERTION_INDEX)
-    assert(NO_ASSERTION_INDEX == 0);
+    static const AssertionIndex countFunc[]{64, 128, 256, 64};
 
-    apVNAssertionMap    = new (getAllocator(CMK_AssertionProp)) ValueNumToAssertsMap(getAllocator(CMK_AssertionProp));
-    apTraits            = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
-    optAssertionCount   = 0;
-    bbJtrueAssertionOut = nullptr;
+    const unsigned upperBound = _countof(countFunc) - 1;
+    const unsigned codeSize   = info.compILCodeSize / 512;
+
+    CompAllocator allocator = getAllocator(CMK_AssertionProp);
+
+    apMaxAssertionCount       = countFunc[min(upperBound, codeSize)];
+    apAssertionTable          = new (allocator) AssertionDsc[apMaxAssertionCount];
+    apComplementaryAssertions = new (allocator) AssertionIndex[apMaxAssertionCount + 1]();
+    apVNAssertionMap          = new (allocator) ValueNumToAssertsMap(allocator);
+    apTraits                  = new (allocator) BitVecTraits(apMaxAssertionCount, this);
+    apAssertionCount          = 0;
+    apJTrueAssertionOut       = nullptr;
 }
 
 Compiler::AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
 {
-    assert((1 <= index) && (index <= optAssertionCount));
+    assert((1 <= index) && (index <= apAssertionCount));
 
-    AssertionDsc* assertion = &optAssertionTabPrivate[index - 1];
+    AssertionDsc* assertion = &apAssertionTable[index - 1];
     INDEBUG(optDebugCheckAssertion(assertion));
     return assertion;
 }
@@ -1186,7 +1182,7 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
 {
     assert(assertion->assertionKind != OAK_INVALID);
 
-    for (AssertionIndex index = optAssertionCount; index >= 1; index--)
+    for (AssertionIndex index = apAssertionCount; index >= 1; index--)
     {
         if (apGetAssertion(index)->Equals(assertion))
         {
@@ -1194,12 +1190,12 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
         }
     }
 
-    if (optAssertionCount >= optMaxAssertionCount)
+    if (apAssertionCount >= apMaxAssertionCount)
     {
         return NO_ASSERTION_INDEX;
     }
 
-    optAssertionTabPrivate[optAssertionCount++] = *assertion;
+    apAssertionTable[apAssertionCount++] = *assertion;
 
 #ifdef DEBUG
     if (verbose)
@@ -1207,23 +1203,23 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
         printf("GenTreeNode creates assertion:\n");
         gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
         printf("In " FMT_BB " New Global ", compCurBB->bbNum);
-        optPrintAssertion(assertion, optAssertionCount);
+        optPrintAssertion(assertion, apAssertionCount);
     }
 #endif
 
     if (assertion->assertionKind != OAK_NO_THROW)
     {
-        apAddVNAssertion(assertion->op1.vn, optAssertionCount);
+        apAddVNAssertion(assertion->op1.vn, apAssertionCount);
 
         if (assertion->op2.kind == O2K_LCLVAR_COPY)
         {
-            apAddVNAssertion(assertion->op2.vn, optAssertionCount);
+            apAddVNAssertion(assertion->op2.vn, apAssertionCount);
         }
     }
 
-    INDEBUG(optDebugCheckAssertions(optAssertionCount));
+    INDEBUG(optDebugCheckAssertions(apAssertionCount));
 
-    return optAssertionCount;
+    return apAssertionCount;
 }
 
 void Compiler::apAddVNAssertion(ValueNum vn, AssertionIndex index)
@@ -1254,8 +1250,8 @@ void Compiler::apAddComplementaryAssertion(AssertionIndex index, AssertionIndex 
         return;
     }
 
-    assert(index <= optMaxAssertionCount);
-    assert(complementaryIndex <= optMaxAssertionCount);
+    assert(index <= apMaxAssertionCount);
+    assert(complementaryIndex <= apMaxAssertionCount);
 
     apComplementaryAssertions[index]              = complementaryIndex;
     apComplementaryAssertions[complementaryIndex] = index;
@@ -1284,7 +1280,7 @@ AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
 
     // TODO-MIKE-Review: Why is this needed? Just in case someone forgets to map the complementary
     // assertion when generating assertions?
-    for (complementaryIndex = 1; complementaryIndex <= optAssertionCount; ++complementaryIndex)
+    for (complementaryIndex = 1; complementaryIndex <= apAssertionCount; ++complementaryIndex)
     {
         AssertionDsc* complementaryAssertion = apGetAssertion(complementaryIndex);
 
@@ -2726,7 +2722,7 @@ GenTree* Compiler::apPropagateNode(ASSERT_VALARG_TP assertions, GenTree* node, S
 void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& activeAssertions)
 {
     noway_assert(assertionIndex != 0);
-    noway_assert(assertionIndex <= optAssertionCount);
+    noway_assert(assertionIndex <= apAssertionCount);
 
     AssertionDsc* curAssertion = apGetAssertion(assertionIndex);
     if (!BitVecOps::IsEmpty(apTraits, activeAssertions))
@@ -2760,7 +2756,7 @@ void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& ac
         while (chkIter.NextElem(&chkIndex))
         {
             AssertionIndex chkAssertionIndex = GetAssertionIndex(chkIndex);
-            if (chkAssertionIndex > optAssertionCount)
+            if (chkAssertionIndex > apAssertionCount)
             {
                 break;
             }
@@ -2809,7 +2805,7 @@ void Compiler::optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions)
     while (chkIter.NextElem(&chkIndex))
     {
         AssertionIndex chkAssertionIndex = GetAssertionIndex(chkIndex);
-        if (chkAssertionIndex > optAssertionCount)
+        if (chkAssertionIndex > apAssertionCount)
         {
             break;
         }
@@ -2822,7 +2818,7 @@ void Compiler::optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions)
         }
 
         // Search the assertion table for a non-null assertion on op1 that matches chkAssertion
-        for (AssertionIndex impIndex = 1; impIndex <= optAssertionCount; impIndex++)
+        for (AssertionIndex impIndex = 1; impIndex <= apAssertionCount; impIndex++)
         {
             AssertionDsc* impAssertion = apGetAssertion(impIndex);
 
@@ -2886,7 +2882,7 @@ void Compiler::optImpliedByConstAssertion(AssertionDsc* constAssertion, ASSERT_T
     while (chkIter.NextElem(&chkIndex))
     {
         AssertionIndex chkAssertionIndex = GetAssertionIndex(chkIndex);
-        if (chkAssertionIndex > optAssertionCount)
+        if (chkAssertionIndex > apAssertionCount)
         {
             break;
         }
@@ -3015,7 +3011,7 @@ void Compiler::optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionD
 
     // Search the assertion table for an assertion on op1 that matches depAssertion
     // The matching assertion is the implied assertion.
-    for (AssertionIndex impIndex = 1; impIndex <= optAssertionCount; impIndex++)
+    for (AssertionIndex impIndex = 1; impIndex <= apAssertionCount; impIndex++)
     {
         AssertionDsc* impAssertion = apGetAssertion(impIndex);
 
@@ -3403,7 +3399,7 @@ ASSERT_TP* Compiler::optInitAssertionDataflowFlags()
     // (note that at this point we are not creating any new assertions).
     // Also note that assertion indices start from 1.
     ASSERT_TP apValidFull = BitVecOps::MakeEmpty(apTraits);
-    for (int i = 1; i <= optAssertionCount; i++)
+    for (int i = 1; i <= apAssertionCount; i++)
     {
         BitVecOps::AddElemD(apTraits, apValidFull, i - 1);
     }
@@ -4139,9 +4135,9 @@ void Compiler::optVNAssertionProp()
 
     assert(ssaForm && (vnStore != nullptr));
 
-    optAssertionInit();
+    apInit();
 
-    noway_assert(optAssertionCount == 0);
+    noway_assert(apAssertionCount == 0);
 
     // Traverse all blocks, perform VN constant propagation and generate assertions.
     for (BasicBlock* const block : Blocks())
@@ -4165,7 +4161,7 @@ void Compiler::optVNAssertionProp()
         }
     }
 
-    if (optAssertionCount == 0)
+    if (apAssertionCount == 0)
     {
         // Zero out the bbAssertionIn values, as these can be referenced in RangeCheck::MergeAssertion
         // and this is sharedstate with the CSE phase: bbCseIn
@@ -4182,12 +4178,12 @@ void Compiler::optVNAssertionProp()
 #endif
 
     // Allocate the bits for the predicate sensitive dataflow analysis
-    bbJtrueAssertionOut    = optInitAssertionDataflowFlags();
+    apJTrueAssertionOut    = optInitAssertionDataflowFlags();
     ASSERT_TP* jumpDestGen = optComputeAssertionGen();
 
     // Modified dataflow algorithm for available expressions.
     DataFlow                  flow(this);
-    AssertionPropFlowCallback ap(this, bbJtrueAssertionOut, jumpDestGen);
+    AssertionPropFlowCallback ap(this, apJTrueAssertionOut, jumpDestGen);
     if (ap.VerboseDataflow())
     {
         JITDUMP("AssertionPropFlowCallback:\n\n")
@@ -4211,7 +4207,7 @@ void Compiler::optVNAssertionProp()
             if (block->bbJumpKind == BBJ_COND)
             {
                 printf(" " FMT_BB " = ", block->bbJumpDest->bbNum);
-                optDumpAssertionIndices(bbJtrueAssertionOut[block->bbNum], "\n");
+                optDumpAssertionIndices(apJTrueAssertionOut[block->bbNum], "\n");
             }
         }
         printf("\n");
@@ -4381,7 +4377,7 @@ void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
 void Compiler::optDebugCheckAssertions(AssertionIndex index)
 {
     AssertionIndex start = (index == NO_ASSERTION_INDEX) ? 1 : index;
-    AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? optAssertionCount : index;
+    AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? apAssertionCount : index;
     for (AssertionIndex ind = start; ind <= end; ++ind)
     {
         AssertionDsc* assertion = apGetAssertion(ind);

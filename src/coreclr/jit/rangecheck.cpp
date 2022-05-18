@@ -781,9 +781,9 @@ void RangeCheck::MergeAssertion(BasicBlock* block, GenTree* op, Range* pRange DE
         }
         else if ((pred->bbJumpKind == BBJ_COND || pred->bbJumpKind == BBJ_ALWAYS) && pred->bbJumpDest == block)
         {
-            if (m_pCompiler->bbJtrueAssertionOut != nullptr)
+            if (m_pCompiler->apJTrueAssertionOut != nullptr)
             {
-                assertions = m_pCompiler->bbJtrueAssertionOut[pred->bbNum];
+                assertions = m_pCompiler->apJTrueAssertionOut[pred->bbNum];
                 JITDUMP("Merge assertions from pred " FMT_BB " JTrue edge: ", pred->bbNum);
                 INDEBUG(m_pCompiler->optDumpAssertionIndices(assertions, "\n"));
             }

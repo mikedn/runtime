@@ -6046,9 +6046,9 @@ protected:
     GenTree* optAssertionPropCurrentTree;
 #endif
     AssertionIndex* apComplementaryAssertions;
-    AssertionDsc*   optAssertionTabPrivate; // table that holds info about value assignments
-    AssertionIndex  optAssertionCount;      // total number of assertions in the assertion table
-    AssertionIndex  optMaxAssertionCount;
+    AssertionDsc*   apAssertionTable; // table that holds info about value assignments
+    AssertionIndex  apAssertionCount;      // total number of assertions in the assertion table
+    AssertionIndex  apMaxAssertionCount;
 
 public:
     GenTree* apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
@@ -6056,9 +6056,9 @@ public:
 
     AssertionIndex GetAssertionCount()
     {
-        return optAssertionCount;
+        return apAssertionCount;
     }
-    ASSERT_TP* bbJtrueAssertionOut;
+    ASSERT_TP* apJTrueAssertionOut;
     typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
     ValueNumToAssertsMap* apVNAssertionMap;
 
@@ -6116,7 +6116,7 @@ private:
 public:
     // Assertion prop helpers.
     AssertionDsc* apGetAssertion(AssertionIndex assertIndex);
-    void optAssertionInit();
+    void apInit();
 
     // Assertion prop data flow functions.
     void optVNAssertionProp();
