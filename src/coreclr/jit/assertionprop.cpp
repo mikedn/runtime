@@ -4028,22 +4028,12 @@ private:
     }
 };
 
-void Compiler::optVNAssertionProp()
+void Compiler::apMain()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In optVNAssertionProp()\n");
-        printf("Blocks/Trees at start of phase\n");
-        fgDispBasicBlocks(true);
-    }
-#endif
-
+    DBEXEC(verbose, fgDispBasicBlocks(true);)
     assert(ssaForm && (vnStore != nullptr));
 
     apInit();
-
-    noway_assert(apAssertionCount == 0);
 
     // Traverse all blocks, perform VN constant propagation and generate assertions.
     for (BasicBlock* const block : Blocks())
@@ -4060,28 +4050,26 @@ void Compiler::optVNAssertionProp()
                 break;
             }
 
-            for (GenTree* const tree : stmt->TreeList())
+            for (GenTree* const node : stmt->Nodes())
             {
-                apGenerateNodeAssertions(tree);
+                apGenerateNodeAssertions(node);
             }
         }
     }
 
     if (apAssertionCount == 0)
     {
-        // Zero out the bbAssertionIn values, as these can be referenced in RangeCheck::MergeAssertion
-        // and this is sharedstate with the CSE phase: bbCseIn
-        //
+        // Zero out bbAssertionIn as it can be referenced in RangeCheck::MergeAssertion
+        // and this member overlaps with bbCseIn used by the CSE phase.
         for (BasicBlock* const block : Blocks())
         {
             block->bbAssertionIn = BitVecOps::MakeEmpty(apTraits);
         }
+
         return;
     }
 
-#ifdef DEBUG
-    fgDebugCheckLinks();
-#endif
+    INDEBUG(fgDebugCheckLinks());
 
     // Allocate the bits for the predicate sensitive dataflow analysis
     apJTrueAssertionOut    = apInitAssertionDataflowSets();
@@ -4090,10 +4078,12 @@ void Compiler::optVNAssertionProp()
     // Modified dataflow algorithm for available expressions.
     DataFlow                  flow(this);
     AssertionPropFlowCallback ap(this, apJTrueAssertionOut, jumpDestGen);
+
     if (ap.VerboseDataflow())
     {
         JITDUMP("AssertionPropFlowCallback:\n\n")
     }
+
     flow.ForwardAnalysis(ap);
 
     for (BasicBlock* const block : Blocks())
@@ -4121,7 +4111,6 @@ void Compiler::optVNAssertionProp()
 
     ASSERT_TP assertions = BitVecOps::MakeEmpty(apTraits);
 
-    // Perform assertion propagation (and constant folding)
     for (BasicBlock* const block : Blocks())
     {
         BitVecOps::Assign(apTraits, assertions, block->bbAssertionIn);
@@ -4133,19 +4122,16 @@ void Compiler::optVNAssertionProp()
             continue;
         }
 
-        // Make the current basic block address available globally.
         compCurBB           = block;
         fgRemoveRestOfBlock = false;
 
-        // Walk the statement trees in this basic block
-        Statement* stmt = block->FirstNonPhiDef();
-        while (stmt != nullptr)
+        for (Statement* stmt = block->FirstNonPhiDef(); stmt != nullptr;)
         {
-            // Propagation tells us to remove the rest of the block. Remove it.
             if (fgRemoveRestOfBlock)
             {
                 fgRemoveStmt(block, stmt);
                 stmt = stmt->GetNextStmt();
+
                 continue;
             }
 
@@ -4155,25 +4141,25 @@ void Compiler::optVNAssertionProp()
 
             apStmtMorphPending = false;
 
-            for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+            for (GenTree* node = stmt->GetNodeList(); node != nullptr; node = node->gtNext)
             {
                 INDEBUG(optDumpAssertionIndices("Propagating ", assertions, " "));
-                JITDUMP("for " FMT_BB ", stmt " FMT_STMT ", tree [%06d]", block->bbNum, stmt->GetID(), dspTreeID(tree));
+                JITDUMP("for " FMT_BB ", stmt " FMT_STMT ", tree [%06u]", block->bbNum, stmt->GetID(), node->GetID());
                 JITDUMP(", tree -> ");
-                JITDUMPEXEC(optPrintAssertionIndex(tree->GetAssertionInfo().GetAssertionIndex()));
+                JITDUMPEXEC(optPrintAssertionIndex(node->GetAssertionInfo().GetAssertionIndex()));
                 JITDUMP("\n");
 
-                GenTree* newTree = apPropagateNode(assertions, tree, stmt, block);
-                if (newTree != nullptr)
+                GenTree* newNode = apPropagateNode(assertions, node, stmt, block);
+
+                if (newNode != nullptr)
                 {
                     assert(apStmtMorphPending);
-                    tree = newTree;
+                    node = newNode;
                 }
 
-                // If this tree makes an assertion - make it available.
-                if (tree->GeneratesAssertion())
+                if (node->GeneratesAssertion())
                 {
-                    AssertionInfo info = tree->GetAssertionInfo();
+                    AssertionInfo info = node->GetAssertionInfo();
                     apAddImpliedAssertions(info.GetAssertionIndex(), assertions);
                     BitVecOps::AddElemD(apTraits, assertions, info.GetAssertionIndex() - 1);
                 }
@@ -4189,8 +4175,8 @@ void Compiler::optVNAssertionProp()
                     printf("\n");
                 }
 #endif
-                // Re-morph the statement.
-                fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionProp"));
+
+                fgMorphBlockStmt(block, stmt DEBUGARG("VNAssertionProp"));
             }
 
             // Check if propagation removed statements starting from current stmt.

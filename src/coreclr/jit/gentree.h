@@ -6526,7 +6526,13 @@ public:
         m_rootNode = treeRoot;
     }
 
+    // [[deprecated]]
     GenTree* GetTreeList() const
+    {
+        return m_treeList;
+    }
+
+    GenTree* GetNodeList() const
     {
         return m_treeList;
     }
@@ -6536,10 +6542,7 @@ public:
         m_treeList = treeHead;
     }
 
-    // TreeList: convenience method for enabling range-based `for` iteration over the
-    // execution order of the GenTree linked list, e.g.:
-    //    for (GenTree* const tree : stmt->TreeList()) ...
-    //
+    // [[deprecated]]
     GenTreeList TreeList() const
     {
         return GenTreeList(GetTreeList());

@@ -3847,7 +3847,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
             {
                 // Assertion propagation
                 //
-                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::optVNAssertionProp);
+                DoPhase(this, PHASE_ASSERTION_PROP_MAIN, &Compiler::apMain);
             }
 
             if (doRangeAnalysis)
