@@ -6047,7 +6047,7 @@ protected:
 #endif
     AssertionIndex* apComplementaryAssertions;
     AssertionDsc*   apAssertionTable; // table that holds info about value assignments
-    AssertionIndex  apAssertionCount;      // total number of assertions in the assertion table
+    AssertionIndex  apAssertionCount; // total number of assertions in the assertion table
     AssertionIndex  apMaxAssertionCount;
 
 public:
@@ -6146,7 +6146,7 @@ public:
 #ifdef DEBUG
     void apDumpVNAssertionMap();
 #endif
-    ASSERT_TP apGetVNAssertion(ValueNum vn);
+    ASSERT_TP apGetVNAssertions(ValueNum vn);
 
     AssertionIndex apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
                                          ValueNum         vn,
@@ -6158,9 +6158,9 @@ public:
     // Used for Relop propagation.
     AssertionIndex apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
     AssertionIndex apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1);
-    GenTree* apPropagateLclVarConst(AssertionDsc*        assertion,
-                                      GenTreeLclVar* lclVar,
-                                      Statement* stmt DEBUGARG(AssertionIndex index));
+    GenTree* apPropagateLclVarConst(AssertionDsc*  assertion,
+                                    GenTreeLclVar* lclVar,
+                                    Statement* stmt DEBUGARG(AssertionIndex index));
 
     // Assertion propagation functions.
     GenTree* apPropagateNode(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block);
@@ -6175,7 +6175,7 @@ public:
     GenTree* apPropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call);
 
     // Implied assertion functions.
-    void optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& activeAssertions);
+    void apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions);
     void apAddTypeImpliedNotNullAssertions(ASSERT_TP& activeAssertions);
     void optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionDsc* depAssertion, ASSERT_TP& result);
     void apAddConstImpliedAssertions(AssertionDsc* curAssertion, ASSERT_TP& result);

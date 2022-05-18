@@ -1236,7 +1236,7 @@ void Compiler::apAddVNAssertion(ValueNum vn, AssertionIndex index)
     }
 }
 
-ASSERT_VALRET_TP Compiler::apGetVNAssertion(ValueNum vn)
+ASSERT_VALRET_TP Compiler::apGetVNAssertions(ValueNum vn)
 {
     ASSERT_TP* set = apVNAssertionMap->LookupPointer(vn);
 
@@ -2709,80 +2709,58 @@ GenTree* Compiler::apPropagateNode(ASSERT_VALARG_TP assertions, GenTree* node, S
     }
 }
 
-//------------------------------------------------------------------------
-// optImpliedAssertions: Given a tree node that makes an assertion this
-//                       method computes the set of implied assertions
-//                       that are also true. The updated assertions are
-//                       maintained on the Compiler object.
-//
-// Arguments:
-//      assertionIndex   : The id of the assertion.
-//      activeAssertions : The assertions that are already true at this point.
-
-void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& activeAssertions)
+void Compiler::apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions)
 {
-    noway_assert(assertionIndex != 0);
-    noway_assert(assertionIndex <= apAssertionCount);
+    AssertionDsc* assertion = apGetAssertion(index);
 
-    AssertionDsc* curAssertion = apGetAssertion(assertionIndex);
-    if (!BitVecOps::IsEmpty(apTraits, activeAssertions))
+    if (BitVecOps::IsEmpty(apTraits, assertions))
     {
-        const ASSERT_TP mappedAssertions = apGetVNAssertion(curAssertion->op1.vn);
-        if (mappedAssertions == nullptr)
+        if ((assertion->assertionKind == OAK_EQUAL) && (assertion->op1.kind == O1K_LCLVAR) &&
+            (assertion->op2.kind == O2K_CONST_INT))
         {
-            return;
+            apAddConstImpliedAssertions(assertion, assertions);
         }
 
-        ASSERT_TP chkAssertions = BitVecOps::MakeCopy(apTraits, mappedAssertions);
-
-        if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
-        {
-            const ASSERT_TP op2Assertions = apGetVNAssertion(curAssertion->op2.vn);
-            if (op2Assertions != nullptr)
-            {
-                BitVecOps::UnionD(apTraits, chkAssertions, op2Assertions);
-            }
-        }
-        BitVecOps::IntersectionD(apTraits, chkAssertions, activeAssertions);
-
-        if (BitVecOps::IsEmpty(apTraits, chkAssertions))
-        {
-            return;
-        }
-
-        // Check each assertion in chkAssertions to see if it can be applied to curAssertion
-        BitVecOps::Iter chkIter(apTraits, chkAssertions);
-        unsigned        chkIndex = 0;
-        while (chkIter.NextElem(&chkIndex))
-        {
-            AssertionIndex chkAssertionIndex = GetAssertionIndex(chkIndex);
-            if (chkAssertionIndex > apAssertionCount)
-            {
-                break;
-            }
-            if (chkAssertionIndex == assertionIndex)
-            {
-                continue;
-            }
-
-            // Determine which one is a copy assertion and use the other to check for implied assertions.
-            AssertionDsc* iterAssertion = apGetAssertion(chkAssertionIndex);
-            if (curAssertion->IsCopyAssertion())
-            {
-                optImpliedByCopyAssertion(curAssertion, iterAssertion, activeAssertions);
-            }
-            else if (iterAssertion->IsCopyAssertion())
-            {
-                optImpliedByCopyAssertion(iterAssertion, curAssertion, activeAssertions);
-            }
-        }
+        return;
     }
-    // Is curAssertion a constant assignment of a 32-bit integer?
-    // (i.e  GT_LVL_VAR X  == GT_CNS_INT)
-    else if ((curAssertion->assertionKind == OAK_EQUAL) && (curAssertion->op1.kind == O1K_LCLVAR) &&
-             (curAssertion->op2.kind == O2K_CONST_INT))
+
+    const ASSERT_TP vn1Assertions = apGetVNAssertions(assertion->op1.vn);
+
+    if (vn1Assertions == BitVecOps::UninitVal())
     {
-        apAddConstImpliedAssertions(curAssertion, activeAssertions);
+        return;
+    }
+
+    const ASSERT_TP vn2Assertions =
+        assertion->op2.kind != O2K_LCLVAR_COPY ? BitVecOps::UninitVal() : apGetVNAssertions(assertion->op2.vn);
+
+    BitVecOps::Iter iter(apTraits, assertions);
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    {
+        AssertionIndex impliedIndex = GetAssertionIndex(bitIndex);
+
+        if (impliedIndex == index)
+        {
+            continue;
+        }
+
+        if (!BitVecOps::IsMember(apTraits, vn1Assertions, bitIndex) &&
+            ((vn2Assertions == BitVecOps::UninitVal()) || !BitVecOps::IsMember(apTraits, vn1Assertions, bitIndex)))
+        {
+            continue;
+        }
+
+        AssertionDsc* impliedAssertion = apGetAssertion(impliedIndex);
+
+        if (assertion->IsCopyAssertion())
+        {
+            optImpliedByCopyAssertion(assertion, impliedAssertion, assertions);
+        }
+        else if (impliedAssertion->IsCopyAssertion())
+        {
+            optImpliedByCopyAssertion(impliedAssertion, assertion, assertions);
+        }
     }
 }
 
@@ -2836,7 +2814,7 @@ void Compiler::apAddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_
 
     ssize_t value = constAssertion->op2.u1.iconVal;
 
-    const ASSERT_TP vnAssertions = apGetVNAssertion(constAssertion->op1.vn);
+    const ASSERT_TP vnAssertions = apGetVNAssertions(constAssertion->op1.vn);
 
     if (vnAssertions == BitVecOps::UninitVal())
     {
@@ -3262,7 +3240,7 @@ ASSERT_TP* Compiler::optComputeAssertionGen()
                 if (tree->GeneratesAssertion())
                 {
                     AssertionInfo info = tree->GetAssertionInfo();
-                    optImpliedAssertions(info.GetAssertionIndex(), valueGen);
+                    apAddImpliedAssertions(info.GetAssertionIndex(), valueGen);
                     BitVecOps::AddElemD(apTraits, valueGen, info.GetAssertionIndex() - 1);
                 }
             }
@@ -3293,14 +3271,14 @@ ASSERT_TP* Compiler::optComputeAssertionGen()
                 if (valueAssertionIndex != NO_ASSERTION_INDEX)
                 {
                     // Update valueGen if we have an assertion for the bbNext edge
-                    optImpliedAssertions(valueAssertionIndex, valueGen);
+                    apAddImpliedAssertions(valueAssertionIndex, valueGen);
                     BitVecOps::AddElemD(apTraits, valueGen, valueAssertionIndex - 1);
                 }
 
                 if (jumpDestAssertionIndex != NO_ASSERTION_INDEX)
                 {
                     // Update jumpDestValueGen if we have an assertion for the bbJumpDest edge
-                    optImpliedAssertions(jumpDestAssertionIndex, jumpDestValueGen);
+                    apAddImpliedAssertions(jumpDestAssertionIndex, jumpDestValueGen);
                     BitVecOps::AddElemD(apTraits, jumpDestValueGen, jumpDestAssertionIndex - 1);
                 }
             }
@@ -4226,7 +4204,7 @@ void Compiler::optVNAssertionProp()
                 if (tree->GeneratesAssertion())
                 {
                     AssertionInfo info = tree->GetAssertionInfo();
-                    optImpliedAssertions(info.GetAssertionIndex(), assertions);
+                    apAddImpliedAssertions(info.GetAssertionIndex(), assertions);
                     BitVecOps::AddElemD(apTraits, assertions, info.GetAssertionIndex() - 1);
                 }
             }
