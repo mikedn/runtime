@@ -6045,7 +6045,7 @@ protected:
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
-    AssertionIndex* optComplementaryAssertionMap;
+    AssertionIndex* apComplementaryAssertions;
     AssertionDsc*   optAssertionTabPrivate; // table that holds info about value assignments
     AssertionIndex  optAssertionCount;      // total number of assertions in the assertion table
     AssertionIndex  optMaxAssertionCount;
@@ -6131,8 +6131,8 @@ public:
     AssertionInfo optAssertionGenJtrue(GenTreeUnOp* jtrue);
     AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kidn);
     AssertionIndex apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, optAssertionKind kind);
-    AssertionIndex optFindComplementary(AssertionIndex assertionIndex);
-    void optMapComplementary(AssertionIndex assertionIndex, AssertionIndex index);
+    AssertionIndex apFindComplementaryAssertion(AssertionIndex index);
+    void apAddComplementaryAssertion(AssertionIndex index, AssertionIndex complementaryIndex);
 
     AssertionIndex apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk);
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);

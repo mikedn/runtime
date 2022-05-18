@@ -500,7 +500,7 @@ void Compiler::optAssertionInit()
     optMaxAssertionCount                    = countFunc[min(upperBound, codeSize)];
 
     optAssertionTabPrivate = new (this, CMK_AssertionProp) AssertionDsc[optMaxAssertionCount];
-    optComplementaryAssertionMap =
+    apComplementaryAssertions =
         new (this, CMK_AssertionProp) AssertionIndex[optMaxAssertionCount + 1](); // zero-inited (NO_ASSERTION_INDEX)
     assert(NO_ASSERTION_INDEX == 0);
 
@@ -982,7 +982,7 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        optMapComplementary(index, optAddAssertion(&assertion));
+        apAddComplementaryAssertion(index, optAddAssertion(&assertion));
     }
 
     return index;
@@ -1069,7 +1069,7 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        optMapComplementary(index, optAddAssertion(&assertion));
+        apAddComplementaryAssertion(index, optAddAssertion(&assertion));
         apCreateNotNullAssertion(op1);
     }
 
@@ -1134,7 +1134,7 @@ AssertionIndex Compiler::apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* o
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        optMapComplementary(index, optAddAssertion(&assertion));
+        apAddComplementaryAssertion(index, optAddAssertion(&assertion));
         apCreateNotNullAssertion(op1);
     }
 
@@ -1274,6 +1274,58 @@ ASSERT_VALRET_TP Compiler::apGetVNAssertion(ValueNum vn)
     ASSERT_TP* set = apVNAssertionMap->LookupPointer(vn);
 
     return set == nullptr ? BitVecOps::UninitVal() : *set;
+}
+
+void Compiler::apAddComplementaryAssertion(AssertionIndex index, AssertionIndex complementaryIndex)
+{
+    if ((index == NO_ASSERTION_INDEX) || (complementaryIndex == NO_ASSERTION_INDEX))
+    {
+        return;
+    }
+
+    assert(index <= optMaxAssertionCount);
+    assert(complementaryIndex <= optMaxAssertionCount);
+
+    apComplementaryAssertions[index]              = complementaryIndex;
+    apComplementaryAssertions[complementaryIndex] = index;
+}
+
+AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
+{
+    if (index == NO_ASSERTION_INDEX)
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    AssertionDsc* assertion = optGetAssertion(index);
+
+    if ((assertion->assertionKind != OAK_EQUAL) && (assertion->assertionKind != OAK_NOT_EQUAL))
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    AssertionIndex complementaryIndex = apComplementaryAssertions[index];
+
+    if (complementaryIndex != NO_ASSERTION_INDEX)
+    {
+        return complementaryIndex;
+    }
+
+    // TODO-MIKE-Review: Why is this needed? Just in case someone forgets to map the complementary
+    // assertion when generating assertions?
+    for (complementaryIndex = 1; complementaryIndex <= optAssertionCount; ++complementaryIndex)
+    {
+        AssertionDsc* complementaryAssertion = optGetAssertion(complementaryIndex);
+
+        if (complementaryAssertion->Complementary(assertion))
+        {
+            apAddComplementaryAssertion(index, complementaryIndex);
+
+            return complementaryIndex;
+        }
+    }
+
+    return NO_ASSERTION_INDEX;
 }
 
 AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
@@ -1699,63 +1751,6 @@ void Compiler::optAssertionGen(GenTree* tree)
     {
         tree->SetAssertionInfo(assertionInfo);
     }
-}
-
-/*****************************************************************************
- *
- * Maps a complementary assertion to its original assertion so it can be
- * retrieved faster.
- */
-void Compiler::optMapComplementary(AssertionIndex assertionIndex, AssertionIndex index)
-{
-    if (assertionIndex == NO_ASSERTION_INDEX || index == NO_ASSERTION_INDEX)
-    {
-        return;
-    }
-
-    assert(assertionIndex <= optMaxAssertionCount);
-    assert(index <= optMaxAssertionCount);
-
-    optComplementaryAssertionMap[assertionIndex] = index;
-    optComplementaryAssertionMap[index]          = assertionIndex;
-}
-
-/*****************************************************************************
- *
- *  Given an assertion index, return the assertion index of the complementary
- *  assertion or 0 if one does not exist.
- */
-AssertionIndex Compiler::optFindComplementary(AssertionIndex assertIndex)
-{
-    if (assertIndex == NO_ASSERTION_INDEX)
-    {
-        return NO_ASSERTION_INDEX;
-    }
-    AssertionDsc* inputAssertion = optGetAssertion(assertIndex);
-
-    // Must be an equal or not equal assertion.
-    if (inputAssertion->assertionKind != OAK_EQUAL && inputAssertion->assertionKind != OAK_NOT_EQUAL)
-    {
-        return NO_ASSERTION_INDEX;
-    }
-
-    AssertionIndex index = optComplementaryAssertionMap[assertIndex];
-    if (index != NO_ASSERTION_INDEX && index <= optAssertionCount)
-    {
-        return index;
-    }
-
-    for (AssertionIndex index = 1; index <= optAssertionCount; ++index)
-    {
-        // Make sure assertion kinds are complementary and op1, op2 kinds match.
-        AssertionDsc* curAssertion = optGetAssertion(index);
-        if (curAssertion->Complementary(inputAssertion))
-        {
-            optMapComplementary(assertIndex, index);
-            return index;
-        }
-    }
-    return NO_ASSERTION_INDEX;
 }
 
 AssertionIndex Compiler::apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
@@ -3405,12 +3400,12 @@ ASSERT_TP* Compiler::optComputeAssertionGen()
                 if (info.IsNextEdgeAssertion())
                 {
                     valueAssertionIndex    = info.GetAssertionIndex();
-                    jumpDestAssertionIndex = optFindComplementary(info.GetAssertionIndex());
+                    jumpDestAssertionIndex = apFindComplementaryAssertion(info.GetAssertionIndex());
                 }
                 else // is jump edge assertion
                 {
                     jumpDestAssertionIndex = info.GetAssertionIndex();
-                    valueAssertionIndex    = optFindComplementary(jumpDestAssertionIndex);
+                    valueAssertionIndex    = apFindComplementaryAssertion(jumpDestAssertionIndex);
                 }
 
                 if (valueAssertionIndex != NO_ASSERTION_INDEX)
