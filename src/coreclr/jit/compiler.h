@@ -6134,7 +6134,7 @@ public:
     void optVNAssertionProp();
     bool apIsConstInt(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     ASSERT_TP* apInitAssertionDataflowSets();
-    ASSERT_TP* optComputeAssertionGen();
+    ASSERT_TP* apComputeBlockAssertionGen();
 
     // Assertion Gen functions.
     void apGenerateNodeAssertions(GenTree* tree);
