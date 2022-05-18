@@ -3201,7 +3201,7 @@ public:
  */
 ASSERT_TP* Compiler::optComputeAssertionGen()
 {
-    ASSERT_TP* jumpDestGen = fgAllocateTypeForEachBlk<ASSERT_TP>();
+    ASSERT_TP* jumpDestGen = fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
 
     for (BasicBlock* const block : Blocks())
     {
@@ -3304,38 +3304,33 @@ ASSERT_TP* Compiler::optComputeAssertionGen()
     return jumpDestGen;
 }
 
-/*****************************************************************************
- *
- *   Initialize the assertion data flow flags that will be propagated.
- */
-
-ASSERT_TP* Compiler::optInitAssertionDataflowFlags()
+ASSERT_TP* Compiler::apInitAssertionDataflowSets()
 {
-    ASSERT_TP* jumpDestOut = fgAllocateTypeForEachBlk<ASSERT_TP>();
+    ASSERT_TP* jumpDestOut = fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
 
-    // The local assertion gen phase may have created unreachable blocks.
-    // They will never be visited in the dataflow propagation phase, so they need to
-    // be initialized correctly. We need to set the bits only for valid assertions
-    // (note that at this point we are not creating any new assertions).
-    // Also note that assertion indices start from 1.
-    ASSERT_TP apValidFull = BitVecOps::MakeEmpty(apTraits);
+    ASSERT_TP allSet = BitVecOps::MakeEmpty(apTraits);
+
     for (int i = 1; i <= apAssertionCount; i++)
     {
-        BitVecOps::AddElemD(apTraits, apValidFull, i - 1);
+        BitVecOps::AddElemD(apTraits, allSet, i - 1);
     }
 
     // Initially estimate the OUT sets to everything except killed expressions
     // Also set the IN sets to 1, so that we can perform the intersection.
     for (BasicBlock* const block : Blocks())
     {
-        block->bbAssertionIn      = BitVecOps::MakeCopy(apTraits, apValidFull);
-        block->bbAssertionGen     = BitVecOps::MakeEmpty(apTraits);
-        block->bbAssertionOut     = BitVecOps::MakeCopy(apTraits, apValidFull);
-        jumpDestOut[block->bbNum] = BitVecOps::MakeCopy(apTraits, apValidFull);
+        block->bbAssertionGen = BitVecOps::MakeEmpty(apTraits);
+
+        block->bbAssertionIn  = BitVecOps::MakeCopy(apTraits, allSet);
+        block->bbAssertionOut = BitVecOps::MakeCopy(apTraits, allSet);
+
+        jumpDestOut[block->bbNum] = BitVecOps::MakeCopy(apTraits, allSet);
     }
+
     // Compute the data flow values for all tracked expressions
     // IN and OUT never change for the initial basic block B1
     BitVecOps::ClearD(apTraits, fgFirstBB->bbAssertionIn);
+
     return jumpDestOut;
 }
 
@@ -4098,7 +4093,7 @@ void Compiler::optVNAssertionProp()
 #endif
 
     // Allocate the bits for the predicate sensitive dataflow analysis
-    apJTrueAssertionOut    = optInitAssertionDataflowFlags();
+    apJTrueAssertionOut    = apInitAssertionDataflowSets();
     ASSERT_TP* jumpDestGen = optComputeAssertionGen();
 
     // Modified dataflow algorithm for available expressions.

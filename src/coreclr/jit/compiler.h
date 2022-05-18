@@ -6133,7 +6133,7 @@ public:
     // Assertion prop data flow functions.
     void optVNAssertionProp();
     bool apIsConstInt(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
-    ASSERT_TP* optInitAssertionDataflowFlags();
+    ASSERT_TP* apInitAssertionDataflowSets();
     ASSERT_TP* optComputeAssertionGen();
 
     // Assertion Gen functions.
