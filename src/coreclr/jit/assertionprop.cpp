@@ -2786,71 +2786,44 @@ void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& ac
     }
 }
 
-/*****************************************************************************
- *
- *   Given a set of active assertions this method computes the set
- *   of non-Null implied assertions that are also true
- */
-
-void Compiler::optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions)
+void Compiler::apAddTypeImpliedNotNullAssertions(ASSERT_TP& assertions)
 {
-    if (BitVecOps::IsEmpty(apTraits, activeAssertions))
-    {
-        return;
-    }
+    BitVecOps::Iter iter(apTraits, assertions);
 
-    // Check each assertion in activeAssertions to see if it can be applied to constAssertion
-    BitVecOps::Iter chkIter(apTraits, activeAssertions);
-    unsigned        chkIndex = 0;
-    while (chkIter.NextElem(&chkIndex))
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionIndex chkAssertionIndex = GetAssertionIndex(chkIndex);
-        if (chkAssertionIndex > apAssertionCount)
-        {
-            break;
-        }
-        // chkAssertion must be Type/Subtype is equal assertion
-        AssertionDsc* chkAssertion = apGetAssertion(chkAssertionIndex);
-        if ((chkAssertion->op1.kind != O1K_SUBTYPE && chkAssertion->op1.kind != O1K_EXACT_TYPE) ||
-            (chkAssertion->assertionKind != OAK_EQUAL))
+        AssertionIndex typeIndex     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  typeAssertion = apGetAssertion(typeIndex);
+
+        if ((typeAssertion->assertionKind != OAK_EQUAL) ||
+            ((typeAssertion->op1.kind != O1K_SUBTYPE) && (typeAssertion->op1.kind != O1K_EXACT_TYPE)))
         {
             continue;
         }
 
-        // Search the assertion table for a non-null assertion on op1 that matches chkAssertion
-        for (AssertionIndex impIndex = 1; impIndex <= apAssertionCount; impIndex++)
+        for (AssertionIndex notNullIndex = 1; notNullIndex <= apAssertionCount; notNullIndex++)
         {
-            AssertionDsc* impAssertion = apGetAssertion(impIndex);
-
-            //  The impAssertion must be different from the chkAssertion
-            if (impIndex == chkAssertionIndex)
+            if (notNullIndex == typeIndex)
             {
                 continue;
             }
 
-            // impAssertion must be a Non Null assertion on lclNum
-            if ((impAssertion->assertionKind != OAK_NOT_EQUAL) ||
-                ((impAssertion->op1.kind != O1K_LCLVAR) && (impAssertion->op1.kind != O1K_VALUE_NUMBER)) ||
-                (impAssertion->op2.kind != O2K_CONST_INT) || (impAssertion->op1.vn != chkAssertion->op1.vn))
+            AssertionDsc* notNullAssertion = apGetAssertion(notNullIndex);
+
+            if ((notNullAssertion->assertionKind != OAK_NOT_EQUAL) ||
+                ((notNullAssertion->op1.kind != O1K_LCLVAR) && (notNullAssertion->op1.kind != O1K_VALUE_NUMBER)) ||
+                (notNullAssertion->op2.kind != O2K_CONST_INT) || (notNullAssertion->op1.vn != typeAssertion->op1.vn))
             {
                 continue;
             }
 
-            // The bit may already be in the result set
-            if (!BitVecOps::IsMember(apTraits, activeAssertions, impIndex - 1))
+            if (BitVecOps::TryAddElemD(apTraits, assertions, notNullIndex - 1))
             {
-                BitVecOps::AddElemD(apTraits, activeAssertions, impIndex - 1);
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nCompiler::optImpliedByTypeOfAssertions: %s Assertion #%02d, implies assertion #%02d",
-                           (chkAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type", chkAssertionIndex,
-                           impIndex);
-                }
-#endif
+                JITDUMP("\napAddTypeImpliedNotNullAssertions: %s Assertion #%02d, implies assertion #%02d",
+                        (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type", typeIndex, notNullIndex);
             }
 
-            // There is at most one non-null assertion that is implied by the current chkIndex assertion
+            // There is at most one not null assertion that is implied by a type assertion.
             break;
         }
     }
@@ -4192,8 +4165,7 @@ void Compiler::optVNAssertionProp()
 
     for (BasicBlock* const block : Blocks())
     {
-        // Compute any implied non-Null assertions for block->bbAssertionIn
-        optImpliedByTypeOfAssertions(block->bbAssertionIn);
+        apAddTypeImpliedNotNullAssertions(block->bbAssertionIn);
     }
 
 #ifdef DEBUG

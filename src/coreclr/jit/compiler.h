@@ -6176,7 +6176,7 @@ public:
 
     // Implied assertion functions.
     void optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& activeAssertions);
-    void optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions);
+    void apAddTypeImpliedNotNullAssertions(ASSERT_TP& activeAssertions);
     void optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionDsc* depAssertion, ASSERT_TP& result);
     void optImpliedByConstAssertion(AssertionDsc* curAssertion, ASSERT_TP& result);
 
