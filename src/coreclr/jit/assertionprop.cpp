@@ -2000,75 +2000,47 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
     return optAssertionProp_Update(newTree, tree, stmt);
 }
 
-//------------------------------------------------------------------------
-// optAssertionProp_LclVar: try and optimize a local var use via assertions
-//
-// Arguments:
-//    assertions - set of live assertions
-//    tree       - local use to optimize
-//    stmt       - statement containing the tree
-//
-// Returns:
-//    Updated tree, or nullptr
-//
-// Notes:
-//   stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt)
+GenTree* Compiler::apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
 {
-    assert(tree->OperIs(GT_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_VAR));
 
-    // If we have a var definition then bail or
-    // If this is the address of the var then it will have the GTF_DONT_CSE
-    // flag set and we don't want to to assertion prop on it.
-    if (tree->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE))
+    if ((lclVar->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
     {
         return nullptr;
     }
 
     BitVecOps::Iter iter(apTraits, assertions);
-    unsigned        index = 0;
-    while (iter.NextElem(&index))
+
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        AssertionIndex assertionIndex = GetAssertionIndex(index);
-        if (assertionIndex > optAssertionCount)
-        {
-            break;
-        }
-        // See if the variable is equal to a constant or another variable.
-        AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
-        if (curAssertion->assertionKind != OAK_EQUAL || curAssertion->op1.kind != O1K_LCLVAR)
+        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionDsc*  assertion = optGetAssertion(index);
+
+        if ((assertion->assertionKind != OAK_EQUAL) || (assertion->op1.kind != O1K_LCLVAR))
         {
             continue;
         }
 
-        // Copy prop.
-        if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
+        if (assertion->op2.kind == O2K_LCLVAR_COPY)
         {
             // Cannot do copy prop during global assertion prop because of no knowledge
-            // of kill sets. We will still make a == b copy assertions during the global phase to allow
-            // for any implied assertions that can be retrieved. Because implied assertions look for
-            // matching SSA numbers (i.e., if a0 == b1 and b1 == c0 then a0 == c0) they don't need kill sets.
+            // of kill sets. We will still make a == b copy assertions during the global
+            // phase to allow for any implied assertions that can be retrieved. Because
+            // implied assertions look for matching SSA numbers (i.e., if a0 == b1 and
+            // b1 == c0 then a0 == c0) they don't need kill sets.
 
             continue;
         }
 
-        // Constant prop.
-        //
-        // The case where the tree type could be different than the LclVar type is caused by
-        // gtFoldExpr, specifically the case of a cast, where the fold operation changes the type of the LclVar
-        // node.  In such a case is not safe to perform the substitution since later on the JIT will assert mismatching
-        // types between trees.
-        const unsigned lclNum = tree->GetLclNum();
-        if (curAssertion->op1.lcl.lclNum == lclNum)
+        if (assertion->op1.lcl.lclNum == lclVar->GetLclNum())
         {
-            LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
-            // Verify types match
-            if (tree->TypeGet() == lclDsc->lvType)
+            LclVarDsc* lcl = lvaGetDesc(lclVar);
+
+            if (lclVar->GetType() == lcl->GetType())
             {
-                if (curAssertion->op1.vn == vnStore->VNConservativeNormalValue(tree->gtVNPair))
+                if (assertion->op1.vn == vnStore->VNNormalValue(lclVar->GetConservativeVN()))
                 {
-                    return optConstantAssertionProp(curAssertion, tree, stmt DEBUGARG(assertionIndex));
+                    return optConstantAssertionProp(assertion, lclVar, stmt DEBUGARG(index));
                 }
             }
         }
@@ -2984,7 +2956,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
     switch (tree->gtOper)
     {
         case GT_LCL_VAR:
-            return optAssertionProp_LclVar(assertions, tree->AsLclVar(), stmt);
+            return apPropagateLclVar(assertions, tree->AsLclVar(), stmt);
 
         case GT_OBJ:
         case GT_BLK:
