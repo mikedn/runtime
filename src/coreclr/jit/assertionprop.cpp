@@ -504,10 +504,10 @@ void Compiler::optAssertionInit()
         new (this, CMK_AssertionProp) AssertionIndex[optMaxAssertionCount + 1](); // zero-inited (NO_ASSERTION_INDEX)
     assert(NO_ASSERTION_INDEX == 0);
 
-    optValueNumToAsserts = new (getAllocator(CMK_AssertionProp)) ValueNumToAssertsMap(getAllocator(CMK_AssertionProp));
-    apTraits             = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
-    optAssertionCount    = 0;
-    bbJtrueAssertionOut  = nullptr;
+    apVNAssertionMap    = new (getAllocator(CMK_AssertionProp)) ValueNumToAssertsMap(getAllocator(CMK_AssertionProp));
+    apTraits            = new (this, CMK_AssertionProp) BitVecTraits(optMaxAssertionCount, this);
+    optAssertionCount   = 0;
+    bbJtrueAssertionOut = nullptr;
 }
 
 /******************************************************************************
@@ -1176,25 +1176,6 @@ bool Compiler::optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTree
     return false;
 }
 
-/*****************************************************************************
- *
- * Maintain a map "optValueNumToAsserts" i.e., objectVN -> to set of assertions
- * about that VN. Given "assertions" about a "objectVN" add it to the previously
- * mapped assertions about that "objectVN."
- */
-void Compiler::optAddVnAssertionMapping(ValueNum vn, AssertionIndex index)
-{
-    ASSERT_TP* cur = optValueNumToAsserts->LookupPointer(vn);
-    if (cur == nullptr)
-    {
-        optValueNumToAsserts->Set(vn, BitVecOps::MakeSingleton(apTraits, index - 1));
-    }
-    else
-    {
-        BitVecOps::AddElemD(apTraits, *cur, index - 1);
-    }
-}
-
 bool Compiler::apAssertionHasNanVN(AssertionDsc* assertion)
 {
     ValueNum vns[]{assertion->op1.vn, assertion->op2.vn};
@@ -1261,10 +1242,10 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
 
     if (newAssertion->assertionKind != OAK_NO_THROW)
     {
-        optAddVnAssertionMapping(newAssertion->op1.vn, optAssertionCount);
+        apAddVNAssertion(newAssertion->op1.vn, optAssertionCount);
         if (newAssertion->op2.kind == O2K_LCLVAR_COPY)
         {
-            optAddVnAssertionMapping(newAssertion->op2.vn, optAssertionCount);
+            apAddVNAssertion(newAssertion->op2.vn, optAssertionCount);
         }
     }
 
@@ -1272,6 +1253,27 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
     optDebugCheckAssertions(optAssertionCount);
 #endif
     return optAssertionCount;
+}
+
+void Compiler::apAddVNAssertion(ValueNum vn, AssertionIndex index)
+{
+    ASSERT_TP* set = apVNAssertionMap->Emplace(vn);
+
+    if (*set == BitVecOps::UninitVal())
+    {
+        *set = BitVecOps::MakeSingleton(apTraits, index - 1);
+    }
+    else
+    {
+        BitVecOps::AddElemD(apTraits, *set, index - 1);
+    }
+}
+
+ASSERT_VALRET_TP Compiler::apGetVNAssertion(ValueNum vn)
+{
+    ASSERT_TP* set = apVNAssertionMap->LookupPointer(vn);
+
+    return set == nullptr ? BitVecOps::UninitVal() : *set;
 }
 
 AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
@@ -2806,7 +2808,7 @@ void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& ac
     AssertionDsc* curAssertion = optGetAssertion(assertionIndex);
     if (!BitVecOps::IsEmpty(apTraits, activeAssertions))
     {
-        const ASSERT_TP mappedAssertions = optGetVnMappedAssertions(curAssertion->op1.vn);
+        const ASSERT_TP mappedAssertions = apGetVNAssertion(curAssertion->op1.vn);
         if (mappedAssertions == nullptr)
         {
             return;
@@ -2816,7 +2818,7 @@ void Compiler::optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& ac
 
         if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
         {
-            const ASSERT_TP op2Assertions = optGetVnMappedAssertions(curAssertion->op2.vn);
+            const ASSERT_TP op2Assertions = apGetVNAssertion(curAssertion->op2.vn);
             if (op2Assertions != nullptr)
             {
                 BitVecOps::UnionD(apTraits, chkAssertions, op2Assertions);
@@ -2935,27 +2937,6 @@ void Compiler::optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions)
     }
 }
 
-//------------------------------------------------------------------------
-// optGetVnMappedAssertions: Given a value number, get the assertions
-//                           we have about the value number.
-//
-// Arguments:
-//      objectVN - The given value number.
-//
-// Return Value:
-//      The assertions we have about the value number.
-//
-
-ASSERT_VALRET_TP Compiler::optGetVnMappedAssertions(ValueNum vn)
-{
-    ASSERT_TP set = BitVecOps::UninitVal();
-    if (optValueNumToAsserts->Lookup(vn, &set))
-    {
-        return set;
-    }
-    return BitVecOps::UninitVal();
-}
-
 /*****************************************************************************
  *
  *   Given a const assertion this method computes the set of implied assertions
@@ -2970,7 +2951,7 @@ void Compiler::optImpliedByConstAssertion(AssertionDsc* constAssertion, ASSERT_T
 
     ssize_t iconVal = constAssertion->op2.u1.iconVal;
 
-    const ASSERT_TP chkAssertions = optGetVnMappedAssertions(constAssertion->op1.vn);
+    const ASSERT_TP chkAssertions = apGetVNAssertion(constAssertion->op1.vn);
     if (chkAssertions == nullptr || BitVecOps::IsEmpty(apTraits, chkAssertions))
     {
         return;
@@ -4485,15 +4466,13 @@ void Compiler::optDebugCheckAssertions(AssertionIndex index)
     }
 }
 
-void Compiler::optPrintVnAssertionMapping()
+void Compiler::apDumpVNAssertionMap()
 {
-    printf("\nVN Assertion Mapping\n");
-    printf("---------------------\n");
-    for (ValueNumToAssertsMap::KeyIterator ki = optValueNumToAsserts->Begin(); !ki.Equal(optValueNumToAsserts->End());
-         ++ki)
+    printf("\nVN Assertion Mapping:\n");
+
+    for (const auto& pair : *apVNAssertionMap)
     {
-        printf("(%d => ", ki.Get());
-        printf("%s)\n", BitVecOps::ToString(apTraits, ki.GetValue()));
+        printf("$%u => %s\n", pair.key, BitVecOps::ToString(apTraits, pair.value));
     }
 }
 

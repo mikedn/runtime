@@ -6060,7 +6060,7 @@ public:
     }
     ASSERT_TP* bbJtrueAssertionOut;
     typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
-    ValueNumToAssertsMap* optValueNumToAsserts;
+    ValueNumToAssertsMap* apVNAssertionMap;
 
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
@@ -6142,11 +6142,11 @@ public:
 
     bool apAssertionHasNanVN(AssertionDsc* assertion);
     AssertionIndex optAddAssertion(AssertionDsc* assertion);
-    void optAddVnAssertionMapping(ValueNum vn, AssertionIndex index);
+    void apAddVNAssertion(ValueNum vn, AssertionIndex index);
 #ifdef DEBUG
-    void optPrintVnAssertionMapping();
+    void apDumpVNAssertionMap();
 #endif
-    ASSERT_TP optGetVnMappedAssertions(ValueNum vn);
+    ASSERT_TP apGetVNAssertion(ValueNum vn);
 
     AssertionIndex apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
                                          ValueNum         vn,
