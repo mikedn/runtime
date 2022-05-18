@@ -539,7 +539,7 @@ AssertionIndex Compiler::apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk)
     assertion.op1.bnd.vnIdx = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
     assertion.op1.bnd.vnLen = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
 
-    return optAddAssertion(&assertion);
+    return apAddAssertion(&assertion);
 }
 
 AssertionIndex Compiler::apCreateNotNullAssertion(GenTree* addr)
@@ -646,7 +646,7 @@ AssertionIndex Compiler::apCreateNotNullAssertion(GenTree* addr)
     assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
 #endif
 
-    return optAddAssertion(&assertion);
+    return apAddAssertion(&assertion);
 }
 
 static ssize_t GetLowerBoundForIntegralType(var_types type)
@@ -775,7 +775,7 @@ AssertionIndex Compiler::apCreateSubrangeAssertion(GenTreeCast* cast)
     assertion.op2.kind       = O2K_SUBRANGE;
     assertion.op2.u2         = range;
 
-    return optAddAssertion(&assertion);
+    return apAddAssertion(&assertion);
 }
 
 AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kind)
@@ -969,7 +969,7 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
 
     if (assertion.op2.kind == O2K_SUBRANGE)
     {
-        return kind == OAK_EQUAL ? optAddAssertion(&assertion) : NO_ASSERTION_INDEX;
+        return kind == OAK_EQUAL ? apAddAssertion(&assertion) : NO_ASSERTION_INDEX;
     }
 
     if (apAssertionHasNanVN(&assertion))
@@ -977,12 +977,12 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionIndex index = optAddAssertion(&assertion);
+    AssertionIndex index = apAddAssertion(&assertion);
 
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        apAddComplementaryAssertion(index, optAddAssertion(&assertion));
+        apAddComplementaryAssertion(index, apAddAssertion(&assertion));
     }
 
     return index;
@@ -1064,12 +1064,12 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
     }
 #endif
 
-    AssertionIndex index = optAddAssertion(&assertion);
+    AssertionIndex index = apAddAssertion(&assertion);
 
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        apAddComplementaryAssertion(index, optAddAssertion(&assertion));
+        apAddComplementaryAssertion(index, apAddAssertion(&assertion));
         apCreateNotNullAssertion(op1);
     }
 
@@ -1129,12 +1129,12 @@ AssertionIndex Compiler::apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* o
     assertion.op2.u1.iconVal   = op2->AsIntCon()->GetValue();
     assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
 
-    AssertionIndex index = optAddAssertion(&assertion);
+    AssertionIndex index = apAddAssertion(&assertion);
 
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.assertionKind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        apAddComplementaryAssertion(index, optAddAssertion(&assertion));
+        apAddComplementaryAssertion(index, apAddAssertion(&assertion));
         apCreateNotNullAssertion(op1);
     }
 
@@ -1197,38 +1197,24 @@ bool Compiler::apAssertionHasNanVN(AssertionDsc* assertion)
     return false;
 }
 
-/*****************************************************************************
- *
- *  Given an assertion add it to the assertion table
- *
- *  If it is already in the assertion table return the assertionIndex that
- *  we use to refer to this element.
- *  Otherwise add it to the assertion table ad return the assertionIndex that
- *  we use to refer to this element.
- *  If we need to add to the table and the table is full return the value zero
- */
-AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
+AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
 {
-    noway_assert(newAssertion->assertionKind != OAK_INVALID);
+    assert(assertion->assertionKind != OAK_INVALID);
 
-    // Check if exists already, so we can skip adding new one. Search backwards.
     for (AssertionIndex index = optAssertionCount; index >= 1; index--)
     {
-        AssertionDsc* curAssertion = optGetAssertion(index);
-        if (curAssertion->Equals(newAssertion))
+        if (optGetAssertion(index)->Equals(assertion))
         {
             return index;
         }
     }
 
-    // Check if we are within max count.
     if (optAssertionCount >= optMaxAssertionCount)
     {
         return NO_ASSERTION_INDEX;
     }
 
-    optAssertionTabPrivate[optAssertionCount] = *newAssertion;
-    optAssertionCount++;
+    optAssertionTabPrivate[optAssertionCount++] = *assertion;
 
 #ifdef DEBUG
     if (verbose)
@@ -1236,22 +1222,22 @@ AssertionIndex Compiler::optAddAssertion(AssertionDsc* newAssertion)
         printf("GenTreeNode creates assertion:\n");
         gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
         printf("In " FMT_BB " New Global ", compCurBB->bbNum);
-        optPrintAssertion(newAssertion, optAssertionCount);
+        optPrintAssertion(assertion, optAssertionCount);
     }
-#endif // DEBUG
+#endif
 
-    if (newAssertion->assertionKind != OAK_NO_THROW)
+    if (assertion->assertionKind != OAK_NO_THROW)
     {
-        apAddVNAssertion(newAssertion->op1.vn, optAssertionCount);
-        if (newAssertion->op2.kind == O2K_LCLVAR_COPY)
+        apAddVNAssertion(assertion->op1.vn, optAssertionCount);
+
+        if (assertion->op2.kind == O2K_LCLVAR_COPY)
         {
-            apAddVNAssertion(newAssertion->op2.vn, optAssertionCount);
+            apAddVNAssertion(assertion->op2.vn, optAssertionCount);
         }
     }
 
-#ifdef DEBUG
-    optDebugCheckAssertions(optAssertionCount);
-#endif
+    INDEBUG(optDebugCheckAssertions(optAssertionCount));
+
     return optAssertionCount;
 }
 
@@ -1330,7 +1316,7 @@ AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
 
 AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
 {
-    AssertionIndex index = optAddAssertion(assertion);
+    AssertionIndex index = apAddAssertion(assertion);
 
     if (index != NO_ASSERTION_INDEX)
     {
@@ -1340,7 +1326,7 @@ AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
                (complementary.op1.kind == O1K_CONSTANT_LOOP_BND));
 
         complementary.assertionKind = complementary.assertionKind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        optAddAssertion(&complementary);
+        apAddAssertion(&complementary);
     }
 
     return index;
@@ -1448,7 +1434,7 @@ AssertionInfo Compiler::apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
         dsc.op2.kind      = O2K_INVALID;
         dsc.op2.vn        = ValueNumStore::NoVN;
 
-        AssertionIndex index = optAddAssertion(&dsc);
+        AssertionIndex index = apAddAssertion(&dsc);
 
         if (unsignedCompareBnd.cmpOper == VNF_GE_UN)
         {
@@ -1573,7 +1559,7 @@ AssertionInfo Compiler::apGenerateJTrueAssertions(GenTreeUnOp* jtrue)
             dsc.op2.u1.iconVal   = 0;
             dsc.op2.u1.iconFlags = GTF_EMPTY;
 
-            AssertionIndex index = optAddAssertion(&dsc);
+            AssertionIndex index = apAddAssertion(&dsc);
 
             if (relop->OperIs(GT_NE) != (con == 0))
             {

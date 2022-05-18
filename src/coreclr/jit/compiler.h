@@ -6141,7 +6141,7 @@ public:
     AssertionIndex apAddBoundAssertions(AssertionDsc* assertion);
 
     bool apAssertionHasNanVN(AssertionDsc* assertion);
-    AssertionIndex optAddAssertion(AssertionDsc* assertion);
+    AssertionIndex apAddAssertion(AssertionDsc* assertion);
     void apAddVNAssertion(ValueNum vn, AssertionIndex index);
 #ifdef DEBUG
     void apDumpVNAssertionMap();
