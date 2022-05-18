@@ -1834,124 +1834,102 @@ AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, Value
     return NO_ASSERTION_INDEX;
 }
 
-//------------------------------------------------------------------------------
-// optConstantAssertionProp: Possibly substitute a constant for a local use
-//
-// Arguments:
-//    curAssertion - assertion to propagate
-//    tree         - tree to possibly modify
-//    stmt         - statement containing the tree
-//    index        - index of this assertion in the assertion table
-//
-// Returns:
-//    Updated tree (may be the input tree, modified in place), or nullptr
-//
-// Notes:
-//    stmt may be nullptr during local assertion prop
-//
-GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
-                                            GenTreeLclVarCommon* tree,
-                                            Statement* stmt DEBUGARG(AssertionIndex index))
+GenTree* Compiler::apPropagateLclVarConst(AssertionDsc*  assertion,
+                                          GenTreeLclVar* lclVar,
+                                          Statement* stmt DEBUGARG(AssertionIndex index))
 {
-    const unsigned lclNum = tree->GetLclNum();
+    LclVarDsc* lcl = lvaGetDesc(lclVar);
 
-    assert(!lvaGetDesc(lclNum)->IsAddressExposed());
+    assert(!lcl->IsAddressExposed());
+    assert(lclVar->GetType() == lcl->GetType());
 
-    if (lclNumIsCSE(lclNum))
+    if (lcl->lvIsCSE)
     {
         return nullptr;
     }
 
-    GenTree* newTree = tree;
+    const auto& val     = assertion->op2;
+    GenTree*    conNode = nullptr;
 
-    // Update 'newTree' with the new value from our table
-    // Typically newTree == tree and we are updating the node in place
-    switch (curAssertion->op2.kind)
+    switch (val.kind)
     {
         case O2K_CONST_DOUBLE:
             // There could be a positive zero and a negative zero, so don't propagate zeroes.
-            if (curAssertion->op2.dconVal == 0.0)
+            // TODO-MIKE-Review: So what?
+            if (val.dconVal == 0.0)
             {
                 return nullptr;
             }
-            newTree->ChangeOperConst(GT_CNS_DBL);
-            newTree->AsDblCon()->gtDconVal = curAssertion->op2.dconVal;
+
+            conNode = lclVar->ChangeToDblCon(val.dconVal);
             break;
 
         case O2K_CONST_LONG:
-
-            if (newTree->gtType == TYP_LONG)
+            if (lclVar->TypeIs(TYP_LONG))
             {
-                newTree->ChangeOperConst(GT_CNS_NATIVELONG);
-                newTree->AsIntConCommon()->SetLngValue(curAssertion->op2.lconVal);
+#ifdef TARGET_64BIT
+                conNode = lclVar->ChangeToIntCon(val.lconVal);
+#else
+                conNode           = lclVar->ChangeToLngCon(val.lconVal);
+#endif
             }
             else
             {
-                newTree->ChangeOperConst(GT_CNS_INT);
-                newTree->AsIntCon()->gtIconVal = (int)curAssertion->op2.lconVal;
-                newTree->gtType                = TYP_INT;
+                conNode = lclVar->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.lconVal));
             }
             break;
 
         case O2K_CONST_INT:
-
-            // Don't propagate handles if we need to report relocs.
-            if (opts.compReloc && ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0))
+            if (lclVar->TypeIs(TYP_STRUCT))
             {
-                return nullptr;
+                assert(val.u1.iconVal == 0);
+
+                conNode = lclVar->ChangeToIntCon(TYP_INT, 0);
+                break;
             }
 
-            if (curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK)
+#ifdef FEATURE_SIMD
+            if (varTypeIsSIMD(lclVar->GetType()))
             {
-                // Here we have to allocate a new 'large' node to replace the old one
-                // TODO-MIKE-Cleanup: Huh, what large node?!?
-                newTree = gtNewIconHandleNode(curAssertion->op2.u1.iconVal,
-                                              curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK);
+                assert(val.u1.iconVal == 0);
+
+                conNode = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+                break;
+            }
+#endif
+
+            if ((val.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
+            {
+                if (opts.compReloc)
+                {
+                    return nullptr;
+                }
+
+                conNode = lclVar->ChangeToIntCon(TYP_I_IMPL, val.u1.iconVal);
+                conNode->AsIntCon()->SetHandleKind(val.u1.iconFlags & GTF_ICON_HDL_MASK);
             }
             else
             {
-                // If we have done constant propagation of a struct type, it is only valid for zero-init,
-                // and we have to ensure that we have the right zero for the type.
-                assert(!varTypeIsStruct(tree->GetType()) || curAssertion->op2.u1.iconVal == 0);
-
-#ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(tree->GetType()))
-                {
-                    LclVarDsc* lcl = lvaGetDesc(lclNum);
-                    assert(lcl->GetType() == tree->GetType());
-                    newTree = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
-                }
-                else
-#endif // FEATURE_SIMD
-                {
-                    newTree->ChangeOperConst(GT_CNS_INT);
-                    newTree->AsIntCon()->gtIconVal = curAssertion->op2.u1.iconVal;
-                    if (newTree->TypeIs(TYP_STRUCT))
-                    {
-                        // LCL_VAR can be init with a GT_CNS_INT, keep its type INT, not STRUCT.
-                        newTree->ChangeType(TYP_INT);
-                    }
-                }
+                conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.u1.iconVal);
             }
 
-            // Constant ints are of type TYP_INT, not any of the short forms.
-            if (varTypeIsIntegral(newTree->TypeGet()))
+            if (varTypeIsIntegral(conNode->GetType()))
             {
 #ifdef TARGET_64BIT
-                var_types newType =
-                    (var_types)((curAssertion->op2.u1.iconFlags & GTF_ASSERTION_PROP_LONG) ? TYP_LONG : TYP_INT);
-                if (newTree->TypeGet() != newType)
-                {
-                    noway_assert(newTree->gtType != TYP_REF);
-                    newTree->gtType = newType;
-                }
+                var_types newType = ((val.u1.iconFlags & GTF_ASSERTION_PROP_LONG) != 0) ? TYP_LONG : TYP_INT;
 #else
-                if (newTree->TypeGet() != TYP_INT)
-                {
-                    noway_assert(newTree->gtType != TYP_REF && newTree->gtType != TYP_LONG);
-                    newTree->gtType = TYP_INT;
-                }
+                var_types newType = TYP_INT;
 #endif
+
+                if (conNode->GetType() != newType)
+                {
+#ifdef TARGET_64BIT
+                    noway_assert(!conNode->TypeIs(TYP_REF));
+#else
+                    noway_assert(!conNode->TypeIs(TYP_REF, TYP_LONG));
+#endif
+                    conNode->SetType(newType);
+                }
             }
             break;
 
@@ -1959,22 +1937,21 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
             return nullptr;
     }
 
-    assert(newTree->OperIsConst());                      // We should have a simple Constant node for newTree
-    assert(vnStore->IsVNConstant(curAssertion->op2.vn)); // The value number stored for op2 should be a valid
-                                                         // VN representing the constant
-    newTree->gtVNPair.SetBoth(curAssertion->op2.vn);     // Set the ValueNumPair to the constant VN from op2
-                                                         // of the assertion
+    assert(conNode->OperIsConst());
+    assert(vnStore->IsVNConstant(val.vn));
+
+    conNode->gtVNPair.SetBoth(val.vn);
 
 #ifdef DEBUG
     if (verbose)
     {
         printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-        optPrintAssertion(curAssertion, index);
-        gtDispTree(newTree, nullptr, nullptr, true);
+        optPrintAssertion(assertion, index);
+        gtDispTree(conNode, nullptr, nullptr, true);
     }
 #endif
 
-    return apUpdateTree(newTree, tree, stmt);
+    return apUpdateTree(conNode, lclVar, stmt);
 }
 
 GenTree* Compiler::apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
@@ -2017,7 +1994,7 @@ GenTree* Compiler::apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar*
             {
                 if (assertion->op1.vn == vnStore->VNNormalValue(lclVar->GetConservativeVN()))
                 {
-                    return optConstantAssertionProp(assertion, lclVar, stmt DEBUGARG(index));
+                    return apPropagateLclVarConst(assertion, lclVar, stmt DEBUGARG(index));
                 }
             }
         }
