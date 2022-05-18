@@ -1796,6 +1796,7 @@ public:
 #ifndef TARGET_64BIT
     GenTreeLngCon* ChangeToLngCon(int64_t value);
 #endif
+    GenTreeDblCon* ChangeToDblCon(double value);
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
     GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);

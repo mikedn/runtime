@@ -6169,7 +6169,7 @@ public:
     GenTree* apPropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* indir, Statement* stmt);
     GenTree* apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt);
     GenTree* apPropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt);
-    GenTree* optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
+    GenTree* apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt);
     GenTree* apPropagateComma(GenTreeOp* comma, Statement* stmt);
     GenTree* apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt);
     GenTree* optAssertionProp_Update(GenTree* newTree, GenTree* tree, Statement* stmt);

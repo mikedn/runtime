@@ -2118,71 +2118,39 @@ AssertionIndex Compiler::apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, 
     return NO_ASSERTION_INDEX;
 }
 
-/*****************************************************************************
- *
- *  Given a tree consisting of a RelOp and a set of available assertions
- *  we try to propagate an assertion and modify the RelOp tree if we can.
- *  We pass in the root of the tree via 'stmt', for local copy prop 'stmt' will be nullptr
- *  Returns the modified tree, or nullptr if no assertion prop took place
- */
-
-GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt)
+GenTree* Compiler::apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt)
 {
-    assert(tree->OperIsCompare());
+    assert(relop->OperIsCompare());
 
-    GenTree* newTree = tree;
-    GenTree* op1     = tree->AsOp()->gtOp1;
-    GenTree* op2     = tree->AsOp()->gtOp2;
+    GenTree* op1 = relop->GetOp(0);
+    GenTree* op2 = relop->GetOp(1);
 
-    // Look for assertions of the form (tree EQ/NE 0)
-    AssertionIndex index = apAssertionIsZeroEquality(assertions, tree);
+    AssertionIndex index = apAssertionIsZeroEquality(assertions, relop);
 
     if (index != NO_ASSERTION_INDEX)
     {
-        // We know that this relop is either 0 or != 0 (1)
-        AssertionDsc* curAssertion = optGetAssertion(index);
+        AssertionDsc* assertion = optGetAssertion(index);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nVN relop based constant assertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-            printf("Assertion index=#%02u: ", index);
-            printTreeID(tree);
-            printf(" %s 0\n", (curAssertion->assertionKind == OAK_EQUAL) ? "==" : "!=");
-        }
-#endif
+        JITDUMP("Assertion #%02u: relop [%06u] %s 0\n", index, relop->GetID(),
+                (assertion->assertionKind == OAK_EQUAL) ? "==" : "!=");
 
-        // Bail out if tree is not side effect free.
-        if ((tree->gtFlags & GTF_SIDE_EFFECT) != 0)
+        if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
         {
-            JITDUMP("sorry, blocked by side effects\n");
+            JITDUMP("Relop has side effects\n");
             return nullptr;
         }
 
-        if (curAssertion->assertionKind == OAK_EQUAL)
-        {
-            tree->ChangeOperConst(GT_CNS_INT);
-            tree->AsIntCon()->gtIconVal = 0;
-        }
-        else
-        {
-            tree->ChangeOperConst(GT_CNS_INT);
-            tree->AsIntCon()->gtIconVal = 1;
-        }
+        relop->ChangeToIntCon(assertion->assertionKind != OAK_EQUAL);
 
-        newTree = fgMorphTree(tree);
-        DISPTREE(newTree);
-        return optAssertionProp_Update(newTree, tree, stmt);
+        return optAssertionProp_Update(relop, relop, stmt);
     }
 
-    // Else check if we have an equality check involving a local or an indir
-    if (!tree->OperIs(GT_EQ, GT_NE))
+    if (!relop->OperIs(GT_EQ, GT_NE))
     {
         return nullptr;
     }
 
-    // Bail out if tree is not side effect free.
-    if ((tree->gtFlags & GTF_SIDE_EFFECT) != 0)
+    if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
     {
         return nullptr;
     }
@@ -2192,7 +2160,6 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
         return nullptr;
     }
 
-    // Find an equal or not equal assertion involving "op1" and "op2".
     index = apAssertionIsEquality(assertions, op1, op2);
 
     if (index == NO_ASSERTION_INDEX)
@@ -2200,166 +2167,131 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
         return nullptr;
     }
 
-    AssertionDsc* curAssertion         = optGetAssertion(index);
-    bool          assertionKindIsEqual = (curAssertion->assertionKind == OAK_EQUAL);
+    AssertionDsc* assertion    = optGetAssertion(index);
+    ValueNum      op2VN        = vnStore->VNNormalValue(op2->GetConservativeVN());
+    bool          allowReverse = true;
 
-    // Allow or not to reverse condition for OAK_NOT_EQUAL assertions.
-    bool allowReverse = true;
-
-    // If the assertion involves "op2" and it is a constant, then check if "op1" also has a constant value.
-    ValueNum vnCns = vnStore->VNConservativeNormalValue(op2->gtVNPair);
-    if (vnStore->IsVNConstant(vnCns))
+    if (vnStore->IsVNConstant(op2VN))
     {
-#ifdef DEBUG
-        if (verbose)
+        // TODO-MIKE-Review: This stuff's weird. We have op1 ==/!= op2 and op2 is a constant.
+        // We change op1 to be the same constant as op2 and then set the relop VN to 0/1.
+        // Why don't we just change the relop to a constant like in the zero case above?
+
+        JITDUMP("Assertion #%02u: [%06u] %s ", index, op1->GetID(),
+                assertion->assertionKind == OAK_EQUAL ? "==" : "!=");
+
+        if (varActualTypeIsInt(op1->GetType()))
         {
-            printf("\nVN relop based constant assertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-            printf("Assertion index=#%02u: ", index);
-            printTreeID(op1);
-            printf(" %s ", assertionKindIsEqual ? "==" : "!=");
-            if (genActualType(op1->TypeGet()) == TYP_INT)
+            int value = vnStore->ConstantValue<int>(op2VN);
+            JITDUMP("%d\n", value);
+            op1->ChangeToIntCon(TYP_INT, value);
+
+#ifndef TARGET_64BIT
+            if (vnStore->IsVNHandle(op2VN))
             {
-                printf("%d\n", vnStore->ConstantValue<int>(vnCns));
+                op1->gtFlags |= (vnStore->GetHandleFlags(op2VN) & GTF_ICON_HDL_MASK);
             }
-            else if (op1->TypeGet() == TYP_LONG)
-            {
-                printf("%I64d\n", vnStore->ConstantValue<INT64>(vnCns));
-            }
-            else if (op1->TypeGet() == TYP_DOUBLE)
-            {
-                printf("%f\n", vnStore->ConstantValue<double>(vnCns));
-            }
-            else if (op1->TypeGet() == TYP_FLOAT)
-            {
-                printf("%f\n", vnStore->ConstantValue<float>(vnCns));
-            }
-            else if (op1->TypeGet() == TYP_REF)
-            {
-                // The only constant of TYP_REF that ValueNumbering supports is 'null'
-                assert(vnStore->ConstantValue<size_t>(vnCns) == 0);
-                printf("null\n");
-            }
-            else if (op1->TypeGet() == TYP_BYREF)
-            {
-                printf("%d (byref)\n", static_cast<target_ssize_t>(vnStore->ConstantValue<size_t>(vnCns)));
-            }
-            else
-            {
-                printf("??unknown\n");
-            }
-            gtDispTree(tree, nullptr, nullptr, true);
-        }
 #endif
-        // Change the oper to const.
-        if (genActualType(op1->TypeGet()) == TYP_INT)
-        {
-            op1->ChangeOperConst(GT_CNS_INT);
-            op1->AsIntCon()->gtIconVal = vnStore->ConstantValue<int>(vnCns);
-
-            if (vnStore->IsVNHandle(vnCns))
-            {
-                op1->gtFlags |= (vnStore->GetHandleFlags(vnCns) & GTF_ICON_HDL_MASK);
-            }
         }
-        else if (op1->TypeGet() == TYP_LONG)
+        else if (op1->TypeIs(TYP_LONG))
         {
-            op1->ChangeOperConst(GT_CNS_NATIVELONG);
-            op1->AsIntConCommon()->SetLngValue(vnStore->ConstantValue<INT64>(vnCns));
+            int64_t value = vnStore->ConstantValue<int64_t>(op2VN);
+            JITDUMP("%lld\n", value);
+#ifdef TARGET_64BIT
+            op1->ChangeToIntCon(value);
 
-            if (vnStore->IsVNHandle(vnCns))
+            if (vnStore->IsVNHandle(op2VN))
             {
-                op1->gtFlags |= (vnStore->GetHandleFlags(vnCns) & GTF_ICON_HDL_MASK);
+                op1->gtFlags |= (vnStore->GetHandleFlags(op2VN) & GTF_ICON_HDL_MASK);
             }
+#else
+            op1->ChangeToLngCon(value);
+#endif
         }
-        else if (op1->TypeGet() == TYP_DOUBLE)
+        else if (op1->TypeIs(TYP_DOUBLE))
         {
-            double constant = vnStore->ConstantValue<double>(vnCns);
-            op1->ChangeOperConst(GT_CNS_DBL);
-            op1->AsDblCon()->gtDconVal = constant;
+            double value = vnStore->ConstantValue<double>(op2VN);
+            JITDUMP("%f\n", value);
+            op1->ChangeToDblCon(value);
 
             // Nothing can be equal to NaN. So if IL had "op1 == NaN", then we already made op1 NaN,
             // which will yield a false correctly. Instead if IL had "op1 != NaN", then we already
             // made op1 NaN which will yield a true correctly. Note that this is irrespective of the
             // assertion we have made.
-            allowReverse = (_isnan(constant) == 0);
+            allowReverse = !_isnan(value);
         }
-        else if (op1->TypeGet() == TYP_FLOAT)
+        else if (op1->TypeIs(TYP_FLOAT))
         {
-            float constant = vnStore->ConstantValue<float>(vnCns);
-            op1->ChangeOperConst(GT_CNS_DBL);
-            op1->AsDblCon()->gtDconVal = constant;
-            // See comments for TYP_DOUBLE.
-            allowReverse = (_isnan(constant) == 0);
+            float value = vnStore->ConstantValue<float>(op2VN);
+            JITDUMP("%f\n", value);
+            op1->ChangeToDblCon(value);
+            allowReverse = !_isnan(value);
         }
-        else if (op1->TypeGet() == TYP_REF)
+        else if (op1->TypeIs(TYP_REF))
         {
-            op1->ChangeOperConst(GT_CNS_INT);
-            // The only constant of TYP_REF that ValueNumbering supports is 'null'
-            noway_assert(vnStore->ConstantValue<size_t>(vnCns) == 0);
-            op1->AsIntCon()->gtIconVal = 0;
+            noway_assert(vnStore->ConstantValue<size_t>(op2VN) == 0);
+            JITDUMP("null\n");
+            op1->ChangeToIntCon(0);
         }
-        else if (op1->TypeGet() == TYP_BYREF)
+        else if (op1->TypeIs(TYP_BYREF))
         {
-            op1->ChangeOperConst(GT_CNS_INT);
-            op1->AsIntCon()->gtIconVal = static_cast<target_ssize_t>(vnStore->ConstantValue<size_t>(vnCns));
+            target_ssize_t value = static_cast<target_ssize_t>(vnStore->ConstantValue<size_t>(op2VN));
+#ifdef TARGET_64BIT
+            JITDUMP("%llx\n", value);
+#else
+            JITDUMP("%x\n", value);
+#endif
+            op1->ChangeToIntCon(value);
         }
         else
         {
-            noway_assert(!"unknown type in Global_RelOp");
+            unreached();
         }
 
-        op1->gtVNPair.SetBoth(vnCns); // Preserve the ValueNumPair, as ChangeOperConst/SetOper will clear it.
+        op1->gtVNPair.SetBoth(op2VN);
 
-        // set foldResult to either 0 or 1
-        bool foldResult = assertionKindIsEqual;
-        if (tree->gtOper == GT_NE)
+        bool foldResult = assertion->assertionKind == OAK_EQUAL;
+
+        if (!relop->OperIs(GT_NE))
         {
             foldResult = !foldResult;
         }
 
-        // Set the value number on the relop to 1 (true) or 0 (false)
         if (foldResult)
         {
-            tree->gtVNPair.SetBoth(vnStore->VNOneForType(TYP_INT));
+            relop->gtVNPair.SetBoth(vnStore->VNOneForType(TYP_INT));
         }
         else
         {
-            tree->gtVNPair.SetBoth(vnStore->VNZeroForType(TYP_INT));
+            relop->gtVNPair.SetBoth(vnStore->VNZeroForType(TYP_INT));
         }
     }
-    // If the assertion involves "op2" and "op1" is also a local var, then just morph the tree.
-    else if (op2->gtOper == GT_LCL_VAR)
+    else if (op2->OperIs(GT_LCL_VAR))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nVN relop based copy assertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-            printf("Assertion index=#%02u: V%02d.%02d %s V%02d.%02d\n", index, op1->AsLclVar()->GetLclNum(),
-                   op1->AsLclVar()->GetSsaNum(), (curAssertion->assertionKind == OAK_EQUAL) ? "==" : "!=",
-                   op2->AsLclVar()->GetLclNum(), op2->AsLclVar()->GetSsaNum());
-            gtDispTree(tree, nullptr, nullptr, true);
-        }
-#endif
+        JITDUMP("Assertion #%02u: V%02u.%02u %s V%02u.%02u\n", index, op1->AsLclVar()->GetLclNum(),
+                op1->AsLclVar()->GetSsaNum(), (assertion->assertionKind == OAK_EQUAL) ? "==" : "!=",
+                op2->AsLclVar()->GetLclNum(), op2->AsLclVar()->GetSsaNum());
+
         // If floating point, don't just substitute op1 with op2, this won't work if
         // op2 is NaN. Just turn it into a "true" or "false" yielding expression.
-        if (op1->TypeGet() == TYP_DOUBLE || op1->TypeGet() == TYP_FLOAT)
+        if (varTypeIsFloating(op1->GetType()))
         {
             // Note we can't trust the OAK_EQUAL as the value could end up being a NaN
             // violating the assertion. However, we create OAK_EQUAL assertions for floating
             // point only on JTrue nodes, so if the condition held earlier, it will hold
             // now. We don't create OAK_EQUAL assertion on floating point from GT_ASG
             // because we depend on value num which would constant prop the NaN.
-            op1->ChangeOperConst(GT_CNS_DBL);
-            op1->AsDblCon()->gtDconVal = 0;
-            op2->ChangeOperConst(GT_CNS_DBL);
-            op2->AsDblCon()->gtDconVal = 0;
+            op1->ChangeToDblCon(0);
+            op2->ChangeToDblCon(0);
         }
-        // Change the op1 LclVar to the op2 LclVar
         else
         {
-            noway_assert(varTypeIsIntegralOrI(op1->TypeGet()));
-            op1->AsLclVarCommon()->SetLclNum(op2->AsLclVarCommon()->GetLclNum());
-            op1->AsLclVarCommon()->SetSsaNum(op2->AsLclVarCommon()->GetSsaNum());
+            noway_assert(varTypeIsIntegralOrI(op1->GetType()));
+
+            // TODO-MIKE-Review: What about the op1 = IND case? Presumably that can't happen
+            // because op2 is expected to be CNS_INT or IND (exact type assertion).
+            op1->AsLclVar()->SetLclNum(op2->AsLclVar()->GetLclNum());
+            op1->AsLclVar()->SetSsaNum(op2->AsLclVar()->GetSsaNum());
         }
     }
     else
@@ -2368,21 +2300,15 @@ GenTree* Compiler::optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* 
     }
 
     // Finally reverse the condition, if we have a not equal assertion.
-    if (allowReverse && curAssertion->assertionKind == OAK_NOT_EQUAL)
+    if (allowReverse && (assertion->assertionKind == OAK_NOT_EQUAL))
     {
-        gtReverseCond(tree);
+        gtReverseCond(relop);
     }
 
-    newTree = fgMorphTree(tree);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        gtDispTree(newTree, nullptr, nullptr, true);
-    }
-#endif
-
-    return optAssertionProp_Update(newTree, tree, stmt);
+    // TODO-MIKE-Review: Why are we morphing here? optAssertionProp_Update will do that anyway.
+    GenTree* newTree = fgMorphTree(relop);
+    DBEXEC(verbose, gtDispTree(newTree, nullptr, nullptr, true);)
+    return optAssertionProp_Update(newTree, relop, stmt);
 }
 
 GenTree* Compiler::apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
@@ -2892,7 +2818,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
         case GT_LE:
         case GT_GT:
         case GT_GE:
-            return optAssertionProp_RelOp(assertions, tree, stmt);
+            return apPropagateRelop(assertions, tree->AsOp(), stmt);
 
         case GT_JTRUE:
             return apPropagateJTrue(block, tree->AsUnOp());
