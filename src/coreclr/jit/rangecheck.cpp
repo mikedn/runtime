@@ -627,12 +627,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
         {
             continue;
         }
-#ifdef DEBUG
-        if (m_pCompiler->verbose)
-        {
-            m_pCompiler->optPrintAssertion(curAssertion, assertionIndex);
-        }
-#endif
+
+        DBEXEC(m_pCompiler->verbose, m_pCompiler->apDumpAssertion(curAssertion);)
 
         // Limits are sometimes made with the form vn + constant, where vn is a known constant
         // see if we can simplify this to just a constant

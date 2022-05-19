@@ -6193,7 +6193,7 @@ public:
     void apAddConstImpliedAssertions(AssertionDsc* curAssertion, ASSERT_TP& result);
 
 #ifdef DEBUG
-    void optPrintAssertion(AssertionDsc* newAssertion, AssertionIndex assertionIndex = 0);
+    void apDumpAssertion(const AssertionDsc* assertion);
     void optPrintAssertionIndex(AssertionIndex index);
     void optPrintAssertionIndices(ASSERT_TP assertions);
     void apDebugCheckAssertion(AssertionDsc* assertion);

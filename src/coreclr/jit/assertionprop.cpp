@@ -1200,10 +1200,10 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("GenTreeNode creates assertion:\n");
+        printf(FMT_BB " ", compCurBB->bbNum);
         gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
-        printf("In " FMT_BB " New Global ", compCurBB->bbNum);
-        optPrintAssertion(assertion, apAssertionCount);
+        printf("Generates ");
+        apDumpAssertion(&apAssertionTable[apAssertionCount - 1]);
     }
 #endif
 
@@ -1913,7 +1913,7 @@ GenTree* Compiler::apPropagateLclVarConst(AssertionDsc*  assertion,
     if (verbose)
     {
         printf("\nAssertion prop in " FMT_BB ":\n", compCurBB->bbNum);
-        optPrintAssertion(assertion, index);
+        apDumpAssertion(assertion);
         gtDispTree(conNode, nullptr, nullptr, true);
     }
 #endif
@@ -4265,89 +4265,100 @@ void Compiler::apDumpVNAssertionMap()
     }
 }
 
-void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex assertionIndex /* = 0 */)
+void Compiler::apDumpAssertion(const AssertionDsc* assertion)
 {
-    if (curAssertion->op1.kind == O1K_EXACT_TYPE)
-    {
-        printf("Type     ");
-    }
-    else if (curAssertion->op1.kind == O1K_ARR_BND)
-    {
-        printf("ArrBnds  ");
-    }
-    else if (curAssertion->op1.kind == O1K_SUBTYPE)
-    {
-        printf("Subtype  ");
-    }
-    else if (curAssertion->op2.kind == O2K_LCLVAR_COPY)
-    {
-        printf("Copy     ");
-    }
-    else if ((curAssertion->op2.kind == O2K_CONST_INT) || (curAssertion->op2.kind == O2K_CONST_LONG) ||
-             (curAssertion->op2.kind == O2K_CONST_DOUBLE))
-    {
-        printf("Constant ");
-    }
-    else if (curAssertion->op2.kind == O2K_SUBRANGE)
-    {
-        printf("Subrange ");
-    }
-    else
-    {
-        printf("?assertion classification? ");
-    }
-    printf("Assertion: ");
-    printf("(" FMT_VN "," FMT_VN ") ", curAssertion->op1.vn, curAssertion->op2.vn);
+    const auto  kind = assertion->assertionKind;
+    const auto& op1  = assertion->op1;
+    const auto& op2  = assertion->op2;
 
-    if ((curAssertion->op1.kind == O1K_LCLVAR) || (curAssertion->op1.kind == O1K_EXACT_TYPE) ||
-        (curAssertion->op1.kind == O1K_SUBTYPE))
+    const char* kindName = "???";
+
+    if (op1.kind == O1K_EXACT_TYPE)
     {
-        printf("V%02u", curAssertion->op1.lcl.lclNum);
-        if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
+        kindName = "ExactType";
+    }
+    else if (op1.kind == O1K_SUBTYPE)
+    {
+        kindName = "Subtype";
+    }
+    else if (op1.kind == O1K_ARR_BND)
+    {
+        kindName = "ArrayBounds";
+    }
+    else if (op2.kind == O2K_LCLVAR_COPY)
+    {
+        kindName = "Copy";
+    }
+    else if ((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_CONST_LONG) || (op2.kind == O2K_CONST_DOUBLE))
+    {
+        kindName = "Const";
+    }
+    else if (op2.kind == O2K_SUBRANGE)
+    {
+        kindName = "Subrange";
+    }
+
+    printf("%s assertion ", kindName);
+
+    if ((apAssertionTable <= assertion) && (assertion < apAssertionTable + apAssertionCount))
+    {
+        printf("A%02d ", static_cast<int>(assertion - apAssertionTable) + 1);
+    }
+
+    if (kind != OAK_NO_THROW)
+    {
+        printf("(" FMT_VN ", " FMT_VN ") ", op1.vn, op2.vn);
+    }
+
+    if ((op1.kind == O1K_LCLVAR) || (op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+    {
+        printf("V%02u", op1.lcl.lclNum);
+
+        if (op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
         {
-            printf(".%02u", curAssertion->op1.lcl.ssaNum);
+            printf(".%02u", op1.lcl.ssaNum);
         }
     }
-    else if (curAssertion->op1.kind == O1K_ARR_BND)
+    else if (op1.kind == O1K_ARR_BND)
     {
-        printf("[idx:");
-        vnStore->vnDump(this, curAssertion->op1.bnd.vnIdx);
-        printf(";len:");
-        vnStore->vnDump(this, curAssertion->op1.bnd.vnLen);
+        printf("[index:");
+        vnStore->vnDump(this, op1.bnd.vnIdx);
+        printf(", length:");
+        vnStore->vnDump(this, op1.bnd.vnLen);
         printf("]");
     }
-    else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
+    else if (op1.kind == O1K_BOUND_OPER_BND)
     {
-        printf("Oper_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
+        printf("OperBound");
+        vnStore->vnDump(this, op1.vn);
     }
-    else if (curAssertion->op1.kind == O1K_BOUND_LOOP_BND)
+    else if (op1.kind == O1K_BOUND_LOOP_BND)
     {
-        printf("Loop_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
+        printf("LoopBound");
+        vnStore->vnDump(this, op1.vn);
     }
-    else if (curAssertion->op1.kind == O1K_CONSTANT_LOOP_BND)
+    else if (op1.kind == O1K_CONSTANT_LOOP_BND)
     {
-        printf("Const_Loop_Bnd");
-        vnStore->vnDump(this, curAssertion->op1.vn);
+        printf("ConstLoopBound");
+        vnStore->vnDump(this, op1.vn);
     }
-    else if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
+    else if (op1.kind == O1K_VALUE_NUMBER)
     {
-        printf("Value_Number");
-        vnStore->vnDump(this, curAssertion->op1.vn);
+        printf("ValueNumber");
+        vnStore->vnDump(this, op1.vn);
     }
     else
     {
-        printf("?thisArg.kind?");
+        printf("???");
     }
 
-    if (curAssertion->assertionKind == OAK_SUBRANGE)
+    if (kind == OAK_SUBRANGE)
     {
         printf(" in ");
     }
-    else if (curAssertion->assertionKind == OAK_EQUAL)
+    else if (kind == OAK_EQUAL)
     {
-        if (curAssertion->op1.kind == O1K_LCLVAR)
+        if (op1.kind == O1K_LCLVAR)
         {
             printf(" == ");
         }
@@ -4356,13 +4367,9 @@ void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex asse
             printf(" is ");
         }
     }
-    else if (curAssertion->assertionKind == OAK_NO_THROW)
+    else if (kind == OAK_NOT_EQUAL)
     {
-        printf(" in range ");
-    }
-    else if (curAssertion->assertionKind == OAK_NOT_EQUAL)
-    {
-        if (curAssertion->op1.kind == O1K_LCLVAR)
+        if (op1.kind == O1K_LCLVAR)
         {
             printf(" != ");
         }
@@ -4371,112 +4378,88 @@ void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex asse
             printf(" is not ");
         }
     }
-    else
+    else if (kind != OAK_NO_THROW)
     {
-        printf(" ?assertionKind? ");
+        printf(" ??? ");
     }
 
-    if (curAssertion->op1.kind != O1K_ARR_BND)
+    if (op1.kind != O1K_ARR_BND)
     {
-        switch (curAssertion->op2.kind)
+        switch (op2.kind)
         {
             case O2K_LCLVAR_COPY:
-                printf("V%02u", curAssertion->op2.lcl.lclNum);
-                if (curAssertion->op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
+                printf("V%02u", op2.lcl.lclNum);
+                if (op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
                 {
-                    printf(".%02u", curAssertion->op1.lcl.ssaNum);
+                    printf(".%02u", op1.lcl.ssaNum);
                 }
                 break;
 
             case O2K_CONST_INT:
             case O2K_IND_CNS_INT:
-                if (curAssertion->op1.kind == O1K_EXACT_TYPE)
+                if (op1.kind == O1K_EXACT_TYPE)
                 {
-                    printf("Exact Type MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
+                    printf("MT(%08X)", dspPtr(op2.u1.iconVal));
                 }
-                else if (curAssertion->op1.kind == O1K_SUBTYPE)
+                else if (op1.kind == O1K_SUBTYPE)
                 {
-                    printf("MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
+                    printf("MT(%08X)", dspPtr(op2.u1.iconVal));
                 }
-                else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
+                else if (op1.kind == O1K_BOUND_OPER_BND)
                 {
-                    vnStore->vnDump(this, curAssertion->op2.vn);
+                    vnStore->vnDump(this, op2.vn);
                 }
-                else if (curAssertion->op1.kind == O1K_BOUND_LOOP_BND)
+                else if (op1.kind == O1K_BOUND_LOOP_BND)
                 {
-                    vnStore->vnDump(this, curAssertion->op2.vn);
+                    vnStore->vnDump(this, op2.vn);
                 }
-                else if (curAssertion->op1.kind == O1K_CONSTANT_LOOP_BND)
+                else if (op1.kind == O1K_CONSTANT_LOOP_BND)
                 {
-                    vnStore->vnDump(this, curAssertion->op2.vn);
+                    vnStore->vnDump(this, op2.vn);
                 }
                 else
                 {
                     var_types op1Type;
 
-                    if (curAssertion->op1.kind == O1K_VALUE_NUMBER)
+                    if (op1.kind == O1K_VALUE_NUMBER)
                     {
-                        op1Type = vnStore->TypeOfVN(curAssertion->op1.vn);
+                        op1Type = vnStore->TypeOfVN(op1.vn);
                     }
                     else
                     {
-                        unsigned lclNum = curAssertion->op1.lcl.lclNum;
-                        assert(lclNum < lvaCount);
-                        LclVarDsc* varDsc = lvaTable + lclNum;
-                        op1Type           = varDsc->lvType;
+                        op1Type = lvaGetDesc(op1.lcl.lclNum)->GetType();
                     }
 
-                    if (op1Type == TYP_REF)
+                    if ((op1Type == TYP_REF) && (op2.u1.iconVal == 0))
                     {
-                        assert(curAssertion->op2.u1.iconVal == 0);
                         printf("null");
+                    }
+                    else if ((op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
+                    {
+                        printf("[%08p]", dspPtr(op2.u1.iconVal));
                     }
                     else
                     {
-                        if ((curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) != 0)
-                        {
-                            printf("[%08p]", dspPtr(curAssertion->op2.u1.iconVal));
-                        }
-                        else
-                        {
-                            printf("%d", curAssertion->op2.u1.iconVal);
-                        }
+                        printf("%d", op2.u1.iconVal);
                     }
                 }
                 break;
 
             case O2K_CONST_LONG:
-                printf("0x%016llx", curAssertion->op2.lconVal);
+                printf("0x%016llx", op2.lconVal);
                 break;
-
             case O2K_CONST_DOUBLE:
-                if (*((__int64*)&curAssertion->op2.dconVal) == (__int64)I64(0x8000000000000000))
-                {
-                    printf("-0.00000");
-                }
-                else
-                {
-                    printf("%#lg", curAssertion->op2.dconVal);
-                }
+                printf("%#.17g", op2.dconVal);
                 break;
-
             case O2K_SUBRANGE:
-                printf("[%u..%u]", curAssertion->op2.u2.loBound, curAssertion->op2.u2.hiBound);
+                printf("[%d..%d]", op2.u1.padding, op2.u2.hiBound);
                 break;
-
             default:
-                printf("?op2.kind?");
+                printf("???");
                 break;
         }
     }
 
-    if (assertionIndex > 0)
-    {
-        printf(", index = ");
-        optPrintAssertionIndex(assertionIndex);
-    }
     printf("\n");
 }
 
