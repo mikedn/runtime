@@ -482,6 +482,96 @@ void Compiler::optAddCopies()
     }
 }
 
+using AssertionDsc = Compiler::AssertionDsc;
+
+bool AssertionDsc::ComplementaryKind(optAssertionKind kind, optAssertionKind kind2)
+{
+    if (kind == OAK_EQUAL)
+    {
+        return kind2 == OAK_NOT_EQUAL;
+    }
+    else if (kind == OAK_NOT_EQUAL)
+    {
+        return kind2 == OAK_EQUAL;
+    }
+    return false;
+}
+
+bool AssertionDsc::HasSameOp1(const AssertionDsc* that) const
+{
+    if (op1.kind != that->op1.kind)
+    {
+        return false;
+    }
+    else if (op1.kind == O1K_ARR_BND)
+    {
+        return (op1.bnd.vnIdx == that->op1.bnd.vnIdx) && (op1.bnd.vnLen == that->op1.bnd.vnLen);
+    }
+    else
+    {
+        return op1.vn == that->op1.vn;
+    }
+}
+
+bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
+{
+    if (op2.kind != that->op2.kind)
+    {
+        return false;
+    }
+    switch (op2.kind)
+    {
+        case O2K_IND_CNS_INT:
+        case O2K_CONST_INT:
+            return ((op2.u1.iconVal == that->op2.u1.iconVal) && (op2.u1.iconFlags == that->op2.u1.iconFlags));
+
+        case O2K_CONST_LONG:
+            return (op2.lconVal == that->op2.lconVal);
+
+        case O2K_CONST_DOUBLE:
+            // exact match because of positive and negative zero.
+            return (memcmp(&op2.dconVal, &that->op2.dconVal, sizeof(double)) == 0);
+
+        case O2K_LCLVAR_COPY:
+        case O2K_ARR_LEN:
+            return (op2.lcl.lclNum == that->op2.lcl.lclNum) && (op2.lcl.ssaNum == that->op2.lcl.ssaNum);
+
+        case O2K_SUBRANGE:
+            return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
+
+        case O2K_INVALID:
+            // we will return false
+            break;
+
+        default:
+            assert(!"Unexpected value for op2.kind in AssertionDsc.");
+            break;
+    }
+    return false;
+}
+
+bool AssertionDsc::Complementary(const AssertionDsc* that) const
+{
+    return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that) && HasSameOp2(that);
+}
+
+bool AssertionDsc::Equals(const AssertionDsc* that) const
+{
+    if (assertionKind != that->assertionKind)
+    {
+        return false;
+    }
+    else if (assertionKind == OAK_NO_THROW)
+    {
+        assert(op2.kind == O2K_INVALID);
+        return HasSameOp1(that);
+    }
+    else
+    {
+        return HasSameOp1(that) && HasSameOp2(that);
+    }
+}
+
 void Compiler::apInit()
 {
     // Use a function countFunc to determine a proper maximum assertion count for the
