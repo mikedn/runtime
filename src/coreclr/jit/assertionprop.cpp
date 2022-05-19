@@ -3325,49 +3325,28 @@ ASSERT_TP* Compiler::apInitAssertionDataflowSets()
     return jumpDestOut;
 }
 
-//------------------------------------------------------------------------------
-// optVNConstantPropExtractSideEffects
-//    Extracts side effects from a tree so it can be replaced with a comma
-//    separated list of side effects + a const tree.
-//
-// Note:
-//   The caller expects that the root of the tree has no side effects and it
-//   won't be extracted. Otherwise the resulting comma tree would be bigger
-//   than the tree before optimization.
-//
-// Arguments:
-//    tree  - The tree node with constant value to extrace side-effects from.
-//
-// Return Value:
-//      1. Returns the extracted side-effects from "tree"
-//      2. When no side-effects are present, returns null.
-//
-//
-GenTree* Compiler::optVNConstantPropExtractSideEffects(GenTree* tree)
+GenTree* Compiler::apExtractConstantSideEffects(GenTree* tree)
 {
-    assert(vnStore->IsVNConstant(vnStore->VNConservativeNormalValue(tree->gtVNPair)));
+    assert(vnStore->IsVNConstant(vnStore->VNNormalValue(tree->GetConservativeVN())));
 
-    GenTree* sideEffList = nullptr;
-
-    // If we have side effects, extract them.
-    if ((tree->gtFlags & GTF_SIDE_EFFECT) != 0)
+    if ((tree->gtFlags & GTF_SIDE_EFFECT) == 0)
     {
-        // Do a sanity check to ensure persistent side effects aren't discarded and
-        // tell gtExtractSideEffList to ignore the root of the tree.
-        assert(!gtNodeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS));
-
-        // Exception side effects may be ignored because the root is known to be a constant
-        // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
-        // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
-        bool ignoreRoot = true;
-
-        gtExtractSideEffList(tree, &sideEffList, GTF_SIDE_EFFECT, ignoreRoot);
-
-        JITDUMP("Extracted side effects from a constant tree [%06u]:\n", tree->gtTreeID);
-        DISPTREE(sideEffList);
+        return nullptr;
     }
 
-    return sideEffList;
+    // Do a sanity check to ensure persistent side effects aren't discarded and
+    // tell gtExtractSideEffList to ignore the root of the tree.
+    assert(!gtNodeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS));
+
+    // Exception side effects may be ignored because the root is known to be a constant
+    // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
+    // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
+    bool ignoreRoot = true;
+
+    GenTree* sideEffects = nullptr;
+    gtExtractSideEffList(tree, &sideEffects, GTF_SIDE_EFFECT, ignoreRoot);
+    JITDUMPTREE(sideEffects, "Extracted side effects from constant tree [%06u]:\n", tree->GetID());
+    return sideEffects;
 }
 
 GenTree* Compiler::apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
@@ -3389,7 +3368,7 @@ GenTree* Compiler::apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
         return nullptr;
     }
 
-    GenTree* sideEffects = optVNConstantPropExtractSideEffects(relop);
+    GenTree* sideEffects = apExtractConstantSideEffects(relop);
 
     // Transform the relop into EQ|NE(0, 0)
     ValueNum vnZero = vnStore->VNZeroForType(TYP_INT);

@@ -6064,7 +6064,7 @@ protected:
 
 public:
     GenTree* apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
-    GenTree* optVNConstantPropExtractSideEffects(GenTree* tree);
+    GenTree* apExtractConstantSideEffects(GenTree* tree);
 
     AssertionIndex GetAssertionCount()
     {
