@@ -511,7 +511,7 @@ Compiler::AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
     assert((1 <= index) && (index <= apAssertionCount));
 
     AssertionDsc* assertion = &apAssertionTable[index - 1];
-    INDEBUG(optDebugCheckAssertion(assertion));
+    INDEBUG(apDebugCheckAssertion(assertion));
     return assertion;
 }
 
@@ -1217,7 +1217,7 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
         }
     }
 
-    INDEBUG(optDebugCheckAssertions(apAssertionCount));
+    INDEBUG(apDebugCheckAssertionTable());
 
     return apAssertionCount;
 }
@@ -4173,23 +4173,23 @@ void Compiler::apMain()
 
 #ifdef DEBUG
 
-void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
+void Compiler::apDebugCheckAssertion(AssertionDsc* assertion)
 {
-    assert(assertion->assertionKind < OAK_COUNT);
-    assert(assertion->op1.kind < O1K_COUNT);
-    assert(assertion->op2.kind < O2K_COUNT);
-    // It would be good to check that op1.objectVN and op2.objectVN are valid value numbers.
+    assert((assertion->assertionKind > OAK_INVALID) && (assertion->assertionKind < OAK_COUNT));
 
-    switch (assertion->op1.kind)
+    const auto& op1 = assertion->op1;
+    const auto& op2 = assertion->op2;
+
+    switch (op1.kind)
     {
         case O1K_LCLVAR:
         case O1K_EXACT_TYPE:
         case O1K_SUBTYPE:
-            assert(assertion->op1.lcl.lclNum < lvaCount);
-            assert(lvaTable[assertion->op1.lcl.lclNum].lvPerSsaData.IsValidSsaNum(assertion->op1.lcl.ssaNum));
+            assert(lvaGetDesc(op1.lcl.lclNum)->lvPerSsaData.IsValidSsaNum(op1.lcl.ssaNum));
             break;
         case O1K_ARR_BND:
-            // It would be good to check that bnd.vnIdx and bnd.vnLen are valid value numbers.
+            assert(varTypeIsIntegral(vnStore->TypeOfVN(op1.bnd.vnIdx)) &&
+                   varTypeIsIntegral(vnStore->TypeOfVN(op1.bnd.vnLen)));
             break;
         case O1K_BOUND_OPER_BND:
         case O1K_BOUND_LOOP_BND:
@@ -4197,61 +4197,61 @@ void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
         case O1K_VALUE_NUMBER:
             break;
         default:
+            assert(!"Invalid assertion op1 kind");
             break;
     }
-    switch (assertion->op2.kind)
+
+    switch (op2.kind)
     {
         case O2K_IND_CNS_INT:
         case O2K_CONST_INT:
-        {
-// The only flags that can be set are those in the GTF_ICON_HDL_MASK, or GTF_ASSERTION_PROP_LONG, which is
-// used to indicate a long constant.
 #ifdef TARGET_64BIT
-            assert((assertion->op2.u1.iconFlags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
+            assert((op2.u1.iconFlags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
 #else
-            assert((assertion->op2.u1.iconFlags & ~GTF_ICON_HDL_MASK) == 0);
+            assert((op2.u1.iconFlags & ~GTF_ICON_HDL_MASK) == 0);
 #endif
-            switch (assertion->op1.kind)
+            switch (op1.kind)
             {
                 case O1K_EXACT_TYPE:
                 case O1K_SUBTYPE:
-                    assert(assertion->op2.u1.iconFlags != GTF_EMPTY);
+                    assert(op2.u1.iconFlags != GTF_EMPTY);
                     break;
                 case O1K_LCLVAR:
-                    assert((lvaTable[assertion->op1.lcl.lclNum].lvType != TYP_REF) ||
-                           (assertion->op2.u1.iconVal == 0) || doesMethodHaveFrozenString());
+                    assert(!lvaGetDesc(op1.lcl.lclNum)->TypeIs(TYP_REF) || (op2.u1.iconVal == 0) ||
+                           doesMethodHaveFrozenString());
                     break;
                 case O1K_VALUE_NUMBER:
-                    assert((vnStore->TypeOfVN(assertion->op1.vn) != TYP_REF) || (assertion->op2.u1.iconVal == 0));
+                    assert((vnStore->TypeOfVN(op1.vn) != TYP_REF) || (op2.u1.iconVal == 0));
                     break;
                 default:
                     break;
             }
-        }
-        break;
+            break;
 
         case O2K_CONST_LONG:
-        {
+            // TODO-MIKE-Review: This is nonsense, O2K_CONST_LONG uses the lconVal member of the union.
             // All handles should be represented by O2K_CONST_INT,
             // so no handle bits should be set here.
-            assert((assertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK) == 0);
-        }
-        break;
+            assert((op2.u1.iconFlags & GTF_ICON_HDL_MASK) == 0);
+            break;
+
+        case O2K_CONST_DOUBLE:
+        case O2K_LCLVAR_COPY:
+        case O2K_ARR_LEN:
+        case O2K_SUBRANGE:
+            break;
 
         default:
-            // for all other 'assertion->op2.kind' values we don't check anything
+            assert(op2.kind == O2K_INVALID);
             break;
     }
 }
 
-void Compiler::optDebugCheckAssertions(AssertionIndex index)
+void Compiler::apDebugCheckAssertionTable()
 {
-    AssertionIndex start = (index == NO_ASSERTION_INDEX) ? 1 : index;
-    AssertionIndex end   = (index == NO_ASSERTION_INDEX) ? apAssertionCount : index;
-    for (AssertionIndex ind = start; ind <= end; ++ind)
+    for (AssertionIndex index = 1; index <= apAssertionCount; ++index)
     {
-        AssertionDsc* assertion = apGetAssertion(ind);
-        optDebugCheckAssertion(assertion);
+        apDebugCheckAssertion(apGetAssertion(index));
     }
 }
 
