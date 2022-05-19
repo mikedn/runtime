@@ -5906,7 +5906,6 @@ public:
         struct IntCon
         {
             ssize_t      value;
-            unsigned     padding; // TODO-MIKE-Cleanup: Remove this garbage.
             GenTreeFlags flags;
 
             bool operator==(const IntCon& other) const
