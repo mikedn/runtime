@@ -5830,7 +5830,7 @@ public:
     // Data structures for assertion prop
     BitVecTraits* apTraits;
 
-    enum optAssertionKind
+    enum ApKind
     {
         OAK_INVALID,
         OAK_EQUAL,
@@ -5840,7 +5840,7 @@ public:
         OAK_COUNT
     };
 
-    enum optOp1Kind
+    enum ApOp1Kind
     {
         O1K_INVALID,
         O1K_LCLVAR,
@@ -5854,7 +5854,7 @@ public:
         O1K_COUNT
     };
 
-    enum optOp2Kind
+    enum ApOp2Kind
     {
         O2K_INVALID,
         O2K_LCLVAR_COPY,
@@ -5866,21 +5866,20 @@ public:
         O2K_SUBRANGE,
         O2K_COUNT
     };
+
     struct AssertionDsc
     {
-        optAssertionKind assertionKind;
-
-        struct SsaVar
+        struct LclVar
         {
             unsigned lclNum;
             unsigned ssaNum;
 
-            bool operator==(const SsaVar& other) const
+            bool operator==(const LclVar& other) const
             {
                 return (lclNum == other.lclNum) && (ssaNum == other.ssaNum);
             }
 
-            bool operator!=(const SsaVar& other) const
+            bool operator!=(const LclVar& other) const
             {
                 return (lclNum != other.lclNum) || (ssaNum != other.ssaNum);
             }
@@ -5902,67 +5901,102 @@ public:
             }
         };
 
-        struct IntVal
+        struct IntCon
         {
-            ssize_t      iconVal;
+            ssize_t      value;
             unsigned     padding; // TODO-MIKE-Cleanup: Remove this garbage.
-            GenTreeFlags iconFlags;
+            GenTreeFlags flags;
 
-            bool operator==(const IntVal& other) const
+            bool operator==(const IntCon& other) const
             {
-                return (iconVal == other.iconVal) && (iconFlags == other.iconFlags);
+                return (value == other.value) && (flags == other.flags);
             }
 
-            bool operator!=(const IntVal& other) const
+            bool operator!=(const IntCon& other) const
             {
-                return (iconVal != other.iconVal) || (iconFlags != other.iconFlags);
+                return (value != other.value) || (flags != other.flags);
+            }
+        };
+
+        struct LngCon
+        {
+            int64_t value;
+
+            bool operator==(const LngCon& other) const
+            {
+                return value == other.value;
+            }
+
+            bool operator!=(const LngCon& other) const
+            {
+                return value != other.value;
+            }
+        };
+
+        struct DblCon
+        {
+            double value;
+
+            bool operator==(const DblCon& other) const
+            {
+                return jitstd::bit_cast<uint64_t>(value) == jitstd::bit_cast<uint64_t>(other.value);
+            }
+
+            bool operator!=(const DblCon& other) const
+            {
+                return jitstd::bit_cast<uint64_t>(value) != jitstd::bit_cast<uint64_t>(other.value);
             }
         };
 
         struct Range
         {
-            ssize_t loBound;
-            ssize_t hiBound;
+            ssize_t min;
+            ssize_t max;
 
             bool operator==(const Range& other) const
             {
-                return (loBound == other.loBound) && (hiBound == other.hiBound);
+                return (min == other.min) && (max == other.max);
             }
 
             bool operator!=(const Range& other) const
             {
-                return (loBound != other.loBound) || (hiBound != other.hiBound);
+                return (min != other.min) || (max != other.max);
             }
         };
 
-        struct AssertionDscOp1
+        struct Op1
         {
-            optOp1Kind kind; // a normal LclVar, or Exact-type or Subtype
-            ValueNum   vn;
+            ApOp1Kind kind;
+            ValueNum  vn;
             union {
-                SsaVar lcl;
+                LclVar lcl;
                 ArrBnd bnd;
             };
-        } op1;
-        struct AssertionDscOp2
+        };
+
+        struct Op2
         {
-            optOp2Kind kind; // a const or copy assignment
-            ValueNum   vn;
+            ApOp2Kind kind;
+            ValueNum  vn;
             union {
-                SsaVar  lcl;
-                IntVal  u1;
-                __int64 lconVal;
-                double  dconVal;
-                Range   u2;
+                LclVar lcl;
+                IntCon intCon;
+                LngCon lngCon;
+                DblCon dblCon;
+                Range  range;
             };
-        } op2;
+        };
+
+        ApKind kind;
+        Op1    op1;
+        Op2    op2;
 
         bool IsCopyAssertion()
         {
-            return ((assertionKind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
+            return ((kind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
         }
 
-        static bool ComplementaryKind(optAssertionKind kind, optAssertionKind kind2);
+        static bool ComplementaryKind(ApKind kind, ApKind kind2);
         bool HasSameOp1(const AssertionDsc* that) const;
         bool HasSameOp2(const AssertionDsc* that) const;
         bool Complementary(const AssertionDsc* that) const;
@@ -6063,15 +6097,15 @@ public:
     AssertionIndex apGeneratePhiAssertions(GenTreeOp* asg);
     AssertionInfo apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue);
     AssertionInfo apGenerateJTrueAssertions(GenTreeUnOp* jtrue);
-    AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind kidn);
-    AssertionIndex apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, optAssertionKind kind);
+    AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind);
+    AssertionIndex apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind);
     AssertionIndex apFindComplementaryAssertion(AssertionIndex index);
     void apAddComplementaryAssertion(AssertionIndex index, AssertionIndex complementaryIndex);
 
     AssertionIndex apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk);
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);
     AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast);
-    AssertionIndex apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, optAssertionKind assertionKind);
+    AssertionIndex apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind);
     AssertionIndex apAddBoundAssertions(AssertionDsc* assertion);
 
     bool apAssertionHasNanVN(AssertionDsc* assertion);

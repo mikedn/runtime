@@ -502,8 +502,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
     {
         Compiler::AssertionDsc* curAssertion = m_pCompiler->apGetAssertion(GetAssertionIndex(bitIndex));
 
-        if ((curAssertion->assertionKind != Compiler::OAK_EQUAL) &&
-            (curAssertion->assertionKind != Compiler::OAK_NOT_EQUAL))
+        if ((curAssertion->kind != Compiler::OAK_EQUAL) && (curAssertion->kind != Compiler::OAK_NOT_EQUAL))
         {
             continue;
         }
@@ -592,14 +591,14 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
 
             int cnstLimit = m_pCompiler->vnStore->CoercedConstantValue<int>(curAssertion->op2.vn);
 
-            if ((cnstLimit == 0) && (curAssertion->assertionKind == Compiler::OAK_NOT_EQUAL) &&
+            if ((cnstLimit == 0) && (curAssertion->kind == Compiler::OAK_NOT_EQUAL) &&
                 m_pCompiler->vnStore->IsVNCheckedBound(curAssertion->op1.vn))
             {
                 // we have arr.Len != 0, so the length must be atleast one
                 limit   = Limit(Limit::keConstant, 1);
                 cmpOper = GT_GE;
             }
-            else if (curAssertion->assertionKind == Compiler::OAK_EQUAL)
+            else if (curAssertion->kind == Compiler::OAK_EQUAL)
             {
                 limit   = Limit(Limit::keConstant, cnstLimit);
                 cmpOper = GT_EQ;
@@ -666,7 +665,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
         // If we have a non-constant assertion of the form == 0 (i.e., equals false), then reverse relop.
         // The relop has to be reversed because we have: (i < length) is false which is the same
         // as (i >= length).
-        if ((curAssertion->assertionKind == Compiler::OAK_EQUAL) && !isConstantAssertion)
+        if ((curAssertion->kind == Compiler::OAK_EQUAL) && !isConstantAssertion)
         {
             cmpOper = GenTree::ReverseRelop(cmpOper);
         }
