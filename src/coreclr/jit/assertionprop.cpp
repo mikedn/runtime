@@ -1791,11 +1791,9 @@ AssertionIndex Compiler::apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
                                                var_types        fromType,
                                                var_types        toType)
 {
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->kind != OAK_SUBRANGE) || (assertion->op1.kind != O1K_LCLVAR))
@@ -1841,11 +1839,9 @@ AssertionIndex Compiler::apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
 
 AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
 {
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->kind != OAK_EQUAL) ||
@@ -2014,11 +2010,9 @@ GenTree* Compiler::apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar*
         return nullptr;
     }
 
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->kind != OAK_EQUAL) || (assertion->op1.kind != O1K_LCLVAR))
@@ -2059,11 +2053,9 @@ AssertionIndex Compiler::apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenT
     ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
     ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
 
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
@@ -2102,11 +2094,9 @@ AssertionIndex Compiler::apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, 
     ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
     ValueNum vn2 = vnStore->VNZeroForType(op1->GetType());
 
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
         if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
@@ -2491,11 +2481,9 @@ bool Compiler::apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEB
         }
     }
 
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
         if (assertion->kind != OAK_NOT_EQUAL)
@@ -2643,11 +2631,9 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
     ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
     ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
 
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex index     = GetAssertionIndex(bitIndex);
+        AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
         if (assertion->kind != OAK_NO_THROW)
@@ -2817,19 +2803,17 @@ void Compiler::apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertion
     const ASSERT_TP vn2Assertions =
         assertion->op2.kind != O2K_LCLVAR_COPY ? BitVecOps::UninitVal() : apGetVNAssertions(assertion->op2.vn);
 
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex impliedIndex = GetAssertionIndex(bitIndex);
+        AssertionIndex impliedIndex = GetAssertionIndex(en.Current());
 
         if (impliedIndex == index)
         {
             continue;
         }
 
-        if (!BitVecOps::IsMember(apTraits, vn1Assertions, bitIndex) &&
-            ((vn2Assertions == BitVecOps::UninitVal()) || !BitVecOps::IsMember(apTraits, vn1Assertions, bitIndex)))
+        if (!BitVecOps::IsMember(apTraits, vn1Assertions, en.Current()) &&
+            ((vn2Assertions == BitVecOps::UninitVal()) || !BitVecOps::IsMember(apTraits, vn1Assertions, en.Current())))
         {
             continue;
         }
@@ -2849,11 +2833,9 @@ void Compiler::apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertion
 
 void Compiler::apAddTypeImpliedNotNullAssertions(ASSERT_TP& assertions)
 {
-    BitVecOps::Iter iter(apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        AssertionIndex typeIndex     = GetAssertionIndex(bitIndex);
+        AssertionIndex typeIndex     = GetAssertionIndex(en.Current());
         AssertionDsc*  typeAssertion = apGetAssertion(typeIndex);
 
         if ((typeAssertion->kind != OAK_EQUAL) ||
@@ -2902,12 +2884,11 @@ void Compiler::apAddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_
         return;
     }
 
-    ssize_t         value = constAssertion->op2.intCon.value;
-    BitVecOps::Iter iter(apTraits, vnAssertions);
+    ssize_t value = constAssertion->op2.intCon.value;
 
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, vnAssertions); en.MoveNext();)
     {
-        AssertionIndex impliedIndex     = GetAssertionIndex(bitIndex);
+        AssertionIndex impliedIndex     = GetAssertionIndex(en.Current());
         AssertionDsc*  impliedAssertion = apGetAssertion(impliedIndex);
 
         if (impliedAssertion == constAssertion)
@@ -2941,7 +2922,7 @@ void Compiler::apAddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_
             continue;
         }
 
-        if (BitVecOps::TryAddElemD(apTraits, result, bitIndex))
+        if (BitVecOps::TryAddElemD(apTraits, result, en.Current()))
         {
             INDEBUG(AssertionDsc* firstAssertion = apGetAssertion(1));
             JITDUMP("apAddConstImpliedAssertions: const assertion #%02d implies assertion #%02d\n",
@@ -4554,12 +4535,11 @@ void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, 
         printf("%s", header);
     }
 
-    const char*     separator = "";
-    BitVecOps::Iter iter(apTraits, assertions);
+    const char* separator = "";
 
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        printf("%sA%02d", separator, GetAssertionIndex(bitIndex));
+        printf("%sA%02d", separator, GetAssertionIndex(en.Current()));
         separator = ", ";
     }
 

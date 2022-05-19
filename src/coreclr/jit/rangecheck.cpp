@@ -496,11 +496,9 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
         return;
     }
 
-    BitVecOps::Iter iter(m_pCompiler->apTraits, assertions);
-
-    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    for (BitVecOps::Enumerator en(m_pCompiler->apTraits, assertions); en.MoveNext();)
     {
-        Compiler::AssertionDsc* curAssertion = m_pCompiler->apGetAssertion(GetAssertionIndex(bitIndex));
+        Compiler::AssertionDsc* curAssertion = m_pCompiler->apGetAssertion(GetAssertionIndex(en.Current()));
 
         if ((curAssertion->kind != Compiler::OAK_EQUAL) && (curAssertion->kind != Compiler::OAK_NOT_EQUAL))
         {
