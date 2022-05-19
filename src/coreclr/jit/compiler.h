@@ -5860,7 +5860,9 @@ public:
         O2K_LCLVAR_COPY,
         O2K_IND_CNS_INT,
         O2K_CONST_INT,
+#ifndef TARGET_64BIT
         O2K_CONST_LONG,
+#endif
         O2K_CONST_DOUBLE,
         O2K_ARR_LEN,
         O2K_SUBRANGE,
@@ -5918,6 +5920,7 @@ public:
             }
         };
 
+#ifndef TARGET_64BIT
         struct LngCon
         {
             int64_t value;
@@ -5932,6 +5935,7 @@ public:
                 return value != other.value;
             }
         };
+#endif
 
         struct DblCon
         {
@@ -5981,7 +5985,9 @@ public:
             union {
                 LclVar lcl;
                 IntCon intCon;
+#ifndef TARGET_64BIT
                 LngCon lngCon;
+#endif
                 DblCon dblCon;
                 Range  range;
             };

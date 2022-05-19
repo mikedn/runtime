@@ -527,8 +527,10 @@ bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
         case O2K_IND_CNS_INT:
         case O2K_CONST_INT:
             return op2.intCon == that->op2.intCon;
+#ifndef TARGET_64BIT
         case O2K_CONST_LONG:
             return op2.lngCon == that->op2.lngCon;
+#endif
         case O2K_CONST_DOUBLE:
             return op2.dblCon == that->op2.dblCon;
         case O2K_SUBRANGE:
@@ -899,11 +901,13 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
 #endif
             break;
 
+#ifndef TARGET_64BIT
         case GT_CNS_LNG:
             assertion.op2.kind         = O2K_CONST_LONG;
             assertion.op2.vn           = vnStore->VNNormalValue(op2->GetConservativeVN());
             assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
             break;
+#endif
 
         case GT_CNS_DBL:
             if (_isnan(op2->AsDblCon()->GetValue()))
@@ -1913,20 +1917,18 @@ GenTree* Compiler::apPropagateLclVarConst(AssertionDsc*  assertion,
             conNode = lclVar->ChangeToDblCon(val.dblCon.value);
             break;
 
+#ifndef TARGET_64BIT
         case O2K_CONST_LONG:
             if (lclVar->TypeIs(TYP_LONG))
             {
-#ifdef TARGET_64BIT
-                conNode = lclVar->ChangeToIntCon(val.lngCon.value);
-#else
-                conNode           = lclVar->ChangeToLngCon(val.lngCon.value);
-#endif
+                conNode = lclVar->ChangeToLngCon(val.lngCon.value);
             }
             else
             {
                 conNode = lclVar->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.lngCon.value));
             }
             break;
+#endif
 
         case O2K_CONST_INT:
             if (lclVar->TypeIs(TYP_STRUCT))
@@ -3048,12 +3050,14 @@ void Compiler::apAddCopyImpliedAssertions(AssertionDsc* copyAssertion, Assertion
                     }
                     break;
 
+#ifndef TARGET_64BIT
                 case O2K_CONST_LONG:
                     if (impliedAssertion->op2.lngCon != assertion->op2.lngCon)
                     {
                         continue;
                     }
                     break;
+#endif
 
                 case O2K_CONST_DOUBLE:
                     if (impliedAssertion->op2.dblCon != assertion->op2.dblCon)
@@ -4305,13 +4309,9 @@ void Compiler::apDebugCheckAssertion(AssertionDsc* assertion)
             }
             break;
 
+#ifndef TARGET_64BIT
         case O2K_CONST_LONG:
-            // TODO-MIKE-Review: This is nonsense, O2K_CONST_LONG uses the lconVal member of the union.
-            // All handles should be represented by O2K_CONST_INT,
-            // so no handle bits should be set here.
-            assert((op2.intCon.flags & GTF_ICON_HDL_MASK) == 0);
-            break;
-
+#endif
         case O2K_CONST_DOUBLE:
         case O2K_LCLVAR_COPY:
         case O2K_ARR_LEN:
@@ -4366,7 +4366,11 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
     {
         kindName = "Copy";
     }
-    else if ((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_CONST_LONG) || (op2.kind == O2K_CONST_DOUBLE))
+    else if ((op2.kind == O2K_CONST_INT) ||
+#ifndef TARGET_64BIT
+             (op2.kind == O2K_CONST_LONG) ||
+#endif
+             (op2.kind == O2K_CONST_DOUBLE))
     {
         kindName = "Const";
     }
@@ -4518,9 +4522,11 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
                 }
                 break;
 
+#ifndef TARGET_64BIT
             case O2K_CONST_LONG:
                 printf("0x%016llx", op2.lngCon.value);
                 break;
+#endif
             case O2K_CONST_DOUBLE:
                 printf("%#.17g", op2.dblCon.value);
                 break;
