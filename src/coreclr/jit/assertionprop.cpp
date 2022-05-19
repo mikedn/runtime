@@ -486,15 +486,15 @@ using AssertionDsc = Compiler::AssertionDsc;
 
 bool AssertionDsc::ComplementaryKind(optAssertionKind kind, optAssertionKind kind2)
 {
-    if (kind == OAK_EQUAL)
+    switch (kind)
     {
-        return kind2 == OAK_NOT_EQUAL;
+        case OAK_EQUAL:
+            return kind2 == OAK_NOT_EQUAL;
+        case OAK_NOT_EQUAL:
+            return kind2 == OAK_EQUAL;
+        default:
+            return false;
     }
-    else if (kind == OAK_NOT_EQUAL)
-    {
-        return kind2 == OAK_EQUAL;
-    }
-    return false;
 }
 
 bool AssertionDsc::HasSameOp1(const AssertionDsc* that) const
@@ -503,14 +503,13 @@ bool AssertionDsc::HasSameOp1(const AssertionDsc* that) const
     {
         return false;
     }
-    else if (op1.kind == O1K_ARR_BND)
+
+    if (op1.kind == O1K_ARR_BND)
     {
-        return (op1.bnd.vnIdx == that->op1.bnd.vnIdx) && (op1.bnd.vnLen == that->op1.bnd.vnLen);
+        return op1.bnd == that->op1.bnd;
     }
-    else
-    {
-        return op1.vn == that->op1.vn;
-    }
+
+    return op1.vn == that->op1.vn;
 }
 
 bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
@@ -519,34 +518,26 @@ bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
     {
         return false;
     }
+
     switch (op2.kind)
     {
         case O2K_IND_CNS_INT:
         case O2K_CONST_INT:
-            return ((op2.u1.iconVal == that->op2.u1.iconVal) && (op2.u1.iconFlags == that->op2.u1.iconFlags));
-
+            return op2.u1 == that->op2.u1;
         case O2K_CONST_LONG:
-            return (op2.lconVal == that->op2.lconVal);
-
+            return op2.lconVal == that->op2.lconVal;
         case O2K_CONST_DOUBLE:
-            // exact match because of positive and negative zero.
-            return (memcmp(&op2.dconVal, &that->op2.dconVal, sizeof(double)) == 0);
-
+            return jitstd::bit_cast<uint64_t>(op2.dconVal) == jitstd::bit_cast<uint64_t>(that->op2.dconVal);
         case O2K_LCLVAR_COPY:
         case O2K_ARR_LEN:
-            return (op2.lcl.lclNum == that->op2.lcl.lclNum) && (op2.lcl.ssaNum == that->op2.lcl.ssaNum);
-
+            return op2.lcl == that->op2.lcl;
         case O2K_SUBRANGE:
-            return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
-
-        case O2K_INVALID:
-            // we will return false
-            break;
-
+            return op2.u2 == that->op2.u2;
         default:
-            assert(!"Unexpected value for op2.kind in AssertionDsc.");
+            assert(op2.kind == O2K_INVALID);
             break;
     }
+
     return false;
 }
 
@@ -561,15 +552,16 @@ bool AssertionDsc::Equals(const AssertionDsc* that) const
     {
         return false;
     }
-    else if (assertionKind == OAK_NO_THROW)
+
+    if (assertionKind == OAK_NO_THROW)
     {
+        assert(op1.kind == O1K_ARR_BND);
         assert(op2.kind == O2K_INVALID);
-        return HasSameOp1(that);
+
+        return op1.bnd == that->op1.bnd;
     }
-    else
-    {
-        return HasSameOp1(that) && HasSameOp2(that);
-    }
+
+    return HasSameOp1(that) && HasSameOp2(that);
 }
 
 void Compiler::apInit()
@@ -820,7 +812,7 @@ AssertionIndex Compiler::apCreateSubrangeAssertion(GenTreeCast* cast)
         toType = TYP_INT;
     }
 
-    AssertionDsc::AssertionDscOp2::Range range;
+    AssertionDsc::Range range;
 
     switch (toType)
     {
@@ -998,7 +990,7 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
                 return NO_ASSERTION_INDEX;
             }
 
-            AssertionDsc::AssertionDscOp2::Range range;
+            AssertionDsc::Range range;
 
             switch (toType)
             {

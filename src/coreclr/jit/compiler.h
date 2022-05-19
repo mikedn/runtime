@@ -5875,12 +5875,12 @@ public:
             unsigned lclNum;
             unsigned ssaNum;
 
-            bool operator==(const SsaVar& other)
+            bool operator==(const SsaVar& other) const
             {
                 return (lclNum == other.lclNum) && (ssaNum == other.ssaNum);
             }
 
-            bool operator!=(const SsaVar& other)
+            bool operator!=(const SsaVar& other) const
             {
                 return (lclNum != other.lclNum) || (ssaNum != other.ssaNum);
             }
@@ -5890,7 +5890,51 @@ public:
         {
             ValueNum vnIdx;
             ValueNum vnLen;
+
+            bool operator==(const ArrBnd& other) const
+            {
+                return (vnIdx == other.vnIdx) && (vnLen == other.vnLen);
+            }
+
+            bool operator!=(const ArrBnd& other) const
+            {
+                return (vnIdx != other.vnIdx) || (vnLen != other.vnLen);
+            }
         };
+
+        struct IntVal
+        {
+            ssize_t      iconVal;
+            unsigned     padding; // TODO-MIKE-Cleanup: Remove this garbage.
+            GenTreeFlags iconFlags;
+
+            bool operator==(const IntVal& other) const
+            {
+                return (iconVal == other.iconVal) && (iconFlags == other.iconFlags);
+            }
+
+            bool operator!=(const IntVal& other) const
+            {
+                return (iconVal != other.iconVal) || (iconFlags != other.iconFlags);
+            }
+        };
+
+        struct Range
+        {
+            ssize_t loBound;
+            ssize_t hiBound;
+
+            bool operator==(const Range& other) const
+            {
+                return (loBound == other.loBound) && (hiBound == other.hiBound);
+            }
+
+            bool operator!=(const Range& other) const
+            {
+                return (loBound != other.loBound) || (hiBound != other.hiBound);
+            }
+        };
+
         struct AssertionDscOp1
         {
             optOp1Kind kind; // a normal LclVar, or Exact-type or Subtype
@@ -5904,17 +5948,6 @@ public:
         {
             optOp2Kind kind; // a const or copy assignment
             ValueNum   vn;
-            struct IntVal
-            {
-                ssize_t      iconVal;   // integer
-                unsigned     padding;   // unused; ensures iconFlags does not overlap lconVal
-                GenTreeFlags iconFlags; // gtFlags
-            };
-            struct Range // integer subrange
-            {
-                ssize_t loBound;
-                ssize_t hiBound;
-            };
             union {
                 SsaVar  lcl;
                 IntVal  u1;
