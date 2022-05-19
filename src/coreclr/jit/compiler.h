@@ -5924,38 +5924,9 @@ public:
             };
         } op2;
 
-        bool IsCheckedBoundArithBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_OPER_BND);
-        }
-        bool IsCheckedBoundBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_LOOP_BND);
-        }
-        bool IsConstantBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) &&
-                    op1.kind == O1K_CONSTANT_LOOP_BND);
-        }
-        bool IsBoundsCheckNoThrow()
-        {
-            return ((assertionKind == OAK_NO_THROW) && (op1.kind == O1K_ARR_BND));
-        }
-
         bool IsCopyAssertion()
         {
             return ((assertionKind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
-        }
-
-        bool IsConstantInt32Assertion()
-        {
-            return ((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL)) && (op2.kind == O2K_CONST_INT);
-        }
-
-        static bool SameKind(AssertionDsc* a1, AssertionDsc* a2)
-        {
-            return a1->assertionKind == a2->assertionKind && a1->op1.kind == a2->op1.kind &&
-                   a1->op2.kind == a2->op2.kind;
         }
 
         static bool ComplementaryKind(optAssertionKind kind, optAssertionKind kind2)

@@ -491,31 +491,29 @@ void RangeCheck::MergeEdgeAssertions(GenTreeLclVarCommon* lcl, ASSERT_VALARG_TP 
 //
 void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP assertions, Range* pRange)
 {
-    if (BitVecOps::IsEmpty(m_pCompiler->apTraits, assertions))
-    {
-        return;
-    }
-
     if (normalLclVN == ValueNumStore::NoVN)
     {
         return;
     }
 
-    // Walk through the "assertions" to check if the apply.
     BitVecOps::Iter iter(m_pCompiler->apTraits, assertions);
-    unsigned        index = 0;
-    while (iter.NextElem(&index))
-    {
-        AssertionIndex assertionIndex = GetAssertionIndex(index);
 
-        Compiler::AssertionDsc* curAssertion = m_pCompiler->apGetAssertion(assertionIndex);
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
+    {
+        Compiler::AssertionDsc* curAssertion = m_pCompiler->apGetAssertion(GetAssertionIndex(bitIndex));
+
+        if ((curAssertion->assertionKind != Compiler::OAK_EQUAL) &&
+            (curAssertion->assertionKind != Compiler::OAK_NOT_EQUAL))
+        {
+            continue;
+        }
 
         Limit      limit(Limit::keUndef);
         genTreeOps cmpOper             = GT_NONE;
         bool       isConstantAssertion = false;
 
         // Current assertion is of the form (i < len - cns) != 0
-        if (curAssertion->IsCheckedBoundArithBound())
+        if (curAssertion->op1.kind == Compiler::O1K_BOUND_OPER_BND)
         {
             ValueNumStore::CompareCheckedBoundArithInfo info;
 
@@ -544,7 +542,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
             cmpOper  = (genTreeOps)info.cmpOper;
         }
         // Current assertion is of the form (i < len) != 0
-        else if (curAssertion->IsCheckedBoundBound())
+        else if (curAssertion->op1.kind == Compiler::O1K_BOUND_LOOP_BND)
         {
             ValueNumStore::CompareCheckedBoundArithInfo info;
 
@@ -568,7 +566,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
             }
         }
         // Current assertion is of the form (i < 100) != 0
-        else if (curAssertion->IsConstantBound())
+        else if (curAssertion->op1.kind == Compiler::O1K_CONSTANT_LOOP_BND)
         {
             ValueNumStore::ConstantBoundInfo info;
 
@@ -585,7 +583,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
             cmpOper = (genTreeOps)info.cmpOper;
         }
         // Current assertion is of the form i == 100
-        else if (curAssertion->IsConstantInt32Assertion())
+        else if (curAssertion->op2.kind == Compiler::O2K_CONST_INT)
         {
             if (curAssertion->op1.vn != normalLclVN)
             {
