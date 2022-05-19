@@ -6194,12 +6194,9 @@ public:
 
 #ifdef DEBUG
     void apDumpAssertion(const AssertionDsc* assertion);
-    void optPrintAssertionIndex(AssertionIndex index);
-    void optPrintAssertionIndices(ASSERT_TP assertions);
     void apDebugCheckAssertion(AssertionDsc* assertion);
     void apDebugCheckAssertionTable();
-    void optDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer = nullptr);
-    void optDumpAssertionIndices(ASSERT_TP assertions, const char* footer = nullptr);
+    void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer);
 #endif
 
     void optAddCopies();

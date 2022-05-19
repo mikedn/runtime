@@ -3057,7 +3057,7 @@ public:
         if (VerboseDataflow())
         {
             printf("StartMerge: " FMT_BB " ", block->bbNum);
-            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n");
+            compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n");
         }
 #endif
 
@@ -3085,10 +3085,10 @@ public:
                 if (VerboseDataflow())
                 {
                     printf("Merge     : Duplicate flow, " FMT_BB " ", block->bbNum);
-                    compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+                    compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
                     printf("pred " FMT_BB " ", predBlock->bbNum);
-                    compiler->optDumpAssertionIndices("out1 -> ", mJumpDestOut[predBlock->bbNum], "; ");
-                    compiler->optDumpAssertionIndices("out2 -> ", predBlock->bbAssertionOut, "\n");
+                    compiler->apDumpAssertionIndices("out1 -> ", mJumpDestOut[predBlock->bbNum], "; ");
+                    compiler->apDumpAssertionIndices("out2 -> ", predBlock->bbAssertionOut, "\n");
                 }
 #endif
             }
@@ -3102,9 +3102,9 @@ public:
         if (VerboseDataflow())
         {
             printf("Merge     : " FMT_BB " ", block->bbNum);
-            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+            compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
             printf("pred " FMT_BB " ", predBlock->bbNum);
-            compiler->optDumpAssertionIndices("out -> ", pAssertionOut, "\n");
+            compiler->apDumpAssertionIndices("out -> ", pAssertionOut, "\n");
         }
 #endif
 
@@ -3128,11 +3128,11 @@ public:
         if (VerboseDataflow())
         {
             printf("Merge     : " FMT_BB " ", block->bbNum);
-            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+            compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
             printf("firstTryBlock " FMT_BB " ", firstTryBlock->bbNum);
-            compiler->optDumpAssertionIndices("in -> ", firstTryBlock->bbAssertionIn, "; ");
+            compiler->apDumpAssertionIndices("in -> ", firstTryBlock->bbAssertionIn, "; ");
             printf("lastTryBlock " FMT_BB " ", lastTryBlock->bbNum);
-            compiler->optDumpAssertionIndices("out -> ", lastTryBlock->bbAssertionOut, "\n");
+            compiler->apDumpAssertionIndices("out -> ", lastTryBlock->bbAssertionOut, "\n");
         }
 #endif
 
@@ -3147,7 +3147,7 @@ public:
         if (VerboseDataflow())
         {
             printf("EndMerge  : " FMT_BB " ", block->bbNum);
-            compiler->optDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n\n");
+            compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n\n");
         }
 #endif
 
@@ -3163,16 +3163,16 @@ public:
             if (changed)
             {
                 printf("Changed   : " FMT_BB " ", block->bbNum);
-                compiler->optDumpAssertionIndices("before out -> ", preMergeOut, "; ");
-                compiler->optDumpAssertionIndices("after out -> ", block->bbAssertionOut, ";\n        ");
-                compiler->optDumpAssertionIndices("jumpDest before out -> ", preMergeJumpDestOut, "; ");
-                compiler->optDumpAssertionIndices("jumpDest after out -> ", mJumpDestOut[block->bbNum], ";\n\n");
+                compiler->apDumpAssertionIndices("before out -> ", preMergeOut, "; ");
+                compiler->apDumpAssertionIndices("after out -> ", block->bbAssertionOut, ";\n        ");
+                compiler->apDumpAssertionIndices("jumpDest before out -> ", preMergeJumpDestOut, "; ");
+                compiler->apDumpAssertionIndices("jumpDest after out -> ", mJumpDestOut[block->bbNum], ";\n\n");
             }
             else
             {
                 printf("Unchanged : " FMT_BB " ", block->bbNum);
-                compiler->optDumpAssertionIndices("out -> ", block->bbAssertionOut, "; ");
-                compiler->optDumpAssertionIndices("jumpDest out -> ", mJumpDestOut[block->bbNum], "\n\n");
+                compiler->apDumpAssertionIndices("out -> ", block->bbAssertionOut, "; ");
+                compiler->apDumpAssertionIndices("jumpDest out -> ", mJumpDestOut[block->bbNum], "\n\n");
             }
         }
 #endif
@@ -3276,11 +3276,11 @@ ASSERT_TP* Compiler::apComputeBlockAssertionGen()
             }
 
             printf(FMT_BB " valueGen = ", block->bbNum);
-            optPrintAssertionIndices(block->bbAssertionGen);
+            apDumpAssertionIndices("", block->bbAssertionGen, "");
             if (block->bbJumpKind == BBJ_COND)
             {
                 printf(" => " FMT_BB " valueGen = ", block->bbJumpDest->bbNum);
-                optPrintAssertionIndices(jumpDestGen[block->bbNum]);
+                apDumpAssertionIndices("", jumpDestGen[block->bbNum], "");
             }
             printf("\n");
 
@@ -4076,12 +4076,12 @@ void Compiler::apMain()
         for (BasicBlock* const block : Blocks())
         {
             printf(FMT_BB ":\n", block->bbNum);
-            optDumpAssertionIndices(" in   = ", block->bbAssertionIn, "\n");
-            optDumpAssertionIndices(" out  = ", block->bbAssertionOut, "\n");
+            apDumpAssertionIndices(" in   = ", block->bbAssertionIn, "\n");
+            apDumpAssertionIndices(" out  = ", block->bbAssertionOut, "\n");
             if (block->bbJumpKind == BBJ_COND)
             {
                 printf(" " FMT_BB " = ", block->bbJumpDest->bbNum);
-                optDumpAssertionIndices(apJTrueAssertionOut[block->bbNum], "\n");
+                apDumpAssertionIndices("", apJTrueAssertionOut[block->bbNum], "\n");
             }
         }
         printf("\n");
@@ -4122,11 +4122,9 @@ void Compiler::apMain()
 
             for (GenTree* node = stmt->GetNodeList(); node != nullptr; node = node->gtNext)
             {
-                INDEBUG(optDumpAssertionIndices("Propagating ", assertions, " "));
+                INDEBUG(apDumpAssertionIndices("Propagating ", assertions, " "));
                 JITDUMP("for " FMT_BB ", stmt " FMT_STMT ", tree [%06u]", block->bbNum, stmt->GetID(), node->GetID());
-                JITDUMP(", tree -> ");
-                JITDUMPEXEC(optPrintAssertionIndex(node->GetAssertionInfo().GetAssertionIndex()));
-                JITDUMP("\n");
+                JITDUMP(", tree -> A%02d\n", node->GetAssertionInfo().GetAssertionIndex());
 
                 GenTree* newNode = apPropagateNode(assertions, node, stmt, block);
 
@@ -4463,54 +4461,31 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
     printf("\n");
 }
 
-void Compiler::optPrintAssertionIndex(AssertionIndex index)
+void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
 {
-    if (index == NO_ASSERTION_INDEX)
+    if (!verbose)
     {
-        printf("#NA");
         return;
     }
 
-    printf("#%02u", index);
-}
-
-void Compiler::optPrintAssertionIndices(ASSERT_TP assertions)
-{
-    if (BitVecOps::IsEmpty(apTraits, assertions))
+    if (header != nullptr)
     {
-        optPrintAssertionIndex(NO_ASSERTION_INDEX);
-        return;
+        printf("%s", header);
     }
 
+    const char*     separator = "";
     BitVecOps::Iter iter(apTraits, assertions);
-    unsigned        bitIndex = 0;
-    if (iter.NextElem(&bitIndex))
-    {
-        optPrintAssertionIndex(static_cast<AssertionIndex>(bitIndex + 1));
-        while (iter.NextElem(&bitIndex))
-        {
-            printf(" ");
-            optPrintAssertionIndex(static_cast<AssertionIndex>(bitIndex + 1));
-        }
-    }
-}
 
-void Compiler::optDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer /* = nullptr */)
-{
-    if (verbose)
+    for (unsigned bitIndex = 0; iter.NextElem(&bitIndex);)
     {
-        printf(header);
-        optPrintAssertionIndices(assertions);
-        if (footer != nullptr)
-        {
-            printf(footer);
-        }
+        printf("%sA%02d", separator, GetAssertionIndex(bitIndex));
+        separator = ", ";
     }
-}
 
-void Compiler::optDumpAssertionIndices(ASSERT_TP assertions, const char* footer /* = nullptr */)
-{
-    optDumpAssertionIndices("", assertions, footer);
+    if (footer != nullptr)
+    {
+        printf("%s", footer);
+    }
 }
 
 #endif // DEBUG
