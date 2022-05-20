@@ -5829,6 +5829,7 @@ public:
 public:
     // Data structures for assertion prop
     BitVecTraits* apTraits;
+    BitVecTraits* apTraitsMax;
 
     enum ApKind
     {

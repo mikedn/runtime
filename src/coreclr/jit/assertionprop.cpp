@@ -573,7 +573,8 @@ void Compiler::apInit()
     apAssertionTable          = new (allocator) AssertionDsc[apMaxAssertionCount];
     apComplementaryAssertions = new (allocator) AssertionIndex[apMaxAssertionCount + 1]();
     apVNAssertionMap          = new (allocator) ValueNumToAssertsMap(allocator);
-    apTraits                  = new (allocator) BitVecTraits(apMaxAssertionCount, this);
+    apTraitsMax               = new (allocator) BitVecTraits(apMaxAssertionCount, this);
+    apTraits                  = nullptr;
     apAssertionCount          = 0;
     apJTrueAssertionOut       = nullptr;
 }
@@ -1305,11 +1306,11 @@ void Compiler::apAddVNAssertion(ValueNum vn, AssertionIndex index)
 
     if (*set == BitVecOps::UninitVal())
     {
-        *set = BitVecOps::MakeSingleton(apTraits, index - 1);
+        *set = BitVecOps::MakeSingleton(apTraitsMax, index - 1);
     }
     else
     {
-        BitVecOps::AddElemD(apTraits, *set, index - 1);
+        BitVecOps::AddElemD(apTraitsMax, *set, index - 1);
     }
 }
 
@@ -2802,8 +2803,9 @@ void Compiler::apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertion
             continue;
         }
 
-        if (!BitVecOps::IsMember(apTraits, vn1Assertions, en.Current()) &&
-            ((vn2Assertions == BitVecOps::UninitVal()) || !BitVecOps::IsMember(apTraits, vn1Assertions, en.Current())))
+        if (!BitVecOps::IsMember(apTraitsMax, vn1Assertions, en.Current()) &&
+            ((vn2Assertions == BitVecOps::UninitVal()) ||
+             !BitVecOps::IsMember(apTraitsMax, vn1Assertions, en.Current())))
         {
             continue;
         }
@@ -2876,7 +2878,7 @@ void Compiler::apAddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_
 
     ssize_t value = constAssertion->op2.intCon.value;
 
-    for (BitVecOps::Enumerator en(apTraits, vnAssertions); en.MoveNext();)
+    for (BitVecOps::Enumerator en(apTraitsMax, vnAssertions); en.MoveNext();)
     {
         AssertionIndex impliedIndex     = GetAssertionIndex(en.Current());
         AssertionDsc*  impliedAssertion = apGetAssertion(impliedIndex);
@@ -3353,23 +3355,16 @@ ASSERT_TP* Compiler::apInitAssertionDataflowSets()
 {
     ASSERT_TP* jumpDestOut = fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
 
-    ASSERT_TP allSet = BitVecOps::MakeEmpty(apTraits);
-
-    for (int i = 1; i <= apAssertionCount; i++)
-    {
-        BitVecOps::AddElemD(apTraits, allSet, i - 1);
-    }
-
     // Initially estimate the OUT sets to everything except killed expressions
     // Also set the IN sets to 1, so that we can perform the intersection.
     for (BasicBlock* const block : Blocks())
     {
         block->bbAssertionGen = BitVecOps::MakeEmpty(apTraits);
 
-        block->bbAssertionIn  = BitVecOps::MakeCopy(apTraits, allSet);
-        block->bbAssertionOut = BitVecOps::MakeCopy(apTraits, allSet);
+        block->bbAssertionIn  = BitVecOps::MakeFull(apTraits);
+        block->bbAssertionOut = BitVecOps::MakeFull(apTraits);
 
-        jumpDestOut[block->bbNum] = BitVecOps::MakeCopy(apTraits, allSet);
+        jumpDestOut[block->bbNum] = BitVecOps::MakeFull(apTraits);
     }
 
     // Compute the data flow values for all tracked expressions
@@ -4090,13 +4085,15 @@ void Compiler::apMain()
         }
     }
 
+    apTraits = new (getAllocator(CMK_AssertionProp)) BitVecTraits(apAssertionCount, this);
+
     if (apAssertionCount == 0)
     {
         // Zero out bbAssertionIn as it can be referenced in RangeCheck::MergeAssertion
         // and this member overlaps with bbCseIn used by the CSE phase.
         for (BasicBlock* const block : Blocks())
         {
-            block->bbAssertionIn = BitVecOps::MakeEmpty(apTraits);
+            block->bbAssertionIn = BitVecOps::UninitVal();
         }
 
         return;
