@@ -5844,7 +5844,6 @@ public:
     {
         O1K_INVALID,
         O1K_LCLVAR,
-        O1K_ARR_BND,
         O1K_BOUND_OPER_BND,
         O1K_BOUND_LOOP_BND,
         O1K_CONSTANT_LOOP_BND,
@@ -5865,6 +5864,7 @@ public:
 #endif
         O2K_CONST_DOUBLE,
         O2K_SUBRANGE,
+        O2K_VALUE_NUMBER,
         O2K_COUNT
     };
 
@@ -5883,22 +5883,6 @@ public:
             bool operator!=(const LclVar& other) const
             {
                 return (lclNum != other.lclNum) || (ssaNum != other.ssaNum);
-            }
-        };
-
-        struct ArrBnd
-        {
-            ValueNum vnIdx;
-            ValueNum vnLen;
-
-            bool operator==(const ArrBnd& other) const
-            {
-                return (vnIdx == other.vnIdx) && (vnLen == other.vnLen);
-            }
-
-            bool operator!=(const ArrBnd& other) const
-            {
-                return (vnIdx != other.vnIdx) || (vnLen != other.vnLen);
             }
         };
 
@@ -5970,10 +5954,7 @@ public:
         {
             ApOp1Kind kind;
             ValueNum  vn;
-            union {
-                LclVar lcl;
-                ArrBnd bnd;
-            };
+            LclVar    lcl;
         };
 
         struct Op2

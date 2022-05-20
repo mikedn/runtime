@@ -504,11 +504,6 @@ bool AssertionDsc::HasSameOp1(const AssertionDsc* that) const
         return false;
     }
 
-    if (op1.kind == O1K_ARR_BND)
-    {
-        return op1.bnd == that->op1.bnd;
-    }
-
     return op1.vn == that->op1.vn;
 }
 
@@ -534,6 +529,8 @@ bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
             return op2.dblCon == that->op2.dblCon;
         case O2K_SUBRANGE:
             return op2.range == that->op2.range;
+        case O2K_VALUE_NUMBER:
+            return op2.vn == that->op2.vn;
         default:
             assert(op2.kind == O2K_INVALID);
             break;
@@ -552,14 +549,6 @@ bool AssertionDsc::Equals(const AssertionDsc* that) const
     if (kind != that->kind)
     {
         return false;
-    }
-
-    if (kind == OAK_NO_THROW)
-    {
-        assert(op1.kind == O1K_ARR_BND);
-        assert(op2.kind == O2K_INVALID);
-
-        return op1.bnd == that->op1.bnd;
     }
 
     return HasSameOp1(that) && HasSameOp2(that);
@@ -611,10 +600,11 @@ AssertionIndex Compiler::apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk)
     AssertionDsc assertion;
     memset(&assertion, 0, sizeof(AssertionDsc));
 
-    assertion.kind          = OAK_NO_THROW;
-    assertion.op1.kind      = O1K_ARR_BND;
-    assertion.op1.bnd.vnIdx = indexVN;
-    assertion.op1.bnd.vnLen = lengthVN;
+    assertion.kind     = OAK_NO_THROW;
+    assertion.op1.kind = O1K_VALUE_NUMBER;
+    assertion.op1.vn   = indexVN;
+    assertion.op2.kind = O2K_VALUE_NUMBER;
+    assertion.op2.vn   = lengthVN;
 
     return apAddAssertion(&assertion);
 }
@@ -1496,13 +1486,11 @@ AssertionInfo Compiler::apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
         assert((unsignedCompareBnd.cmpOper == VNF_LT_UN) || (unsignedCompareBnd.cmpOper == VNF_GE_UN));
         assert(vnStore->IsVNCheckedBound(unsignedCompareBnd.vnBound));
 
-        dsc.kind          = OAK_NO_THROW;
-        dsc.op1.kind      = O1K_ARR_BND;
-        dsc.op1.vn        = relopVN;
-        dsc.op1.bnd.vnIdx = unsignedCompareBnd.vnIdx;
-        dsc.op1.bnd.vnLen = vnStore->VNNormalValue(unsignedCompareBnd.vnBound);
-        dsc.op2.kind      = O2K_INVALID;
-        dsc.op2.vn        = ValueNumStore::NoVN;
+        dsc.kind     = OAK_NO_THROW;
+        dsc.op1.kind = O1K_VALUE_NUMBER;
+        dsc.op1.vn   = unsignedCompareBnd.vnIdx;
+        dsc.op2.kind = O2K_VALUE_NUMBER;
+        dsc.op2.vn   = vnStore->VNNormalValue(unsignedCompareBnd.vnBound);
 
         AssertionIndex index = apAddAssertion(&dsc);
 
@@ -2634,7 +2622,7 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
         }
 
         // Do we have a previous range check involving the same 'vnLen' upper bound?
-        if (assertion->op1.bnd.vnLen != lengthVN)
+        if (assertion->op2.vn != lengthVN)
         {
             continue;
         }
@@ -2642,7 +2630,7 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
         bool isRedundant = false;
         INDEBUG(const char* message = "");
 
-        if (assertion->op1.bnd.vnIdx == indexVN)
+        if (assertion->op1.vn == indexVN)
         {
             isRedundant = true;
             INDEBUG(message = "a[i] followed by a[i]");
@@ -2652,14 +2640,14 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
             isRedundant = true;
             INDEBUG(message = "a[*] followed by a[0]");
         }
-        else if (vnStore->IsVNConstant(assertion->op1.bnd.vnIdx) && vnStore->IsVNConstant(indexVN))
+        else if (vnStore->IsVNConstant(assertion->op1.vn) && vnStore->IsVNConstant(indexVN))
         {
-            var_types type1 = vnStore->TypeOfVN(assertion->op1.bnd.vnIdx);
+            var_types type1 = vnStore->TypeOfVN(assertion->op1.vn);
             var_types type2 = vnStore->TypeOfVN(indexVN);
 
             if ((type1 == type2) && (type1 == TYP_INT))
             {
-                int index1 = vnStore->ConstantValue<int>(assertion->op1.bnd.vnIdx);
+                int index1 = vnStore->ConstantValue<int>(assertion->op1.vn);
                 int index2 = vnStore->ConstantValue<int>(indexVN);
 
                 assert(index1 != index2);
@@ -2773,6 +2761,11 @@ GenTree* Compiler::apPropagateNode(ASSERT_VALARG_TP assertions, GenTree* node, S
 void Compiler::apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions)
 {
     AssertionDsc* assertion = apGetAssertion(index);
+
+    if (assertion->kind == OAK_NO_THROW)
+    {
+        return;
+    }
 
     if (BitVecOps::IsEmpty(apTraits, assertions))
     {
@@ -4241,10 +4234,6 @@ void Compiler::apDebugCheckAssertion(AssertionDsc* assertion)
         case O1K_SUBTYPE:
             assert(lvaGetDesc(op1.lcl.lclNum)->lvPerSsaData.IsValidSsaNum(op1.lcl.ssaNum));
             break;
-        case O1K_ARR_BND:
-            assert(varTypeIsIntegral(vnStore->TypeOfVN(op1.bnd.vnIdx)) &&
-                   varTypeIsIntegral(vnStore->TypeOfVN(op1.bnd.vnLen)));
-            break;
         case O1K_BOUND_OPER_BND:
         case O1K_BOUND_LOOP_BND:
         case O1K_CONSTANT_LOOP_BND:
@@ -4288,6 +4277,7 @@ void Compiler::apDebugCheckAssertion(AssertionDsc* assertion)
         case O2K_CONST_DOUBLE:
         case O2K_LCLVAR_COPY:
         case O2K_SUBRANGE:
+        case O2K_VALUE_NUMBER:
             break;
 
         default:
@@ -4330,7 +4320,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
     {
         kindName = "Subtype";
     }
-    else if (op1.kind == O1K_ARR_BND)
+    else if (kind == OAK_NO_THROW)
     {
         kindName = "ArrayBounds";
     }
@@ -4358,10 +4348,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
         printf("A%02d ", static_cast<int>(assertion - apAssertionTable) + 1);
     }
 
-    if (kind != OAK_NO_THROW)
-    {
-        printf("(" FMT_VN ", " FMT_VN ") ", op1.vn, op2.vn);
-    }
+    printf("(" FMT_VN ", " FMT_VN ") ", op1.vn, op2.vn);
 
     if ((op1.kind == O1K_LCLVAR) || (op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
     {
@@ -4371,14 +4358,6 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
         {
             printf(".%02u", op1.lcl.ssaNum);
         }
-    }
-    else if (op1.kind == O1K_ARR_BND)
-    {
-        printf("[index:");
-        vnStore->vnDump(this, op1.bnd.vnIdx);
-        printf(", length:");
-        vnStore->vnDump(this, op1.bnd.vnLen);
-        printf("]");
     }
     else if (op1.kind == O1K_BOUND_OPER_BND)
     {
@@ -4436,79 +4415,78 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
         printf(" ??? ");
     }
 
-    if (op1.kind != O1K_ARR_BND)
+    switch (op2.kind)
     {
-        switch (op2.kind)
-        {
-            case O2K_LCLVAR_COPY:
-                printf("V%02u", op2.lcl.lclNum);
-                if (op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-                {
-                    printf(".%02u", op1.lcl.ssaNum);
-                }
-                break;
+        case O2K_LCLVAR_COPY:
+            printf("V%02u", op2.lcl.lclNum);
+            if (op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
+            {
+                printf(".%02u", op1.lcl.ssaNum);
+            }
+            break;
 
-            case O2K_CONST_INT:
-            case O2K_IND_CNS_INT:
-                if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+        case O2K_CONST_INT:
+        case O2K_IND_CNS_INT:
+            if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+            {
+                printf("MT(%08X)", dspPtr(op2.intCon.value));
+            }
+            else if (op1.kind == O1K_BOUND_OPER_BND)
+            {
+                vnStore->vnDump(this, op2.vn);
+            }
+            else if (op1.kind == O1K_BOUND_LOOP_BND)
+            {
+                vnStore->vnDump(this, op2.vn);
+            }
+            else if (op1.kind == O1K_CONSTANT_LOOP_BND)
+            {
+                vnStore->vnDump(this, op2.vn);
+            }
+            else
+            {
+                var_types op1Type;
+
+                if (op1.kind == O1K_VALUE_NUMBER)
                 {
-                    printf("MT(%08X)", dspPtr(op2.intCon.value));
-                }
-                else if (op1.kind == O1K_BOUND_OPER_BND)
-                {
-                    vnStore->vnDump(this, op2.vn);
-                }
-                else if (op1.kind == O1K_BOUND_LOOP_BND)
-                {
-                    vnStore->vnDump(this, op2.vn);
-                }
-                else if (op1.kind == O1K_CONSTANT_LOOP_BND)
-                {
-                    vnStore->vnDump(this, op2.vn);
+                    op1Type = vnStore->TypeOfVN(op1.vn);
                 }
                 else
                 {
-                    var_types op1Type;
-
-                    if (op1.kind == O1K_VALUE_NUMBER)
-                    {
-                        op1Type = vnStore->TypeOfVN(op1.vn);
-                    }
-                    else
-                    {
-                        op1Type = lvaGetDesc(op1.lcl.lclNum)->GetType();
-                    }
-
-                    if ((op1Type == TYP_REF) && (op2.intCon.value == 0))
-                    {
-                        printf("null");
-                    }
-                    else if ((op2.intCon.flags & GTF_ICON_HDL_MASK) != 0)
-                    {
-                        printf("[%08p]", dspPtr(op2.intCon.value));
-                    }
-                    else
-                    {
-                        printf("%d", op2.intCon.value);
-                    }
+                    op1Type = lvaGetDesc(op1.lcl.lclNum)->GetType();
                 }
-                break;
+
+                if ((op1Type == TYP_REF) && (op2.intCon.value == 0))
+                {
+                    printf("null");
+                }
+                else if ((op2.intCon.flags & GTF_ICON_HDL_MASK) != 0)
+                {
+                    printf("[%08p]", dspPtr(op2.intCon.value));
+                }
+                else
+                {
+                    printf("%d", op2.intCon.value);
+                }
+            }
+            break;
 
 #ifndef TARGET_64BIT
-            case O2K_CONST_LONG:
-                printf("0x%016llx", op2.lngCon.value);
-                break;
+        case O2K_CONST_LONG:
+            printf("0x%016llx", op2.lngCon.value);
+            break;
 #endif
-            case O2K_CONST_DOUBLE:
-                printf("%#.17g", op2.dblCon.value);
-                break;
-            case O2K_SUBRANGE:
-                printf("[%d..%d]", op2.range.min, op2.range.max);
-                break;
-            default:
-                printf("???");
-                break;
-        }
+        case O2K_CONST_DOUBLE:
+            printf("%#.17g", op2.dblCon.value);
+            break;
+        case O2K_SUBRANGE:
+            printf("[%d..%d]", op2.range.min, op2.range.max);
+            break;
+        case O2K_VALUE_NUMBER:
+            break;
+        default:
+            printf("???");
+            break;
     }
 
     printf("\n");
