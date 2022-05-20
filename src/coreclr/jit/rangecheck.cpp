@@ -615,13 +615,10 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
             continue;
         }
 
-        assert(limit.IsBinOpArray() || limit.IsConstant());
-
         // Make sure the assertion is of the form != 0 or == 0 if it isn't a constant assertion.
-        if (!isConstantAssertion && (curAssertion->op2.vn != m_pCompiler->vnStore->VNZeroForType(TYP_INT)))
-        {
-            continue;
-        }
+        assert(isConstantAssertion || (curAssertion->op2.vn == m_pCompiler->vnStore->VNZeroForType(TYP_INT)));
+
+        assert(limit.IsBinOpArray() || limit.IsConstant());
 
         DBEXEC(m_pCompiler->verbose, m_pCompiler->apDumpAssertion(curAssertion);)
 
@@ -663,7 +660,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
         // If we have a non-constant assertion of the form == 0 (i.e., equals false), then reverse relop.
         // The relop has to be reversed because we have: (i < length) is false which is the same
         // as (i >= length).
-        if ((curAssertion->kind == Compiler::OAK_EQUAL) && !isConstantAssertion)
+        if (!isConstantAssertion && (curAssertion->kind == Compiler::OAK_EQUAL))
         {
             cmpOper = GenTree::ReverseRelop(cmpOper);
         }

@@ -1376,14 +1376,16 @@ AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
 
 AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
 {
+    assert((assertion->op1.kind == O1K_BOUND_OPER_BND) || (assertion->op1.kind == O1K_BOUND_LOOP_BND) ||
+           (assertion->op1.kind == O1K_CONSTANT_LOOP_BND));
+    assert((assertion->op2.kind == O2K_CONST_INT) && (assertion->op2.vn == vnStore->VNZeroForType(TYP_INT)) &&
+           (assertion->op2.intCon.value == 0));
+
     AssertionIndex index = apAddAssertion(assertion);
 
     if (index != NO_ASSERTION_INDEX)
     {
         AssertionDsc complementary = *apGetAssertion(index);
-
-        assert((complementary.op1.kind == O1K_BOUND_OPER_BND) || (complementary.op1.kind == O1K_BOUND_LOOP_BND) ||
-               (complementary.op1.kind == O1K_CONSTANT_LOOP_BND));
 
         complementary.kind = complementary.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
         apAddAssertion(&complementary);
