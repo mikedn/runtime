@@ -957,8 +957,6 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
             toType = TYP_BOOL;
             goto SUBRANGE_COMMON;
         case GT_LCL_FLD:
-            toType = op2->GetType();
-            goto SUBRANGE_COMMON;
         case GT_IND:
             toType = op2->GetType();
             goto SUBRANGE_COMMON;
