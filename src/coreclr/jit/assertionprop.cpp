@@ -587,7 +587,7 @@ Compiler::AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
     return assertion;
 }
 
-AssertionIndex Compiler::apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk)
+AssertionIndex Compiler::apGenerateBoundsChkAssertion(GenTreeBoundsChk* boundsChk)
 {
     ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
     ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
@@ -600,7 +600,7 @@ AssertionIndex Compiler::apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk)
     AssertionDsc assertion;
     memset(&assertion, 0, sizeof(AssertionDsc));
 
-    assertion.kind     = OAK_NO_THROW;
+    assertion.kind     = OAK_BOUNDS_CHK;
     assertion.op1.kind = O1K_VALUE_NUMBER;
     assertion.op1.vn   = indexVN;
     assertion.op2.kind = O2K_VALUE_NUMBER;
@@ -1286,7 +1286,7 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
     }
 #endif
 
-    if (assertion->kind != OAK_NO_THROW)
+    if (assertion->kind != OAK_BOUNDS_CHK)
     {
         apAddVNAssertion(assertion->op1.vn, apAssertionCount);
 
@@ -1481,14 +1481,14 @@ AssertionInfo Compiler::apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
     ValueNumStore::UnsignedCompareCheckedBoundInfo unsignedCompareBnd;
 
     // Loop condition like "(uint)i < (uint)bnd" or equivalent
-    // Assertion: "no throw" since this condition guarantees that i is both >= 0 and < bnd (on the appropiate edge)
+    // Assertion: "bounds chk" since this condition guarantees that i is both >= 0 and < bnd (on the appropiate edge)
     if (vnStore->IsVNUnsignedCompareCheckedBound(relopVN, &unsignedCompareBnd))
     {
         assert(unsignedCompareBnd.vnIdx != ValueNumStore::NoVN);
         assert((unsignedCompareBnd.cmpOper == VNF_LT_UN) || (unsignedCompareBnd.cmpOper == VNF_GE_UN));
         assert(vnStore->IsVNCheckedBound(unsignedCompareBnd.vnBound));
 
-        dsc.kind     = OAK_NO_THROW;
+        dsc.kind     = OAK_BOUNDS_CHK;
         dsc.op1.kind = O1K_VALUE_NUMBER;
         dsc.op1.vn   = unsignedCompareBnd.vnIdx;
         dsc.op2.kind = O2K_VALUE_NUMBER;
@@ -1711,6 +1711,10 @@ void Compiler::apGenerateNodeAssertions(GenTree* node)
             }
             break;
 
+        case GT_ARR_BOUNDS_CHECK:
+            assertionInfo = apGenerateBoundsChkAssertion(node->AsBoundsChk());
+            break;
+
         case GT_BLK:
         case GT_OBJ:
             assert(node->AsBlk()->GetLayout()->GetSize() != 0);
@@ -1721,9 +1725,6 @@ void Compiler::apGenerateNodeAssertions(GenTree* node)
             break;
         case GT_ARR_LENGTH:
             assertionInfo = apCreateNotNullAssertion(node->AsArrLen()->GetArray());
-            break;
-        case GT_ARR_BOUNDS_CHECK:
-            assertionInfo = apCreateNoThrowAssertion(node->AsBoundsChk());
             break;
         case GT_ARR_ELEM:
             assertionInfo = apCreateNotNullAssertion(node->AsArrElem()->GetArray());
@@ -2622,7 +2623,7 @@ GenTree* Compiler::apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoun
         AssertionIndex index     = GetAssertionIndex(en.Current());
         AssertionDsc*  assertion = apGetAssertion(index);
 
-        if (assertion->kind != OAK_NO_THROW)
+        if (assertion->kind != OAK_BOUNDS_CHK)
         {
             continue;
         }
@@ -2768,7 +2769,7 @@ void Compiler::apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertion
 {
     AssertionDsc* assertion = apGetAssertion(index);
 
-    if (assertion->kind == OAK_NO_THROW)
+    if (assertion->kind == OAK_BOUNDS_CHK)
     {
         return;
     }
@@ -2927,7 +2928,7 @@ void Compiler::apAddCopyImpliedAssertions(AssertionDsc* copyAssertion, Assertion
 {
     assert(copyAssertion->kind == OAK_EQUAL);
     assert((copyAssertion->op1.kind == O1K_LCLVAR) && (copyAssertion->op2.kind == O2K_LCLVAR_COPY));
-    assert(assertion->kind != OAK_NO_THROW);
+    assert(assertion->kind != OAK_BOUNDS_CHK);
 
     // TODO-MIKE-Cleanup: It looks like we can end up with `assertion` being a
     // "bound" assertion, for which lcl is not set and may contain garbage.
@@ -4326,7 +4327,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
     {
         kindName = "Subtype";
     }
-    else if (kind == OAK_NO_THROW)
+    else if (kind == OAK_BOUNDS_CHK)
     {
         kindName = "ArrayBounds";
     }
@@ -4416,7 +4417,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
             printf(" is not ");
         }
     }
-    else if (kind != OAK_NO_THROW)
+    else if (kind != OAK_BOUNDS_CHK)
     {
         printf(" ??? ");
     }

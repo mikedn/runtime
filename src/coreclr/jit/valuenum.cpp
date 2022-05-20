@@ -5726,7 +5726,7 @@ bool ValueNumStore::IsVNPositiveInt32Constant(ValueNum vn)
 //    vn - Value number to query
 //    info - Pointer to an UnsignedCompareCheckedBoundInfo object to return information about
 //           the expression. Not populated if the vn expression isn't suitable (e.g. i <= len).
-//           This enables optCreateJTrueBoundAssertion to immediately create an OAK_NO_THROW
+//           This enables optCreateJTrueBoundAssertion to immediately create an OAK_BOUNDS_CHK
 //           assertion instead of the OAK_EQUAL/NOT_EQUAL assertions created by signed compares
 //           (IsVNCompareCheckedBound, IsVNCompareCheckedBoundArith) that require further processing.
 //

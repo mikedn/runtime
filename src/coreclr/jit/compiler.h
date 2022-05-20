@@ -5836,7 +5836,7 @@ public:
         OAK_EQUAL,
         OAK_NOT_EQUAL,
         OAK_SUBRANGE,
-        OAK_NO_THROW,
+        OAK_BOUNDS_CHK,
         OAK_COUNT
     };
 
@@ -6087,7 +6087,7 @@ public:
     AssertionIndex apFindComplementaryAssertion(AssertionIndex index);
     void apAddComplementaryAssertion(AssertionIndex index, AssertionIndex complementaryIndex);
 
-    AssertionIndex apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk);
+    AssertionIndex apGenerateBoundsChkAssertion(GenTreeBoundsChk* boundsChk);
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);
     AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast);
     AssertionIndex apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind);
