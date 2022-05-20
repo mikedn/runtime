@@ -1605,33 +1605,22 @@ AssertionInfo Compiler::apGenerateJTrueAssertions(GenTreeUnOp* jtrue)
     {
         assert(relop->OperIs(GT_EQ, GT_NE));
 
-        int con = vnStore->ConstantValue<int>(op2VN);
-        if (con >= 0)
+        int op2Value = vnStore->ConstantValue<int>(op2VN);
+        if (op2Value >= 0)
         {
             AssertionDsc dsc;
 
-            if (con == 0)
-            {
-                dsc.kind          = OAK_NOT_EQUAL;
-                dsc.op1.bnd.vnIdx = vnStore->VNForIntCon(0);
-            }
-            else
-            {
-                dsc.kind          = OAK_EQUAL;
-                dsc.op1.bnd.vnIdx = vnStore->VNForIntCon(con - 1);
-            }
-
-            dsc.op1.kind         = O1K_ARR_BND;
+            dsc.kind             = op2Value == 0 ? OAK_NOT_EQUAL : OAK_EQUAL;
+            dsc.op1.kind         = O1K_VALUE_NUMBER;
             dsc.op1.vn           = op1VN;
-            dsc.op1.bnd.vnLen    = op1VN;
             dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNNormalValue(op2->GetConservativeVN());
-            dsc.op2.intCon.value = 0;
+            dsc.op2.vn           = op2VN;
+            dsc.op2.intCon.value = op2Value;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
             AssertionIndex index = apAddAssertion(&dsc);
 
-            if (relop->OperIs(GT_NE) != (con == 0))
+            if (relop->OperIs(GT_NE) != (dsc.kind == OAK_NOT_EQUAL))
             {
                 return AssertionInfo::ForNextEdge(index);
             }
