@@ -5864,7 +5864,6 @@ public:
         O2K_CONST_LONG,
 #endif
         O2K_CONST_DOUBLE,
-        O2K_ARR_LEN,
         O2K_SUBRANGE,
         O2K_COUNT
     };

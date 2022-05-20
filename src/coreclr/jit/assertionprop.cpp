@@ -522,7 +522,6 @@ bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
     switch (op2.kind)
     {
         case O2K_LCLVAR_COPY:
-        case O2K_ARR_LEN:
             return op2.lcl == that->op2.lcl;
         case O2K_IND_CNS_INT:
         case O2K_CONST_INT:
@@ -4299,7 +4298,6 @@ void Compiler::apDebugCheckAssertion(AssertionDsc* assertion)
 #endif
         case O2K_CONST_DOUBLE:
         case O2K_LCLVAR_COPY:
-        case O2K_ARR_LEN:
         case O2K_SUBRANGE:
             break;
 
