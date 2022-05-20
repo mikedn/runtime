@@ -1093,19 +1093,15 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
     {
         op2 = op2->AsIndir()->GetAddr();
 
-        if (!apIsConstInt(op2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
         assertion.op2.kind = O2K_IND_CNS_INT;
     }
     // JIT case
-    else if (apIsConstInt(op2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
+    else
     {
         assertion.op2.kind = O2K_CONST_INT;
     }
-    else
+
+    if (!apIsConstInt(op2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
     {
         return NO_ASSERTION_INDEX;
     }
