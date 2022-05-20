@@ -1700,7 +1700,6 @@ void Compiler::apGenerateNodeAssertions(GenTree* node)
 
     INDEBUG(optAssertionPropCurrentTree = node);
 
-    bool          assertionIsTrue = true;
     AssertionInfo assertionInfo;
 
     switch (node->GetOper())
@@ -1746,12 +1745,17 @@ void Compiler::apGenerateNodeAssertions(GenTree* node)
             break;
 
         case GT_CAST:
-            assertionInfo = apCreateSubrangeAssertion(node->AsCast());
-
-            // This represets an assertion that we would like to prove to be true.
-            // It is not actually a true assertion. If we can prove this assertion
-            // true then we can eliminate this cast.
-            assertionIsTrue = false;
+            // We create a range assertion for a CAST's operand, not for the CAST itself.
+            // This assertion isn't known to be true at this time (and thus its index is
+            // not recorded in any node) but it can later be implied to be true by other
+            // assertions and then we can remove the cast (e.g. a const assertion x = 42
+            // implies CAST<UBYTE>(x) can be reduced to x).
+            // TODO-MIKE-Review: Why don't we just check for the relevant const assertion
+            // when we propagate to CAST?!? Given the diffs this seems to be doing more
+            // harm than good - there are very few cases where this helps and instead
+            // there are some cases where it just wastes space in the assertion table and
+            // prevents other useful assertions from being created.
+            apCreateSubrangeAssertion(node->AsCast());
             break;
 
         case GT_JTRUE:
@@ -1762,7 +1766,7 @@ void Compiler::apGenerateNodeAssertions(GenTree* node)
             break;
     }
 
-    if (assertionInfo.HasAssertion() && assertionIsTrue)
+    if (assertionInfo.HasAssertion())
     {
         node->SetAssertionInfo(assertionInfo);
     }
