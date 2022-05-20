@@ -601,13 +601,21 @@ Compiler::AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
 
 AssertionIndex Compiler::apCreateNoThrowAssertion(GenTreeBoundsChk* boundsChk)
 {
+    ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
+    ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+
+    if ((indexVN == NoVN) || (lengthVN == NoVN))
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
     AssertionDsc assertion;
     memset(&assertion, 0, sizeof(AssertionDsc));
 
     assertion.kind          = OAK_NO_THROW;
     assertion.op1.kind      = O1K_ARR_BND;
-    assertion.op1.bnd.vnIdx = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
-    assertion.op1.bnd.vnLen = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+    assertion.op1.bnd.vnIdx = indexVN;
+    assertion.op1.bnd.vnLen = lengthVN;
 
     return apAddAssertion(&assertion);
 }
