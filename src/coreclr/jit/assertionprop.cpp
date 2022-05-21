@@ -484,7 +484,7 @@ void Compiler::optAddCopies()
 
 using AssertionDsc = Compiler::AssertionDsc;
 
-bool AssertionDsc::ComplementaryKind(ApKind kind, ApKind kind2)
+bool AssertionDsc::IsInvertedKind(ApKind kind, ApKind kind2)
 {
     switch (kind)
     {
@@ -539,9 +539,9 @@ bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
     return false;
 }
 
-bool AssertionDsc::Complementary(const AssertionDsc* that) const
+bool AssertionDsc::IsInverted(const AssertionDsc* that) const
 {
-    return ComplementaryKind(kind, that->kind) && HasSameOp1(that) && HasSameOp2(that);
+    return IsInvertedKind(kind, that->kind) && HasSameOp1(that) && HasSameOp2(that);
 }
 
 bool AssertionDsc::Equals(const AssertionDsc* that) const
@@ -569,14 +569,14 @@ void Compiler::apInit()
 
     CompAllocator allocator = getAllocator(CMK_AssertionProp);
 
-    apMaxAssertionCount       = countFunc[min(upperBound, codeSize)];
-    apAssertionTable          = new (allocator) AssertionDsc[apMaxAssertionCount];
-    apComplementaryAssertions = new (allocator) AssertionIndex[apMaxAssertionCount + 1]();
-    apVNAssertionMap          = new (allocator) ValueNumToAssertsMap(allocator);
-    apTraitsMax               = new (allocator) BitVecTraits(apMaxAssertionCount, this);
-    apTraits                  = nullptr;
-    apAssertionCount          = 0;
-    apJTrueAssertionOut       = nullptr;
+    apMaxAssertionCount  = countFunc[min(upperBound, codeSize)];
+    apAssertionTable     = new (allocator) AssertionDsc[apMaxAssertionCount];
+    apInvertedAssertions = new (allocator) AssertionIndex[apMaxAssertionCount + 1]();
+    apVNAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
+    apTraitsMax          = new (allocator) BitVecTraits(apMaxAssertionCount, this);
+    apTraits             = nullptr;
+    apAssertionCount     = 0;
+    apJTrueAssertionOut  = nullptr;
 }
 
 Compiler::AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
@@ -1050,7 +1050,7 @@ AssertionIndex Compiler::apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* 
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        apAddComplementaryAssertion(index, apAddAssertion(&assertion));
+        apAddInvertedAssertion(index, apAddAssertion(&assertion));
     }
 
     return index;
@@ -1133,7 +1133,7 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        apAddComplementaryAssertion(index, apAddAssertion(&assertion));
+        apAddInvertedAssertion(index, apAddAssertion(&assertion));
         apCreateNotNullAssertion(op1);
     }
 
@@ -1198,7 +1198,7 @@ AssertionIndex Compiler::apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* o
     if (index != NO_ASSERTION_INDEX)
     {
         assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        apAddComplementaryAssertion(index, apAddAssertion(&assertion));
+        apAddInvertedAssertion(index, apAddAssertion(&assertion));
         apCreateNotNullAssertion(op1);
     }
 
@@ -1321,21 +1321,21 @@ ASSERT_VALRET_TP Compiler::apGetVNAssertions(ValueNum vn)
     return set == nullptr ? BitVecOps::UninitVal() : *set;
 }
 
-void Compiler::apAddComplementaryAssertion(AssertionIndex index, AssertionIndex complementaryIndex)
+void Compiler::apAddInvertedAssertion(AssertionIndex index, AssertionIndex invertedIndex)
 {
-    if ((index == NO_ASSERTION_INDEX) || (complementaryIndex == NO_ASSERTION_INDEX))
+    if ((index == NO_ASSERTION_INDEX) || (invertedIndex == NO_ASSERTION_INDEX))
     {
         return;
     }
 
     assert(index <= apMaxAssertionCount);
-    assert(complementaryIndex <= apMaxAssertionCount);
+    assert(invertedIndex <= apMaxAssertionCount);
 
-    apComplementaryAssertions[index]              = complementaryIndex;
-    apComplementaryAssertions[complementaryIndex] = index;
+    apInvertedAssertions[index]         = invertedIndex;
+    apInvertedAssertions[invertedIndex] = index;
 }
 
-AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
+AssertionIndex Compiler::apFindInvertedAssertion(AssertionIndex index)
 {
     if (index == NO_ASSERTION_INDEX)
     {
@@ -1349,24 +1349,24 @@ AssertionIndex Compiler::apFindComplementaryAssertion(AssertionIndex index)
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionIndex complementaryIndex = apComplementaryAssertions[index];
+    AssertionIndex invertedIndex = apInvertedAssertions[index];
 
-    if (complementaryIndex != NO_ASSERTION_INDEX)
+    if (invertedIndex != NO_ASSERTION_INDEX)
     {
-        return complementaryIndex;
+        return invertedIndex;
     }
 
-    // TODO-MIKE-Review: Why is this needed? Just in case someone forgets to map the complementary
+    // TODO-MIKE-Review: Why is this needed? Just in case someone forgets to map the inverted
     // assertion when generating assertions?
-    for (complementaryIndex = 1; complementaryIndex <= apAssertionCount; ++complementaryIndex)
+    for (invertedIndex = 1; invertedIndex <= apAssertionCount; ++invertedIndex)
     {
-        AssertionDsc* complementaryAssertion = apGetAssertion(complementaryIndex);
+        AssertionDsc* invertedAssertion = apGetAssertion(invertedIndex);
 
-        if (complementaryAssertion->Complementary(assertion))
+        if (invertedAssertion->IsInverted(assertion))
         {
-            apAddComplementaryAssertion(index, complementaryIndex);
+            apAddInvertedAssertion(index, invertedIndex);
 
-            return complementaryIndex;
+            return invertedIndex;
         }
     }
 
@@ -1384,10 +1384,10 @@ AssertionIndex Compiler::apAddBoundAssertions(AssertionDsc* assertion)
 
     if (index != NO_ASSERTION_INDEX)
     {
-        AssertionDsc complementary = *apGetAssertion(index);
+        AssertionDsc inverted = *apGetAssertion(index);
 
-        complementary.kind = complementary.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-        apAddAssertion(&complementary);
+        inverted.kind = inverted.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+        apAddAssertion(&inverted);
     }
 
     return index;
@@ -3296,12 +3296,12 @@ ASSERT_TP* Compiler::apComputeBlockAssertionGen()
                 if (info.IsNextEdgeAssertion())
                 {
                     valueAssertionIndex    = info.GetAssertionIndex();
-                    jumpDestAssertionIndex = apFindComplementaryAssertion(info.GetAssertionIndex());
+                    jumpDestAssertionIndex = apFindInvertedAssertion(info.GetAssertionIndex());
                 }
                 else // is jump edge assertion
                 {
                     jumpDestAssertionIndex = info.GetAssertionIndex();
-                    valueAssertionIndex    = apFindComplementaryAssertion(jumpDestAssertionIndex);
+                    valueAssertionIndex    = apFindInvertedAssertion(jumpDestAssertionIndex);
                 }
 
                 if (valueAssertionIndex != NO_ASSERTION_INDEX)

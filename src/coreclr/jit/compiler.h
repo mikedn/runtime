@@ -5982,10 +5982,10 @@ public:
             return ((kind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
         }
 
-        static bool ComplementaryKind(ApKind kind, ApKind kind2);
+        static bool IsInvertedKind(ApKind kind, ApKind kind2);
         bool HasSameOp1(const AssertionDsc* that) const;
         bool HasSameOp2(const AssertionDsc* that) const;
-        bool Complementary(const AssertionDsc* that) const;
+        bool IsInverted(const AssertionDsc* that) const;
         bool Equals(const AssertionDsc* that) const;
     };
 
@@ -5999,7 +5999,7 @@ protected:
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
-    AssertionIndex* apComplementaryAssertions;
+    AssertionIndex* apInvertedAssertions;
     AssertionDsc*   apAssertionTable; // table that holds info about value assignments
     AssertionIndex  apAssertionCount; // total number of assertions in the assertion table
     AssertionIndex  apMaxAssertionCount;
@@ -6085,8 +6085,8 @@ public:
     AssertionInfo apGenerateJTrueAssertions(GenTreeUnOp* jtrue);
     AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind);
     AssertionIndex apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind);
-    AssertionIndex apFindComplementaryAssertion(AssertionIndex index);
-    void apAddComplementaryAssertion(AssertionIndex index, AssertionIndex complementaryIndex);
+    AssertionIndex apFindInvertedAssertion(AssertionIndex index);
+    void apAddInvertedAssertion(AssertionIndex index, AssertionIndex invertedIndex);
 
     AssertionIndex apGenerateBoundsChkAssertion(GenTreeBoundsChk* boundsChk);
     AssertionIndex apCreateNotNullAssertion(GenTree* addr);
