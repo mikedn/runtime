@@ -1949,6 +1949,8 @@ AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, Value
             continue;
         }
 
+        ValueNum methodTableVN;
+
         if (assertion->op2.kind == O2K_IND_CNS_INT)
         {
             if (!methodTable->OperIs(GT_IND))
@@ -1956,16 +1958,18 @@ AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, Value
                 continue;
             }
 
-            // TODO-MIKE-Review: This is dubious, it modifies methodTable so on
-            // subsequent assertions it no longer does what it's supposed to do.
-            methodTable = methodTable->AsIndir()->GetAddr();
+            methodTableVN = methodTable->AsIndir()->GetAddr()->GetConservativeVN();
         }
-        else if (assertion->op2.kind != O2K_CONST_INT)
+        else if (assertion->op2.kind == O2K_CONST_INT)
+        {
+            methodTableVN = methodTable->GetConservativeVN();
+        }
+        else
         {
             continue;
         }
 
-        ValueNum methodTableVN = vnStore->VNNormalValue(methodTable->GetConservativeVN());
+        methodTableVN = vnStore->VNNormalValue(methodTableVN);
 
         ssize_t      iconVal   = 0;
         GenTreeFlags iconFlags = GTF_EMPTY;
