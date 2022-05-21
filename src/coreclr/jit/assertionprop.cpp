@@ -482,65 +482,215 @@ void Compiler::optAddCopies()
     }
 }
 
-using AssertionDsc = Compiler::AssertionDsc;
-
-bool AssertionDsc::IsInvertedKind(ApKind kind, ApKind kind2)
+enum ApKind : uint8_t
 {
-    switch (kind)
-    {
-        case OAK_EQUAL:
-            return kind2 == OAK_NOT_EQUAL;
-        case OAK_NOT_EQUAL:
-            return kind2 == OAK_EQUAL;
-        default:
-            return false;
-    }
-}
+    OAK_INVALID,
+    OAK_EQUAL,
+    OAK_NOT_EQUAL,
+    OAK_SUBRANGE,
+    OAK_BOUNDS_CHK,
+    OAK_COUNT
+};
 
-bool AssertionDsc::HasSameOp1(const AssertionDsc& that) const
+enum ApOp1Kind : uint8_t
 {
-    return (op1.kind == that.op1.kind) && (op1.vn == that.op1.vn);
-}
+    O1K_INVALID,
+    O1K_LCLVAR,
+    O1K_BOUND_OPER_BND,
+    O1K_BOUND_LOOP_BND,
+    O1K_CONSTANT_LOOP_BND,
+    O1K_EXACT_TYPE,
+    O1K_SUBTYPE,
+    O1K_VALUE_NUMBER,
+    O1K_COUNT
+};
 
-bool AssertionDsc::HasSameOp2(const AssertionDsc& that) const
+enum ApOp2Kind : uint8_t
 {
-    if (op2.kind != that.op2.kind)
-    {
-        return false;
-    }
-
-    switch (op2.kind)
-    {
-        case O2K_LCLVAR_COPY:
-            return op2.lcl == that.op2.lcl;
-        case O2K_IND_CNS_INT:
-        case O2K_CONST_INT:
-            return op2.intCon == that.op2.intCon;
+    O2K_INVALID,
+    O2K_LCLVAR_COPY,
+    O2K_IND_CNS_INT,
+    O2K_CONST_INT,
 #ifndef TARGET_64BIT
-        case O2K_CONST_LONG:
-            return op2.lngCon == that.op2.lngCon;
+    O2K_CONST_LONG,
 #endif
-        case O2K_CONST_DOUBLE:
-            return op2.dblCon == that.op2.dblCon;
-        case O2K_SUBRANGE:
-            return op2.range == that.op2.range;
-        case O2K_VALUE_NUMBER:
-            return op2.vn == that.op2.vn;
-        default:
-            assert(op2.kind == O2K_INVALID);
-            return false;
+    O2K_CONST_DOUBLE,
+    O2K_SUBRANGE,
+    O2K_VALUE_NUMBER,
+    O2K_COUNT
+};
+
+struct AssertionDsc
+{
+    struct LclVar
+    {
+        unsigned lclNum;
+        unsigned ssaNum;
+
+        bool operator==(const LclVar& other) const
+        {
+            return (lclNum == other.lclNum) && (ssaNum == other.ssaNum);
+        }
+
+        bool operator!=(const LclVar& other) const
+        {
+            return (lclNum != other.lclNum) || (ssaNum != other.ssaNum);
+        }
+    };
+
+    struct IntCon
+    {
+        ssize_t      value;
+        GenTreeFlags flags;
+
+        bool operator==(const IntCon& other) const
+        {
+            return (value == other.value) && (flags == other.flags);
+        }
+
+        bool operator!=(const IntCon& other) const
+        {
+            return (value != other.value) || (flags != other.flags);
+        }
+    };
+
+#ifndef TARGET_64BIT
+    struct LngCon
+    {
+        int64_t value;
+
+        bool operator==(const LngCon& other) const
+        {
+            return value == other.value;
+        }
+
+        bool operator!=(const LngCon& other) const
+        {
+            return value != other.value;
+        }
+    };
+#endif
+
+    struct DblCon
+    {
+        double value;
+
+        bool operator==(const DblCon& other) const
+        {
+            return jitstd::bit_cast<uint64_t>(value) == jitstd::bit_cast<uint64_t>(other.value);
+        }
+
+        bool operator!=(const DblCon& other) const
+        {
+            return jitstd::bit_cast<uint64_t>(value) != jitstd::bit_cast<uint64_t>(other.value);
+        }
+    };
+
+    struct Range
+    {
+        ssize_t min;
+        ssize_t max;
+
+        bool operator==(const Range& other) const
+        {
+            return (min == other.min) && (max == other.max);
+        }
+
+        bool operator!=(const Range& other) const
+        {
+            return (min != other.min) || (max != other.max);
+        }
+    };
+
+    struct Op1
+    {
+        ApOp1Kind kind;
+        ValueNum  vn;
+        LclVar    lcl;
+    };
+
+    struct Op2
+    {
+        ApOp2Kind kind;
+        ValueNum  vn;
+        union {
+            LclVar lcl;
+            IntCon intCon;
+#ifndef TARGET_64BIT
+            LngCon lngCon;
+#endif
+            DblCon dblCon;
+            Range  range;
+        };
+    };
+
+    ApKind kind;
+    Op1    op1;
+    Op2    op2;
+
+    bool IsCopyAssertion()
+    {
+        return ((kind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
     }
-}
 
-bool AssertionDsc::IsInverted(const AssertionDsc& that) const
-{
-    return IsInvertedKind(kind, that.kind) && HasSameOp1(that) && HasSameOp2(that);
-}
+    static bool IsInvertedKind(ApKind kind, ApKind kind2)
+    {
+        switch (kind)
+        {
+            case OAK_EQUAL:
+                return kind2 == OAK_NOT_EQUAL;
+            case OAK_NOT_EQUAL:
+                return kind2 == OAK_EQUAL;
+            default:
+                return false;
+        }
+    }
 
-bool AssertionDsc::operator==(const AssertionDsc& that) const
-{
-    return (kind == that.kind) && HasSameOp1(that) && HasSameOp2(that);
-}
+    bool HasSameOp1(const AssertionDsc& that) const
+    {
+        return (op1.kind == that.op1.kind) && (op1.vn == that.op1.vn);
+    }
+
+    bool HasSameOp2(const AssertionDsc& that) const
+    {
+        if (op2.kind != that.op2.kind)
+        {
+            return false;
+        }
+
+        switch (op2.kind)
+        {
+            case O2K_LCLVAR_COPY:
+                return op2.lcl == that.op2.lcl;
+            case O2K_IND_CNS_INT:
+            case O2K_CONST_INT:
+                return op2.intCon == that.op2.intCon;
+#ifndef TARGET_64BIT
+            case O2K_CONST_LONG:
+                return op2.lngCon == that.op2.lngCon;
+#endif
+            case O2K_CONST_DOUBLE:
+                return op2.dblCon == that.op2.dblCon;
+            case O2K_SUBRANGE:
+                return op2.range == that.op2.range;
+            case O2K_VALUE_NUMBER:
+                return op2.vn == that.op2.vn;
+            default:
+                assert(op2.kind == O2K_INVALID);
+                return false;
+        }
+    }
+
+    bool IsInverted(const AssertionDsc& that) const
+    {
+        return IsInvertedKind(kind, that.kind) && HasSameOp1(that) && HasSameOp2(that);
+    }
+
+    bool operator==(const AssertionDsc& that) const
+    {
+        return (kind == that.kind) && HasSameOp1(that) && HasSameOp2(that);
+    }
+};
 
 void Compiler::apInit()
 {
@@ -567,7 +717,7 @@ void Compiler::apInit()
     apJTrueAssertionOut  = nullptr;
 }
 
-Compiler::AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
+AssertionDsc* Compiler::apGetAssertion(AssertionIndex index)
 {
     assert((1 <= index) && (index <= apAssertionCount));
 
@@ -1544,7 +1694,7 @@ AssertionInfo Compiler::apGenerateJTrueAssertions(GenTreeUnOp* jtrue)
         return info;
     }
 
-    Compiler::ApKind assertionKind = OAK_INVALID;
+    ApKind assertionKind = OAK_INVALID;
 
     switch (relop->GetOper())
     {
@@ -4509,3 +4659,60 @@ void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, 
 }
 
 #endif // DEBUG
+
+bool BoundsAssertion::IsBoundsAssertion() const
+{
+    return (assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL);
+}
+
+bool BoundsAssertion::IsEqual() const
+{
+    return assertion.kind == OAK_EQUAL;
+}
+
+bool BoundsAssertion::IsCompareCheckedBoundArith() const
+{
+    return assertion.op1.kind == O1K_BOUND_OPER_BND;
+}
+
+bool BoundsAssertion::IsCompareCheckedBound() const
+{
+    return assertion.op1.kind == O1K_BOUND_LOOP_BND;
+}
+
+bool BoundsAssertion::IsConstantBound() const
+{
+    return assertion.op1.kind == O1K_CONSTANT_LOOP_BND;
+}
+
+bool BoundsAssertion::IsConstant() const
+{
+    return assertion.op2.kind == O2K_CONST_INT;
+}
+
+ValueNum BoundsAssertion::GetVN() const
+{
+    return assertion.op1.vn;
+}
+
+ValueNum BoundsAssertion::GetConstantVN() const
+{
+    return assertion.op2.vn;
+}
+
+BoundsAssertion Compiler::apGetBoundsAssertion(unsigned bitIndex)
+{
+    return *apGetAssertion(GetAssertionIndex(bitIndex));
+}
+
+const AssertionDsc& BoundsAssertion::GetAssertion() const
+{
+    return assertion;
+}
+
+#ifdef DEBUG
+void Compiler::apDumpBoundsAssertion(BoundsAssertion assertion)
+{
+    apDumpAssertion(&assertion.GetAssertion());
+}
+#endif

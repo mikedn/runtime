@@ -1482,6 +1482,31 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
     return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
 }
 
+enum ApKind : uint8_t;
+struct AssertionDsc;
+
+class BoundsAssertion
+{
+    const AssertionDsc& assertion;
+
+public:
+    BoundsAssertion(const AssertionDsc& assertion) : assertion(assertion)
+    {
+    }
+
+    const AssertionDsc& GetAssertion() const;
+
+    bool IsBoundsAssertion() const;
+    bool IsEqual() const;
+    bool IsCompareCheckedBoundArith() const;
+    bool IsCompareCheckedBound() const;
+    bool IsConstantBound() const;
+    bool IsConstant() const;
+
+    ValueNum GetVN() const;
+    ValueNum GetConstantVN() const;
+};
+
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -5831,164 +5856,6 @@ public:
     BitVecTraits* apTraits;
     BitVecTraits* apTraitsMax;
 
-    enum ApKind
-    {
-        OAK_INVALID,
-        OAK_EQUAL,
-        OAK_NOT_EQUAL,
-        OAK_SUBRANGE,
-        OAK_BOUNDS_CHK,
-        OAK_COUNT
-    };
-
-    enum ApOp1Kind
-    {
-        O1K_INVALID,
-        O1K_LCLVAR,
-        O1K_BOUND_OPER_BND,
-        O1K_BOUND_LOOP_BND,
-        O1K_CONSTANT_LOOP_BND,
-        O1K_EXACT_TYPE,
-        O1K_SUBTYPE,
-        O1K_VALUE_NUMBER,
-        O1K_COUNT
-    };
-
-    enum ApOp2Kind
-    {
-        O2K_INVALID,
-        O2K_LCLVAR_COPY,
-        O2K_IND_CNS_INT,
-        O2K_CONST_INT,
-#ifndef TARGET_64BIT
-        O2K_CONST_LONG,
-#endif
-        O2K_CONST_DOUBLE,
-        O2K_SUBRANGE,
-        O2K_VALUE_NUMBER,
-        O2K_COUNT
-    };
-
-    struct AssertionDsc
-    {
-        struct LclVar
-        {
-            unsigned lclNum;
-            unsigned ssaNum;
-
-            bool operator==(const LclVar& other) const
-            {
-                return (lclNum == other.lclNum) && (ssaNum == other.ssaNum);
-            }
-
-            bool operator!=(const LclVar& other) const
-            {
-                return (lclNum != other.lclNum) || (ssaNum != other.ssaNum);
-            }
-        };
-
-        struct IntCon
-        {
-            ssize_t      value;
-            GenTreeFlags flags;
-
-            bool operator==(const IntCon& other) const
-            {
-                return (value == other.value) && (flags == other.flags);
-            }
-
-            bool operator!=(const IntCon& other) const
-            {
-                return (value != other.value) || (flags != other.flags);
-            }
-        };
-
-#ifndef TARGET_64BIT
-        struct LngCon
-        {
-            int64_t value;
-
-            bool operator==(const LngCon& other) const
-            {
-                return value == other.value;
-            }
-
-            bool operator!=(const LngCon& other) const
-            {
-                return value != other.value;
-            }
-        };
-#endif
-
-        struct DblCon
-        {
-            double value;
-
-            bool operator==(const DblCon& other) const
-            {
-                return jitstd::bit_cast<uint64_t>(value) == jitstd::bit_cast<uint64_t>(other.value);
-            }
-
-            bool operator!=(const DblCon& other) const
-            {
-                return jitstd::bit_cast<uint64_t>(value) != jitstd::bit_cast<uint64_t>(other.value);
-            }
-        };
-
-        struct Range
-        {
-            ssize_t min;
-            ssize_t max;
-
-            bool operator==(const Range& other) const
-            {
-                return (min == other.min) && (max == other.max);
-            }
-
-            bool operator!=(const Range& other) const
-            {
-                return (min != other.min) || (max != other.max);
-            }
-        };
-
-        struct Op1
-        {
-            ApOp1Kind kind;
-            ValueNum  vn;
-            LclVar    lcl;
-        };
-
-        struct Op2
-        {
-            ApOp2Kind kind;
-            ValueNum  vn;
-            union {
-                LclVar lcl;
-                IntCon intCon;
-#ifndef TARGET_64BIT
-                LngCon lngCon;
-#endif
-                DblCon dblCon;
-                Range  range;
-            };
-        };
-
-        ApKind kind;
-        Op1    op1;
-        Op2    op2;
-
-        bool IsCopyAssertion()
-        {
-            return ((kind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
-        }
-
-        static bool IsInvertedKind(ApKind kind, ApKind kind2);
-        bool HasSameOp1(const AssertionDsc& that) const;
-        bool HasSameOp2(const AssertionDsc& that) const;
-        bool IsInverted(const AssertionDsc& that) const;
-        bool operator==(const AssertionDsc& that) const;
-    };
-
 protected:
     static fgWalkPreFn optAddCopiesCallback;
     static fgWalkPreFn optVNAssertionPropStmtVisitor;
@@ -6070,6 +5937,7 @@ private:
 public:
     // Assertion prop helpers.
     AssertionDsc* apGetAssertion(AssertionIndex assertIndex);
+    BoundsAssertion apGetBoundsAssertion(unsigned bitIndex);
     void apInit();
 
     // Assertion prop data flow functions.
@@ -6139,6 +6007,7 @@ public:
     void apDebugCheckAssertion(AssertionDsc* assertion);
     void apDebugCheckAssertionTable();
     void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer);
+    void apDumpBoundsAssertion(BoundsAssertion assertion);
 #endif
 
     void optAddCopies();
