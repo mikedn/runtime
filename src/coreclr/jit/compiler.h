@@ -5983,10 +5983,10 @@ public:
         }
 
         static bool IsInvertedKind(ApKind kind, ApKind kind2);
-        bool HasSameOp1(const AssertionDsc* that) const;
-        bool HasSameOp2(const AssertionDsc* that) const;
-        bool IsInverted(const AssertionDsc* that) const;
-        bool Equals(const AssertionDsc* that) const;
+        bool HasSameOp1(const AssertionDsc& that) const;
+        bool HasSameOp2(const AssertionDsc& that) const;
+        bool IsInverted(const AssertionDsc& that) const;
+        bool operator==(const AssertionDsc& that) const;
     };
 
 protected:

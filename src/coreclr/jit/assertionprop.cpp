@@ -497,19 +497,14 @@ bool AssertionDsc::IsInvertedKind(ApKind kind, ApKind kind2)
     }
 }
 
-bool AssertionDsc::HasSameOp1(const AssertionDsc* that) const
+bool AssertionDsc::HasSameOp1(const AssertionDsc& that) const
 {
-    if (op1.kind != that->op1.kind)
-    {
-        return false;
-    }
-
-    return op1.vn == that->op1.vn;
+    return (op1.kind == that.op1.kind) && (op1.vn == that.op1.vn);
 }
 
-bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
+bool AssertionDsc::HasSameOp2(const AssertionDsc& that) const
 {
-    if (op2.kind != that->op2.kind)
+    if (op2.kind != that.op2.kind)
     {
         return false;
     }
@@ -517,41 +512,34 @@ bool AssertionDsc::HasSameOp2(const AssertionDsc* that) const
     switch (op2.kind)
     {
         case O2K_LCLVAR_COPY:
-            return op2.lcl == that->op2.lcl;
+            return op2.lcl == that.op2.lcl;
         case O2K_IND_CNS_INT:
         case O2K_CONST_INT:
-            return op2.intCon == that->op2.intCon;
+            return op2.intCon == that.op2.intCon;
 #ifndef TARGET_64BIT
         case O2K_CONST_LONG:
-            return op2.lngCon == that->op2.lngCon;
+            return op2.lngCon == that.op2.lngCon;
 #endif
         case O2K_CONST_DOUBLE:
-            return op2.dblCon == that->op2.dblCon;
+            return op2.dblCon == that.op2.dblCon;
         case O2K_SUBRANGE:
-            return op2.range == that->op2.range;
+            return op2.range == that.op2.range;
         case O2K_VALUE_NUMBER:
-            return op2.vn == that->op2.vn;
+            return op2.vn == that.op2.vn;
         default:
             assert(op2.kind == O2K_INVALID);
-            break;
+            return false;
     }
-
-    return false;
 }
 
-bool AssertionDsc::IsInverted(const AssertionDsc* that) const
+bool AssertionDsc::IsInverted(const AssertionDsc& that) const
 {
-    return IsInvertedKind(kind, that->kind) && HasSameOp1(that) && HasSameOp2(that);
+    return IsInvertedKind(kind, that.kind) && HasSameOp1(that) && HasSameOp2(that);
 }
 
-bool AssertionDsc::Equals(const AssertionDsc* that) const
+bool AssertionDsc::operator==(const AssertionDsc& that) const
 {
-    if (kind != that->kind)
-    {
-        return false;
-    }
-
-    return HasSameOp1(that) && HasSameOp2(that);
+    return (kind == that.kind) && HasSameOp1(that) && HasSameOp2(that);
 }
 
 void Compiler::apInit()
@@ -1262,7 +1250,7 @@ AssertionIndex Compiler::apAddAssertion(AssertionDsc* assertion)
 
     for (AssertionIndex index = apAssertionCount; index >= 1; index--)
     {
-        if (apGetAssertion(index)->Equals(assertion))
+        if (*apGetAssertion(index) == *assertion)
         {
             return index;
         }
@@ -1362,7 +1350,7 @@ AssertionIndex Compiler::apFindInvertedAssertion(AssertionIndex index)
     {
         AssertionDsc* invertedAssertion = apGetAssertion(invertedIndex);
 
-        if (invertedAssertion->IsInverted(assertion))
+        if (invertedAssertion->IsInverted(*assertion))
         {
             apAddInvertedAssertion(index, invertedIndex);
 
