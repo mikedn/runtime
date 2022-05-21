@@ -1235,13 +1235,6 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
         assertion.op2.kind = O2K_CONST_INT;
     }
 
-    if (!apIsConstInt(op2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
-    {
-        return NO_ASSERTION_INDEX;
-    }
-
-    assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-
     ValueNum vn1 = vnStore->VNNormalValue(addr->GetConservativeVN());
     ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
 
@@ -1249,6 +1242,13 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
     {
         return NO_ASSERTION_INDEX;
     }
+
+    if (!vnStore->IsVNIntegralConstant(vn2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
+    {
+        return NO_ASSERTION_INDEX;
+    }
+
+    assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
 
     assert(vn1 == vnStore->VNNormalValue(lcl->GetPerSsaData(addr->GetSsaNum())->GetConservativeVN()));
 
@@ -1341,36 +1341,6 @@ AssertionIndex Compiler::apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* o
     }
 
     return index;
-}
-
-bool Compiler::apIsConstInt(GenTree* node, ssize_t* value, GenTreeFlags* flags)
-{
-    ValueNum vn = vnStore->VNNormalValue(node->GetConservativeVN());
-
-    if (!vnStore->IsVNConstant(vn))
-    {
-        return false;
-    }
-
-    switch (vnStore->TypeOfVN(vn))
-    {
-        case TYP_INT:
-            *value = vnStore->ConstantValue<int>(vn);
-            *flags = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
-
-            return true;
-
-#ifdef TARGET_64BIT
-        case TYP_LONG:
-            *value = vnStore->ConstantValue<INT64>(vn);
-            *flags = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
-
-            return true;
-#endif
-
-        default:
-            return false;
-    }
 }
 
 bool Compiler::apAssertionHasNanVN(AssertionDsc* assertion)
@@ -1995,10 +1965,13 @@ AssertionIndex Compiler::apAssertionIsSubtype(ASSERT_VALARG_TP assertions, Value
             continue;
         }
 
+        ValueNum methodTableVN = vnStore->VNNormalValue(methodTable->GetConservativeVN());
+
         ssize_t      iconVal   = 0;
         GenTreeFlags iconFlags = GTF_EMPTY;
 
-        if (apIsConstInt(methodTable, &iconVal, &iconFlags) && (assertion->op2.intCon.value == iconVal))
+        if (vnStore->IsVNIntegralConstant(methodTableVN, &iconVal, &iconFlags) &&
+            (assertion->op2.intCon.value == iconVal))
         {
             return index;
         }

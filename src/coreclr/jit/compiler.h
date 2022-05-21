@@ -5941,8 +5941,7 @@ public:
     void apInit();
 
     // Assertion prop data flow functions.
-    void apMain();
-    bool apIsConstInt(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
+    void       apMain();
     ASSERT_TP* apInitAssertionDataflowSets();
     ASSERT_TP* apComputeBlockAssertionGen();
 

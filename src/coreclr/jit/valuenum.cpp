@@ -9817,6 +9817,36 @@ void Compiler::vnAddNodeExceptionSet(GenTree* node)
     }
 }
 
+bool ValueNumStore::IsVNIntegralConstant(ValueNum vn, ssize_t* value, GenTreeFlags* flags)
+{
+    assert(vn == VNNormalValue(vn));
+
+    if (!IsVNConstant(vn))
+    {
+        return false;
+    }
+
+    switch (TypeOfVN(vn))
+    {
+        case TYP_INT:
+            *value = ConstantValue<int32_t>(vn);
+            *flags = IsVNHandle(vn) ? GetHandleFlags(vn) : GTF_EMPTY;
+
+            return true;
+
+#ifdef TARGET_64BIT
+        case TYP_LONG:
+            *value = ConstantValue<int64_t>(vn);
+            *flags = IsVNHandle(vn) ? GetHandleFlags(vn) : GTF_EMPTY;
+
+            return true;
+#endif
+
+        default:
+            return false;
+    }
+}
+
 #ifdef DEBUG
 
 void Compiler::vnpPrint(ValueNumPair vnp, unsigned level)

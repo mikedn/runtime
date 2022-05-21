@@ -201,8 +201,8 @@ void RangeCheck::OptimizeRangeCheck(BasicBlock* block, Statement* stmt, GenTree*
     GenTree* treeIndex        = bndsChk->gtIndex;
 
     // Take care of constant index first, like a[2], for example.
-    ValueNum idxVn    = m_pCompiler->vnStore->VNConservativeNormalValue(treeIndex->gtVNPair);
-    ValueNum arrLenVn = m_pCompiler->vnStore->VNConservativeNormalValue(bndsChk->gtArrLen->gtVNPair);
+    ValueNum idxVn    = m_pCompiler->vnStore->VNNormalValue(treeIndex->GetConservativeVN());
+    ValueNum arrLenVn = m_pCompiler->vnStore->VNNormalValue(bndsChk->GetLength()->GetConservativeVN());
     int      arrSize  = 0;
 
     if (m_pCompiler->vnStore->IsVNConstant(arrLenVn))
@@ -210,7 +210,7 @@ void RangeCheck::OptimizeRangeCheck(BasicBlock* block, Statement* stmt, GenTree*
         ssize_t      constVal  = -1;
         GenTreeFlags iconFlags = GTF_EMPTY;
 
-        if (m_pCompiler->apIsConstInt(bndsChk->gtArrLen, &constVal, &iconFlags))
+        if (m_pCompiler->vnStore->IsVNIntegralConstant(arrLenVn, &constVal, &iconFlags))
         {
             arrSize = (int)constVal;
         }
@@ -238,7 +238,7 @@ void RangeCheck::OptimizeRangeCheck(BasicBlock* block, Statement* stmt, GenTree*
     {
         ssize_t      idxVal    = -1;
         GenTreeFlags iconFlags = GTF_EMPTY;
-        if (!m_pCompiler->apIsConstInt(treeIndex, &idxVal, &iconFlags))
+        if (!m_pCompiler->vnStore->IsVNIntegralConstant(idxVn, &idxVal, &iconFlags))
         {
             return;
         }

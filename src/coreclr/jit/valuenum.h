@@ -605,6 +605,8 @@ public:
     // Returns true iff the VN represents a (non-handle) constant.
     bool IsVNConstant(ValueNum vn);
 
+    bool IsVNIntegralConstant(ValueNum vn, ssize_t* value, GenTreeFlags* flags);
+
     // Returns true iff the VN represents an integer constant.
     bool IsVNInt32Constant(ValueNum vn);
 
