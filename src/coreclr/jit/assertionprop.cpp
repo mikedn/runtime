@@ -1201,12 +1201,7 @@ AssertionIndex Compiler::apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* 
     assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
     GenTreeLclVar* addr = op1->GetAddr()->AsLclVar();
-    assert(addr->OperIs(GT_LCL_VAR));
-
-    if (!addr->TypeIs(TYP_REF))
-    {
-        return NO_ASSERTION_INDEX;
-    }
+    assert(addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF));
 
     // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
     if (addr->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
@@ -1726,24 +1721,32 @@ AssertionInfo Compiler::apGenerateJTrueAssertions(GenTreeUnOp* jtrue)
         }
     }
 
-    if ((!op1->OperIs(GT_IND) || !op1->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR)) &&
-        (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR)))
+    if (op1->OperIs(GT_IND) || op2->OperIs(GT_IND))
     {
-        std::swap(op1, op2);
-    }
+        if (!op1->OperIs(GT_IND))
+        {
+            std::swap(op1, op2);
+        }
 
-    if (op1->OperIs(GT_IND) && op1->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
-    {
+        GenTree* addr = op1->AsIndir()->GetAddr();
+
+        if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
         return apCreateExactTypeAssertion(op1->AsIndir(), op2, assertionKind);
     }
 
-    if (!op2->OperIs(GT_CNS_INT) && op1->OperIs(GT_CNS_INT))
+    if (op1->IsCall() || op2->IsCall())
     {
-        std::swap(op1, op2);
-    }
+        if (!op1->IsCall())
+        {
+            std::swap(op1, op2);
+        }
 
-    if (GenTreeCall* call = op1->IsCall())
-    {
+        GenTreeCall* call = op1->AsCall();
+
         if (!call->IsHelperCall() || !call->TypeIs(TYP_REF) || !op2->IsIntegralConst(0))
         {
             return NO_ASSERTION_INDEX;
