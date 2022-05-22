@@ -1562,6 +1562,7 @@ class Compiler
     friend class ClassLayout;
     friend class VNConstPropVisitor;
     friend class StructPromotionHelper;
+    friend class AssertionProp;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -5854,7 +5855,6 @@ public:
 public:
     // Data structures for assertion prop
     BitVecTraits* apTraits;
-    BitVecTraits* apTraitsMax;
 
 protected:
     static fgWalkPreFn optAddCopiesCallback;
@@ -5862,27 +5862,18 @@ protected:
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    bool apStmtMorphPending;
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
-    AssertionIndex* apInvertedAssertions;
-    AssertionDsc*   apAssertionTable; // table that holds info about value assignments
-    AssertionIndex  apAssertionCount; // total number of assertions in the assertion table
-    AssertionIndex  apMaxAssertionCount;
+    AssertionDsc*  apAssertionTable; // table that holds info about value assignments
+    AssertionIndex apAssertionCount; // total number of assertions in the assertion table
 
 public:
-    GenTree* apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
-    GenTree* apExtractConstantSideEffects(GenTree* tree);
-
     AssertionIndex GetAssertionCount()
     {
         return apAssertionCount;
     }
     ASSERT_TP* apJTrueAssertionOut;
-    typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
-    ValueNumToAssertsMap* apVNAssertionMap;
-
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
     struct MorphAssertionBitVecTraits;
@@ -5934,77 +5925,13 @@ private:
 #endif
 #endif
 
+    void apMain();
+
 public:
-    // Assertion prop helpers.
-    AssertionDsc* apGetAssertion(AssertionIndex assertIndex);
     BoundsAssertion apGetBoundsAssertion(unsigned bitIndex);
-    void apInit();
-
-    // Assertion prop data flow functions.
-    void       apMain();
-    ASSERT_TP* apInitAssertionDataflowSets();
-    ASSERT_TP* apComputeBlockAssertionGen();
-
-    // Assertion Gen functions.
-    void apGenerateNodeAssertions(GenTree* tree);
-    AssertionIndex apGeneratePhiAssertions(GenTreeOp* asg);
-    AssertionInfo apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue);
-    AssertionInfo apGenerateJTrueAssertions(GenTreeUnOp* jtrue);
-    AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind);
-    AssertionIndex apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind);
-    AssertionIndex apFindInvertedAssertion(AssertionIndex index);
-    void apAddInvertedAssertion(AssertionIndex index, AssertionIndex invertedIndex);
-
-    AssertionIndex apGenerateBoundsChkAssertion(GenTreeBoundsChk* boundsChk);
-    AssertionIndex apCreateNotNullAssertion(GenTree* addr);
-    AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast);
-    AssertionIndex apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind);
-    AssertionIndex apAddBoundAssertions(AssertionDsc* assertion);
-
-    bool apAssertionHasNanVN(AssertionDsc* assertion);
-    AssertionIndex apAddAssertion(AssertionDsc* assertion);
-    void apAddVNAssertion(ValueNum vn, AssertionIndex index);
-#ifdef DEBUG
-    void apDumpVNAssertionMap();
-#endif
-    ASSERT_TP apGetVNAssertions(ValueNum vn);
-
-    AssertionIndex apAssertionIsSubrange(ASSERT_VALARG_TP assertions,
-                                         ValueNum         vn,
-                                         var_types        fromType,
-                                         var_types        toType);
-    AssertionIndex apAssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable);
-    bool apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEBUGARG(AssertionIndex* assertionIndex));
-
-    // Used for Relop propagation.
-    AssertionIndex apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
-    AssertionIndex apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1);
-    GenTree* apPropagateLclVarConst(AssertionDsc*  assertion,
-                                    GenTreeLclVar* lclVar,
-                                    Statement* stmt DEBUGARG(AssertionIndex index));
-
-    // Assertion propagation functions.
-    GenTree* apPropagateNode(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block);
-    GenTree* apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* lclVar, Statement* stmt);
-    GenTree* apPropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* indir, Statement* stmt);
-    GenTree* apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt);
-    GenTree* apPropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt);
-    GenTree* apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt);
-    GenTree* apPropagateComma(GenTreeOp* comma, Statement* stmt);
-    GenTree* apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt);
-    GenTree* apUpdateTree(GenTree* newTree, GenTree* tree, Statement* stmt);
-    GenTree* apPropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call);
-
-    // Implied assertion functions.
-    void apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions);
-    void apAddTypeImpliedNotNullAssertions(ASSERT_TP& activeAssertions);
-    void apAddCopyImpliedAssertions(AssertionDsc* copyAssertion, AssertionDsc* assertion, ASSERT_TP& result);
-    void apAddConstImpliedAssertions(AssertionDsc* curAssertion, ASSERT_TP& result);
 
 #ifdef DEBUG
     void apDumpAssertion(const AssertionDsc* assertion);
-    void apDebugCheckAssertion(AssertionDsc* assertion);
-    void apDebugCheckAssertionTable();
     void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer);
     void apDumpBoundsAssertion(BoundsAssertion assertion);
 #endif
