@@ -711,7 +711,7 @@ class AssertionProp
     BitVecTraits*         countTraits;
     AssertionIndex*       invertedAssertions;
     ValueNumToAssertsMap* vnAssertionMap;
-    ASSERT_TP*&           jtrueAssertionOut;
+    ASSERT_TP*            jtrueAssertionOut;
     bool                  stmtMorphPending;
 #ifdef DEBUG
     bool     verbose;
@@ -724,7 +724,6 @@ public:
         , vnStore(compiler->vnStore)
         , assertionTable(compiler->apAssertionTable)
         , assertionCount(compiler->apAssertionCount)
-        , jtrueAssertionOut(compiler->apJTrueAssertionOut)
 #ifdef DEBUG
         , verbose(compiler->verbose)
 #endif
@@ -746,6 +745,8 @@ public:
             ComputeAvailability();
             PropagateAssertions();
         }
+
+        compiler->apJTrueAssertionOut = jtrueAssertionOut;
 
 #ifdef DEBUG
         compiler->fgDebugCheckBBlist();
