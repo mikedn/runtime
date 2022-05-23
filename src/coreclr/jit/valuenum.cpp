@@ -5144,7 +5144,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         // TODO-MIKE-CQ: Handle method table pointer loads properly. This code gives these
         // loads unique VNs, this prevents CSEing of such loads.
         // These loads can be handled by vnMemoryLoad below but then it turns out
-        // that CSEing is a problem for apAssertionIsSubtype - it specifically looks for
+        // that CSEing is a problem for AssertionIsSubtype - it specifically looks for
         // indirs that load the method table pointer.
 
         valueVN = conservativeVN;

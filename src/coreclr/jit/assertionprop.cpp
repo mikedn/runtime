@@ -84,10 +84,10 @@ void Compiler::optAddCopies()
         }
 
         /* For lvNormalizeOnLoad(), we need to add a cast to the copy-assignment
-           like "copyLclNum = int(varDsc)" and apGenerateNodeAssertions() only
+           like "copyLclNum = int(varDsc)" and GenerateNodeAssertions() only
            tracks simple assignments. The same goes for lvNormalizedOnStore as
            the cast is generated in fgMorphSmpOpAsg. This boils down to not having
-           a copy until apGenerateNodeAssertions handles this*/
+           a copy until GenerateNodeAssertions handles this*/
         if (varDsc->lvNormalizeOnLoad() || varDsc->lvNormalizeOnStore())
         {
             continue;
@@ -704,28 +704,28 @@ class AssertionProp
     Compiler*      compiler;
     ValueNumStore* vnStore;
 
-    AssertionDsc*&        apAssertionTable;
-    AssertionIndex        apMaxAssertionCount;
-    AssertionIndex&       apAssertionCount;
-    BitVecTraits*         apTraitsMax;
-    BitVecTraits*&        apTraits;
-    AssertionIndex*       apInvertedAssertions;
-    ValueNumToAssertsMap* apVNAssertionMap;
-    ASSERT_TP*&           apJTrueAssertionOut;
-    bool                  apStmtMorphPending;
+    AssertionDsc*&        assertionTable;
+    AssertionIndex        assertionTableSize;
+    AssertionIndex&       assertionCount;
+    BitVecTraits*         sizeTraits;
+    BitVecTraits*&        countTraits;
+    AssertionIndex*       invertedAssertions;
+    ValueNumToAssertsMap* vnAssertionMap;
+    ASSERT_TP*&           jtrueAssertionOut;
+    bool                  stmtMorphPending;
 #ifdef DEBUG
     bool     verbose;
-    GenTree* optAssertionPropCurrentTree;
+    GenTree* currentNode;
 #endif
 
 public:
     AssertionProp(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
-        , apAssertionTable(compiler->apAssertionTable)
-        , apAssertionCount(compiler->apAssertionCount)
-        , apTraits(compiler->apTraits)
-        , apJTrueAssertionOut(compiler->apJTrueAssertionOut)
+        , assertionTable(compiler->apAssertionTable)
+        , assertionCount(compiler->apAssertionCount)
+        , countTraits(compiler->apTraits)
+        , jtrueAssertionOut(compiler->apJTrueAssertionOut)
 #ifdef DEBUG
         , verbose(compiler->verbose)
 #endif
@@ -734,11 +734,11 @@ public:
 
     void Run()
     {
-        apMain();
+        Main();
     }
 
 private:
-    void apInit()
+    void Init()
     {
         // Use a function countFunc to determine a proper maximum assertion count for the
         // method being compiled. The function is linear to the IL size for small and
@@ -753,26 +753,26 @@ private:
 
         CompAllocator allocator = compiler->getAllocator(CMK_AssertionProp);
 
-        apMaxAssertionCount  = countFunc[min(upperBound, codeSize)];
-        apAssertionTable     = new (allocator) AssertionDsc[apMaxAssertionCount];
-        apInvertedAssertions = new (allocator) AssertionIndex[apMaxAssertionCount + 1]();
-        apVNAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
-        apTraitsMax          = new (allocator) BitVecTraits(apMaxAssertionCount, compiler);
-        apTraits             = nullptr;
-        apAssertionCount     = 0;
-        apJTrueAssertionOut  = nullptr;
+        assertionTableSize = countFunc[min(upperBound, codeSize)];
+        assertionTable     = new (allocator) AssertionDsc[assertionTableSize];
+        invertedAssertions = new (allocator) AssertionIndex[assertionTableSize + 1]();
+        vnAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
+        sizeTraits         = new (allocator) BitVecTraits(assertionTableSize, compiler);
+        countTraits        = nullptr;
+        assertionCount     = 0;
+        jtrueAssertionOut  = nullptr;
     }
 
-    AssertionDsc* apGetAssertion(AssertionIndex index)
+    AssertionDsc* GetAssertion(AssertionIndex index)
     {
-        assert((1 <= index) && (index <= apAssertionCount));
+        assert((1 <= index) && (index <= assertionCount));
 
-        AssertionDsc* assertion = &apAssertionTable[index - 1];
-        INDEBUG(apDebugCheckAssertion(assertion));
+        AssertionDsc* assertion = &assertionTable[index - 1];
+        INDEBUG(DebugCheckAssertion(assertion));
         return assertion;
     }
 
-    AssertionIndex apGenerateBoundsChkAssertion(GenTreeBoundsChk* boundsChk)
+    AssertionIndex GenerateBoundsChkAssertion(GenTreeBoundsChk* boundsChk)
     {
         ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
         ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
@@ -791,10 +791,10 @@ private:
         assertion.op2.kind = O2K_VALUE_NUMBER;
         assertion.op2.vn   = lengthVN;
 
-        return apAddAssertion(&assertion);
+        return AddAssertion(&assertion);
     }
 
-    AssertionIndex apCreateNotNullAssertion(GenTree* addr)
+    AssertionIndex CreateNotNullAssertion(GenTree* addr)
     {
         ssize_t offset = 0;
 
@@ -898,7 +898,7 @@ private:
         assertion.op2.intCon.flags |= GTF_ASSERTION_PROP_LONG;
 #endif
 
-        return apAddAssertion(&assertion);
+        return AddAssertion(&assertion);
     }
 
     static ssize_t GetLowerBoundForIntegralType(var_types type)
@@ -944,7 +944,7 @@ private:
         }
     }
 
-    AssertionIndex apCreateSubrangeAssertion(GenTreeCast* cast)
+    AssertionIndex CreateSubrangeAssertion(GenTreeCast* cast)
     {
         GenTree* value = cast->GetOp(0);
 
@@ -1027,10 +1027,10 @@ private:
         assertion.op2.kind       = O2K_SUBRANGE;
         assertion.op2.range      = range;
 
-        return apAddAssertion(&assertion);
+        return AddAssertion(&assertion);
     }
 
-    AssertionIndex apCreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
+    AssertionIndex CreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
     {
         assert((op1 != nullptr) && (op2 != nullptr));
         assert(op1->OperIs(GT_LCL_VAR));
@@ -1221,26 +1221,26 @@ private:
 
         if (assertion.op2.kind == O2K_SUBRANGE)
         {
-            return kind == OAK_EQUAL ? apAddAssertion(&assertion) : NO_ASSERTION_INDEX;
+            return kind == OAK_EQUAL ? AddAssertion(&assertion) : NO_ASSERTION_INDEX;
         }
 
-        if (apAssertionHasNanVN(&assertion))
+        if (AssertionHasNanVN(&assertion))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionIndex index = apAddAssertion(&assertion);
+        AssertionIndex index = AddAssertion(&assertion);
 
         if (index != NO_ASSERTION_INDEX)
         {
             assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            apAddInvertedAssertion(index, apAddAssertion(&assertion));
+            AddInvertedAssertion(index, AddAssertion(&assertion));
         }
 
         return index;
     }
 
-    AssertionIndex apCreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind)
+    AssertionIndex CreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind)
     {
         assert((op1 != nullptr) && (op2 != nullptr));
         assert(op1->OperIs(GT_IND));
@@ -1307,19 +1307,19 @@ private:
         }
 #endif
 
-        AssertionIndex index = apAddAssertion(&assertion);
+        AssertionIndex index = AddAssertion(&assertion);
 
         if (index != NO_ASSERTION_INDEX)
         {
             assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            apAddInvertedAssertion(index, apAddAssertion(&assertion));
-            apCreateNotNullAssertion(op1);
+            AddInvertedAssertion(index, AddAssertion(&assertion));
+            CreateNotNullAssertion(op1);
         }
 
         return index;
     }
 
-    AssertionIndex apCreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
+    AssertionIndex CreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
     {
         assert((op1 != nullptr) && (op2 != nullptr));
         assert(op1->OperIs(GT_LCL_VAR));
@@ -1372,19 +1372,19 @@ private:
         assertion.op2.intCon.value = op2->AsIntCon()->GetValue();
         assertion.op2.intCon.flags = op2->GetIconHandleFlag();
 
-        AssertionIndex index = apAddAssertion(&assertion);
+        AssertionIndex index = AddAssertion(&assertion);
 
         if (index != NO_ASSERTION_INDEX)
         {
             assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            apAddInvertedAssertion(index, apAddAssertion(&assertion));
-            apCreateNotNullAssertion(op1);
+            AddInvertedAssertion(index, AddAssertion(&assertion));
+            CreateNotNullAssertion(op1);
         }
 
         return index;
     }
 
-    bool apAssertionHasNanVN(AssertionDsc* assertion)
+    bool AssertionHasNanVN(AssertionDsc* assertion)
     {
         ValueNum vns[]{assertion->op1.vn, assertion->op2.vn};
 
@@ -1405,100 +1405,100 @@ private:
         return false;
     }
 
-    AssertionIndex apAddAssertion(AssertionDsc* assertion)
+    AssertionIndex AddAssertion(AssertionDsc* assertion)
     {
         assert(assertion->kind != OAK_INVALID);
 
-        for (AssertionIndex index = apAssertionCount; index >= 1; index--)
+        for (AssertionIndex index = assertionCount; index >= 1; index--)
         {
-            if (*apGetAssertion(index) == *assertion)
+            if (*GetAssertion(index) == *assertion)
             {
                 return index;
             }
         }
 
-        if (apAssertionCount >= apMaxAssertionCount)
+        if (assertionCount >= assertionTableSize)
         {
             return NO_ASSERTION_INDEX;
         }
 
-        apAssertionTable[apAssertionCount++] = *assertion;
+        assertionTable[assertionCount++] = *assertion;
 
 #ifdef DEBUG
         if (verbose)
         {
             printf(FMT_BB " ", compiler->compCurBB->bbNum);
-            compiler->gtDispTree(optAssertionPropCurrentTree, nullptr, nullptr, true);
+            compiler->gtDispTree(currentNode, nullptr, nullptr, true);
             printf("Generates ");
-            apDumpAssertion(&apAssertionTable[apAssertionCount - 1]);
+            DumpAssertion(&assertionTable[assertionCount - 1]);
         }
 #endif
 
         if (assertion->kind != OAK_BOUNDS_CHK)
         {
-            apAddVNAssertion(assertion->op1.vn, apAssertionCount);
+            AddVNAssertion(assertion->op1.vn, assertionCount);
 
             if (assertion->op2.kind == O2K_LCLVAR_COPY)
             {
-                apAddVNAssertion(assertion->op2.vn, apAssertionCount);
+                AddVNAssertion(assertion->op2.vn, assertionCount);
             }
         }
 
-        INDEBUG(apDebugCheckAssertionTable());
+        INDEBUG(DebugCheckAssertionTable());
 
-        return apAssertionCount;
+        return assertionCount;
     }
 
-    void apAddVNAssertion(ValueNum vn, AssertionIndex index)
+    void AddVNAssertion(ValueNum vn, AssertionIndex index)
     {
-        ASSERT_TP* set = apVNAssertionMap->Emplace(vn);
+        ASSERT_TP* set = vnAssertionMap->Emplace(vn);
 
         if (*set == BitVecOps::UninitVal())
         {
-            *set = BitVecOps::MakeSingleton(apTraitsMax, index - 1);
+            *set = BitVecOps::MakeSingleton(sizeTraits, index - 1);
         }
         else
         {
-            BitVecOps::AddElemD(apTraitsMax, *set, index - 1);
+            BitVecOps::AddElemD(sizeTraits, *set, index - 1);
         }
     }
 
-    ASSERT_VALRET_TP apGetVNAssertions(ValueNum vn)
+    ASSERT_VALRET_TP GetVNAssertions(ValueNum vn)
     {
-        ASSERT_TP* set = apVNAssertionMap->LookupPointer(vn);
+        ASSERT_TP* set = vnAssertionMap->LookupPointer(vn);
 
         return set == nullptr ? BitVecOps::UninitVal() : *set;
     }
 
-    void apAddInvertedAssertion(AssertionIndex index, AssertionIndex invertedIndex)
+    void AddInvertedAssertion(AssertionIndex index, AssertionIndex invertedIndex)
     {
         if ((index == NO_ASSERTION_INDEX) || (invertedIndex == NO_ASSERTION_INDEX))
         {
             return;
         }
 
-        assert(index <= apMaxAssertionCount);
-        assert(invertedIndex <= apMaxAssertionCount);
+        assert(index <= assertionTableSize);
+        assert(invertedIndex <= assertionTableSize);
 
-        apInvertedAssertions[index]         = invertedIndex;
-        apInvertedAssertions[invertedIndex] = index;
+        invertedAssertions[index]         = invertedIndex;
+        invertedAssertions[invertedIndex] = index;
     }
 
-    AssertionIndex apFindInvertedAssertion(AssertionIndex index)
+    AssertionIndex FindInvertedAssertion(AssertionIndex index)
     {
         if (index == NO_ASSERTION_INDEX)
         {
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionDsc* assertion = apGetAssertion(index);
+        AssertionDsc* assertion = GetAssertion(index);
 
         if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionIndex invertedIndex = apInvertedAssertions[index];
+        AssertionIndex invertedIndex = invertedAssertions[index];
 
         if (invertedIndex != NO_ASSERTION_INDEX)
         {
@@ -1507,13 +1507,13 @@ private:
 
         // TODO-MIKE-Review: Why is this needed? Just in case someone forgets to map the inverted
         // assertion when generating assertions?
-        for (invertedIndex = 1; invertedIndex <= apAssertionCount; ++invertedIndex)
+        for (invertedIndex = 1; invertedIndex <= assertionCount; ++invertedIndex)
         {
-            AssertionDsc* invertedAssertion = apGetAssertion(invertedIndex);
+            AssertionDsc* invertedAssertion = GetAssertion(invertedIndex);
 
             if (invertedAssertion->IsInverted(*assertion))
             {
-                apAddInvertedAssertion(index, invertedIndex);
+                AddInvertedAssertion(index, invertedIndex);
 
                 return invertedIndex;
             }
@@ -1522,27 +1522,27 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionIndex apAddBoundAssertions(AssertionDsc* assertion)
+    AssertionIndex AddBoundAssertions(AssertionDsc* assertion)
     {
         assert((assertion->op1.kind == O1K_BOUND_OPER_BND) || (assertion->op1.kind == O1K_BOUND_LOOP_BND) ||
                (assertion->op1.kind == O1K_CONSTANT_LOOP_BND));
         assert((assertion->op2.kind == O2K_CONST_INT) && (assertion->op2.vn == vnStore->VNZeroForType(TYP_INT)) &&
                (assertion->op2.intCon.value == 0));
 
-        AssertionIndex index = apAddAssertion(assertion);
+        AssertionIndex index = AddAssertion(assertion);
 
         if (index != NO_ASSERTION_INDEX)
         {
-            AssertionDsc inverted = *apGetAssertion(index);
+            AssertionDsc inverted = *GetAssertion(index);
 
             inverted.kind = inverted.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            apAddAssertion(&inverted);
+            AddAssertion(&inverted);
         }
 
         return index;
     }
 
-    AssertionInfo apGenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
+    AssertionInfo GenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
     {
         GenTree* relop = jtrue->GetOp(0);
 
@@ -1575,7 +1575,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return apAddBoundAssertions(&dsc);
+            return AddBoundAssertions(&dsc);
         }
 
         // Cases where op1 holds the lhs of the condition and op2 holds the bound arithmetic.
@@ -1591,7 +1591,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return apAddBoundAssertions(&dsc);
+            return AddBoundAssertions(&dsc);
         }
 
         // Cases where op1 holds the upper bound and op2 is 0.
@@ -1607,7 +1607,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return apAddBoundAssertions(&dsc);
+            return AddBoundAssertions(&dsc);
         }
 
         // Cases where op1 holds the lhs of the condition op2 holds the bound.
@@ -1623,7 +1623,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return apAddBoundAssertions(&dsc);
+            return AddBoundAssertions(&dsc);
         }
 
         ValueNumStore::UnsignedCompareCheckedBoundInfo unsignedCompareBnd;
@@ -1643,7 +1643,7 @@ private:
             dsc.op2.kind = O2K_VALUE_NUMBER;
             dsc.op2.vn   = vnStore->VNNormalValue(unsignedCompareBnd.vnBound);
 
-            AssertionIndex index = apAddAssertion(&dsc);
+            AssertionIndex index = AddAssertion(&dsc);
 
             if (unsignedCompareBnd.cmpOper == VNF_GE_UN)
             {
@@ -1668,7 +1668,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return apAddBoundAssertions(&dsc);
+            return AddBoundAssertions(&dsc);
         }
 
         // Cases where op1 holds the lhs of the condition op2 holds rhs.
@@ -1684,13 +1684,13 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return apAddBoundAssertions(&dsc);
+            return AddBoundAssertions(&dsc);
         }
 
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionInfo apGenerateJTrueAssertions(GenTreeUnOp* jtrue)
+    AssertionInfo GenerateJTrueAssertions(GenTreeUnOp* jtrue)
     {
         GenTree* relop = jtrue->GetOp(0);
 
@@ -1699,7 +1699,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionInfo info = apGenerateJTrueBoundAssertions(jtrue);
+        AssertionInfo info = GenerateJTrueBoundAssertions(jtrue);
 
         if (info.HasAssertion())
         {
@@ -1734,7 +1734,7 @@ private:
 
         if (op1->OperIs(GT_LCL_VAR) && (op2->OperIsConst() || op2->OperIs(GT_LCL_VAR)))
         {
-            return apCreateEqualityAssertion(op1->AsLclVar(), op2, assertionKind);
+            return CreateEqualityAssertion(op1->AsLclVar(), op2, assertionKind);
         }
 
         ValueNum op1VN = vnStore->VNNormalValue(op1->GetConservativeVN());
@@ -1757,7 +1757,7 @@ private:
                 dsc.op2.intCon.value = op2Value;
                 dsc.op2.intCon.flags = GTF_EMPTY;
 
-                AssertionIndex index = apAddAssertion(&dsc);
+                AssertionIndex index = AddAssertion(&dsc);
 
                 if (relop->OperIs(GT_NE) != (dsc.kind == OAK_NOT_EQUAL))
                 {
@@ -1782,7 +1782,7 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            return apCreateExactTypeAssertion(op1->AsIndir(), op2, assertionKind);
+            return CreateExactTypeAssertion(op1->AsIndir(), op2, assertionKind);
         }
 
         if (op1->IsCall() || op2->IsCall())
@@ -1804,7 +1804,7 @@ private:
             // Note CORINFO_HELP_READYTORUN_ISINSTANCEOF does not have the same argument pattern.
             // In particular, it is not possible to deduce what class is being tested from its args.
             // Also note The CASTCLASS helpers won't appear in predicates as they throw on failure.
-            // So the helper list here is smaller than the one in apPropagateCall.
+            // So the helper list here is smaller than the one in PropagateCall.
 
             if ((helper == CORINFO_HELP_ISINSTANCEOFINTERFACE) || (helper == CORINFO_HELP_ISINSTANCEOFARRAY) ||
                 (helper == CORINFO_HELP_ISINSTANCEOFCLASS) || (helper == CORINFO_HELP_ISINSTANCEOFANY))
@@ -1820,7 +1820,7 @@ private:
                     // Reverse the assertion
                     assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
 
-                    return apCreateSubtypeAssertion(objectArg->AsLclVar(), methodTableArg, assertionKind);
+                    return CreateSubtypeAssertion(objectArg->AsLclVar(), methodTableArg, assertionKind);
                 }
             }
         }
@@ -1828,7 +1828,7 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionIndex apGeneratePhiAssertions(GenTreeOp* asg)
+    AssertionIndex GeneratePhiAssertions(GenTreeOp* asg)
     {
         assert(asg->IsPhiDefn());
 
@@ -1848,14 +1848,14 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        return apCreateNotNullAssertion(asg->GetOp(0));
+        return CreateNotNullAssertion(asg->GetOp(0));
     }
 
-    void apGenerateNodeAssertions(GenTree* node)
+    void GenerateNodeAssertions(GenTree* node)
     {
         node->ClearAssertion();
 
-        INDEBUG(optAssertionPropCurrentTree = node);
+        INDEBUG(currentNode = node);
 
         AssertionInfo assertionInfo;
 
@@ -1864,12 +1864,12 @@ private:
             case GT_ASG:
                 if (node->IsPhiDefn())
                 {
-                    assertionInfo = apGeneratePhiAssertions(node->AsOp());
+                    assertionInfo = GeneratePhiAssertions(node->AsOp());
                 }
                 break;
 
             case GT_ARR_BOUNDS_CHECK:
-                assertionInfo = apGenerateBoundsChkAssertion(node->AsBoundsChk());
+                assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
                 break;
 
             case GT_BLK:
@@ -1878,13 +1878,13 @@ private:
                 FALLTHROUGH;
             case GT_IND:
             case GT_NULLCHECK:
-                assertionInfo = apCreateNotNullAssertion(node->AsIndir()->GetAddr());
+                assertionInfo = CreateNotNullAssertion(node->AsIndir()->GetAddr());
                 break;
             case GT_ARR_LENGTH:
-                assertionInfo = apCreateNotNullAssertion(node->AsArrLen()->GetArray());
+                assertionInfo = CreateNotNullAssertion(node->AsArrLen()->GetArray());
                 break;
             case GT_ARR_ELEM:
-                assertionInfo = apCreateNotNullAssertion(node->AsArrElem()->GetArray());
+                assertionInfo = CreateNotNullAssertion(node->AsArrElem()->GetArray());
                 break;
 
             case GT_CALL:
@@ -1897,7 +1897,7 @@ private:
 
                     if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
                     {
-                        assertionInfo = apCreateNotNullAssertion(call->GetThisArg());
+                        assertionInfo = CreateNotNullAssertion(call->GetThisArg());
                     }
                 }
                 break;
@@ -1913,11 +1913,11 @@ private:
                 // harm than good - there are very few cases where this helps and instead
                 // there are some cases where it just wastes space in the assertion table and
                 // prevents other useful assertions from being created.
-                apCreateSubrangeAssertion(node->AsCast());
+                CreateSubrangeAssertion(node->AsCast());
                 break;
 
             case GT_JTRUE:
-                assertionInfo = apGenerateJTrueAssertions(node->AsUnOp());
+                assertionInfo = GenerateJTrueAssertions(node->AsUnOp());
                 break;
 
             default:
@@ -1930,12 +1930,12 @@ private:
         }
     }
 
-    AssertionIndex apAssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, var_types fromType, var_types toType)
+    AssertionIndex AssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, var_types fromType, var_types toType)
     {
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = apGetAssertion(index);
+            AssertionDsc*  assertion = GetAssertion(index);
 
             if ((assertion->kind != OAK_SUBRANGE) || (assertion->op1.kind != O1K_LCLVAR))
             {
@@ -1978,12 +1978,12 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionIndex apAssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
+    AssertionIndex AssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
     {
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = apGetAssertion(index);
+            AssertionDsc*  assertion = GetAssertion(index);
 
             if ((assertion->kind != OAK_EQUAL) ||
                 ((assertion->op1.kind != O1K_SUBTYPE) && (assertion->op1.kind != O1K_EXACT_TYPE)))
@@ -2031,9 +2031,9 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    GenTree* apPropagateLclVarConst(AssertionDsc*  assertion,
-                                    GenTreeLclVar* lclVar,
-                                    Statement* stmt DEBUGARG(AssertionIndex index))
+    GenTree* PropagateLclVarConst(AssertionDsc*  assertion,
+                                  GenTreeLclVar* lclVar,
+                                  Statement* stmt DEBUGARG(AssertionIndex index))
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
@@ -2141,15 +2141,15 @@ private:
         if (verbose)
         {
             printf("\nAssertion prop in " FMT_BB ":\n", compiler->compCurBB->bbNum);
-            apDumpAssertion(assertion);
+            DumpAssertion(assertion);
             compiler->gtDispTree(conNode, nullptr, nullptr, true);
         }
 #endif
 
-        return apUpdateTree(conNode, lclVar, stmt);
+        return UpdateTree(conNode, lclVar, stmt);
     }
 
-    GenTree* apPropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
     {
         assert(lclVar->OperIs(GT_LCL_VAR));
 
@@ -2158,10 +2158,10 @@ private:
             return nullptr;
         }
 
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = apGetAssertion(index);
+            AssertionDsc*  assertion = GetAssertion(index);
 
             if ((assertion->kind != OAK_EQUAL) || (assertion->op1.kind != O1K_LCLVAR))
             {
@@ -2187,7 +2187,7 @@ private:
                 {
                     if (assertion->op1.vn == vnStore->VNNormalValue(lclVar->GetConservativeVN()))
                     {
-                        return apPropagateLclVarConst(assertion, lclVar, stmt DEBUGARG(index));
+                        return PropagateLclVarConst(assertion, lclVar, stmt DEBUGARG(index));
                     }
                 }
             }
@@ -2196,15 +2196,15 @@ private:
         return nullptr;
     }
 
-    AssertionIndex apAssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
+    AssertionIndex AssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
     {
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
 
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = apGetAssertion(index);
+            AssertionDsc*  assertion = GetAssertion(index);
 
             if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
             {
@@ -2237,15 +2237,15 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionIndex apAssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1)
+    AssertionIndex AssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1)
     {
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNZeroForType(op1->GetType());
 
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = apGetAssertion(index);
+            AssertionDsc*  assertion = GetAssertion(index);
 
             if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
             {
@@ -2261,18 +2261,18 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    GenTree* apPropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt)
+    GenTree* PropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt)
     {
         assert(relop->OperIsCompare());
 
         GenTree* op1 = relop->GetOp(0);
         GenTree* op2 = relop->GetOp(1);
 
-        AssertionIndex index = apAssertionIsZeroEquality(assertions, relop);
+        AssertionIndex index = AssertionIsZeroEquality(assertions, relop);
 
         if (index != NO_ASSERTION_INDEX)
         {
-            AssertionDsc* assertion = apGetAssertion(index);
+            AssertionDsc* assertion = GetAssertion(index);
 
             JITDUMP("Assertion #%02u: relop [%06u] %s 0\n", index, relop->GetID(),
                     (assertion->kind == OAK_EQUAL) ? "==" : "!=");
@@ -2285,7 +2285,7 @@ private:
 
             relop->ChangeToIntCon(assertion->kind != OAK_EQUAL);
 
-            return apUpdateTree(relop, relop, stmt);
+            return UpdateTree(relop, relop, stmt);
         }
 
         if (!relop->OperIs(GT_EQ, GT_NE))
@@ -2303,14 +2303,14 @@ private:
             return nullptr;
         }
 
-        index = apAssertionIsEquality(assertions, op1, op2);
+        index = AssertionIsEquality(assertions, op1, op2);
 
         if (index == NO_ASSERTION_INDEX)
         {
             return nullptr;
         }
 
-        AssertionDsc* assertion    = apGetAssertion(index);
+        AssertionDsc* assertion    = GetAssertion(index);
         ValueNum      op2VN        = vnStore->VNNormalValue(op2->GetConservativeVN());
         bool          allowReverse = true;
 
@@ -2447,13 +2447,13 @@ private:
             compiler->gtReverseCond(relop);
         }
 
-        // TODO-MIKE-Review: Why are we morphing here? apUpdateTree will do that anyway.
+        // TODO-MIKE-Review: Why are we morphing here? UpdateTree will do that anyway.
         GenTree* newTree = compiler->fgMorphTree(relop);
         DBEXEC(verbose, compiler->gtDispTree(newTree, nullptr, nullptr, true);)
-        return apUpdateTree(newTree, relop, stmt);
+        return UpdateTree(newTree, relop, stmt);
     }
 
-    GenTree* apPropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
+    GenTree* PropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
     {
         GenTree*  op1      = cast->GetOp(0);
         var_types fromType = op1->GetType();
@@ -2477,7 +2477,7 @@ private:
         }
 
         ValueNum       vn    = vnStore->VNNormalValue(lclVar->GetConservativeVN());
-        AssertionIndex index = apAssertionIsSubrange(assertions, vn, fromType, toType);
+        AssertionIndex index = AssertionIsSubrange(assertions, vn, fromType, toType);
 
         if (index == NO_ASSERTION_INDEX)
         {
@@ -2489,7 +2489,7 @@ private:
 
         if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
         {
-            return apUpdateTree(op1, cast, stmt);
+            return UpdateTree(op1, cast, stmt);
         }
 
         if (varTypeSize(toType) > varTypeSize(lcl->GetType()))
@@ -2508,7 +2508,7 @@ private:
 #endif
             cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
 
-            return apUpdateTree(cast, cast, stmt);
+            return UpdateTree(cast, cast, stmt);
         }
 
         if (toType == TYP_UINT)
@@ -2534,10 +2534,10 @@ private:
         }
 #endif
 
-        return apUpdateTree(op1, cast, stmt);
+        return UpdateTree(op1, cast, stmt);
     }
 
-    GenTree* apPropagateComma(GenTreeOp* comma, Statement* stmt)
+    GenTree* PropagateComma(GenTreeOp* comma, Statement* stmt)
     {
         // Remove the bounds check as part of the GT_COMMA node since we need user pointer to remove nodes.
         // When processing visits the bounds check, it sets the throw kind to None if the check is redundant.
@@ -2548,10 +2548,10 @@ private:
         }
 
         compiler->optRemoveCommaBasedRangeCheck(comma, stmt);
-        return apUpdateTree(comma, comma, stmt);
+        return UpdateTree(comma, comma, stmt);
     }
 
-    GenTree* apPropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* indir, Statement* stmt)
+    GenTree* PropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* indir, Statement* stmt)
     {
         if ((indir->gtFlags & GTF_EXCEPT) == 0)
         {
@@ -2572,7 +2572,7 @@ private:
 
         INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
 
-        if (!apAssertionIsNotNull(assertions, addr->GetConservativeVN() DEBUGARG(&index)))
+        if (!AssertionIsNotNull(assertions, addr->GetConservativeVN() DEBUGARG(&index)))
         {
             return nullptr;
         }
@@ -2598,10 +2598,10 @@ private:
         // Set this flag to prevent reordering
         indir->gtFlags |= GTF_ORDER_SIDEEFF;
 
-        return apUpdateTree(indir, indir, stmt);
+        return UpdateTree(indir, indir, stmt);
     }
 
-    bool apAssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEBUGARG(AssertionIndex* assertionIndex))
+    bool AssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEBUGARG(AssertionIndex* assertionIndex))
     {
         if (vnStore->IsKnownNonNull(vn))
         {
@@ -2630,10 +2630,10 @@ private:
             }
         }
 
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = apGetAssertion(index);
+            AssertionDsc*  assertion = GetAssertion(index);
 
             if (assertion->kind != OAK_NOT_EQUAL)
             {
@@ -2657,7 +2657,7 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    GenTree* apPropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call)
+    GenTree* PropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call)
     {
         if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
         {
@@ -2674,7 +2674,7 @@ private:
 
         INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
 
-        if (!apAssertionIsNotNull(assertions, thisArg->GetConservativeVN() DEBUGARG(&index)))
+        if (!AssertionIsNotNull(assertions, thisArg->GetConservativeVN() DEBUGARG(&index)))
         {
             return nullptr;
         }
@@ -2701,11 +2701,11 @@ private:
         return call;
     }
 
-    GenTree* apPropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
+    GenTree* PropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
     {
-        if (apPropagateCallNotNull(assertions, call))
+        if (PropagateCallNotNull(assertions, call))
         {
-            return apUpdateTree(call, call, stmt);
+            return UpdateTree(call, call, stmt);
         }
 
         if (!call->IsHelperCall())
@@ -2732,7 +2732,7 @@ private:
         }
 
         ValueNum objectVN = vnStore->VNNormalValue(objectArg->GetConservativeVN());
-        unsigned index    = apAssertionIsSubtype(assertions, objectVN, call->GetArgNodeByArgNum(0));
+        unsigned index    = AssertionIsSubtype(assertions, objectVN, call->GetArgNodeByArgNum(0));
 
         if (index == NO_ASSERTION_INDEX)
         {
@@ -2756,10 +2756,10 @@ private:
             compiler->fgSetTreeSeq(objectArg);
         }
 
-        return apUpdateTree(objectArg, call, stmt);
+        return UpdateTree(objectArg, call, stmt);
     }
 
-    GenTree* apPropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt)
+    GenTree* PropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt)
     {
 #ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
         if (JitConfig.JitNoRangeChks())
@@ -2780,10 +2780,10 @@ private:
         ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
         ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
 
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = apGetAssertion(index);
+            AssertionDsc*  assertion = GetAssertion(index);
 
             if (assertion->kind != OAK_BOUNDS_CHK)
             {
@@ -2850,7 +2850,7 @@ private:
 
             if (boundsChk == stmt->GetRootNode())
             {
-                return apUpdateTree(compiler->optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
+                return UpdateTree(compiler->optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
             }
             else
             {
@@ -2862,7 +2862,7 @@ private:
         return nullptr;
     }
 
-    GenTree* apUpdateTree(GenTree* newTree, GenTree* tree, Statement* stmt)
+    GenTree* UpdateTree(GenTree* newTree, GenTree* tree, Statement* stmt)
     {
         assert(newTree != nullptr);
         assert(tree != nullptr);
@@ -2889,65 +2889,65 @@ private:
             DEBUG_DESTROY_NODE(tree);
         }
 
-        apStmtMorphPending = true;
+        stmtMorphPending = true;
 
         return newTree;
     }
 
-    GenTree* apPropagateNode(ASSERT_VALARG_TP assertions, GenTree* node, Statement* stmt, BasicBlock* block)
+    GenTree* PropagateNode(ASSERT_VALARG_TP assertions, GenTree* node, Statement* stmt, BasicBlock* block)
     {
         switch (node->GetOper())
         {
             case GT_LCL_VAR:
-                return apPropagateLclVar(assertions, node->AsLclVar(), stmt);
+                return PropagateLclVar(assertions, node->AsLclVar(), stmt);
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
             case GT_NULLCHECK:
-                return apPropagateIndir(assertions, node->AsIndir(), stmt);
+                return PropagateIndir(assertions, node->AsIndir(), stmt);
             case GT_ARR_BOUNDS_CHECK:
-                return apPropagateBoundsChk(assertions, node->AsBoundsChk(), stmt);
+                return PropagateBoundsChk(assertions, node->AsBoundsChk(), stmt);
             case GT_COMMA:
-                return apPropagateComma(node->AsOp(), stmt);
+                return PropagateComma(node->AsOp(), stmt);
             case GT_CAST:
-                return apPropagateCast(assertions, node->AsCast(), stmt);
+                return PropagateCast(assertions, node->AsCast(), stmt);
             case GT_CALL:
-                return apPropagateCall(assertions, node->AsCall(), stmt);
+                return PropagateCall(assertions, node->AsCall(), stmt);
             case GT_EQ:
             case GT_NE:
             case GT_LT:
             case GT_LE:
             case GT_GT:
             case GT_GE:
-                return apPropagateRelop(assertions, node->AsOp(), stmt);
+                return PropagateRelop(assertions, node->AsOp(), stmt);
             case GT_JTRUE:
-                return apPropagateJTrue(block, node->AsUnOp());
+                return PropagateJTrue(block, node->AsUnOp());
             default:
                 return nullptr;
         }
     }
 
-    void apAddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions)
+    void AddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions)
     {
-        AssertionDsc* assertion = apGetAssertion(index);
+        AssertionDsc* assertion = GetAssertion(index);
 
         if (assertion->kind == OAK_BOUNDS_CHK)
         {
             return;
         }
 
-        if (BitVecOps::IsEmpty(apTraits, assertions))
+        if (BitVecOps::IsEmpty(countTraits, assertions))
         {
             if ((assertion->kind == OAK_EQUAL) && (assertion->op1.kind == O1K_LCLVAR) &&
                 (assertion->op2.kind == O2K_CONST_INT))
             {
-                apAddConstImpliedAssertions(assertion, assertions);
+                AddConstImpliedAssertions(assertion, assertions);
             }
 
             return;
         }
 
-        const ASSERT_TP vn1Assertions = apGetVNAssertions(assertion->op1.vn);
+        const ASSERT_TP vn1Assertions = GetVNAssertions(assertion->op1.vn);
 
         if (vn1Assertions == BitVecOps::UninitVal())
         {
@@ -2955,9 +2955,9 @@ private:
         }
 
         const ASSERT_TP vn2Assertions =
-            assertion->op2.kind != O2K_LCLVAR_COPY ? BitVecOps::UninitVal() : apGetVNAssertions(assertion->op2.vn);
+            assertion->op2.kind != O2K_LCLVAR_COPY ? BitVecOps::UninitVal() : GetVNAssertions(assertion->op2.vn);
 
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex impliedIndex = GetAssertionIndex(en.Current());
 
@@ -2966,32 +2966,32 @@ private:
                 continue;
             }
 
-            if (!BitVecOps::IsMember(apTraitsMax, vn1Assertions, en.Current()) &&
+            if (!BitVecOps::IsMember(sizeTraits, vn1Assertions, en.Current()) &&
                 ((vn2Assertions == BitVecOps::UninitVal()) ||
-                 !BitVecOps::IsMember(apTraitsMax, vn1Assertions, en.Current())))
+                 !BitVecOps::IsMember(sizeTraits, vn1Assertions, en.Current())))
             {
                 continue;
             }
 
-            AssertionDsc* impliedAssertion = apGetAssertion(impliedIndex);
+            AssertionDsc* impliedAssertion = GetAssertion(impliedIndex);
 
             if (assertion->IsCopyAssertion())
             {
-                apAddCopyImpliedAssertions(assertion, impliedAssertion, assertions);
+                AddCopyImpliedAssertions(assertion, impliedAssertion, assertions);
             }
             else if (impliedAssertion->IsCopyAssertion())
             {
-                apAddCopyImpliedAssertions(impliedAssertion, assertion, assertions);
+                AddCopyImpliedAssertions(impliedAssertion, assertion, assertions);
             }
         }
     }
 
-    void apAddTypeImpliedNotNullAssertions(ASSERT_TP& assertions)
+    void AddTypeImpliedNotNullAssertions(ASSERT_TP& assertions)
     {
-        for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex typeIndex     = GetAssertionIndex(en.Current());
-            AssertionDsc*  typeAssertion = apGetAssertion(typeIndex);
+            AssertionDsc*  typeAssertion = GetAssertion(typeIndex);
 
             if ((typeAssertion->kind != OAK_EQUAL) ||
                 ((typeAssertion->op1.kind != O1K_SUBTYPE) && (typeAssertion->op1.kind != O1K_EXACT_TYPE)))
@@ -2999,14 +2999,14 @@ private:
                 continue;
             }
 
-            for (AssertionIndex notNullIndex = 1; notNullIndex <= apAssertionCount; notNullIndex++)
+            for (AssertionIndex notNullIndex = 1; notNullIndex <= assertionCount; notNullIndex++)
             {
                 if (notNullIndex == typeIndex)
                 {
                     continue;
                 }
 
-                AssertionDsc* notNullAssertion = apGetAssertion(notNullIndex);
+                AssertionDsc* notNullAssertion = GetAssertion(notNullIndex);
 
                 if ((notNullAssertion->kind != OAK_NOT_EQUAL) ||
                     ((notNullAssertion->op1.kind != O1K_LCLVAR) && (notNullAssertion->op1.kind != O1K_VALUE_NUMBER)) ||
@@ -3016,7 +3016,7 @@ private:
                     continue;
                 }
 
-                if (BitVecOps::TryAddElemD(apTraits, assertions, notNullIndex - 1))
+                if (BitVecOps::TryAddElemD(countTraits, assertions, notNullIndex - 1))
                 {
                     JITDUMP("\napAddTypeImpliedNotNullAssertions: %s Assertion #%02d, implies assertion #%02d",
                             (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type", typeIndex,
@@ -3029,12 +3029,12 @@ private:
         }
     }
 
-    void apAddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_TP& result)
+    void AddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_TP& result)
     {
         assert(constAssertion->kind == OAK_EQUAL);
         assert((constAssertion->op1.kind == O1K_LCLVAR) && (constAssertion->op2.kind == O2K_CONST_INT));
 
-        const ASSERT_TP vnAssertions = apGetVNAssertions(constAssertion->op1.vn);
+        const ASSERT_TP vnAssertions = GetVNAssertions(constAssertion->op1.vn);
 
         if (vnAssertions == BitVecOps::UninitVal())
         {
@@ -3043,10 +3043,10 @@ private:
 
         ssize_t value = constAssertion->op2.intCon.value;
 
-        for (BitVecOps::Enumerator en(apTraitsMax, vnAssertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(sizeTraits, vnAssertions); en.MoveNext();)
         {
             AssertionIndex impliedIndex     = GetAssertionIndex(en.Current());
-            AssertionDsc*  impliedAssertion = apGetAssertion(impliedIndex);
+            AssertionDsc*  impliedAssertion = GetAssertion(impliedIndex);
 
             if (impliedAssertion == constAssertion)
             {
@@ -3079,9 +3079,9 @@ private:
                 continue;
             }
 
-            if (BitVecOps::TryAddElemD(apTraits, result, en.Current()))
+            if (BitVecOps::TryAddElemD(countTraits, result, en.Current()))
             {
-                INDEBUG(AssertionDsc* firstAssertion = apGetAssertion(1));
+                INDEBUG(AssertionDsc* firstAssertion = GetAssertion(1));
                 JITDUMP("apAddConstImpliedAssertions: const assertion #%02d implies assertion #%02d\n",
                         GetAssertionIndex(static_cast<unsigned>(constAssertion - firstAssertion)),
                         GetAssertionIndex(static_cast<unsigned>(impliedAssertion - firstAssertion)));
@@ -3089,7 +3089,7 @@ private:
         }
     }
 
-    void apAddCopyImpliedAssertions(AssertionDsc* copyAssertion, AssertionDsc* assertion, ASSERT_TP& result)
+    void AddCopyImpliedAssertions(AssertionDsc* copyAssertion, AssertionDsc* assertion, ASSERT_TP& result)
     {
         assert(copyAssertion->kind == OAK_EQUAL);
         assert((copyAssertion->op1.kind == O1K_LCLVAR) && (copyAssertion->op2.kind == O2K_LCLVAR_COPY));
@@ -3149,9 +3149,9 @@ private:
         bool isConstAssertion = (assertion->kind == OAK_EQUAL) && (assertion->op1.kind == O1K_LCLVAR) &&
                                 (assertion->op2.kind == O2K_CONST_INT);
 
-        for (AssertionIndex impliedIndex = 1; impliedIndex <= apAssertionCount; impliedIndex++)
+        for (AssertionIndex impliedIndex = 1; impliedIndex <= assertionCount; impliedIndex++)
         {
-            AssertionDsc* impliedAssertion = apGetAssertion(impliedIndex);
+            AssertionDsc* impliedAssertion = GetAssertion(impliedIndex);
 
             if ((impliedAssertion == copyAssertion) || (impliedAssertion == assertion))
             {
@@ -3228,9 +3228,9 @@ private:
                 }
             }
 
-            if (BitVecOps::TryAddElemD(apTraits, result, impliedIndex - 1))
+            if (BitVecOps::TryAddElemD(countTraits, result, impliedIndex - 1))
             {
-                INDEBUG(AssertionDsc* firstAssertion = apGetAssertion(1));
+                INDEBUG(AssertionDsc* firstAssertion = GetAssertion(1));
                 JITDUMP(
                     "\napAddCopyImpliedAssertions: copy assertion #%02d and assertion #%02d, implies assertion #%02d",
                     GetAssertionIndex(static_cast<unsigned>(copyAssertion - firstAssertion)),
@@ -3242,14 +3242,12 @@ private:
             // that it implies could also imply a subrange assertion.
             if (isConstAssertion)
             {
-                apAddConstImpliedAssertions(impliedAssertion, result);
+                AddConstImpliedAssertions(impliedAssertion, result);
             }
         }
     }
 
-#include "dataflow.h"
-
-    class AssertionPropFlowCallback
+    class DataFlowCallback
     {
         ASSERT_TP preMergeOut;
         ASSERT_TP preMergeJumpDestOut;
@@ -3261,10 +3259,7 @@ private:
         INDEBUG(Compiler* compiler;)
 
     public:
-        AssertionPropFlowCallback(Compiler*     compiler,
-                                  BitVecTraits* apTraits,
-                                  ASSERT_TP*    jumpDestOut,
-                                  ASSERT_TP*    jumpDestGen)
+        DataFlowCallback(Compiler* compiler, BitVecTraits* apTraits, ASSERT_TP* jumpDestOut, ASSERT_TP* jumpDestGen)
             : preMergeOut(BitVecOps::UninitVal())
             , preMergeJumpDestOut(BitVecOps::UninitVal())
             , mJumpDestOut(jumpDestOut)
@@ -3418,13 +3413,13 @@ private:
         }
     };
 
-    ASSERT_TP* apComputeBlockAssertionGen()
+    ASSERT_TP* ComputeBlockAssertionGen()
     {
         ASSERT_TP* jumpDestGen = compiler->fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            ASSERT_TP valueGen = BitVecOps::MakeEmpty(apTraits);
+            ASSERT_TP valueGen = BitVecOps::MakeEmpty(countTraits);
             GenTree*  jtrue    = nullptr;
 
             for (Statement* const stmt : block->Statements())
@@ -3442,8 +3437,8 @@ private:
                     if (node->GeneratesAssertion())
                     {
                         AssertionInfo info = node->GetAssertionInfo();
-                        apAddImpliedAssertions(info.GetAssertionIndex(), valueGen);
-                        BitVecOps::AddElemD(apTraits, valueGen, info.GetAssertionIndex() - 1);
+                        AddImpliedAssertions(info.GetAssertionIndex(), valueGen);
+                        BitVecOps::AddElemD(countTraits, valueGen, info.GetAssertionIndex() - 1);
                     }
                 }
             }
@@ -3452,12 +3447,12 @@ private:
 
             if (jtrue == nullptr)
             {
-                jumpDestValueGen = BitVecOps::MakeEmpty(apTraits);
+                jumpDestValueGen = BitVecOps::MakeEmpty(countTraits);
             }
             else
             {
                 // Copy whatever we have accumulated into jumpDest edge's valueGen.
-                jumpDestValueGen = BitVecOps::MakeCopy(apTraits, valueGen);
+                jumpDestValueGen = BitVecOps::MakeCopy(countTraits, valueGen);
 
                 if (jtrue->GeneratesAssertion())
                 {
@@ -3468,26 +3463,26 @@ private:
                     if (info.IsNextEdgeAssertion())
                     {
                         valueAssertionIndex    = info.GetAssertionIndex();
-                        jumpDestAssertionIndex = apFindInvertedAssertion(info.GetAssertionIndex());
+                        jumpDestAssertionIndex = FindInvertedAssertion(info.GetAssertionIndex());
                     }
                     else // is jump edge assertion
                     {
                         jumpDestAssertionIndex = info.GetAssertionIndex();
-                        valueAssertionIndex    = apFindInvertedAssertion(jumpDestAssertionIndex);
+                        valueAssertionIndex    = FindInvertedAssertion(jumpDestAssertionIndex);
                     }
 
                     if (valueAssertionIndex != NO_ASSERTION_INDEX)
                     {
                         // Update valueGen if we have an assertion for the bbNext edge
-                        apAddImpliedAssertions(valueAssertionIndex, valueGen);
-                        BitVecOps::AddElemD(apTraits, valueGen, valueAssertionIndex - 1);
+                        AddImpliedAssertions(valueAssertionIndex, valueGen);
+                        BitVecOps::AddElemD(countTraits, valueGen, valueAssertionIndex - 1);
                     }
 
                     if (jumpDestAssertionIndex != NO_ASSERTION_INDEX)
                     {
                         // Update jumpDestValueGen if we have an assertion for the bbJumpDest edge
-                        apAddImpliedAssertions(jumpDestAssertionIndex, jumpDestValueGen);
-                        BitVecOps::AddElemD(apTraits, jumpDestValueGen, jumpDestAssertionIndex - 1);
+                        AddImpliedAssertions(jumpDestAssertionIndex, jumpDestValueGen);
+                        BitVecOps::AddElemD(countTraits, jumpDestValueGen, jumpDestAssertionIndex - 1);
                     }
                 }
             }
@@ -3504,11 +3499,11 @@ private:
                 }
 
                 printf(FMT_BB " valueGen = ", block->bbNum);
-                apDumpAssertionIndices("", block->bbAssertionGen, "");
+                DumpAssertionIndices("", block->bbAssertionGen, "");
                 if (block->bbJumpKind == BBJ_COND)
                 {
                     printf(" => " FMT_BB " valueGen = ", block->bbJumpDest->bbNum);
-                    apDumpAssertionIndices("", jumpDestGen[block->bbNum], "");
+                    DumpAssertionIndices("", jumpDestGen[block->bbNum], "");
                 }
                 printf("\n");
 
@@ -3523,7 +3518,7 @@ private:
         return jumpDestGen;
     }
 
-    ASSERT_TP* apInitAssertionDataflowSets()
+    ASSERT_TP* InitAssertionDataflowSets()
     {
         ASSERT_TP* jumpDestOut = compiler->fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
 
@@ -3531,22 +3526,22 @@ private:
         // Also set the IN sets to 1, so that we can perform the intersection.
         for (BasicBlock* const block : compiler->Blocks())
         {
-            block->bbAssertionGen = BitVecOps::MakeEmpty(apTraits);
+            block->bbAssertionGen = BitVecOps::MakeEmpty(countTraits);
 
-            block->bbAssertionIn  = BitVecOps::MakeFull(apTraits);
-            block->bbAssertionOut = BitVecOps::MakeFull(apTraits);
+            block->bbAssertionIn  = BitVecOps::MakeFull(countTraits);
+            block->bbAssertionOut = BitVecOps::MakeFull(countTraits);
 
-            jumpDestOut[block->bbNum] = BitVecOps::MakeFull(apTraits);
+            jumpDestOut[block->bbNum] = BitVecOps::MakeFull(countTraits);
         }
 
         // Compute the data flow values for all tracked expressions
         // IN and OUT never change for the initial basic block B1
-        BitVecOps::ClearD(apTraits, compiler->fgFirstBB->bbAssertionIn);
+        BitVecOps::ClearD(countTraits, compiler->fgFirstBB->bbAssertionIn);
 
         return jumpDestOut;
     }
 
-    GenTree* apExtractConstantSideEffects(GenTree* tree)
+    GenTree* ExtractConstantSideEffects(GenTree* tree)
     {
         assert(vnStore->IsVNConstant(vnStore->VNNormalValue(tree->GetConservativeVN())));
 
@@ -3570,7 +3565,7 @@ private:
         return sideEffects;
     }
 
-    GenTree* apPropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
+    GenTree* PropagateJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
     {
         GenTree* relop = jtrue->GetOp(0);
 
@@ -3589,7 +3584,7 @@ private:
             return nullptr;
         }
 
-        GenTree* sideEffects = apExtractConstantSideEffects(relop);
+        GenTree* sideEffects = ExtractConstantSideEffects(relop);
 
         // Transform the relop into EQ|NE(0, 0)
         ValueNum vnZero = vnStore->VNZeroForType(TYP_INT);
@@ -4228,11 +4223,11 @@ private:
         }
     };
 
-    void apMain()
+    void Main()
     {
         DBEXEC(verbose, compiler->fgDispBasicBlocks(true);)
 
-        apInit();
+        Init();
 
         // Traverse all blocks, perform VN constant propagation and generate assertions.
         for (BasicBlock* const block : compiler->Blocks())
@@ -4251,14 +4246,14 @@ private:
 
                 for (GenTree* const node : stmt->Nodes())
                 {
-                    apGenerateNodeAssertions(node);
+                    GenerateNodeAssertions(node);
                 }
             }
         }
 
-        apTraits = new (compiler->getAllocator(CMK_AssertionProp)) BitVecTraits(apAssertionCount, compiler);
+        countTraits = new (compiler->getAllocator(CMK_AssertionProp)) BitVecTraits(assertionCount, compiler);
 
-        if (apAssertionCount == 0)
+        if (assertionCount == 0)
         {
             // Zero out bbAssertionIn as it can be referenced in RangeCheck::MergeAssertion
             // and this member overlaps with bbCseIn used by the CSE phase.
@@ -4273,23 +4268,23 @@ private:
         INDEBUG(compiler->fgDebugCheckLinks());
 
         // Allocate the bits for the predicate sensitive dataflow analysis
-        apJTrueAssertionOut    = apInitAssertionDataflowSets();
-        ASSERT_TP* jumpDestGen = apComputeBlockAssertionGen();
+        jtrueAssertionOut      = InitAssertionDataflowSets();
+        ASSERT_TP* jumpDestGen = ComputeBlockAssertionGen();
 
         // Modified dataflow algorithm for available expressions.
-        DataFlow                  flow(compiler);
-        AssertionPropFlowCallback ap(compiler, apTraits, apJTrueAssertionOut, jumpDestGen);
+        DataFlow         flow(compiler);
+        DataFlowCallback ap(compiler, countTraits, jtrueAssertionOut, jumpDestGen);
 
         if (ap.VerboseDataflow())
         {
-            JITDUMP("AssertionPropFlowCallback:\n\n")
+            JITDUMP("DataFlowCallback:\n\n")
         }
 
         flow.ForwardAnalysis(ap);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            apAddTypeImpliedNotNullAssertions(block->bbAssertionIn);
+            AddTypeImpliedNotNullAssertions(block->bbAssertionIn);
         }
 
 #ifdef DEBUG
@@ -4298,23 +4293,23 @@ private:
             for (BasicBlock* const block : compiler->Blocks())
             {
                 printf(FMT_BB ":\n", block->bbNum);
-                apDumpAssertionIndices(" in   = ", block->bbAssertionIn, "\n");
-                apDumpAssertionIndices(" out  = ", block->bbAssertionOut, "\n");
+                DumpAssertionIndices(" in   = ", block->bbAssertionIn, "\n");
+                DumpAssertionIndices(" out  = ", block->bbAssertionOut, "\n");
                 if (block->bbJumpKind == BBJ_COND)
                 {
                     printf(" " FMT_BB " = ", block->bbJumpDest->bbNum);
-                    apDumpAssertionIndices("", apJTrueAssertionOut[block->bbNum], "\n");
+                    DumpAssertionIndices("", jtrueAssertionOut[block->bbNum], "\n");
                 }
             }
             printf("\n");
         }
 #endif // DEBUG
 
-        ASSERT_TP assertions = BitVecOps::MakeEmpty(apTraits);
+        ASSERT_TP assertions = BitVecOps::MakeEmpty(countTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            BitVecOps::Assign(apTraits, assertions, block->bbAssertionIn);
+            BitVecOps::Assign(countTraits, assertions, block->bbAssertionIn);
 
             // TODO-Review: EH successor/predecessor iteration seems broken.
             // SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
@@ -4340,32 +4335,32 @@ private:
                 // removes the current stmt.
                 Statement* prevStmt = (stmt == block->firstStmt()) ? nullptr : stmt->GetPrevStmt();
 
-                apStmtMorphPending = false;
+                stmtMorphPending = false;
 
                 for (GenTree* node = stmt->GetNodeList(); node != nullptr; node = node->gtNext)
                 {
-                    INDEBUG(apDumpAssertionIndices("Propagating ", assertions, " "));
+                    INDEBUG(DumpAssertionIndices("Propagating ", assertions, " "));
                     JITDUMP("for " FMT_BB ", stmt " FMT_STMT ", tree [%06u]", block->bbNum, stmt->GetID(),
                             node->GetID());
                     JITDUMP(", tree -> A%02d\n", node->GetAssertionInfo().GetAssertionIndex());
 
-                    GenTree* newNode = apPropagateNode(assertions, node, stmt, block);
+                    GenTree* newNode = PropagateNode(assertions, node, stmt, block);
 
                     if (newNode != nullptr)
                     {
-                        assert(apStmtMorphPending);
+                        assert(stmtMorphPending);
                         node = newNode;
                     }
 
                     if (node->GeneratesAssertion())
                     {
                         AssertionInfo info = node->GetAssertionInfo();
-                        apAddImpliedAssertions(info.GetAssertionIndex(), assertions);
-                        BitVecOps::AddElemD(apTraits, assertions, info.GetAssertionIndex() - 1);
+                        AddImpliedAssertions(info.GetAssertionIndex(), assertions);
+                        BitVecOps::AddElemD(countTraits, assertions, info.GetAssertionIndex() - 1);
                     }
                 }
 
-                if (apStmtMorphPending)
+                if (stmtMorphPending)
                 {
 #ifdef DEBUG
                     if (verbose)
@@ -4393,7 +4388,7 @@ private:
     }
 
 #ifdef DEBUG
-    void apDebugCheckAssertion(AssertionDsc* assertion)
+    void DebugCheckAssertion(AssertionDsc* assertion)
     {
         assert((assertion->kind > OAK_INVALID) && (assertion->kind < OAK_COUNT));
 
@@ -4459,30 +4454,30 @@ private:
         }
     }
 
-    void apDebugCheckAssertionTable()
+    void DebugCheckAssertionTable()
     {
-        for (AssertionIndex index = 1; index <= apAssertionCount; ++index)
+        for (AssertionIndex index = 1; index <= assertionCount; ++index)
         {
-            apDebugCheckAssertion(apGetAssertion(index));
+            DebugCheckAssertion(GetAssertion(index));
         }
     }
 
-    void apDumpVNAssertionMap()
+    void DumpVNAssertionMap()
     {
         printf("\nVN Assertion Mapping:\n");
 
-        for (const auto& pair : *apVNAssertionMap)
+        for (const auto& pair : *vnAssertionMap)
         {
-            printf("$%u => %s\n", pair.key, BitVecOps::ToString(apTraits, pair.value));
+            printf("$%u => %s\n", pair.key, BitVecOps::ToString(countTraits, pair.value));
         }
     }
 
-    void apDumpAssertion(const AssertionDsc* assertion)
+    void DumpAssertion(const AssertionDsc* assertion)
     {
         compiler->apDumpAssertion(assertion);
     }
 
-    void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
+    void DumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
     {
         compiler->apDumpAssertionIndices(header, assertions, footer);
     }
