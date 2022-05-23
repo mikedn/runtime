@@ -734,7 +734,17 @@ public:
 
     void Run()
     {
-        Main();
+        DBEXEC(verbose, compiler->fgDispBasicBlocks(true);)
+
+        Init();
+        GenerateAssertions();
+        ComputeAvailability();
+        PropagateAssertions();
+
+#ifdef DEBUG
+        compiler->fgDebugCheckBBlist();
+        compiler->fgDebugCheckLinks();
+#endif
     }
 
 private:
@@ -4223,13 +4233,8 @@ private:
         }
     };
 
-    void Main()
+    void GenerateAssertions()
     {
-        DBEXEC(verbose, compiler->fgDispBasicBlocks(true);)
-
-        Init();
-
-        // Traverse all blocks, perform VN constant propagation and generate assertions.
         for (BasicBlock* const block : compiler->Blocks())
         {
             compiler->compCurBB = block;
@@ -4250,7 +4255,10 @@ private:
                 }
             }
         }
+    }
 
+    void ComputeAvailability()
+    {
         countTraits = new (compiler->getAllocator(CMK_AssertionProp)) BitVecTraits(assertionCount, compiler);
 
         if (assertionCount == 0)
@@ -4304,7 +4312,10 @@ private:
             printf("\n");
         }
 #endif // DEBUG
+    }
 
+    void PropagateAssertions()
+    {
         ASSERT_TP assertions = BitVecOps::MakeEmpty(countTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
@@ -4380,11 +4391,6 @@ private:
                 stmt                = (stmt == nextStmt) ? stmt->GetNextStmt() : nextStmt;
             }
         }
-
-#ifdef DEBUG
-        compiler->fgDebugCheckBBlist();
-        compiler->fgDebugCheckLinks();
-#endif
     }
 
 #ifdef DEBUG
