@@ -711,6 +711,7 @@ class AssertionProp
     BitVecTraits*         countTraits;
     AssertionIndex*       invertedAssertions;
     ValueNumToAssertsMap* vnAssertionMap;
+    ASSERT_TP*            jtrueAssertionGen;
     ASSERT_TP*            jtrueAssertionOut;
     bool                  stmtMorphPending;
 #ifdef DEBUG
@@ -3264,21 +3265,19 @@ private:
     {
         AssertionProp& ap;
         BitVecTraits*  apTraits;
-
-        ASSERT_TP preMergeOut;
-        ASSERT_TP preMergeJumpDestOut;
-
-        ASSERT_TP* mJumpDestOut;
-        ASSERT_TP* mJumpDestGen;
+        ASSERT_TP*     jtrueAssertionGen;
+        ASSERT_TP*     jtrueAssertionOut;
+        ASSERT_TP      preMergeOut;
+        ASSERT_TP      preMergeJumpDestOut;
 
     public:
-        DataFlowCallback(AssertionProp& ap, ASSERT_TP* jumpDestOut, ASSERT_TP* jumpDestGen)
+        DataFlowCallback(AssertionProp& ap)
             : ap(ap)
             , apTraits(ap.countTraits)
+            , jtrueAssertionGen(ap.jtrueAssertionGen)
+            , jtrueAssertionOut(ap.jtrueAssertionOut)
             , preMergeOut(BitVecOps::UninitVal())
             , preMergeJumpDestOut(BitVecOps::UninitVal())
-            , mJumpDestOut(jumpDestOut)
-            , mJumpDestGen(jumpDestGen)
         {
         }
 
@@ -3294,7 +3293,7 @@ private:
 #endif
 
             BitVecOps::Assign(apTraits, preMergeOut, block->bbAssertionOut);
-            BitVecOps::Assign(apTraits, preMergeJumpDestOut, mJumpDestOut[block->bbNum]);
+            BitVecOps::Assign(apTraits, preMergeJumpDestOut, jtrueAssertionOut[block->bbNum]);
         }
 
         // During merge, perform the actual merging of the predecessor's (since this is a forward analysis) dataflow
@@ -3305,7 +3304,7 @@ private:
 
             if (predBlock->bbJumpKind == BBJ_COND && (predBlock->bbJumpDest == block))
             {
-                pAssertionOut = mJumpDestOut[predBlock->bbNum];
+                pAssertionOut = jtrueAssertionOut[predBlock->bbNum];
 
                 if (dupCount > 1)
                 {
@@ -3320,7 +3319,7 @@ private:
                         printf("Merge     : Duplicate flow, " FMT_BB " ", block->bbNum);
                         ap.DumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
                         printf("pred " FMT_BB " ", predBlock->bbNum);
-                        ap.DumpAssertionIndices("out1 -> ", mJumpDestOut[predBlock->bbNum], "; ");
+                        ap.DumpAssertionIndices("out1 -> ", jtrueAssertionOut[predBlock->bbNum], "; ");
                         ap.DumpAssertionIndices("out2 -> ", predBlock->bbAssertionOut, "\n");
                     }
 #endif
@@ -3385,11 +3384,11 @@ private:
 #endif
 
             BitVecOps::DataFlowD(apTraits, block->bbAssertionOut, block->bbAssertionGen, block->bbAssertionIn);
-            BitVecOps::DataFlowD(apTraits, mJumpDestOut[block->bbNum], mJumpDestGen[block->bbNum],
+            BitVecOps::DataFlowD(apTraits, jtrueAssertionOut[block->bbNum], jtrueAssertionGen[block->bbNum],
                                  block->bbAssertionIn);
 
-            bool changed = (!BitVecOps::Equal(apTraits, preMergeOut, block->bbAssertionOut) ||
-                            !BitVecOps::Equal(apTraits, preMergeJumpDestOut, mJumpDestOut[block->bbNum]));
+            bool changed = !BitVecOps::Equal(apTraits, preMergeOut, block->bbAssertionOut) ||
+                           !BitVecOps::Equal(apTraits, preMergeJumpDestOut, jtrueAssertionOut[block->bbNum]);
 
 #ifdef DEBUG
             if (VerboseDataflow())
@@ -3400,13 +3399,13 @@ private:
                     ap.DumpAssertionIndices("before out -> ", preMergeOut, "; ");
                     ap.DumpAssertionIndices("after out -> ", block->bbAssertionOut, ";\n        ");
                     ap.DumpAssertionIndices("jumpDest before out -> ", preMergeJumpDestOut, "; ");
-                    ap.DumpAssertionIndices("jumpDest after out -> ", mJumpDestOut[block->bbNum], ";\n\n");
+                    ap.DumpAssertionIndices("jumpDest after out -> ", jtrueAssertionOut[block->bbNum], ";\n\n");
                 }
                 else
                 {
                     printf("Unchanged : " FMT_BB " ", block->bbNum);
                     ap.DumpAssertionIndices("out -> ", block->bbAssertionOut, "; ");
-                    ap.DumpAssertionIndices("jumpDest out -> ", mJumpDestOut[block->bbNum], "\n\n");
+                    ap.DumpAssertionIndices("jumpDest out -> ", jtrueAssertionOut[block->bbNum], "\n\n");
                 }
             }
 #endif
@@ -3418,15 +3417,15 @@ private:
         bool VerboseDataflow()
         {
 #if 0
-        return compiler->verbose;
+        return ap.verbose;
 #endif
             return false;
         }
     };
 
-    ASSERT_TP* ComputeBlockAssertionGen()
+    void ComputeBlockAssertionGen()
     {
-        ASSERT_TP* jumpDestGen = compiler->fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
+        jtrueAssertionGen = compiler->fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
@@ -3498,8 +3497,8 @@ private:
                 }
             }
 
-            jumpDestGen[block->bbNum] = jumpDestValueGen;
-            block->bbAssertionGen     = valueGen;
+            jtrueAssertionGen[block->bbNum] = jumpDestValueGen;
+            block->bbAssertionGen           = valueGen;
 
 #ifdef DEBUG
             if (verbose)
@@ -3515,7 +3514,7 @@ private:
                 if (block->bbJumpKind == BBJ_COND)
                 {
                     printf(", branch to " FMT_BB " gen = ", block->bbJumpDest->bbNum);
-                    DumpAssertionIndices("", jumpDestGen[block->bbNum], "");
+                    DumpAssertionIndices("", jtrueAssertionGen[block->bbNum], "");
                 }
 
                 printf("\n");
@@ -3527,13 +3526,11 @@ private:
             }
 #endif
         }
-
-        return jumpDestGen;
     }
 
-    ASSERT_TP* InitAssertionDataflowSets()
+    void InitAssertionDataflowSets()
     {
-        ASSERT_TP* jumpDestOut = compiler->fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
+        jtrueAssertionOut = compiler->fgAllocateTypeForEachBlk<ASSERT_TP>(CMK_AssertionProp);
 
         // Initially estimate the OUT sets to everything except killed expressions
         // Also set the IN sets to 1, so that we can perform the intersection.
@@ -3544,14 +3541,12 @@ private:
             block->bbAssertionIn  = BitVecOps::MakeFull(countTraits);
             block->bbAssertionOut = BitVecOps::MakeFull(countTraits);
 
-            jumpDestOut[block->bbNum] = BitVecOps::MakeFull(countTraits);
+            jtrueAssertionOut[block->bbNum] = BitVecOps::MakeFull(countTraits);
         }
 
         // Compute the data flow values for all tracked expressions
         // IN and OUT never change for the initial basic block B1
         BitVecOps::ClearD(countTraits, compiler->fgFirstBB->bbAssertionIn);
-
-        return jumpDestOut;
     }
 
     GenTree* ExtractConstantSideEffects(GenTree* tree)
@@ -4264,13 +4259,12 @@ private:
     {
         countTraits = new (compiler->getAllocator(CMK_AssertionProp)) BitVecTraits(assertionCount, compiler);
 
-        // Allocate the bits for the predicate sensitive dataflow analysis
-        jtrueAssertionOut      = InitAssertionDataflowSets();
-        ASSERT_TP* jumpDestGen = ComputeBlockAssertionGen();
+        InitAssertionDataflowSets();
+        ComputeBlockAssertionGen();
 
         // Modified dataflow algorithm for available expressions.
         DataFlow         flow(compiler);
-        DataFlowCallback ap(*this, jtrueAssertionOut, jumpDestGen);
+        DataFlowCallback ap(*this);
 
         if (ap.VerboseDataflow())
         {
