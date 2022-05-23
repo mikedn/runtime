@@ -1070,7 +1070,7 @@ private:
 
             case GT_CNS_INT:
 #ifdef TARGET_ARM
-                if (!codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
+                if (!compiler->codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
                 {
                     return NO_ASSERTION_INDEX;
                 }
