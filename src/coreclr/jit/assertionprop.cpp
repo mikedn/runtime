@@ -2062,6 +2062,14 @@ private:
             return nullptr;
         }
 
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("Propagating Const A%02d:\n", index - 1);
+            compiler->gtDispTree(lclVar, nullptr, nullptr, true);
+        }
+#endif
+
         const auto& val     = assertion->op2;
         GenTree*    conNode = nullptr;
 
@@ -2153,15 +2161,6 @@ private:
         assert(vnStore->IsVNConstant(val.vn));
 
         conNode->gtVNPair.SetBoth(val.vn);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nAssertion prop in " FMT_BB ":\n", compiler->compCurBB->bbNum);
-            DumpAssertion(assertion);
-            compiler->gtDispTree(conNode, nullptr, nullptr, true);
-        }
-#endif
 
         return UpdateTree(conNode, lclVar, stmt);
     }
@@ -2291,7 +2290,7 @@ private:
         {
             AssertionDsc* assertion = GetAssertion(index);
 
-            JITDUMP("Assertion #%02u: relop [%06u] %s 0\n", index, relop->GetID(),
+            JITDUMP("Propagating Const A%02d: relop [%06u] %s 0\n", index - 1, relop->GetID(),
                     (assertion->kind == OAK_EQUAL) ? "==" : "!=");
 
             if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
@@ -2337,7 +2336,8 @@ private:
             // We change op1 to be the same constant as op2 and then set the relop VN to 0/1.
             // Why don't we just change the relop to a constant like in the zero case above?
 
-            JITDUMP("Assertion #%02u: [%06u] %s ", index, op1->GetID(), assertion->kind == OAK_EQUAL ? "==" : "!=");
+            JITDUMP("Propagating Equality A%02d: [%06u] %s ", index - 1, op1->GetID(),
+                    assertion->kind == OAK_EQUAL ? "==" : "!=");
 
             if (varActualTypeIsInt(op1->GetType()))
             {
@@ -2427,7 +2427,7 @@ private:
         }
         else if (op2->OperIs(GT_LCL_VAR))
         {
-            JITDUMP("Assertion #%02u: V%02u.%02u %s V%02u.%02u\n", index, op1->AsLclVar()->GetLclNum(),
+            JITDUMP("Propagating Equality A%02d: V%02u.%02u %s V%02u.%02u\n", index - 1, op1->AsLclVar()->GetLclNum(),
                     op1->AsLclVar()->GetSsaNum(), (assertion->kind == OAK_EQUAL) ? "==" : "!=",
                     op2->AsLclVar()->GetLclNum(), op2->AsLclVar()->GetSsaNum());
 
@@ -2519,7 +2519,7 @@ private:
 #ifdef DEBUG
             if (verbose)
             {
-                printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", index, compiler->compCurBB->bbNum);
+                printf("Propagating Range A%02d:\n", index - 1);
                 compiler->gtDispTree(cast, nullptr, nullptr, true);
             }
 #endif
@@ -2546,7 +2546,7 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nSubrange prop for index #%02u in " FMT_BB ":\n", index, compiler->compCurBB->bbNum);
+            printf("Propagating Range A%02d:\n", index - 1);
             compiler->gtDispTree(cast, nullptr, nullptr, true);
         }
 #endif
@@ -2599,11 +2599,11 @@ private:
         {
             if (index == NO_ASSERTION_INDEX)
             {
-                printf("\nVN based non-null prop in " FMT_BB ":\n", compiler->compCurBB->bbNum);
+                printf("Known not null VN:\n");
             }
             else
             {
-                printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compiler->compCurBB->bbNum);
+                printf("Propagating NotNull A%02d:\n", index - 1);
             }
 
             compiler->gtDispTree(indir, nullptr, nullptr, true);
@@ -2701,11 +2701,11 @@ private:
         {
             if (index == NO_ASSERTION_INDEX)
             {
-                printf("\nVN based non-null prop in " FMT_BB ":\n", compiler->compCurBB->bbNum);
+                printf("Known not null VN:\n");
             }
             else
             {
-                printf("\nNon-null prop for index #%02u in " FMT_BB ":\n", index, compiler->compCurBB->bbNum);
+                printf("Propagating NotNull A%02d:\n", index - 1);
             }
 
             compiler->gtDispTree(call, nullptr, nullptr, true);
@@ -2759,7 +2759,7 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nDid VN based subtype prop for index #%02u in " FMT_BB ":\n", index, compiler->compCurBB->bbNum);
+            printf("Propagating Subtype A%02d:\n", index - 1);
             compiler->gtDispTree(call, nullptr, nullptr, true);
         }
 #endif
@@ -2859,8 +2859,7 @@ private:
 #ifdef DEBUG
             if (verbose)
             {
-                printf("\nVN based redundant (%s) bounds check assertion prop for index #%02u in " FMT_BB ":\n",
-                       message, index, compiler->compCurBB->bbNum);
+                printf("Propagating BoundsChk %s A%02d:\n", message, index - 1);
                 compiler->gtDispTree(boundsChk, nullptr, nullptr, true);
             }
 #endif
@@ -3035,9 +3034,9 @@ private:
 
                 if (BitVecOps::TryAddElemD(countTraits, assertions, notNullIndex - 1))
                 {
-                    JITDUMP("\napAddTypeImpliedNotNullAssertions: %s Assertion #%02d, implies assertion #%02d",
-                            (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type", typeIndex,
-                            notNullIndex);
+                    JITDUMP("%s A%02d implies A%02d\n",
+                            (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type", typeIndex - 1,
+                            notNullIndex - 1);
                 }
 
                 // There is at most one not null assertion that is implied by a type assertion.
@@ -3098,10 +3097,9 @@ private:
 
             if (BitVecOps::TryAddElemD(countTraits, result, en.Current()))
             {
-                INDEBUG(AssertionDsc* firstAssertion = GetAssertion(1));
-                JITDUMP("apAddConstImpliedAssertions: const assertion #%02d implies assertion #%02d\n",
-                        GetAssertionIndex(static_cast<unsigned>(constAssertion - firstAssertion)),
-                        GetAssertionIndex(static_cast<unsigned>(impliedAssertion - firstAssertion)));
+                JITDUMP("Const assertion A%02d implies assertion A%02d\n",
+                        static_cast<unsigned>(constAssertion - assertionTable),
+                        static_cast<unsigned>(impliedAssertion - assertionTable));
             }
         }
     }
@@ -3247,12 +3245,10 @@ private:
 
             if (BitVecOps::TryAddElemD(countTraits, result, impliedIndex - 1))
             {
-                INDEBUG(AssertionDsc* firstAssertion = GetAssertion(1));
-                JITDUMP(
-                    "\napAddCopyImpliedAssertions: copy assertion #%02d and assertion #%02d, implies assertion #%02d",
-                    GetAssertionIndex(static_cast<unsigned>(copyAssertion - firstAssertion)),
-                    GetAssertionIndex(static_cast<unsigned>(assertion - firstAssertion)),
-                    GetAssertionIndex(static_cast<unsigned>(impliedAssertion - firstAssertion)));
+                JITDUMP("Copy assertion A%02d and assertion A%02d imply assertion A%02d\n",
+                        static_cast<unsigned>(copyAssertion - assertionTable),
+                        static_cast<unsigned>(assertion - assertionTable),
+                        static_cast<unsigned>(impliedAssertion - assertionTable));
             }
 
             // If the depAssertion is a const assertion then any other assertions
@@ -3515,13 +3511,15 @@ private:
                     printf("\n");
                 }
 
-                printf(FMT_BB " valueGen = ", block->bbNum);
+                printf(FMT_BB " gen = ", block->bbNum);
                 DumpAssertionIndices("", block->bbAssertionGen, "");
+
                 if (block->bbJumpKind == BBJ_COND)
                 {
-                    printf(" => " FMT_BB " valueGen = ", block->bbJumpDest->bbNum);
+                    printf(", branch to " FMT_BB " gen = ", block->bbJumpDest->bbNum);
                     DumpAssertionIndices("", jumpDestGen[block->bbNum], "");
                 }
+
                 printf("\n");
 
                 if (block == compiler->fgLastBB)
@@ -4293,12 +4291,19 @@ private:
         {
             for (BasicBlock* const block : compiler->Blocks())
             {
-                printf(FMT_BB ":\n", block->bbNum);
-                DumpAssertionIndices(" in   = ", block->bbAssertionIn, "\n");
-                DumpAssertionIndices(" out  = ", block->bbAssertionOut, "\n");
-                if (block->bbJumpKind == BBJ_COND)
+                printf(FMT_BB ":\n in = ", block->bbNum);
+
+                DumpAssertionIndices("", block->bbAssertionIn, "\n");
+
+                if (block->bbJumpKind != BBJ_COND)
                 {
-                    printf(" " FMT_BB " = ", block->bbJumpDest->bbNum);
+                    DumpAssertionIndices(" out = ", block->bbAssertionOut, "\n");
+                }
+                else
+                {
+                    printf(" out(" FMT_BB ") = ", block->bbNext->bbNum);
+                    DumpAssertionIndices("", block->bbAssertionOut, "\n");
+                    printf(" out(" FMT_BB ") = ", block->bbJumpDest->bbNum);
                     DumpAssertionIndices("", jtrueAssertionOut[block->bbNum], "\n");
                 }
             }
@@ -4343,11 +4348,6 @@ private:
 
                 for (GenTree* node = stmt->GetNodeList(); node != nullptr; node = node->gtNext)
                 {
-                    INDEBUG(DumpAssertionIndices("Propagating ", assertions, " "));
-                    JITDUMP("for " FMT_BB ", stmt " FMT_STMT ", tree [%06u]", block->bbNum, stmt->GetID(),
-                            node->GetID());
-                    JITDUMP(", tree -> A%02d\n", node->GetAssertionInfo().GetAssertionIndex());
-
                     GenTree* newNode = PropagateNode(assertions, node, stmt, block);
 
                     if (newNode != nullptr)
@@ -4366,15 +4366,7 @@ private:
 
                 if (stmtMorphPending)
                 {
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Re-morphing this stmt:\n");
-                        compiler->gtDispStmt(stmt);
-                        printf("\n");
-                    }
-#endif
-
+                    JITDUMP("\nMorphing statement " FMT_STMT "\n", stmt->GetID())
                     compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNAssertionProp"));
                 }
 
@@ -4534,7 +4526,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
 
     if ((apAssertionTable <= assertion) && (assertion < apAssertionTable + apAssertionCount))
     {
-        printf("A%02d ", static_cast<int>(assertion - apAssertionTable) + 1);
+        printf("A%02d ", static_cast<int>(assertion - apAssertionTable));
     }
 
     printf("(" FMT_VN ", " FMT_VN ") ", op1.vn, op2.vn);
@@ -4693,13 +4685,16 @@ void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, 
         printf("%s", header);
     }
 
+    printf("{");
     const char* separator = "";
 
     for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
-        printf("%sA%02d", separator, GetAssertionIndex(en.Current()));
+        printf("%sA%02u", separator, en.Current());
         separator = ", ";
     }
+
+    printf("}");
 
     if (footer != nullptr)
     {
