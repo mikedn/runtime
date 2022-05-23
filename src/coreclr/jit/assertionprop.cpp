@@ -704,9 +704,9 @@ class AssertionProp
     Compiler*      compiler;
     ValueNumStore* vnStore;
 
-    AssertionDsc*&        assertionTable;
+    AssertionDsc*         assertionTable;
     AssertionIndex        assertionTableSize;
-    AssertionIndex&       assertionCount;
+    AssertionIndex        assertionCount;
     BitVecTraits*         sizeTraits;
     BitVecTraits*         countTraits;
     AssertionIndex*       invertedAssertions;
@@ -722,8 +722,6 @@ public:
     AssertionProp(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
-        , assertionTable(compiler->apAssertionTable)
-        , assertionCount(compiler->apAssertionCount)
 #ifdef DEBUG
         , verbose(compiler->verbose)
 #endif
@@ -746,6 +744,8 @@ public:
             PropagateAssertions();
         }
 
+        compiler->apAssertionTable    = assertionTable;
+        compiler->apAssertionCount    = assertionCount;
         compiler->apJTrueAssertionOut = jtrueAssertionOut;
 
 #ifdef DEBUG
@@ -3262,25 +3262,23 @@ private:
 
     class DataFlowCallback
     {
+        AssertionProp& ap;
+        BitVecTraits*  apTraits;
+
         ASSERT_TP preMergeOut;
         ASSERT_TP preMergeJumpDestOut;
 
         ASSERT_TP* mJumpDestOut;
         ASSERT_TP* mJumpDestGen;
 
-        BitVecTraits* apTraits;
-        INDEBUG(Compiler* compiler;)
-
     public:
-        DataFlowCallback(Compiler* compiler, BitVecTraits* apTraits, ASSERT_TP* jumpDestOut, ASSERT_TP* jumpDestGen)
-            : preMergeOut(BitVecOps::UninitVal())
+        DataFlowCallback(AssertionProp& ap, ASSERT_TP* jumpDestOut, ASSERT_TP* jumpDestGen)
+            : ap(ap)
+            , apTraits(ap.countTraits)
+            , preMergeOut(BitVecOps::UninitVal())
             , preMergeJumpDestOut(BitVecOps::UninitVal())
             , mJumpDestOut(jumpDestOut)
             , mJumpDestGen(jumpDestGen)
-            , apTraits(apTraits)
-#ifdef DEBUG
-            , compiler(compiler)
-#endif
         {
         }
 
@@ -3291,7 +3289,7 @@ private:
             if (VerboseDataflow())
             {
                 printf("StartMerge: " FMT_BB " ", block->bbNum);
-                compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n");
+                ap.DumpAssertionIndices("in -> ", block->bbAssertionIn, "\n");
             }
 #endif
 
@@ -3320,10 +3318,10 @@ private:
                     if (VerboseDataflow())
                     {
                         printf("Merge     : Duplicate flow, " FMT_BB " ", block->bbNum);
-                        compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+                        ap.DumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
                         printf("pred " FMT_BB " ", predBlock->bbNum);
-                        compiler->apDumpAssertionIndices("out1 -> ", mJumpDestOut[predBlock->bbNum], "; ");
-                        compiler->apDumpAssertionIndices("out2 -> ", predBlock->bbAssertionOut, "\n");
+                        ap.DumpAssertionIndices("out1 -> ", mJumpDestOut[predBlock->bbNum], "; ");
+                        ap.DumpAssertionIndices("out2 -> ", predBlock->bbAssertionOut, "\n");
                     }
 #endif
                 }
@@ -3337,9 +3335,9 @@ private:
             if (VerboseDataflow())
             {
                 printf("Merge     : " FMT_BB " ", block->bbNum);
-                compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+                ap.DumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
                 printf("pred " FMT_BB " ", predBlock->bbNum);
-                compiler->apDumpAssertionIndices("out -> ", pAssertionOut, "\n");
+                ap.DumpAssertionIndices("out -> ", pAssertionOut, "\n");
             }
 #endif
 
@@ -3363,11 +3361,11 @@ private:
             if (VerboseDataflow())
             {
                 printf("Merge     : " FMT_BB " ", block->bbNum);
-                compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
+                ap.DumpAssertionIndices("in -> ", block->bbAssertionIn, "; ");
                 printf("firstTryBlock " FMT_BB " ", firstTryBlock->bbNum);
-                compiler->apDumpAssertionIndices("in -> ", firstTryBlock->bbAssertionIn, "; ");
+                ap.DumpAssertionIndices("in -> ", firstTryBlock->bbAssertionIn, "; ");
                 printf("lastTryBlock " FMT_BB " ", lastTryBlock->bbNum);
-                compiler->apDumpAssertionIndices("out -> ", lastTryBlock->bbAssertionOut, "\n");
+                ap.DumpAssertionIndices("out -> ", lastTryBlock->bbAssertionOut, "\n");
             }
 #endif
 
@@ -3382,7 +3380,7 @@ private:
             if (VerboseDataflow())
             {
                 printf("EndMerge  : " FMT_BB " ", block->bbNum);
-                compiler->apDumpAssertionIndices("in -> ", block->bbAssertionIn, "\n\n");
+                ap.DumpAssertionIndices("in -> ", block->bbAssertionIn, "\n\n");
             }
 #endif
 
@@ -3399,16 +3397,16 @@ private:
                 if (changed)
                 {
                     printf("Changed   : " FMT_BB " ", block->bbNum);
-                    compiler->apDumpAssertionIndices("before out -> ", preMergeOut, "; ");
-                    compiler->apDumpAssertionIndices("after out -> ", block->bbAssertionOut, ";\n        ");
-                    compiler->apDumpAssertionIndices("jumpDest before out -> ", preMergeJumpDestOut, "; ");
-                    compiler->apDumpAssertionIndices("jumpDest after out -> ", mJumpDestOut[block->bbNum], ";\n\n");
+                    ap.DumpAssertionIndices("before out -> ", preMergeOut, "; ");
+                    ap.DumpAssertionIndices("after out -> ", block->bbAssertionOut, ";\n        ");
+                    ap.DumpAssertionIndices("jumpDest before out -> ", preMergeJumpDestOut, "; ");
+                    ap.DumpAssertionIndices("jumpDest after out -> ", mJumpDestOut[block->bbNum], ";\n\n");
                 }
                 else
                 {
                     printf("Unchanged : " FMT_BB " ", block->bbNum);
-                    compiler->apDumpAssertionIndices("out -> ", block->bbAssertionOut, "; ");
-                    compiler->apDumpAssertionIndices("jumpDest out -> ", mJumpDestOut[block->bbNum], "\n\n");
+                    ap.DumpAssertionIndices("out -> ", block->bbAssertionOut, "; ");
+                    ap.DumpAssertionIndices("jumpDest out -> ", mJumpDestOut[block->bbNum], "\n\n");
                 }
             }
 #endif
@@ -4272,7 +4270,7 @@ private:
 
         // Modified dataflow algorithm for available expressions.
         DataFlow         flow(compiler);
-        DataFlowCallback ap(compiler, countTraits, jtrueAssertionOut, jumpDestGen);
+        DataFlowCallback ap(*this, jtrueAssertionOut, jumpDestGen);
 
         if (ap.VerboseDataflow())
         {
@@ -4465,7 +4463,7 @@ private:
 
     void DumpAssertion(const AssertionDsc* assertion)
     {
-        compiler->apDumpAssertion(assertion);
+        compiler->apDumpAssertion(assertion, static_cast<unsigned>(assertion - assertionTable));
     }
 
     void DumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
@@ -4485,7 +4483,7 @@ void Compiler::apMain()
 
 #ifdef DEBUG
 
-void Compiler::apDumpAssertion(const AssertionDsc* assertion)
+void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
 {
     const auto  kind = assertion->kind;
     const auto& op1  = assertion->op1;
@@ -4522,14 +4520,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion)
         kindName = "Subrange";
     }
 
-    printf("%s assertion ", kindName);
-
-    if ((apAssertionTable <= assertion) && (assertion < apAssertionTable + apAssertionCount))
-    {
-        printf("A%02d ", static_cast<int>(assertion - apAssertionTable));
-    }
-
-    printf("(" FMT_VN ", " FMT_VN ") ", op1.vn, op2.vn);
+    printf("%s assertion A%02u (" FMT_VN ", " FMT_VN ") ", kindName, index, op1.vn, op2.vn);
 
     if ((op1.kind == O1K_LCLVAR) || (op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
     {
@@ -4760,6 +4751,6 @@ const AssertionDsc& BoundsAssertion::GetAssertion() const
 #ifdef DEBUG
 void Compiler::apDumpBoundsAssertion(BoundsAssertion assertion)
 {
-    apDumpAssertion(&assertion.GetAssertion());
+    apDumpAssertion(&assertion.GetAssertion(), static_cast<unsigned>(&assertion.GetAssertion() - apAssertionTable));
 }
 #endif
