@@ -1940,7 +1940,7 @@ private:
         }
     }
 
-    AssertionIndex AssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, var_types fromType, var_types toType)
+    AssertionDsc* AssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, var_types fromType, var_types toType)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -1982,13 +1982,13 @@ private:
                 continue;
             }
 
-            return index;
+            return assertion;
         }
 
-        return NO_ASSERTION_INDEX;
+        return nullptr;
     }
 
-    AssertionIndex AssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
+    AssertionDsc* AssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -2034,11 +2034,11 @@ private:
             if (vnStore->IsVNIntegralConstant(methodTableVN, &iconVal, &iconFlags) &&
                 (assertion->op2.intCon.value == iconVal))
             {
-                return index;
+                return assertion;
             }
         }
 
-        return NO_ASSERTION_INDEX;
+        return nullptr;
     }
 
     GenTree* PropagateLclVarConst(AssertionDsc*  assertion,
@@ -2205,7 +2205,7 @@ private:
         return nullptr;
     }
 
-    AssertionIndex AssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
+    AssertionDsc* AssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
     {
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
@@ -2227,7 +2227,7 @@ private:
 
             if (assertion->op1.vn == vn1)
             {
-                return index;
+                return assertion;
             }
 
             // Look for matching exact type assertions based on vtable accesses.
@@ -2238,15 +2238,15 @@ private:
                 if (addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF) &&
                     (assertion->op1.vn == vnStore->VNNormalValue(addr->GetConservativeVN())))
                 {
-                    return index;
+                    return assertion;
                 }
             }
         }
 
-        return NO_ASSERTION_INDEX;
+        return nullptr;
     }
 
-    AssertionIndex AssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1)
+    AssertionDsc* AssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1)
     {
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNZeroForType(op1->GetType());
@@ -2263,11 +2263,11 @@ private:
 
             if ((assertion->op1.vn == vn1) && (assertion->op2.vn == vn2))
             {
-                return index;
+                return assertion;
             }
         }
 
-        return NO_ASSERTION_INDEX;
+        return nullptr;
     }
 
     GenTree* PropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt)
@@ -2277,13 +2277,11 @@ private:
         GenTree* op1 = relop->GetOp(0);
         GenTree* op2 = relop->GetOp(1);
 
-        AssertionIndex index = AssertionIsZeroEquality(assertions, relop);
+        AssertionDsc* assertion = AssertionIsZeroEquality(assertions, relop);
 
-        if (index != NO_ASSERTION_INDEX)
+        if (assertion != nullptr)
         {
-            AssertionDsc* assertion = GetAssertion(index);
-
-            JITDUMP("Propagating Const A%02d: relop [%06u] %s 0\n", index - 1, relop->GetID(),
+            JITDUMP("Propagating Const A%02d: relop [%06u] %s 0\n", assertion - assertionTable, relop->GetID(),
                     (assertion->kind == OAK_EQUAL) ? "==" : "!=");
 
             if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
@@ -2312,16 +2310,15 @@ private:
             return nullptr;
         }
 
-        index = AssertionIsEquality(assertions, op1, op2);
+        assertion = AssertionIsEquality(assertions, op1, op2);
 
-        if (index == NO_ASSERTION_INDEX)
+        if (assertion == nullptr)
         {
             return nullptr;
         }
 
-        AssertionDsc* assertion    = GetAssertion(index);
-        ValueNum      op2VN        = vnStore->VNNormalValue(op2->GetConservativeVN());
-        bool          allowReverse = true;
+        ValueNum op2VN        = vnStore->VNNormalValue(op2->GetConservativeVN());
+        bool     allowReverse = true;
 
         if (vnStore->IsVNConstant(op2VN))
         {
@@ -2329,7 +2326,7 @@ private:
             // We change op1 to be the same constant as op2 and then set the relop VN to 0/1.
             // Why don't we just change the relop to a constant like in the zero case above?
 
-            JITDUMP("Propagating Equality A%02d: [%06u] %s ", index - 1, op1->GetID(),
+            JITDUMP("Propagating Equality A%02d: [%06u] %s ", assertion - assertionTable, op1->GetID(),
                     assertion->kind == OAK_EQUAL ? "==" : "!=");
 
             if (varActualTypeIsInt(op1->GetType()))
@@ -2420,9 +2417,10 @@ private:
         }
         else if (op2->OperIs(GT_LCL_VAR))
         {
-            JITDUMP("Propagating Equality A%02d: V%02u.%02u %s V%02u.%02u\n", index - 1, op1->AsLclVar()->GetLclNum(),
-                    op1->AsLclVar()->GetSsaNum(), (assertion->kind == OAK_EQUAL) ? "==" : "!=",
-                    op2->AsLclVar()->GetLclNum(), op2->AsLclVar()->GetSsaNum());
+            JITDUMP("Propagating Equality A%02d: V%02u.%02u %s V%02u.%02u\n", assertion - assertionTable,
+                    op1->AsLclVar()->GetLclNum(), op1->AsLclVar()->GetSsaNum(),
+                    (assertion->kind == OAK_EQUAL) ? "==" : "!=", op2->AsLclVar()->GetLclNum(),
+                    op2->AsLclVar()->GetSsaNum());
 
             // If floating point, don't just substitute op1 with op2, this won't work if
             // op2 is NaN. Just turn it into a "true" or "false" yielding expression.
@@ -2486,10 +2484,10 @@ private:
             return nullptr;
         }
 
-        ValueNum       vn    = vnStore->VNNormalValue(lclVar->GetConservativeVN());
-        AssertionIndex index = AssertionIsSubrange(assertions, vn, fromType, toType);
+        ValueNum      vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
+        AssertionDsc* assertion = AssertionIsSubrange(assertions, vn, fromType, toType);
 
-        if (index == NO_ASSERTION_INDEX)
+        if (assertion == NO_ASSERTION_INDEX)
         {
             return nullptr;
         }
@@ -2512,7 +2510,7 @@ private:
 #ifdef DEBUG
             if (verbose)
             {
-                printf("Propagating Range A%02d:\n", index - 1);
+                printf("Propagating Range A%02d:\n", assertion - assertionTable);
                 compiler->gtDispTree(cast, nullptr, nullptr, true);
             }
 #endif
@@ -2539,7 +2537,7 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Propagating Range A%02d:\n", index - 1);
+            printf("Propagating Range A%02d:\n", assertion - assertionTable);
             compiler->gtDispTree(cast, nullptr, nullptr, true);
         }
 #endif
@@ -2741,10 +2739,10 @@ private:
             return nullptr;
         }
 
-        ValueNum objectVN = vnStore->VNNormalValue(objectArg->GetConservativeVN());
-        unsigned index    = AssertionIsSubtype(assertions, objectVN, call->GetArgNodeByArgNum(0));
+        ValueNum      objectVN  = vnStore->VNNormalValue(objectArg->GetConservativeVN());
+        AssertionDsc* assertion = AssertionIsSubtype(assertions, objectVN, call->GetArgNodeByArgNum(0));
 
-        if (index == NO_ASSERTION_INDEX)
+        if (assertion == nullptr)
         {
             return nullptr;
         }
@@ -2752,7 +2750,7 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Propagating Subtype A%02d:\n", index - 1);
+            printf("Propagating Subtype A%02d:\n", assertion - assertionTable);
             compiler->gtDispTree(call, nullptr, nullptr, true);
         }
 #endif
