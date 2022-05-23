@@ -221,7 +221,7 @@ void RangeCheck::OptimizeRangeCheck(BasicBlock* block, Statement* stmt, GenTree*
 
         // if we can't find the array length, see if there
         // are any assertions about the array size we can use to get a minimum length
-        if (arrSize <= 0)
+        if ((arrSize <= 0) && (m_pCompiler->GetAssertionCount() != 0))
         {
             JITDUMP("Looking for array size assertions for: " FMT_VN "\n", arrLenVn);
             Range arrLength = Range(Limit(Limit::keDependent));
@@ -748,6 +748,12 @@ void RangeCheck::MergeAssertion(BasicBlock* block, GenTree* op, Range* pRange DE
 {
     JITDUMP("Merging assertions from pred edges of " FMT_BB " for op [%06d] " FMT_VN "\n", block->bbNum,
             Compiler::dspTreeID(op), m_pCompiler->vnStore->VNConservativeNormalValue(op->gtVNPair));
+
+    if (m_pCompiler->GetAssertionCount() == 0)
+    {
+        return;
+    }
+
     ASSERT_TP assertions = BitVecOps::UninitVal();
 
     // If we have a phi arg, we can get to the block from it and use its assertion out.
@@ -763,12 +769,9 @@ void RangeCheck::MergeAssertion(BasicBlock* block, GenTree* op, Range* pRange DE
         }
         else if ((pred->bbJumpKind == BBJ_COND || pred->bbJumpKind == BBJ_ALWAYS) && pred->bbJumpDest == block)
         {
-            if (m_pCompiler->apJTrueAssertionOut != nullptr)
-            {
-                assertions = m_pCompiler->apJTrueAssertionOut[pred->bbNum];
-                JITDUMP("Merge assertions from pred " FMT_BB " JTrue edge: ", pred->bbNum);
-                INDEBUG(m_pCompiler->apDumpAssertionIndices("", assertions, "\n"));
-            }
+            assertions = m_pCompiler->apJTrueAssertionOut[pred->bbNum];
+            JITDUMP("Merge assertions from pred " FMT_BB " JTrue edge: ", pred->bbNum);
+            INDEBUG(m_pCompiler->apDumpAssertionIndices("", assertions, "\n"));
         }
     }
     // Get assertions from bbAssertionIn.
@@ -777,7 +780,7 @@ void RangeCheck::MergeAssertion(BasicBlock* block, GenTree* op, Range* pRange DE
         assertions = block->bbAssertionIn;
     }
 
-    if (!BitVecOps::MayBeUninit(assertions) && (m_pCompiler->GetAssertionCount() > 0))
+    if (!BitVecOps::MayBeUninit(assertions))
     {
         // Perform the merge step to fine tune the range value.
         MergeEdgeAssertions(op->AsLclVarCommon(), assertions, pRange);
@@ -903,7 +906,7 @@ Range RangeCheck::ComputeRangeForLocalDef(BasicBlock*          block,
     }
 #endif
     Range range = GetRange(ssaDef->GetBlock(), ssaDef->GetAssignment()->gtGetOp2(), monIncreasing DEBUGARG(indent));
-    if (!BitVecOps::MayBeUninit(block->bbAssertionIn) && (m_pCompiler->GetAssertionCount() > 0))
+    if ((m_pCompiler->GetAssertionCount() > 0) && !BitVecOps::MayBeUninit(block->bbAssertionIn))
     {
         JITDUMP("Merge assertions from " FMT_BB ": ", block->bbNum);
         INDEBUG(m_pCompiler->apDumpAssertionIndices("", block->bbAssertionIn, " "));

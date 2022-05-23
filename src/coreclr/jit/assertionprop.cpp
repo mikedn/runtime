@@ -734,12 +734,19 @@ public:
 
     void Run()
     {
+#ifdef DEBUG
         DBEXEC(verbose, compiler->fgDispBasicBlocks(true);)
+        compiler->fgDebugCheckLinks();
+#endif
 
         Init();
         GenerateAssertions();
-        ComputeAvailability();
-        PropagateAssertions();
+
+        if (assertionCount != 0)
+        {
+            ComputeAvailability();
+            PropagateAssertions();
+        }
 
 #ifdef DEBUG
         compiler->fgDebugCheckBBlist();
@@ -4260,20 +4267,6 @@ private:
     void ComputeAvailability()
     {
         countTraits = new (compiler->getAllocator(CMK_AssertionProp)) BitVecTraits(assertionCount, compiler);
-
-        if (assertionCount == 0)
-        {
-            // Zero out bbAssertionIn as it can be referenced in RangeCheck::MergeAssertion
-            // and this member overlaps with bbCseIn used by the CSE phase.
-            for (BasicBlock* const block : compiler->Blocks())
-            {
-                block->bbAssertionIn = BitVecOps::UninitVal();
-            }
-
-            return;
-        }
-
-        INDEBUG(compiler->fgDebugCheckLinks());
 
         // Allocate the bits for the predicate sensitive dataflow analysis
         jtrueAssertionOut      = InitAssertionDataflowSets();
