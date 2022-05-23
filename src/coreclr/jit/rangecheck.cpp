@@ -496,7 +496,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
         return;
     }
 
-    for (BitVecOps::Enumerator en(m_pCompiler->apTraits, assertions); en.MoveNext();)
+    BitVecTraits apTraits(m_pCompiler->GetAssertionCount(), m_pCompiler);
+    for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
     {
         BoundsAssertion assertion = m_pCompiler->apGetBoundsAssertion(en.Current());
 

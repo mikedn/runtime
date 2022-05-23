@@ -708,7 +708,7 @@ class AssertionProp
     AssertionIndex        assertionTableSize;
     AssertionIndex&       assertionCount;
     BitVecTraits*         sizeTraits;
-    BitVecTraits*&        countTraits;
+    BitVecTraits*         countTraits;
     AssertionIndex*       invertedAssertions;
     ValueNumToAssertsMap* vnAssertionMap;
     ASSERT_TP*&           jtrueAssertionOut;
@@ -724,7 +724,6 @@ public:
         , vnStore(compiler->vnStore)
         , assertionTable(compiler->apAssertionTable)
         , assertionCount(compiler->apAssertionCount)
-        , countTraits(compiler->apTraits)
         , jtrueAssertionOut(compiler->apJTrueAssertionOut)
 #ifdef DEBUG
         , verbose(compiler->verbose)
@@ -4688,7 +4687,8 @@ void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, 
     printf("{");
     const char* separator = "";
 
-    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
+    BitVecTraits apTraits(apAssertionCount, this);
+    for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
     {
         printf("%sA%02u", separator, en.Current());
         separator = ", ";

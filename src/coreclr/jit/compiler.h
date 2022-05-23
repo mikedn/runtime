@@ -5852,10 +5852,6 @@ public:
     /**************************************************************************
      *               Value/Assertion propagation
      *************************************************************************/
-public:
-    // Data structures for assertion prop
-    BitVecTraits* apTraits;
-
 protected:
     static fgWalkPreFn optAddCopiesCallback;
     static fgWalkPreFn optVNAssertionPropStmtVisitor;
