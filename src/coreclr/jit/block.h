@@ -1117,16 +1117,6 @@ struct BasicBlock : private LIR::Range
     void* bbUnwindNopEmitCookie;
 #endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 
-#ifdef VERIFIER
-    stackDesc bbStackIn;  // stack descriptor for  input
-    stackDesc bbStackOut; // stack descriptor for output
-
-    verTypeVal* bbTypesIn;  // list of variable types on  input
-    verTypeVal* bbTypesOut; // list of variable types on output
-#endif                      // VERIFIER
-
-//-------------------------------------------------------------------------
-
 #if MEASURE_BLOCK_SIZE
     static size_t s_Size;
     static size_t s_Count;
