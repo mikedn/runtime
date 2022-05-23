@@ -1259,12 +1259,7 @@ void Compiler::optValnumCSE_DataFlow()
     }
 #endif // DEBUG
 
-    CSE_DataFlow cse(this);
-
-    // Modified dataflow algorithm for available expressions.
-    DataFlow cse_flow(this);
-
-    cse_flow.ForwardAnalysis(cse);
+    ForwardDataFlow(CSE_DataFlow(this), this);
 
 #ifdef DEBUG
     if (verbose)

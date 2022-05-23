@@ -4262,16 +4262,7 @@ private:
         InitAssertionDataflowSets();
         ComputeBlockAssertionGen();
 
-        // Modified dataflow algorithm for available expressions.
-        DataFlow         flow(compiler);
-        DataFlowCallback ap(*this);
-
-        if (ap.VerboseDataflow())
-        {
-            JITDUMP("DataFlowCallback:\n\n")
-        }
-
-        flow.ForwardAnalysis(ap);
+        ForwardDataFlow(DataFlowCallback(*this), compiler);
 
         for (BasicBlock* const block : compiler->Blocks())
         {

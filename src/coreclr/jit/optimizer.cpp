@@ -41,10 +41,6 @@ void Compiler::optInit()
     optCSEcount          = 0;
 }
 
-DataFlow::DataFlow(Compiler* pCompiler) : m_pCompiler(pCompiler)
-{
-}
-
 //------------------------------------------------------------------------
 // optSetBlockWeights: adjust block weights, as follows:
 // 1. A block that is not reachable from the entry block is marked "run rarely".
