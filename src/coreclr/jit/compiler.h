@@ -5858,9 +5858,6 @@ protected:
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-#ifdef DEBUG
-    GenTree* optAssertionPropCurrentTree;
-#endif
     AssertionDsc*  apAssertionTable; // table that holds info about value assignments
     AssertionIndex apAssertionCount; // total number of assertions in the assertion table
 
@@ -5870,6 +5867,7 @@ public:
         return apAssertionCount;
     }
     ASSERT_TP* apJTrueAssertionOut;
+
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
     struct MorphAssertionBitVecTraits;
@@ -5917,6 +5915,7 @@ private:
 
 #ifdef DEBUG
     unsigned morphAssertionId;
+    GenTree* morphAssertionCurrentTree;
     void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
 #endif
 #endif
