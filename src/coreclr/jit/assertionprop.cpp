@@ -707,8 +707,8 @@ class AssertionProp
     AssertionDsc*         assertionTable;
     AssertionIndex        assertionTableSize;
     AssertionIndex        assertionCount;
-    BitVecTraits*         sizeTraits;
-    BitVecTraits*         countTraits;
+    BitVecTraits          sizeTraits;
+    BitVecTraits          countTraits;
     AssertionIndex*       invertedAssertions;
     ValueNumToAssertsMap* vnAssertionMap;
     ASSERT_TP*            jtrueAssertionGen;
@@ -723,6 +723,8 @@ public:
     AssertionProp(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
+        , sizeTraits(0, compiler)
+        , countTraits(0, compiler)
 #ifdef DEBUG
         , verbose(compiler->verbose)
 #endif
@@ -775,8 +777,7 @@ private:
         assertionTable     = new (allocator) AssertionDsc[assertionTableSize];
         invertedAssertions = new (allocator) AssertionIndex[assertionTableSize + 1]();
         vnAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
-        sizeTraits         = new (allocator) BitVecTraits(assertionTableSize, compiler);
-        countTraits        = nullptr;
+        sizeTraits         = BitVecTraits(assertionTableSize, compiler);
         assertionCount     = 0;
         jtrueAssertionOut  = nullptr;
     }
@@ -1473,11 +1474,11 @@ private:
 
         if (*set == BitVecOps::UninitVal())
         {
-            *set = BitVecOps::MakeSingleton(sizeTraits, index - 1);
+            *set = BitVecOps::MakeSingleton(&sizeTraits, index - 1);
         }
         else
         {
-            BitVecOps::AddElemD(sizeTraits, *set, index - 1);
+            BitVecOps::AddElemD(&sizeTraits, *set, index - 1);
         }
     }
 
@@ -1950,7 +1951,7 @@ private:
 
     AssertionIndex AssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, var_types fromType, var_types toType)
     {
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
@@ -1998,7 +1999,7 @@ private:
 
     AssertionIndex AssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
     {
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
@@ -2175,7 +2176,7 @@ private:
             return nullptr;
         }
 
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
@@ -2218,7 +2219,7 @@ private:
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
 
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
@@ -2259,7 +2260,7 @@ private:
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNZeroForType(op1->GetType());
 
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
@@ -2648,7 +2649,7 @@ private:
             }
         }
 
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
@@ -2798,7 +2799,7 @@ private:
         ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
         ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
 
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
@@ -2953,7 +2954,7 @@ private:
             return;
         }
 
-        if (BitVecOps::IsEmpty(countTraits, assertions))
+        if (BitVecOps::IsEmpty(&countTraits, assertions))
         {
             if ((assertion->kind == OAK_EQUAL) && (assertion->op1.kind == O1K_LCLVAR) &&
                 (assertion->op2.kind == O2K_CONST_INT))
@@ -2974,7 +2975,7 @@ private:
         const ASSERT_TP vn2Assertions =
             assertion->op2.kind != O2K_LCLVAR_COPY ? BitVecOps::UninitVal() : GetVNAssertions(assertion->op2.vn);
 
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex impliedIndex = GetAssertionIndex(en.Current());
 
@@ -2983,9 +2984,9 @@ private:
                 continue;
             }
 
-            if (!BitVecOps::IsMember(sizeTraits, vn1Assertions, en.Current()) &&
+            if (!BitVecOps::IsMember(&sizeTraits, vn1Assertions, en.Current()) &&
                 ((vn2Assertions == BitVecOps::UninitVal()) ||
-                 !BitVecOps::IsMember(sizeTraits, vn1Assertions, en.Current())))
+                 !BitVecOps::IsMember(&sizeTraits, vn1Assertions, en.Current())))
             {
                 continue;
             }
@@ -3005,7 +3006,7 @@ private:
 
     void AddTypeImpliedNotNullAssertions(ASSERT_TP& assertions)
     {
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex typeIndex     = GetAssertionIndex(en.Current());
             AssertionDsc*  typeAssertion = GetAssertion(typeIndex);
@@ -3033,7 +3034,7 @@ private:
                     continue;
                 }
 
-                if (BitVecOps::TryAddElemD(countTraits, assertions, notNullIndex - 1))
+                if (BitVecOps::TryAddElemD(&countTraits, assertions, notNullIndex - 1))
                 {
                     JITDUMP("%s A%02d implies A%02d\n",
                             (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type", typeIndex - 1,
@@ -3060,7 +3061,7 @@ private:
 
         ssize_t value = constAssertion->op2.intCon.value;
 
-        for (BitVecOps::Enumerator en(sizeTraits, vnAssertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
             AssertionIndex impliedIndex     = GetAssertionIndex(en.Current());
             AssertionDsc*  impliedAssertion = GetAssertion(impliedIndex);
@@ -3096,7 +3097,7 @@ private:
                 continue;
             }
 
-            if (BitVecOps::TryAddElemD(countTraits, result, en.Current()))
+            if (BitVecOps::TryAddElemD(&countTraits, result, en.Current()))
             {
                 JITDUMP("Const assertion A%02d implies assertion A%02d\n",
                         static_cast<unsigned>(constAssertion - assertionTable),
@@ -3244,7 +3245,7 @@ private:
                 }
             }
 
-            if (BitVecOps::TryAddElemD(countTraits, result, impliedIndex - 1))
+            if (BitVecOps::TryAddElemD(&countTraits, result, impliedIndex - 1))
             {
                 JITDUMP("Copy assertion A%02d and assertion A%02d imply assertion A%02d\n",
                         static_cast<unsigned>(copyAssertion - assertionTable),
@@ -3273,7 +3274,7 @@ private:
     public:
         DataFlowCallback(AssertionProp& ap)
             : ap(ap)
-            , apTraits(ap.countTraits)
+            , apTraits(&ap.countTraits)
             , jtrueAssertionGen(ap.jtrueAssertionGen)
             , jtrueAssertionOut(ap.jtrueAssertionOut)
             , preMergeOut(BitVecOps::UninitVal())
@@ -3429,7 +3430,7 @@ private:
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            ASSERT_TP valueGen = BitVecOps::MakeEmpty(countTraits);
+            ASSERT_TP valueGen = BitVecOps::MakeEmpty(&countTraits);
             GenTree*  jtrue    = nullptr;
 
             for (Statement* const stmt : block->Statements())
@@ -3448,7 +3449,7 @@ private:
                     {
                         AssertionInfo info = node->GetAssertionInfo();
                         AddImpliedAssertions(info.GetAssertionIndex(), valueGen);
-                        BitVecOps::AddElemD(countTraits, valueGen, info.GetAssertionIndex() - 1);
+                        BitVecOps::AddElemD(&countTraits, valueGen, info.GetAssertionIndex() - 1);
                     }
                 }
             }
@@ -3457,12 +3458,12 @@ private:
 
             if (jtrue == nullptr)
             {
-                jumpDestValueGen = BitVecOps::MakeEmpty(countTraits);
+                jumpDestValueGen = BitVecOps::MakeEmpty(&countTraits);
             }
             else
             {
                 // Copy whatever we have accumulated into jumpDest edge's valueGen.
-                jumpDestValueGen = BitVecOps::MakeCopy(countTraits, valueGen);
+                jumpDestValueGen = BitVecOps::MakeCopy(&countTraits, valueGen);
 
                 if (jtrue->GeneratesAssertion())
                 {
@@ -3485,14 +3486,14 @@ private:
                     {
                         // Update valueGen if we have an assertion for the bbNext edge
                         AddImpliedAssertions(valueAssertionIndex, valueGen);
-                        BitVecOps::AddElemD(countTraits, valueGen, valueAssertionIndex - 1);
+                        BitVecOps::AddElemD(&countTraits, valueGen, valueAssertionIndex - 1);
                     }
 
                     if (jumpDestAssertionIndex != NO_ASSERTION_INDEX)
                     {
                         // Update jumpDestValueGen if we have an assertion for the bbJumpDest edge
                         AddImpliedAssertions(jumpDestAssertionIndex, jumpDestValueGen);
-                        BitVecOps::AddElemD(countTraits, jumpDestValueGen, jumpDestAssertionIndex - 1);
+                        BitVecOps::AddElemD(&countTraits, jumpDestValueGen, jumpDestAssertionIndex - 1);
                     }
                 }
             }
@@ -3536,17 +3537,17 @@ private:
         // Also set the IN sets to 1, so that we can perform the intersection.
         for (BasicBlock* const block : compiler->Blocks())
         {
-            block->bbAssertionGen = BitVecOps::MakeEmpty(countTraits);
+            block->bbAssertionGen = BitVecOps::MakeEmpty(&countTraits);
 
-            block->bbAssertionIn  = BitVecOps::MakeFull(countTraits);
-            block->bbAssertionOut = BitVecOps::MakeFull(countTraits);
+            block->bbAssertionIn  = BitVecOps::MakeFull(&countTraits);
+            block->bbAssertionOut = BitVecOps::MakeFull(&countTraits);
 
-            jtrueAssertionOut[block->bbNum] = BitVecOps::MakeFull(countTraits);
+            jtrueAssertionOut[block->bbNum] = BitVecOps::MakeFull(&countTraits);
         }
 
         // Compute the data flow values for all tracked expressions
         // IN and OUT never change for the initial basic block B1
-        BitVecOps::ClearD(countTraits, compiler->fgFirstBB->bbAssertionIn);
+        BitVecOps::ClearD(&countTraits, compiler->fgFirstBB->bbAssertionIn);
     }
 
     GenTree* ExtractConstantSideEffects(GenTree* tree)
@@ -4257,7 +4258,7 @@ private:
 
     void ComputeAvailability()
     {
-        countTraits = new (compiler->getAllocator(CMK_AssertionProp)) BitVecTraits(assertionCount, compiler);
+        countTraits = BitVecTraits(assertionCount, compiler);
 
         InitAssertionDataflowSets();
         ComputeBlockAssertionGen();
@@ -4297,11 +4298,11 @@ private:
 
     void PropagateAssertions()
     {
-        ASSERT_TP assertions = BitVecOps::MakeEmpty(countTraits);
+        ASSERT_TP assertions = BitVecOps::MakeEmpty(&countTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            BitVecOps::Assign(countTraits, assertions, block->bbAssertionIn);
+            BitVecOps::Assign(&countTraits, assertions, block->bbAssertionIn);
 
             // TODO-Review: EH successor/predecessor iteration seems broken.
             // SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
@@ -4343,7 +4344,7 @@ private:
                     {
                         AssertionInfo info = node->GetAssertionInfo();
                         AddImpliedAssertions(info.GetAssertionIndex(), assertions);
-                        BitVecOps::AddElemD(countTraits, assertions, info.GetAssertionIndex() - 1);
+                        BitVecOps::AddElemD(&countTraits, assertions, info.GetAssertionIndex() - 1);
                     }
                 }
 
@@ -4442,7 +4443,7 @@ private:
 
         for (const auto& pair : *vnAssertionMap)
         {
-            printf("$%u => %s\n", pair.key, BitVecOps::ToString(countTraits, pair.value));
+            printf("$%u => %s\n", pair.key, BitVecOps::ToString(&countTraits, pair.value));
         }
     }
 
