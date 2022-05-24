@@ -499,7 +499,6 @@ enum ApOp1Kind : uint8_t
 enum ApOp2Kind : uint8_t
 {
     O2K_INVALID,
-    O2K_LCLVAR_COPY,
     O2K_IND_CNS_INT,
     O2K_CONST_INT,
 #ifndef TARGET_64BIT
@@ -605,7 +604,6 @@ struct AssertionDsc
         ApOp2Kind kind;
         ValueNum  vn;
         union {
-            LclVar lcl;
             IntCon intCon;
 #ifndef TARGET_64BIT
             LngCon lngCon;
@@ -646,8 +644,6 @@ struct AssertionDsc
 
         switch (op2.kind)
         {
-            case O2K_LCLVAR_COPY:
-                return op2.lcl == that.op2.lcl;
             case O2K_IND_CNS_INT:
             case O2K_CONST_INT:
                 return op2.intCon == that.op2.intCon;
@@ -1127,10 +1123,8 @@ private:
                     return NO_ASSERTION_INDEX;
                 }
 
-                assertion.op2.kind       = O2K_LCLVAR_COPY;
-                assertion.op2.vn         = vnStore->VNNormalValue(op2->GetConservativeVN());
-                assertion.op2.lcl.lclNum = op2->AsLclVar()->GetLclNum();
-                assertion.op2.lcl.ssaNum = op2->AsLclVar()->GetSsaNum();
+                assertion.op2.kind = O2K_VALUE_NUMBER;
+                assertion.op2.vn   = vnStore->VNNormalValue(op2->GetConservativeVN());
                 break;
             }
 
@@ -4182,7 +4176,6 @@ private:
             case O2K_CONST_LONG:
 #endif
             case O2K_CONST_DOUBLE:
-            case O2K_LCLVAR_COPY:
             case O2K_SUBRANGE:
             case O2K_VALUE_NUMBER:
                 break;
@@ -4253,7 +4246,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
     {
         kindName = "ArrayBounds";
     }
-    else if (op2.kind == O2K_LCLVAR_COPY)
+    else if (op2.kind == O2K_VALUE_NUMBER)
     {
         kindName = "Copy";
     }
@@ -4339,14 +4332,6 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
 
     switch (op2.kind)
     {
-        case O2K_LCLVAR_COPY:
-            printf("V%02u", op2.lcl.lclNum);
-            if (op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-            {
-                printf(".%02u", op1.lcl.ssaNum);
-            }
-            break;
-
         case O2K_CONST_INT:
         case O2K_IND_CNS_INT:
             if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
