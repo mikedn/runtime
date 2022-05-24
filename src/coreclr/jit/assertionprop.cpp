@@ -516,16 +516,6 @@ struct AssertionDsc
     {
         unsigned lclNum;
         unsigned ssaNum;
-
-        bool operator==(const LclVar& other) const
-        {
-            return (lclNum == other.lclNum) && (ssaNum == other.ssaNum);
-        }
-
-        bool operator!=(const LclVar& other) const
-        {
-            return (lclNum != other.lclNum) || (ssaNum != other.ssaNum);
-        }
     };
 
     struct IntCon
@@ -1288,12 +1278,10 @@ private:
 
         assert(vn1 == vnStore->VNNormalValue(lcl->GetPerSsaData(addr->GetSsaNum())->GetConservativeVN()));
 
-        assertion.kind           = kind;
-        assertion.op1.kind       = O1K_EXACT_TYPE;
-        assertion.op1.vn         = vn1;
-        assertion.op1.lcl.lclNum = addr->GetLclNum();
-        assertion.op1.lcl.ssaNum = addr->GetSsaNum();
-        assertion.op2.vn         = vn2;
+        assertion.kind     = kind;
+        assertion.op1.kind = O1K_EXACT_TYPE;
+        assertion.op1.vn   = vn1;
+        assertion.op2.vn   = vn2;
 
 #ifdef TARGET_64BIT
         if (op2->TypeIs(TYP_LONG))
@@ -1361,8 +1349,6 @@ private:
         assertion.kind             = kind;
         assertion.op1.kind         = O1K_SUBTYPE;
         assertion.op1.vn           = vn1;
-        assertion.op1.lcl.lclNum   = op1->AsLclVar()->GetLclNum();
-        assertion.op1.lcl.ssaNum   = op1->AsLclVar()->GetSsaNum();
         assertion.op2.vn           = vn2;
         assertion.op2.intCon.value = op2->AsIntCon()->GetValue();
         assertion.op2.intCon.flags = op2->GetIconHandleFlag();
@@ -4131,10 +4117,10 @@ private:
         switch (op1.kind)
         {
             case O1K_LCLVAR:
-            case O1K_EXACT_TYPE:
-            case O1K_SUBTYPE:
                 assert(compiler->lvaGetDesc(op1.lcl.lclNum)->lvPerSsaData.IsValidSsaNum(op1.lcl.ssaNum));
                 break;
+            case O1K_EXACT_TYPE:
+            case O1K_SUBTYPE:
             case O1K_BOUND_OPER_BND:
             case O1K_BOUND_LOOP_BND:
             case O1K_CONSTANT_LOOP_BND:
@@ -4265,7 +4251,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
 
     printf("%s assertion A%02u (" FMT_VN ", " FMT_VN ") ", kindName, index, op1.vn, op2.vn);
 
-    if ((op1.kind == O1K_LCLVAR) || (op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+    if (op1.kind == O1K_LCLVAR)
     {
         printf("V%02u", op1.lcl.lclNum);
 
@@ -4287,6 +4273,16 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
     else if (op1.kind == O1K_CONSTANT_LOOP_BND)
     {
         printf("ConstLoopBound");
+        vnStore->vnDump(this, op1.vn);
+    }
+    else if (op1.kind == O1K_EXACT_TYPE)
+    {
+        printf("ExactType");
+        vnStore->vnDump(this, op1.vn);
+    }
+    else if (op1.kind == O1K_SUBTYPE)
+    {
+        printf("Subtype");
         vnStore->vnDump(this, op1.vn);
     }
     else if (op1.kind == O1K_VALUE_NUMBER)
