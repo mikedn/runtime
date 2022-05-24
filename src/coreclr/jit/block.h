@@ -1093,7 +1093,7 @@ struct BasicBlock : private LIR::Range
     union {
         EXPSET_TP bbCseGen; // CSEs computed by block
 #if ASSERTION_PROP
-        ASSERT_TP bbAssertionGen; // value assignments computed by block
+        ASSERT_TP bbAssertionOutJumpDest; // out assertions for bbJumpDest
 #endif
     };
 

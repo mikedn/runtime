@@ -5866,7 +5866,6 @@ public:
     {
         return apAssertionCount;
     }
-    ASSERT_TP* apJTrueAssertionOut;
 
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
