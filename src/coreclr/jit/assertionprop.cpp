@@ -3419,8 +3419,8 @@ private:
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            ASSERT_TP valueGen = BitVecOps::MakeEmpty(&countTraits);
-            GenTree*  jtrue    = nullptr;
+            ASSERT_TP assertions = BitVecOps::MakeEmpty(&countTraits);
+            GenTree*  jtrue      = nullptr;
 
             for (Statement* const stmt : block->Statements())
             {
@@ -3437,60 +3437,55 @@ private:
                     if (node->GeneratesAssertion())
                     {
                         AssertionInfo info = node->GetAssertionInfo();
-                        AddImpliedAssertions(info.GetAssertionIndex(), valueGen);
-                        BitVecOps::AddElemD(&countTraits, valueGen, info.GetAssertionIndex() - 1);
+                        AddImpliedAssertions(info.GetAssertionIndex(), assertions);
+                        BitVecOps::AddElemD(&countTraits, assertions, info.GetAssertionIndex() - 1);
                     }
                 }
             }
 
-            ASSERT_TP jumpDestValueGen;
+            ASSERT_TP jumpDestAssertions;
 
             if (jtrue == nullptr)
             {
-                jumpDestValueGen = BitVecOps::MakeEmpty(&countTraits);
+                jumpDestAssertions = BitVecOps::MakeEmpty(&countTraits);
             }
             else
             {
-                // Copy whatever we have accumulated into jumpDest edge's valueGen.
-                jumpDestValueGen = BitVecOps::MakeCopy(&countTraits, valueGen);
+                jumpDestAssertions = BitVecOps::MakeCopy(&countTraits, assertions);
 
                 if (jtrue->GeneratesAssertion())
                 {
                     AssertionInfo  info = jtrue->GetAssertionInfo();
-                    AssertionIndex valueAssertionIndex;
-                    AssertionIndex jumpDestAssertionIndex;
+                    AssertionIndex nextIndex;
+                    AssertionIndex jumpIndex;
 
                     if (info.IsNextEdgeAssertion())
                     {
-                        valueAssertionIndex    = info.GetAssertionIndex();
-                        jumpDestAssertionIndex = FindInvertedAssertion(info.GetAssertionIndex());
+                        nextIndex = info.GetAssertionIndex();
+                        jumpIndex = FindInvertedAssertion(info.GetAssertionIndex());
                     }
-                    else // is jump edge assertion
+                    else
                     {
-                        jumpDestAssertionIndex = info.GetAssertionIndex();
-                        valueAssertionIndex    = FindInvertedAssertion(jumpDestAssertionIndex);
-                    }
-
-                    if (valueAssertionIndex != NO_ASSERTION_INDEX)
-                    {
-                        // Update valueGen if we have an assertion for the bbNext edge
-                        AddImpliedAssertions(valueAssertionIndex, valueGen);
-                        BitVecOps::AddElemD(&countTraits, valueGen, valueAssertionIndex - 1);
+                        jumpIndex = info.GetAssertionIndex();
+                        nextIndex = FindInvertedAssertion(jumpIndex);
                     }
 
-                    if (jumpDestAssertionIndex != NO_ASSERTION_INDEX)
+                    if (nextIndex != NO_ASSERTION_INDEX)
                     {
-                        // Update jumpDestValueGen if we have an assertion for the bbJumpDest edge
-                        AddImpliedAssertions(jumpDestAssertionIndex, jumpDestValueGen);
-                        BitVecOps::AddElemD(&countTraits, jumpDestValueGen, jumpDestAssertionIndex - 1);
+                        AddImpliedAssertions(nextIndex, assertions);
+                        BitVecOps::AddElemD(&countTraits, assertions, nextIndex - 1);
+                    }
+
+                    if (jumpIndex != NO_ASSERTION_INDEX)
+                    {
+                        AddImpliedAssertions(jumpIndex, jumpDestAssertions);
+                        BitVecOps::AddElemD(&countTraits, jumpDestAssertions, jumpIndex - 1);
                     }
                 }
             }
 
-            AssertionGen& gen = generated[block->bbNum];
-
-            gen.next = valueGen;
-            gen.jump = jumpDestValueGen;
+            generated[block->bbNum].next = assertions;
+            generated[block->bbNum].jump = jumpDestAssertions;
 
 #ifdef DEBUG
             if (verbose)
@@ -3501,12 +3496,12 @@ private:
                 }
 
                 printf(FMT_BB " gen = ", block->bbNum);
-                DumpAssertionIndices("", gen.next, "");
+                DumpAssertionIndices("", assertions, "");
 
-                if (block->bbJumpKind == BBJ_COND)
+                if (jtrue != nullptr)
                 {
                     printf(", branch to " FMT_BB " gen = ", block->bbJumpDest->bbNum);
-                    DumpAssertionIndices("", gen.jump, "");
+                    DumpAssertionIndices("", jumpDestAssertions, "");
                 }
 
                 printf("\n");
