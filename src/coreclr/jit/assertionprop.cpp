@@ -4199,32 +4199,26 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
     else if (op1.kind == O1K_BOUND_OPER_BND)
     {
         printf("OperBound");
-        vnStore->vnDump(this, op1.vn);
     }
     else if (op1.kind == O1K_BOUND_LOOP_BND)
     {
         printf("LoopBound");
-        vnStore->vnDump(this, op1.vn);
     }
     else if (op1.kind == O1K_CONSTANT_LOOP_BND)
     {
         printf("ConstLoopBound");
-        vnStore->vnDump(this, op1.vn);
     }
     else if (op1.kind == O1K_EXACT_TYPE)
     {
         printf("ExactType");
-        vnStore->vnDump(this, op1.vn);
     }
     else if (op1.kind == O1K_SUBTYPE)
     {
         printf("Subtype");
-        vnStore->vnDump(this, op1.vn);
     }
     else if (op1.kind == O1K_VALUE_NUMBER)
     {
         printf("ValueNumber");
-        vnStore->vnDump(this, op1.vn);
     }
     else
     {
@@ -4270,17 +4264,9 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
             {
                 printf("MT(%08X)", dspPtr(op2.intCon.value));
             }
-            else if (op1.kind == O1K_BOUND_OPER_BND)
+            else if ((op1.kind == O1K_BOUND_OPER_BND) || (op1.kind == O1K_BOUND_LOOP_BND) ||
+                     (op1.kind == O1K_CONSTANT_LOOP_BND))
             {
-                vnStore->vnDump(this, op2.vn);
-            }
-            else if (op1.kind == O1K_BOUND_LOOP_BND)
-            {
-                vnStore->vnDump(this, op2.vn);
-            }
-            else if (op1.kind == O1K_CONSTANT_LOOP_BND)
-            {
-                vnStore->vnDump(this, op2.vn);
             }
             else
             {
