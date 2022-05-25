@@ -512,12 +512,6 @@ enum ApOp2Kind : uint8_t
 
 struct AssertionDsc
 {
-    struct LclVar
-    {
-        unsigned lclNum;
-        unsigned ssaNum;
-    };
-
     struct IntCon
     {
         ssize_t      value;
@@ -586,7 +580,7 @@ struct AssertionDsc
     {
         ApOp1Kind kind;
         ValueNum  vn;
-        LclVar    lcl;
+        unsigned  lclNum;
     };
 
     struct Op2
@@ -827,10 +821,9 @@ private:
             }
 
             memset(&assertion, 0, sizeof(AssertionDsc));
-            assertion.op1.kind       = O1K_LCLVAR;
-            assertion.op1.vn         = vnStore->VNNormalValue(addr->GetConservativeVN());
-            assertion.op1.lcl.lclNum = lclNum;
-            assertion.op1.lcl.ssaNum = addr->AsLclVar()->GetSsaNum();
+            assertion.op1.kind   = O1K_LCLVAR;
+            assertion.op1.vn     = vnStore->VNNormalValue(addr->GetConservativeVN());
+            assertion.op1.lclNum = lclNum;
         }
         else if (lcl->TypeIs(TYP_BYREF))
         {
@@ -1006,13 +999,12 @@ private:
         AssertionDsc assertion;
         memset(&assertion, 0, sizeof(AssertionDsc));
 
-        assertion.kind           = OAK_SUBRANGE;
-        assertion.op1.kind       = O1K_LCLVAR;
-        assertion.op1.vn         = vnStore->VNNormalValue(value->GetConservativeVN());
-        assertion.op1.lcl.lclNum = value->AsLclVar()->GetLclNum();
-        assertion.op1.lcl.ssaNum = value->AsLclVar()->GetSsaNum();
-        assertion.op2.kind       = O2K_SUBRANGE;
-        assertion.op2.range      = range;
+        assertion.kind       = OAK_SUBRANGE;
+        assertion.op1.kind   = O1K_LCLVAR;
+        assertion.op1.vn     = vnStore->VNNormalValue(value->GetConservativeVN());
+        assertion.op1.lclNum = value->AsLclVar()->GetLclNum();
+        assertion.op2.kind   = O2K_SUBRANGE;
+        assertion.op2.range  = range;
 
         return AddAssertion(&assertion);
     }
@@ -1193,11 +1185,10 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        assertion.kind           = kind;
-        assertion.op1.kind       = O1K_LCLVAR;
-        assertion.op1.vn         = vnStore->VNNormalValue(op1->GetConservativeVN());
-        assertion.op1.lcl.lclNum = op1->GetLclNum();
-        assertion.op1.lcl.ssaNum = op1->GetSsaNum();
+        assertion.kind       = kind;
+        assertion.op1.kind   = O1K_LCLVAR;
+        assertion.op1.vn     = vnStore->VNNormalValue(op1->GetConservativeVN());
+        assertion.op1.lclNum = op1->GetLclNum();
 
         if (assertion.op1.vn == NoVN)
         {
@@ -2143,7 +2134,7 @@ private:
                 continue;
             }
 
-            if (assertion->op1.lcl.lclNum != lclVar->GetLclNum())
+            if (assertion->op1.lclNum != lclVar->GetLclNum())
             {
                 continue;
             }
@@ -4117,7 +4108,7 @@ private:
         switch (op1.kind)
         {
             case O1K_LCLVAR:
-                assert(compiler->lvaGetDesc(op1.lcl.lclNum)->lvPerSsaData.IsValidSsaNum(op1.lcl.ssaNum));
+                assert(compiler->lvaGetDesc(op1.lclNum));
                 break;
             case O1K_EXACT_TYPE:
             case O1K_SUBTYPE:
@@ -4147,7 +4138,7 @@ private:
                         assert(op2.intCon.flags != GTF_EMPTY);
                         break;
                     case O1K_LCLVAR:
-                        assert(!compiler->lvaGetDesc(op1.lcl.lclNum)->TypeIs(TYP_REF) || (op2.intCon.value == 0) ||
+                        assert(!compiler->lvaGetDesc(op1.lclNum)->TypeIs(TYP_REF) || (op2.intCon.value == 0) ||
                                compiler->doesMethodHaveFrozenString());
                         break;
                     case O1K_VALUE_NUMBER:
@@ -4253,12 +4244,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
 
     if (op1.kind == O1K_LCLVAR)
     {
-        printf("V%02u", op1.lcl.lclNum);
-
-        if (op1.lcl.ssaNum != SsaConfig::RESERVED_SSA_NUM)
-        {
-            printf(".%02u", op1.lcl.ssaNum);
-        }
+        printf("V%02u", op1.lclNum);
     }
     else if (op1.kind == O1K_BOUND_OPER_BND)
     {
@@ -4356,7 +4342,7 @@ void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
                 }
                 else
                 {
-                    op1Type = lvaGetDesc(op1.lcl.lclNum)->GetType();
+                    op1Type = lvaGetDesc(op1.lclNum)->GetType();
                 }
 
                 if ((op1Type == TYP_REF) && (op2.intCon.value == 0))
