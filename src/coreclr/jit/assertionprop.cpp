@@ -764,7 +764,6 @@ private:
         }
 
         AssertionDsc assertion;
-        memset(&assertion, 0, sizeof(AssertionDsc));
 
         assertion.kind     = OAK_BOUNDS_CHK;
         assertion.op1.kind = O1K_VALUE_NUMBER;
@@ -820,7 +819,6 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            memset(&assertion, 0, sizeof(AssertionDsc));
             assertion.op1.kind   = O1K_LCLVAR;
             assertion.op1.vn     = vnStore->VNNormalValue(addr->GetConservativeVN());
             assertion.op1.lclNum = lclNum;
@@ -855,7 +853,6 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            memset(&assertion, 0, sizeof(AssertionDsc));
             assertion.op1.kind = O1K_VALUE_NUMBER;
             assertion.op1.vn   = vn;
         }
@@ -997,13 +994,13 @@ private:
         }
 
         AssertionDsc assertion;
-        memset(&assertion, 0, sizeof(AssertionDsc));
 
         assertion.kind       = OAK_SUBRANGE;
         assertion.op1.kind   = O1K_LCLVAR;
         assertion.op1.vn     = vnStore->VNNormalValue(value->GetConservativeVN());
         assertion.op1.lclNum = value->AsLclVar()->GetLclNum();
         assertion.op2.kind   = O2K_SUBRANGE;
+        assertion.op2.vn     = NoVN;
         assertion.op2.range  = range;
 
         return AddAssertion(&assertion);
@@ -1031,7 +1028,6 @@ private:
         op2 = op2->SkipComma();
 
         AssertionDsc assertion;
-        memset(&assertion, 0, sizeof(AssertionDsc));
 
         switch (op2->GetOper())
         {
@@ -1172,6 +1168,7 @@ private:
                 }
 
                 assertion.op2.kind  = O2K_SUBRANGE;
+                assertion.op2.vn    = NoVN;
                 assertion.op2.range = range;
             }
             break;
@@ -1237,7 +1234,6 @@ private:
         assert(lcl->IsInSsa());
 
         AssertionDsc assertion;
-        memset(&assertion, 0, sizeof(AssertionDsc));
 
         // Ngen case
         if (op2->OperIs(GT_IND))
@@ -1311,7 +1307,6 @@ private:
         }
 
         AssertionDsc assertion;
-        memset(&assertion, 0, sizeof(AssertionDsc));
 
         if (op2->OperIs(GT_IND))
         {
