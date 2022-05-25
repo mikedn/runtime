@@ -1448,11 +1448,6 @@ private:
 
     AssertionIndex FindInvertedAssertion(AssertionIndex index)
     {
-        if (index == NO_ASSERTION_INDEX)
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
         AssertionDsc* assertion = GetAssertion(index);
 
         if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
@@ -3169,7 +3164,7 @@ private:
                     if (info.IsNextEdgeAssertion())
                     {
                         nextIndex = info.GetAssertionIndex();
-                        jumpIndex = FindInvertedAssertion(info.GetAssertionIndex());
+                        jumpIndex = FindInvertedAssertion(nextIndex);
                     }
                     else
                     {
