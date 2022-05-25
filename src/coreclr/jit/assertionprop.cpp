@@ -2033,14 +2033,12 @@ private:
 
 #ifndef TARGET_64BIT
             case O2K_CONST_LONG:
-                if (lclVar->TypeIs(TYP_LONG))
+                if (!lclVar->TypeIs(TYP_LONG))
                 {
-                    conNode = lclVar->ChangeToLngCon(val.lngCon.value);
+                    return nullptr;
                 }
-                else
-                {
-                    conNode = lclVar->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.lngCon.value));
-                }
+
+                conNode = lclVar->ChangeToLngCon(val.lngCon.value);
                 break;
 #endif
 
@@ -2072,30 +2070,10 @@ private:
 
                     conNode = lclVar->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
                     conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
-                }
-                else
-                {
-                    conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.intCon.value);
+                    break;
                 }
 
-                if (varTypeIsIntegral(conNode->GetType()))
-                {
-#ifdef TARGET_64BIT
-                    var_types newType = ((val.intCon.flags & GTF_ASSERTION_PROP_LONG) != 0) ? TYP_LONG : TYP_INT;
-#else
-                    var_types newType = TYP_INT;
-#endif
-
-                    if (conNode->GetType() != newType)
-                    {
-#ifdef TARGET_64BIT
-                        noway_assert(!conNode->TypeIs(TYP_REF));
-#else
-                        noway_assert(!conNode->TypeIs(TYP_REF, TYP_LONG));
-#endif
-                        conNode->SetType(newType);
-                    }
-                }
+                conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.intCon.value);
                 break;
 
             default:
