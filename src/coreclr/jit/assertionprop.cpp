@@ -2535,9 +2535,9 @@ private:
             return nullptr;
         }
 
-        INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
+        AssertionDsc* assertion = AssertionIsNotNull(assertions, addr->GetConservativeVN());
 
-        if (!AssertionIsNotNull(assertions, addr->GetConservativeVN() DEBUGARG(&index)))
+        if (assertion == nullptr)
         {
             return nullptr;
         }
@@ -2545,15 +2545,7 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            if (index == NO_ASSERTION_INDEX)
-            {
-                printf("Known not null VN:\n");
-            }
-            else
-            {
-                printf("Propagating NotNull A%02d:\n", index - 1);
-            }
-
+            printf("Propagating NotNull A%02d:\n", assertion - assertionTable);
             compiler->gtDispTree(indir, nullptr, nullptr, true);
         }
 #endif
@@ -2566,14 +2558,8 @@ private:
         return UpdateTree(indir, indir, stmt);
     }
 
-    bool AssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn DEBUGARG(AssertionIndex* assertionIndex))
+    AssertionDsc* AssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn)
     {
-        if (vnStore->IsKnownNonNull(vn))
-        {
-            return true;
-        }
-
-        // TODO-MIKE-Review: Shouldn't this be done before the IsKnownNonNull above?
         vn = vnStore->VNNormalValue(vn);
 
         ValueNum baseVN = vn;
@@ -2615,11 +2601,10 @@ private:
                 continue;
             }
 
-            INDEBUG(*assertionIndex = index);
-            return true;
+            return assertion;
         }
 
-        return NO_ASSERTION_INDEX;
+        return nullptr;
     }
 
     GenTree* PropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call)
@@ -2637,9 +2622,9 @@ private:
             return nullptr;
         }
 
-        INDEBUG(AssertionIndex index = NO_ASSERTION_INDEX);
+        AssertionDsc* assertion = AssertionIsNotNull(assertions, thisArg->GetConservativeVN());
 
-        if (!AssertionIsNotNull(assertions, thisArg->GetConservativeVN() DEBUGARG(&index)))
+        if (assertion == nullptr)
         {
             return nullptr;
         }
@@ -2647,15 +2632,7 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            if (index == NO_ASSERTION_INDEX)
-            {
-                printf("Known not null VN:\n");
-            }
-            else
-            {
-                printf("Propagating NotNull A%02d:\n", index - 1);
-            }
-
+            printf("Propagating NotNull A%02d:\n", assertion - assertionTable);
             compiler->gtDispTree(call, nullptr, nullptr, true);
         }
 #endif
