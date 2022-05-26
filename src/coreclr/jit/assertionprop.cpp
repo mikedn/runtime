@@ -2657,53 +2657,61 @@ private:
     {
         AssertionDsc* assertion = GetAssertion(index);
 
-        if ((assertion->kind == OAK_EQUAL) && (assertion->op1.kind == O1K_LCLVAR) &&
-            (assertion->op2.kind == O2K_CONST_INT))
+        if (assertion->kind != OAK_EQUAL)
+        {
+            return;
+        }
+
+        if ((assertion->op1.kind == O1K_LCLVAR) && (assertion->op2.kind == O2K_CONST_INT))
         {
             AddConstImpliedAssertions(assertion, assertions);
+            return;
+        }
+
+        if ((assertion->op1.kind == O1K_SUBTYPE) || (assertion->op1.kind == O1K_EXACT_TYPE))
+        {
+            AddTypeImpliedNotNullAssertions(assertion, assertions);
+            return;
         }
     }
 
-    void AddTypeImpliedNotNullAssertions(ASSERT_TP& assertions)
+    void AddTypeImpliedNotNullAssertions(AssertionDsc* typeAssertion, ASSERT_TP& assertions)
     {
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
-        {
-            AssertionIndex typeIndex     = GetAssertionIndex(en.Current());
-            AssertionDsc*  typeAssertion = GetAssertion(typeIndex);
+        assert(typeAssertion->kind == OAK_EQUAL);
+        assert((typeAssertion->op1.kind == O1K_SUBTYPE) || (typeAssertion->op1.kind == O1K_EXACT_TYPE));
 
-            if ((typeAssertion->kind != OAK_EQUAL) ||
-                ((typeAssertion->op1.kind != O1K_SUBTYPE) && (typeAssertion->op1.kind != O1K_EXACT_TYPE)))
+        const ASSERT_TP vnAssertions = GetVNAssertions(typeAssertion->op1.vn);
+
+        if (vnAssertions == BitVecOps::UninitVal())
+        {
+            return;
+        }
+
+        for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
+        {
+            AssertionIndex notNullIndex     = GetAssertionIndex(en.Current());
+            AssertionDsc*  notNullAssertion = GetAssertion(notNullIndex);
+
+            if (notNullAssertion == typeAssertion)
             {
                 continue;
             }
 
-            for (AssertionIndex notNullIndex = 1; notNullIndex <= assertionCount; notNullIndex++)
+            if ((notNullAssertion->kind != OAK_NOT_EQUAL) ||
+                ((notNullAssertion->op1.kind != O1K_LCLVAR) && (notNullAssertion->op1.kind != O1K_VALUE_NUMBER)) ||
+                (notNullAssertion->op2.kind != O2K_CONST_INT) || (notNullAssertion->op1.vn != typeAssertion->op1.vn))
             {
-                if (notNullIndex == typeIndex)
-                {
-                    continue;
-                }
-
-                AssertionDsc* notNullAssertion = GetAssertion(notNullIndex);
-
-                if ((notNullAssertion->kind != OAK_NOT_EQUAL) ||
-                    ((notNullAssertion->op1.kind != O1K_LCLVAR) && (notNullAssertion->op1.kind != O1K_VALUE_NUMBER)) ||
-                    (notNullAssertion->op2.kind != O2K_CONST_INT) ||
-                    (notNullAssertion->op1.vn != typeAssertion->op1.vn))
-                {
-                    continue;
-                }
-
-                if (BitVecOps::TryAddElemD(&countTraits, assertions, notNullIndex - 1))
-                {
-                    JITDUMP("%s A%02d implies A%02d\n",
-                            (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type", typeIndex - 1,
-                            notNullIndex - 1);
-                }
-
-                // There is at most one not null assertion that is implied by a type assertion.
-                break;
+                continue;
             }
+
+            if (BitVecOps::TryAddElemD(&countTraits, assertions, notNullIndex - 1))
+            {
+                JITDUMP("%s A%02d implies A%02d\n", (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
+                        typeAssertion - assertionTable, notNullAssertion - assertionTable);
+            }
+
+            // There is at most one not null assertion that is implied by a type assertion.
+            break;
         }
     }
 
@@ -3757,11 +3765,6 @@ private:
         const AssertionGen* assertionGen = ComputeBlockAssertionGen();
         InitAssertionDataflowSets();
         ForwardDataFlow(DataFlowCallback(*this, assertionGen), compiler);
-
-        for (BasicBlock* const block : compiler->Blocks())
-        {
-            AddTypeImpliedNotNullAssertions(block->bbAssertionIn);
-        }
 
 #ifdef DEBUG
         if (verbose)
