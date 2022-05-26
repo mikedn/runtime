@@ -738,7 +738,7 @@ private:
 
         assertionTableSize = countFunc[min(upperBound, codeSize)];
         assertionTable     = new (allocator) AssertionDsc[assertionTableSize];
-        invertedAssertions = new (allocator) AssertionIndex[assertionTableSize + 1]();
+        invertedAssertions = new (allocator) AssertionIndex[assertionTableSize]();
         vnAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
         sizeTraits         = BitVecTraits(assertionTableSize, compiler);
         assertionCount     = 0;
@@ -1442,8 +1442,8 @@ private:
         assert(index <= assertionTableSize);
         assert(invertedIndex <= assertionTableSize);
 
-        invertedAssertions[index]         = invertedIndex;
-        invertedAssertions[invertedIndex] = index;
+        invertedAssertions[index - 1]         = invertedIndex;
+        invertedAssertions[invertedIndex - 1] = index;
     }
 
     AssertionIndex FindInvertedAssertion(AssertionIndex index)
@@ -1455,7 +1455,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionIndex invertedIndex = invertedAssertions[index];
+        AssertionIndex invertedIndex = invertedAssertions[index - 1];
 
         if (invertedIndex != NO_ASSERTION_INDEX)
         {
