@@ -1887,7 +1887,7 @@ private:
         }
     }
 
-    AssertionDsc* AssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, var_types fromType, var_types toType)
+    AssertionDsc* AssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -1904,27 +1904,7 @@ private:
                 continue;
             }
 
-            if (varTypeIsUnsigned(fromType) && (assertion->op2.range.min < 0))
-            {
-                continue;
-            }
-
-            if (varTypeIsSmallInt(toType))
-            {
-                if ((assertion->op2.range.min < GetLowerBoundForIntegralType(toType)) ||
-                    (assertion->op2.range.max > GetUpperBoundForIntegralType(toType)))
-                {
-                    continue;
-                }
-            }
-            else if (toType == TYP_UINT)
-            {
-                if (assertion->op2.range.min < GetLowerBoundForIntegralType(toType))
-                {
-                    continue;
-                }
-            }
-            else if (toType != TYP_INT)
+            if ((assertion->op2.range.min < min) || (assertion->op2.range.max > max))
             {
                 continue;
             }
@@ -2392,14 +2372,9 @@ private:
         var_types fromType = op1->GetType();
         var_types toType   = cast->GetCastType();
 
-        if (varTypeIsFloating(toType) || varTypeIsFloating(fromType))
+        if (!varTypeIsSmall(toType) || !varTypeIsIntegral(fromType))
         {
             return nullptr;
-        }
-
-        if (cast->IsUnsigned())
-        {
-            fromType = varTypeToUnsigned(fromType);
         }
 
         GenTree* lclVar = op1->SkipComma();
@@ -2409,10 +2384,12 @@ private:
             return nullptr;
         }
 
+        ssize_t       min       = cast->IsUnsigned() ? 0 : GetLowerBoundForIntegralType(toType);
+        ssize_t       max       = GetUpperBoundForIntegralType(toType);
         ValueNum      vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
-        AssertionDsc* assertion = AssertionIsSubrange(assertions, vn, fromType, toType);
+        AssertionDsc* assertion = AssertionIsSubrange(assertions, vn, min, max);
 
-        if (assertion == NO_ASSERTION_INDEX)
+        if (assertion == nullptr)
         {
             return nullptr;
         }
@@ -2442,11 +2419,6 @@ private:
             cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
 
             return UpdateTree(cast, cast, stmt);
-        }
-
-        if (toType == TYP_UINT)
-        {
-            toType = TYP_INT;
         }
 
         GenTree* tmp = op1;
