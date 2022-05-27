@@ -1031,8 +1031,6 @@ private:
 
         switch (op2->GetOper())
         {
-            var_types toType;
-
             case GT_CNS_INT:
 #ifdef TARGET_ARM
                 if (!compiler->codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
@@ -1106,73 +1104,6 @@ private:
                 break;
             }
 
-            case GT_EQ:
-            case GT_NE:
-            case GT_LT:
-            case GT_LE:
-            case GT_GT:
-            case GT_GE:
-                toType = TYP_BOOL;
-                goto SUBRANGE_COMMON;
-            case GT_LCL_FLD:
-            case GT_IND:
-                toType = op2->GetType();
-                goto SUBRANGE_COMMON;
-
-            case GT_CAST:
-            {
-                if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                toType = op2->AsCast()->GetCastType();
-
-                // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
-                // except in overflow cases which we do not yet handle. To avoid
-                // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
-                // based on an assertion created from CAST(uint <- ulong), normalize the
-                // type for the range here. Note that TYP_ULONG theoretically has the same
-                // problem, but we do not create assertions for it.
-                // TODO-Cleanup: this assertion is not useful - this code exists to preserve
-                // previous behavior. Refactor it to stop generating such assertions.
-                if (toType == TYP_UINT)
-                {
-                    toType = TYP_INT;
-                }
-
-            SUBRANGE_COMMON:
-                if (varTypeIsFloating(op1->GetType()))
-                {
-                    return NO_ASSERTION_INDEX;
-                }
-
-                AssertionDsc::Range range;
-
-                switch (toType)
-                {
-                    case TYP_BOOL:
-                    case TYP_BYTE:
-                    case TYP_UBYTE:
-                    case TYP_SHORT:
-                    case TYP_USHORT:
-#ifdef TARGET_64BIT
-                    case TYP_UINT:
-                    case TYP_INT:
-#endif
-                        range = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
-                        break;
-
-                    default:
-                        return NO_ASSERTION_INDEX;
-                }
-
-                assertion.op2.kind  = O2K_SUBRANGE;
-                assertion.op2.vn    = NoVN;
-                assertion.op2.range = range;
-            }
-            break;
-
             default:
                 return NO_ASSERTION_INDEX;
         }
@@ -1190,11 +1121,6 @@ private:
         if (assertion.op1.vn == NoVN)
         {
             return NO_ASSERTION_INDEX;
-        }
-
-        if (assertion.op2.kind == O2K_SUBRANGE)
-        {
-            return kind == OAK_EQUAL ? AddAssertion(&assertion) : NO_ASSERTION_INDEX;
         }
 
         if (AssertionHasNanVN(&assertion))
