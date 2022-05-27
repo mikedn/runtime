@@ -886,12 +886,9 @@ private:
                 return SCHAR_MIN;
             case TYP_SHORT:
                 return SHRT_MIN;
-            case TYP_INT:
-                return INT_MIN;
             case TYP_BOOL:
             case TYP_UBYTE:
             case TYP_USHORT:
-            case TYP_UINT:
                 return 0;
             default:
                 unreached();
@@ -908,14 +905,10 @@ private:
                 return SCHAR_MAX;
             case TYP_SHORT:
                 return SHRT_MAX;
-            case TYP_INT:
-                return INT_MAX;
             case TYP_UBYTE:
                 return UCHAR_MAX;
             case TYP_USHORT:
                 return USHRT_MAX;
-            case TYP_UINT:
-                return UINT_MAX;
             default:
                 unreached();
         }
@@ -960,37 +953,9 @@ private:
 
         var_types toType = cast->GetCastType();
 
-        // Casts to TYP_UINT produce the same ranges as casts to TYP_INT,
-        // except in overflow cases which we do not yet handle. To avoid
-        // issues with the propagation code dropping, e. g., CAST_OVF(uint <- int)
-        // based on an assertion created from CAST(uint <- ulong), normalize the
-        // type for the range here. Note that TYP_ULONG theoretically has the same
-        // problem, but we do not create assertions for it.
-        // TODO-Cleanup: this assertion is not useful - this code exists to preserve
-        // previous behavior. Refactor it to stop generating such assertions.
-        if (toType == TYP_UINT)
+        if (!varTypeIsSmall(toType))
         {
-            toType = TYP_INT;
-        }
-
-        AssertionDsc::Range range;
-
-        switch (toType)
-        {
-            case TYP_BOOL:
-            case TYP_BYTE:
-            case TYP_UBYTE:
-            case TYP_SHORT:
-            case TYP_USHORT:
-#ifdef TARGET_64BIT
-            case TYP_UINT:
-            case TYP_INT:
-#endif
-                range = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
-                break;
-
-            default:
-                return NO_ASSERTION_INDEX;
+            return NO_ASSERTION_INDEX;
         }
 
         AssertionDsc assertion;
@@ -1001,7 +966,7 @@ private:
         assertion.op1.lclNum = value->AsLclVar()->GetLclNum();
         assertion.op2.kind   = O2K_SUBRANGE;
         assertion.op2.vn     = NoVN;
-        assertion.op2.range  = range;
+        assertion.op2.range  = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
 
         return AddAssertion(&assertion);
     }
