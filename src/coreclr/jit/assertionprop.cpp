@@ -1785,29 +1785,6 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionIndex GeneratePhiAssertions(GenTreeOp* asg)
-    {
-        assert(asg->IsPhiDefn());
-
-        bool allNotNull = true;
-
-        for (GenTreePhi::Use& use : asg->GetOp(1)->AsPhi()->Uses())
-        {
-            if (!vnStore->IsKnownNonNull(use.GetNode()->GetConservativeVN()))
-            {
-                allNotNull = false;
-                break;
-            }
-        }
-
-        if (!allNotNull)
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        return CreateNotNullAssertion(asg->GetOp(0));
-    }
-
     void GenerateNodeAssertions(GenTree* node)
     {
         node->ClearAssertion();
@@ -1818,13 +1795,6 @@ private:
 
         switch (node->GetOper())
         {
-            case GT_ASG:
-                if (node->IsPhiDefn())
-                {
-                    assertionInfo = GeneratePhiAssertions(node->AsOp());
-                }
-                break;
-
             case GT_ARR_BOUNDS_CHECK:
                 assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
                 break;
