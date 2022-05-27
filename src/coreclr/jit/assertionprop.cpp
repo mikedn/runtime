@@ -871,9 +871,6 @@ private:
         assertion.op2.vn           = ValueNumStore::VNForNull();
         assertion.op2.intCon.value = 0;
         assertion.op2.intCon.flags = GTF_EMPTY;
-#ifdef TARGET_64BIT
-        assertion.op2.intCon.flags |= GTF_ASSERTION_PROP_LONG;
-#endif
 
         return AddAssertion(&assertion);
     }
@@ -1013,12 +1010,6 @@ private:
                 assertion.op2.vn           = vnStore->VNNormalValue(op2->GetConservativeVN());
                 assertion.op2.intCon.value = op2->AsIntCon()->GetValue(lcl->GetType());
                 assertion.op2.intCon.flags = op2->AsIntCon()->GetHandleKind();
-#ifdef TARGET_64BIT
-                if (op2->TypeIs(TYP_LONG, TYP_BYREF))
-                {
-                    assertion.op2.intCon.flags |= GTF_ASSERTION_PROP_LONG;
-                }
-#endif
                 break;
 
 #ifndef TARGET_64BIT
@@ -1160,13 +1151,6 @@ private:
         assertion.op1.kind = O1K_EXACT_TYPE;
         assertion.op1.vn   = vn1;
         assertion.op2.vn   = vn2;
-
-#ifdef TARGET_64BIT
-        if (op2->TypeIs(TYP_LONG))
-        {
-            assertion.op2.intCon.flags |= GTF_ASSERTION_PROP_LONG;
-        }
-#endif
 
         AssertionIndex index = AddAssertion(&assertion);
 
@@ -3900,11 +3884,7 @@ private:
         {
             case O2K_IND_CNS_INT:
             case O2K_CONST_INT:
-#ifdef TARGET_64BIT
-                assert((op2.intCon.flags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
-#else
                 assert((op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-#endif
                 switch (op1.kind)
                 {
                     case O1K_EXACT_TYPE:

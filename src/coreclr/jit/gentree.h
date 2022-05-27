@@ -574,11 +574,6 @@ enum GenTreeFlags : unsigned int
     GTF_ARR_BOUND_INBND         = 0x80000000, // GT_ARR_BOUNDS_CHECK -- have proved this check is always in-bounds
 
     GTF_ARRLEN_NONFAULTING      = 0x20000000, // GT_ARR_LENGTH  -- An array length operation that cannot fault. Same as GT_IND_NONFAULTING.
-
-    // Flag used by assertion prop to indicate that a type is a TYP_LONG
-#ifdef TARGET_64BIT
-    GTF_ASSERTION_PROP_LONG     = 0x00000001,
-#endif // TARGET_64BIT
 };
 
 inline constexpr GenTreeFlags operator ~(GenTreeFlags a)
