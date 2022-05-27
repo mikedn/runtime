@@ -2813,7 +2813,7 @@ private:
         AssertionDsc* assertion = GetAssertion(index);
 
         if ((assertion->kind == OAK_EQUAL) && (assertion->op1.kind == O1K_LCLVAR) &&
-            (assertion->op2.kind == O2K_CONST_INT) && BitVecOps::IsEmpty(&countTraits, assertions))
+            (assertion->op2.kind == O2K_CONST_INT))
         {
             AddConstImpliedAssertions(assertion, assertions);
         }
@@ -2891,28 +2891,24 @@ private:
                 continue;
             }
 
+            bool isImplied = false;
+
             if (impliedAssertion->op2.kind == O2K_SUBRANGE)
             {
-                if ((value < impliedAssertion->op2.range.min) || (impliedAssertion->op2.range.max < value))
+                if ((impliedAssertion->op2.range.min <= value) && (value <= impliedAssertion->op2.range.max))
                 {
-                    continue;
+                    isImplied = true;
                 }
             }
             else if (impliedAssertion->op2.kind == O2K_CONST_INT)
             {
-                // TODO-MIKE-Review: This is dubious, it checks for an "implied" assertion that's actually identical.
-                if (!((impliedAssertion->kind == OAK_EQUAL) && (impliedAssertion->op2.intCon.value == value)) &&
-                    !((impliedAssertion->kind == OAK_NOT_EQUAL) && (impliedAssertion->op2.intCon.value != value)))
+                if ((impliedAssertion->kind == OAK_NOT_EQUAL) && (impliedAssertion->op2.intCon.value != value))
                 {
-                    continue;
+                    isImplied = true;
                 }
             }
-            else
-            {
-                continue;
-            }
 
-            if (BitVecOps::TryAddElemD(&countTraits, result, en.Current()))
+            if (isImplied && BitVecOps::TryAddElemD(&countTraits, result, en.Current()))
             {
                 JITDUMP("Const assertion A%02d implies assertion A%02d\n",
                         static_cast<unsigned>(constAssertion - assertionTable),
