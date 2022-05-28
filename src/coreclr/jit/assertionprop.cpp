@@ -1253,7 +1253,7 @@ private:
         }
 #endif
 
-        if (assertion->kind != OAK_BOUNDS_CHK)
+        if ((assertion->kind == OAK_NOT_EQUAL) || (assertion->kind == OAK_SUBRANGE))
         {
             AddVNAssertion(assertion->op1.vn, assertionCount);
         }
