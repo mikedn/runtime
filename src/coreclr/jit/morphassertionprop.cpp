@@ -825,6 +825,8 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
         case ValueKind::DblCon:
             // There could be a positive zero and a negative zero, so don't propagate zeroes.
             // TODO-MIKE-Review: So what?
+            // P.S. This is likely debris from old stupid code that was conflating copy and
+            // equality assertions.
             if (val.dblCon.value == 0.0)
             {
                 break;

@@ -1025,6 +1025,10 @@ private:
 #endif
 
             case GT_CNS_DBL:
+                // TODO-MIKE-Cleanup: This doesn't really belong here. An "x == NaN" assertion is
+                // fine in itself, the problem is that we can't really substitute x with NaN in
+                // subsequent code because NaN has multiple values. And then "x == NaN" is always
+                // false so we shouldn't even see this case, except that VN doesn't handle this.
                 if (_isnan(op2->AsDblCon()->GetValue()))
                 {
                     return NO_ASSERTION_INDEX;
@@ -1074,11 +1078,6 @@ private:
         assertion.op2.vn = vnStore->VNNormalValue(op2->GetConservativeVN());
 
         if ((assertion.op1.vn == NoVN) || (assertion.op2.vn == NoVN))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        if (AssertionHasNanVN(&assertion))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1223,27 +1222,6 @@ private:
         }
 
         return index;
-    }
-
-    bool AssertionHasNanVN(AssertionDsc* assertion)
-    {
-        ValueNum vns[]{assertion->op1.vn, assertion->op2.vn};
-
-        for (ValueNum vn : vns)
-        {
-            if (vnStore->IsVNConstant(vn))
-            {
-                var_types type = vnStore->TypeOfVN(vn);
-
-                if (((type == TYP_FLOAT) && _isnan(vnStore->ConstantValue<float>(vn))) ||
-                    ((type == TYP_DOUBLE) && _isnan(vnStore->ConstantValue<double>(vn))))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     AssertionIndex AddAssertion(AssertionDsc* assertion)
@@ -1840,8 +1818,7 @@ private:
         switch (val.kind)
         {
             case O2K_CONST_DOUBLE:
-                // There could be a positive zero and a negative zero, so don't propagate zeroes.
-                // TODO-MIKE-Review: So what?
+                // "x == 0.0" implies both "x == 0.0" and "x == -0.0" so we can't substitute x with 0.0.
                 if (val.dblCon.value == 0.0)
                 {
                     return nullptr;
