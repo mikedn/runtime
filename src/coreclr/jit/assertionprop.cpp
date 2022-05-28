@@ -1008,6 +1008,8 @@ private:
                     return NO_ASSERTION_INDEX;
                 }
 
+                assertion.op1.kind         = O1K_LCLVAR;
+                assertion.op1.lclNum       = op1->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_INT;
                 assertion.op2.intCon.value = op2->AsIntCon()->GetValue(lcl->GetType());
                 assertion.op2.intCon.flags = op2->AsIntCon()->GetHandleKind();
@@ -1015,6 +1017,8 @@ private:
 
 #ifndef TARGET_64BIT
             case GT_CNS_LNG:
+                assertion.op1.kind         = O1K_LCLVAR;
+                assertion.op1.lclNum       = op1->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_LONG;
                 assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
                 break;
@@ -1026,6 +1030,8 @@ private:
                     return NO_ASSERTION_INDEX;
                 }
 
+                assertion.op1.kind         = O1K_LCLVAR;
+                assertion.op1.lclNum       = op1->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_DOUBLE;
                 assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
                 break;
@@ -1054,6 +1060,7 @@ private:
                     return NO_ASSERTION_INDEX;
                 }
 
+                assertion.op1.kind = O1K_VALUE_NUMBER;
                 assertion.op2.kind = O2K_VALUE_NUMBER;
                 break;
             }
@@ -1062,11 +1069,9 @@ private:
                 return NO_ASSERTION_INDEX;
         }
 
-        assertion.kind       = kind;
-        assertion.op1.kind   = O1K_LCLVAR;
-        assertion.op1.vn     = vnStore->VNNormalValue(op1->GetConservativeVN());
-        assertion.op1.lclNum = op1->GetLclNum();
-        assertion.op2.vn     = vnStore->VNNormalValue(op2->GetConservativeVN());
+        assertion.kind   = kind;
+        assertion.op1.vn = vnStore->VNNormalValue(op1->GetConservativeVN());
+        assertion.op2.vn = vnStore->VNNormalValue(op2->GetConservativeVN());
 
         if ((assertion.op1.vn == NoVN) || (assertion.op2.vn == NoVN))
         {
