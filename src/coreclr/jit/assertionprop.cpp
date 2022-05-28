@@ -915,23 +915,33 @@ private:
     {
         GenTree* value = cast->GetOp(0);
 
-        if (!value->OperIs(GT_LCL_VAR))
+        if (value->GetConservativeVN() == NoVN)
         {
             return NO_ASSERTION_INDEX;
         }
 
-        if (varTypeIsFloating(value->GetType()))
+        if (!varTypeIsIntegral(value->GetType()))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        var_types toType = cast->GetCastType();
+
+        if (!varTypeIsSmall(toType))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        // TODO-MIKE-Review: Restricting the cast operands to LCL_VAR is largely superfluous,
+        // all it does is preventing less useful assertions from being created, that would
+        // just wast space in the assertion table.
+        if (!value->OperIs(GT_LCL_VAR))
         {
             return NO_ASSERTION_INDEX;
         }
 
         // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
         if (value->AsLclVar()->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        if (value->GetConservativeVN() == ValueNumStore::NoVN)
         {
             return NO_ASSERTION_INDEX;
         }
@@ -948,22 +958,14 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        var_types toType = cast->GetCastType();
-
-        if (!varTypeIsSmall(toType))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
         AssertionDsc assertion;
 
-        assertion.kind       = OAK_SUBRANGE;
-        assertion.op1.kind   = O1K_LCLVAR;
-        assertion.op1.vn     = vnStore->VNNormalValue(value->GetConservativeVN());
-        assertion.op1.lclNum = value->AsLclVar()->GetLclNum();
-        assertion.op2.kind   = O2K_SUBRANGE;
-        assertion.op2.vn     = NoVN;
-        assertion.op2.range  = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
+        assertion.kind      = OAK_SUBRANGE;
+        assertion.op1.kind  = O1K_VALUE_NUMBER;
+        assertion.op1.vn    = vnStore->VNNormalValue(value->GetConservativeVN());
+        assertion.op2.kind  = O2K_SUBRANGE;
+        assertion.op2.vn    = NoVN;
+        assertion.op2.range = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
 
         return AddAssertion(&assertion);
     }
@@ -1739,7 +1741,7 @@ private:
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
 
-            if ((assertion->kind != OAK_SUBRANGE) || (assertion->op1.kind != O1K_LCLVAR))
+            if ((assertion->kind != OAK_SUBRANGE) || (assertion->op1.kind != O1K_VALUE_NUMBER))
             {
                 continue;
             }
@@ -2229,6 +2231,13 @@ private:
             return nullptr;
         }
 
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
+
+        if (lcl->IsAddressExposed())
+        {
+            return nullptr;
+        }
+
         ssize_t       min       = cast->IsUnsigned() ? 0 : GetLowerBoundForIntegralType(toType);
         ssize_t       max       = GetUpperBoundForIntegralType(toType);
         ValueNum      vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
@@ -2238,9 +2247,6 @@ private:
         {
             return nullptr;
         }
-
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
-        assert(!lcl->IsAddressExposed());
 
         if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
         {
