@@ -1156,7 +1156,6 @@ private:
         {
             assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
             AddInvertedAssertion(index, AddAssertion(&assertion));
-            CreateNotNullAssertion(op1);
         }
 
         return index;
@@ -1218,7 +1217,6 @@ private:
         {
             assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
             AddInvertedAssertion(index, AddAssertion(&assertion));
-            CreateNotNullAssertion(op1);
         }
 
         return index;
