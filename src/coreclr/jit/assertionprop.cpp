@@ -1319,14 +1319,8 @@ private:
 
         if (index != NO_ASSERTION_INDEX)
         {
-            AssertionDsc inverted        = *GetAssertion(index);
-            inverted.kind                = inverted.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            AssertionIndex invertedIndex = AddAssertion(&inverted);
-
-            if (invertedIndex != NO_ASSERTION_INDEX)
-            {
-                AddInvertedAssertion(index, invertedIndex);
-            }
+            assertion->kind = assertion->kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+            AddInvertedAssertion(index, AddAssertion(assertion));
         }
 
         return index;
