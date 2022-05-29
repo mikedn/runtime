@@ -1082,15 +1082,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionIndex index = AddAssertion(&assertion);
-
-        if (index != NO_ASSERTION_INDEX)
-        {
-            assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            AddInvertedAssertion(index, AddAssertion(&assertion));
-        }
-
-        return index;
+        return AddEqualityAssertions(&assertion);
     }
 
     AssertionIndex CreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind)
@@ -1150,15 +1142,7 @@ private:
         assertion.op1.vn   = vn1;
         assertion.op2.vn   = vn2;
 
-        AssertionIndex index = AddAssertion(&assertion);
-
-        if (index != NO_ASSERTION_INDEX)
-        {
-            assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            AddInvertedAssertion(index, AddAssertion(&assertion));
-        }
-
-        return index;
+        return AddEqualityAssertions(&assertion);
     }
 
     AssertionIndex CreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
@@ -1211,15 +1195,7 @@ private:
         assertion.op2.intCon.value = op2->AsIntCon()->GetValue();
         assertion.op2.intCon.flags = op2->GetIconHandleFlag();
 
-        AssertionIndex index = AddAssertion(&assertion);
-
-        if (index != NO_ASSERTION_INDEX)
-        {
-            assertion.kind = kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            AddInvertedAssertion(index, AddAssertion(&assertion));
-        }
-
-        return index;
+        return AddEqualityAssertions(&assertion);
     }
 
     AssertionIndex AddAssertion(AssertionDsc* assertion)
@@ -1261,6 +1237,27 @@ private:
         return assertionCount;
     }
 
+    AssertionIndex AddEqualityAssertions(AssertionDsc* assertion)
+    {
+        assert((assertion->kind == OAK_EQUAL) || (assertion->kind == OAK_NOT_EQUAL));
+
+        AssertionIndex index = AddAssertion(assertion);
+
+        if (index != NO_ASSERTION_INDEX)
+        {
+            assertion->kind              = assertion->kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+            AssertionIndex invertedIndex = AddAssertion(assertion);
+
+            if (invertedIndex != NO_ASSERTION_INDEX)
+            {
+                invertedAssertions[index - 1]         = invertedIndex;
+                invertedAssertions[invertedIndex - 1] = index;
+            }
+        }
+
+        return index;
+    }
+
     void AddVNAssertion(ValueNum vn, AssertionIndex index)
     {
         ASSERT_TP* set = vnAssertionMap->Emplace(vn);
@@ -1282,48 +1279,11 @@ private:
         return set == nullptr ? BitVecOps::UninitVal() : *set;
     }
 
-    void AddInvertedAssertion(AssertionIndex index, AssertionIndex invertedIndex)
+    AssertionIndex GetInvertedAssertion(AssertionIndex index)
     {
-        if ((index == NO_ASSERTION_INDEX) || (invertedIndex == NO_ASSERTION_INDEX))
-        {
-            return;
-        }
-
-        assert(index <= assertionTableSize);
-        assert(invertedIndex <= assertionTableSize);
-
-        invertedAssertions[index - 1]         = invertedIndex;
-        invertedAssertions[invertedIndex - 1] = index;
-    }
-
-    AssertionIndex FindInvertedAssertion(AssertionIndex index)
-    {
-        AssertionDsc* assertion = GetAssertion(index);
-
-        if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        assert((index != NO_ASSERTION_INDEX) && (index <= assertionCount));
 
         return invertedAssertions[index - 1];
-    }
-
-    AssertionIndex AddBoundAssertions(AssertionDsc* assertion)
-    {
-        assert((assertion->op1.kind == O1K_BOUND_OPER_BND) || (assertion->op1.kind == O1K_BOUND_LOOP_BND) ||
-               (assertion->op1.kind == O1K_CONSTANT_LOOP_BND));
-        assert((assertion->op2.kind == O2K_CONST_INT) && (assertion->op2.vn == vnStore->VNZeroForType(TYP_INT)) &&
-               (assertion->op2.intCon.value == 0));
-
-        AssertionIndex index = AddAssertion(assertion);
-
-        if (index != NO_ASSERTION_INDEX)
-        {
-            assertion->kind = assertion->kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            AddInvertedAssertion(index, AddAssertion(assertion));
-        }
-
-        return index;
     }
 
     AssertionInfo GenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
@@ -1359,7 +1319,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return AddBoundAssertions(&dsc);
+            return AddEqualityAssertions(&dsc);
         }
 
         // Cases where op1 holds the lhs of the condition and op2 holds the bound arithmetic.
@@ -1375,7 +1335,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return AddBoundAssertions(&dsc);
+            return AddEqualityAssertions(&dsc);
         }
 
         // Cases where op1 holds the upper bound and op2 is 0.
@@ -1391,7 +1351,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return AddBoundAssertions(&dsc);
+            return AddEqualityAssertions(&dsc);
         }
 
         // Cases where op1 holds the lhs of the condition op2 holds the bound.
@@ -1407,7 +1367,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return AddBoundAssertions(&dsc);
+            return AddEqualityAssertions(&dsc);
         }
 
         ValueNumStore::UnsignedCompareCheckedBoundInfo unsignedCompareBnd;
@@ -1452,7 +1412,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return AddBoundAssertions(&dsc);
+            return AddEqualityAssertions(&dsc);
         }
 
         // Cases where op1 holds the lhs of the condition op2 holds rhs.
@@ -1468,7 +1428,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return AddBoundAssertions(&dsc);
+            return AddEqualityAssertions(&dsc);
         }
 
         return NO_ASSERTION_INDEX;
@@ -2940,12 +2900,12 @@ private:
                     if (info.IsNextEdgeAssertion())
                     {
                         nextIndex = info.GetAssertionIndex();
-                        jumpIndex = FindInvertedAssertion(nextIndex);
+                        jumpIndex = GetInvertedAssertion(nextIndex);
                     }
                     else
                     {
                         jumpIndex = info.GetAssertionIndex();
-                        nextIndex = FindInvertedAssertion(jumpIndex);
+                        nextIndex = GetInvertedAssertion(jumpIndex);
                     }
 
                     if (nextIndex != NO_ASSERTION_INDEX)
