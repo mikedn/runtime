@@ -1307,28 +1307,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionIndex invertedIndex = invertedAssertions[index - 1];
-
-        if (invertedIndex != NO_ASSERTION_INDEX)
-        {
-            return invertedIndex;
-        }
-
-        // TODO-MIKE-Review: Why is this needed? Just in case someone forgets to map the inverted
-        // assertion when generating assertions?
-        for (invertedIndex = 1; invertedIndex <= assertionCount; ++invertedIndex)
-        {
-            AssertionDsc* invertedAssertion = GetAssertion(invertedIndex);
-
-            if (invertedAssertion->IsInverted(*assertion))
-            {
-                AddInvertedAssertion(index, invertedIndex);
-
-                return invertedIndex;
-            }
-        }
-
-        return NO_ASSERTION_INDEX;
+        return invertedAssertions[index - 1];
     }
 
     AssertionIndex AddBoundAssertions(AssertionDsc* assertion)
@@ -1342,10 +1321,14 @@ private:
 
         if (index != NO_ASSERTION_INDEX)
         {
-            AssertionDsc inverted = *GetAssertion(index);
+            AssertionDsc inverted        = *GetAssertion(index);
+            inverted.kind                = inverted.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+            AssertionIndex invertedIndex = AddAssertion(&inverted);
 
-            inverted.kind = inverted.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
-            AddAssertion(&inverted);
+            if (invertedIndex != NO_ASSERTION_INDEX)
+            {
+                AddInvertedAssertion(index, invertedIndex);
+            }
         }
 
         return index;
