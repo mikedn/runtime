@@ -1298,70 +1298,47 @@ private:
         GenTree* op1 = relop->AsOp()->GetOp(0);
         GenTree* op2 = relop->AsOp()->GetOp(1);
 
-        ValueNum op1VN   = vnStore->VNNormalValue(op1->GetConservativeVN());
-        ValueNum op2VN   = vnStore->VNNormalValue(op2->GetConservativeVN());
         ValueNum relopVN = vnStore->VNNormalValue(relop->GetConservativeVN());
+        ValueNum boundVN;
 
-        bool hasTestAgainstZero = relop->OperIs(GT_EQ, GT_NE) && (op2VN == vnStore->VNZeroForType(op2->GetType()));
+        ApKind kind;
 
-        AssertionDsc dsc;
-
-        // Cases where op1 holds the upper bound arithmetic and op2 is 0.
-        // Loop condition like: "i < bnd +/-k == 0"
-        // Assertion: "i < bnd +/- k == 0"
-        if (hasTestAgainstZero && vnStore->IsVNCompareCheckedBoundArith(op1VN))
+        if (relop->OperIs(GT_EQ, GT_NE) && op2->IsIntegralConst(0))
         {
-            dsc.kind             = relop->OperIs(GT_EQ) ? OAK_EQUAL : OAK_NOT_EQUAL;
-            dsc.op1.kind         = O1K_BOUND_OPER_BND;
-            dsc.op1.vn           = op1VN;
-            dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNZeroForType(op2->GetType());
-            dsc.op2.intCon.value = 0;
-            dsc.op2.intCon.flags = GTF_EMPTY;
-
-            return AddEqualityAssertions(&dsc);
+            kind    = relop->OperIs(GT_EQ) ? OAK_EQUAL : OAK_NOT_EQUAL;
+            boundVN = vnStore->VNNormalValue(op1->GetConservativeVN());
+        }
+        else
+        {
+            kind    = OAK_NOT_EQUAL;
+            boundVN = relopVN;
         }
 
-        // Cases where op1 holds the lhs of the condition and op2 holds the bound arithmetic.
-        // Loop condition like: "i < bnd +/-k"
-        // Assertion: "i < bnd +/- k != 0"
-        if (vnStore->IsVNCompareCheckedBoundArith(relopVN))
-        {
-            dsc.kind             = OAK_NOT_EQUAL;
-            dsc.op1.kind         = O1K_BOUND_OPER_BND;
-            dsc.op1.vn           = relopVN;
-            dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNZeroForType(op2->GetType());
-            dsc.op2.intCon.value = 0;
-            dsc.op2.intCon.flags = GTF_EMPTY;
+        ApOp1Kind boundKind = O1K_INVALID;
 
-            return AddEqualityAssertions(&dsc);
+        // "(i +/- c1) LT|LE|GE|GT (j +/- c2)" where either i or j is used as length by an ARR_BOUNDS_CHK
+        if (vnStore->IsVNCompareCheckedBoundArith(boundVN))
+        {
+            boundKind = O1K_BOUND_OPER_BND;
+        }
+        // "i LT|LE|GE|GT j" where either i or j is used as length by an ARR_BOUNDS_CHK
+        else if (vnStore->IsVNCompareCheckedBound(boundVN))
+        {
+            boundKind = O1K_BOUND_LOOP_BND;
+        }
+        // "i LT|LE|GE|GT j" where either i or j is constant
+        else if (vnStore->IsVNConstantBound(boundVN))
+        {
+            boundKind = O1K_CONSTANT_LOOP_BND;
         }
 
-        // Cases where op1 holds the upper bound and op2 is 0.
-        // Loop condition like: "i < bnd == 0"
-        // Assertion: "i < bnd == false"
-        if (hasTestAgainstZero && vnStore->IsVNCompareCheckedBound(op1VN))
+        if (boundKind != O1K_INVALID)
         {
-            dsc.kind             = relop->OperIs(GT_EQ) ? OAK_EQUAL : OAK_NOT_EQUAL;
-            dsc.op1.kind         = O1K_BOUND_LOOP_BND;
-            dsc.op1.vn           = op1VN;
-            dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNZeroForType(op2->GetType());
-            dsc.op2.intCon.value = 0;
-            dsc.op2.intCon.flags = GTF_EMPTY;
+            AssertionDsc dsc;
 
-            return AddEqualityAssertions(&dsc);
-        }
-
-        // Cases where op1 holds the lhs of the condition op2 holds the bound.
-        // Loop condition like "i < bnd"
-        // Assertion: "i < bnd != 0"
-        if (vnStore->IsVNCompareCheckedBound(relopVN))
-        {
-            dsc.kind             = OAK_NOT_EQUAL;
-            dsc.op1.kind         = O1K_BOUND_LOOP_BND;
-            dsc.op1.vn           = relopVN;
+            dsc.kind             = kind;
+            dsc.op1.kind         = boundKind;
+            dsc.op1.vn           = boundVN;
             dsc.op2.kind         = O2K_CONST_INT;
             dsc.op2.vn           = vnStore->VNZeroForType(TYP_INT);
             dsc.op2.intCon.value = 0;
@@ -1381,6 +1358,8 @@ private:
             assert((unsignedCompareBnd.cmpOper == VNF_LT_UN) || (unsignedCompareBnd.cmpOper == VNF_GE_UN));
             assert(vnStore->IsVNCheckedBound(unsignedCompareBnd.vnBound));
 
+            AssertionDsc dsc;
+
             dsc.kind     = OAK_BOUNDS_CHK;
             dsc.op1.kind = O1K_VALUE_NUMBER;
             dsc.op1.vn   = unsignedCompareBnd.vnIdx;
@@ -1397,38 +1376,6 @@ private:
             }
 
             return index;
-        }
-
-        // Cases where op1 holds the condition bound check and op2 is 0.
-        // Loop condition like: "i < 100 == 0"
-        // Assertion: "i < 100 == false"
-        if (hasTestAgainstZero && vnStore->IsVNConstantBound(op1VN))
-        {
-            dsc.kind             = relop->OperIs(GT_EQ) ? OAK_EQUAL : OAK_NOT_EQUAL;
-            dsc.op1.kind         = O1K_CONSTANT_LOOP_BND;
-            dsc.op1.vn           = op1VN;
-            dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNZeroForType(op2->GetType());
-            dsc.op2.intCon.value = 0;
-            dsc.op2.intCon.flags = GTF_EMPTY;
-
-            return AddEqualityAssertions(&dsc);
-        }
-
-        // Cases where op1 holds the lhs of the condition op2 holds rhs.
-        // Loop condition like "i < 100"
-        // Assertion: "i < 100 != 0"
-        if (vnStore->IsVNConstantBound(relopVN))
-        {
-            dsc.kind             = OAK_NOT_EQUAL;
-            dsc.op1.kind         = O1K_CONSTANT_LOOP_BND;
-            dsc.op1.vn           = relopVN;
-            dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNZeroForType(TYP_INT);
-            dsc.op2.intCon.value = 0;
-            dsc.op2.intCon.flags = GTF_EMPTY;
-
-            return AddEqualityAssertions(&dsc);
         }
 
         return NO_ASSERTION_INDEX;
