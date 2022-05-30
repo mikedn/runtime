@@ -382,6 +382,8 @@ struct RangeOps
 
 class RangeCheck
 {
+    ValueNumStore* vnStore;
+
 public:
     // Constructor
     RangeCheck(Compiler* pCompiler);

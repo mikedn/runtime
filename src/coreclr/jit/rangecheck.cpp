@@ -11,12 +11,13 @@ static const int MAX_SEARCH_DEPTH = 100;
 static const int MAX_VISIT_BUDGET = 8192;
 
 // RangeCheck constructor.
-RangeCheck::RangeCheck(Compiler* pCompiler)
-    : m_pOverflowMap(nullptr)
+RangeCheck::RangeCheck(Compiler* compiler)
+    : vnStore(compiler->vnStore)
+    , m_pOverflowMap(nullptr)
     , m_pRangeMap(nullptr)
     , m_pSearchPath(nullptr)
-    , m_pCompiler(pCompiler)
-    , m_alloc(pCompiler->getAllocator(CMK_RangeCheck))
+    , m_pCompiler(compiler)
+    , m_alloc(compiler->getAllocator(CMK_RangeCheck))
     , m_nVisitBudget(MAX_VISIT_BUDGET)
 {
 }
@@ -49,8 +50,7 @@ RangeCheck::OverflowMap* RangeCheck::GetOverflowMap()
 // Get the length of the array vn, if it is new.
 int RangeCheck::GetArrLength(ValueNum vn)
 {
-    ValueNum arrRefVN = m_pCompiler->vnStore->GetArrForLenVn(vn);
-    return m_pCompiler->vnStore->GetNewArrSize(arrRefVN);
+    return vnStore->GetNewArrSize(vnStore->GetArrForLenVn(vn));
 }
 
 //------------------------------------------------------------------------
@@ -516,7 +516,10 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
             ValueNumStore::CompareCheckedBoundArithInfo info;
 
             // Get i, len, cns and < as "info."
-            m_pCompiler->vnStore->GetCompareCheckedBoundArithInfo(assertion.GetVN(), &info);
+            VNFuncApp funcApp;
+            vnStore->GetVNFunc(assertion.GetVN(), &funcApp);
+            vnStore->GetCompareCheckedBoundArithInfo(funcApp, &info);
+            assert((info.arrOper == GT_ADD) || (info.arrOper == GT_SUB));
 
             // If we don't have the same variable we are comparing against, bail.
             if (normalLclVN != info.cmpOp)
@@ -524,20 +527,15 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
                 continue;
             }
 
-            if ((info.arrOper != GT_ADD) && (info.arrOper != GT_SUB))
-            {
-                continue;
-            }
-
             // If the operand that operates on the bound is not constant, then done.
-            if (!m_pCompiler->vnStore->IsVNInt32Constant(info.arrOp))
+            if (!vnStore->IsVNInt32Constant(info.arrOp))
             {
                 continue;
             }
 
-            int cons = m_pCompiler->vnStore->ConstantValue<int>(info.arrOp);
+            int cons = vnStore->ConstantValue<int>(info.arrOp);
             limit    = Limit(Limit::keBinOpArray, info.vnBound, info.arrOper == GT_SUB ? -cons : cons);
-            cmpOper  = (genTreeOps)info.cmpOper;
+            cmpOper  = info.cmpOper;
         }
         // Current assertion is of the form (i < len) != 0
         else if (assertion.IsCompareCheckedBound())
@@ -545,17 +543,19 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
             ValueNumStore::CompareCheckedBoundArithInfo info;
 
             // Get the info as "i", "<" and "len"
-            m_pCompiler->vnStore->GetCompareCheckedBound(assertion.GetVN(), &info);
+            VNFuncApp funcApp;
+            vnStore->GetVNFunc(assertion.GetVN(), &funcApp);
+            vnStore->GetCompareCheckedBound(funcApp, &info);
 
             // If we don't have the same variable we are comparing against, bail.
             if (normalLclVN == info.cmpOp)
             {
-                cmpOper = (genTreeOps)info.cmpOper;
+                cmpOper = info.cmpOper;
                 limit   = Limit(Limit::keBinOpArray, info.vnBound, 0);
             }
             else if (normalLclVN == info.vnBound)
             {
-                cmpOper = GenTree::SwapRelop((genTreeOps)info.cmpOper);
+                cmpOper = GenTree::SwapRelop(info.cmpOper);
                 limit   = Limit(Limit::keBinOpArray, info.cmpOp, 0);
             }
             else
@@ -569,7 +569,9 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
             ValueNumStore::ConstantBoundInfo info;
 
             // Get the info as "i", "<" and "100"
-            m_pCompiler->vnStore->GetConstantBoundInfo(assertion.GetVN(), &info);
+            VNFuncApp funcApp;
+            vnStore->GetVNFunc(assertion.GetVN(), &funcApp);
+            vnStore->GetConstantBoundInfo(funcApp, &info);
 
             // If we don't have the same variable we are comparing against, bail.
             if (normalLclVN != info.cmpOpVN)
@@ -577,15 +579,15 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
                 continue;
             }
 
-            limit   = Limit(Limit::keConstant, info.constVal);
-            cmpOper = (genTreeOps)info.cmpOper;
+            limit   = Limit(Limit::keConstant, vnStore->GetConstantInt32(info.constVN));
+            cmpOper = info.cmpOper;
         }
         // Current assertion is of the form i == 100
         else if (assertion.IsConstant() && (assertion.GetVN() == normalLclVN))
         {
-            int cnstLimit = m_pCompiler->vnStore->CoercedConstantValue<int>(assertion.GetConstantVN());
+            int cnstLimit = vnStore->CoercedConstantValue<int>(assertion.GetConstantVN());
 
-            if ((cnstLimit == 0) && !assertion.IsEqual() && m_pCompiler->vnStore->IsVNCheckedBound(assertion.GetVN()))
+            if ((cnstLimit == 0) && !assertion.IsEqual() && vnStore->IsVNCheckedBound(assertion.GetVN()))
             {
                 // we have arr.Len != 0, so the length must be atleast one
                 limit   = Limit(Limit::keConstant, 1);
@@ -611,7 +613,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
         }
 
         // Make sure the assertion is of the form != 0 or == 0 if it isn't a constant assertion.
-        assert(isConstantAssertion || (assertion.GetConstantVN() == m_pCompiler->vnStore->VNZeroForType(TYP_INT)));
+        assert(isConstantAssertion || (assertion.GetConstantVN() == vnStore->VNForIntCon(0)));
 
         assert(limit.IsBinOpArray() || limit.IsConstant());
 
@@ -619,18 +621,18 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
 
         // Limits are sometimes made with the form vn + constant, where vn is a known constant
         // see if we can simplify this to just a constant
-        if (limit.IsBinOpArray() && m_pCompiler->vnStore->IsVNInt32Constant(limit.vn))
+        if (limit.IsBinOpArray() && vnStore->IsVNInt32Constant(limit.vn))
         {
-            Limit tempLimit = Limit(Limit::keConstant, m_pCompiler->vnStore->ConstantValue<int>(limit.vn));
+            Limit tempLimit = Limit(Limit::keConstant, vnStore->ConstantValue<int>(limit.vn));
             if (tempLimit.AddConstant(limit.cns))
             {
                 limit = tempLimit;
             }
         }
 
-        ValueNum arrLenVN = m_pCompiler->vnStore->VNConservativeNormalValue(m_pCurBndsChk->gtArrLen->gtVNPair);
+        ValueNum arrLenVN = vnStore->VNNormalValue(m_pCurBndsChk->GetLength()->GetConservativeVN());
 
-        if (m_pCompiler->vnStore->IsVNConstant(arrLenVN))
+        if (vnStore->IsVNConstant(arrLenVN))
         {
             // Set arrLenVN to NoVN; this will make it match the "vn" recorded on
             // constant limits (where we explicitly track the constant and don't

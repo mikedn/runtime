@@ -1315,32 +1315,37 @@ private:
         }
 
         ApOp1Kind boundKind = O1K_INVALID;
+        VNFuncApp funcApp;
 
-        // "(i +/- c1) LT|LE|GE|GT (j +/- c2)" where either i or j is used as length by an ARR_BOUNDS_CHK
-        if (vnStore->IsVNCompareCheckedBoundArith(boundVN))
+        if (vnStore->GetVNFunc(boundVN, &funcApp) && ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp))
         {
-            boundKind = O1K_BOUND_OPER_BND;
-        }
-        // "i LT|LE|GE|GT j" where either i or j is used as length by an ARR_BOUNDS_CHK
-        else if (vnStore->IsVNCompareCheckedBound(boundVN))
-        {
-            boundKind = O1K_BOUND_LOOP_BND;
-        }
-        // "i LT|LE|GE|GT j" where either i or j is constant
-        else if (vnStore->IsVNConstantBound(boundVN))
-        {
-            boundKind = O1K_CONSTANT_LOOP_BND;
-        }
+            // "(i +/- c1) LT|LE|GE|GT (j +/- c2)" where either i or j is used as length by an ARR_BOUNDS_CHK
+            if (vnStore->IsVNCompareCheckedBoundArith(funcApp))
+            {
+                boundKind = O1K_BOUND_OPER_BND;
+            }
+            // "i LT|LE|GE|GT j" where either i or j is used as length by an ARR_BOUNDS_CHK
+            else if (vnStore->IsVNCompareCheckedBound(funcApp))
+            {
+                boundKind = O1K_BOUND_LOOP_BND;
+            }
+            // "i LT|LE|GE|GT j" where either i or j is constant
+            else if (vnStore->IsVNConstantBound(funcApp))
+            {
+                boundKind = O1K_CONSTANT_LOOP_BND;
+            }
+            else
+            {
+                return NO_ASSERTION_INDEX;
+            }
 
-        if (boundKind != O1K_INVALID)
-        {
             AssertionDsc dsc;
 
             dsc.kind             = kind;
             dsc.op1.kind         = boundKind;
             dsc.op1.vn           = boundVN;
             dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.vn           = vnStore->VNZeroForType(TYP_INT);
+            dsc.op2.vn           = vnStore->VNForIntCon(0);
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
@@ -2014,14 +2019,7 @@ private:
                 foldResult = !foldResult;
             }
 
-            if (foldResult)
-            {
-                relop->gtVNPair.SetBoth(vnStore->VNOneForType(TYP_INT));
-            }
-            else
-            {
-                relop->gtVNPair.SetBoth(vnStore->VNZeroForType(TYP_INT));
-            }
+            relop->gtVNPair.SetBoth(vnStore->VNForIntCon(foldResult));
         }
         else if (op2->OperIs(GT_LCL_VAR))
         {
@@ -2960,7 +2958,7 @@ private:
         GenTree* sideEffects = ExtractConstantSideEffects(relop);
 
         // Transform the relop into EQ|NE(0, 0)
-        ValueNum vnZero = vnStore->VNZeroForType(TYP_INT);
+        ValueNum vnZero = vnStore->VNForIntCon(0);
         GenTree* op1    = compiler->gtNewIconNode(0);
         op1->SetVNs(ValueNumPair(vnZero, vnZero));
         relop->AsOp()->SetOp(0, op1);
@@ -2968,7 +2966,7 @@ private:
         op2->SetVNs(ValueNumPair(vnZero, vnZero));
         relop->AsOp()->SetOp(1, op2);
         relop->SetOper(vnStore->CoercedConstantValue<int64_t>(relopVN) != 0 ? GT_EQ : GT_NE);
-        ValueNum vnLib = vnStore->VNLiberalNormalValue(relop->gtVNPair);
+        ValueNum vnLib = vnStore->VNNormalValue(relop->GetLiberalVN());
         relop->SetVNs(ValueNumPair(vnLib, relopVN));
 
         while (sideEffects != nullptr)
