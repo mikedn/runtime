@@ -6628,57 +6628,61 @@ void ValueNumStore::vnDump(Compiler* comp, ValueNum vn, bool isPtr)
                 DumpPtrToArrElem(funcApp);
                 break;
             default:
-                if (IsVNCompareCheckedBound(funcApp))
+                if (IsVNCompareCheckedBoundRelop(funcApp))
                 {
                     CompareCheckedBoundArithInfo info;
-                    GetCompareCheckedBound(funcApp, &info);
-                    info.dump(this);
-                }
-                else if (IsVNCompareCheckedBoundArith(funcApp))
-                {
-                    CompareCheckedBoundArithInfo info;
-                    GetCompareCheckedBoundArithInfo(funcApp, &info);
-                    info.dump(this);
-                }
-                else
-                {
-                    printf("%s", VNFuncName(funcApp.m_func));
-#ifdef FEATURE_HW_INTRINSICS
-                    if (funcApp.m_func >= VNF_HWI_FIRST)
-                    {
-                        var_types type = VNFuncSimdBaseType(funcApp.m_func);
-                        unsigned  size = VNFuncSimdSize(funcApp.m_func);
 
-                        if (type != TYP_UNDEF)
+                    if (IsVNCompareCheckedBound(funcApp))
+                    {
+                        GetCompareCheckedBound(funcApp, &info);
+                        info.Dump();
+                        break;
+                    }
+
+                    if (IsVNCompareCheckedBoundArith(funcApp))
+                    {
+                        GetCompareCheckedBoundArithInfo(funcApp, &info);
+                        info.Dump();
+                        break;
+                    }
+                }
+
+                printf("%s", VNFuncName(funcApp.m_func));
+#ifdef FEATURE_HW_INTRINSICS
+                if (funcApp.m_func >= VNF_HWI_FIRST)
+                {
+                    var_types type = VNFuncSimdBaseType(funcApp.m_func);
+                    unsigned  size = VNFuncSimdSize(funcApp.m_func);
+
+                    if (type != TYP_UNDEF)
+                    {
+                        if (size == 0)
                         {
-                            if (size == 0)
-                            {
-                                printf("<%s>", varTypeName(type));
-                            }
-                            else
-                            {
-                                printf("<%s x %u>", varTypeName(type), size / varTypeSize(type));
-                            }
+                            printf("<%s>", varTypeName(type));
+                        }
+                        else
+                        {
+                            printf("<%s x %u>", varTypeName(type), size / varTypeSize(type));
                         }
                     }
+                }
 #endif // FEATURE_HW_INTRINSICS
-                    printf("(");
-                    for (unsigned i = 0; i < funcApp.m_arity; i++)
+                printf("(");
+                for (unsigned i = 0; i < funcApp.m_arity; i++)
+                {
+                    if (i > 0)
                     {
-                        if (i > 0)
-                        {
-                            printf(", ");
-                        }
+                        printf(", ");
+                    }
 
-                        printf(FMT_VN, funcApp.m_args[i]);
+                    printf(FMT_VN, funcApp.m_args[i]);
 
 #if FEATURE_VN_DUMP_FUNC_ARGS
-                        printf("=");
-                        vnDump(comp, funcApp.m_args[i]);
+                    printf("=");
+                    vnDump(comp, funcApp.m_args[i]);
 #endif
-                    }
-                    printf(")");
                 }
+                printf(")");
         }
     }
     else

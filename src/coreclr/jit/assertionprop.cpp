@@ -1220,10 +1220,9 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            printf(FMT_BB " ", compiler->compCurBB->bbNum);
-            compiler->gtDispTree(currentNode, nullptr, nullptr, true);
-            printf("Generates ");
-            DumpAssertion(&assertionTable[assertionCount - 1]);
+            printf(FMT_BB " [%06u] %s generates ", compiler->compCurBB->bbNum, currentNode->GetID(),
+                   GenTree::OpName(currentNode->GetOper()));
+            DumpAssertion(assertionTable[assertionCount - 1]);
         }
 #endif
 
@@ -3796,9 +3795,9 @@ private:
         }
     }
 
-    void DumpAssertion(const AssertionDsc* assertion)
+    void DumpAssertion(const AssertionDsc& assertion)
     {
-        compiler->apDumpAssertion(assertion, static_cast<unsigned>(assertion - assertionTable));
+        compiler->apDumpAssertion(assertion, static_cast<unsigned>(&assertion - assertionTable));
     }
 
     void DumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
@@ -3818,164 +3817,99 @@ void Compiler::apMain()
 
 #ifdef DEBUG
 
-void Compiler::apDumpAssertion(const AssertionDsc* assertion, unsigned index)
+void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
 {
-    const auto  kind = assertion->kind;
-    const auto& op1  = assertion->op1;
-    const auto& op2  = assertion->op2;
+    const auto  kind = assertion.kind;
+    const auto& op1  = assertion.op1;
+    const auto& op2  = assertion.op2;
 
-    const char* kindName = "???";
-
-    if (op1.kind == O1K_EXACT_TYPE)
+    if (kind == OAK_BOUNDS_CHK)
     {
-        kindName = "ExactType";
-    }
-    else if (op1.kind == O1K_SUBTYPE)
-    {
-        kindName = "Subtype";
-    }
-    else if (kind == OAK_BOUNDS_CHK)
-    {
-        kindName = "ArrayBounds";
-    }
-    else if (op2.kind == O2K_VALUE_NUMBER)
-    {
-        kindName = "Copy";
-    }
-    else if ((op2.kind == O2K_CONST_INT) ||
-#ifndef TARGET_64BIT
-             (op2.kind == O2K_CONST_LONG) ||
-#endif
-             (op2.kind == O2K_CONST_DOUBLE))
-    {
-        kindName = "Const";
-    }
-    else if (op2.kind == O2K_SUBRANGE)
-    {
-        kindName = "Subrange";
-    }
-
-    printf("%s assertion A%02u (" FMT_VN ", " FMT_VN ") ", kindName, index, op1.vn, op2.vn);
-
-    if (op1.kind == O1K_LCLVAR)
-    {
-        printf("V%02u", op1.lclNum);
-    }
-    else if (op1.kind == O1K_BOUND_OPER_BND)
-    {
-        printf("OperBound");
-    }
-    else if (op1.kind == O1K_BOUND_LOOP_BND)
-    {
-        printf("LoopBound");
-    }
-    else if (op1.kind == O1K_CONSTANT_LOOP_BND)
-    {
-        printf("ConstLoopBound");
-    }
-    else if (op1.kind == O1K_EXACT_TYPE)
-    {
-        printf("ExactType");
-    }
-    else if (op1.kind == O1K_SUBTYPE)
-    {
-        printf("Subtype");
-    }
-    else if (op1.kind == O1K_VALUE_NUMBER)
-    {
-        printf("ValueNumber");
-    }
-    else
-    {
-        printf("???");
+        printf("BoundsChk assertion A%02u: " FMT_VN " LT_UN " FMT_VN "\n", index, op1.vn, op2.vn);
+        return;
     }
 
     if (kind == OAK_SUBRANGE)
     {
-        printf(" in ");
+        printf("Range assertion A%02u: " FMT_VN " IN [%d..%d]\n", index, op1.vn, op2.range.min, op2.range.max);
+        return;
     }
-    else if (kind == OAK_EQUAL)
+
+    if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
     {
-        if (op1.kind == O1K_LCLVAR)
+        const char* oper;
+
+        if (op1.kind == O1K_SUBTYPE)
         {
-            printf(" == ");
+            oper = (kind == OAK_EQUAL) ? "IS" : "IS NOT";
         }
         else
         {
-            printf(" is ");
+            oper = (kind == OAK_EQUAL) ? "EQ" : "NE";
         }
+
+        const char* addr = (op2.kind == O2K_IND_CNS_INT) ? "[\0]\0" : "\0\0";
+
+        printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN " (%s0x%p%s)\n", index, op1.vn, oper, op2.vn, addr,
+               dspPtr(op2.intCon.value), addr + 2);
+
+        return;
     }
-    else if (kind == OAK_NOT_EQUAL)
+
+    if ((op1.kind == O1K_BOUND_OPER_BND) || (op1.kind == O1K_BOUND_LOOP_BND) || (op1.kind == O1K_CONSTANT_LOOP_BND))
     {
-        if (op1.kind == O1K_LCLVAR)
+        printf("Bounds assertion A%02u: " FMT_VN " %s", index, op1.vn, kind == OAK_EQUAL ? "NOT(" : "");
+
+        VNFuncApp funcApp;
+        vnStore->GetVNFunc(op1.vn, &funcApp);
+
+        ValueNumStore::CompareCheckedBoundArithInfo cmpInfo;
+        ValueNumStore::ConstantBoundInfo            cnsInfo;
+
+        switch (op1.kind)
         {
-            printf(" != ");
+            case O1K_BOUND_OPER_BND:
+                vnStore->GetCompareCheckedBoundArithInfo(funcApp, &cmpInfo);
+                cmpInfo.Dump();
+                break;
+            case O1K_BOUND_LOOP_BND:
+                vnStore->GetCompareCheckedBound(funcApp, &cmpInfo);
+                cmpInfo.Dump();
+                break;
+            default:
+                vnStore->GetConstantBoundInfo(funcApp, &cnsInfo);
+                cnsInfo.Dump(vnStore);
+                break;
         }
-        else
-        {
-            printf(" is not ");
-        }
+
+        printf("%s\n", kind == OAK_EQUAL ? ")" : "");
+
+        return;
     }
-    else if (kind != OAK_BOUNDS_CHK)
-    {
-        printf(" ??? ");
-    }
+
+    printf("Equality assertion A%02u: " FMT_VN " %s " FMT_VN, index, op1.vn, kind == OAK_EQUAL ? "EQ" : "NE", op2.vn);
 
     switch (op2.kind)
     {
         case O2K_CONST_INT:
-        case O2K_IND_CNS_INT:
-            if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+            if (op2.intCon.flags != GTF_EMPTY)
             {
-                printf("MT(%08X)", dspPtr(op2.intCon.value));
-            }
-            else if ((op1.kind == O1K_BOUND_OPER_BND) || (op1.kind == O1K_BOUND_LOOP_BND) ||
-                     (op1.kind == O1K_CONSTANT_LOOP_BND))
-            {
+                printf(" (0x%p %s)", dspPtr(op2.intCon.value), dmpGetHandleKindName(op2.intCon.flags));
             }
             else
             {
-                var_types op1Type;
-
-                if (op1.kind == O1K_VALUE_NUMBER)
-                {
-                    op1Type = vnStore->TypeOfVN(op1.vn);
-                }
-                else
-                {
-                    op1Type = lvaGetDesc(op1.lclNum)->GetType();
-                }
-
-                if ((op1Type == TYP_REF) && (op2.intCon.value == 0))
-                {
-                    printf("null");
-                }
-                else if ((op2.intCon.flags & GTF_ICON_HDL_MASK) != 0)
-                {
-                    printf("[%08p]", dspPtr(op2.intCon.value));
-                }
-                else
-                {
-                    printf("%d", op2.intCon.value);
-                }
+                printf(" (IntCon %Id)", op2.intCon.value);
             }
             break;
-
 #ifndef TARGET_64BIT
         case O2K_CONST_LONG:
-            printf("0x%016llx", op2.lngCon.value);
+            printf(" (LngCon 0x%016llx)", op2.lngCon.value);
             break;
 #endif
         case O2K_CONST_DOUBLE:
-            printf("%#.17g", op2.dblCon.value);
-            break;
-        case O2K_SUBRANGE:
-            printf("[%d..%d]", op2.range.min, op2.range.max);
-            break;
-        case O2K_VALUE_NUMBER:
+            printf(" (DblCon %#.17g)", op2.dblCon.value);
             break;
         default:
-            printf("???");
             break;
     }
 
@@ -4061,14 +3995,14 @@ BoundsAssertion Compiler::apGetBoundsAssertion(unsigned bitIndex)
     return apAssertionTable[bitIndex];
 }
 
+#ifdef DEBUG
 const AssertionDsc& BoundsAssertion::GetAssertion() const
 {
     return assertion;
 }
 
-#ifdef DEBUG
 void Compiler::apDumpBoundsAssertion(BoundsAssertion assertion)
 {
-    apDumpAssertion(&assertion.GetAssertion(), static_cast<unsigned>(&assertion.GetAssertion() - apAssertionTable));
+    apDumpAssertion(assertion.GetAssertion(), static_cast<unsigned>(&assertion.GetAssertion() - apAssertionTable));
 }
 #endif

@@ -1494,7 +1494,7 @@ public:
     {
     }
 
-    const AssertionDsc& GetAssertion() const;
+    INDEBUG(const AssertionDsc& GetAssertion() const;)
 
     bool IsBoundsAssertion() const;
     bool IsEqual() const;
@@ -5925,7 +5925,7 @@ public:
     BoundsAssertion apGetBoundsAssertion(unsigned bitIndex);
 
 #ifdef DEBUG
-    void apDumpAssertion(const AssertionDsc* assertion, unsigned index);
+    void apDumpAssertion(const AssertionDsc& assertion, unsigned index);
     void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer);
     void apDumpBoundsAssertion(BoundsAssertion assertion);
 #endif

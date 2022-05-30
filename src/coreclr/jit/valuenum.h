@@ -653,17 +653,16 @@ public:
         ValueNum   cmpOp   = NoVN;
 
 #ifdef DEBUG
-        void dump(ValueNumStore* vnStore)
+        void Dump()
         {
-            vnStore->vnDump(vnStore->m_pComp, cmpOp);
-            printf(" ");
-            printf(vnStore->VNFuncName((VNFunc)cmpOper));
-            printf(" ");
-            vnStore->vnDump(vnStore->m_pComp, vnBound);
-            if (arrOper != GT_NONE)
+            if (arrOper == GT_NONE)
             {
-                printf(vnStore->VNFuncName((VNFunc)arrOper));
-                vnStore->vnDump(vnStore->m_pComp, arrOp);
+                printf("%s(" FMT_VN ", " FMT_VN ")", GenTree::OpName(cmpOper), cmpOp, vnBound);
+            }
+            else
+            {
+                printf("%s(" FMT_VN ", %s(" FMT_VN ", " FMT_VN "))", GenTree::OpName(cmpOper), cmpOp,
+                       GenTree::OpName(arrOper), vnBound, arrOp);
             }
         }
 #endif
@@ -677,13 +676,9 @@ public:
         ValueNum   cmpOpVN = NoVN;
 
 #ifdef DEBUG
-        void dump(ValueNumStore* vnStore)
+        void Dump(ValueNumStore* vnStore)
         {
-            vnStore->vnDump(vnStore->m_pComp, cmpOpVN);
-            printf(" ");
-            printf(vnStore->VNFuncName((VNFunc)cmpOper));
-            printf(" ");
-            vnStore->vnDump(vnStore->m_pComp, constVN);
+            printf(FMT_VN "  %s %d", cmpOpVN, GenTree::OpName(cmpOper), vnStore->GetConstantInt32(constVN));
         }
 #endif
     };
