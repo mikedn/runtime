@@ -749,7 +749,7 @@ private:
         assert((1 <= index) && (index <= assertionCount));
 
         AssertionDsc* assertion = &assertionTable[index - 1];
-        INDEBUG(DebugCheckAssertion(assertion));
+        INDEBUG(DebugCheckAssertion(*assertion));
         return assertion;
     }
 
@@ -3719,72 +3719,70 @@ private:
     }
 
 #ifdef DEBUG
-    void DebugCheckAssertion(AssertionDsc* assertion)
+    void DebugCheckAssertion(const AssertionDsc& assertion)
     {
-        assert((assertion->kind > OAK_INVALID) && (assertion->kind < OAK_COUNT));
+        const auto  kind = assertion.kind;
+        const auto& op1  = assertion.op1;
+        const auto& op2  = assertion.op2;
 
-        const auto& op1 = assertion->op1;
-        const auto& op2 = assertion->op2;
-
-        switch (op1.kind)
+        if (kind == OAK_BOUNDS_CHK)
         {
-            case O1K_LCLVAR:
-                assert(compiler->lvaGetDesc(op1.lclNum));
-                break;
-            case O1K_EXACT_TYPE:
-            case O1K_SUBTYPE:
-            case O1K_BOUND_OPER_BND:
-            case O1K_BOUND_LOOP_BND:
-            case O1K_CONSTANT_LOOP_BND:
-            case O1K_VALUE_NUMBER:
-                break;
-            default:
-                assert(!"Invalid assertion op1 kind");
-                break;
+            assert((op1.kind == O1K_VALUE_NUMBER) && varTypeIsIntegral(vnStore->TypeOfVN(op1.vn)));
+            assert((op2.kind == O2K_VALUE_NUMBER) && varTypeIsIntegral(vnStore->TypeOfVN(op2.vn)));
+
+            return;
         }
 
-        switch (op2.kind)
+        if (kind == OAK_SUBRANGE)
         {
-            case O2K_IND_CNS_INT:
-            case O2K_CONST_INT:
-                assert((op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-                switch (op1.kind)
-                {
-                    case O1K_EXACT_TYPE:
-                    case O1K_SUBTYPE:
-                        assert(op2.intCon.flags != GTF_EMPTY);
-                        break;
-                    case O1K_LCLVAR:
-                        assert(!compiler->lvaGetDesc(op1.lclNum)->TypeIs(TYP_REF) || (op2.intCon.value == 0) ||
-                               compiler->doesMethodHaveFrozenString());
-                        break;
-                    case O1K_VALUE_NUMBER:
-                        assert((vnStore->TypeOfVN(op1.vn) != TYP_REF) || (op2.intCon.value == 0));
-                        break;
-                    default:
-                        break;
-                }
-                break;
+            assert((op1.kind == O1K_VALUE_NUMBER) && varTypeIsIntegral(vnStore->TypeOfVN(op1.vn)));
+            assert((op2.kind == O2K_SUBRANGE) && (op2.vn == NoVN));
 
-#ifndef TARGET_64BIT
-            case O2K_CONST_LONG:
+            return;
+        }
+
+        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
+
+        if ((op1.kind == O1K_BOUND_LOOP_BND) || (op1.kind == O1K_BOUND_OPER_BND) || (op1.kind == O1K_CONSTANT_LOOP_BND))
+        {
+            assert(varTypeIsIntegral(vnStore->TypeOfVN(op1.vn)));
+            assert((op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0) && (op2.vn == vnStore->VNForIntCon(0)));
+
+            return;
+        }
+
+        if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+        {
+            assert(vnStore->TypeOfVN(op1.vn) == TYP_REF);
+            assert((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_IND_CNS_INT));
+            assert(op2.intCon.flags != GTF_EMPTY);
+            assert(vnStore->TypeOfVN(op2.vn) == TYP_I_IMPL);
+
+            return;
+        }
+
+        assert(vnStore->TypeOfVN(op1.vn) != TYP_UNDEF);
+        assert(vnStore->TypeOfVN(op2.vn) != TYP_UNDEF);
+
+        if (op1.kind == O1K_LCLVAR)
+        {
+            assert(!compiler->lvaGetDesc(op1.lclNum)->IsAddressExposed());
+#ifdef TARGET_64BIT
+            assert((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_CONST_DOUBLE));
+#else
+            assert((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_CONST_LONG) || (op2.kind == O2K_CONST_DOUBLE));
 #endif
-            case O2K_CONST_DOUBLE:
-            case O2K_SUBRANGE:
-            case O2K_VALUE_NUMBER:
-                break;
-
-            default:
-                assert(op2.kind == O2K_INVALID);
-                break;
+            return;
         }
+
+        assert((op1.kind == O1K_VALUE_NUMBER) && ((op2.kind == O2K_VALUE_NUMBER) || (op2.kind == O2K_CONST_INT)));
     }
 
     void DebugCheckAssertionTable()
     {
         for (AssertionIndex index = 1; index <= assertionCount; ++index)
         {
-            DebugCheckAssertion(GetAssertion(index));
+            DebugCheckAssertion(*GetAssertion(index));
         }
     }
 
