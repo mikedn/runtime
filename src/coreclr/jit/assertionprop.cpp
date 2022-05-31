@@ -844,19 +844,17 @@ private:
             ValueNum  vn = vnStore->VNNormalValue(addr->GetConservativeVN());
             VNFuncApp funcApp;
 
-            while (vnStore->GetVNFunc(vn, &funcApp) && (funcApp.m_func == static_cast<VNFunc>(GT_ADD)) &&
-                   (vnStore->TypeOfVN(vn) == TYP_BYREF))
+            while (vnStore->GetVNFunc(vn, &funcApp) && funcApp.Is(GT_ADD) && (vnStore->TypeOfVN(vn) == TYP_BYREF))
             {
-                if (vnStore->IsVNConstant(funcApp.m_args[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp.m_args[1])))
+                if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
                 {
-                    offset += vnStore->CoercedConstantValue<ssize_t>(funcApp.m_args[1]);
-                    vn = funcApp.m_args[0];
+                    offset += vnStore->CoercedConstantValue<ssize_t>(funcApp[1]);
+                    vn = funcApp[0];
                 }
-                else if (vnStore->IsVNConstant(funcApp.m_args[0]) &&
-                         varTypeIsIntegral(vnStore->TypeOfVN(funcApp.m_args[0])))
+                else if (vnStore->IsVNConstant(funcApp[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[0])))
                 {
-                    offset += vnStore->CoercedConstantValue<ssize_t>(funcApp.m_args[0]);
-                    vn = funcApp.m_args[1];
+                    offset += vnStore->CoercedConstantValue<ssize_t>(funcApp[0]);
+                    vn = funcApp[1];
                 }
                 else
                 {
@@ -2002,8 +2000,7 @@ private:
 
         ValueNum baseVN = vn;
 
-        for (VNFuncApp funcApp;
-             vnStore->GetVNFunc(baseVN, &funcApp) && (funcApp.m_func == static_cast<VNFunc>(GT_ADD));)
+        for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) && funcApp.Is(GT_ADD);)
         {
             if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
             {
