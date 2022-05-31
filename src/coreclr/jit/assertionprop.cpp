@@ -478,7 +478,7 @@ enum ApKind : uint8_t
     OAK_INVALID,
     OAK_EQUAL,
     OAK_NOT_EQUAL,
-    OAK_SUBRANGE,
+    OAK_RANGE,
     OAK_BOUNDS_CHK
 };
 
@@ -503,7 +503,7 @@ enum ApOp2Kind : uint8_t
     O2K_CONST_LONG,
 #endif
     O2K_CONST_DOUBLE,
-    O2K_SUBRANGE,
+    O2K_RANGE,
     O2K_VALUE_NUMBER
 };
 
@@ -634,7 +634,7 @@ struct AssertionDsc
 #endif
             case O2K_CONST_DOUBLE:
                 return op2.dblCon == that.op2.dblCon;
-            case O2K_SUBRANGE:
+            case O2K_RANGE:
                 return op2.range == that.op2.range;
             case O2K_VALUE_NUMBER:
                 return op2.vn == that.op2.vn;
@@ -891,7 +891,7 @@ private:
         return AddAssertion(&assertion);
     }
 
-    AssertionIndex CreateSubrangeAssertion(GenTreeCast* cast)
+    AssertionIndex CreateRangeAssertion(GenTreeCast* cast)
     {
         GenTree* value = cast->GetOp(0);
 
@@ -940,10 +940,10 @@ private:
 
         AssertionDsc assertion;
 
-        assertion.kind      = OAK_SUBRANGE;
+        assertion.kind      = OAK_RANGE;
         assertion.op1.kind  = O1K_VALUE_NUMBER;
         assertion.op1.vn    = vnStore->VNNormalValue(value->GetConservativeVN());
-        assertion.op2.kind  = O2K_SUBRANGE;
+        assertion.op2.kind  = O2K_RANGE;
         assertion.op2.vn    = NoVN;
         assertion.op2.range = GetSmallTypeRange(toType);
 
@@ -1206,7 +1206,7 @@ private:
         }
 #endif
 
-        if ((assertion->kind == OAK_NOT_EQUAL) || (assertion->kind == OAK_SUBRANGE))
+        if ((assertion->kind == OAK_NOT_EQUAL) || (assertion->kind == OAK_RANGE))
         {
             AddVNAssertion(assertion->op1.vn, assertionCount);
         }
@@ -1556,7 +1556,7 @@ private:
                 // harm than good - there are very few cases where this helps and instead
                 // there are some cases where it just wastes space in the assertion table and
                 // prevents other useful assertions from being created.
-                CreateSubrangeAssertion(node->AsCast());
+                CreateRangeAssertion(node->AsCast());
                 break;
 
             case GT_JTRUE:
@@ -1573,14 +1573,14 @@ private:
         }
     }
 
-    AssertionDsc* AssertionIsSubrange(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
+    AssertionDsc* FindRangeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
 
-            if (assertion->kind != OAK_SUBRANGE)
+            if (assertion->kind != OAK_RANGE)
             {
                 continue;
             }
@@ -1946,7 +1946,7 @@ private:
         ValueNum      vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
         ssize_t       min       = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
         ssize_t       max       = GetSmallTypeRange(toType).max;
-        AssertionDsc* assertion = AssertionIsSubrange(assertions, vn, min, max);
+        AssertionDsc* assertion = FindRangeAssertion(assertions, vn, min, max);
 
         if (assertion == nullptr)
         {
@@ -2457,7 +2457,7 @@ private:
 
             bool isImplied = false;
 
-            if (impliedAssertion->op2.kind == O2K_SUBRANGE)
+            if (impliedAssertion->op2.kind == O2K_RANGE)
             {
                 if ((impliedAssertion->op2.range.min <= value) && (value <= impliedAssertion->op2.range.max))
                 {
@@ -3584,10 +3584,10 @@ private:
             return;
         }
 
-        if (kind == OAK_SUBRANGE)
+        if (kind == OAK_RANGE)
         {
             assert((op1.kind == O1K_VALUE_NUMBER) && varTypeIsIntegral(vnStore->TypeOfVN(op1.vn)));
-            assert((op2.kind == O2K_SUBRANGE) && (op2.vn == NoVN));
+            assert((op2.kind == O2K_RANGE) && (op2.vn == NoVN));
 
             return;
         }
@@ -3663,7 +3663,7 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         return;
     }
 
-    if (kind == OAK_SUBRANGE)
+    if (kind == OAK_RANGE)
     {
         printf("Range assertion A%02u: " FMT_VN " IN [%d..%d]\n", index, op1.vn, op2.range.min, op2.range.max);
         return;
