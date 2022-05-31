@@ -1573,34 +1573,6 @@ private:
         }
     }
 
-    AssertionDsc* FindRangeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
-    {
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
-        {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
-
-            if (assertion->kind != OAK_RANGE)
-            {
-                continue;
-            }
-
-            if (assertion->op1.vn != vn)
-            {
-                continue;
-            }
-
-            if ((assertion->op2.range.min < min) || (assertion->op2.range.max > max))
-            {
-                continue;
-            }
-
-            return assertion;
-        }
-
-        return nullptr;
-    }
-
     AssertionDsc* AssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
@@ -1916,6 +1888,34 @@ private:
         relop->ChangeToIntCon(isTrue);
         relop->gtVNPair.SetBoth(vnStore->VNForIntCon(isTrue));
         return UpdateTree(relop, relop, stmt);
+    }
+
+    AssertionDsc* FindRangeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
+    {
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        {
+            AssertionIndex index     = GetAssertionIndex(en.Current());
+            AssertionDsc*  assertion = GetAssertion(index);
+
+            if (assertion->kind != OAK_RANGE)
+            {
+                continue;
+            }
+
+            if (assertion->op1.vn != vn)
+            {
+                continue;
+            }
+
+            if ((assertion->op2.range.min < min) || (assertion->op2.range.max > max))
+            {
+                continue;
+            }
+
+            return assertion;
+        }
+
+        return nullptr;
     }
 
     GenTree* PropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
