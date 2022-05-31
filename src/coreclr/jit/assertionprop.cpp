@@ -3659,16 +3659,6 @@ private:
         }
     }
 
-    void DumpVNAssertionMap()
-    {
-        printf("\nVN Assertion Mapping:\n");
-
-        for (const auto& pair : *vnAssertionMap)
-        {
-            printf("$%u => %s\n", pair.key, BitVecOps::ToString(&countTraits, pair.value));
-        }
-    }
-
     void DumpAssertion(const AssertionDsc& assertion)
     {
         compiler->apDumpAssertion(assertion, static_cast<unsigned>(&assertion - assertionTable));
