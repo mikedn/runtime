@@ -760,12 +760,12 @@ private:
         assertionCount     = 0;
     }
 
-    AssertionDsc* GetAssertion(AssertionIndex index)
+    const AssertionDsc& GetAssertion(AssertionIndex index) const
     {
         assert((1 <= index) && (index <= assertionCount));
 
-        AssertionDsc* assertion = &assertionTable[index - 1];
-        INDEBUG(DebugCheckAssertion(*assertion));
+        const AssertionDsc& assertion = assertionTable[index - 1];
+        INDEBUG(DebugCheckAssertion(assertion));
         return assertion;
     }
 
@@ -787,7 +787,7 @@ private:
         assertion.op2.kind = O2K_VALUE_NUMBER;
         assertion.op2.vn   = lengthVN;
 
-        return AddAssertion(&assertion);
+        return AddAssertion(assertion);
     }
 
     AssertionIndex CreateNotNullAssertion(GenTree* addr)
@@ -888,7 +888,7 @@ private:
         assertion.op2.intCon.value = 0;
         assertion.op2.intCon.flags = GTF_EMPTY;
 
-        return AddAssertion(&assertion);
+        return AddAssertion(assertion);
     }
 
     AssertionIndex CreateRangeAssertion(GenTreeCast* cast)
@@ -947,7 +947,7 @@ private:
         assertion.op2.vn    = NoVN;
         assertion.op2.range = GetSmallTypeRange(toType);
 
-        return AddAssertion(&assertion);
+        return AddAssertion(assertion);
     }
 
     AssertionIndex CreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
@@ -1062,7 +1062,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        return AddEqualityAssertions(&assertion);
+        return AddEqualityAssertions(assertion);
     }
 
     AssertionIndex CreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind)
@@ -1122,7 +1122,7 @@ private:
         assertion.op1.vn   = vn1;
         assertion.op2.vn   = vn2;
 
-        return AddEqualityAssertions(&assertion);
+        return AddEqualityAssertions(assertion);
     }
 
     AssertionIndex CreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
@@ -1175,16 +1175,16 @@ private:
         assertion.op2.intCon.value = op2->AsIntCon()->GetValue();
         assertion.op2.intCon.flags = op2->GetIconHandleFlag();
 
-        return AddEqualityAssertions(&assertion);
+        return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex AddAssertion(AssertionDsc* assertion)
+    AssertionIndex AddAssertion(const AssertionDsc& assertion)
     {
-        INDEBUG(DebugCheckAssertion(*assertion));
+        INDEBUG(DebugCheckAssertion(assertion));
 
         for (AssertionIndex index = assertionCount; index >= 1; index--)
         {
-            if (*GetAssertion(index) == *assertion)
+            if (GetAssertion(index) == assertion)
             {
                 return index;
             }
@@ -1195,7 +1195,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        assertionTable[assertionCount++] = *assertion;
+        assertionTable[assertionCount++] = assertion;
 
 #ifdef DEBUG
         if (verbose)
@@ -1206,23 +1206,23 @@ private:
         }
 #endif
 
-        if ((assertion->kind == OAK_NOT_EQUAL) || (assertion->kind == OAK_RANGE))
+        if ((assertion.kind == OAK_NOT_EQUAL) || (assertion.kind == OAK_RANGE))
         {
-            AddVNAssertion(assertion->op1.vn, assertionCount);
+            AddVNAssertion(assertion.op1.vn, assertionCount);
         }
 
         return assertionCount;
     }
 
-    AssertionIndex AddEqualityAssertions(AssertionDsc* assertion)
+    AssertionIndex AddEqualityAssertions(AssertionDsc& assertion)
     {
-        assert((assertion->kind == OAK_EQUAL) || (assertion->kind == OAK_NOT_EQUAL));
+        assert((assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL));
 
         AssertionIndex index = AddAssertion(assertion);
 
         if (index != NO_ASSERTION_INDEX)
         {
-            assertion->kind              = assertion->kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
+            assertion.kind               = assertion.kind == OAK_EQUAL ? OAK_NOT_EQUAL : OAK_EQUAL;
             AssertionIndex invertedIndex = AddAssertion(assertion);
 
             if (invertedIndex != NO_ASSERTION_INDEX)
@@ -1249,14 +1249,14 @@ private:
         }
     }
 
-    ASSERT_VALRET_TP GetVNAssertions(ValueNum vn)
+    ASSERT_VALRET_TP GetVNAssertions(ValueNum vn) const
     {
         ASSERT_TP* set = vnAssertionMap->LookupPointer(vn);
 
         return set == nullptr ? BitVecOps::UninitVal() : *set;
     }
 
-    AssertionIndex GetInvertedAssertion(AssertionIndex index)
+    AssertionIndex GetInvertedAssertion(AssertionIndex index) const
     {
         assert((index != NO_ASSERTION_INDEX) && (index <= assertionCount));
 
@@ -1326,7 +1326,7 @@ private:
             dsc.op2.intCon.value = 0;
             dsc.op2.intCon.flags = GTF_EMPTY;
 
-            return AddEqualityAssertions(&dsc);
+            return AddEqualityAssertions(dsc);
         }
 
         ValueNumStore::UnsignedCompareCheckedBoundInfo unsignedCompareBnd;
@@ -1348,7 +1348,7 @@ private:
             dsc.op2.kind = O2K_VALUE_NUMBER;
             dsc.op2.vn   = vnStore->VNNormalValue(unsignedCompareBnd.vnBound);
 
-            AssertionIndex index = AddAssertion(&dsc);
+            AssertionIndex index = AddAssertion(dsc);
 
             if (unsignedCompareBnd.cmpOper == VNF_GE_UN)
             {
@@ -1430,7 +1430,7 @@ private:
                 dsc.op2.intCon.value = op2Value;
                 dsc.op2.intCon.flags = GTF_EMPTY;
 
-                AssertionIndex index = AddAssertion(&dsc);
+                AssertionIndex index = AddAssertion(dsc);
 
                 if (relop->OperIs(GT_NE) != (dsc.kind == OAK_NOT_EQUAL))
                 {
@@ -1573,7 +1573,7 @@ private:
         }
     }
 
-    GenTree* PropagateLclVarConst(AssertionDsc* assertion, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclVar* lclVar, Statement* stmt)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
@@ -1588,12 +1588,12 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Propagating Const A%02d:\n", assertion - assertionTable);
+            printf("Propagating Const A%02d:\n", &assertion - assertionTable);
             compiler->gtDispTree(lclVar, nullptr, nullptr, true);
         }
 #endif
 
-        const auto& val     = assertion->op2;
+        const auto& val     = assertion.op2;
         GenTree*    conNode = nullptr;
 
         switch (val.kind)
@@ -1676,23 +1676,23 @@ private:
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionDsc* assertion = GetAssertion(GetAssertionIndex(en.Current()));
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if ((assertion->kind != OAK_EQUAL) || (assertion->op1.kind != O1K_LCLVAR))
+            if ((assertion.kind != OAK_EQUAL) || (assertion.op1.kind != O1K_LCLVAR))
             {
                 continue;
             }
 
-            if (assertion->op1.lclNum != lclVar->GetLclNum())
+            if (assertion.op1.lclNum != lclVar->GetLclNum())
             {
                 continue;
             }
 
-            if ((assertion->op2.kind != O2K_CONST_INT) &&
+            if ((assertion.op2.kind != O2K_CONST_INT) &&
 #ifndef TARGET_64BIT
                 (assertion->op2.kind != O2K_CONST_LONG) &&
 #endif
-                (assertion->op2.kind != O2K_CONST_DOUBLE))
+                (assertion.op2.kind != O2K_CONST_DOUBLE))
             {
                 continue;
             }
@@ -1701,7 +1701,7 @@ private:
 
             if (lclVar->GetType() == lcl->GetType())
             {
-                if (assertion->op1.vn == vnStore->VNNormalValue(lclVar->GetConservativeVN()))
+                if (assertion.op1.vn == vnStore->VNNormalValue(lclVar->GetConservativeVN()))
                 {
                     return PropagateLclVarConst(assertion, lclVar, stmt);
                 }
@@ -1711,40 +1711,39 @@ private:
         return nullptr;
     }
 
-    AssertionDsc* FindEqualityAssertion(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
+    const AssertionDsc* FindEqualityAssertion(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
     {
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
+            if ((assertion.kind != OAK_EQUAL) && (assertion.kind != OAK_NOT_EQUAL))
             {
                 continue;
             }
 
-            if (assertion->op2.vn != vn2)
+            if (assertion.op2.vn != vn2)
             {
                 continue;
             }
 
-            if (assertion->op1.vn == vn1)
+            if (assertion.op1.vn == vn1)
             {
-                return assertion;
+                return &assertion;
             }
 
             // Look for matching exact type assertions based on vtable accesses.
-            if ((assertion->kind == OAK_EQUAL) && (assertion->op1.kind == O1K_EXACT_TYPE) && op1->OperIs(GT_IND))
+            if ((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_EXACT_TYPE) && op1->OperIs(GT_IND))
             {
                 GenTree* addr = op1->AsIndir()->GetAddr();
 
                 if (addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF) &&
-                    (assertion->op1.vn == vnStore->VNNormalValue(addr->GetConservativeVN())))
+                    (assertion.op1.vn == vnStore->VNNormalValue(addr->GetConservativeVN())))
                 {
-                    return assertion;
+                    return &assertion;
                 }
             }
         }
@@ -1752,24 +1751,23 @@ private:
         return nullptr;
     }
 
-    AssertionDsc* FindZeroEqualityAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, var_types type)
+    const AssertionDsc* FindZeroEqualityAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, var_types type)
     {
         ValueNum vn1 = vnStore->VNNormalValue(vn);
         ValueNum vn2 = vnStore->VNZeroForType(type);
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if ((assertion->kind != OAK_EQUAL) && (assertion->kind != OAK_NOT_EQUAL))
+            if ((assertion.kind != OAK_EQUAL) && (assertion.kind != OAK_NOT_EQUAL))
             {
                 continue;
             }
 
-            if ((assertion->op1.vn == vn1) && (assertion->op2.vn == vn2))
+            if ((assertion.op1.vn == vn1) && (assertion.op2.vn == vn2))
             {
-                return assertion;
+                return &assertion;
             }
         }
 
@@ -1780,8 +1778,9 @@ private:
     {
         assert(relop->OperIsCompare());
 
-        AssertionDsc* assertion = FindZeroEqualityAssertion(assertions, relop->GetConservativeVN(), relop->GetType());
-        bool          isTrue;
+        const AssertionDsc* assertion =
+            FindZeroEqualityAssertion(assertions, relop->GetConservativeVN(), relop->GetType());
+        bool isTrue;
 
         if (assertion != nullptr)
         {
@@ -1834,29 +1833,28 @@ private:
         return UpdateTree(relop, relop, stmt);
     }
 
-    AssertionDsc* FindRangeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
+    const AssertionDsc* FindRangeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if (assertion->kind != OAK_RANGE)
+            if (assertion.kind != OAK_RANGE)
             {
                 continue;
             }
 
-            if (assertion->op1.vn != vn)
+            if (assertion.op1.vn != vn)
             {
                 continue;
             }
 
-            if ((assertion->op2.range.min < min) || (assertion->op2.range.max > max))
+            if ((assertion.op2.range.min < min) || (assertion.op2.range.max > max))
             {
                 continue;
             }
 
-            return assertion;
+            return &assertion;
         }
 
         return nullptr;
@@ -1887,10 +1885,10 @@ private:
             return nullptr;
         }
 
-        ValueNum      vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
-        ssize_t       min       = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
-        ssize_t       max       = GetSmallTypeRange(toType).max;
-        AssertionDsc* assertion = FindRangeAssertion(assertions, vn, min, max);
+        ValueNum            vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
+        ssize_t             min       = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
+        ssize_t             max       = GetSmallTypeRange(toType).max;
+        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, min, max);
 
         if (assertion == nullptr)
         {
@@ -1975,7 +1973,7 @@ private:
             return nullptr;
         }
 
-        AssertionDsc* assertion = AssertionIsNotNull(assertions, addr->GetConservativeVN());
+        const AssertionDsc* assertion = AssertionIsNotNull(assertions, addr->GetConservativeVN());
 
         if (assertion == nullptr)
         {
@@ -1998,7 +1996,7 @@ private:
         return UpdateTree(indir, indir, stmt);
     }
 
-    AssertionDsc* AssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn)
+    const AssertionDsc* AssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn)
     {
         vn = vnStore->VNNormalValue(vn);
 
@@ -2023,25 +2021,24 @@ private:
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if (assertion->kind != OAK_NOT_EQUAL)
+            if (assertion.kind != OAK_NOT_EQUAL)
             {
                 continue;
             }
 
-            if (assertion->op2.vn != ValueNumStore::VNForNull())
+            if (assertion.op2.vn != ValueNumStore::VNForNull())
             {
                 continue;
             }
 
-            if ((assertion->op1.vn != vn) && (assertion->op1.vn != baseVN))
+            if ((assertion.op1.vn != vn) && (assertion.op1.vn != baseVN))
             {
                 continue;
             }
 
-            return assertion;
+            return &assertion;
         }
 
         return nullptr;
@@ -2062,7 +2059,7 @@ private:
             return nullptr;
         }
 
-        AssertionDsc* assertion = AssertionIsNotNull(assertions, thisArg->GetConservativeVN());
+        const AssertionDsc* assertion = AssertionIsNotNull(assertions, thisArg->GetConservativeVN());
 
         if (assertion == nullptr)
         {
@@ -2083,27 +2080,26 @@ private:
         return call;
     }
 
-    AssertionDsc* FindSubtypeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
+    const AssertionDsc* FindSubtypeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if ((assertion->kind != OAK_EQUAL) ||
-                ((assertion->op1.kind != O1K_SUBTYPE) && (assertion->op1.kind != O1K_EXACT_TYPE)))
+            if ((assertion.kind != OAK_EQUAL) ||
+                ((assertion.op1.kind != O1K_SUBTYPE) && (assertion.op1.kind != O1K_EXACT_TYPE)))
             {
                 continue;
             }
 
-            if (assertion->op1.vn != vn)
+            if (assertion.op1.vn != vn)
             {
                 continue;
             }
 
             ValueNum methodTableVN;
 
-            if (assertion->op2.kind == O2K_IND_CNS_INT)
+            if (assertion.op2.kind == O2K_IND_CNS_INT)
             {
                 if (!methodTable->OperIs(GT_IND))
                 {
@@ -2112,7 +2108,7 @@ private:
 
                 methodTableVN = methodTable->AsIndir()->GetAddr()->GetConservativeVN();
             }
-            else if (assertion->op2.kind == O2K_CONST_INT)
+            else if (assertion.op2.kind == O2K_CONST_INT)
             {
                 methodTableVN = methodTable->GetConservativeVN();
             }
@@ -2127,9 +2123,9 @@ private:
             GenTreeFlags iconFlags = GTF_EMPTY;
 
             if (vnStore->IsVNIntegralConstant(methodTableVN, &iconVal, &iconFlags) &&
-                (assertion->op2.intCon.value == iconVal))
+                (assertion.op2.intCon.value == iconVal))
             {
-                return assertion;
+                return &assertion;
             }
         }
 
@@ -2166,8 +2162,8 @@ private:
             return nullptr;
         }
 
-        ValueNum      objectVN  = vnStore->VNNormalValue(objectArg->GetConservativeVN());
-        AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, call->GetArgNodeByArgNum(0));
+        ValueNum            objectVN  = vnStore->VNNormalValue(objectArg->GetConservativeVN());
+        const AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, call->GetArgNodeByArgNum(0));
 
         if (assertion == nullptr)
         {
@@ -2217,16 +2213,15 @@ private:
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if (assertion->kind != OAK_BOUNDS_CHK)
+            if (assertion.kind != OAK_BOUNDS_CHK)
             {
                 continue;
             }
 
             // Do we have a previous range check involving the same 'vnLen' upper bound?
-            if (assertion->op2.vn != lengthVN)
+            if (assertion.op2.vn != lengthVN)
             {
                 continue;
             }
@@ -2234,7 +2229,7 @@ private:
             bool isRedundant = false;
             INDEBUG(const char* message = "");
 
-            if (assertion->op1.vn == indexVN)
+            if (assertion.op1.vn == indexVN)
             {
                 isRedundant = true;
                 INDEBUG(message = "a[i] followed by a[i]");
@@ -2244,14 +2239,14 @@ private:
                 isRedundant = true;
                 INDEBUG(message = "a[*] followed by a[0]");
             }
-            else if (vnStore->IsVNConstant(assertion->op1.vn) && vnStore->IsVNConstant(indexVN))
+            else if (vnStore->IsVNConstant(assertion.op1.vn) && vnStore->IsVNConstant(indexVN))
             {
-                var_types type1 = vnStore->TypeOfVN(assertion->op1.vn);
+                var_types type1 = vnStore->TypeOfVN(assertion.op1.vn);
                 var_types type2 = vnStore->TypeOfVN(indexVN);
 
                 if ((type1 == type2) && (type1 == TYP_INT))
                 {
-                    int index1 = vnStore->ConstantValue<int>(assertion->op1.vn);
+                    int index1 = vnStore->ConstantValue<int>(assertion.op1.vn);
                     int index2 = vnStore->ConstantValue<int>(indexVN);
 
                     assert(index1 != index2);
@@ -2277,7 +2272,7 @@ private:
 #ifdef DEBUG
             if (verbose)
             {
-                printf("Propagating BoundsChk %s A%02d:\n", message, index - 1);
+                printf("Propagating BoundsChk %s A%02d:\n", message, &assertion - assertionTable);
                 compiler->gtDispTree(boundsChk, nullptr, nullptr, true);
             }
 #endif
@@ -2363,32 +2358,32 @@ private:
 
     void AddImpliedAssertions(AssertionIndex index, ASSERT_TP& assertions)
     {
-        AssertionDsc* assertion = GetAssertion(index);
+        const AssertionDsc& assertion = GetAssertion(index);
 
-        if (assertion->kind != OAK_EQUAL)
+        if (assertion.kind != OAK_EQUAL)
         {
             return;
         }
 
-        if ((assertion->op1.kind == O1K_LCLVAR) && (assertion->op2.kind == O2K_CONST_INT))
+        if ((assertion.op1.kind == O1K_LCLVAR) && (assertion.op2.kind == O2K_CONST_INT))
         {
             AddConstImpliedAssertions(assertion, assertions);
             return;
         }
 
-        if ((assertion->op1.kind == O1K_SUBTYPE) || (assertion->op1.kind == O1K_EXACT_TYPE))
+        if ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE))
         {
             AddTypeImpliedNotNullAssertions(assertion, assertions);
             return;
         }
     }
 
-    void AddTypeImpliedNotNullAssertions(AssertionDsc* typeAssertion, ASSERT_TP& assertions)
+    void AddTypeImpliedNotNullAssertions(const AssertionDsc& typeAssertion, ASSERT_TP& assertions)
     {
-        assert(typeAssertion->kind == OAK_EQUAL);
-        assert((typeAssertion->op1.kind == O1K_SUBTYPE) || (typeAssertion->op1.kind == O1K_EXACT_TYPE));
+        assert(typeAssertion.kind == OAK_EQUAL);
+        assert((typeAssertion.op1.kind == O1K_SUBTYPE) || (typeAssertion.op1.kind == O1K_EXACT_TYPE));
 
-        const ASSERT_TP vnAssertions = GetVNAssertions(typeAssertion->op1.vn);
+        const ASSERT_TP vnAssertions = GetVNAssertions(typeAssertion.op1.vn);
 
         if (vnAssertions == BitVecOps::UninitVal())
         {
@@ -2397,25 +2392,25 @@ private:
 
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
-            AssertionIndex notNullIndex     = GetAssertionIndex(en.Current());
-            AssertionDsc*  notNullAssertion = GetAssertion(notNullIndex);
+            AssertionIndex      notNullIndex     = GetAssertionIndex(en.Current());
+            const AssertionDsc& notNullAssertion = GetAssertion(notNullIndex);
 
-            if (notNullAssertion == typeAssertion)
+            if (&notNullAssertion == &typeAssertion)
             {
                 continue;
             }
 
-            if ((notNullAssertion->kind != OAK_NOT_EQUAL) ||
-                ((notNullAssertion->op1.kind != O1K_LCLVAR) && (notNullAssertion->op1.kind != O1K_VALUE_NUMBER)) ||
-                (notNullAssertion->op2.kind != O2K_CONST_INT) || (notNullAssertion->op1.vn != typeAssertion->op1.vn))
+            if ((notNullAssertion.kind != OAK_NOT_EQUAL) ||
+                ((notNullAssertion.op1.kind != O1K_LCLVAR) && (notNullAssertion.op1.kind != O1K_VALUE_NUMBER)) ||
+                (notNullAssertion.op2.kind != O2K_CONST_INT) || (notNullAssertion.op1.vn != typeAssertion.op1.vn))
             {
                 continue;
             }
 
             if (BitVecOps::TryAddElemD(&countTraits, assertions, notNullIndex - 1))
             {
-                JITDUMP("%s A%02d implies A%02d\n", (typeAssertion->op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
-                        typeAssertion - assertionTable, notNullAssertion - assertionTable);
+                JITDUMP("%s A%02d implies A%02d\n", (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
+                        &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
             }
 
             // There is at most one not null assertion that is implied by a type assertion.
@@ -2423,47 +2418,47 @@ private:
         }
     }
 
-    void AddConstImpliedAssertions(AssertionDsc* constAssertion, ASSERT_TP& result)
+    void AddConstImpliedAssertions(const AssertionDsc& constAssertion, ASSERT_TP& result)
     {
-        assert(constAssertion->kind == OAK_EQUAL);
-        assert((constAssertion->op1.kind == O1K_LCLVAR) && (constAssertion->op2.kind == O2K_CONST_INT));
+        assert(constAssertion.kind == OAK_EQUAL);
+        assert((constAssertion.op1.kind == O1K_LCLVAR) && (constAssertion.op2.kind == O2K_CONST_INT));
 
-        const ASSERT_TP vnAssertions = GetVNAssertions(constAssertion->op1.vn);
+        const ASSERT_TP vnAssertions = GetVNAssertions(constAssertion.op1.vn);
 
         if (vnAssertions == BitVecOps::UninitVal())
         {
             return;
         }
 
-        ssize_t value = constAssertion->op2.intCon.value;
+        ssize_t value = constAssertion.op2.intCon.value;
 
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
-            AssertionIndex impliedIndex     = GetAssertionIndex(en.Current());
-            AssertionDsc*  impliedAssertion = GetAssertion(impliedIndex);
+            AssertionIndex      impliedIndex     = GetAssertionIndex(en.Current());
+            const AssertionDsc& impliedAssertion = GetAssertion(impliedIndex);
 
-            if (impliedAssertion == constAssertion)
+            if (&impliedAssertion == &constAssertion)
             {
                 continue;
             }
 
-            if (impliedAssertion->op1.vn != constAssertion->op1.vn)
+            if (impliedAssertion.op1.vn != constAssertion.op1.vn)
             {
                 continue;
             }
 
             bool isImplied = false;
 
-            if (impliedAssertion->op2.kind == O2K_RANGE)
+            if (impliedAssertion.op2.kind == O2K_RANGE)
             {
-                if ((impliedAssertion->op2.range.min <= value) && (value <= impliedAssertion->op2.range.max))
+                if ((impliedAssertion.op2.range.min <= value) && (value <= impliedAssertion.op2.range.max))
                 {
                     isImplied = true;
                 }
             }
-            else if (impliedAssertion->op2.kind == O2K_CONST_INT)
+            else if (impliedAssertion.op2.kind == O2K_CONST_INT)
             {
-                if ((impliedAssertion->kind == OAK_NOT_EQUAL) && (impliedAssertion->op2.intCon.value != value))
+                if ((impliedAssertion.kind == OAK_NOT_EQUAL) && (impliedAssertion.op2.intCon.value != value))
                 {
                     isImplied = true;
                 }
@@ -2471,9 +2466,8 @@ private:
 
             if (isImplied && BitVecOps::TryAddElemD(&countTraits, result, en.Current()))
             {
-                JITDUMP("Const assertion A%02d implies assertion A%02d\n",
-                        static_cast<unsigned>(constAssertion - assertionTable),
-                        static_cast<unsigned>(impliedAssertion - assertionTable));
+                JITDUMP("Const assertion A%02d implies assertion A%02d\n", &constAssertion - assertionTable,
+                        &impliedAssertion - assertionTable);
             }
         }
     }
@@ -3567,7 +3561,7 @@ private:
     }
 
 #ifdef DEBUG
-    void DebugCheckAssertion(const AssertionDsc& assertion)
+    void DebugCheckAssertion(const AssertionDsc& assertion) const
     {
         const auto  kind = assertion.kind;
         const auto& op1  = assertion.op1;
@@ -3626,12 +3620,12 @@ private:
         assert((op1.kind == O1K_VALUE_NUMBER) && ((op2.kind == O2K_VALUE_NUMBER) || (op2.kind == O2K_CONST_INT)));
     }
 
-    void DumpAssertion(const AssertionDsc& assertion)
+    void DumpAssertion(const AssertionDsc& assertion) const
     {
         compiler->apDumpAssertion(assertion, static_cast<unsigned>(&assertion - assertionTable));
     }
 
-    void DumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
+    void DumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer) const
     {
         compiler->apDumpAssertionIndices(header, assertions, footer);
     }
