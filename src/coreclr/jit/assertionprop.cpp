@@ -836,7 +836,7 @@ private:
             }
 
             assertion.op1.kind   = O1K_LCLVAR;
-            assertion.op1.vn     = vnStore->VNNormalValue(addr->GetConservativeVN());
+            assertion.op1.vn     = addr->GetConservativeVN();
             assertion.op1.lclNum = lclNum;
         }
         else if (lcl->TypeIs(TYP_BYREF))
@@ -940,7 +940,7 @@ private:
 
         assertion.kind      = OAK_RANGE;
         assertion.op1.kind  = O1K_VALUE_NUMBER;
-        assertion.op1.vn    = vnStore->VNNormalValue(value->GetConservativeVN());
+        assertion.op1.vn    = value->GetConservativeVN();
         assertion.op2.kind  = O2K_RANGE;
         assertion.op2.vn    = NoVN;
         assertion.op2.range = GetSmallTypeRange(toType);
@@ -1052,8 +1052,8 @@ private:
         }
 
         assertion.kind   = kind;
-        assertion.op1.vn = vnStore->VNNormalValue(op1->GetConservativeVN());
-        assertion.op2.vn = vnStore->VNNormalValue(op2->GetConservativeVN());
+        assertion.op1.vn = op1->GetConservativeVN();
+        assertion.op2.vn = op2->GetConservativeVN();
 
         if ((assertion.op1.vn == NoVN) || (assertion.op2.vn == NoVN))
         {
@@ -1098,7 +1098,7 @@ private:
             assertion.op2.kind = O2K_CONST_INT;
         }
 
-        ValueNum vn1 = vnStore->VNNormalValue(addr->GetConservativeVN());
+        ValueNum vn1 = addr->GetConservativeVN();
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
 
         if ((vn1 == NoVN) || (vn2 == NoVN))
@@ -1112,8 +1112,6 @@ private:
         }
 
         assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-
-        assert(vn1 == vnStore->VNNormalValue(lcl->GetPerSsaData(addr->GetSsaNum())->GetConservativeVN()));
 
         assertion.kind     = kind;
         assertion.op1.kind = O1K_EXACT_TYPE;
@@ -1158,7 +1156,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
+        ValueNum vn1 = op1->GetConservativeVN();
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
 
         if ((vn1 == NoVN) || (vn2 == NoVN))
@@ -1344,7 +1342,7 @@ private:
             dsc.op1.kind = O1K_VALUE_NUMBER;
             dsc.op1.vn   = unsignedCompareBnd.vnIdx;
             dsc.op2.kind = O2K_VALUE_NUMBER;
-            dsc.op2.vn   = vnStore->VNNormalValue(unsignedCompareBnd.vnBound);
+            dsc.op2.vn   = unsignedCompareBnd.vnBound;
 
             AssertionIndex index = AddAssertion(dsc);
 
@@ -1681,6 +1679,11 @@ private:
                 continue;
             }
 
+            if (assertion.op1.vn != lclVar->GetConservativeVN())
+            {
+                continue;
+            }
+
             if (assertion.op1.lclNum != lclVar->GetLclNum())
             {
                 continue;
@@ -1699,10 +1702,7 @@ private:
 
             if (lclVar->GetType() == lcl->GetType())
             {
-                if (assertion.op1.vn == vnStore->VNNormalValue(lclVar->GetConservativeVN()))
-                {
-                    return PropagateLclVarConst(assertion, lclVar, stmt);
-                }
+                return PropagateLclVarConst(assertion, lclVar, stmt);
             }
         }
 
@@ -1739,7 +1739,7 @@ private:
                 GenTree* addr = op1->AsIndir()->GetAddr();
 
                 if (addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF) &&
-                    (assertion.op1.vn == vnStore->VNNormalValue(addr->GetConservativeVN())))
+                    (assertion.op1.vn == addr->GetConservativeVN()))
                 {
                     return &assertion;
                 }
@@ -1877,7 +1877,7 @@ private:
             return nullptr;
         }
 
-        ValueNum            vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
+        ValueNum            vn        = lclVar->GetConservativeVN();
         ssize_t             min       = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
         ssize_t             max       = GetSmallTypeRange(toType).max;
         const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, min, max);
@@ -2153,7 +2153,7 @@ private:
             return nullptr;
         }
 
-        ValueNum            objectVN  = vnStore->VNNormalValue(objectArg->GetConservativeVN());
+        ValueNum            objectVN  = objectArg->GetConservativeVN();
         const AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, call->GetArgNodeByArgNum(0));
 
         if (assertion == nullptr)
