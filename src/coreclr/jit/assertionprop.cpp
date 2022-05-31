@@ -1573,9 +1573,7 @@ private:
         }
     }
 
-    GenTree* PropagateLclVarConst(AssertionDsc*  assertion,
-                                  GenTreeLclVar* lclVar,
-                                  Statement* stmt DEBUGARG(AssertionIndex index))
+    GenTree* PropagateLclVarConst(AssertionDsc* assertion, GenTreeLclVar* lclVar, Statement* stmt)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
@@ -1590,7 +1588,7 @@ private:
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Propagating Const A%02d:\n", index - 1);
+            printf("Propagating Const A%02d:\n", assertion - assertionTable);
             compiler->gtDispTree(lclVar, nullptr, nullptr, true);
         }
 #endif
@@ -1678,8 +1676,7 @@ private:
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
+            AssertionDsc* assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
             if ((assertion->kind != OAK_EQUAL) || (assertion->op1.kind != O1K_LCLVAR))
             {
@@ -1706,7 +1703,7 @@ private:
             {
                 if (assertion->op1.vn == vnStore->VNNormalValue(lclVar->GetConservativeVN()))
                 {
-                    return PropagateLclVarConst(assertion, lclVar, stmt DEBUGARG(index));
+                    return PropagateLclVarConst(assertion, lclVar, stmt);
                 }
             }
         }
