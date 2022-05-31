@@ -2186,18 +2186,10 @@ private:
 #ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
         if (JitConfig.JitNoRangeChks())
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("\nFlagging check redundant due to JitNoRangeChks in " FMT_BB ":\n", compCurBB->bbNum);
-                gtDispTree(boundsChk, nullptr, nullptr, true);
-            }
-#endif
-
             boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
             return nullptr;
         }
-#endif // FEATURE_ENABLE_NO_RANGE_CHECKS
+#endif
 
         ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
         ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
