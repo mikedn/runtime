@@ -1602,7 +1602,7 @@ private:
             AssertionIndex index     = GetAssertionIndex(en.Current());
             AssertionDsc*  assertion = GetAssertion(index);
 
-            if ((assertion->kind != OAK_SUBRANGE) || (assertion->op1.kind != O1K_VALUE_NUMBER))
+            if (assertion->kind != OAK_SUBRANGE)
             {
                 continue;
             }
