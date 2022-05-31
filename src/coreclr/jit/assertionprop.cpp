@@ -1573,59 +1573,6 @@ private:
         }
     }
 
-    AssertionDsc* AssertionIsSubtype(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
-    {
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
-        {
-            AssertionIndex index     = GetAssertionIndex(en.Current());
-            AssertionDsc*  assertion = GetAssertion(index);
-
-            if ((assertion->kind != OAK_EQUAL) ||
-                ((assertion->op1.kind != O1K_SUBTYPE) && (assertion->op1.kind != O1K_EXACT_TYPE)))
-            {
-                continue;
-            }
-
-            if (assertion->op1.vn != vn)
-            {
-                continue;
-            }
-
-            ValueNum methodTableVN;
-
-            if (assertion->op2.kind == O2K_IND_CNS_INT)
-            {
-                if (!methodTable->OperIs(GT_IND))
-                {
-                    continue;
-                }
-
-                methodTableVN = methodTable->AsIndir()->GetAddr()->GetConservativeVN();
-            }
-            else if (assertion->op2.kind == O2K_CONST_INT)
-            {
-                methodTableVN = methodTable->GetConservativeVN();
-            }
-            else
-            {
-                continue;
-            }
-
-            methodTableVN = vnStore->VNNormalValue(methodTableVN);
-
-            ssize_t      iconVal   = 0;
-            GenTreeFlags iconFlags = GTF_EMPTY;
-
-            if (vnStore->IsVNIntegralConstant(methodTableVN, &iconVal, &iconFlags) &&
-                (assertion->op2.intCon.value == iconVal))
-            {
-                return assertion;
-            }
-        }
-
-        return nullptr;
-    }
-
     GenTree* PropagateLclVarConst(AssertionDsc*  assertion,
                                   GenTreeLclVar* lclVar,
                                   Statement* stmt DEBUGARG(AssertionIndex index))
@@ -2139,6 +2086,59 @@ private:
         return call;
     }
 
+    AssertionDsc* FindSubtypeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
+    {
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        {
+            AssertionIndex index     = GetAssertionIndex(en.Current());
+            AssertionDsc*  assertion = GetAssertion(index);
+
+            if ((assertion->kind != OAK_EQUAL) ||
+                ((assertion->op1.kind != O1K_SUBTYPE) && (assertion->op1.kind != O1K_EXACT_TYPE)))
+            {
+                continue;
+            }
+
+            if (assertion->op1.vn != vn)
+            {
+                continue;
+            }
+
+            ValueNum methodTableVN;
+
+            if (assertion->op2.kind == O2K_IND_CNS_INT)
+            {
+                if (!methodTable->OperIs(GT_IND))
+                {
+                    continue;
+                }
+
+                methodTableVN = methodTable->AsIndir()->GetAddr()->GetConservativeVN();
+            }
+            else if (assertion->op2.kind == O2K_CONST_INT)
+            {
+                methodTableVN = methodTable->GetConservativeVN();
+            }
+            else
+            {
+                continue;
+            }
+
+            methodTableVN = vnStore->VNNormalValue(methodTableVN);
+
+            ssize_t      iconVal   = 0;
+            GenTreeFlags iconFlags = GTF_EMPTY;
+
+            if (vnStore->IsVNIntegralConstant(methodTableVN, &iconVal, &iconFlags) &&
+                (assertion->op2.intCon.value == iconVal))
+            {
+                return assertion;
+            }
+        }
+
+        return nullptr;
+    }
+
     GenTree* PropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
     {
         if (PropagateCallNotNull(assertions, call))
@@ -2170,7 +2170,7 @@ private:
         }
 
         ValueNum      objectVN  = vnStore->VNNormalValue(objectArg->GetConservativeVN());
-        AssertionDsc* assertion = AssertionIsSubtype(assertions, objectVN, call->GetArgNodeByArgNum(0));
+        AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, call->GetArgNodeByArgNum(0));
 
         if (assertion == nullptr)
         {
