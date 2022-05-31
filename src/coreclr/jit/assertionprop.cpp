@@ -479,8 +479,7 @@ enum ApKind : uint8_t
     OAK_EQUAL,
     OAK_NOT_EQUAL,
     OAK_SUBRANGE,
-    OAK_BOUNDS_CHK,
-    OAK_COUNT
+    OAK_BOUNDS_CHK
 };
 
 enum ApOp1Kind : uint8_t
@@ -492,8 +491,7 @@ enum ApOp1Kind : uint8_t
     O1K_CONSTANT_LOOP_BND,
     O1K_EXACT_TYPE,
     O1K_SUBTYPE,
-    O1K_VALUE_NUMBER,
-    O1K_COUNT
+    O1K_VALUE_NUMBER
 };
 
 enum ApOp2Kind : uint8_t
@@ -506,8 +504,7 @@ enum ApOp2Kind : uint8_t
 #endif
     O2K_CONST_DOUBLE,
     O2K_SUBRANGE,
-    O2K_VALUE_NUMBER,
-    O2K_COUNT
+    O2K_VALUE_NUMBER
 };
 
 struct AssertionDsc
