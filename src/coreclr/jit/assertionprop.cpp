@@ -655,6 +655,25 @@ struct AssertionDsc
     }
 };
 
+static const AssertionDsc::Range& GetSmallTypeRange(var_types type)
+{
+    static const AssertionDsc::Range ranges[]{
+        {0, 1},                 // BOOL
+        {INT8_MIN, INT8_MAX},   // BYTE
+        {0, UINT8_MAX},         // UBYTE
+        {INT16_MIN, INT16_MAX}, // SHORT
+        {0, UINT16_MAX},        // USHORT
+    };
+
+    static_assert_no_msg(TYP_BYTE - TYP_BOOL == 1);
+    static_assert_no_msg(TYP_UBYTE - TYP_BOOL == 2);
+    static_assert_no_msg(TYP_SHORT - TYP_BOOL == 3);
+    static_assert_no_msg(TYP_USHORT - TYP_BOOL == 4);
+
+    assert(varTypeIsSmall(type));
+    return ranges[type - TYP_BOOL];
+}
+
 AssertionIndex GetAssertionIndex(unsigned index)
 {
     return static_cast<AssertionIndex>(index + 1);
@@ -872,42 +891,6 @@ private:
         return AddAssertion(&assertion);
     }
 
-    static ssize_t GetLowerBoundForIntegralType(var_types type)
-    {
-        switch (type)
-        {
-            case TYP_BYTE:
-                return SCHAR_MIN;
-            case TYP_SHORT:
-                return SHRT_MIN;
-            case TYP_BOOL:
-            case TYP_UBYTE:
-            case TYP_USHORT:
-                return 0;
-            default:
-                unreached();
-        }
-    }
-
-    static ssize_t GetUpperBoundForIntegralType(var_types type)
-    {
-        switch (type)
-        {
-            case TYP_BOOL:
-                return 1;
-            case TYP_BYTE:
-                return SCHAR_MAX;
-            case TYP_SHORT:
-                return SHRT_MAX;
-            case TYP_UBYTE:
-                return UCHAR_MAX;
-            case TYP_USHORT:
-                return USHRT_MAX;
-            default:
-                unreached();
-        }
-    }
-
     AssertionIndex CreateSubrangeAssertion(GenTreeCast* cast)
     {
         GenTree* value = cast->GetOp(0);
@@ -962,7 +945,7 @@ private:
         assertion.op1.vn    = vnStore->VNNormalValue(value->GetConservativeVN());
         assertion.op2.kind  = O2K_SUBRANGE;
         assertion.op2.vn    = NoVN;
-        assertion.op2.range = {GetLowerBoundForIntegralType(toType), GetUpperBoundForIntegralType(toType)};
+        assertion.op2.range = GetSmallTypeRange(toType);
 
         return AddAssertion(&assertion);
     }
@@ -1960,9 +1943,9 @@ private:
             return nullptr;
         }
 
-        ssize_t       min       = cast->IsUnsigned() ? 0 : GetLowerBoundForIntegralType(toType);
-        ssize_t       max       = GetUpperBoundForIntegralType(toType);
         ValueNum      vn        = vnStore->VNNormalValue(lclVar->GetConservativeVN());
+        ssize_t       min       = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
+        ssize_t       max       = GetSmallTypeRange(toType).max;
         AssertionDsc* assertion = AssertionIsSubrange(assertions, vn, min, max);
 
         if (assertion == nullptr)
