@@ -1776,6 +1776,11 @@ private:
     {
         assert(relop->OperIsCompare());
 
+        if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
+        {
+            return nullptr;
+        }
+
         const AssertionDsc* assertion =
             FindZeroEqualityAssertion(assertions, relop->GetConservativeVN(), relop->GetType());
         bool isTrue;
@@ -1785,21 +1790,10 @@ private:
             JITDUMP("[%06u] propagating Equality assertion A%02d: " FMT_VN " %s 0\n", relop->GetID(),
                     assertion - assertionTable, assertion->op1.vn, (assertion->kind == OAK_EQUAL) ? "EQ" : "NE");
 
-            if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
-            {
-                JITDUMP("Relop has side effects\n");
-                return nullptr;
-            }
-
             isTrue = assertion->kind == OAK_NOT_EQUAL;
         }
         else if (relop->OperIs(GT_EQ, GT_NE))
         {
-            if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
-            {
-                return nullptr;
-            }
-
             GenTree* op1 = relop->GetOp(0);
             GenTree* op2 = relop->GetOp(1);
 
