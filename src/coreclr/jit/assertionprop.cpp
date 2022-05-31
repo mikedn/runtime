@@ -691,7 +691,7 @@ class AssertionProp
     AssertionIndex        assertionCount;
     BitVecTraits          sizeTraits;
     BitVecTraits          countTraits;
-    AssertionIndex*       invertedAssertions;
+    uint16_t*             invertedAssertions;
     ValueNumToAssertsMap* vnAssertionMap;
     bool                  stmtMorphPending;
 #ifdef DEBUG
@@ -754,7 +754,7 @@ private:
 
         assertionTableSize = countFunc[min(upperBound, codeSize)];
         assertionTable     = new (allocator) AssertionDsc[assertionTableSize];
-        invertedAssertions = new (allocator) AssertionIndex[assertionTableSize]();
+        invertedAssertions = new (allocator) uint16_t[assertionTableSize]();
         vnAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
         sizeTraits         = BitVecTraits(assertionTableSize, compiler);
         assertionCount     = 0;
@@ -1225,8 +1225,8 @@ private:
 
             if (invertedIndex != NO_ASSERTION_INDEX)
             {
-                invertedAssertions[index - 1]         = invertedIndex;
-                invertedAssertions[invertedIndex - 1] = index;
+                invertedAssertions[index - 1]         = static_cast<uint16_t>(invertedIndex);
+                invertedAssertions[invertedIndex - 1] = static_cast<uint16_t>(index);
             }
         }
 

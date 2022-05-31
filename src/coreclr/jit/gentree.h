@@ -132,21 +132,21 @@ struct InlineCandidateInfo;
 struct GuardedDevirtualizationCandidateInfo;
 struct ClassProfileCandidateInfo;
 
-typedef unsigned short AssertionIndex;
+typedef unsigned AssertionIndex;
 
 static const AssertionIndex NO_ASSERTION_INDEX = 0;
 
 class AssertionInfo
 {
     // true if the assertion holds on the bbNext edge instead of the bbJumpDest edge (for GT_JTRUE nodes)
-    unsigned short m_isNextEdgeAssertion : 1;
+    uint16_t m_isNextEdgeAssertion : 1;
     // 1-based index of the assertion
-    unsigned short m_assertionIndex : 15;
+    uint16_t m_assertionIndex : 15;
 
     AssertionInfo(bool isNextEdgeAssertion, AssertionIndex assertionIndex)
-        : m_isNextEdgeAssertion(isNextEdgeAssertion), m_assertionIndex(assertionIndex)
+        : m_isNextEdgeAssertion(isNextEdgeAssertion), m_assertionIndex(static_cast<uint16_t>(assertionIndex))
     {
-        assert(m_assertionIndex == assertionIndex);
+        assert(assertionIndex < (1u << 15));
     }
 
 public:
