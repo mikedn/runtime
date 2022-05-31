@@ -1249,7 +1249,7 @@ private:
         }
     }
 
-    ASSERT_VALRET_TP GetVNAssertions(ValueNum vn) const
+    const ASSERT_TP GetVNAssertions(ValueNum vn) const
     {
         ASSERT_TP* set = vnAssertionMap->LookupPointer(vn);
 
@@ -1665,7 +1665,7 @@ private:
         return UpdateTree(conNode, lclVar, stmt);
     }
 
-    GenTree* PropagateLclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclVar(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
     {
         assert(lclVar->OperIs(GT_LCL_VAR));
 
@@ -1711,7 +1711,7 @@ private:
         return nullptr;
     }
 
-    const AssertionDsc* FindEqualityAssertion(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
+    const AssertionDsc* FindEqualityAssertion(const ASSERT_TP assertions, GenTree* op1, GenTree* op2)
     {
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
@@ -1751,7 +1751,7 @@ private:
         return nullptr;
     }
 
-    const AssertionDsc* FindZeroEqualityAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, var_types type)
+    const AssertionDsc* FindZeroEqualityAssertion(const ASSERT_TP assertions, ValueNum vn, var_types type)
     {
         ValueNum vn1 = vnStore->VNNormalValue(vn);
         ValueNum vn2 = vnStore->VNZeroForType(type);
@@ -1774,7 +1774,7 @@ private:
         return nullptr;
     }
 
-    GenTree* PropagateRelop(ASSERT_VALARG_TP assertions, GenTreeOp* relop, Statement* stmt)
+    GenTree* PropagateRelop(const ASSERT_TP assertions, GenTreeOp* relop, Statement* stmt)
     {
         assert(relop->OperIsCompare());
 
@@ -1833,7 +1833,7 @@ private:
         return UpdateTree(relop, relop, stmt);
     }
 
-    const AssertionDsc* FindRangeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
+    const AssertionDsc* FindRangeAssertion(const ASSERT_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -1860,7 +1860,7 @@ private:
         return nullptr;
     }
 
-    GenTree* PropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
+    GenTree* PropagateCast(const ASSERT_TP assertions, GenTreeCast* cast, Statement* stmt)
     {
         GenTree*  op1      = cast->GetOp(0);
         var_types fromType = op1->GetType();
@@ -1954,7 +1954,7 @@ private:
         return UpdateTree(comma, comma, stmt);
     }
 
-    GenTree* PropagateIndir(ASSERT_VALARG_TP assertions, GenTreeIndir* indir, Statement* stmt)
+    GenTree* PropagateIndir(const ASSERT_TP assertions, GenTreeIndir* indir, Statement* stmt)
     {
         if ((indir->gtFlags & GTF_EXCEPT) == 0)
         {
@@ -1996,7 +1996,7 @@ private:
         return UpdateTree(indir, indir, stmt);
     }
 
-    const AssertionDsc* FindNotNullAssertion(ASSERT_VALARG_TP assertions, ValueNum vn)
+    const AssertionDsc* FindNotNullAssertion(const ASSERT_TP assertions, ValueNum vn)
     {
         vn = vnStore->VNNormalValue(vn);
 
@@ -2044,7 +2044,7 @@ private:
         return nullptr;
     }
 
-    GenTree* PropagateCallNotNull(ASSERT_VALARG_TP assertions, GenTreeCall* call)
+    GenTree* PropagateCallNotNull(const ASSERT_TP assertions, GenTreeCall* call)
     {
         if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
         {
@@ -2080,7 +2080,7 @@ private:
         return call;
     }
 
-    const AssertionDsc* FindSubtypeAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, GenTree* methodTable)
+    const AssertionDsc* FindSubtypeAssertion(const ASSERT_TP assertions, ValueNum vn, GenTree* methodTable)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -2132,7 +2132,7 @@ private:
         return nullptr;
     }
 
-    GenTree* PropagateCall(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt)
+    GenTree* PropagateCall(const ASSERT_TP assertions, GenTreeCall* call, Statement* stmt)
     {
         if (PropagateCallNotNull(assertions, call))
         {
@@ -2190,7 +2190,7 @@ private:
         return UpdateTree(objectArg, call, stmt);
     }
 
-    GenTree* PropagateBoundsChk(ASSERT_VALARG_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt)
+    GenTree* PropagateBoundsChk(const ASSERT_TP assertions, GenTreeBoundsChk* boundsChk, Statement* stmt)
     {
 #ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
         if (JitConfig.JitNoRangeChks())
@@ -2323,7 +2323,7 @@ private:
         return newTree;
     }
 
-    GenTree* PropagateNode(ASSERT_VALARG_TP assertions, GenTree* node, Statement* stmt, BasicBlock* block)
+    GenTree* PropagateNode(const ASSERT_TP assertions, GenTree* node, Statement* stmt, BasicBlock* block)
     {
         switch (node->GetOper())
         {
