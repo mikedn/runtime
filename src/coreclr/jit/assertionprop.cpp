@@ -2383,8 +2383,7 @@ private:
 
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
-            AssertionIndex      notNullIndex     = GetAssertionIndex(en.Current());
-            const AssertionDsc& notNullAssertion = GetAssertion(notNullIndex);
+            const AssertionDsc& notNullAssertion = GetAssertion(GetAssertionIndex(en.Current()));
 
             if (&notNullAssertion == &typeAssertion)
             {
@@ -2398,7 +2397,7 @@ private:
                 continue;
             }
 
-            if (BitVecOps::TryAddElemD(&countTraits, assertions, notNullIndex - 1))
+            if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
             {
                 JITDUMP("%s A%02d implies A%02d\n", (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
                         &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
@@ -2425,8 +2424,7 @@ private:
 
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
-            AssertionIndex      impliedIndex     = GetAssertionIndex(en.Current());
-            const AssertionDsc& impliedAssertion = GetAssertion(impliedIndex);
+            const AssertionDsc& impliedAssertion = GetAssertion(GetAssertionIndex(en.Current()));
 
             if (&impliedAssertion == &constAssertion)
             {
