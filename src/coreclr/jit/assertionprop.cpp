@@ -1200,7 +1200,7 @@ private:
 
     AssertionIndex AddAssertion(AssertionDsc* assertion)
     {
-        assert(assertion->kind != OAK_INVALID);
+        INDEBUG(DebugCheckAssertion(*assertion));
 
         for (AssertionIndex index = assertionCount; index >= 1; index--)
         {
@@ -1230,8 +1230,6 @@ private:
         {
             AddVNAssertion(assertion->op1.vn, assertionCount);
         }
-
-        INDEBUG(DebugCheckAssertionTable());
 
         return assertionCount;
     }
@@ -3649,14 +3647,6 @@ private:
         }
 
         assert((op1.kind == O1K_VALUE_NUMBER) && ((op2.kind == O2K_VALUE_NUMBER) || (op2.kind == O2K_CONST_INT)));
-    }
-
-    void DebugCheckAssertionTable()
-    {
-        for (AssertionIndex index = 1; index <= assertionCount; ++index)
-        {
-            DebugCheckAssertion(*GetAssertion(index));
-        }
     }
 
     void DumpAssertion(const AssertionDsc& assertion)
