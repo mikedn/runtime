@@ -1973,7 +1973,7 @@ private:
             return nullptr;
         }
 
-        const AssertionDsc* assertion = AssertionIsNotNull(assertions, addr->GetConservativeVN());
+        const AssertionDsc* assertion = FindNotNullAssertion(assertions, addr->GetConservativeVN());
 
         if (assertion == nullptr)
         {
@@ -1996,7 +1996,7 @@ private:
         return UpdateTree(indir, indir, stmt);
     }
 
-    const AssertionDsc* AssertionIsNotNull(ASSERT_VALARG_TP assertions, ValueNum vn)
+    const AssertionDsc* FindNotNullAssertion(ASSERT_VALARG_TP assertions, ValueNum vn)
     {
         vn = vnStore->VNNormalValue(vn);
 
@@ -2059,7 +2059,7 @@ private:
             return nullptr;
         }
 
-        const AssertionDsc* assertion = AssertionIsNotNull(assertions, thisArg->GetConservativeVN());
+        const AssertionDsc* assertion = FindNotNullAssertion(assertions, thisArg->GetConservativeVN());
 
         if (assertion == nullptr)
         {
