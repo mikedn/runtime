@@ -1817,7 +1817,7 @@ private:
         return nullptr;
     }
 
-    AssertionDsc* AssertionIsEquality(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
+    AssertionDsc* FindEqualityAssertion(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2)
     {
         ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
@@ -1858,10 +1858,10 @@ private:
         return nullptr;
     }
 
-    AssertionDsc* AssertionIsZeroEquality(ASSERT_VALARG_TP assertions, GenTree* op1)
+    AssertionDsc* FindZeroEqualityAssertion(ASSERT_VALARG_TP assertions, ValueNum vn, var_types type)
     {
-        ValueNum vn1 = vnStore->VNNormalValue(op1->GetConservativeVN());
-        ValueNum vn2 = vnStore->VNZeroForType(op1->GetType());
+        ValueNum vn1 = vnStore->VNNormalValue(vn);
+        ValueNum vn2 = vnStore->VNZeroForType(type);
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -1886,15 +1886,13 @@ private:
     {
         assert(relop->OperIsCompare());
 
-        GenTree* op1 = relop->GetOp(0);
-        GenTree* op2 = relop->GetOp(1);
-
-        AssertionDsc* assertion = AssertionIsZeroEquality(assertions, relop);
+        AssertionDsc* assertion = FindZeroEqualityAssertion(assertions, relop->GetConservativeVN(), relop->GetType());
+        bool          isTrue;
 
         if (assertion != nullptr)
         {
-            JITDUMP("Propagating Const A%02d: relop [%06u] %s 0\n", assertion - assertionTable, relop->GetID(),
-                    (assertion->kind == OAK_EQUAL) ? "==" : "!=");
+            JITDUMP("[%06u] propagating Equality assertion A%02d: " FMT_VN " %s 0\n", relop->GetID(),
+                    assertion - assertionTable, assertion->op1.vn, (assertion->kind == OAK_EQUAL) ? "EQ" : "NE");
 
             if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
             {
@@ -1902,168 +1900,44 @@ private:
                 return nullptr;
             }
 
-            relop->ChangeToIntCon(assertion->kind != OAK_EQUAL);
-
-            return UpdateTree(relop, relop, stmt);
+            isTrue = assertion->kind == OAK_NOT_EQUAL;
         }
-
-        if (!relop->OperIs(GT_EQ, GT_NE))
+        else if (relop->OperIs(GT_EQ, GT_NE))
         {
-            return nullptr;
-        }
-
-        if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
-        {
-            return nullptr;
-        }
-
-        if (!op1->OperIs(GT_LCL_VAR, GT_IND))
-        {
-            return nullptr;
-        }
-
-        assertion = AssertionIsEquality(assertions, op1, op2);
-
-        if (assertion == nullptr)
-        {
-            return nullptr;
-        }
-
-        ValueNum op2VN        = vnStore->VNNormalValue(op2->GetConservativeVN());
-        bool     allowReverse = true;
-
-        if (vnStore->IsVNConstant(op2VN))
-        {
-            // TODO-MIKE-Review: This stuff's weird. We have op1 ==/!= op2 and op2 is a constant.
-            // We change op1 to be the same constant as op2 and then set the relop VN to 0/1.
-            // Why don't we just change the relop to a constant like in the zero case above?
-
-            JITDUMP("Propagating Equality A%02d: [%06u] %s ", assertion - assertionTable, op1->GetID(),
-                    assertion->kind == OAK_EQUAL ? "==" : "!=");
-
-            if (varActualTypeIsInt(op1->GetType()))
+            if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
             {
-                int value = vnStore->ConstantValue<int>(op2VN);
-                JITDUMP("%d\n", value);
-                op1->ChangeToIntCon(TYP_INT, value);
-
-#ifndef TARGET_64BIT
-                if (vnStore->IsVNHandle(op2VN))
-                {
-                    op1->gtFlags |= (vnStore->GetHandleFlags(op2VN) & GTF_ICON_HDL_MASK);
-                }
-#endif
-            }
-            else if (op1->TypeIs(TYP_LONG))
-            {
-                int64_t value = vnStore->ConstantValue<int64_t>(op2VN);
-                JITDUMP("%lld\n", value);
-#ifdef TARGET_64BIT
-                op1->ChangeToIntCon(value);
-
-                if (vnStore->IsVNHandle(op2VN))
-                {
-                    op1->gtFlags |= (vnStore->GetHandleFlags(op2VN) & GTF_ICON_HDL_MASK);
-                }
-#else
-                op1->ChangeToLngCon(value);
-#endif
-            }
-            else if (op1->TypeIs(TYP_DOUBLE))
-            {
-                double value = vnStore->ConstantValue<double>(op2VN);
-                JITDUMP("%f\n", value);
-                op1->ChangeToDblCon(value);
-
-                // Nothing can be equal to NaN. So if IL had "op1 == NaN", then we already made op1 NaN,
-                // which will yield a false correctly. Instead if IL had "op1 != NaN", then we already
-                // made op1 NaN which will yield a true correctly. Note that this is irrespective of the
-                // assertion we have made.
-                allowReverse = !_isnan(value);
-            }
-            else if (op1->TypeIs(TYP_FLOAT))
-            {
-                float value = vnStore->ConstantValue<float>(op2VN);
-                JITDUMP("%f\n", value);
-                op1->ChangeToDblCon(value);
-                allowReverse = !_isnan(value);
-            }
-            else if (op1->TypeIs(TYP_REF))
-            {
-                noway_assert(vnStore->ConstantValue<size_t>(op2VN) == 0);
-                JITDUMP("null\n");
-                op1->ChangeToIntCon(0);
-            }
-            else if (op1->TypeIs(TYP_BYREF))
-            {
-                target_ssize_t value = static_cast<target_ssize_t>(vnStore->ConstantValue<size_t>(op2VN));
-#ifdef TARGET_64BIT
-                JITDUMP("%llx\n", value);
-#else
-                JITDUMP("%x\n", value);
-#endif
-                op1->ChangeToIntCon(value);
-            }
-            else
-            {
-                unreached();
+                return nullptr;
             }
 
-            op1->gtVNPair.SetBoth(op2VN);
+            GenTree* op1 = relop->GetOp(0);
+            GenTree* op2 = relop->GetOp(1);
 
-            bool foldResult = assertion->kind == OAK_EQUAL;
-
-            if (!relop->OperIs(GT_NE))
+            if (!op1->OperIs(GT_LCL_VAR, GT_IND))
             {
-                foldResult = !foldResult;
+                return nullptr;
             }
 
-            relop->gtVNPair.SetBoth(vnStore->VNForIntCon(foldResult));
-        }
-        else if (op2->OperIs(GT_LCL_VAR))
-        {
-            JITDUMP("Propagating Equality A%02d: V%02u.%02u %s V%02u.%02u\n", assertion - assertionTable,
-                    op1->AsLclVar()->GetLclNum(), op1->AsLclVar()->GetSsaNum(),
-                    (assertion->kind == OAK_EQUAL) ? "==" : "!=", op2->AsLclVar()->GetLclNum(),
-                    op2->AsLclVar()->GetSsaNum());
+            assertion = FindEqualityAssertion(assertions, op1, op2);
 
-            // If floating point, don't just substitute op1 with op2, this won't work if
-            // op2 is NaN. Just turn it into a "true" or "false" yielding expression.
-            if (varTypeIsFloating(op1->GetType()))
+            if (assertion == nullptr)
             {
-                // Note we can't trust the OAK_EQUAL as the value could end up being a NaN
-                // violating the assertion. However, we create OAK_EQUAL assertions for floating
-                // point only on JTrue nodes, so if the condition held earlier, it will hold
-                // now. We don't create OAK_EQUAL assertion on floating point from GT_ASG
-                // because we depend on value num which would constant prop the NaN.
-                op1->ChangeToDblCon(0);
-                op2->ChangeToDblCon(0);
+                return nullptr;
             }
-            else
-            {
-                noway_assert(varTypeIsIntegralOrI(op1->GetType()));
 
-                // TODO-MIKE-Review: What about the op1 = IND case? Presumably that can't happen
-                // because op2 is expected to be CNS_INT or IND (exact type assertion).
-                op1->AsLclVar()->SetLclNum(op2->AsLclVar()->GetLclNum());
-                op1->AsLclVar()->SetSsaNum(op2->AsLclVar()->GetSsaNum());
-            }
+            JITDUMP("[%06u] propagating Equality assertion A%02d: " FMT_VN " %s " FMT_VN "\n", relop->GetID(),
+                    assertion - assertionTable, assertion->op1.vn, (assertion->kind == OAK_EQUAL) ? "EQ" : "NE",
+                    assertion->op2.vn);
+
+            isTrue = (assertion->kind == OAK_EQUAL) == relop->OperIs(GT_EQ);
         }
         else
         {
             return nullptr;
         }
 
-        // Finally reverse the condition, if we have a not equal assertion.
-        if (allowReverse && (assertion->kind == OAK_NOT_EQUAL))
-        {
-            compiler->gtReverseCond(relop);
-        }
-
-        // TODO-MIKE-Review: Why are we morphing here? UpdateTree will do that anyway.
-        GenTree* newTree = compiler->fgMorphTree(relop);
-        DBEXEC(verbose, compiler->gtDispTree(newTree, nullptr, nullptr, true);)
-        return UpdateTree(newTree, relop, stmt);
+        relop->ChangeToIntCon(isTrue);
+        relop->gtVNPair.SetBoth(vnStore->VNForIntCon(isTrue));
+        return UpdateTree(relop, relop, stmt);
     }
 
     GenTree* PropagateCast(ASSERT_VALARG_TP assertions, GenTreeCast* cast, Statement* stmt)
@@ -3706,7 +3580,7 @@ private:
                 if (stmtMorphPending)
                 {
                     JITDUMP("\nMorphing statement " FMT_STMT "\n", stmt->GetID())
-                    compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNAssertionProp"));
+                    compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
                 }
 
                 // Check if propagation removed statements starting from current stmt.
