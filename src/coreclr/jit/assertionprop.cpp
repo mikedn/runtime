@@ -1571,12 +1571,13 @@ private:
 
     GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclVar* lclVar, Statement* stmt)
     {
+#ifdef DEBUG
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
         assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
         assert(lclVar->GetType() == lcl->GetType());
+        assert(!varTypeIsStruct(lclVar->GetType()));
 
-#ifdef DEBUG
         if (verbose)
         {
             printf("Propagating Const A%02d:\n", &assertion - assertionTable);
@@ -1611,24 +1612,6 @@ private:
 #endif
 
             case O2K_CONST_INT:
-                if (lclVar->TypeIs(TYP_STRUCT))
-                {
-                    assert(val.intCon.value == 0);
-
-                    conNode = lclVar->ChangeToIntCon(TYP_INT, 0);
-                    break;
-                }
-
-#ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(lclVar->GetType()))
-                {
-                    assert(val.intCon.value == 0);
-
-                    conNode = compiler->gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
-                    break;
-                }
-#endif
-
                 if ((val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
                 {
                     if (compiler->opts.compReloc)
@@ -1684,6 +1667,12 @@ private:
 
         // TODO-MIKE-Review: This likely blocks const propagation to small int locals for no reason.
         if (lclVar->GetType() != lcl->GetType())
+        {
+            return nullptr;
+        }
+
+        // There are no struct/vector equality relops.
+        if (varTypeIsStruct(lclVar->GetType()))
         {
             return nullptr;
         }
