@@ -1670,6 +1670,14 @@ private:
             return nullptr;
         }
 
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+
+        // TODO-MIKE-Review: This likely blocks const propagation to small int locals for no reason.
+        if (lclVar->GetType() != lcl->GetType())
+        {
+            return nullptr;
+        }
+
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
@@ -1698,12 +1706,7 @@ private:
                 continue;
             }
 
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
-
-            if (lclVar->GetType() == lcl->GetType())
-            {
-                return PropagateLclVarConst(assertion, lclVar, stmt);
-            }
+            return PropagateLclVarConst(assertion, lclVar, stmt);
         }
 
         return nullptr;
