@@ -2330,6 +2330,10 @@ private:
             AddTypeImpliedNotNullAssertions(assertion, assertions);
             return;
         }
+
+        // TODO-MIKE-CQ: Try restoring equality implied assertions (e.g a == b && a == 2 implies b == 2).
+        // Old code did it poorly and had practically no effect - removing it resulted in one regression
+        // in System.Security.AccessControl CommonAcl:RemoveQualifiedAces.
     }
 
     void AddTypeImpliedNotNullAssertions(const AssertionDsc& typeAssertion, ASSERT_TP& assertions)
