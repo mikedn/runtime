@@ -1652,7 +1652,7 @@ private:
 
             if ((assertion.op2.kind != O2K_CONST_INT) &&
 #ifndef TARGET_64BIT
-                (assertion->op2.kind != O2K_CONST_LONG) &&
+                (assertion.op2.kind != O2K_CONST_LONG) &&
 #endif
                 (assertion.op2.kind != O2K_CONST_DOUBLE))
             {
