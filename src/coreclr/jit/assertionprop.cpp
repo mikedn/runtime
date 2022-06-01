@@ -1193,14 +1193,7 @@ private:
 
         assertionTable[assertionCount++] = assertion;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf(FMT_BB " [%06u] %s generates ", compiler->compCurBB->bbNum, currentNode->GetID(),
-                   GenTree::OpName(currentNode->GetOper()));
-            DumpAssertion(assertionTable[assertionCount - 1]);
-        }
-#endif
+        DBEXEC(verbose, TraceAssertion("generates", assertionTable[assertionCount - 1]);)
 
         if ((assertion.kind == OAK_NOT_EQUAL) || (assertion.kind == OAK_RANGE))
         {
@@ -1578,11 +1571,7 @@ private:
         assert(lclVar->GetType() == lcl->GetType());
         assert(!varTypeIsStruct(lclVar->GetType()));
 
-        if (verbose)
-        {
-            printf("Propagating Const A%02d:\n", &assertion - assertionTable);
-            compiler->gtDispTree(lclVar, nullptr, nullptr, true);
-        }
+        DBEXEC(verbose, TraceAssertion("propagating", assertion);)
 #endif
 
         const auto& val     = assertion.op2;
@@ -1907,13 +1896,8 @@ private:
                 return nullptr;
             }
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Propagating Range A%02d:\n", assertion - assertionTable);
-                compiler->gtDispTree(cast, nullptr, nullptr, true);
-            }
-#endif
+            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
             cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
 
             return UpdateTree(cast, cast, stmt);
@@ -1929,13 +1913,7 @@ private:
 
         tmp->SetType(toType);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Propagating Range A%02d:\n", assertion - assertionTable);
-            compiler->gtDispTree(cast, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
         return UpdateTree(op1, cast, stmt);
     }
@@ -1980,13 +1958,7 @@ private:
             return nullptr;
         }
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Propagating NotNull A%02d:\n", assertion - assertionTable);
-            compiler->gtDispTree(indir, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
         indir->gtFlags &= ~GTF_EXCEPT;
         indir->gtFlags |= GTF_IND_NONFAULTING;
@@ -2065,13 +2037,7 @@ private:
             return nullptr;
         }
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Propagating NotNull A%02d:\n", assertion - assertionTable);
-            compiler->gtDispTree(call, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
         call->gtFlags &= ~GTF_CALL_NULLCHECK;
         call->gtFlags &= ~GTF_EXCEPT;
@@ -2169,13 +2135,7 @@ private:
             return nullptr;
         }
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Propagating Subtype A%02d:\n", assertion - assertionTable);
-            compiler->gtDispTree(call, nullptr, nullptr, true);
-        }
-#endif
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
         GenTree* sideEffects = nullptr;
         compiler->gtExtractSideEffList(call, &sideEffects, GTF_SIDE_EFFECT, true);
@@ -2218,17 +2178,17 @@ private:
             }
 
             bool isRedundant = false;
-            INDEBUG(const char* message = "");
+            INDEBUG(const char* comment = "");
 
             if (assertion.op1.vn == indexVN)
             {
                 isRedundant = true;
-                INDEBUG(message = "a[i] followed by a[i]");
+                INDEBUG(comment = "a[i] followed by a[i]");
             }
             else if (indexVN == vnStore->VNZeroForType(boundsChk->GetIndex()->GetType()))
             {
                 isRedundant = true;
-                INDEBUG(message = "a[*] followed by a[0]");
+                INDEBUG(comment = "a[*] followed by a[0]");
             }
             else if (vnStore->IsVNConstant(assertion.op1.vn) && vnStore->IsVNConstant(indexVN))
             {
@@ -2245,7 +2205,7 @@ private:
                     if ((index2 >= 0) && (index1 >= index2))
                     {
                         isRedundant = true;
-                        INDEBUG(message = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2");
+                        INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2");
                     }
                 }
             }
@@ -2260,13 +2220,7 @@ private:
                 continue;
             }
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Propagating BoundsChk %s A%02d:\n", message, &assertion - assertionTable);
-                compiler->gtDispTree(boundsChk, nullptr, nullptr, true);
-            }
-#endif
+            DBEXEC(verbose, TraceAssertion("propagating", assertion, comment);)
 
             if (boundsChk == stmt->GetRootNode())
             {
@@ -2316,6 +2270,8 @@ private:
 
     GenTree* PropagateNode(const ASSERT_TP assertions, GenTree* node, Statement* stmt, BasicBlock* block)
     {
+        INDEBUG(currentNode = node);
+
         switch (node->GetOper())
         {
             case GT_LCL_VAR:
@@ -3613,6 +3569,23 @@ private:
         assert((op1.kind == O1K_VALUE_NUMBER) && ((op2.kind == O2K_VALUE_NUMBER) || (op2.kind == O2K_CONST_INT)));
     }
 
+    void TraceAssertion(const char* message, const AssertionDsc& assertion, const char* comment = nullptr)
+    {
+        printf(FMT_BB " [%06u] %s %s ", compiler->compCurBB->bbNum, currentNode->GetID(),
+               GenTree::OpName(currentNode->GetOper()), message);
+
+        DumpAssertion(assertion);
+
+        if (comment != nullptr)
+        {
+            printf(" ; %s\n", comment);
+        }
+        else
+        {
+            printf("\n");
+        }
+    }
+
     void DumpAssertion(const AssertionDsc& assertion) const
     {
         compiler->apDumpAssertion(assertion, static_cast<unsigned>(&assertion - assertionTable));
@@ -3643,13 +3616,13 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
 
     if (kind == OAK_BOUNDS_CHK)
     {
-        printf("BoundsChk assertion A%02u: " FMT_VN " LT_UN " FMT_VN "\n", index, op1.vn, op2.vn);
+        printf("BoundsChk assertion A%02u: " FMT_VN " LT_UN " FMT_VN, index, op1.vn, op2.vn);
         return;
     }
 
     if (kind == OAK_RANGE)
     {
-        printf("Range assertion A%02u: " FMT_VN " IN [%d..%d]\n", index, op1.vn, op2.range.min, op2.range.max);
+        printf("Range assertion A%02u: " FMT_VN " IN [%d..%d]", index, op1.vn, op2.range.min, op2.range.max);
         return;
     }
 
@@ -3668,7 +3641,7 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
 
         const char* addr = (op2.kind == O2K_IND_CNS_INT) ? "[\0]\0" : "\0\0";
 
-        printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN " (%s0x%p%s)\n", index, op1.vn, oper, op2.vn, addr,
+        printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN " (%s0x%p%s)", index, op1.vn, oper, op2.vn, addr,
                dspPtr(op2.intCon.value), addr + 2);
 
         return;
@@ -3700,7 +3673,7 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
                 break;
         }
 
-        printf("%s\n", kind == OAK_EQUAL ? ")" : "");
+        printf("%s", kind == OAK_EQUAL ? ")" : "");
 
         return;
     }
@@ -3730,8 +3703,6 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         default:
             break;
     }
-
-    printf("\n");
 }
 
 void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer)
@@ -3822,5 +3793,6 @@ const AssertionDsc& BoundsAssertion::GetAssertion() const
 void Compiler::apDumpBoundsAssertion(BoundsAssertion assertion)
 {
     apDumpAssertion(assertion.GetAssertion(), static_cast<unsigned>(&assertion.GetAssertion() - apAssertionTable));
+    printf("\n");
 }
 #endif
