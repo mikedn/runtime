@@ -1350,32 +1350,11 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionInfo GenerateJTrueAssertions(GenTreeOp* relop)
+    AssertionInfo GenerateJTrueEqualityAssertions(GenTreeOp* relop)
     {
-        assert(relop->OperIsCompare());
+        assert(relop->OperIs(GT_EQ, GT_NE));
 
-        AssertionInfo info = GenerateJTrueBoundAssertions(relop);
-
-        if (info.HasAssertion())
-        {
-            return info;
-        }
-
-        ApKind assertionKind = OAK_INVALID;
-
-        switch (relop->GetOper())
-        {
-            case GT_EQ:
-                assertionKind = OAK_EQUAL;
-                break;
-            case GT_NE:
-                assertionKind = OAK_NOT_EQUAL;
-                break;
-            default:
-                // TODO-CQ: add other relop operands. Disabled for now to measure perf
-                // and not occupy assertion table slots. We'll add them when used.
-                return NO_ASSERTION_INDEX;
-        }
+        ApKind assertionKind = relop->OperIs(GT_EQ) ? OAK_EQUAL : OAK_NOT_EQUAL;
 
         // Look through any CSEs so we see the actual trees providing values, if possible.
         // This is important for exact type assertions, which need to see the GT_IND.
@@ -1478,6 +1457,25 @@ private:
                     return CreateSubtypeAssertion(objectArg->AsLclVar(), methodTableArg, assertionKind);
                 }
             }
+        }
+
+        return NO_ASSERTION_INDEX;
+    }
+
+    AssertionInfo GenerateJTrueAssertions(GenTreeOp* relop)
+    {
+        AssertionInfo info = GenerateJTrueBoundAssertions(relop);
+
+        if (info.HasAssertion())
+        {
+            return info;
+        }
+
+        // TODO-CQ: add other relop operands. Disabled for now to measure perf
+        // and not occupy assertion table slots. We'll add them when used.
+        if (relop->OperIs(GT_EQ, GT_NE))
+        {
+            return GenerateJTrueEqualityAssertions(relop);
         }
 
         return NO_ASSERTION_INDEX;
