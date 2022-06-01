@@ -1252,17 +1252,12 @@ private:
         return invertedAssertions[index - 1];
     }
 
-    AssertionInfo GenerateJTrueBoundAssertions(GenTreeUnOp* jtrue)
+    AssertionInfo GenerateJTrueBoundAssertions(GenTreeOp* relop)
     {
-        GenTree* relop = jtrue->GetOp(0);
+        assert(relop->OperIsCompare());
 
-        if (!relop->OperIsCompare())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        GenTree* op1 = relop->AsOp()->GetOp(0);
-        GenTree* op2 = relop->AsOp()->GetOp(1);
+        GenTree* op1 = relop->GetOp(0);
+        GenTree* op2 = relop->GetOp(1);
 
         ValueNum relopVN = vnStore->VNNormalValue(relop->GetConservativeVN());
         ValueNum boundVN;
@@ -1355,16 +1350,11 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    AssertionInfo GenerateJTrueAssertions(GenTreeUnOp* jtrue)
+    AssertionInfo GenerateJTrueAssertions(GenTreeOp* relop)
     {
-        GenTree* relop = jtrue->GetOp(0);
+        assert(relop->OperIsCompare());
 
-        if (!relop->OperIsCompare())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        AssertionInfo info = GenerateJTrueBoundAssertions(jtrue);
+        AssertionInfo info = GenerateJTrueBoundAssertions(relop);
 
         if (info.HasAssertion())
         {
@@ -1389,8 +1379,8 @@ private:
 
         // Look through any CSEs so we see the actual trees providing values, if possible.
         // This is important for exact type assertions, which need to see the GT_IND.
-        GenTree* op1 = relop->AsOp()->GetOp(0)->gtCommaAssignVal();
-        GenTree* op2 = relop->AsOp()->GetOp(1)->gtCommaAssignVal();
+        GenTree* op1 = relop->GetOp(0)->gtCommaAssignVal();
+        GenTree* op2 = relop->GetOp(1)->gtCommaAssignVal();
 
         if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
         {
@@ -1552,7 +1542,10 @@ private:
                 break;
 
             case GT_JTRUE:
-                assertionInfo = GenerateJTrueAssertions(node->AsUnOp());
+                if (node->AsUnOp()->GetOp(0)->OperIsCompare())
+                {
+                    assertionInfo = GenerateJTrueAssertions(node->AsUnOp()->GetOp(0)->AsOp());
+                }
                 break;
 
             default:
