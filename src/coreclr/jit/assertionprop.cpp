@@ -1637,14 +1637,45 @@ private:
         return UpdateTree(conNode, lclVar, stmt);
     }
 
-    GenTree* PropagateLclVar(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
+    const AssertionDsc* FindConstAssertion(const ASSERT_TP assertions, ValueNum vn, unsigned lclNum)
     {
-        assert(lclVar->OperIs(GT_LCL_VAR));
-
-        if ((lclVar->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            return nullptr;
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
+
+            if ((assertion.kind != OAK_EQUAL) || (assertion.op1.kind != O1K_LCLVAR))
+            {
+                continue;
+            }
+
+            if (assertion.op1.vn != vn)
+            {
+                continue;
+            }
+
+            if (assertion.op1.lclNum != lclNum)
+            {
+                continue;
+            }
+
+            if ((assertion.op2.kind != O2K_CONST_INT) &&
+#ifndef TARGET_64BIT
+                (assertion->op2.kind != O2K_CONST_LONG) &&
+#endif
+                (assertion.op2.kind != O2K_CONST_DOUBLE))
+            {
+                continue;
+            }
+
+            return &assertion;
         }
+
+        return nullptr;
+    }
+
+    GenTree* PropagateLclVarUse(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
+    {
+        assert(lclVar->OperIs(GT_LCL_VAR) && ((lclVar->gtFlags & GTF_VAR_DEF) == 0));
 
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
@@ -1675,38 +1706,15 @@ private:
             return nullptr;
         }
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        const AssertionDsc* assertion =
+            FindConstAssertion(assertions, lclVar->GetConservativeVN(), lclVar->GetLclNum());
+
+        if (assertion == nullptr)
         {
-            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
-
-            if ((assertion.kind != OAK_EQUAL) || (assertion.op1.kind != O1K_LCLVAR))
-            {
-                continue;
-            }
-
-            if (assertion.op1.vn != lclVar->GetConservativeVN())
-            {
-                continue;
-            }
-
-            if (assertion.op1.lclNum != lclVar->GetLclNum())
-            {
-                continue;
-            }
-
-            if ((assertion.op2.kind != O2K_CONST_INT) &&
-#ifndef TARGET_64BIT
-                (assertion->op2.kind != O2K_CONST_LONG) &&
-#endif
-                (assertion.op2.kind != O2K_CONST_DOUBLE))
-            {
-                continue;
-            }
-
-            return PropagateLclVarConst(assertion, lclVar, stmt);
+            return nullptr;
         }
 
-        return nullptr;
+        return PropagateLclVarConst(*assertion, lclVar, stmt);
     }
 
     const AssertionDsc* FindEqualityAssertion(const ASSERT_TP assertions, GenTree* op1, GenTree* op2)
@@ -2311,7 +2319,11 @@ private:
         switch (node->GetOper())
         {
             case GT_LCL_VAR:
-                return PropagateLclVar(assertions, node->AsLclVar(), stmt);
+                if ((node->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)) != 0)
+                {
+                    return nullptr;
+                }
+                return PropagateLclVarUse(assertions, node->AsLclVar(), stmt);
             case GT_OBJ:
             case GT_BLK:
             case GT_IND:
