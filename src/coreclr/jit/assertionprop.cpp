@@ -3678,7 +3678,14 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         return;
     }
 
-    printf("Equality assertion A%02u: " FMT_VN " %s " FMT_VN, index, op1.vn, kind == OAK_EQUAL ? "EQ" : "NE", op2.vn);
+    printf("Equality assertion A%02u: " FMT_VN, index, op1.vn);
+
+    if (op1.kind == O1K_LCLVAR)
+    {
+        printf(" (V%02u)", op1.lclNum);
+    }
+
+    printf(" %s " FMT_VN, kind == OAK_EQUAL ? "EQ" : "NE", op2.vn);
 
     switch (op2.kind)
     {
