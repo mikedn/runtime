@@ -1376,8 +1376,6 @@ private:
 
         if (vnStore->IsVNCheckedBound(op1VN) && vnStore->IsVNInt32Constant(op2VN))
         {
-            assert(relop->OperIs(GT_EQ, GT_NE));
-
             int op2Value = vnStore->ConstantValue<int>(op2VN);
             if (op2Value >= 0)
             {
@@ -1402,6 +1400,11 @@ private:
             }
         }
 
+        return GenerateJTrueTypeAssertions(op1, op2, assertionKind);
+    }
+
+    AssertionIndex GenerateJTrueTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
+    {
         if (op1->OperIs(GT_IND) || op2->OperIs(GT_IND))
         {
             if (!op1->OperIs(GT_IND))
