@@ -1298,6 +1298,9 @@ private:
             // "i LT|LE|GE|GT j" where either i or j is constant
             else if (vnStore->IsVNConstantBound(funcApp))
             {
+                // TODO-MIKE-Review: These are rather generic assertions, not specific to
+                // the RangeCheck removal phase. It should be possible to use these for
+                // other purposes (especially when the constant is 0).
                 boundKind = O1K_CONSTANT_LOOP_BND;
             }
             else
