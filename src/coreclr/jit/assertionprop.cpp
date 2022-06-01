@@ -1573,13 +1573,8 @@ private:
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
 
-        assert(!lcl->IsAddressExposed());
+        assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
         assert(lclVar->GetType() == lcl->GetType());
-
-        if (lcl->lvIsCSE)
-        {
-            return nullptr;
-        }
 
 #ifdef DEBUG
         if (verbose)
@@ -1671,6 +1666,21 @@ private:
         }
 
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+
+        // TODO-MIKE-Review: It's not clear why propagation is blocked for AX and CSE temps.
+        // For AX it should be perfectly fine to do it, we're using VN after all. And we'd
+        // be replacing a memory load with a constant so the trade offs are pretty clear.
+        //
+        // CSE temps have the same trade offs as other locals - const propagation is usually
+        // good because it can result is more constant folding and breaks dependency chains.
+        // But it can also be bad - if there's no further constant folding then we'll end
+        // up loading a constant into a register that already contains that constant and
+        // that will just increase code size, especially on x86/64.
+        // But is there anything specific to CSE temps that warrants blocking const prop?
+        if (lcl->IsAddressExposed() || lcl->lvIsCSE)
+        {
+            return nullptr;
+        }
 
         // TODO-MIKE-Review: This likely blocks const propagation to small int locals for no reason.
         if (lclVar->GetType() != lcl->GetType())
