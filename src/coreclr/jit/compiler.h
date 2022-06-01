@@ -1482,6 +1482,31 @@ inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
     return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
 }
 
+enum ApKind : uint8_t;
+struct AssertionDsc;
+
+class BoundsAssertion
+{
+    const AssertionDsc& assertion;
+
+public:
+    BoundsAssertion(const AssertionDsc& assertion) : assertion(assertion)
+    {
+    }
+
+    INDEBUG(const AssertionDsc& GetAssertion() const;)
+
+    bool IsBoundsAssertion() const;
+    bool IsEqual() const;
+    bool IsCompareCheckedBoundArith() const;
+    bool IsCompareCheckedBound() const;
+    bool IsConstantBound() const;
+    bool IsConstant() const;
+
+    ValueNum GetVN() const;
+    ValueNum GetConstantVN() const;
+};
+
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -1537,6 +1562,7 @@ class Compiler
     friend class ClassLayout;
     friend class VNConstPropVisitor;
     friend class StructPromotionHelper;
+    friend class AssertionProp;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -2341,8 +2367,8 @@ public:
     struct FindLinkData
     {
         GenTree*  nodeToFind;
-        GenTree** result;
-        GenTree*  parent;
+        GenTree** useEdge;
+        GenTree*  user;
     };
 
     FindLinkData gtFindLink(Statement* stmt, GenTree* node);
@@ -5826,283 +5852,20 @@ public:
     /**************************************************************************
      *               Value/Assertion propagation
      *************************************************************************/
-public:
-    // Data structures for assertion prop
-    BitVecTraits* apTraits;
-
-    enum optAssertionKind
-    {
-        OAK_INVALID,
-        OAK_EQUAL,
-        OAK_NOT_EQUAL,
-        OAK_SUBRANGE,
-        OAK_NO_THROW,
-        OAK_COUNT
-    };
-
-    enum optOp1Kind
-    {
-        O1K_INVALID,
-        O1K_LCLVAR,
-        O1K_ARR_BND,
-        O1K_BOUND_OPER_BND,
-        O1K_BOUND_LOOP_BND,
-        O1K_CONSTANT_LOOP_BND,
-        O1K_EXACT_TYPE,
-        O1K_SUBTYPE,
-        O1K_VALUE_NUMBER,
-        O1K_COUNT
-    };
-
-    enum optOp2Kind
-    {
-        O2K_INVALID,
-        O2K_LCLVAR_COPY,
-        O2K_IND_CNS_INT,
-        O2K_CONST_INT,
-        O2K_CONST_LONG,
-        O2K_CONST_DOUBLE,
-        O2K_ARR_LEN,
-        O2K_SUBRANGE,
-        O2K_COUNT
-    };
-    struct AssertionDsc
-    {
-        optAssertionKind assertionKind;
-        struct SsaVar
-        {
-            unsigned lclNum; // assigned to or property of this local var number
-            unsigned ssaNum;
-        };
-        struct ArrBnd
-        {
-            ValueNum vnIdx;
-            ValueNum vnLen;
-        };
-        struct AssertionDscOp1
-        {
-            optOp1Kind kind; // a normal LclVar, or Exact-type or Subtype
-            ValueNum   vn;
-            union {
-                SsaVar lcl;
-                ArrBnd bnd;
-            };
-        } op1;
-        struct AssertionDscOp2
-        {
-            optOp2Kind kind; // a const or copy assignment
-            ValueNum   vn;
-            struct IntVal
-            {
-                ssize_t      iconVal;   // integer
-                unsigned     padding;   // unused; ensures iconFlags does not overlap lconVal
-                GenTreeFlags iconFlags; // gtFlags
-            };
-            struct Range // integer subrange
-            {
-                ssize_t loBound;
-                ssize_t hiBound;
-            };
-            union {
-                SsaVar  lcl;
-                IntVal  u1;
-                __int64 lconVal;
-                double  dconVal;
-                Range   u2;
-            };
-        } op2;
-
-        bool IsCheckedBoundArithBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_OPER_BND);
-        }
-        bool IsCheckedBoundBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) && op1.kind == O1K_BOUND_LOOP_BND);
-        }
-        bool IsConstantBound()
-        {
-            return ((assertionKind == OAK_EQUAL || assertionKind == OAK_NOT_EQUAL) &&
-                    op1.kind == O1K_CONSTANT_LOOP_BND);
-        }
-        bool IsBoundsCheckNoThrow()
-        {
-            return ((assertionKind == OAK_NO_THROW) && (op1.kind == O1K_ARR_BND));
-        }
-
-        bool IsCopyAssertion()
-        {
-            return ((assertionKind == OAK_EQUAL) && (op1.kind == O1K_LCLVAR) && (op2.kind == O2K_LCLVAR_COPY));
-        }
-
-        bool IsConstantInt32Assertion()
-        {
-            return ((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL)) && (op2.kind == O2K_CONST_INT);
-        }
-
-        static bool SameKind(AssertionDsc* a1, AssertionDsc* a2)
-        {
-            return a1->assertionKind == a2->assertionKind && a1->op1.kind == a2->op1.kind &&
-                   a1->op2.kind == a2->op2.kind;
-        }
-
-        static bool ComplementaryKind(optAssertionKind kind, optAssertionKind kind2)
-        {
-            if (kind == OAK_EQUAL)
-            {
-                return kind2 == OAK_NOT_EQUAL;
-            }
-            else if (kind == OAK_NOT_EQUAL)
-            {
-                return kind2 == OAK_EQUAL;
-            }
-            return false;
-        }
-
-        static ssize_t GetLowerBoundForIntegralType(var_types type)
-        {
-            switch (type)
-            {
-                case TYP_BYTE:
-                    return SCHAR_MIN;
-                case TYP_SHORT:
-                    return SHRT_MIN;
-                case TYP_INT:
-                    return INT_MIN;
-                case TYP_BOOL:
-                case TYP_UBYTE:
-                case TYP_USHORT:
-                case TYP_UINT:
-                    return 0;
-                default:
-                    unreached();
-            }
-        }
-        static ssize_t GetUpperBoundForIntegralType(var_types type)
-        {
-            switch (type)
-            {
-                case TYP_BOOL:
-                    return 1;
-                case TYP_BYTE:
-                    return SCHAR_MAX;
-                case TYP_SHORT:
-                    return SHRT_MAX;
-                case TYP_INT:
-                    return INT_MAX;
-                case TYP_UBYTE:
-                    return UCHAR_MAX;
-                case TYP_USHORT:
-                    return USHRT_MAX;
-                case TYP_UINT:
-                    return UINT_MAX;
-                default:
-                    unreached();
-            }
-        }
-
-        bool HasSameOp1(AssertionDsc* that)
-        {
-            if (op1.kind != that->op1.kind)
-            {
-                return false;
-            }
-            else if (op1.kind == O1K_ARR_BND)
-            {
-                return (op1.bnd.vnIdx == that->op1.bnd.vnIdx) && (op1.bnd.vnLen == that->op1.bnd.vnLen);
-            }
-            else
-            {
-                return op1.vn == that->op1.vn;
-            }
-        }
-
-        bool HasSameOp2(AssertionDsc* that)
-        {
-            if (op2.kind != that->op2.kind)
-            {
-                return false;
-            }
-            switch (op2.kind)
-            {
-                case O2K_IND_CNS_INT:
-                case O2K_CONST_INT:
-                    return ((op2.u1.iconVal == that->op2.u1.iconVal) && (op2.u1.iconFlags == that->op2.u1.iconFlags));
-
-                case O2K_CONST_LONG:
-                    return (op2.lconVal == that->op2.lconVal);
-
-                case O2K_CONST_DOUBLE:
-                    // exact match because of positive and negative zero.
-                    return (memcmp(&op2.dconVal, &that->op2.dconVal, sizeof(double)) == 0);
-
-                case O2K_LCLVAR_COPY:
-                case O2K_ARR_LEN:
-                    return (op2.lcl.lclNum == that->op2.lcl.lclNum) && (op2.lcl.ssaNum == that->op2.lcl.ssaNum);
-
-                case O2K_SUBRANGE:
-                    return ((op2.u2.loBound == that->op2.u2.loBound) && (op2.u2.hiBound == that->op2.u2.hiBound));
-
-                case O2K_INVALID:
-                    // we will return false
-                    break;
-
-                default:
-                    assert(!"Unexpected value for op2.kind in AssertionDsc.");
-                    break;
-            }
-            return false;
-        }
-
-        bool Complementary(AssertionDsc* that)
-        {
-            return ComplementaryKind(assertionKind, that->assertionKind) && HasSameOp1(that) && HasSameOp2(that);
-        }
-
-        bool Equals(AssertionDsc* that)
-        {
-            if (assertionKind != that->assertionKind)
-            {
-                return false;
-            }
-            else if (assertionKind == OAK_NO_THROW)
-            {
-                assert(op2.kind == O2K_INVALID);
-                return HasSameOp1(that);
-            }
-            else
-            {
-                return HasSameOp1(that) && HasSameOp2(that);
-            }
-        }
-    };
-
 protected:
     static fgWalkPreFn optAddCopiesCallback;
     static fgWalkPreFn optVNAssertionPropStmtVisitor;
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    bool optVNAssertionPropStmtMorphPending;
-#ifdef DEBUG
-    GenTree* optAssertionPropCurrentTree;
-#endif
-    AssertionIndex* optComplementaryAssertionMap;
-    AssertionDsc*   optAssertionTabPrivate; // table that holds info about value assignments
-    AssertionIndex  optAssertionCount;      // total number of assertions in the assertion table
-    AssertionIndex  optMaxAssertionCount;
+    AssertionDsc*  apAssertionTable; // table that holds info about value assignments
+    AssertionIndex apAssertionCount; // total number of assertions in the assertion table
 
 public:
-    GenTree* optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
-    GenTree* optVNConstantPropExtractSideEffects(GenTree* tree);
-
     AssertionIndex GetAssertionCount()
     {
-        return optAssertionCount;
+        return apAssertionCount;
     }
-    ASSERT_TP* bbJtrueAssertionOut;
-    typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
-    ValueNumToAssertsMap* optValueNumToAsserts;
 
 #if LOCAL_ASSERTION_PROP
     struct MorphAssertion;
@@ -6151,97 +5914,21 @@ private:
 
 #ifdef DEBUG
     unsigned morphAssertionId;
+    GenTree* morphAssertionCurrentTree;
     void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
 #endif
 #endif
 
+    void apMain();
+
 public:
-    // Assertion prop helpers.
-    AssertionDsc* optGetAssertion(AssertionIndex assertIndex);
-    void optAssertionInit();
-
-    // Assertion prop data flow functions.
-    void optVNAssertionProp();
-    bool optIsTreeKnownIntValue(GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
-    ASSERT_TP* optInitAssertionDataflowFlags();
-    ASSERT_TP* optComputeAssertionGen();
-
-    // Assertion Gen functions.
-    void optAssertionGen(GenTree* tree);
-    AssertionIndex optAssertionGenPhiDefn(GenTree* tree);
-    AssertionInfo optCreateJTrueBoundsAssertion(GenTree* tree);
-    AssertionInfo optAssertionGenJtrue(GenTree* tree);
-    AssertionIndex optCreateJtrueAssertions(GenTree*                   op1,
-                                            GenTree*                   op2,
-                                            Compiler::optAssertionKind assertionKind,
-                                            bool                       helperCallArgs = false);
-    AssertionIndex optFindComplementary(AssertionIndex assertionIndex);
-    void optMapComplementary(AssertionIndex assertionIndex, AssertionIndex index);
-
-    // Assertion creation functions.
-    AssertionIndex optCreateAssertion(GenTree*         op1,
-                                      GenTree*         op2,
-                                      optAssertionKind assertionKind,
-                                      bool             helperCallArgs = false);
-    void optCreateComplementaryAssertion(AssertionIndex assertionIndex,
-                                         GenTree*       op1,
-                                         GenTree*       op2,
-                                         bool           helperCallArgs = false);
-
-    bool optAssertionVnInvolvesNan(AssertionDsc* assertion);
-    AssertionIndex optAddAssertion(AssertionDsc* assertion);
-    void optAddVnAssertionMapping(ValueNum vn, AssertionIndex index);
-#ifdef DEBUG
-    void optPrintVnAssertionMapping();
-#endif
-    ASSERT_TP optGetVnMappedAssertions(ValueNum vn);
-
-    // Used for respective assertion propagations.
-    AssertionIndex optAssertionIsSubrange(GenTree*         tree,
-                                          var_types        fromType,
-                                          var_types        toType,
-                                          ASSERT_VALARG_TP assertions);
-    AssertionIndex optAssertionIsSubtype(GenTree* tree, GenTree* methodTableArg, ASSERT_VALARG_TP assertions);
-    AssertionIndex optAssertionIsNonNullInternal(GenTree* op, ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased));
-    bool optAssertionIsNonNull(GenTree*         op,
-                               ASSERT_VALARG_TP assertions DEBUGARG(bool* pVnBased) DEBUGARG(AssertionIndex* pIndex));
-
-    // Used for Relop propagation.
-    AssertionIndex optGlobalAssertionIsEqualOrNotEqual(ASSERT_VALARG_TP assertions, GenTree* op1, GenTree* op2);
-    AssertionIndex optGlobalAssertionIsEqualOrNotEqualZero(ASSERT_VALARG_TP assertions, GenTree* op1);
-    // Assertion prop for lcl var functions.
-    GenTree* optConstantAssertionProp(AssertionDsc*        curAssertion,
-                                      GenTreeLclVarCommon* tree,
-                                      Statement* stmt DEBUGARG(AssertionIndex index));
-
-    // Assertion propagation functions.
-    GenTree* optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt, BasicBlock* block);
-    GenTree* optAssertionProp_LclVar(ASSERT_VALARG_TP assertions, GenTreeLclVar* tree, Statement* stmt);
-    GenTree* optAssertionProp_Ind(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call, Statement* stmt);
-    GenTree* optAssertionProp_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionProp_Comma(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionProp_BndsChk(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionPropGlobal_RelOp(ASSERT_VALARG_TP assertions, GenTree* tree, Statement* stmt);
-    GenTree* optAssertionProp_Update(GenTree* newTree, GenTree* tree, Statement* stmt);
-    GenTree* optNonNullAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCall* call);
-
-    // Implied assertion functions.
-    void optImpliedAssertions(AssertionIndex assertionIndex, ASSERT_TP& activeAssertions);
-    void optImpliedByTypeOfAssertions(ASSERT_TP& activeAssertions);
-    void optImpliedByCopyAssertion(AssertionDsc* copyAssertion, AssertionDsc* depAssertion, ASSERT_TP& result);
-    void optImpliedByConstAssertion(AssertionDsc* curAssertion, ASSERT_TP& result);
+    BoundsAssertion apGetBoundsAssertion(unsigned bitIndex);
 
 #ifdef DEBUG
-    void optPrintAssertion(AssertionDsc* newAssertion, AssertionIndex assertionIndex = 0);
-    void optPrintAssertionIndex(AssertionIndex index);
-    void optPrintAssertionIndices(ASSERT_TP assertions);
-    void optDebugCheckAssertion(AssertionDsc* assertion);
-    void optDebugCheckAssertions(AssertionIndex AssertionIndex);
+    void apDumpAssertion(const AssertionDsc& assertion, unsigned index);
+    void apDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer);
+    void apDumpBoundsAssertion(BoundsAssertion assertion);
 #endif
-    static void optDumpAssertionIndices(const char* header, ASSERT_TP assertions, const char* footer = nullptr);
-    static void optDumpAssertionIndices(ASSERT_TP assertions, const char* footer = nullptr);
 
     void optAddCopies();
 #endif // ASSERTION_PROP

@@ -132,33 +132,21 @@ struct InlineCandidateInfo;
 struct GuardedDevirtualizationCandidateInfo;
 struct ClassProfileCandidateInfo;
 
-typedef unsigned short AssertionIndex;
+typedef unsigned AssertionIndex;
 
 static const AssertionIndex NO_ASSERTION_INDEX = 0;
-
-//------------------------------------------------------------------------
-// GetAssertionIndex: return 1-based AssertionIndex from 0-based int index.
-//
-// Arguments:
-//    index - 0-based index
-// Return Value:
-//    1-based AssertionIndex.
-inline AssertionIndex GetAssertionIndex(unsigned index)
-{
-    return (AssertionIndex)(index + 1);
-}
 
 class AssertionInfo
 {
     // true if the assertion holds on the bbNext edge instead of the bbJumpDest edge (for GT_JTRUE nodes)
-    unsigned short m_isNextEdgeAssertion : 1;
+    uint16_t m_isNextEdgeAssertion : 1;
     // 1-based index of the assertion
-    unsigned short m_assertionIndex : 15;
+    uint16_t m_assertionIndex : 15;
 
     AssertionInfo(bool isNextEdgeAssertion, AssertionIndex assertionIndex)
-        : m_isNextEdgeAssertion(isNextEdgeAssertion), m_assertionIndex(assertionIndex)
+        : m_isNextEdgeAssertion(isNextEdgeAssertion), m_assertionIndex(static_cast<uint16_t>(assertionIndex))
     {
-        assert(m_assertionIndex == assertionIndex);
+        assert(assertionIndex < (1u << 15));
     }
 
 public:
@@ -586,11 +574,6 @@ enum GenTreeFlags : unsigned int
     GTF_ARR_BOUND_INBND         = 0x80000000, // GT_ARR_BOUNDS_CHECK -- have proved this check is always in-bounds
 
     GTF_ARRLEN_NONFAULTING      = 0x20000000, // GT_ARR_LENGTH  -- An array length operation that cannot fault. Same as GT_IND_NONFAULTING.
-
-    // Flag used by assertion prop to indicate that a type is a TYP_LONG
-#ifdef TARGET_64BIT
-    GTF_ASSERTION_PROP_LONG     = 0x00000001,
-#endif // TARGET_64BIT
 };
 
 inline constexpr GenTreeFlags operator ~(GenTreeFlags a)
@@ -1796,6 +1779,7 @@ public:
 #ifndef TARGET_64BIT
     GenTreeLngCon* ChangeToLngCon(int64_t value);
 #endif
+    GenTreeDblCon* ChangeToDblCon(double value);
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
     GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
@@ -6525,7 +6509,13 @@ public:
         m_rootNode = treeRoot;
     }
 
+    // [[deprecated]]
     GenTree* GetTreeList() const
+    {
+        return m_treeList;
+    }
+
+    GenTree* GetNodeList() const
     {
         return m_treeList;
     }
@@ -6535,10 +6525,7 @@ public:
         m_treeList = treeHead;
     }
 
-    // TreeList: convenience method for enabling range-based `for` iteration over the
-    // execution order of the GenTree linked list, e.g.:
-    //    for (GenTree* const tree : stmt->TreeList()) ...
-    //
+    // [[deprecated]]
     GenTreeList TreeList() const
     {
         return GenTreeList(GetTreeList());

@@ -839,26 +839,31 @@ void Compiler::optCseUpdateCheckedBoundMap(GenTree* compare)
         return;
     }
 
+    if (!ValueNumStore::IsVNCompareCheckedBoundRelop(cmpVNFuncApp))
+    {
+        return;
+    }
+
     // Now look for a checked bound feeding the compare
     ValueNumStore::CompareCheckedBoundArithInfo info;
 
     GenTree* boundParent = nullptr;
 
-    if (vnStore->IsVNCompareCheckedBound(compareVN))
+    if (vnStore->IsVNCompareCheckedBound(cmpVNFuncApp))
     {
         // Simple compare of an bound against something else.
 
-        vnStore->GetCompareCheckedBound(compareVN, &info);
+        vnStore->GetCompareCheckedBound(cmpVNFuncApp, &info);
         boundParent = compare;
     }
-    else if (vnStore->IsVNCompareCheckedBoundArith(compareVN))
+    else if (vnStore->IsVNCompareCheckedBoundArith(cmpVNFuncApp))
     {
         // Compare of a bound +/- some offset to something else.
 
         GenTree* op1 = compare->gtGetOp1();
         GenTree* op2 = compare->gtGetOp2();
 
-        vnStore->GetCompareCheckedBoundArithInfo(compareVN, &info);
+        vnStore->GetCompareCheckedBoundArithInfo(cmpVNFuncApp, &info);
         if (GetVNFuncForNode(op1) == (VNFunc)info.arrOper)
         {
             // The arithmetic node is the bound's parent.
@@ -1259,12 +1264,7 @@ void Compiler::optValnumCSE_DataFlow()
     }
 #endif // DEBUG
 
-    CSE_DataFlow cse(this);
-
-    // Modified dataflow algorithm for available expressions.
-    DataFlow cse_flow(this);
-
-    cse_flow.ForwardAnalysis(cse);
+    ForwardDataFlow(CSE_DataFlow(this), this);
 
 #ifdef DEBUG
     if (verbose)
@@ -3015,26 +3015,34 @@ public:
                             ValueNum oldCmpVN = cmp->gtVNPair.GetConservative();
                             ValueNum newCmpArgVN;
 
-                            ValueNumStore::CompareCheckedBoundArithInfo info;
-                            if (vnStore->IsVNCompareCheckedBound(oldCmpVN))
-                            {
-                                // Comparison is against the bound directly.
+                            VNFuncApp oldFuncApp;
 
-                                newCmpArgVN = theConservativeVN;
-                                vnStore->GetCompareCheckedBound(oldCmpVN, &info);
-                            }
-                            else
+                            if (vnStore->GetVNFunc(oldCmpVN, &oldFuncApp) &&
+                                ValueNumStore::IsVNCompareCheckedBoundRelop(oldFuncApp))
                             {
-                                // Comparison is against the bound +/- some offset.
+                                ValueNumStore::CompareCheckedBoundArithInfo info;
 
-                                assert(vnStore->IsVNCompareCheckedBoundArith(oldCmpVN));
-                                vnStore->GetCompareCheckedBoundArithInfo(oldCmpVN, &info);
-                                newCmpArgVN = vnStore->VNForFunc(vnStore->TypeOfVN(info.arrOp), (VNFunc)info.arrOper,
-                                                                 info.arrOp, theConservativeVN);
+                                if (vnStore->IsVNCompareCheckedBound(oldFuncApp))
+                                {
+                                    // Comparison is against the bound directly.
+
+                                    newCmpArgVN = theConservativeVN;
+                                    vnStore->GetCompareCheckedBound(oldFuncApp, &info);
+                                }
+                                else
+                                {
+                                    // Comparison is against the bound +/- some offset.
+
+                                    vnStore->GetCompareCheckedBoundArithInfo(oldFuncApp, &info);
+                                    newCmpArgVN =
+                                        vnStore->VNForFunc(vnStore->TypeOfVN(info.arrOp), (VNFunc)info.arrOper,
+                                                           info.arrOp, theConservativeVN);
+                                }
+
+                                ValueNum newCmpVN = vnStore->VNForFunc(vnStore->TypeOfVN(oldCmpVN),
+                                                                       (VNFunc)info.cmpOper, info.cmpOp, newCmpArgVN);
+                                cmp->gtVNPair.SetConservative(newCmpVN);
                             }
-                            ValueNum newCmpVN = vnStore->VNForFunc(vnStore->TypeOfVN(oldCmpVN), (VNFunc)info.cmpOper,
-                                                                   info.cmpOp, newCmpArgVN);
-                            cmp->gtVNPair.SetConservative(newCmpVN);
                         }
                     }
                 }
@@ -3185,7 +3193,7 @@ public:
             // in the tree is pointing to 'exp'
             //
             Compiler::FindLinkData linkData = m_pCompiler->gtFindLink(stmt, exp);
-            GenTree**              link     = linkData.result;
+            GenTree**              link     = linkData.useEdge;
 
 #ifdef DEBUG
             if (link == nullptr)

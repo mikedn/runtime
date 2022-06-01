@@ -701,7 +701,7 @@ void Compiler::morphAssertionAdd(MorphAssertion& assertion)
     assert(&assertion == &morphAssertionTable[morphAssertionCount]);
 
     INDEBUG(assertion.id = ++morphAssertionId);
-    DBEXEC(verbose, morphAssertionTrace(assertion, optAssertionPropCurrentTree, "generated"));
+    DBEXEC(verbose, morphAssertionTrace(assertion, morphAssertionCurrentTree, "generated"));
 
     DepBitVecOps::AddElemD(this, morphAssertionGetDependent(assertion.lcl.lclNum), morphAssertionCount);
 
@@ -716,7 +716,7 @@ void Compiler::morphAssertionAdd(MorphAssertion& assertion)
 void Compiler::morphAssertionGenerate(GenTree* tree)
 {
     assert(fgGlobalMorph);
-    INDEBUG(optAssertionPropCurrentTree = tree);
+    INDEBUG(morphAssertionCurrentTree = tree);
 
     switch (tree->GetOper())
     {
@@ -825,6 +825,8 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
         case ValueKind::DblCon:
             // There could be a positive zero and a negative zero, so don't propagate zeroes.
             // TODO-MIKE-Review: So what?
+            // P.S. This is likely debris from old stupid code that was conflating copy and
+            // equality assertions.
             if (val.dblCon.value == 0.0)
             {
                 break;

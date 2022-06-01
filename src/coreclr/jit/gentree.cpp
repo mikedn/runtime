@@ -11940,8 +11940,8 @@ static Compiler::fgWalkResult gtFindLinkCB(GenTree** pTree, Compiler::fgWalkData
     Compiler::FindLinkData* data = (Compiler::FindLinkData*)cbData->pCallbackData;
     if (*pTree == data->nodeToFind)
     {
-        data->result = pTree;
-        data->parent = cbData->parent;
+        data->useEdge = pTree;
+        data->user    = cbData->parent;
         return Compiler::WALK_ABORT;
     }
 
@@ -11956,7 +11956,7 @@ Compiler::FindLinkData Compiler::gtFindLink(Statement* stmt, GenTree* node)
 
     if (result == WALK_ABORT)
     {
-        assert(data.nodeToFind == *data.result);
+        assert(data.nodeToFind == *data.useEdge);
         return data;
     }
     else

@@ -1249,14 +1249,23 @@ inline GenTreeLngCon* GenTree::ChangeToLngCon(int64_t value)
 }
 #endif
 
-inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
+inline GenTreeDblCon* GenTree::ChangeToDblCon(double value)
 {
+    assert(varTypeIsFloating(gtType));
+
     SetOperResetFlags(GT_CNS_DBL);
 
     GenTreeDblCon* dblCon = AsDblCon();
-    dblCon->SetType(type);
     dblCon->SetValue(value);
     return dblCon;
+}
+
+inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
+{
+    assert(varTypeIsFloating(type));
+
+    SetType(type);
+    return ChangeToDblCon(value);
 }
 
 inline GenTreeFieldList* GenTree::ChangeToFieldList()
