@@ -1611,27 +1611,25 @@ private:
                 break;
 #endif
 
-            case O2K_CONST_INT:
-                if ((val.intCon.flags & GTF_ICON_HDL_MASK) != 0)
-                {
-                    if (compiler->opts.compReloc)
-                    {
-                        return nullptr;
-                    }
+            default:
+                assert(val.kind == O2K_CONST_INT);
 
+                if ((val.intCon.flags & GTF_ICON_HDL_MASK) == 0)
+                {
+                    conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.intCon.value);
+                }
+                else if (compiler->opts.compReloc)
+                {
+                    return nullptr;
+                }
+                else
+                {
                     conNode = lclVar->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
                     conNode->AsIntCon()->SetHandleKind(val.intCon.flags & GTF_ICON_HDL_MASK);
-                    break;
                 }
-
-                conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.intCon.value);
                 break;
-
-            default:
-                return nullptr;
         }
 
-        assert(conNode->OperIsConst());
         assert(vnStore->IsVNConstant(val.vn));
 
         conNode->gtVNPair.SetBoth(val.vn);
