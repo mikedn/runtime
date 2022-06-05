@@ -2155,34 +2155,42 @@ private:
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext() && !isRedundant;)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
+            const auto          kind      = assertion.kind;
+            const auto&         op1       = assertion.op1;
+            const auto&         op2       = assertion.op2;
 
-            if (assertion.kind != OAK_BOUNDS_CHK)
+            if (kind == OAK_BOUNDS_CHK)
             {
-                continue;
-            }
+                if (op2.vn != lengthVN)
+                {
+                    continue;
+                }
 
-            // Do we have a previous range check involving the same 'vnLen' upper bound?
-            if (assertion.op2.vn != lengthVN)
-            {
-                continue;
-            }
-
-            if (assertion.op1.vn == indexVN)
-            {
-                isRedundant = true;
-                INDEBUG(comment = "a[i] followed by a[i]");
-            }
-            else if (indexVal == 0)
-            {
-                isRedundant = true;
-                INDEBUG(comment = "a[*] followed by a[0]");
-            }
-            else if (vnStore->IsVNInt32Constant(assertion.op1.vn))
-            {
-                if ((indexVal >= 0) && (indexVal <= vnStore->ConstantValue<int>(assertion.op1.vn)))
+                if (op1.vn == indexVN)
                 {
                     isRedundant = true;
-                    INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K2 <= K1");
+                    INDEBUG(comment = "a[i] followed by a[i]");
+                }
+                else if (indexVal == 0)
+                {
+                    isRedundant = true;
+                    INDEBUG(comment = "a[*] followed by a[0]");
+                }
+                else if (vnStore->IsVNInt32Constant(op1.vn))
+                {
+                    if ((indexVal >= 0) && (indexVal <= vnStore->ConstantValue<int>(op1.vn)))
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K2 <= K1");
+                    }
+                }
+            }
+            else if (kind == OAK_NOT_EQUAL)
+            {
+                if ((indexVal == 0) && (op1.vn == lengthVN) && (op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0))
+                {
+                    isRedundant = true;
+                    INDEBUG(comment = "a[0] with a.Length != 0");
                 }
             }
 
