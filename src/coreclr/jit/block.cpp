@@ -147,63 +147,67 @@ BasicBlock* EHSuccessorIterPosition::Current(Compiler* comp, BasicBlock* block)
     return m_curTry->ExFlowBlock();
 }
 
+static flowList emptyBlockPredsWithEH(nullptr, nullptr);
+
 flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
 {
-    BlockToFlowListMap* ehPreds = GetBlockToEHPreds();
-    flowList*           res;
-    if (ehPreds->Lookup(blk, &res))
+    unsigned tryIndex;
+    if (!bbIsExFlowBlock(blk, &tryIndex))
     {
-        return res;
+        return blk->bbPreds;
     }
 
-    res = blk->bbPreds;
-    unsigned tryIndex;
-    if (bbIsExFlowBlock(blk, &tryIndex))
+    if (blk->bbPredsWithEH != nullptr)
     {
-        // Find the first block of the try.
-        EHblkDsc*   ehblk    = ehGetDsc(tryIndex);
-        BasicBlock* tryStart = ehblk->ebdTryBeg;
-        for (BasicBlock* const tryStartPredBlock : tryStart->PredBlocks())
+        return blk->bbPredsWithEH == &emptyBlockPredsWithEH ? nullptr : blk->bbPredsWithEH;
+    }
+
+    flowList* res = blk->bbPreds;
+
+    // Find the first block of the try.
+    EHblkDsc*   ehblk    = ehGetDsc(tryIndex);
+    BasicBlock* tryStart = ehblk->ebdTryBeg;
+    for (BasicBlock* const tryStartPredBlock : tryStart->PredBlocks())
+    {
+        res = new (this, CMK_FlowList) flowList(tryStartPredBlock, res);
+
+#if MEASURE_BLOCK_SIZE
+        genFlowNodeCnt += 1;
+        genFlowNodeSize += sizeof(flowList);
+#endif // MEASURE_BLOCK_SIZE
+    }
+
+    // Now add all blocks handled by this handler (except for second blocks of BBJ_CALLFINALLY/BBJ_ALWAYS pairs;
+    // these cannot cause transfer to the handler...)
+    // TODO-Throughput: It would be nice if we could iterate just over the blocks in the try, via
+    // something like:
+    //   for (BasicBlock* bb = ehblk->ebdTryBeg; bb != ehblk->ebdTryLast->bbNext; bb = bb->bbNext)
+    //     (plus adding in any filter blocks outside the try whose exceptions are handled here).
+    // That doesn't work, however: funclets have caused us to sometimes split the body of a try into
+    // more than one sequence of contiguous blocks.  We need to find a better way to do this.
+    for (BasicBlock* const bb : Blocks())
+    {
+        if (bbInExnFlowRegions(tryIndex, bb) && !bb->isBBCallAlwaysPairTail())
         {
-            res = new (this, CMK_FlowList) flowList(tryStartPredBlock, res);
+            res = new (this, CMK_FlowList) flowList(bb, res);
 
 #if MEASURE_BLOCK_SIZE
             genFlowNodeCnt += 1;
             genFlowNodeSize += sizeof(flowList);
 #endif // MEASURE_BLOCK_SIZE
         }
-
-        // Now add all blocks handled by this handler (except for second blocks of BBJ_CALLFINALLY/BBJ_ALWAYS pairs;
-        // these cannot cause transfer to the handler...)
-        // TODO-Throughput: It would be nice if we could iterate just over the blocks in the try, via
-        // something like:
-        //   for (BasicBlock* bb = ehblk->ebdTryBeg; bb != ehblk->ebdTryLast->bbNext; bb = bb->bbNext)
-        //     (plus adding in any filter blocks outside the try whose exceptions are handled here).
-        // That doesn't work, however: funclets have caused us to sometimes split the body of a try into
-        // more than one sequence of contiguous blocks.  We need to find a better way to do this.
-        for (BasicBlock* const bb : Blocks())
-        {
-            if (bbInExnFlowRegions(tryIndex, bb) && !bb->isBBCallAlwaysPairTail())
-            {
-                res = new (this, CMK_FlowList) flowList(bb, res);
-
-#if MEASURE_BLOCK_SIZE
-                genFlowNodeCnt += 1;
-                genFlowNodeSize += sizeof(flowList);
-#endif // MEASURE_BLOCK_SIZE
-            }
-        }
+    }
 
 #ifdef DEBUG
-        unsigned hash = SsaStressHashHelper();
-        if (hash != 0)
-        {
-            res = ShuffleHelper(hash, res);
-        }
+    unsigned hash = SsaStressHashHelper();
+    if (hash != 0)
+    {
+        res = ShuffleHelper(hash, res);
+    }
 #endif // DEBUG
 
-        ehPreds->Set(blk, res);
-    }
+    blk->bbPredsWithEH = res == nullptr ? &emptyBlockPredsWithEH : res;
+
     return res;
 }
 
@@ -1479,6 +1483,8 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
     static_assert_no_msg(BasicBlock::MAX_LOOP_NUM < BasicBlock::NOT_IN_LOOP);
 
     block->bbNatLoopNum = BasicBlock::NOT_IN_LOOP;
+
+    block->bbPredsWithEH = nullptr;
 
     return block;
 }

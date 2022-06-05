@@ -975,13 +975,7 @@ struct BasicBlock : private LIR::Range
 #define BBCT_FILTER_HANDLER 0xFFFFFFFF
 #define handlerGetsXcptnObj(hndTyp) ((hndTyp) != BBCT_NONE && (hndTyp) != BBCT_FAULT && (hndTyp) != BBCT_FINALLY)
 
-    // The following fields are used for loop detection
-    typedef unsigned char loopNumber;
-    static const unsigned NOT_IN_LOOP  = UCHAR_MAX;
-    static const unsigned MAX_LOOP_NUM = 64;
-
-    loopNumber bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
-                             // or else NOT_IN_LOOP if this block is not in a loop.
+    flowList* bbPredsWithEH;
 
     // Basic block predecessor lists. Early in compilation, some phases might need to compute "cheap" predecessor
     // lists. These are stored in bbCheapPreds, computed by fgComputeCheapPreds(). If bbCheapPreds is valid,
@@ -1037,11 +1031,13 @@ struct BasicBlock : private LIR::Range
                                   // BAD_IL_OFFSET.
 #endif                            // DEBUG
 
-    VARSET_TP bbVarUse; // variables used     by block (before an assignment)
-    VARSET_TP bbVarDef; // variables assigned by block (before a use)
+    // The following fields are used for loop detection
+    typedef unsigned char loopNumber;
+    static const unsigned NOT_IN_LOOP  = UCHAR_MAX;
+    static const unsigned MAX_LOOP_NUM = 64;
 
-    VARSET_TP bbLiveIn;  // variables live on entry
-    VARSET_TP bbLiveOut; // variables live on exit
+    loopNumber bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
+                             // or else NOT_IN_LOOP if this block is not in a loop.
 
     // Use, def, live in/out information for the implicit memory variable.
     bool bbMemoryUse : 1;
@@ -1049,8 +1045,14 @@ struct BasicBlock : private LIR::Range
     bool bbMemoryLiveIn : 1;
     bool bbMemoryLiveOut : 1;
     bool bbMemoryHavoc : 1; // If true, at some point the block does an operation
-                            // that leaves memory in an unknown state. (E.g.,
-                            // unanalyzed call, store through unknown pointer...)
+    // that leaves memory in an unknown state. (E.g.,
+    // unanalyzed call, store through unknown pointer...)
+
+    VARSET_TP bbVarUse; // variables used     by block (before an assignment)
+    VARSET_TP bbVarDef; // variables assigned by block (before a use)
+
+    VARSET_TP bbLiveIn;  // variables live on entry
+    VARSET_TP bbLiveOut; // variables live on exit
 
     // We want to make phi functions for the special implicit var memory.  But since this is not a real
     // lclVar, and thus has no local #, we can't use a GenTreePhiArg.  Instead, we use this struct.

@@ -1104,7 +1104,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     optNoReturnCallCount = 0;
 
     m_switchDescMap      = nullptr;
-    m_blockToEHPreds     = nullptr;
     m_fieldSeqStore      = nullptr;
     m_zeroOffsetFieldMap = nullptr;
     m_refAnyClass        = nullptr;
@@ -4124,10 +4123,11 @@ void Compiler::ResetOptAnnotations()
     ssaForm            = false;
     vnStore            = nullptr;
     m_partialSsaDefMap = nullptr;
-    m_blockToEHPreds   = nullptr;
 
     for (BasicBlock* const block : Blocks())
     {
+        block->bbPredsWithEH = nullptr;
+
         for (Statement* const stmt : block->Statements())
         {
             for (GenTree* const tree : stmt->TreeList())
