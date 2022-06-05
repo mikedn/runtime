@@ -2185,12 +2185,23 @@ private:
                     }
                 }
             }
-            else if (kind == OAK_NOT_EQUAL)
+            else if ((op1.vn == lengthVN) && (op2.kind == O2K_CONST_INT))
             {
-                if ((indexVal == 0) && (op1.vn == lengthVN) && (op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0))
+                if (kind == OAK_NOT_EQUAL)
                 {
-                    isRedundant = true;
-                    INDEBUG(comment = "a[0] with a.Length != 0");
+                    if ((indexVal == 0) && (op2.intCon.value == 0))
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[0] with a.Length != 0");
+                    }
+                }
+                else if (kind == OAK_EQUAL)
+                {
+                    if ((indexVal >= 0) && (indexVal < op2.intCon.value))
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[K1] with a.Length == K2 && K1 < K2");
+                    }
                 }
             }
 
