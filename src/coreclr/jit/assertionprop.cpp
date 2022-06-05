@@ -2158,6 +2158,7 @@ private:
 
         ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
         ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ssize_t  indexVal = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
 
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
@@ -2182,22 +2183,17 @@ private:
                 isRedundant = true;
                 INDEBUG(comment = "a[i] followed by a[i]");
             }
-            else if (indexVN == vnStore->VNZeroForType(boundsChk->GetIndex()->GetType()))
+            else if (indexVal == 0)
             {
                 isRedundant = true;
                 INDEBUG(comment = "a[*] followed by a[0]");
             }
-            else if (vnStore->IsVNInt32Constant(assertion.op1.vn) && vnStore->IsVNInt32Constant(indexVN))
+            else if (vnStore->IsVNInt32Constant(assertion.op1.vn))
             {
-                int index1 = vnStore->ConstantValue<int>(assertion.op1.vn);
-                int index2 = vnStore->ConstantValue<int>(indexVN);
-
-                assert(index1 != index2);
-
-                if ((index2 >= 0) && (index1 >= index2))
+                if ((indexVal >= 0) && (indexVal <= vnStore->ConstantValue<int>(assertion.op1.vn)))
                 {
                     isRedundant = true;
-                    INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2");
+                    INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K2 <= K1");
                 }
             }
 
