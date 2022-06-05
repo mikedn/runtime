@@ -2187,23 +2187,17 @@ private:
                 isRedundant = true;
                 INDEBUG(comment = "a[*] followed by a[0]");
             }
-            else if (vnStore->IsVNConstant(assertion.op1.vn) && vnStore->IsVNConstant(indexVN))
+            else if (vnStore->IsVNInt32Constant(assertion.op1.vn) && vnStore->IsVNInt32Constant(indexVN))
             {
-                var_types type1 = vnStore->TypeOfVN(assertion.op1.vn);
-                var_types type2 = vnStore->TypeOfVN(indexVN);
+                int index1 = vnStore->ConstantValue<int>(assertion.op1.vn);
+                int index2 = vnStore->ConstantValue<int>(indexVN);
 
-                if ((type1 == type2) && (type1 == TYP_INT))
+                assert(index1 != index2);
+
+                if ((index2 >= 0) && (index1 >= index2))
                 {
-                    int index1 = vnStore->ConstantValue<int>(assertion.op1.vn);
-                    int index2 = vnStore->ConstantValue<int>(indexVN);
-
-                    assert(index1 != index2);
-
-                    if ((index2 >= 0) && (index1 >= index2))
-                    {
-                        isRedundant = true;
-                        INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2");
-                    }
+                    isRedundant = true;
+                    INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2");
                 }
             }
 
