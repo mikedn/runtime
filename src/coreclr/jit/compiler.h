@@ -1867,18 +1867,6 @@ public:
     // convenient to also consider it a predecessor.)
     flowList* BlockPredsWithEH(BasicBlock* blk);
 
-    // This table is useful for memoization of the method above.
-    typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, flowList*> BlockToFlowListMap;
-    BlockToFlowListMap* m_blockToEHPreds;
-    BlockToFlowListMap* GetBlockToEHPreds()
-    {
-        if (m_blockToEHPreds == nullptr)
-        {
-            m_blockToEHPreds = new (getAllocator()) BlockToFlowListMap(getAllocator());
-        }
-        return m_blockToEHPreds;
-    }
-
     void* ehEmitCookie(BasicBlock* block);
     UNATIVE_OFFSET ehCodeOffset(BasicBlock* block);
 

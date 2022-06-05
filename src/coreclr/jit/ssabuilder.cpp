@@ -241,8 +241,9 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
             DBG_SSA_JITDUMP("Visiting in reverse post order: " FMT_BB ".\n", block->bbNum);
 
             // Find the first processed predecessor block.
+            flowList*   predList  = m_pCompiler->BlockPredsWithEH(block);
             BasicBlock* predBlock = nullptr;
-            for (flowList* pred = m_pCompiler->BlockPredsWithEH(block); pred; pred = pred->flNext)
+            for (flowList* pred = predList; pred != nullptr; pred = pred->flNext)
             {
                 if (BitVecOps::IsMember(&m_visitedTraits, m_visited, pred->getBlock()->bbNum))
                 {
@@ -259,7 +260,7 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
 
             // Intersect DOM, if computed, for all predecessors.
             BasicBlock* bbIDom = predBlock;
-            for (flowList* pred = m_pCompiler->BlockPredsWithEH(block); pred; pred = pred->flNext)
+            for (flowList* pred = predList; pred != nullptr; pred = pred->flNext)
             {
                 if (predBlock != pred->getBlock())
                 {
