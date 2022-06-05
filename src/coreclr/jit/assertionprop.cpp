@@ -2138,11 +2138,21 @@ private:
         }
 #endif
 
-        ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
-        ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
-        ssize_t  indexVal = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
+        ValueNum indexVN   = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
+        ValueNum lengthVN  = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ssize_t  indexVal  = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
+        ssize_t  lengthVal = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        bool isRedundant = false;
+        INDEBUG(const char* comment = "");
+
+        if ((indexVal >= 0) && (lengthVal >= 0))
+        {
+            isRedundant = indexVal < lengthVal;
+            INDEBUG(comment = isRedundant ? "a[K1] with a.Length == K2 && K1 < K2" : "");
+        }
+
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext() && !isRedundant;)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -2156,9 +2166,6 @@ private:
             {
                 continue;
             }
-
-            bool isRedundant = false;
-            INDEBUG(const char* comment = "");
 
             if (assertion.op1.vn == indexVN)
             {
@@ -2184,22 +2191,21 @@ private:
             //       a[i]   followed by a[j]  when j is known to be >= i
             //       a[i]   followed by a[5]  when i is known to be >= 5
 
-            if (!isRedundant)
+            if (isRedundant)
             {
-                continue;
+                DBEXEC(verbose, TraceAssertion("propagating", assertion, comment);)
+                break;
             }
+        }
 
-            DBEXEC(verbose, TraceAssertion("propagating", assertion, comment);)
-
+        if (isRedundant)
+        {
             if (boundsChk == stmt->GetRootNode())
             {
                 return UpdateTree(compiler->optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
             }
-            else
-            {
-                boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
-                return nullptr;
-            }
+
+            boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
         }
 
         return nullptr;
