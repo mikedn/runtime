@@ -2138,10 +2138,13 @@ private:
         }
 #endif
 
-        ValueNum indexVN   = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
-        ValueNum lengthVN  = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
-        ssize_t  indexVal  = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
-        ssize_t  lengthVal = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
+        ValueNum indexVN    = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
+        ValueNum lengthVN   = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ssize_t  indexVal   = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
+        ssize_t  lengthVal  = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
+        ssize_t  indexMin   = INT32_MIN;
+        ssize_t  indexMax   = INT32_MAX;
+        ValueNum indexMaxVN = NoVN;
 
         bool isRedundant = false;
         INDEBUG(const char* comment = "");
@@ -2242,6 +2245,94 @@ private:
                     INDEBUG(comment = "a[K1] with a.Length >= K2 && K1 < K2");
                 }
             }
+            else if ((op1.kind == O1K_CONSTANT_LOOP_BND) && (indexVal < 0))
+            {
+                assert((op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0));
+
+                VNFuncApp funcApp;
+                vnStore->GetVNFunc(op1.vn, &funcApp);
+                assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
+                genTreeOps oper = static_cast<genTreeOps>(funcApp.m_func);
+
+                if (funcApp[1] == indexVN)
+                {
+                    std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+                    oper = GenTree::SwapRelop(oper);
+                }
+
+                if (funcApp[0] != indexVN)
+                {
+                    continue;
+                }
+
+                if (kind == OAK_EQUAL)
+                {
+                    oper = GenTree::ReverseRelop(oper);
+                }
+
+                ssize_t limit = vnStore->ConstantValue<int>(funcApp[1]);
+
+                switch (oper)
+                {
+                    case GT_GT:
+                        if (limit == INT32_MAX)
+                        {
+                            break;
+                        }
+                        limit++;
+                        FALLTHROUGH;
+                    case GT_GE:
+                        if (limit > indexMin)
+                        {
+                            indexMin = limit;
+                        }
+                        break;
+                    case GT_LT:
+                        if (limit == INT32_MIN)
+                        {
+                            break;
+                        }
+                        limit--;
+                        FALLTHROUGH;
+                    default:
+                        assert((oper == GT_LE) || (oper == GT_LT));
+                        if (limit < indexMax)
+                        {
+                            indexMax = limit;
+                        }
+                        break;
+                }
+            }
+            else if ((op1.kind == O1K_BOUND_LOOP_BND) && (indexVal < 0))
+            {
+                assert((op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0));
+
+                VNFuncApp funcApp;
+                vnStore->GetVNFunc(op1.vn, &funcApp);
+                assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
+                genTreeOps oper = static_cast<genTreeOps>(funcApp.m_func);
+
+                if (funcApp[1] == indexVN)
+                {
+                    std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+                    oper = GenTree::SwapRelop(oper);
+                }
+
+                if ((funcApp[0] != indexVN) || (funcApp[1] != lengthVN))
+                {
+                    continue;
+                }
+
+                if (kind == OAK_EQUAL)
+                {
+                    oper = GenTree::ReverseRelop(oper);
+                }
+
+                if (oper == GT_LT)
+                {
+                    indexMaxVN = lengthVN;
+                }
+            }
 
             // Extend this to remove additional redundant bounds checks:
             // i.e.  a[i+1] followed by a[i]  by using the VN(i+1) >= VN(i)
@@ -2253,6 +2344,11 @@ private:
                 DBEXEC(verbose, TraceAssertion("propagating", assertion, comment);)
                 break;
             }
+        }
+
+        if ((indexMin >= 0) && (indexMaxVN == lengthVN))
+        {
+            isRedundant = true;
         }
 
         if (isRedundant)
