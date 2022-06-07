@@ -1986,28 +1986,27 @@ private:
         return UpdateTree(relop, relop, stmt);
     }
 
-    const AssertionDsc* FindRangeAssertion(const ASSERT_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
+    const AssertionDsc* FindCastRangeAssertion(const ASSERT_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
     {
+        ssize_t intersectionMin = INT32_MIN;
+        ssize_t intersectionMax = INT32_MAX;
+
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if (assertion.kind != OAK_RANGE)
+            if ((assertion.kind != OAK_RANGE) || (assertion.op1.vn != vn))
             {
                 continue;
             }
 
-            if (assertion.op1.vn != vn)
-            {
-                continue;
-            }
+            intersectionMin = max(intersectionMin, assertion.op2.range.min);
+            intersectionMax = min(intersectionMax, assertion.op2.range.max);
 
-            if ((assertion.op2.range.min < min) || (assertion.op2.range.max > max))
+            if ((min <= intersectionMin) && (intersectionMax <= max))
             {
-                continue;
+                return &assertion;
             }
-
-            return &assertion;
         }
 
         return nullptr;
@@ -2038,10 +2037,11 @@ private:
             return nullptr;
         }
 
-        ValueNum            vn        = lclVar->GetConservativeVN();
-        ssize_t             min       = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
-        ssize_t             max       = GetSmallTypeRange(toType).max;
-        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, min, max);
+        ValueNum vn  = lclVar->GetConservativeVN();
+        ssize_t  min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
+        ssize_t  max = GetSmallTypeRange(toType).max;
+
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, min, max);
 
         if (assertion == nullptr)
         {
@@ -2050,6 +2050,8 @@ private:
 
         if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
         {
+            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
             return UpdateTree(op1, cast, stmt);
         }
 
