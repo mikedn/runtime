@@ -598,19 +598,6 @@ struct AssertionDsc
     Op1    op1;
     Op2    op2;
 
-    static bool IsInvertedKind(ApKind kind, ApKind kind2)
-    {
-        switch (kind)
-        {
-            case OAK_EQUAL:
-                return kind2 == OAK_NOT_EQUAL;
-            case OAK_NOT_EQUAL:
-                return kind2 == OAK_EQUAL;
-            default:
-                return false;
-        }
-    }
-
     bool HasSameOp1(const AssertionDsc& that) const
     {
         return (op1.kind == that.op1.kind) && (op1.vn == that.op1.vn);
@@ -642,11 +629,6 @@ struct AssertionDsc
                 assert(op2.kind == O2K_INVALID);
                 return false;
         }
-    }
-
-    bool IsInverted(const AssertionDsc& that) const
-    {
-        return IsInvertedKind(kind, that.kind) && HasSameOp1(that) && HasSameOp2(that);
     }
 
     bool operator==(const AssertionDsc& that) const
