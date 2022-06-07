@@ -1763,8 +1763,7 @@ private:
 
         if (assertion != nullptr)
         {
-            JITDUMP("[%06u] propagating Equality assertion A%02d: " FMT_VN " %s 0\n", relop->GetID(),
-                    assertion - assertionTable, assertion->op1.vn, (assertion->kind == OAK_EQUAL) ? "EQ" : "NE");
+            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
             isTrue = assertion->kind == OAK_NOT_EQUAL;
         }
@@ -1785,9 +1784,7 @@ private:
                 return nullptr;
             }
 
-            JITDUMP("[%06u] propagating Equality assertion A%02d: " FMT_VN " %s " FMT_VN "\n", relop->GetID(),
-                    assertion - assertionTable, assertion->op1.vn, (assertion->kind == OAK_EQUAL) ? "EQ" : "NE",
-                    assertion->op2.vn);
+            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
             isTrue = (assertion->kind == OAK_EQUAL) == relop->OperIs(GT_EQ);
         }
