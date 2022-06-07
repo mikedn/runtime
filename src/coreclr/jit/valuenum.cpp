@@ -5814,31 +5814,6 @@ void ValueNumStore::GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, Co
     }
 }
 
-bool ValueNumStore::IsVNConstantBound(const VNFuncApp& funcApp)
-{
-    assert(IsVNCompareCheckedBoundRelop(funcApp));
-
-    return IsVNInt32Constant(funcApp[0]) != IsVNInt32Constant(funcApp[1]);
-}
-
-void ValueNumStore::GetConstantBoundInfo(const VNFuncApp& funcApp, ConstantBoundInfo* info)
-{
-    assert(IsVNConstantBound(funcApp));
-
-    if (IsVNInt32Constant(funcApp[1]))
-    {
-        info->cmpOper = static_cast<genTreeOps>(funcApp.m_func);
-        info->cmpOpVN = funcApp[0];
-        info->constVN = funcApp[1];
-    }
-    else
-    {
-        info->cmpOper = GenTree::SwapRelop(static_cast<genTreeOps>(funcApp.m_func));
-        info->cmpOpVN = funcApp[1];
-        info->constVN = funcApp[0];
-    }
-}
-
 ValueNum ValueNumStore::GetArrForLenVn(ValueNum vn)
 {
     VNFuncApp funcApp;

@@ -1500,11 +1500,13 @@ public:
     bool IsEqual() const;
     bool IsCompareCheckedBoundArith() const;
     bool IsCompareCheckedBound() const;
-    bool IsConstantBound() const;
+    bool IsRange() const;
     bool IsConstant() const;
 
     ValueNum GetVN() const;
     ValueNum GetConstantVN() const;
+    int      GetRangeMin() const;
+    int      GetRangeMax() const;
 };
 
 /*

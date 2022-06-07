@@ -668,21 +668,6 @@ public:
 #endif
     };
 
-    struct ConstantBoundInfo
-    {
-        // 100 > vnOp
-        ValueNum   constVN = NoVN;
-        genTreeOps cmpOper = GT_NONE;
-        ValueNum   cmpOpVN = NoVN;
-
-#ifdef DEBUG
-        void Dump(ValueNumStore* vnStore)
-        {
-            printf(FMT_VN "  %s %d", cmpOpVN, GenTree::OpName(cmpOper), vnStore->GetConstantInt32(constVN));
-        }
-#endif
-    };
-
     // Check if "vn" is "new [] (type handle, size)"
     bool IsVNNewArr(ValueNum vn, VNFuncApp* funcApp);
 
@@ -717,12 +702,6 @@ public:
 
     // If "vn" is checked bound arith, then populate the "info" fields for cmpOp, cmpOper.
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
-
-    // Return true with any Relop except for == and !=  and one operand has to be a 32-bit integer constant.
-    bool IsVNConstantBound(const VNFuncApp& funcApp);
-
-    // If "vn" is constant bound, then populate the "info" fields for constVal, cmpOp, cmpOper.
-    void GetConstantBoundInfo(const VNFuncApp& funcApp, ConstantBoundInfo* info);
 
     // Returns the flags on the current handle. GTF_ICON_SCOPE_HDL for example.
     GenTreeFlags GetHandleFlags(ValueNum vn);

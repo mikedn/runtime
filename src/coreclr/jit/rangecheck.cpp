@@ -563,24 +563,35 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
                 continue;
             }
         }
-        // Current assertion is of the form (i < 100) != 0
-        else if (assertion.IsConstantBound())
+        // Current assertion is of the form i IN [K1..K2]
+        else if (assertion.IsRange())
         {
-            ValueNumStore::ConstantBoundInfo info;
-
-            // Get the info as "i", "<" and "100"
-            VNFuncApp funcApp;
-            vnStore->GetVNFunc(assertion.GetVN(), &funcApp);
-            vnStore->GetConstantBoundInfo(funcApp, &info);
-
             // If we don't have the same variable we are comparing against, bail.
-            if (normalLclVN != info.cmpOpVN)
+            if (normalLclVN != assertion.GetVN())
             {
                 continue;
             }
 
-            limit   = Limit(Limit::keConstant, vnStore->GetConstantInt32(info.constVN));
-            cmpOper = info.cmpOper;
+            int max = assertion.GetRangeMax();
+            int min = assertion.GetRangeMin();
+
+            // TODO-MIKE-Review: Old code handled only "i < K" like cases,
+            // not the more general "i IN [K1..K2]" case. It's likely that
+            // we can get useful information from cast related ranges.
+            if (max == INT32_MAX)
+            {
+                limit   = Limit(Limit::keConstant, min);
+                cmpOper = GT_GE;
+            }
+            else if (min == INT32_MIN)
+            {
+                limit   = Limit(Limit::keConstant, max);
+                cmpOper = GT_LE;
+            }
+            else
+            {
+                continue;
+            }
         }
         // Current assertion is of the form i == 100
         else if (assertion.IsConstant() && (assertion.GetVN() == normalLclVN))
@@ -613,7 +624,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum normalLclVN, ASSERT_VALARG_TP asse
         }
 
         // Make sure the assertion is of the form != 0 or == 0 if it isn't a constant assertion.
-        assert(isConstantAssertion || (assertion.GetConstantVN() == vnStore->VNForIntCon(0)));
+        assert(isConstantAssertion || assertion.IsRange() || (assertion.GetConstantVN() == vnStore->VNForIntCon(0)));
 
         assert(limit.IsBinOpArray() || limit.IsConstant());
 
