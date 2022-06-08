@@ -2412,7 +2412,7 @@ private:
                     }
                 }
             }
-            else if ((op1.kind == O1K_BOUND_LOOP_BND) && (indexVal >= 0))
+            else if (op1.kind == O1K_BOUND_LOOP_BND)
             {
                 assert((op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0));
 
@@ -2421,63 +2421,59 @@ private:
                 assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
                 genTreeOps oper = static_cast<genTreeOps>(funcApp.m_func);
 
-                if (funcApp[1] == lengthVN)
+                if (indexVal >= 0)
                 {
-                    std::swap(funcApp.m_args[0], funcApp.m_args[1]);
-                    oper = GenTree::SwapRelop(oper);
+                    if (funcApp[1] == lengthVN)
+                    {
+                        std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+                        oper = GenTree::SwapRelop(oper);
+                    }
+
+                    if ((funcApp[0] != lengthVN) || !vnStore->IsVNInt32Constant(funcApp[1]))
+                    {
+                        continue;
+                    }
+
+                    if (kind == OAK_EQUAL)
+                    {
+                        oper = GenTree::ReverseRelop(oper);
+                    }
+
+                    lengthVal = vnStore->ConstantValue<int>(funcApp[1]);
+
+                    if (oper == GT_GT)
+                    {
+                        isRedundant = indexVal <= lengthVal;
+                        INDEBUG(comment = "a[K1] with a.Length > K2 && K1 <= K2");
+                    }
+                    else if (oper == GT_GE)
+                    {
+                        isRedundant = indexVal < lengthVal;
+                        INDEBUG(comment = "a[K1] with a.Length >= K2 && K1 < K2");
+                    }
                 }
-
-                if ((funcApp[0] != lengthVN) || !vnStore->IsVNInt32Constant(funcApp[1]))
+                else
                 {
-                    continue;
-                }
+                    if (funcApp[1] == indexVN)
+                    {
+                        std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+                        oper = GenTree::SwapRelop(oper);
+                    }
 
-                if (kind == OAK_EQUAL)
-                {
-                    oper = GenTree::ReverseRelop(oper);
-                }
+                    if ((funcApp[0] != indexVN) || (funcApp[1] != lengthVN))
+                    {
+                        continue;
+                    }
 
-                lengthVal = vnStore->ConstantValue<int>(funcApp[1]);
+                    if (kind == OAK_EQUAL)
+                    {
+                        oper = GenTree::ReverseRelop(oper);
+                    }
 
-                if (oper == GT_GT)
-                {
-                    isRedundant = indexVal <= lengthVal;
-                    INDEBUG(comment = "a[K1] with a.Length > K2 && K1 <= K2");
-                }
-                else if (oper == GT_GE)
-                {
-                    isRedundant = indexVal < lengthVal;
-                    INDEBUG(comment = "a[K1] with a.Length >= K2 && K1 < K2");
-                }
-            }
-            else if ((op1.kind == O1K_BOUND_LOOP_BND) && (indexVal < 0))
-            {
-                assert((op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0));
-
-                VNFuncApp funcApp;
-                vnStore->GetVNFunc(op1.vn, &funcApp);
-                assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
-                genTreeOps oper = static_cast<genTreeOps>(funcApp.m_func);
-
-                if (funcApp[1] == indexVN)
-                {
-                    std::swap(funcApp.m_args[0], funcApp.m_args[1]);
-                    oper = GenTree::SwapRelop(oper);
-                }
-
-                if ((funcApp[0] != indexVN) || (funcApp[1] != lengthVN))
-                {
-                    continue;
-                }
-
-                if (kind == OAK_EQUAL)
-                {
-                    oper = GenTree::ReverseRelop(oper);
-                }
-
-                if (oper == GT_LT)
-                {
-                    indexMaxVN = lengthVN;
+                    if (oper == GT_LT)
+                    {
+                        indexMaxVN = lengthVN;
+                    }
                 }
             }
 
