@@ -2365,9 +2365,9 @@ private:
                     isRedundant = true;
                     INDEBUG(comment = "a[*] followed by a[0]");
                 }
-                else if (vnStore->IsVNInt32Constant(op1.vn))
+                else if (indexVal > 0)
                 {
-                    if ((indexVal >= 0) && (indexVal <= vnStore->ConstantValue<int>(op1.vn)))
+                    if (vnStore->IsVNInt32Constant(op1.vn) && (indexVal <= vnStore->ConstantValue<int>(op1.vn)))
                     {
                         isRedundant = true;
                         INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K2 <= K1");
