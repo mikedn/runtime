@@ -1338,11 +1338,12 @@ private:
             boundVN = relopVN;
         }
 
-        ApOp1Kind boundKind = O1K_INVALID;
         VNFuncApp funcApp;
 
         if (vnStore->GetVNFunc(boundVN, &funcApp) && ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp))
         {
+            ApOp1Kind boundKind = O1K_INVALID;
+
             // "(i +/- c1) LT|LE|GE|GT (j +/- c2)" where either i or j is used as length by an ARR_BOUNDS_CHK
             if (vnStore->IsVNCompareCheckedBoundArith(funcApp))
             {
@@ -1391,31 +1392,29 @@ private:
             return AddEqualityAssertions(dsc);
         }
 
-        UnsignedCompareCheckedBoundInfo unsignedCompareBnd;
+        UnsignedCompareCheckedBoundInfo unsignedCompareInfo;
 
-        // Loop condition like "(uint)i < (uint)bnd" or equivalent
-        // Assertion: "bounds chk" since this condition guarantees that i is both >= 0 and < bnd (on the appropiate
-        // edge)
-        if (IsUnsignedCompareCheckedBound(relopVN, &unsignedCompareBnd))
+        // Conditions like "(uint)i < (uint)length" generate BoundChk assertions.
+        if (IsUnsignedCompareCheckedBound(relopVN, &unsignedCompareInfo))
         {
-            assert(unsignedCompareBnd.vnIdx != ValueNumStore::NoVN);
-            assert((unsignedCompareBnd.cmpOper == VNF_LT_UN) || (unsignedCompareBnd.cmpOper == VNF_GE_UN));
-            assert(vnStore->IsVNCheckedBound(unsignedCompareBnd.vnBound));
+            assert((unsignedCompareInfo.func == VNF_LT_UN) || (unsignedCompareInfo.func == VNF_GE_UN));
+            assert(unsignedCompareInfo.indexVN != NoVN);
+            assert(vnStore->IsVNCheckedBound(unsignedCompareInfo.boundVN));
 
             AssertionDsc dsc;
 
             dsc.kind     = OAK_BOUNDS_CHK;
             dsc.op1.kind = O1K_VALUE_NUMBER;
-            dsc.op1.vn   = unsignedCompareBnd.vnIdx;
+            dsc.op1.vn   = unsignedCompareInfo.indexVN;
             dsc.op2.kind = O2K_VALUE_NUMBER;
-            dsc.op2.vn   = unsignedCompareBnd.vnBound;
+            dsc.op2.vn   = unsignedCompareInfo.boundVN;
 
             AssertionIndex index = AddAssertion(dsc);
 
-            if (unsignedCompareBnd.cmpOper == VNF_GE_UN)
+            if (unsignedCompareInfo.func == VNF_GE_UN)
             {
-                // By default JTRUE generated assertions hold on the "jump" edge. We have i >= bnd but we're really
-                // after i < bnd so we need to change the assertion edge to "next".
+                // By default JTRUE generated assertions hold on the "jump" edge. We have i >= len but
+                // we're really after i < len so we need to change the assertion edge to "next".
                 return AssertionInfo::ForNextEdge(index);
             }
 
@@ -1425,69 +1424,75 @@ private:
         return NO_ASSERTION_INDEX;
     }
 
-    // Information about the individual components of a value number representing an unsigned
-    // comparison of some value against a checked bound VN.
     struct UnsignedCompareCheckedBoundInfo
     {
-        VNFunc   cmpOper = VNF_None;
-        ValueNum vnIdx   = NoVN;
-        ValueNum vnBound = NoVN;
+        VNFunc   func    = VNF_None;
+        ValueNum indexVN = NoVN;
+        ValueNum boundVN = NoVN;
     };
 
     bool IsUnsignedCompareCheckedBound(ValueNum vn, UnsignedCompareCheckedBoundInfo* info)
     {
         VNFuncApp funcApp;
 
-        if (vnStore->GetVNFunc(vn, &funcApp))
+        if (!vnStore->GetVNFunc(vn, &funcApp))
         {
-            if ((funcApp.m_func == VNF_LT_UN) || (funcApp.m_func == VNF_GE_UN))
-            {
-                // We only care about "(uint)i < (uint)len" and its negation "(uint)i >= (uint)len"
-                if (vnStore->IsVNCheckedBound(funcApp.m_args[1]))
-                {
-                    info->vnIdx   = funcApp.m_args[0];
-                    info->cmpOper = funcApp.m_func;
-                    info->vnBound = funcApp.m_args[1];
-                    return true;
-                }
-                // We care about (uint)len < constant and its negation "(uint)len >= constant"
-                else if (vnStore->IsVNPositiveInt32Constant(funcApp.m_args[1]) &&
-                         vnStore->IsVNCheckedBound(funcApp.m_args[0]))
-                {
-                    // Change constant < len into (uint)len >= (constant - 1)
-                    // to make consuming this simpler (and likewise for it's negation).
-                    INT32 validIndex = vnStore->ConstantValue<INT32>(funcApp.m_args[1]) - 1;
-                    assert(validIndex >= 0);
+            return false;
+        }
 
-                    info->vnIdx   = vnStore->VNForIntCon(validIndex);
-                    info->cmpOper = (funcApp.m_func == VNF_GE_UN) ? VNF_LT_UN : VNF_GE_UN;
-                    info->vnBound = funcApp.m_args[0];
+        if ((funcApp.m_func == VNF_LT_UN) || (funcApp.m_func == VNF_GE_UN))
+        {
+            // "(uint)i < (uint)len" or "(uint)i >= (uint)len"
+            if (vnStore->IsVNCheckedBound(funcApp[1]))
+            {
+                info->func    = funcApp.m_func;
+                info->indexVN = funcApp[0];
+                info->boundVN = funcApp[1];
+
+                return true;
+            }
+
+            // "(uint)len < constant" or "(uint)len >= constant"
+            if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
+            {
+                int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
+
+                if (indexVal > 0)
+                {
+                    // Change "constant < len" into "(uint)len >= (constant - 1)" to make consuming this simpler.
+                    info->func    = funcApp.m_func == VNF_GE_UN ? VNF_LT_UN : VNF_GE_UN;
+                    info->indexVN = vnStore->VNForIntCon(indexVal - 1);
+                    info->boundVN = funcApp[0];
+
                     return true;
                 }
             }
-            else if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
+        }
+        else if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
+        {
+            // "(uint)len > (uint)i" or "(uint)len <= (uint)i"
+            if (vnStore->IsVNCheckedBound(funcApp[0]))
             {
-                // We only care about "(uint)a.len > (uint)i" and its negation "(uint)a.len <= (uint)i"
-                if (vnStore->IsVNCheckedBound(funcApp.m_args[0]))
-                {
-                    info->vnIdx = funcApp.m_args[1];
-                    // Let's keep a consistent operand order - it's always i < len, never len > i
-                    info->cmpOper = (funcApp.m_func == VNF_GT_UN) ? VNF_LT_UN : VNF_GE_UN;
-                    info->vnBound = funcApp.m_args[0];
-                    return true;
-                }
-                // Look for constant > (uint)len and its negation "constant <= (uint)len"
-                else if (vnStore->IsVNPositiveInt32Constant(funcApp.m_args[0]) &&
-                         vnStore->IsVNCheckedBound(funcApp.m_args[1]))
-                {
-                    // Change constant <= (uint)len to (constant - 1) < (uint)len
-                    // to make consuming this simpler (and likewise for it's negation).
-                    INT32 validIndex = vnStore->ConstantValue<INT32>(funcApp.m_args[0]) - 1;
-                    assert(validIndex >= 0);
+                // Let's keep a consistent operand order - it's always i < len, never len > i
+                info->func    = funcApp.m_func == VNF_GT_UN ? VNF_LT_UN : VNF_GE_UN;
+                info->indexVN = funcApp[1];
+                info->boundVN = funcApp[0];
 
-                    info->vnIdx   = vnStore->VNForIntCon(validIndex);
-                    info->cmpOper = (funcApp.m_func == VNF_LE_UN) ? VNF_LT_UN : VNF_GE_UN;
-                    info->vnBound = funcApp.m_args[1];
+                return true;
+            }
+
+            // "constant > (uint)len" or "constant <= (uint)len"
+            if (vnStore->IsVNInt32Constant(funcApp[0]) && vnStore->IsVNCheckedBound(funcApp[1]))
+            {
+                int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
+
+                if (indexVal > 0)
+                {
+                    // Change "constant <= (uint)len" to "(constant - 1) < (uint)len" to make consuming this simpler.
+                    info->func    = funcApp.m_func == VNF_LE_UN ? VNF_LT_UN : VNF_GE_UN;
+                    info->indexVN = vnStore->VNForIntCon(indexVal - 1);
+                    info->boundVN = funcApp[1];
+
                     return true;
                 }
             }

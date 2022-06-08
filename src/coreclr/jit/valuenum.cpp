@@ -5653,16 +5653,6 @@ bool ValueNumStore::IsVNHandle(ValueNum vn)
     return c->m_attribs == CEA_Handle;
 }
 
-//------------------------------------------------------------------------
-// IsVNPositiveInt32Constant: returns true iff vn is a known Int32 constant that is greater then 0
-//
-// Arguments:
-//    vn - Value number to query
-bool ValueNumStore::IsVNPositiveInt32Constant(ValueNum vn)
-{
-    return IsVNInt32Constant(vn) && (ConstantValue<INT32>(vn) > 0);
-}
-
 bool ValueNumStore::IsVNCompareCheckedBound(const VNFuncApp& funcApp)
 {
     assert(IsVNCompareCheckedBoundRelop(funcApp));

@@ -270,9 +270,6 @@ private:
     inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType);
 
 public:
-    // returns true iff vn is known to be a constant int32 that is > 0
-    bool IsVNPositiveInt32Constant(ValueNum vn);
-
     // Initializes any static variables of ValueNumStore.
     static void InitValueNumStoreStatics();
 
