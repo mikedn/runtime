@@ -1406,55 +1406,38 @@ private:
 
         // Conditions like "(uint)i < (uint)length" generate BoundsChk assertions.
 
+        if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
+        {
+            funcApp.m_func = funcApp.m_func == VNF_GT_UN ? VNF_LT_UN : VNF_GE_UN;
+            std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+        }
+        else if ((funcApp.m_func != VNF_LT_UN) && (funcApp.m_func != VNF_GE_UN))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
         bool     isTrue  = false;
         ValueNum indexVN = NoVN;
         ValueNum boundVN = NoVN;
 
-        if ((funcApp.m_func == VNF_LT_UN) || (funcApp.m_func == VNF_GE_UN))
+        // "(uint)i < (uint)len" or "(uint)i >= (uint)len"
+        if (vnStore->IsVNCheckedBound(funcApp[1]))
         {
-            // "(uint)i < (uint)len" or "(uint)i >= (uint)len"
-            if (vnStore->IsVNCheckedBound(funcApp[1]))
-            {
-                isTrue  = funcApp.m_func == VNF_LT_UN;
-                indexVN = funcApp[0];
-                boundVN = funcApp[1];
-            }
-            // "(uint)len < constant" or "(uint)len >= constant"
-            else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
-            {
-                int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
-
-                if (indexVal > 0)
-                {
-                    // Change "constant < len" into "(uint)len >= (constant - 1)" to make consuming this simpler.
-                    isTrue  = funcApp.m_func == VNF_GE_UN;
-                    indexVN = vnStore->VNForIntCon(indexVal - 1);
-                    boundVN = funcApp[0];
-                }
-            }
+            isTrue  = funcApp.m_func == VNF_LT_UN;
+            indexVN = funcApp[0];
+            boundVN = funcApp[1];
         }
-        else if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
+        // "(uint)len < constant" or "(uint)len >= constant"
+        else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
         {
-            // "(uint)len > (uint)i" or "(uint)len <= (uint)i"
-            if (vnStore->IsVNCheckedBound(funcApp[0]))
-            {
-                // Let's keep a consistent operand order - it's always i < len, never len > i
-                isTrue  = funcApp.m_func == VNF_GT_UN;
-                indexVN = funcApp[1];
-                boundVN = funcApp[0];
-            }
-            // "constant > (uint)len" or "constant <= (uint)len"
-            else if (vnStore->IsVNInt32Constant(funcApp[0]) && vnStore->IsVNCheckedBound(funcApp[1]))
-            {
-                int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
+            int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
 
-                if (indexVal > 0)
-                {
-                    // Change "constant <= (uint)len" to "(constant - 1) < (uint)len" to make consuming this simpler.
-                    isTrue  = funcApp.m_func == VNF_LE_UN;
-                    indexVN = vnStore->VNForIntCon(indexVal - 1);
-                    boundVN = funcApp[1];
-                }
+            if (indexVal > 0)
+            {
+                // Change "constant < len" into "(uint)len >= (constant - 1)" to make consuming this simpler.
+                isTrue  = funcApp.m_func == VNF_GE_UN;
+                indexVN = vnStore->VNForIntCon(indexVal - 1);
+                boundVN = funcApp[0];
             }
         }
 
