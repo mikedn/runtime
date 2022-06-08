@@ -1392,79 +1392,44 @@ private:
             return AddEqualityAssertions(dsc);
         }
 
-        UnsignedCompareCheckedBoundInfo unsignedCompareInfo;
-
-        // Conditions like "(uint)i < (uint)length" generate BoundChk assertions.
-        if (IsUnsignedCompareCheckedBound(relopVN, &unsignedCompareInfo))
-        {
-            assert((unsignedCompareInfo.func == VNF_LT_UN) || (unsignedCompareInfo.func == VNF_GE_UN));
-            assert(unsignedCompareInfo.indexVN != NoVN);
-            assert(vnStore->IsVNCheckedBound(unsignedCompareInfo.boundVN));
-
-            AssertionDsc dsc;
-
-            dsc.kind     = OAK_BOUNDS_CHK;
-            dsc.op1.kind = O1K_VALUE_NUMBER;
-            dsc.op1.vn   = unsignedCompareInfo.indexVN;
-            dsc.op2.kind = O2K_VALUE_NUMBER;
-            dsc.op2.vn   = unsignedCompareInfo.boundVN;
-
-            AssertionIndex index = AddAssertion(dsc);
-
-            if (unsignedCompareInfo.func == VNF_GE_UN)
-            {
-                // By default JTRUE generated assertions hold on the "jump" edge. We have i >= len but
-                // we're really after i < len so we need to change the assertion edge to "next".
-                return AssertionInfo::ForNextEdge(index);
-            }
-
-            return index;
-        }
-
-        return NO_ASSERTION_INDEX;
+        return GenerateJTrueUnsignedBoundAssertions(relopVN);
     }
 
-    struct UnsignedCompareCheckedBoundInfo
-    {
-        VNFunc   func    = VNF_None;
-        ValueNum indexVN = NoVN;
-        ValueNum boundVN = NoVN;
-    };
-
-    bool IsUnsignedCompareCheckedBound(ValueNum vn, UnsignedCompareCheckedBoundInfo* info)
+    AssertionInfo GenerateJTrueUnsignedBoundAssertions(ValueNum vn)
     {
         VNFuncApp funcApp;
 
         if (!vnStore->GetVNFunc(vn, &funcApp))
         {
-            return false;
+            return NO_ASSERTION_INDEX;
         }
+
+        // Conditions like "(uint)i < (uint)length" generate BoundsChk assertions.
+
+        bool     isTrue  = false;
+        ValueNum indexVN = NoVN;
+        ValueNum boundVN = NoVN;
 
         if ((funcApp.m_func == VNF_LT_UN) || (funcApp.m_func == VNF_GE_UN))
         {
             // "(uint)i < (uint)len" or "(uint)i >= (uint)len"
             if (vnStore->IsVNCheckedBound(funcApp[1]))
             {
-                info->func    = funcApp.m_func;
-                info->indexVN = funcApp[0];
-                info->boundVN = funcApp[1];
-
-                return true;
+                isTrue  = funcApp.m_func == VNF_LT_UN;
+                indexVN = funcApp[0];
+                boundVN = funcApp[1];
             }
-
             // "(uint)len < constant" or "(uint)len >= constant"
-            if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
+            else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
             {
                 int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
 
                 if (indexVal > 0)
                 {
                     // Change "constant < len" into "(uint)len >= (constant - 1)" to make consuming this simpler.
-                    info->func    = funcApp.m_func == VNF_GE_UN ? VNF_LT_UN : VNF_GE_UN;
-                    info->indexVN = vnStore->VNForIntCon(indexVal - 1);
-                    info->boundVN = funcApp[0];
-
-                    return true;
+                    isTrue  = funcApp.m_func == VNF_GE_UN;
+                    indexVN = vnStore->VNForIntCon(indexVal - 1);
+                    boundVN = funcApp[0];
                 }
             }
         }
@@ -1474,31 +1439,50 @@ private:
             if (vnStore->IsVNCheckedBound(funcApp[0]))
             {
                 // Let's keep a consistent operand order - it's always i < len, never len > i
-                info->func    = funcApp.m_func == VNF_GT_UN ? VNF_LT_UN : VNF_GE_UN;
-                info->indexVN = funcApp[1];
-                info->boundVN = funcApp[0];
-
-                return true;
+                isTrue  = funcApp.m_func == VNF_GT_UN;
+                indexVN = funcApp[1];
+                boundVN = funcApp[0];
             }
-
             // "constant > (uint)len" or "constant <= (uint)len"
-            if (vnStore->IsVNInt32Constant(funcApp[0]) && vnStore->IsVNCheckedBound(funcApp[1]))
+            else if (vnStore->IsVNInt32Constant(funcApp[0]) && vnStore->IsVNCheckedBound(funcApp[1]))
             {
                 int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
 
                 if (indexVal > 0)
                 {
                     // Change "constant <= (uint)len" to "(constant - 1) < (uint)len" to make consuming this simpler.
-                    info->func    = funcApp.m_func == VNF_LE_UN ? VNF_LT_UN : VNF_GE_UN;
-                    info->indexVN = vnStore->VNForIntCon(indexVal - 1);
-                    info->boundVN = funcApp[1];
-
-                    return true;
+                    isTrue  = funcApp.m_func == VNF_LE_UN;
+                    indexVN = vnStore->VNForIntCon(indexVal - 1);
+                    boundVN = funcApp[1];
                 }
             }
         }
 
-        return false;
+        if (indexVN == NoVN)
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        assert(vnStore->IsVNCheckedBound(boundVN));
+
+        AssertionDsc dsc;
+
+        dsc.kind     = OAK_BOUNDS_CHK;
+        dsc.op1.kind = O1K_VALUE_NUMBER;
+        dsc.op1.vn   = indexVN;
+        dsc.op2.kind = O2K_VALUE_NUMBER;
+        dsc.op2.vn   = boundVN;
+
+        AssertionIndex index = AddAssertion(dsc);
+
+        if (!isTrue)
+        {
+            // By default JTRUE generated assertions hold on the "jump" edge. We have i >= len but
+            // we're really after i < len so we need to change the assertion edge to "next".
+            return AssertionInfo::ForNextEdge(index);
+        }
+
+        return index;
     }
 
     AssertionInfo GenerateJTrueEqualityAssertions(GenTreeOp* relop)
