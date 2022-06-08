@@ -269,10 +269,10 @@ private:
     template <typename T, typename NumMap>
     inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType);
 
+public:
     // returns true iff vn is known to be a constant int32 that is > 0
     bool IsVNPositiveInt32Constant(ValueNum vn);
 
-public:
     // Initializes any static variables of ValueNumStore.
     static void InitValueNumStoreStatics();
 
@@ -633,15 +633,6 @@ public:
     // argument to a GT_ARR_BOUNDS_CHECK node.
     void SetVNIsCheckedBound(ValueNum vn);
 
-    // Information about the individual components of a value number representing an unsigned
-    // comparison of some value against a checked bound VN.
-    struct UnsignedCompareCheckedBoundInfo
-    {
-        VNFunc   cmpOper = VNF_None;
-        ValueNum vnIdx   = NoVN;
-        ValueNum vnBound = NoVN;
-    };
-
     struct CompareCheckedBoundArithInfo
     {
         // (vnBound - 1) > vnOp
@@ -679,9 +670,6 @@ public:
 
     // If "vn" is VN(a.len) then return VN(a); NoVN if VN(a) can't be determined.
     ValueNum GetArrForLenVn(ValueNum vn);
-
-    // If "vn" is of the form "(uint)var < (uint)len" (or equivalent) return true.
-    bool IsVNUnsignedCompareCheckedBound(ValueNum vn, UnsignedCompareCheckedBoundInfo* info);
 
     static bool IsVNCompareCheckedBoundRelop(const VNFuncApp& funcApp)
     {
