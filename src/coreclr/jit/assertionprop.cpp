@@ -2428,15 +2428,17 @@ private:
         }
 #endif
 
-        ValueNum indexVN     = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
-        ValueNum lengthVN    = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
-        ssize_t  indexVal    = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
-        ssize_t  lengthVal   = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
-        ssize_t  indexMinVal = INT32_MIN;
-        ValueNum indexMaxVN  = NoVN;
+        ValueNum indexVN      = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
+        ValueNum lengthVN     = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ssize_t  indexVal     = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
+        ssize_t  lengthVal    = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
+        ssize_t  indexMinVal  = INT32_MIN;
+        ssize_t  indexMaxVal  = INT32_MAX;
+        ValueNum indexMaxVN   = NoVN;
+        ssize_t  lengthMinVal = 0;
 
         bool isRedundant = false;
-        INDEBUG(const char* comment = "");
+        INDEBUG(const char* comment = nullptr);
 
         if ((indexVal >= 0) && (lengthVal >= 0))
         {
@@ -2490,23 +2492,24 @@ private:
             {
                 if (op1.vn == lengthVN)
                 {
+                    // There may be multiple ranges for the same VN e.g. if (i > -10) { if (i > 5) { ... } }.
+                    lengthMinVal = Max(lengthMinVal, op2.range.min);
+
                     if (indexVal >= 0)
                     {
-                        isRedundant = indexVal < op2.range.min;
+                        isRedundant = indexVal < lengthMinVal;
                         INDEBUG(comment = "a[K1] with a.Length > K2 && K1 <= K2");
                     }
                 }
                 else if (op1.vn == indexVN)
                 {
-                    if ((lengthVal > 0) && (0 <= op2.range.min) && (op2.range.max < lengthVal))
+                    indexMinVal = Max(indexMinVal, op2.range.min);
+                    indexMaxVal = Min(indexMaxVal, op2.range.max);
+
+                    if (lengthVal > 0)
                     {
-                        isRedundant = true;
+                        isRedundant = (0 <= indexMinVal) && (indexMaxVal < lengthVal);
                         INDEBUG(comment = "a[i] with a.Length == K && 0 <= i && i < K");
-                    }
-                    // There may be multiple ranges for the same VN e.g. if (i > -10) { if (i > 5) { ... } }.
-                    else if (op2.range.min > indexMinVal)
-                    {
-                        indexMinVal = op2.range.min;
                     }
                 }
             }
@@ -2519,59 +2522,52 @@ private:
                 assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
                 genTreeOps oper = static_cast<genTreeOps>(funcApp.m_func);
 
-                if (indexVal >= 0)
+                if (funcApp[0] == lengthVN)
                 {
-                    if (funcApp[1] == lengthVN)
-                    {
-                        std::swap(funcApp.m_args[0], funcApp.m_args[1]);
-                        oper = GenTree::SwapRelop(oper);
-                    }
+                    std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+                    oper = GenTree::SwapRelop(oper);
+                }
+                else if (funcApp[1] != lengthVN)
+                {
+                    continue;
+                }
 
-                    if ((funcApp[0] != lengthVN) || !vnStore->IsVNInt32Constant(funcApp[1]))
+                if (kind == OAK_EQUAL)
+                {
+                    oper = GenTree::ReverseRelop(oper);
+                }
+
+                // TODO-MIKE-Cleanup: We get "len > C" as O1K_BOUND_LOOP_BND but it really should
+                // be a range assertion. Problem is, RangeCheck depends on O1K_BOUND_LOOP_BND and
+                // it is a pile of crap that needs serious work.
+
+                if (vnStore->IsVNInt32Constant(funcApp[0]))
+                {
+                    ssize_t constVal = vnStore->ConstantValue<int>(funcApp[0]);
+
+                    if ((oper == GT_LT) && (constVal != INT32_MAX))
+                    {
+                        constVal++;
+                    }
+                    else if (oper != GT_LE)
                     {
                         continue;
                     }
 
-                    if (kind == OAK_EQUAL)
-                    {
-                        oper = GenTree::ReverseRelop(oper);
-                    }
+                    lengthMinVal = Max(lengthMinVal, constVal);
 
-                    lengthVal = vnStore->ConstantValue<int>(funcApp[1]);
-
-                    if (oper == GT_GT)
+                    if ((0 <= indexVal) && (indexVal < lengthMinVal))
                     {
-                        isRedundant = indexVal <= lengthVal;
-                        INDEBUG(comment = "a[K1] with a.Length > K2 && K1 <= K2");
-                    }
-                    else if (oper == GT_GE)
-                    {
-                        isRedundant = indexVal < lengthVal;
+                        isRedundant = true;
                         INDEBUG(comment = "a[K1] with a.Length >= K2 && K1 < K2");
                     }
+
+                    continue;
                 }
-                else
+
+                if ((funcApp[0] == indexVN) && (oper == GT_LT))
                 {
-                    if (funcApp[1] == indexVN)
-                    {
-                        std::swap(funcApp.m_args[0], funcApp.m_args[1]);
-                        oper = GenTree::SwapRelop(oper);
-                    }
-
-                    if ((funcApp[0] != indexVN) || (funcApp[1] != lengthVN))
-                    {
-                        continue;
-                    }
-
-                    if (kind == OAK_EQUAL)
-                    {
-                        oper = GenTree::ReverseRelop(oper);
-                    }
-
-                    if (oper == GT_LT)
-                    {
-                        indexMaxVN = lengthVN;
-                    }
+                    indexMaxVN = lengthVN;
                 }
             }
 
@@ -2587,7 +2583,7 @@ private:
             }
         }
 
-        if ((indexMinVal >= 0) && (indexMaxVN == lengthVN))
+        if ((indexMinVal >= 0) && ((indexMaxVN == lengthVN) || (indexMaxVal < lengthMinVal)))
         {
             isRedundant = true;
         }
