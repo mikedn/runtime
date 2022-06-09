@@ -620,10 +620,11 @@ struct AssertionDsc
 #endif
             case O2K_CONST_DOUBLE:
                 return op2.dblCon == that.op2.dblCon;
-            case O2K_RANGE:
-                return op2.range == that.op2.range;
             case O2K_VALUE_NUMBER:
                 return op2.vn == that.op2.vn;
+            case O2K_RANGE:
+                // Ranges are handled separately.
+                return false;
             default:
                 assert(op2.kind == O2K_INVALID);
                 return false;
@@ -760,50 +761,21 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionDsc assertion;
-
         if (vnStore->IsVNInt32Constant(indexVN))
         {
             ssize_t indexVal = vnStore->ConstantValue<int32_t>(indexVN);
 
-            if (indexVal == INT32_MAX)
-            {
-                return NO_ASSERTION_INDEX;
-            }
-
-            assertion.kind      = OAK_RANGE;
-            assertion.op1.kind  = O1K_VALUE_NUMBER;
-            assertion.op1.vn    = lengthVN;
-            assertion.op2.kind  = O2K_RANGE;
-            assertion.op2.vn    = NoVN;
-            assertion.op2.range = {indexVal + 1, INT32_MAX};
+            return indexVal == INT32_MAX ? NO_ASSERTION_INDEX : AddRangeAssertion(lengthVN, indexVal + 1, INT32_MAX);
         }
-        else if (vnStore->IsVNInt32Constant(lengthVN))
+
+        if (vnStore->IsVNInt32Constant(lengthVN))
         {
             ssize_t lengthVal = vnStore->ConstantValue<int32_t>(lengthVN);
 
-            if (lengthVal == 0)
-            {
-                return NO_ASSERTION_INDEX;
-            }
-
-            assertion.kind      = OAK_RANGE;
-            assertion.op1.kind  = O1K_VALUE_NUMBER;
-            assertion.op1.vn    = indexVN;
-            assertion.op2.kind  = O2K_RANGE;
-            assertion.op2.vn    = NoVN;
-            assertion.op2.range = {0, lengthVal - 1};
-        }
-        else
-        {
-            assertion.kind     = OAK_BOUNDS_CHK;
-            assertion.op1.kind = O1K_VALUE_NUMBER;
-            assertion.op1.vn   = indexVN;
-            assertion.op2.kind = O2K_VALUE_NUMBER;
-            assertion.op2.vn   = lengthVN;
+            return lengthVal == 0 ? NO_ASSERTION_INDEX : AddRangeAssertion(indexVN, 0, lengthVal - 1);
         }
 
-        return AddAssertion(assertion);
+        return AddBoundsChkAssertion(indexVN, lengthVN);
     }
 
     AssertionIndex CreateNotNullAssertion(GenTree* addr)
@@ -952,16 +924,9 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionDsc assertion;
+        const auto& range = GetSmallTypeRange(toType);
 
-        assertion.kind      = OAK_RANGE;
-        assertion.op1.kind  = O1K_VALUE_NUMBER;
-        assertion.op1.vn    = value->GetConservativeVN();
-        assertion.op2.kind  = O2K_RANGE;
-        assertion.op2.vn    = NoVN;
-        assertion.op2.range = GetSmallTypeRange(toType);
-
-        return AddAssertion(assertion);
+        return AddRangeAssertion(value->GetConservativeVN(), range.min, range.max);
     }
 
     AssertionIndex CreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
@@ -1192,6 +1157,7 @@ private:
 
     AssertionIndex AddAssertion(const AssertionDsc& assertion)
     {
+        assert((assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL));
         INDEBUG(DebugCheckAssertion(assertion));
 
         for (AssertionIndex index = assertionCount; index >= 1; index--)
@@ -1211,7 +1177,7 @@ private:
 
         DBEXEC(verbose, TraceAssertion("generates", assertionTable[assertionCount - 1]);)
 
-        if ((assertion.kind == OAK_NOT_EQUAL) || (assertion.kind == OAK_RANGE))
+        if (assertion.kind == OAK_NOT_EQUAL)
         {
             AddVNAssertion(assertion.op1.vn, assertionCount);
         }
@@ -1236,6 +1202,44 @@ private:
                 invertedAssertions[invertedIndex - 1] = static_cast<uint16_t>(index);
             }
         }
+
+        return index;
+    }
+
+    AssertionIndex AddRangeAssertion(ValueNum vn, ssize_t min, ssize_t max)
+    {
+        assert(vn != NoVN);
+        assert((min >= INT32_MIN) && (max <= INT32_MAX) && (min <= max));
+
+        for (AssertionIndex index = assertionCount; index >= 1; index--)
+        {
+            const AssertionDsc& existing = GetAssertion(index);
+
+            if ((existing.kind == OAK_RANGE) && (existing.op1.vn == vn) && (existing.op2.range.min == min) &&
+                (existing.op2.range.max == max))
+            {
+                return index;
+            }
+        }
+
+        if (assertionCount >= assertionTableSize)
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionIndex index     = ++assertionCount;
+        AssertionDsc&  assertion = assertionTable[index - 1];
+
+        assertion.kind      = OAK_RANGE;
+        assertion.op1.kind  = O1K_VALUE_NUMBER;
+        assertion.op1.vn    = vn;
+        assertion.op2.kind  = O2K_RANGE;
+        assertion.op2.vn    = NoVN;
+        assertion.op2.range = {min, max};
+
+        DBEXEC(verbose, TraceAssertion("generates", assertionTable[index - 1]);)
+
+        AddVNAssertion(vn, index);
 
         return index;
     }
@@ -1282,16 +1286,7 @@ private:
                 break;
         }
 
-        AssertionDsc dsc;
-
-        dsc.kind      = OAK_RANGE;
-        dsc.op1.kind  = O1K_VALUE_NUMBER;
-        dsc.op1.vn    = vn;
-        dsc.op2.kind  = O2K_RANGE;
-        dsc.op2.vn    = NoVN;
-        dsc.op2.range = {min, max};
-
-        AssertionIndex index = AddAssertion(dsc);
+        AssertionIndex index = AddRangeAssertion(vn, min, max);
 
         if (index == NO_ASSERTION_INDEX)
         {
@@ -1302,22 +1297,58 @@ private:
         {
             assert(min != INT32_MIN);
 
-            dsc.op2.range = {INT32_MIN, min - 1};
+            max = min - 1;
+            min = INT32_MIN;
         }
         else
         {
             assert(min == INT32_MIN);
 
-            dsc.op2.range = {max + 1, INT32_MAX};
+            min = max + 1;
+            max = INT32_MAX;
         }
 
-        AssertionIndex invertedIndex = AddAssertion(dsc);
+        AssertionIndex invertedIndex = AddRangeAssertion(vn, min, max);
 
         if (invertedIndex != NO_ASSERTION_INDEX)
         {
             invertedAssertions[index - 1]         = static_cast<uint16_t>(invertedIndex);
             invertedAssertions[invertedIndex - 1] = static_cast<uint16_t>(index);
         }
+
+        return index;
+    }
+
+    AssertionIndex AddBoundsChkAssertion(ValueNum indexVN, ValueNum lengthVN)
+    {
+        assert(varActualTypeIsIntOrI(vnStore->TypeOfVN(indexVN)));
+        assert(varActualTypeIsIntOrI(vnStore->TypeOfVN(lengthVN)));
+
+        for (AssertionIndex index = assertionCount; index >= 1; index--)
+        {
+            const AssertionDsc& existing = GetAssertion(index);
+
+            if ((existing.kind == OAK_BOUNDS_CHK) && (existing.op1.vn == indexVN) && (existing.op2.vn == lengthVN))
+            {
+                return index;
+            }
+        }
+
+        if (assertionCount >= assertionTableSize)
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionIndex index     = ++assertionCount;
+        AssertionDsc&  assertion = assertionTable[index - 1];
+
+        assertion.kind     = OAK_BOUNDS_CHK;
+        assertion.op1.kind = O1K_VALUE_NUMBER;
+        assertion.op1.vn   = indexVN;
+        assertion.op2.kind = O2K_VALUE_NUMBER;
+        assertion.op2.vn   = lengthVN;
+
+        DBEXEC(verbose, TraceAssertion("generates", assertionTable[index - 1]);)
 
         return index;
     }
@@ -1451,36 +1482,27 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionDsc dsc;
-        bool         isTrue = false;
+        AssertionIndex index;
+        bool           isTrue = false;
 
         if (vnStore->IsVNCheckedBound(funcApp[1]))
         {
             // "(uint)i < (uint)len" or "(uint)i >= (uint)len" => BoundsChk(i, len)
             if (!vnStore->IsVNInt32Constant(funcApp[0]))
             {
-                dsc.kind     = OAK_BOUNDS_CHK;
-                dsc.op1.kind = O1K_VALUE_NUMBER;
-                dsc.op1.vn   = funcApp[0];
-                dsc.op2.kind = O2K_VALUE_NUMBER;
-                dsc.op2.vn   = funcApp[1];
+                index = AddBoundsChkAssertion(funcApp[0], funcApp[1]);
             }
             else
             {
                 // "C < (uint)len" or "C >= (uint)len" => len IN [C+1..INT32_MAX]
-                int32_t constVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
+                ssize_t constVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
 
                 if ((constVal < 0) || (constVal == INT32_MAX))
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                dsc.kind      = OAK_RANGE;
-                dsc.op1.kind  = O1K_VALUE_NUMBER;
-                dsc.op1.vn    = funcApp[1];
-                dsc.op2.kind  = O2K_RANGE;
-                dsc.op2.vn    = NoVN;
-                dsc.op2.range = {constVal + 1, INT32_MAX};
+                index = AddRangeAssertion(funcApp[1], constVal + 1, INT32_MAX);
             }
 
             isTrue = funcApp.m_func == VNF_LT_UN;
@@ -1488,28 +1510,20 @@ private:
         else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
         {
             // "(uint)len < C" or "(uint)len >= C" => len IN [C..INT32_MAX]
-            int32_t constVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
+            ssize_t constVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
 
             if (constVal <= 0)
             {
                 return NO_ASSERTION_INDEX;
             }
 
-            dsc.kind      = OAK_RANGE;
-            dsc.op1.kind  = O1K_VALUE_NUMBER;
-            dsc.op1.vn    = funcApp[0];
-            dsc.op2.kind  = O2K_RANGE;
-            dsc.op2.vn    = NoVN;
-            dsc.op2.range = {constVal, INT32_MAX};
-
+            index  = AddRangeAssertion(funcApp[0], constVal, INT32_MAX);
             isTrue = funcApp.m_func == VNF_GE_UN;
         }
         else
         {
             return NO_ASSERTION_INDEX;
         }
-
-        AssertionIndex index = AddAssertion(dsc);
 
         return isTrue ? index : AssertionInfo::ForNextEdge(index);
     }
