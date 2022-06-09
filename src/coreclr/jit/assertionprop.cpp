@@ -762,11 +762,46 @@ private:
 
         AssertionDsc assertion;
 
-        assertion.kind     = OAK_BOUNDS_CHK;
-        assertion.op1.kind = O1K_VALUE_NUMBER;
-        assertion.op1.vn   = indexVN;
-        assertion.op2.kind = O2K_VALUE_NUMBER;
-        assertion.op2.vn   = lengthVN;
+        if (vnStore->IsVNInt32Constant(indexVN))
+        {
+            ssize_t indexVal = vnStore->ConstantValue<int32_t>(indexVN);
+
+            if (indexVal == INT32_MAX)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            assertion.kind      = OAK_RANGE;
+            assertion.op1.kind  = O1K_VALUE_NUMBER;
+            assertion.op1.vn    = lengthVN;
+            assertion.op2.kind  = O2K_RANGE;
+            assertion.op2.vn    = NoVN;
+            assertion.op2.range = {indexVal + 1, INT32_MAX};
+        }
+        else if (vnStore->IsVNInt32Constant(lengthVN))
+        {
+            ssize_t lengthVal = vnStore->ConstantValue<int32_t>(lengthVN);
+
+            if (lengthVal == 0)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            assertion.kind      = OAK_RANGE;
+            assertion.op1.kind  = O1K_VALUE_NUMBER;
+            assertion.op1.vn    = indexVN;
+            assertion.op2.kind  = O2K_RANGE;
+            assertion.op2.vn    = NoVN;
+            assertion.op2.range = {0, lengthVal - 1};
+        }
+        else
+        {
+            assertion.kind     = OAK_BOUNDS_CHK;
+            assertion.op1.kind = O1K_VALUE_NUMBER;
+            assertion.op1.vn   = indexVN;
+            assertion.op2.kind = O2K_VALUE_NUMBER;
+            assertion.op2.vn   = lengthVN;
+        }
 
         return AddAssertion(assertion);
     }
@@ -1404,7 +1439,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        // Conditions like "(uint)i < (uint)length" generate BoundsChk assertions.
+        // Conditions like "(uint)i < (uint)length" generate BoundsChk or Range assertions.
 
         if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
         {
@@ -1416,56 +1451,67 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        bool     isTrue  = false;
-        ValueNum indexVN = NoVN;
-        ValueNum boundVN = NoVN;
+        AssertionDsc dsc;
+        bool         isTrue = false;
 
-        // "(uint)i < (uint)len" or "(uint)i >= (uint)len"
         if (vnStore->IsVNCheckedBound(funcApp[1]))
         {
-            isTrue  = funcApp.m_func == VNF_LT_UN;
-            indexVN = funcApp[0];
-            boundVN = funcApp[1];
+            // "(uint)i < (uint)len" or "(uint)i >= (uint)len" => BoundsChk(i, len)
+            if (!vnStore->IsVNInt32Constant(funcApp[0]))
+            {
+                dsc.kind     = OAK_BOUNDS_CHK;
+                dsc.op1.kind = O1K_VALUE_NUMBER;
+                dsc.op1.vn   = funcApp[0];
+                dsc.op2.kind = O2K_VALUE_NUMBER;
+                dsc.op2.vn   = funcApp[1];
+            }
+            else
+            {
+                // "C < (uint)len" or "C >= (uint)len" => len IN [C+1..INT32_MAX]
+                int32_t constVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
+
+                if ((constVal < 0) || (constVal == INT32_MAX))
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                dsc.kind      = OAK_RANGE;
+                dsc.op1.kind  = O1K_VALUE_NUMBER;
+                dsc.op1.vn    = funcApp[1];
+                dsc.op2.kind  = O2K_RANGE;
+                dsc.op2.vn    = NoVN;
+                dsc.op2.range = {constVal + 1, INT32_MAX};
+            }
+
+            isTrue = funcApp.m_func == VNF_LT_UN;
         }
-        // "(uint)len < constant" or "(uint)len >= constant"
         else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
         {
-            int32_t indexVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
+            // "(uint)len < C" or "(uint)len >= C" => len IN [C..INT32_MAX]
+            int32_t constVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
 
-            if (indexVal > 0)
+            if (constVal <= 0)
             {
-                // Change "constant < len" into "(uint)len >= (constant - 1)" to make consuming this simpler.
-                isTrue  = funcApp.m_func == VNF_GE_UN;
-                indexVN = vnStore->VNForIntCon(indexVal - 1);
-                boundVN = funcApp[0];
+                return NO_ASSERTION_INDEX;
             }
-        }
 
-        if (indexVN == NoVN)
+            dsc.kind      = OAK_RANGE;
+            dsc.op1.kind  = O1K_VALUE_NUMBER;
+            dsc.op1.vn    = funcApp[0];
+            dsc.op2.kind  = O2K_RANGE;
+            dsc.op2.vn    = NoVN;
+            dsc.op2.range = {constVal, INT32_MAX};
+
+            isTrue = funcApp.m_func == VNF_GE_UN;
+        }
+        else
         {
             return NO_ASSERTION_INDEX;
         }
 
-        assert(vnStore->IsVNCheckedBound(boundVN));
-
-        AssertionDsc dsc;
-
-        dsc.kind     = OAK_BOUNDS_CHK;
-        dsc.op1.kind = O1K_VALUE_NUMBER;
-        dsc.op1.vn   = indexVN;
-        dsc.op2.kind = O2K_VALUE_NUMBER;
-        dsc.op2.vn   = boundVN;
-
         AssertionIndex index = AddAssertion(dsc);
 
-        if (!isTrue)
-        {
-            // By default JTRUE generated assertions hold on the "jump" edge. We have i >= len but
-            // we're really after i < len so we need to change the assertion edge to "next".
-            return AssertionInfo::ForNextEdge(index);
-        }
-
-        return index;
+        return isTrue ? index : AssertionInfo::ForNextEdge(index);
     }
 
     AssertionInfo GenerateJTrueEqualityAssertions(GenTreeOp* relop)
@@ -2448,8 +2494,13 @@ private:
                 }
                 else if (op1.vn == indexVN)
                 {
+                    if ((lengthVal > 0) && (0 <= op2.range.min) && (op2.range.max < lengthVal))
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[i] with a.Length == K && 0 <= i && i < K");
+                    }
                     // There may be multiple ranges for the same VN e.g. if (i > -10) { if (i > 5) { ... } }.
-                    if (op2.range.min > indexMinVal)
+                    else if (op2.range.min > indexMinVal)
                     {
                         indexMinVal = op2.range.min;
                     }
