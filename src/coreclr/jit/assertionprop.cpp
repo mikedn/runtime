@@ -2453,27 +2453,17 @@ private:
 
             if (kind == OAK_BOUNDS_CHK)
             {
-                if (op2.vn != lengthVN)
+                if (op2.vn == lengthVN)
                 {
-                    continue;
-                }
-
-                if (op1.vn == indexVN)
-                {
-                    isRedundant = true;
-                    INDEBUG(comment = "a[i] followed by a[i]");
-                }
-                else if (indexVal == 0)
-                {
-                    isRedundant = true;
-                    INDEBUG(comment = "a[*] followed by a[0]");
-                }
-                else if (indexVal > 0)
-                {
-                    if (vnStore->IsVNInt32Constant(op1.vn) && (indexVal <= vnStore->ConstantValue<int>(op1.vn)))
+                    if (op1.vn == indexVN)
                     {
                         isRedundant = true;
-                        INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K2 <= K1");
+                        INDEBUG(comment = "a[i] followed by a[i]");
+                    }
+                    else if (indexVal == 0)
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[*] followed by a[0]");
                     }
                 }
             }
