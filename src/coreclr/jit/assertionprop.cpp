@@ -2468,6 +2468,13 @@ private:
                         INDEBUG(comment = "a[*] followed by a[0]");
                     }
                 }
+                else if (op1.vn == indexVN)
+                {
+                    if (indexMinVal < 0)
+                    {
+                        indexMinVal = 0;
+                    }
+                }
             }
             else if ((op1.vn == lengthVN) && (op2.kind == O2K_CONST_INT))
             {
