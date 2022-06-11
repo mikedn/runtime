@@ -2133,13 +2133,6 @@ private:
             return nullptr;
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
-
-        if (lcl->IsAddressExposed())
-        {
-            return nullptr;
-        }
-
         ValueNum vn  = lclVar->GetConservativeVN();
         ssize_t  min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
         ssize_t  max = GetSmallTypeRange(toType).max;
@@ -2150,6 +2143,8 @@ private:
         {
             return nullptr;
         }
+
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
 
         if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
         {
