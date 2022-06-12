@@ -2146,14 +2146,15 @@ private:
 
         LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
 
+        GenTree* newTree = cast;
+
         if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
         {
             DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-            return UpdateTree(op1, cast, stmt);
+            newTree = op1;
         }
-
-        if (varTypeSize(toType) > varTypeSize(lcl->GetType()))
+        else if (varTypeSize(toType) > varTypeSize(lcl->GetType()))
         {
             if (!cast->gtOverflow())
             {
@@ -2163,23 +2164,25 @@ private:
             DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
             cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
-
-            return UpdateTree(cast, cast, stmt);
         }
-
-        GenTree* tmp = op1;
-
-        while (tmp->OperIs(GT_COMMA))
+        else
         {
+            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
+            GenTree* tmp = op1;
+
+            while (tmp->OperIs(GT_COMMA))
+            {
+                tmp->SetType(toType);
+                tmp = tmp->AsOp()->GetOp(1);
+            }
+
             tmp->SetType(toType);
-            tmp = tmp->AsOp()->GetOp(1);
+
+            newTree = op1;
         }
 
-        tmp->SetType(toType);
-
-        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
-
-        return UpdateTree(op1, cast, stmt);
+        return UpdateTree(newTree, cast, stmt);
     }
 
     GenTree* PropagateComma(GenTreeOp* comma, Statement* stmt)
