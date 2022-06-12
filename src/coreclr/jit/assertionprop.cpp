@@ -2133,6 +2133,21 @@ private:
             return nullptr;
         }
 
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
+
+        // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
+        // They're usually present on every LCL_VAR use so we'll never get assertions
+        // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
+        // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
+        // get eliminated but it turns out that this skews register allocation in such
+        // a way that the codegen end up being worse.
+        // Besides, the way load/store "normalization" is implemented is just asking
+        // for trouble so it's best to ignore these casts for now.
+        if (lcl->lvNormalizeOnLoad())
+        {
+            return nullptr;
+        }
+
         ValueNum vn  = lclVar->GetConservativeVN();
         ssize_t  min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
         ssize_t  max = GetSmallTypeRange(toType).max;
@@ -2144,11 +2159,9 @@ private:
             return nullptr;
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
-
         GenTree* newTree = cast;
 
-        if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
+        if (!varTypeIsLong(lcl->GetType()))
         {
             DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
