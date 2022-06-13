@@ -711,6 +711,449 @@ REMOVE_CAST:
     return src;
 }
 
+/*****************************************************************************
+ *
+ *  See if the given tree can be computed in the given precision (which must
+ *  be smaller than the type of the tree for this to make sense). If 'doit'
+ *  is false, we merely check to see whether narrowing is possible; if we
+ *  get called with 'doit' being true, we actually perform the narrowing.
+ */
+
+bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit)
+{
+    genTreeOps oper;
+    unsigned   kind;
+
+    noway_assert(tree);
+    noway_assert(genActualType(tree->gtType) == genActualType(srct));
+
+    /* Assume we're only handling integer types */
+    noway_assert(varTypeIsIntegral(srct));
+    noway_assert(varTypeIsIntegral(dstt));
+
+    unsigned srcSize = genTypeSize(srct);
+    unsigned dstSize = genTypeSize(dstt);
+
+    /* dstt must be smaller than srct to narrow */
+    if (dstSize >= srcSize)
+    {
+        return false;
+    }
+
+    /* Figure out what kind of a node we have */
+    oper = tree->OperGet();
+    kind = tree->OperKind();
+
+    if (oper == GT_ASG)
+    {
+        noway_assert(doit == false);
+        return false;
+    }
+
+    ValueNumPair NoVNPair = ValueNumPair();
+
+    if (kind & GTK_LEAF)
+    {
+        switch (oper)
+        {
+            /* Constants can usually be narrowed by changing their value */
+            CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifndef TARGET_64BIT
+            __int64 lval;
+            __int64 lmask;
+
+            case GT_CNS_LNG:
+                lval  = tree->AsIntConCommon()->LngValue();
+                lmask = 0;
+
+                switch (dstt)
+                {
+                    case TYP_BYTE:
+                        lmask = 0x0000007F;
+                        break;
+                    case TYP_BOOL:
+                    case TYP_UBYTE:
+                        lmask = 0x000000FF;
+                        break;
+                    case TYP_SHORT:
+                        lmask = 0x00007FFF;
+                        break;
+                    case TYP_USHORT:
+                        lmask = 0x0000FFFF;
+                        break;
+                    case TYP_INT:
+                        lmask = 0x7FFFFFFF;
+                        break;
+                    case TYP_UINT:
+                        lmask = 0xFFFFFFFF;
+                        break;
+
+                    default:
+                        return false;
+                }
+
+                if ((lval & lmask) != lval)
+                    return false;
+
+                if (doit)
+                {
+                    tree->ChangeOperConst(GT_CNS_INT);
+                    tree->gtType                = TYP_INT;
+                    tree->AsIntCon()->gtIconVal = (int)lval;
+                    if (vnStore != nullptr)
+                    {
+                        fgValueNumberTreeConst(tree);
+                    }
+                }
+
+                return true;
+#endif
+
+            case GT_CNS_INT:
+
+                ssize_t ival;
+                ival = tree->AsIntCon()->gtIconVal;
+                ssize_t imask;
+                imask = 0;
+
+                switch (dstt)
+                {
+                    case TYP_BYTE:
+                        imask = 0x0000007F;
+                        break;
+                    case TYP_BOOL:
+                    case TYP_UBYTE:
+                        imask = 0x000000FF;
+                        break;
+                    case TYP_SHORT:
+                        imask = 0x00007FFF;
+                        break;
+                    case TYP_USHORT:
+                        imask = 0x0000FFFF;
+                        break;
+#ifdef TARGET_64BIT
+                    case TYP_INT:
+                        imask = 0x7FFFFFFF;
+                        break;
+                    case TYP_UINT:
+                        imask = 0xFFFFFFFF;
+                        break;
+#endif // TARGET_64BIT
+                    default:
+                        return false;
+                }
+
+                if ((ival & imask) != ival)
+                {
+                    return false;
+                }
+
+#ifdef TARGET_64BIT
+                if (doit)
+                {
+                    tree->gtType                = TYP_INT;
+                    tree->AsIntCon()->gtIconVal = (int)ival;
+                    if (vnStore != nullptr)
+                    {
+                        fgValueNumberTreeConst(tree);
+                    }
+                }
+#endif // TARGET_64BIT
+
+                return true;
+
+            case GT_LCL_VAR:
+                // Allow implicit narrowing to INT of LONG locals.
+                if (dstSize != varTypeSize(TYP_INT))
+                {
+                    return false;
+                }
+
+                assert(tree->TypeIs(TYP_LONG));
+
+                if (doit)
+                {
+                    tree->SetType(varTypeToSigned(dstt));
+                    tree->SetVNs(vnpNarrow);
+                }
+
+                return true;
+
+            case GT_LCL_FLD:
+                // Operands that are in memory can usually be narrowed
+                // simply by changing their type.
+                goto NARROW_IND;
+
+            default:
+                break;
+        }
+
+        noway_assert(doit == false);
+        return false;
+    }
+
+    if (kind & (GTK_BINOP | GTK_UNOP))
+    {
+        GenTree* op1;
+        op1 = tree->AsOp()->gtOp1;
+        GenTree* op2;
+        op2 = tree->AsOp()->gtOp2;
+
+        switch (tree->gtOper)
+        {
+            case GT_AND:
+                noway_assert(genActualType(tree->gtType) == genActualType(op1->gtType));
+                noway_assert(genActualType(tree->gtType) == genActualType(op2->gtType));
+
+                GenTree* opToNarrow;
+                opToNarrow = nullptr;
+                GenTree** otherOpPtr;
+                otherOpPtr = nullptr;
+                bool foundOperandThatBlocksNarrowing;
+                foundOperandThatBlocksNarrowing = false;
+
+                // If 'dstt' is unsigned and one of the operands can be narrowed into 'dsst',
+                // the result of the GT_AND will also fit into 'dstt' and can be narrowed.
+                // The same is true if one of the operands is an int const and can be narrowed into 'dsst'.
+                if (!gtIsActiveCSE_Candidate(op2) && ((op2->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt)))
+                {
+                    if (optNarrowTree(op2, srct, dstt, NoVNPair, false))
+                    {
+                        opToNarrow = op2;
+                        otherOpPtr = &tree->AsOp()->gtOp1;
+                    }
+                    else
+                    {
+                        foundOperandThatBlocksNarrowing = true;
+                    }
+                }
+
+                if ((opToNarrow == nullptr) && !gtIsActiveCSE_Candidate(op1) &&
+                    ((op1->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt)))
+                {
+                    if (optNarrowTree(op1, srct, dstt, NoVNPair, false))
+                    {
+                        opToNarrow = op1;
+                        otherOpPtr = &tree->AsOp()->gtOp2;
+                    }
+                    else
+                    {
+                        foundOperandThatBlocksNarrowing = true;
+                    }
+                }
+
+                if (opToNarrow != nullptr)
+                {
+                    // We will change the type of the tree and narrow opToNarrow
+                    //
+                    if (doit)
+                    {
+                        tree->gtType = genActualType(dstt);
+                        tree->SetVNs(vnpNarrow);
+
+                        optNarrowTree(opToNarrow, srct, dstt, NoVNPair, true);
+                        // We may also need to cast away the upper bits of *otherOpPtr
+                        if (srcSize == 8)
+                        {
+                            assert(tree->gtType == TYP_INT);
+                            GenTree* castOp = gtNewCastNode(TYP_INT, *otherOpPtr, false, TYP_INT);
+#ifdef DEBUG
+                            castOp->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
+#endif
+                            *otherOpPtr = castOp;
+                        }
+                    }
+                    return true;
+                }
+
+                if (foundOperandThatBlocksNarrowing)
+                {
+                    noway_assert(doit == false);
+                    return false;
+                }
+
+                goto COMMON_BINOP;
+
+            case GT_ADD:
+            case GT_MUL:
+
+                if (tree->gtOverflow() || varTypeIsSmall(dstt))
+                {
+                    noway_assert(doit == false);
+                    return false;
+                }
+                FALLTHROUGH;
+
+            case GT_OR:
+            case GT_XOR:
+                noway_assert(genActualType(tree->gtType) == genActualType(op1->gtType));
+                noway_assert(genActualType(tree->gtType) == genActualType(op2->gtType));
+            COMMON_BINOP:
+                if (gtIsActiveCSE_Candidate(op1) || gtIsActiveCSE_Candidate(op2) ||
+                    !optNarrowTree(op1, srct, dstt, NoVNPair, doit) || !optNarrowTree(op2, srct, dstt, NoVNPair, doit))
+                {
+                    noway_assert(doit == false);
+                    return false;
+                }
+
+                // Simply change the type of the tree
+
+                if (doit)
+                {
+#ifndef TARGET_64BIT
+                    if (tree->OperIs(GT_MUL) && tree->TypeIs(TYP_LONG))
+                    {
+                        assert(dstt == TYP_INT);
+
+                        GenTreeCast* op1 = tree->AsOp()->GetOp(0)->IsCast();
+                        GenTreeCast* op2 = tree->AsOp()->GetOp(1)->IsCast();
+
+                        if (op1 != nullptr)
+                        {
+                            op1->ClearDoNotCSE();
+                        }
+
+                        if (op2 != nullptr)
+                        {
+                            op1->ClearDoNotCSE();
+                        }
+                    }
+#endif
+
+                    tree->SetType(varActualType(dstt));
+                    tree->SetVNs(vnpNarrow);
+                }
+
+                return true;
+
+            case GT_IND:
+
+            NARROW_IND:
+
+                if ((dstSize > genTypeSize(tree->gtType)) &&
+                    (varTypeIsUnsigned(dstt) && !varTypeIsUnsigned(tree->gtType)))
+                {
+                    return false;
+                }
+
+                /* Simply change the type of the tree */
+
+                if (doit && (dstSize <= genTypeSize(tree->gtType)))
+                {
+                    if (!varTypeIsSmall(dstt))
+                    {
+                        dstt = varTypeToSigned(dstt);
+                    }
+
+                    tree->gtType = dstt;
+                    tree->SetVNs(vnpNarrow);
+                }
+
+                return true;
+
+            case GT_EQ:
+            case GT_NE:
+            case GT_LT:
+            case GT_LE:
+            case GT_GT:
+            case GT_GE:
+
+                /* These can always be narrowed since they only represent 0 or 1 */
+                return true;
+
+            case GT_CAST:
+            {
+                var_types cast    = tree->CastToType();
+                var_types oprt    = op1->TypeGet();
+                unsigned  oprSize = genTypeSize(oprt);
+
+                if (cast != srct)
+                {
+                    return false;
+                }
+
+                if (varTypeIsIntegralOrI(dstt) != varTypeIsIntegralOrI(oprt))
+                {
+                    return false;
+                }
+
+                if (tree->gtOverflow())
+                {
+                    return false;
+                }
+
+                /* Is this a cast from the type we're narrowing to or a smaller one? */
+
+                if (oprSize <= dstSize)
+                {
+                    /* Bash the target type of the cast */
+
+                    if (doit)
+                    {
+                        if (!varTypeIsSmall(dstt))
+                        {
+                            dstt = varTypeToSigned(dstt);
+                        }
+
+                        if ((oprSize == dstSize) &&
+                            ((varTypeIsUnsigned(dstt) == varTypeIsUnsigned(oprt)) || !varTypeIsSmall(dstt)))
+                        {
+                            // Same size and there is no signedness mismatch for small types: change the CAST
+                            // into a NOP
+
+                            JITDUMP("Cast operation has no effect, bashing [%06d] GT_CAST into a GT_NOP.\n",
+                                    dspTreeID(tree));
+
+                            tree->ChangeOper(GT_NOP);
+                            tree->gtType = dstt;
+                            // Clear the GTF_UNSIGNED flag, as it may have been set on the cast node
+                            tree->gtFlags &= ~GTF_UNSIGNED;
+                            tree->AsOp()->gtOp2 = nullptr;
+                            tree->gtVNPair      = op1->gtVNPair; // Set to op1's ValueNumber
+                        }
+                        else
+                        {
+                            // oprSize is smaller or there is a signedness mismatch for small types
+
+                            // Change the CastToType in the GT_CAST node
+                            tree->CastToType() = dstt;
+
+                            // The result type of a GT_CAST is never a small type.
+                            // Use genActualType to widen dstt when it is a small types.
+                            tree->gtType = genActualType(dstt);
+                            tree->SetVNs(vnpNarrow);
+                        }
+                    }
+
+                    return true;
+                }
+            }
+                return false;
+
+            case GT_COMMA:
+                if (!gtIsActiveCSE_Candidate(op2) && optNarrowTree(op2, srct, dstt, vnpNarrow, doit))
+                {
+                    /* Simply change the type of the tree */
+
+                    if (doit)
+                    {
+                        tree->gtType = genActualType(dstt);
+                        tree->SetVNs(vnpNarrow);
+                    }
+                    return true;
+                }
+                return false;
+
+            default:
+                noway_assert(doit == false);
+                return false;
+        }
+    }
+
+    return false;
+}
+
 #ifdef DEBUG
 void CallArgInfo::Dump() const
 {
