@@ -2157,18 +2157,10 @@ private:
             return nullptr;
         }
 
-        GenTree* newTree = cast;
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        if (!varTypeIsLong(op1->GetType()))
+        if (varTypeIsLong(op1->GetType()))
         {
-            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
-
-            newTree = op1;
-        }
-        else
-        {
-            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
-
             GenTree* tmp = op1;
 
             while (tmp->OperIs(GT_COMMA))
@@ -2178,11 +2170,9 @@ private:
             }
 
             tmp->SetType(toType);
-
-            newTree = op1;
         }
 
-        return UpdateTree(newTree, cast, stmt);
+        return UpdateTree(op1, cast, stmt);
     }
 
     GenTree* PropagateComma(GenTreeOp* comma, Statement* stmt)
