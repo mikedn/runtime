@@ -2208,6 +2208,57 @@ private:
         return UpdateTree(op1, cast, stmt);
     }
 
+    const AssertionDsc* FindPositiveIntAssertion(const ASSERT_TP assertions, ValueNum vn)
+    {
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        {
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
+
+            if ((assertion.op1.vn == vn) && (((assertion.kind == OAK_RANGE) && (assertion.op2.range.min >= 0)) ||
+                                             (assertion.kind == OAK_BOUNDS_CHK)))
+            {
+                return &assertion;
+            }
+        }
+
+        return nullptr;
+    }
+
+    GenTree* PropagateSignedDivision(const ASSERT_TP assertions, GenTreeOp* div, Statement* stmt)
+    {
+        assert(div->OperIs(GT_DIV, GT_MOD) && div->TypeIs(TYP_INT));
+
+        ValueNum divisorVN = vnStore->VNNormalValue(div->GetOp(1)->GetConservativeVN());
+
+        if (!vnStore->IsVNInt32Constant(divisorVN))
+        {
+            return nullptr;
+        }
+
+        ssize_t divisor = vnStore->ConstantValue<int32_t>(divisorVN);
+
+        if (divisor < 2)
+        {
+            return nullptr;
+        }
+
+        ValueNum dividendVN = vnStore->VNNormalValue(div->GetOp(0)->GetConservativeVN());
+
+        const AssertionDsc* assertion = FindPositiveIntAssertion(assertions, dividendVN);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
+        div->SetOper(div->OperIs(GT_DIV) ? GT_UDIV : GT_UMOD, GenTree::PRESERVE_VN);
+        div->CheckDivideByConstOptimized(compiler);
+
+        return nullptr;
+    }
+
     GenTree* PropagateComma(GenTreeOp* comma, Statement* stmt)
     {
         // Remove the bounds check as part of the GT_COMMA node since we need user pointer to remove nodes.
@@ -2695,6 +2746,9 @@ private:
                 return PropagateRelop(assertions, node->AsOp(), stmt);
             case GT_JTRUE:
                 return PropagateJTrue(block, node->AsUnOp());
+            case GT_DIV:
+            case GT_MOD:
+                return node->TypeIs(TYP_INT) ? PropagateSignedDivision(assertions, node->AsOp(), stmt) : nullptr;
             default:
                 return nullptr;
         }
