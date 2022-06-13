@@ -2161,15 +2161,11 @@ private:
 
         if (op1->TypeIs(TYP_LONG))
         {
-            GenTree* tmp = op1;
-
-            while (tmp->OperIs(GT_COMMA))
-            {
-                tmp->SetType(TYP_INT);
-                tmp = tmp->AsOp()->GetOp(1);
-            }
-
-            tmp->SetType(TYP_INT);
+            // Keep the cast but change it to a LONG to INT cast, then morph
+            // may be able to remove the cast by narrowing the op1 tree to INT.
+            cast->SetCastType(TYP_INT);
+            cast->gtFlags &= ~GTF_OVERFLOW;
+            op1 = cast;
         }
 
         return UpdateTree(op1, cast, stmt);
