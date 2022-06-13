@@ -2121,12 +2121,13 @@ private:
         var_types fromType = op1->GetType();
         var_types toType   = cast->GetCastType();
 
-        if (!varTypeIsSmall(toType) || !varTypeIsIntegral(fromType))
+        if (!varTypeIsIntegral(toType) || !varTypeIsIntegral(fromType))
         {
             return nullptr;
         }
 
         GenTree* actualOp1 = op1->SkipComma();
+        ValueNum vn;
 
         if (actualOp1->OperIs(GT_LCL_VAR))
         {
@@ -2144,11 +2145,31 @@ private:
             {
                 return nullptr;
             }
+
+            vn = actualOp1->GetConservativeVN();
+        }
+        else
+        {
+            vn = vnStore->VNNormalValue(actualOp1->GetConservativeVN());
         }
 
-        ValueNum vn  = vnStore->VNNormalValue(actualOp1->GetConservativeVN());
-        ssize_t  min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
-        ssize_t  max = GetSmallTypeRange(toType).max;
+        ssize_t min;
+        ssize_t max;
+
+        if (varTypeIsSmall(toType))
+        {
+            min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
+            max = GetSmallTypeRange(toType).max;
+        }
+        else
+        {
+            // For all other cases keep it simple - the 0..INT32_MAX range allows us to
+            // remove overflow checks from LONG/INT casts and also change sign extension
+            // to zero extension. We'll miss some cases, such as 0..UINT32_MAX needed for
+            // LONG -> UINT casts but these should be pretty rare.
+            min = 0;
+            max = INT32_MAX;
+        }
 
         const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, min, max);
 
@@ -2159,12 +2180,28 @@ private:
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        if (op1->TypeIs(TYP_LONG))
+        fromType = varActualType(fromType);
+        toType   = varActualType(toType);
+
+        if (fromType != toType)
         {
-            // Keep the cast but change it to a LONG to INT cast, then morph
-            // may be able to remove the cast by narrowing the op1 tree to INT.
-            cast->SetCastType(TYP_INT);
-            cast->gtFlags &= ~GTF_OVERFLOW;
+            // LONG/INT cannot be removed but we can remove overflow checking.
+            // We can also change sign extending casts to zero extending casts, on X86/64 they
+            // are preferable due to having smaller encoding and sometimes better performance.
+            cast->SetCastType(toType);
+            cast->gtFlags &= ~(GTF_OVERFLOW | GTF_UNSIGNED);
+
+#ifdef TARGET_AMD64
+            // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
+            // targets but it sometimes interferes with LMUL helper call elimination.
+            // On ARM64 it seems to be useless and it interferes with smull generation.
+
+            if (toType == TYP_LONG)
+            {
+                cast->gtFlags |= GTF_UNSIGNED;
+            }
+#endif
+
             op1 = cast;
         }
 
