@@ -2126,29 +2126,27 @@ private:
             return nullptr;
         }
 
-        GenTree* lclVar = op1->SkipComma();
+        GenTree* actualOp1 = op1->SkipComma();
 
-        if (!lclVar->OperIs(GT_LCL_VAR))
+        if (actualOp1->OperIs(GT_LCL_VAR))
         {
-            return nullptr;
+            LclVarDsc* lcl = compiler->lvaGetDesc(actualOp1->AsLclVar());
+
+            // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
+            // They're usually present on every LCL_VAR use so we'll never get assertions
+            // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
+            // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
+            // get eliminated but it turns out that this skews register allocation in such
+            // a way that the codegen end up being worse.
+            // Besides, the way load/store "normalization" is implemented is just asking
+            // for trouble so it's best to ignore these casts for now.
+            if (lcl->lvNormalizeOnLoad())
+            {
+                return nullptr;
+            }
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
-
-        // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
-        // They're usually present on every LCL_VAR use so we'll never get assertions
-        // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
-        // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
-        // get eliminated but it turns out that this skews register allocation in such
-        // a way that the codegen end up being worse.
-        // Besides, the way load/store "normalization" is implemented is just asking
-        // for trouble so it's best to ignore these casts for now.
-        if (lcl->lvNormalizeOnLoad())
-        {
-            return nullptr;
-        }
-
-        ValueNum vn  = lclVar->GetConservativeVN();
+        ValueNum vn  = vnStore->VNNormalValue(actualOp1->GetConservativeVN());
         ssize_t  min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
         ssize_t  max = GetSmallTypeRange(toType).max;
 
@@ -2161,22 +2159,11 @@ private:
 
         GenTree* newTree = cast;
 
-        if (!varTypeIsLong(lcl->GetType()))
+        if (!varTypeIsLong(op1->GetType()))
         {
             DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
             newTree = op1;
-        }
-        else if (varTypeSize(toType) > varTypeSize(lcl->GetType()))
-        {
-            if (!cast->gtOverflow())
-            {
-                return nullptr;
-            }
-
-            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
-
-            cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
         }
         else
         {
