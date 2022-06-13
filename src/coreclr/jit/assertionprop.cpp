@@ -2159,17 +2159,17 @@ private:
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        if (varTypeIsLong(op1->GetType()))
+        if (op1->TypeIs(TYP_LONG))
         {
             GenTree* tmp = op1;
 
             while (tmp->OperIs(GT_COMMA))
             {
-                tmp->SetType(toType);
+                tmp->SetType(TYP_INT);
                 tmp = tmp->AsOp()->GetOp(1);
             }
 
-            tmp->SetType(toType);
+            tmp->SetType(TYP_INT);
         }
 
         return UpdateTree(op1, cast, stmt);
