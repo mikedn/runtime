@@ -2793,27 +2793,29 @@ private:
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
             const AssertionDsc& notNullAssertion = GetAssertion(GetAssertionIndex(en.Current()));
+            assert(notNullAssertion.op1.vn == typeAssertion.op1.vn);
 
             if (&notNullAssertion == &typeAssertion)
             {
                 continue;
             }
 
-            if ((notNullAssertion.kind != OAK_NOT_EQUAL) ||
-                ((notNullAssertion.op1.kind != O1K_LCLVAR) && (notNullAssertion.op1.kind != O1K_VALUE_NUMBER)) ||
-                (notNullAssertion.op2.kind != O2K_CONST_INT) || (notNullAssertion.op1.vn != typeAssertion.op1.vn))
+            if ((notNullAssertion.kind == OAK_NOT_EQUAL) &&
+                ((notNullAssertion.op1.kind == O1K_LCLVAR) || (notNullAssertion.op1.kind == O1K_VALUE_NUMBER)) &&
+                (notNullAssertion.op2.kind == O2K_CONST_INT))
             {
-                continue;
-            }
+                assert(notNullAssertion.op2.intCon.value == 0);
 
-            if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
-            {
-                JITDUMP("%s A%02d implies A%02d\n", (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
-                        &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
-            }
+                if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
+                {
+                    JITDUMP("%s A%02d implies A%02d\n",
+                            (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
+                            &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
+                }
 
-            // There is at most one not null assertion that is implied by a type assertion.
-            break;
+                // There is at most one not null assertion that is implied by a type assertion.
+                break;
+            }
         }
     }
 
@@ -2851,8 +2853,9 @@ private:
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
             const AssertionDsc& impliedAssertion = GetAssertion(GetAssertionIndex(en.Current()));
+            assert(impliedAssertion.op1.vn == rangeAssertion.op1.vn);
 
-            if (impliedAssertion.op1.vn != rangeAssertion.op1.vn)
+            if (&impliedAssertion == &rangeAssertion)
             {
                 continue;
             }
