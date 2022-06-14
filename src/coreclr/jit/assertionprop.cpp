@@ -2758,18 +2758,16 @@ private:
     {
         const AssertionDsc& assertion = GetAssertion(index);
 
-        if (assertion.kind != OAK_EQUAL)
+        if (((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_LCLVAR) &&
+             (assertion.op2.kind == O2K_CONST_INT)) ||
+            (assertion.kind == OAK_RANGE) || (assertion.kind == OAK_BOUNDS_CHK))
         {
+            AddRangeImpliedAssertions(assertion, assertions);
             return;
         }
 
-        if ((assertion.op1.kind == O1K_LCLVAR) && (assertion.op2.kind == O2K_CONST_INT))
-        {
-            AddConstImpliedAssertions(assertion, assertions);
-            return;
-        }
-
-        if ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE))
+        if ((assertion.kind == OAK_EQUAL) &&
+            ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE)))
         {
             AddTypeImpliedNotNullAssertions(assertion, assertions);
             return;
@@ -2819,46 +2817,58 @@ private:
         }
     }
 
-    void AddConstImpliedAssertions(const AssertionDsc& constAssertion, ASSERT_TP& result)
+    void AddRangeImpliedAssertions(const AssertionDsc& rangeAssertion, ASSERT_TP& result)
     {
-        assert(constAssertion.kind == OAK_EQUAL);
-        assert((constAssertion.op1.kind == O1K_LCLVAR) && (constAssertion.op2.kind == O2K_CONST_INT));
+        assert(((rangeAssertion.kind == OAK_EQUAL) && (rangeAssertion.op2.kind == O2K_CONST_INT)) ||
+               (rangeAssertion.kind == OAK_RANGE) || (rangeAssertion.kind == OAK_BOUNDS_CHK));
 
-        const ASSERT_TP vnAssertions = GetVNAssertions(constAssertion.op1.vn);
+        const ASSERT_TP vnAssertions = GetVNAssertions(rangeAssertion.op1.vn);
 
         if (vnAssertions == BitVecOps::UninitVal())
         {
             return;
         }
 
-        ssize_t value = constAssertion.op2.intCon.value;
+        ssize_t min;
+        ssize_t max;
+
+        if (rangeAssertion.kind == OAK_RANGE)
+        {
+            min = rangeAssertion.op2.range.min;
+            max = rangeAssertion.op2.range.max;
+        }
+        else if (rangeAssertion.kind == OAK_BOUNDS_CHK)
+        {
+            min = 0;
+            max = INT32_MAX;
+        }
+        else
+        {
+            min = rangeAssertion.op2.intCon.value;
+            max = min;
+        }
 
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
             const AssertionDsc& impliedAssertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if (&impliedAssertion == &constAssertion)
-            {
-                continue;
-            }
-
-            if (impliedAssertion.op1.vn != constAssertion.op1.vn)
+            if (impliedAssertion.op1.vn != rangeAssertion.op1.vn)
             {
                 continue;
             }
 
             bool isImplied = false;
 
-            if (impliedAssertion.op2.kind == O2K_RANGE)
+            if (impliedAssertion.kind == OAK_RANGE)
             {
-                if ((impliedAssertion.op2.range.min <= value) && (value <= impliedAssertion.op2.range.max))
+                if ((impliedAssertion.op2.range.min <= min) && (max <= impliedAssertion.op2.range.max))
                 {
                     isImplied = true;
                 }
             }
-            else if (impliedAssertion.op2.kind == O2K_CONST_INT)
+            else if ((impliedAssertion.kind == OAK_NOT_EQUAL) && (impliedAssertion.op2.kind == O2K_CONST_INT))
             {
-                if ((impliedAssertion.kind == OAK_NOT_EQUAL) && (impliedAssertion.op2.intCon.value != value))
+                if ((impliedAssertion.op2.intCon.value < min) || (max < impliedAssertion.op2.intCon.value))
                 {
                     isImplied = true;
                 }
@@ -2866,7 +2876,7 @@ private:
 
             if (isImplied && BitVecOps::TryAddElemD(&countTraits, result, en.Current()))
             {
-                JITDUMP("Const assertion A%02d implies assertion A%02d\n", &constAssertion - assertionTable,
+                JITDUMP("Assertion A%02d implies assertion A%02d\n", &rangeAssertion - assertionTable,
                         &impliedAssertion - assertionTable);
             }
         }
