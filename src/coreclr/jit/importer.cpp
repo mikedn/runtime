@@ -11002,6 +11002,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     uns  = false;
                 }
 
+                if (op1->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL) && !op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+                {
+                    oper = GenTree::SwapRelop(oper);
+                    std::swap(op1, op2);
+                }
+
 #ifdef TARGET_64BIT
                 // TODO-Casts: create a helper that upcasts int32 -> native int when necessary.
                 // See also identical code in impGetByRefResultType and STSFLD import.
@@ -11095,6 +11101,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             CMP_2_OPs_AND_BR_ALL:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
+
+                if (op1->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL) && !op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
+                {
+                    oper = GenTree::SwapRelop(oper);
+                    std::swap(op1, op2);
+                }
 
 #ifdef TARGET_64BIT
                 if ((op1->TypeGet() == TYP_I_IMPL) && (genActualType(op2->TypeGet()) == TYP_INT))

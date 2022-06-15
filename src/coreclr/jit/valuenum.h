@@ -269,9 +269,6 @@ private:
     template <typename T, typename NumMap>
     inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType);
 
-    // returns true iff vn is known to be a constant int32 that is > 0
-    bool IsVNPositiveInt32Constant(ValueNum vn);
-
 public:
     // Initializes any static variables of ValueNumStore.
     static void InitValueNumStoreStatics();
@@ -633,15 +630,6 @@ public:
     // argument to a GT_ARR_BOUNDS_CHECK node.
     void SetVNIsCheckedBound(ValueNum vn);
 
-    // Information about the individual components of a value number representing an unsigned
-    // comparison of some value against a checked bound VN.
-    struct UnsignedCompareCheckedBoundInfo
-    {
-        VNFunc   cmpOper = VNF_None;
-        ValueNum vnIdx   = NoVN;
-        ValueNum vnBound = NoVN;
-    };
-
     struct CompareCheckedBoundArithInfo
     {
         // (vnBound - 1) > vnOp
@@ -668,21 +656,6 @@ public:
 #endif
     };
 
-    struct ConstantBoundInfo
-    {
-        // 100 > vnOp
-        ValueNum   constVN = NoVN;
-        genTreeOps cmpOper = GT_NONE;
-        ValueNum   cmpOpVN = NoVN;
-
-#ifdef DEBUG
-        void Dump(ValueNumStore* vnStore)
-        {
-            printf(FMT_VN "  %s %d", cmpOpVN, GenTree::OpName(cmpOper), vnStore->GetConstantInt32(constVN));
-        }
-#endif
-    };
-
     // Check if "vn" is "new [] (type handle, size)"
     bool IsVNNewArr(ValueNum vn, VNFuncApp* funcApp);
 
@@ -694,9 +667,6 @@ public:
 
     // If "vn" is VN(a.len) then return VN(a); NoVN if VN(a) can't be determined.
     ValueNum GetArrForLenVn(ValueNum vn);
-
-    // If "vn" is of the form "(uint)var < (uint)len" (or equivalent) return true.
-    bool IsVNUnsignedCompareCheckedBound(ValueNum vn, UnsignedCompareCheckedBoundInfo* info);
 
     static bool IsVNCompareCheckedBoundRelop(const VNFuncApp& funcApp)
     {
@@ -717,12 +687,6 @@ public:
 
     // If "vn" is checked bound arith, then populate the "info" fields for cmpOp, cmpOper.
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
-
-    // Return true with any Relop except for == and !=  and one operand has to be a 32-bit integer constant.
-    bool IsVNConstantBound(const VNFuncApp& funcApp);
-
-    // If "vn" is constant bound, then populate the "info" fields for constVal, cmpOp, cmpOper.
-    void GetConstantBoundInfo(const VNFuncApp& funcApp, ConstantBoundInfo* info);
 
     // Returns the flags on the current handle. GTF_ICON_SCOPE_HDL for example.
     GenTreeFlags GetHandleFlags(ValueNum vn);

@@ -488,7 +488,6 @@ enum ApOp1Kind : uint8_t
     O1K_LCLVAR,
     O1K_BOUND_OPER_BND,
     O1K_BOUND_LOOP_BND,
-    O1K_CONSTANT_LOOP_BND,
     O1K_EXACT_TYPE,
     O1K_SUBTYPE,
     O1K_VALUE_NUMBER
@@ -598,19 +597,6 @@ struct AssertionDsc
     Op1    op1;
     Op2    op2;
 
-    static bool IsInvertedKind(ApKind kind, ApKind kind2)
-    {
-        switch (kind)
-        {
-            case OAK_EQUAL:
-                return kind2 == OAK_NOT_EQUAL;
-            case OAK_NOT_EQUAL:
-                return kind2 == OAK_EQUAL;
-            default:
-                return false;
-        }
-    }
-
     bool HasSameOp1(const AssertionDsc& that) const
     {
         return (op1.kind == that.op1.kind) && (op1.vn == that.op1.vn);
@@ -634,19 +620,15 @@ struct AssertionDsc
 #endif
             case O2K_CONST_DOUBLE:
                 return op2.dblCon == that.op2.dblCon;
-            case O2K_RANGE:
-                return op2.range == that.op2.range;
             case O2K_VALUE_NUMBER:
                 return op2.vn == that.op2.vn;
+            case O2K_RANGE:
+                // Ranges are handled separately.
+                return false;
             default:
                 assert(op2.kind == O2K_INVALID);
                 return false;
         }
-    }
-
-    bool IsInverted(const AssertionDsc& that) const
-    {
-        return IsInvertedKind(kind, that.kind) && HasSameOp1(that) && HasSameOp2(that);
     }
 
     bool operator==(const AssertionDsc& that) const
@@ -779,15 +761,21 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionDsc assertion;
+        if (vnStore->IsVNInt32Constant(indexVN))
+        {
+            ssize_t indexVal = vnStore->ConstantValue<int32_t>(indexVN);
 
-        assertion.kind     = OAK_BOUNDS_CHK;
-        assertion.op1.kind = O1K_VALUE_NUMBER;
-        assertion.op1.vn   = indexVN;
-        assertion.op2.kind = O2K_VALUE_NUMBER;
-        assertion.op2.vn   = lengthVN;
+            return indexVal == INT32_MAX ? NO_ASSERTION_INDEX : AddRangeAssertion(lengthVN, indexVal + 1, INT32_MAX);
+        }
 
-        return AddAssertion(assertion);
+        if (vnStore->IsVNInt32Constant(lengthVN))
+        {
+            ssize_t lengthVal = vnStore->ConstantValue<int32_t>(lengthVN);
+
+            return lengthVal == 0 ? NO_ASSERTION_INDEX : AddRangeAssertion(indexVN, 0, lengthVal - 1);
+        }
+
+        return AddBoundsChkAssertion(indexVN, lengthVN);
     }
 
     AssertionIndex CreateNotNullAssertion(GenTree* addr)
@@ -936,16 +924,9 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionDsc assertion;
+        const auto& range = GetSmallTypeRange(toType);
 
-        assertion.kind      = OAK_RANGE;
-        assertion.op1.kind  = O1K_VALUE_NUMBER;
-        assertion.op1.vn    = value->GetConservativeVN();
-        assertion.op2.kind  = O2K_RANGE;
-        assertion.op2.vn    = NoVN;
-        assertion.op2.range = GetSmallTypeRange(toType);
-
-        return AddAssertion(assertion);
+        return AddRangeAssertion(value->GetConservativeVN(), range.min, range.max);
     }
 
     AssertionIndex CreateEqualityAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
@@ -1176,6 +1157,7 @@ private:
 
     AssertionIndex AddAssertion(const AssertionDsc& assertion)
     {
+        assert((assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL));
         INDEBUG(DebugCheckAssertion(assertion));
 
         for (AssertionIndex index = assertionCount; index >= 1; index--)
@@ -1195,7 +1177,7 @@ private:
 
         DBEXEC(verbose, TraceAssertion("generates", assertionTable[assertionCount - 1]);)
 
-        if ((assertion.kind == OAK_NOT_EQUAL) || (assertion.kind == OAK_RANGE))
+        if (assertion.kind == OAK_NOT_EQUAL)
         {
             AddVNAssertion(assertion.op1.vn, assertionCount);
         }
@@ -1220,6 +1202,153 @@ private:
                 invertedAssertions[invertedIndex - 1] = static_cast<uint16_t>(index);
             }
         }
+
+        return index;
+    }
+
+    AssertionIndex AddRangeAssertion(ValueNum vn, ssize_t min, ssize_t max)
+    {
+        assert(vn != NoVN);
+        assert((min >= INT32_MIN) && (max <= INT32_MAX) && (min <= max));
+
+        for (AssertionIndex index = assertionCount; index >= 1; index--)
+        {
+            const AssertionDsc& existing = GetAssertion(index);
+
+            if ((existing.kind == OAK_RANGE) && (existing.op1.vn == vn) && (existing.op2.range.min == min) &&
+                (existing.op2.range.max == max))
+            {
+                return index;
+            }
+        }
+
+        if (assertionCount >= assertionTableSize)
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionIndex index     = ++assertionCount;
+        AssertionDsc&  assertion = assertionTable[index - 1];
+
+        assertion.kind      = OAK_RANGE;
+        assertion.op1.kind  = O1K_VALUE_NUMBER;
+        assertion.op1.vn    = vn;
+        assertion.op2.kind  = O2K_RANGE;
+        assertion.op2.vn    = NoVN;
+        assertion.op2.range = {min, max};
+
+        DBEXEC(verbose, TraceAssertion("generates", assertionTable[index - 1]);)
+
+        AddVNAssertion(vn, index);
+
+        return index;
+    }
+
+    AssertionIndex AddRangeAssertions(genTreeOps oper, ValueNum vn, ValueNum limitVN)
+    {
+        assert((GT_LT <= oper) && (oper <= GT_GT));
+        assert(vnStore->IsVNInt32Constant(limitVN));
+
+        ssize_t limit = vnStore->ConstantValue<int32_t>(limitVN);
+        ssize_t min   = INT32_MIN;
+        ssize_t max   = INT32_MAX;
+
+        switch (oper)
+        {
+            case GT_LT:
+                if (limit == INT32_MIN)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                max = limit - 1;
+                break;
+            case GT_LE:
+                if (limit == INT32_MAX)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                max = limit;
+                break;
+            case GT_GE:
+                if (limit == INT32_MIN)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                min = limit;
+                break;
+            default:
+                assert(oper == GT_GT);
+                if (limit == INT32_MAX)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                min = limit + 1;
+                break;
+        }
+
+        AssertionIndex index = AddRangeAssertion(vn, min, max);
+
+        if (index == NO_ASSERTION_INDEX)
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        if (max == INT32_MAX)
+        {
+            assert(min != INT32_MIN);
+
+            max = min - 1;
+            min = INT32_MIN;
+        }
+        else
+        {
+            assert(min == INT32_MIN);
+
+            min = max + 1;
+            max = INT32_MAX;
+        }
+
+        AssertionIndex invertedIndex = AddRangeAssertion(vn, min, max);
+
+        if (invertedIndex != NO_ASSERTION_INDEX)
+        {
+            invertedAssertions[index - 1]         = static_cast<uint16_t>(invertedIndex);
+            invertedAssertions[invertedIndex - 1] = static_cast<uint16_t>(index);
+        }
+
+        return index;
+    }
+
+    AssertionIndex AddBoundsChkAssertion(ValueNum indexVN, ValueNum lengthVN)
+    {
+        assert(varActualTypeIsIntOrI(vnStore->TypeOfVN(indexVN)));
+        assert(varActualTypeIsIntOrI(vnStore->TypeOfVN(lengthVN)));
+
+        for (AssertionIndex index = assertionCount; index >= 1; index--)
+        {
+            const AssertionDsc& existing = GetAssertion(index);
+
+            if ((existing.kind == OAK_BOUNDS_CHK) && (existing.op1.vn == indexVN) && (existing.op2.vn == lengthVN))
+            {
+                return index;
+            }
+        }
+
+        if (assertionCount >= assertionTableSize)
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionIndex index     = ++assertionCount;
+        AssertionDsc&  assertion = assertionTable[index - 1];
+
+        assertion.kind     = OAK_BOUNDS_CHK;
+        assertion.op1.kind = O1K_VALUE_NUMBER;
+        assertion.op1.vn   = indexVN;
+        assertion.op2.kind = O2K_VALUE_NUMBER;
+        assertion.op2.vn   = lengthVN;
+
+        DBEXEC(verbose, TraceAssertion("generates", assertionTable[index - 1]);)
 
         return index;
     }
@@ -1275,11 +1404,12 @@ private:
             boundVN = relopVN;
         }
 
-        ApOp1Kind boundKind = O1K_INVALID;
         VNFuncApp funcApp;
 
         if (vnStore->GetVNFunc(boundVN, &funcApp) && ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp))
         {
+            ApOp1Kind boundKind = O1K_INVALID;
+
             // "(i +/- c1) LT|LE|GE|GT (j +/- c2)" where either i or j is used as length by an ARR_BOUNDS_CHK
             if (vnStore->IsVNCompareCheckedBoundArith(funcApp))
             {
@@ -1291,16 +1421,28 @@ private:
                 boundKind = O1K_BOUND_LOOP_BND;
             }
             // "i LT|LE|GE|GT j" where either i or j is constant
-            else if (vnStore->IsVNConstantBound(funcApp))
-            {
-                // TODO-MIKE-Review: These are rather generic assertions, not specific to
-                // the RangeCheck removal phase. It should be possible to use these for
-                // other purposes (especially when the constant is 0).
-                boundKind = O1K_CONSTANT_LOOP_BND;
-            }
             else
             {
-                return NO_ASSERTION_INDEX;
+                genTreeOps oper    = static_cast<genTreeOps>(funcApp.m_func);
+                ValueNum   vn      = funcApp[0];
+                ValueNum   limitVN = funcApp[1];
+
+                if (vnStore->IsVNInt32Constant(vn))
+                {
+                    std::swap(vn, limitVN);
+                    oper = GenTree::SwapRelop(oper);
+                }
+                else if (!vnStore->IsVNInt32Constant(limitVN))
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                if (kind == OAK_EQUAL)
+                {
+                    oper = GenTree::ReverseRelop(oper);
+                }
+
+                return AddRangeAssertions(oper, vn, limitVN);
             }
 
             AssertionDsc dsc;
@@ -1316,38 +1458,74 @@ private:
             return AddEqualityAssertions(dsc);
         }
 
-        ValueNumStore::UnsignedCompareCheckedBoundInfo unsignedCompareBnd;
+        return GenerateJTrueUnsignedBoundAssertions(relopVN);
+    }
 
-        // Loop condition like "(uint)i < (uint)bnd" or equivalent
-        // Assertion: "bounds chk" since this condition guarantees that i is both >= 0 and < bnd (on the appropiate
-        // edge)
-        if (vnStore->IsVNUnsignedCompareCheckedBound(relopVN, &unsignedCompareBnd))
+    AssertionInfo GenerateJTrueUnsignedBoundAssertions(ValueNum vn)
+    {
+        VNFuncApp funcApp;
+
+        if (!vnStore->GetVNFunc(vn, &funcApp))
         {
-            assert(unsignedCompareBnd.vnIdx != ValueNumStore::NoVN);
-            assert((unsignedCompareBnd.cmpOper == VNF_LT_UN) || (unsignedCompareBnd.cmpOper == VNF_GE_UN));
-            assert(vnStore->IsVNCheckedBound(unsignedCompareBnd.vnBound));
-
-            AssertionDsc dsc;
-
-            dsc.kind     = OAK_BOUNDS_CHK;
-            dsc.op1.kind = O1K_VALUE_NUMBER;
-            dsc.op1.vn   = unsignedCompareBnd.vnIdx;
-            dsc.op2.kind = O2K_VALUE_NUMBER;
-            dsc.op2.vn   = unsignedCompareBnd.vnBound;
-
-            AssertionIndex index = AddAssertion(dsc);
-
-            if (unsignedCompareBnd.cmpOper == VNF_GE_UN)
-            {
-                // By default JTRUE generated assertions hold on the "jump" edge. We have i >= bnd but we're really
-                // after i < bnd so we need to change the assertion edge to "next".
-                return AssertionInfo::ForNextEdge(index);
-            }
-
-            return index;
+            return NO_ASSERTION_INDEX;
         }
 
-        return NO_ASSERTION_INDEX;
+        // Conditions like "(uint)i < (uint)length" generate BoundsChk or Range assertions.
+
+        if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
+        {
+            funcApp.m_func = funcApp.m_func == VNF_GT_UN ? VNF_LT_UN : VNF_GE_UN;
+            std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+        }
+        else if ((funcApp.m_func != VNF_LT_UN) && (funcApp.m_func != VNF_GE_UN))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionIndex index;
+        bool           isTrue = false;
+
+        if (vnStore->IsVNCheckedBound(funcApp[1]))
+        {
+            // "(uint)i < (uint)len" or "(uint)i >= (uint)len" => BoundsChk(i, len)
+            if (!vnStore->IsVNInt32Constant(funcApp[0]))
+            {
+                index = AddBoundsChkAssertion(funcApp[0], funcApp[1]);
+            }
+            else
+            {
+                // "C < (uint)len" or "C >= (uint)len" => len IN [C+1..INT32_MAX]
+                ssize_t constVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
+
+                if ((constVal < 0) || (constVal == INT32_MAX))
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+
+                index = AddRangeAssertion(funcApp[1], constVal + 1, INT32_MAX);
+            }
+
+            isTrue = funcApp.m_func == VNF_LT_UN;
+        }
+        else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
+        {
+            // "(uint)len < C" or "(uint)len >= C" => len IN [C..INT32_MAX]
+            ssize_t constVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
+
+            if (constVal <= 0)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            index  = AddRangeAssertion(funcApp[0], constVal, INT32_MAX);
+            isTrue = funcApp.m_func == VNF_GE_UN;
+        }
+        else
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        return isTrue ? index : AssertionInfo::ForNextEdge(index);
     }
 
     AssertionInfo GenerateJTrueEqualityAssertions(GenTreeOp* relop)
@@ -1766,6 +1944,74 @@ private:
         return nullptr;
     }
 
+    AssertionInfo FindRelopRangeAssertion(const ASSERT_TP assertions, genTreeOps oper, ValueNum vn, ValueNum limitVN)
+    {
+        assert((GT_LT <= oper) && (oper <= GT_GT));
+        assert(vnStore->IsVNInt32Constant(limitVN));
+
+        ssize_t limit = vnStore->ConstantValue<int32_t>(limitVN);
+        ssize_t min   = INT32_MIN;
+        ssize_t max   = INT32_MAX;
+
+        switch (oper)
+        {
+            case GT_LT:
+                if (limit == INT32_MIN)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                max = limit - 1;
+                break;
+            case GT_LE:
+                if (limit == INT32_MAX)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                max = limit;
+                break;
+            case GT_GE:
+                if (limit == INT32_MIN)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                min = limit;
+                break;
+            default:
+                assert(oper == GT_GT);
+                if (limit == INT32_MAX)
+                {
+                    return NO_ASSERTION_INDEX;
+                }
+                min = limit + 1;
+                break;
+        }
+
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        {
+            const AssertionIndex index     = GetAssertionIndex(en.Current());
+            const AssertionDsc&  assertion = GetAssertion(index);
+
+            if ((assertion.kind != OAK_RANGE) || (assertion.op1.vn != vn))
+            {
+                continue;
+            }
+
+            const auto range = assertion.op2.range;
+
+            if ((range.min >= min) && (range.max <= max))
+            {
+                return index;
+            }
+
+            if ((range.min > max) || (range.max < min))
+            {
+                return AssertionInfo::ForNextEdge(index);
+            }
+        }
+
+        return NO_ASSERTION_INDEX;
+    }
+
     GenTree* PropagateRelop(const ASSERT_TP assertions, GenTreeOp* relop, Statement* stmt)
     {
         assert(relop->OperIsCompare());
@@ -1775,14 +2021,19 @@ private:
             return nullptr;
         }
 
+        // TODO-MIKE-CQ: This is inconsistent with GenerateJTrueBoundAssertions, where we
+        // skip "x EQ/NE 0" when x is LT|LE|GE|GT, this has caused a couple of regressions
+        // when converting constant bound assertions to ranges. We should probably always
+        // skip "x EQ/NE 0" when x is any relop, but then that looks like an issue caused
+        // by the lack of forward substitution.
+
         const AssertionDsc* assertion =
             FindZeroEqualityAssertion(assertions, relop->GetConservativeVN(), relop->GetType());
         bool isTrue;
 
         if (assertion != nullptr)
         {
-            JITDUMP("[%06u] propagating Equality assertion A%02d: " FMT_VN " %s 0\n", relop->GetID(),
-                    assertion - assertionTable, assertion->op1.vn, (assertion->kind == OAK_EQUAL) ? "EQ" : "NE");
+            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
             isTrue = assertion->kind == OAK_NOT_EQUAL;
         }
@@ -1803,11 +2054,36 @@ private:
                 return nullptr;
             }
 
-            JITDUMP("[%06u] propagating Equality assertion A%02d: " FMT_VN " %s " FMT_VN "\n", relop->GetID(),
-                    assertion - assertionTable, assertion->op1.vn, (assertion->kind == OAK_EQUAL) ? "EQ" : "NE",
-                    assertion->op2.vn);
+            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
             isTrue = (assertion->kind == OAK_EQUAL) == relop->OperIs(GT_EQ);
+        }
+        else if (!relop->IsUnsigned() && varActualTypeIsInt(relop->GetOp(0)))
+        {
+            genTreeOps oper    = relop->GetOper();
+            ValueNum   vn      = vnStore->VNNormalValue(relop->GetOp(0)->GetConservativeVN());
+            ValueNum   limitVN = vnStore->VNNormalValue(relop->GetOp(1)->GetConservativeVN());
+
+            if (vnStore->IsVNInt32Constant(vn))
+            {
+                std::swap(vn, limitVN);
+                oper = GenTree::SwapRelop(oper);
+            }
+            else if (!vnStore->IsVNInt32Constant(limitVN))
+            {
+                return nullptr;
+            }
+
+            AssertionInfo info = FindRelopRangeAssertion(assertions, oper, vn, limitVN);
+
+            if (!info.HasAssertion())
+            {
+                return nullptr;
+            }
+
+            DBEXEC(verbose, TraceAssertion("propagating", GetAssertion(info.GetAssertionIndex()));)
+
+            isTrue = !info.IsNextEdgeAssertion();
         }
         else
         {
@@ -1819,28 +2095,27 @@ private:
         return UpdateTree(relop, relop, stmt);
     }
 
-    const AssertionDsc* FindRangeAssertion(const ASSERT_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
+    const AssertionDsc* FindCastRangeAssertion(const ASSERT_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
     {
+        ssize_t intersectionMin = INT32_MIN;
+        ssize_t intersectionMax = INT32_MAX;
+
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if (assertion.kind != OAK_RANGE)
+            if ((assertion.kind != OAK_RANGE) || (assertion.op1.vn != vn))
             {
                 continue;
             }
 
-            if (assertion.op1.vn != vn)
-            {
-                continue;
-            }
+            intersectionMin = max(intersectionMin, assertion.op2.range.min);
+            intersectionMax = min(intersectionMax, assertion.op2.range.max);
 
-            if ((assertion.op2.range.min < min) || (assertion.op2.range.max > max))
+            if ((min <= intersectionMin) && (intersectionMax <= max))
             {
-                continue;
+                return &assertion;
             }
-
-            return &assertion;
         }
 
         return nullptr;
@@ -1852,67 +2127,142 @@ private:
         var_types fromType = op1->GetType();
         var_types toType   = cast->GetCastType();
 
-        if (!varTypeIsSmall(toType) || !varTypeIsIntegral(fromType))
+        if (!varTypeIsIntegral(toType) || !varTypeIsIntegral(fromType))
         {
             return nullptr;
         }
 
-        GenTree* lclVar = op1->SkipComma();
+        GenTree* actualOp1 = op1->SkipComma();
+        ValueNum vn;
 
-        if (!lclVar->OperIs(GT_LCL_VAR))
+        if (actualOp1->OperIs(GT_LCL_VAR))
         {
-            return nullptr;
+            LclVarDsc* lcl = compiler->lvaGetDesc(actualOp1->AsLclVar());
+
+            // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
+            // They're usually present on every LCL_VAR use so we'll never get assertions
+            // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
+            // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
+            // get eliminated but it turns out that this skews register allocation in such
+            // a way that the codegen end up being worse.
+            // Besides, the way load/store "normalization" is implemented is just asking
+            // for trouble so it's best to ignore these casts for now.
+            if (lcl->lvNormalizeOnLoad())
+            {
+                return nullptr;
+            }
+
+            vn = actualOp1->GetConservativeVN();
+        }
+        else
+        {
+            vn = vnStore->VNNormalValue(actualOp1->GetConservativeVN());
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar->AsLclVar());
+        ssize_t min;
+        ssize_t max;
 
-        if (lcl->IsAddressExposed())
+        if (varTypeIsSmall(toType))
         {
-            return nullptr;
+            min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
+            max = GetSmallTypeRange(toType).max;
+        }
+        else
+        {
+            // For all other cases keep it simple - the 0..INT32_MAX range allows us to
+            // remove overflow checks from LONG/INT casts and also change sign extension
+            // to zero extension. We'll miss some cases, such as 0..UINT32_MAX needed for
+            // LONG -> UINT casts but these should be pretty rare.
+            min = 0;
+            max = INT32_MAX;
         }
 
-        ValueNum            vn        = lclVar->GetConservativeVN();
-        ssize_t             min       = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
-        ssize_t             max       = GetSmallTypeRange(toType).max;
-        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, min, max);
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, min, max);
 
         if (assertion == nullptr)
         {
             return nullptr;
         }
 
-        if (!lcl->lvNormalizeOnLoad() && !varTypeIsLong(lcl->GetType()))
-        {
-            return UpdateTree(op1, cast, stmt);
-        }
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        if (varTypeSize(toType) > varTypeSize(lcl->GetType()))
+        fromType = varActualType(fromType);
+        toType   = varActualType(toType);
+
+        if (fromType != toType)
         {
-            if (!cast->gtOverflow())
+            // LONG/INT cannot be removed but we can remove overflow checking.
+            // We can also change sign extending casts to zero extending casts, on X86/64 they
+            // are preferable due to having smaller encoding and sometimes better performance.
+            cast->SetCastType(toType);
+            cast->gtFlags &= ~(GTF_OVERFLOW | GTF_UNSIGNED);
+
+#ifdef TARGET_AMD64
+            // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
+            // targets but it sometimes interferes with LMUL helper call elimination.
+            // On ARM64 it seems to be useless and it interferes with smull generation.
+
+            if (toType == TYP_LONG)
             {
-                return nullptr;
+                cast->gtFlags |= GTF_UNSIGNED;
             }
+#endif
 
-            DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
-
-            cast->gtFlags &= ~GTF_OVERFLOW; // This cast cannot overflow
-
-            return UpdateTree(cast, cast, stmt);
+            op1 = cast;
         }
 
-        GenTree* tmp = op1;
+        return UpdateTree(op1, cast, stmt);
+    }
 
-        while (tmp->OperIs(GT_COMMA))
+    const AssertionDsc* FindPositiveIntAssertion(const ASSERT_TP assertions, ValueNum vn)
+    {
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
-            tmp->SetType(toType);
-            tmp = tmp->AsOp()->GetOp(1);
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
+
+            if ((assertion.op1.vn == vn) && (((assertion.kind == OAK_RANGE) && (assertion.op2.range.min >= 0)) ||
+                                             (assertion.kind == OAK_BOUNDS_CHK)))
+            {
+                return &assertion;
+            }
         }
 
-        tmp->SetType(toType);
+        return nullptr;
+    }
+
+    GenTree* PropagateSignedDivision(const ASSERT_TP assertions, GenTreeOp* div, Statement* stmt)
+    {
+        assert(div->OperIs(GT_DIV, GT_MOD) && div->TypeIs(TYP_INT));
+
+        ValueNum divisorVN = vnStore->VNNormalValue(div->GetOp(1)->GetConservativeVN());
+
+        if (!vnStore->IsVNInt32Constant(divisorVN))
+        {
+            return nullptr;
+        }
+
+        ssize_t divisor = vnStore->ConstantValue<int32_t>(divisorVN);
+
+        if (divisor < 2)
+        {
+            return nullptr;
+        }
+
+        ValueNum dividendVN = vnStore->VNNormalValue(div->GetOp(0)->GetConservativeVN());
+
+        const AssertionDsc* assertion = FindPositiveIntAssertion(assertions, dividendVN);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        return UpdateTree(op1, cast, stmt);
+        div->SetOper(div->OperIs(GT_DIV) ? GT_UDIV : GT_UMOD, GenTree::PRESERVE_VN);
+        div->CheckDivideByConstOptimized(compiler);
+
+        return nullptr;
     }
 
     GenTree* PropagateComma(GenTreeOp* comma, Statement* stmt)
@@ -2156,54 +2506,153 @@ private:
         }
 #endif
 
-        ValueNum indexVN  = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
-        ValueNum lengthVN = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ValueNum indexVN      = vnStore->VNNormalValue(boundsChk->GetIndex()->GetConservativeVN());
+        ValueNum lengthVN     = vnStore->VNNormalValue(boundsChk->GetLength()->GetConservativeVN());
+        ssize_t  indexVal     = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
+        ssize_t  lengthVal    = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
+        ssize_t  indexMinVal  = INT32_MIN;
+        ssize_t  indexMaxVal  = INT32_MAX;
+        ValueNum indexMaxVN   = NoVN;
+        ssize_t  lengthMinVal = 0;
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        bool isRedundant = false;
+        INDEBUG(const char* comment = nullptr);
+
+        if ((indexVal >= 0) && (lengthVal >= 0))
+        {
+            isRedundant = indexVal < lengthVal;
+            INDEBUG(comment = isRedundant ? "a[K1] with a.Length == K2 && K1 < K2" : "");
+        }
+
+        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext() && !isRedundant;)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
+            const auto          kind      = assertion.kind;
+            const auto&         op1       = assertion.op1;
+            const auto&         op2       = assertion.op2;
 
-            if (assertion.kind != OAK_BOUNDS_CHK)
+            if (kind == OAK_BOUNDS_CHK)
             {
-                continue;
-            }
-
-            // Do we have a previous range check involving the same 'vnLen' upper bound?
-            if (assertion.op2.vn != lengthVN)
-            {
-                continue;
-            }
-
-            bool isRedundant = false;
-            INDEBUG(const char* comment = "");
-
-            if (assertion.op1.vn == indexVN)
-            {
-                isRedundant = true;
-                INDEBUG(comment = "a[i] followed by a[i]");
-            }
-            else if (indexVN == vnStore->VNZeroForType(boundsChk->GetIndex()->GetType()))
-            {
-                isRedundant = true;
-                INDEBUG(comment = "a[*] followed by a[0]");
-            }
-            else if (vnStore->IsVNConstant(assertion.op1.vn) && vnStore->IsVNConstant(indexVN))
-            {
-                var_types type1 = vnStore->TypeOfVN(assertion.op1.vn);
-                var_types type2 = vnStore->TypeOfVN(indexVN);
-
-                if ((type1 == type2) && (type1 == TYP_INT))
+                if (op2.vn == lengthVN)
                 {
-                    int index1 = vnStore->ConstantValue<int>(assertion.op1.vn);
-                    int index2 = vnStore->ConstantValue<int>(indexVN);
-
-                    assert(index1 != index2);
-
-                    if ((index2 >= 0) && (index1 >= index2))
+                    if (op1.vn == indexVN)
                     {
                         isRedundant = true;
-                        INDEBUG(comment = "a[K1] followed by a[K2], with K2 >= 0 and K1 >= K2");
+                        INDEBUG(comment = "a[i] followed by a[i]");
                     }
+                    else if (indexVal == 0)
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[*] followed by a[0]");
+                    }
+                }
+                else if (op1.vn == indexVN)
+                {
+                    if (indexMinVal < 0)
+                    {
+                        indexMinVal = 0;
+                    }
+                }
+            }
+            else if ((op1.vn == lengthVN) && (op2.kind == O2K_CONST_INT))
+            {
+                if (kind == OAK_NOT_EQUAL)
+                {
+                    if ((indexVal == 0) && (op2.intCon.value == 0))
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[0] with a.Length != 0");
+                    }
+                }
+                else if (kind == OAK_EQUAL)
+                {
+                    if ((indexVal >= 0) && (indexVal < op2.intCon.value))
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[K1] with a.Length == K2 && K1 < K2");
+                    }
+                }
+            }
+            else if (kind == OAK_RANGE)
+            {
+                if (op1.vn == lengthVN)
+                {
+                    // There may be multiple ranges for the same VN e.g. if (i > -10) { if (i > 5) { ... } }.
+                    lengthMinVal = Max(lengthMinVal, op2.range.min);
+
+                    if (indexVal >= 0)
+                    {
+                        isRedundant = indexVal < lengthMinVal;
+                        INDEBUG(comment = "a[K1] with a.Length > K2 && K1 <= K2");
+                    }
+                }
+                else if (op1.vn == indexVN)
+                {
+                    indexMinVal = Max(indexMinVal, op2.range.min);
+                    indexMaxVal = Min(indexMaxVal, op2.range.max);
+
+                    if (lengthVal > 0)
+                    {
+                        isRedundant = (0 <= indexMinVal) && (indexMaxVal < lengthVal);
+                        INDEBUG(comment = "a[i] with a.Length == K && 0 <= i && i < K");
+                    }
+                }
+            }
+            else if (op1.kind == O1K_BOUND_LOOP_BND)
+            {
+                assert((op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0));
+
+                VNFuncApp funcApp;
+                vnStore->GetVNFunc(op1.vn, &funcApp);
+                assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
+                genTreeOps oper = static_cast<genTreeOps>(funcApp.m_func);
+
+                if (funcApp[0] == lengthVN)
+                {
+                    std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+                    oper = GenTree::SwapRelop(oper);
+                }
+                else if (funcApp[1] != lengthVN)
+                {
+                    continue;
+                }
+
+                if (kind == OAK_EQUAL)
+                {
+                    oper = GenTree::ReverseRelop(oper);
+                }
+
+                // TODO-MIKE-Cleanup: We get "len > C" as O1K_BOUND_LOOP_BND but it really should
+                // be a range assertion. Problem is, RangeCheck depends on O1K_BOUND_LOOP_BND and
+                // it is a pile of crap that needs serious work.
+
+                if (vnStore->IsVNInt32Constant(funcApp[0]))
+                {
+                    ssize_t constVal = vnStore->ConstantValue<int>(funcApp[0]);
+
+                    if ((oper == GT_LT) && (constVal != INT32_MAX))
+                    {
+                        constVal++;
+                    }
+                    else if (oper != GT_LE)
+                    {
+                        continue;
+                    }
+
+                    lengthMinVal = Max(lengthMinVal, constVal);
+
+                    if ((0 <= indexVal) && (indexVal < lengthMinVal))
+                    {
+                        isRedundant = true;
+                        INDEBUG(comment = "a[K1] with a.Length >= K2 && K1 < K2");
+                    }
+
+                    continue;
+                }
+
+                if ((funcApp[0] == indexVN) && (oper == GT_LT))
+                {
+                    indexMaxVN = lengthVN;
                 }
             }
 
@@ -2212,22 +2661,26 @@ private:
             //       a[i]   followed by a[j]  when j is known to be >= i
             //       a[i]   followed by a[5]  when i is known to be >= 5
 
-            if (!isRedundant)
+            if (isRedundant)
             {
-                continue;
+                DBEXEC(verbose, TraceAssertion("propagating", assertion, comment);)
+                break;
             }
+        }
 
-            DBEXEC(verbose, TraceAssertion("propagating", assertion, comment);)
+        if ((indexMinVal >= 0) && ((indexMaxVN == lengthVN) || (indexMaxVal < lengthMinVal)))
+        {
+            isRedundant = true;
+        }
 
+        if (isRedundant)
+        {
             if (boundsChk == stmt->GetRootNode())
             {
                 return UpdateTree(compiler->optRemoveStandaloneRangeCheck(boundsChk, stmt), boundsChk, stmt);
             }
-            else
-            {
-                boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
-                return nullptr;
-            }
+
+            boundsChk->gtFlags |= GTF_ARR_BOUND_INBND;
         }
 
         return nullptr;
@@ -2299,6 +2752,9 @@ private:
                 return PropagateRelop(assertions, node->AsOp(), stmt);
             case GT_JTRUE:
                 return PropagateJTrue(block, node->AsUnOp());
+            case GT_DIV:
+            case GT_MOD:
+                return node->TypeIs(TYP_INT) ? PropagateSignedDivision(assertions, node->AsOp(), stmt) : nullptr;
             default:
                 return nullptr;
         }
@@ -2308,18 +2764,16 @@ private:
     {
         const AssertionDsc& assertion = GetAssertion(index);
 
-        if (assertion.kind != OAK_EQUAL)
+        if (((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_LCLVAR) &&
+             (assertion.op2.kind == O2K_CONST_INT)) ||
+            (assertion.kind == OAK_RANGE) || (assertion.kind == OAK_BOUNDS_CHK))
         {
+            AddRangeImpliedAssertions(assertion, assertions);
             return;
         }
 
-        if ((assertion.op1.kind == O1K_LCLVAR) && (assertion.op2.kind == O2K_CONST_INT))
-        {
-            AddConstImpliedAssertions(assertion, assertions);
-            return;
-        }
-
-        if ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE))
+        if ((assertion.kind == OAK_EQUAL) &&
+            ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE)))
         {
             AddTypeImpliedNotNullAssertions(assertion, assertions);
             return;
@@ -2345,70 +2799,91 @@ private:
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
             const AssertionDsc& notNullAssertion = GetAssertion(GetAssertionIndex(en.Current()));
+            assert(notNullAssertion.op1.vn == typeAssertion.op1.vn);
 
             if (&notNullAssertion == &typeAssertion)
             {
                 continue;
             }
 
-            if ((notNullAssertion.kind != OAK_NOT_EQUAL) ||
-                ((notNullAssertion.op1.kind != O1K_LCLVAR) && (notNullAssertion.op1.kind != O1K_VALUE_NUMBER)) ||
-                (notNullAssertion.op2.kind != O2K_CONST_INT) || (notNullAssertion.op1.vn != typeAssertion.op1.vn))
+            if ((notNullAssertion.kind == OAK_NOT_EQUAL) &&
+                ((notNullAssertion.op1.kind == O1K_LCLVAR) || (notNullAssertion.op1.kind == O1K_VALUE_NUMBER)) &&
+                (notNullAssertion.op2.kind == O2K_CONST_INT))
             {
-                continue;
-            }
+                assert(notNullAssertion.op2.intCon.value == 0);
 
-            if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
-            {
-                JITDUMP("%s A%02d implies A%02d\n", (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
-                        &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
-            }
+                if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
+                {
+                    JITDUMP("%s A%02d implies A%02d\n",
+                            (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
+                            &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
+                }
 
-            // There is at most one not null assertion that is implied by a type assertion.
-            break;
+                // There is at most one not null assertion that is implied by a type assertion.
+                break;
+            }
         }
     }
 
-    void AddConstImpliedAssertions(const AssertionDsc& constAssertion, ASSERT_TP& result)
+    void AddRangeImpliedAssertions(const AssertionDsc& rangeAssertion, ASSERT_TP& result)
     {
-        assert(constAssertion.kind == OAK_EQUAL);
-        assert((constAssertion.op1.kind == O1K_LCLVAR) && (constAssertion.op2.kind == O2K_CONST_INT));
+        assert(((rangeAssertion.kind == OAK_EQUAL) && (rangeAssertion.op2.kind == O2K_CONST_INT)) ||
+               (rangeAssertion.kind == OAK_RANGE) || (rangeAssertion.kind == OAK_BOUNDS_CHK));
 
-        const ASSERT_TP vnAssertions = GetVNAssertions(constAssertion.op1.vn);
+        // TODO-MIKE-Throughput: It should be possible to eliminate the repeated linear
+        // searches needed for assertion implication by chaining implied assertions into
+        // linked list (probably this could be done when creating assertions, when we
+        // already need a linear search for duplicates).
+        // x EQ 42 implies x IN [41..44] implies x IN [0..100] etc.
+
+        const ASSERT_TP vnAssertions = GetVNAssertions(rangeAssertion.op1.vn);
 
         if (vnAssertions == BitVecOps::UninitVal())
         {
             return;
         }
 
-        ssize_t value = constAssertion.op2.intCon.value;
+        ssize_t min;
+        ssize_t max;
+
+        if (rangeAssertion.kind == OAK_RANGE)
+        {
+            min = rangeAssertion.op2.range.min;
+            max = rangeAssertion.op2.range.max;
+        }
+        else if (rangeAssertion.kind == OAK_BOUNDS_CHK)
+        {
+            min = 0;
+            max = INT32_MAX;
+        }
+        else
+        {
+            min = rangeAssertion.op2.intCon.value;
+            max = min;
+        }
 
         for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
         {
             const AssertionDsc& impliedAssertion = GetAssertion(GetAssertionIndex(en.Current()));
+            assert(impliedAssertion.op1.vn == rangeAssertion.op1.vn);
 
-            if (&impliedAssertion == &constAssertion)
-            {
-                continue;
-            }
-
-            if (impliedAssertion.op1.vn != constAssertion.op1.vn)
+            if (&impliedAssertion == &rangeAssertion)
             {
                 continue;
             }
 
             bool isImplied = false;
 
-            if (impliedAssertion.op2.kind == O2K_RANGE)
+            if (impliedAssertion.kind == OAK_RANGE)
             {
-                if ((impliedAssertion.op2.range.min <= value) && (value <= impliedAssertion.op2.range.max))
+                if ((impliedAssertion.op2.range.min <= min) && (max <= impliedAssertion.op2.range.max))
                 {
                     isImplied = true;
                 }
             }
-            else if (impliedAssertion.op2.kind == O2K_CONST_INT)
+            else if ((impliedAssertion.kind == OAK_NOT_EQUAL) && (impliedAssertion.op2.kind == O2K_CONST_INT))
             {
-                if ((impliedAssertion.kind == OAK_NOT_EQUAL) && (impliedAssertion.op2.intCon.value != value))
+                if ((impliedAssertion.op2.intCon.value < min) || (max < impliedAssertion.op2.intCon.value))
                 {
                     isImplied = true;
                 }
@@ -2416,7 +2891,7 @@ private:
 
             if (isImplied && BitVecOps::TryAddElemD(&countTraits, result, en.Current()))
             {
-                JITDUMP("Const assertion A%02d implies assertion A%02d\n", &constAssertion - assertionTable,
+                JITDUMP("Assertion A%02d implies assertion A%02d\n", &rangeAssertion - assertionTable,
                         &impliedAssertion - assertionTable);
             }
         }
@@ -3535,7 +4010,7 @@ private:
 
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        if ((op1.kind == O1K_BOUND_LOOP_BND) || (op1.kind == O1K_BOUND_OPER_BND) || (op1.kind == O1K_CONSTANT_LOOP_BND))
+        if ((op1.kind == O1K_BOUND_LOOP_BND) || (op1.kind == O1K_BOUND_OPER_BND))
         {
             assert(varTypeIsIntegral(vnStore->TypeOfVN(op1.vn)));
             assert((op2.kind == O2K_CONST_INT) && (op2.intCon.value == 0) && (op2.vn == vnStore->VNForIntCon(0)));
@@ -3648,7 +4123,7 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         return;
     }
 
-    if ((op1.kind == O1K_BOUND_OPER_BND) || (op1.kind == O1K_BOUND_LOOP_BND) || (op1.kind == O1K_CONSTANT_LOOP_BND))
+    if ((op1.kind == O1K_BOUND_OPER_BND) || (op1.kind == O1K_BOUND_LOOP_BND))
     {
         printf("Bounds assertion A%02u: " FMT_VN " %s", index, op1.vn, kind == OAK_EQUAL ? "NOT(" : "");
 
@@ -3656,24 +4131,17 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         vnStore->GetVNFunc(op1.vn, &funcApp);
 
         ValueNumStore::CompareCheckedBoundArithInfo cmpInfo;
-        ValueNumStore::ConstantBoundInfo            cnsInfo;
 
-        switch (op1.kind)
+        if (op1.kind == O1K_BOUND_OPER_BND)
         {
-            case O1K_BOUND_OPER_BND:
-                vnStore->GetCompareCheckedBoundArithInfo(funcApp, &cmpInfo);
-                cmpInfo.Dump();
-                break;
-            case O1K_BOUND_LOOP_BND:
-                vnStore->GetCompareCheckedBound(funcApp, &cmpInfo);
-                cmpInfo.Dump();
-                break;
-            default:
-                vnStore->GetConstantBoundInfo(funcApp, &cnsInfo);
-                cnsInfo.Dump(vnStore);
-                break;
+            vnStore->GetCompareCheckedBoundArithInfo(funcApp, &cmpInfo);
+        }
+        else
+        {
+            vnStore->GetCompareCheckedBound(funcApp, &cmpInfo);
         }
 
+        cmpInfo.Dump();
         printf("%s", kind == OAK_EQUAL ? ")" : "");
 
         return;
@@ -3747,7 +4215,7 @@ void Compiler::apDumpAssertionIndices(const char* header, ASSERT_TP assertions, 
 
 bool BoundsAssertion::IsBoundsAssertion() const
 {
-    return (assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL);
+    return (assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL) || (assertion.kind == OAK_RANGE);
 }
 
 bool BoundsAssertion::IsEqual() const
@@ -3765,9 +4233,9 @@ bool BoundsAssertion::IsCompareCheckedBound() const
     return assertion.op1.kind == O1K_BOUND_LOOP_BND;
 }
 
-bool BoundsAssertion::IsConstantBound() const
+bool BoundsAssertion::IsRange() const
 {
-    return assertion.op1.kind == O1K_CONSTANT_LOOP_BND;
+    return assertion.kind == OAK_RANGE;
 }
 
 bool BoundsAssertion::IsConstant() const
@@ -3783,6 +4251,18 @@ ValueNum BoundsAssertion::GetVN() const
 ValueNum BoundsAssertion::GetConstantVN() const
 {
     return assertion.op2.vn;
+}
+
+int BoundsAssertion::GetRangeMin() const
+{
+    assert(assertion.kind == OAK_RANGE);
+    return static_cast<int>(assertion.op2.range.min);
+}
+
+int BoundsAssertion::GetRangeMax() const
+{
+    assert(assertion.kind == OAK_RANGE);
+    return static_cast<int>(assertion.op2.range.max);
 }
 
 BoundsAssertion Compiler::apGetBoundsAssertion(unsigned bitIndex)

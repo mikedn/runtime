@@ -5653,94 +5653,6 @@ bool ValueNumStore::IsVNHandle(ValueNum vn)
     return c->m_attribs == CEA_Handle;
 }
 
-//------------------------------------------------------------------------
-// IsVNPositiveInt32Constant: returns true iff vn is a known Int32 constant that is greater then 0
-//
-// Arguments:
-//    vn - Value number to query
-bool ValueNumStore::IsVNPositiveInt32Constant(ValueNum vn)
-{
-    return IsVNInt32Constant(vn) && (ConstantValue<INT32>(vn) > 0);
-}
-
-//------------------------------------------------------------------------
-// IsVNArrLenUnsignedBound: Checks if the specified vn represents an expression
-//    of one of the following forms:
-//    - "(uint)i < (uint)len" that implies (0 <= i < len)
-//    - "const < (uint)len" that implies "len > const"
-//    - "const <= (uint)len" that implies "len > const - 1"
-//
-// Arguments:
-//    vn - Value number to query
-//    info - Pointer to an UnsignedCompareCheckedBoundInfo object to return information about
-//           the expression. Not populated if the vn expression isn't suitable (e.g. i <= len).
-//           This enables optCreateJTrueBoundAssertion to immediately create an OAK_BOUNDS_CHK
-//           assertion instead of the OAK_EQUAL/NOT_EQUAL assertions created by signed compares
-//           (IsVNCompareCheckedBound, IsVNCompareCheckedBoundArith) that require further processing.
-//
-// Note:
-//   For comparisons of the form constant <= length, this returns them as (constant - 1) < length
-//
-bool ValueNumStore::IsVNUnsignedCompareCheckedBound(ValueNum vn, UnsignedCompareCheckedBoundInfo* info)
-{
-    VNFuncApp funcApp;
-
-    if (GetVNFunc(vn, &funcApp))
-    {
-        if ((funcApp.m_func == VNF_LT_UN) || (funcApp.m_func == VNF_GE_UN))
-        {
-            // We only care about "(uint)i < (uint)len" and its negation "(uint)i >= (uint)len"
-            if (IsVNCheckedBound(funcApp.m_args[1]))
-            {
-                info->vnIdx   = funcApp.m_args[0];
-                info->cmpOper = funcApp.m_func;
-                info->vnBound = funcApp.m_args[1];
-                return true;
-            }
-            // We care about (uint)len < constant and its negation "(uint)len >= constant"
-            else if (IsVNPositiveInt32Constant(funcApp.m_args[1]) && IsVNCheckedBound(funcApp.m_args[0]))
-            {
-                // Change constant < len into (uint)len >= (constant - 1)
-                // to make consuming this simpler (and likewise for it's negation).
-                INT32 validIndex = ConstantValue<INT32>(funcApp.m_args[1]) - 1;
-                assert(validIndex >= 0);
-
-                info->vnIdx   = VNForIntCon(validIndex);
-                info->cmpOper = (funcApp.m_func == VNF_GE_UN) ? VNF_LT_UN : VNF_GE_UN;
-                info->vnBound = funcApp.m_args[0];
-                return true;
-            }
-        }
-        else if ((funcApp.m_func == VNF_GT_UN) || (funcApp.m_func == VNF_LE_UN))
-        {
-            // We only care about "(uint)a.len > (uint)i" and its negation "(uint)a.len <= (uint)i"
-            if (IsVNCheckedBound(funcApp.m_args[0]))
-            {
-                info->vnIdx = funcApp.m_args[1];
-                // Let's keep a consistent operand order - it's always i < len, never len > i
-                info->cmpOper = (funcApp.m_func == VNF_GT_UN) ? VNF_LT_UN : VNF_GE_UN;
-                info->vnBound = funcApp.m_args[0];
-                return true;
-            }
-            // Look for constant > (uint)len and its negation "constant <= (uint)len"
-            else if (IsVNPositiveInt32Constant(funcApp.m_args[0]) && IsVNCheckedBound(funcApp.m_args[1]))
-            {
-                // Change constant <= (uint)len to (constant - 1) < (uint)len
-                // to make consuming this simpler (and likewise for it's negation).
-                INT32 validIndex = ConstantValue<INT32>(funcApp.m_args[0]) - 1;
-                assert(validIndex >= 0);
-
-                info->vnIdx   = VNForIntCon(validIndex);
-                info->cmpOper = (funcApp.m_func == VNF_LE_UN) ? VNF_LT_UN : VNF_GE_UN;
-                info->vnBound = funcApp.m_args[1];
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
 bool ValueNumStore::IsVNCompareCheckedBound(const VNFuncApp& funcApp)
 {
     assert(IsVNCompareCheckedBoundRelop(funcApp));
@@ -5811,31 +5723,6 @@ void ValueNumStore::GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, Co
     {
         info->arrOp   = arithFuncApp[1];
         info->vnBound = arithFuncApp[0];
-    }
-}
-
-bool ValueNumStore::IsVNConstantBound(const VNFuncApp& funcApp)
-{
-    assert(IsVNCompareCheckedBoundRelop(funcApp));
-
-    return IsVNInt32Constant(funcApp[0]) != IsVNInt32Constant(funcApp[1]);
-}
-
-void ValueNumStore::GetConstantBoundInfo(const VNFuncApp& funcApp, ConstantBoundInfo* info)
-{
-    assert(IsVNConstantBound(funcApp));
-
-    if (IsVNInt32Constant(funcApp[1]))
-    {
-        info->cmpOper = static_cast<genTreeOps>(funcApp.m_func);
-        info->cmpOpVN = funcApp[0];
-        info->constVN = funcApp[1];
-    }
-    else
-    {
-        info->cmpOper = GenTree::SwapRelop(static_cast<genTreeOps>(funcApp.m_func));
-        info->cmpOpVN = funcApp[1];
-        info->constVN = funcApp[0];
     }
 }
 
