@@ -2021,6 +2021,12 @@ private:
             return nullptr;
         }
 
+        // TODO-MIKE-CQ: This is inconsistent with GenerateJTrueBoundAssertions, where we
+        // skip "x EQ/NE 0" when x is LT|LE|GE|GT, this has caused a couple of regressions
+        // when converting constant bound assertions to ranges. We should probably always
+        // skip "x EQ/NE 0" when x is any relop, but then that looks like an issue caused
+        // by the lack of forward substitution.
+
         const AssertionDsc* assertion =
             FindZeroEqualityAssertion(assertions, relop->GetConservativeVN(), relop->GetType());
         bool isTrue;
@@ -2823,6 +2829,12 @@ private:
     {
         assert(((rangeAssertion.kind == OAK_EQUAL) && (rangeAssertion.op2.kind == O2K_CONST_INT)) ||
                (rangeAssertion.kind == OAK_RANGE) || (rangeAssertion.kind == OAK_BOUNDS_CHK));
+
+        // TODO-MIKE-Throughput: It should be possible to eliminate the repeated linear
+        // searches needed for assertion implication by chaining implied assertions into
+        // linked list (probably this could be done when creating assertions, when we
+        // already need a linear search for duplicates).
+        // x EQ 42 implies x IN [41..44] implies x IN [0..100] etc.
 
         const ASSERT_TP vnAssertions = GetVNAssertions(rangeAssertion.op1.vn);
 
