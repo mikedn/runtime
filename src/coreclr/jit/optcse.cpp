@@ -3226,8 +3226,13 @@ public:
 
             assert(m_pCompiler->fgRemoveRestOfBlock == false);
 
-            /* re-morph the statement */
-            m_pCompiler->fgMorphBlockStmt(blk, stmt DEBUGARG("optValnumCSE"));
+            if (linkData.user != nullptr)
+            {
+                m_pCompiler->gtUpdateTreeAncestorsSideEffects(linkData.user);
+            }
+
+            m_pCompiler->gtSetStmtInfo(stmt);
+            m_pCompiler->fgSetStmtSeq(stmt);
 
         } while (lst != nullptr);
     }
