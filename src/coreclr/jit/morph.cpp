@@ -156,6 +156,18 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = varActualType(src->GetType());
     }
 
+    if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->AsCast()->GetCastType()) &&
+        (varTypeSize(src->AsCast()->GetCastType()) >= varTypeSize(dstType)) && !cast->gtOverflow() && !src->gtOverflow()
+#ifndef TARGET_64BIT
+        && !src->AsCast()->GetOp(0)->TypeIs(TYP_LONG)
+#endif
+            )
+    {
+        src = src->AsCast()->GetOp(0);
+        cast->SetOp(0, src);
+        srcType = varActualType(src->GetType());
+    }
+
     noway_assert(!varTypeIsGC(dstType));
 
     if (varTypeIsGC(srcType))
@@ -456,245 +468,235 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
     cast->gtFlags |= (src->gtFlags & GTF_ALL_EFFECT);
 
-    if (!gtIsActiveCSE_Candidate(cast) && !gtIsActiveCSE_Candidate(src))
+    srcType = src->GetType();
+
+    // See if we can discard the cast
+    if (varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType))
     {
-        srcType = src->GetType();
-
-        // See if we can discard the cast
-        if (varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType))
+        if (cast->IsUnsigned() && !varTypeIsUnsigned(srcType))
         {
-            if (cast->IsUnsigned() && !varTypeIsUnsigned(srcType))
+            if (varTypeIsSmall(srcType))
             {
-                if (varTypeIsSmall(srcType))
-                {
-                    // Small signed values are automatically sign extended to TYP_INT. If the cast is interpreting the
-                    // resulting TYP_INT value as unsigned then the "sign" bits end up being "value" bits and srcType
-                    // must be TYP_UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
-                    // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing conversion
-                    // from u4 to i2.
-                    srcType = genActualType(srcType);
-                }
-
-                srcType = varTypeToUnsigned(srcType);
+                // Small signed values are automatically sign extended to TYP_INT. If the cast is interpreting the
+                // resulting TYP_INT value as unsigned then the "sign" bits end up being "value" bits and srcType
+                // must be TYP_UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
+                // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing conversion
+                // from u4 to i2.
+                srcType = genActualType(srcType);
             }
 
-            if (srcType == dstType)
+            srcType = varTypeToUnsigned(srcType);
+        }
+
+        if (srcType == dstType)
+        {
+            // Certainly if they are identical it is pointless
+            goto REMOVE_CAST;
+        }
+
+        if (src->OperIs(GT_LCL_VAR) && varTypeIsSmall(dstType))
+        {
+            LclVarDsc* varDsc = lvaGetDesc(src->AsLclVar());
+            if ((varDsc->GetType() == dstType) && varDsc->lvNormalizeOnStore())
             {
-                // Certainly if they are identical it is pointless
+                goto REMOVE_CAST;
+            }
+        }
+
+        bool     unsignedSrc = varTypeIsUnsigned(srcType);
+        bool     unsignedDst = varTypeIsUnsigned(dstType);
+        bool     signsDiffer = (unsignedSrc != unsignedDst);
+        unsigned srcSize     = genTypeSize(srcType);
+        unsigned dstSize     = genTypeSize(dstType);
+
+        // For same sized casts with
+        //    the same signs or non-overflow cast we discard them as well
+        if (srcSize == dstSize)
+        {
+            // This should have been handled above
+            noway_assert(varTypeIsGC(srcType) == varTypeIsGC(dstType));
+
+            if (!signsDiffer)
+            {
                 goto REMOVE_CAST;
             }
 
-            if (src->OperIs(GT_LCL_VAR) && varTypeIsSmall(dstType))
+            if (!cast->gtOverflow())
             {
-                LclVarDsc* varDsc = lvaGetDesc(src->AsLclVar());
-                if ((varDsc->GetType() == dstType) && varDsc->lvNormalizeOnStore())
+                // For small type casts, when necessary we force
+                // the src operand to the dstType and allow the
+                // implied load from memory to perform the casting
+                if (varTypeIsSmall(srcType))
                 {
-                    goto REMOVE_CAST;
-                }
-            }
-
-            bool     unsignedSrc = varTypeIsUnsigned(srcType);
-            bool     unsignedDst = varTypeIsUnsigned(dstType);
-            bool     signsDiffer = (unsignedSrc != unsignedDst);
-            unsigned srcSize     = genTypeSize(srcType);
-            unsigned dstSize     = genTypeSize(dstType);
-
-            // For same sized casts with
-            //    the same signs or non-overflow cast we discard them as well
-            if (srcSize == dstSize)
-            {
-                // This should have been handled above
-                noway_assert(varTypeIsGC(srcType) == varTypeIsGC(dstType));
-
-                if (!signsDiffer)
-                {
-                    goto REMOVE_CAST;
-                }
-
-                if (!cast->gtOverflow())
-                {
-                    // For small type casts, when necessary we force
-                    // the src operand to the dstType and allow the
-                    // implied load from memory to perform the casting
-                    if (varTypeIsSmall(srcType))
+                    switch (src->GetOper())
                     {
-                        switch (src->GetOper())
-                        {
-                            case GT_IND:
-                            case GT_LCL_FLD:
-                                src->SetType(dstType);
-                                // We're changing the type here so we need to update the VN;
-                                // in other cases we discard the cast without modifying oper
-                                // so the VN doesn't change.
-                                src->SetVNsFromNode(cast);
-                                goto REMOVE_CAST;
-                            default:
-                                break;
-                        }
-                    }
-                    else
-                    {
-                        goto REMOVE_CAST;
+                        case GT_IND:
+                        case GT_LCL_FLD:
+                            src->SetType(dstType);
+                            // We're changing the type here so we need to update the VN;
+                            // in other cases we discard the cast without modifying oper
+                            // so the VN doesn't change.
+                            src->SetVNsFromNode(cast);
+                            goto REMOVE_CAST;
+                        default:
+                            break;
                     }
                 }
-            }
-            else if (srcSize < dstSize) // widening cast
-            {
-                // Keep any long casts
-                if (dstSize == 4)
+                else
                 {
-                    // Only keep signed to unsigned widening cast with overflow check
-                    if (!cast->gtOverflow() || !unsignedDst || unsignedSrc)
-                    {
-                        goto REMOVE_CAST;
-                    }
-                }
-
-                // Widening casts from unsigned or to signed can never overflow
-
-                if (unsignedSrc || !unsignedDst)
-                {
-                    cast->gtFlags &= ~GTF_OVERFLOW;
-                    if ((src->gtFlags & GTF_EXCEPT) == 0)
-                    {
-                        cast->gtFlags &= ~GTF_EXCEPT;
-                    }
-                }
-            }
-            else // if (srcSize > dstSize)
-            {
-                // Try to narrow the operand of the cast and discard the cast
-                // Note: Do not narrow a cast that is marked as a CSE
-                // And do not narrow if the oper is marked as a CSE either
-                if (!cast->gtOverflow() && !gtIsActiveCSE_Candidate(src) && opts.OptEnabled(CLFLG_TREETRANS) &&
-                    optNarrowTree(src, srcType, dstType, cast->gtVNPair, false))
-                {
-                    optNarrowTree(src, srcType, dstType, cast->gtVNPair, true);
-
-                    // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
-                    if (src->OperIs(GT_CAST) &&
-                        (src->AsCast()->GetCastType() == varActualType(src->AsCast()->GetOp(0)->GetType())))
-                    {
-                        src = src->AsCast()->GetOp(0);
-                    }
-
                     goto REMOVE_CAST;
                 }
             }
         }
-
-        switch (src->GetOper())
+        else if (srcSize < dstSize) // widening cast
         {
-            case GT_CNS_INT:
-            case GT_CNS_LNG:
-            case GT_CNS_DBL:
-            case GT_CNS_STR:
+            // Keep any long casts
+            if (dstSize == 4)
             {
-                GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
-
-                // Did we get a comma throw as a result of gtFoldExprConst?
-                if (folded != cast)
+                // Only keep signed to unsigned widening cast with overflow check
+                if (!cast->gtOverflow() || !unsignedDst || unsignedSrc)
                 {
-                    noway_assert(fgIsCommaThrow(folded));
-                    folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-                    INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                    return folded;
+                    goto REMOVE_CAST;
+                }
+            }
+
+            // Widening casts from unsigned or to signed can never overflow
+
+            if (unsignedSrc || !unsignedDst)
+            {
+                cast->gtFlags &= ~GTF_OVERFLOW;
+                if ((src->gtFlags & GTF_EXCEPT) == 0)
+                {
+                    cast->gtFlags &= ~GTF_EXCEPT;
+                }
+            }
+        }
+        else // if (srcSize > dstSize)
+        {
+            // Try to narrow the operand of the cast and discard the cast
+            if (!cast->gtOverflow() && opts.OptEnabled(CLFLG_TREETRANS) &&
+                optNarrowTree(src, srcType, dstType, cast->gtVNPair, false))
+            {
+                optNarrowTree(src, srcType, dstType, cast->gtVNPair, true);
+
+                // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
+                if (src->OperIs(GT_CAST) &&
+                    (src->AsCast()->GetCastType() == varActualType(src->AsCast()->GetOp(0)->GetType())))
+                {
+                    src = src->AsCast()->GetOp(0);
                 }
 
-                if (!folded->OperIs(GT_CAST))
+                goto REMOVE_CAST;
+            }
+        }
+    }
+
+    switch (src->GetOper())
+    {
+        case GT_CNS_INT:
+        case GT_CNS_LNG:
+        case GT_CNS_DBL:
+        case GT_CNS_STR:
+        {
+            GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+
+            // Did we get a comma throw as a result of gtFoldExprConst?
+            if (folded != cast)
+            {
+                noway_assert(fgIsCommaThrow(folded));
+                folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
+                INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+                return folded;
+            }
+
+            if (!folded->OperIs(GT_CAST))
+            {
+                return folded;
+            }
+
+            noway_assert(cast->GetOp(0) == src); // unchanged
+        }
+        break;
+
+        case GT_CAST:
+            // Check for two consecutive casts into the same dstType
+            if (!cast->gtOverflow())
+            {
+                var_types dstType2 = src->AsCast()->GetCastType();
+                if (dstType == dstType2)
                 {
-                    return folded;
+                    goto REMOVE_CAST;
                 }
 
-                noway_assert(cast->GetOp(0) == src); // unchanged
+                // Simplify some cast sequences:
+                //   Successive narrowing - CAST<byte>(CAST<short>(x)) is CAST<byte>(x)
+                //   Sign changing - CAST<byte>(CAST<ubyte>(x)) is CAST<byte>(x)
+                //   Unnecessary widening - CAST<byte>(CAST<long>(x)) is CAST<byte>(x)
+                if ((varTypeSize(dstType) <= varTypeSize(dstType2)) && varTypeIsIntegral(dstType) &&
+                    varTypeIsIntegral(dstType2) && varTypeIsIntegral(src->AsCast()->GetOp(0)->GetType()) &&
+                    !src->gtOverflow()
+#ifndef TARGET_64BIT
+                    // 32 bit target codegen does not support casting directly from LONG to small int
+                    // types so we can't simplify CAST<byte>(CAST<int>(x.long)) to CAST<byte>(x.long).
+                    && (!varTypeIsSmall(dstType) || (varTypeSize(dstType2) != 4) ||
+                        (varTypeSize(src->AsCast()->GetOp(0)->GetType()) != 8))
+#endif
+                        )
+                {
+                    src = src->AsCast()->GetOp(0);
+                    cast->SetOp(0, src);
+
+                    // We may have had CAST<uint>(CAST<long>(x.int)),
+                    // this becomes CAST<uint>(x.int) and can be removed.
+                    if (!varTypeIsSmall(dstType) && (varActualType(dstType) == varActualType(src->GetType())))
+                    {
+                        goto REMOVE_CAST;
+                    }
+                }
             }
             break;
 
-            case GT_CAST:
-                // Check for two consecutive casts into the same dstType
-                if (!cast->gtOverflow())
+        case GT_COMMA:
+            // Check for cast of a GT_COMMA with a throw overflow
+            if (fgIsCommaThrow(src))
+            {
+                GenTree* commaOp2 = src->AsOp()->GetOp(1);
+
+                // need type of oper to be same as cast
+                if (cast->TypeIs(TYP_LONG))
                 {
-                    var_types dstType2 = src->AsCast()->GetCastType();
-                    if (dstType == dstType2)
-                    {
-                        goto REMOVE_CAST;
-                    }
-
-                    // Simplify some cast sequences:
-                    //   Successive narrowing - CAST<byte>(CAST<short>(x)) is CAST<byte>(x)
-                    //   Sign changing - CAST<byte>(CAST<ubyte>(x)) is CAST<byte>(x)
-                    //   Unnecessary widening - CAST<byte>(CAST<long>(x)) is CAST<byte>(x)
-                    if ((varTypeSize(dstType) <= varTypeSize(dstType2)) && varTypeIsIntegral(dstType) &&
-                        varTypeIsIntegral(dstType2) && varTypeIsIntegral(src->AsCast()->GetOp(0)->GetType()) &&
-                        !src->gtOverflow()
-#ifndef TARGET_64BIT
-                        // 32 bit target codegen does not support casting directly from LONG to small int
-                        // types so we can't simplify CAST<byte>(CAST<int>(x.long)) to CAST<byte>(x.long).
-                        && (!varTypeIsSmall(dstType) || (varTypeSize(dstType2) != 4) ||
-                            (varTypeSize(src->AsCast()->GetOp(0)->GetType()) != 8))
-#endif
-                            )
-                    {
-                        src = src->AsCast()->GetOp(0);
-                        cast->SetOp(0, src);
-
-                        // We may have had CAST<uint>(CAST<long>(x.int)),
-                        // this becomes CAST<uint>(x.int) and can be removed.
-                        if (!varTypeIsSmall(dstType) && (varActualType(dstType) == varActualType(src->GetType())))
-                        {
-                            goto REMOVE_CAST;
-                        }
-                    }
+                    commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
+                    commaOp2->AsIntConCommon()->SetLngValue(0);
+                    src->SetType(TYP_LONG);
+                    commaOp2->SetType(TYP_LONG);
                 }
-                break;
-
-            case GT_COMMA:
-                // Check for cast of a GT_COMMA with a throw overflow
-                // Bug 110829: Since this optimization will bash the types
-                // neither oper or commaOp2 can be CSE candidates
-                if (fgIsCommaThrow(src) && !gtIsActiveCSE_Candidate(src)) // oper can not be a CSE candidate
+                else if (varTypeIsFloating(cast->GetType()))
                 {
-                    GenTree* commaOp2 = src->AsOp()->GetOp(1);
-
-                    if (!gtIsActiveCSE_Candidate(commaOp2)) // commaOp2 can not be a CSE candidate
-                    {
-                        // need type of oper to be same as cast
-                        if (cast->TypeIs(TYP_LONG))
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
-                            commaOp2->AsIntConCommon()->SetLngValue(0);
-                            src->SetType(TYP_LONG);
-                            commaOp2->SetType(TYP_LONG);
-                        }
-                        else if (varTypeIsFloating(cast->GetType()))
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_DBL);
-                            commaOp2->AsDblCon()->SetValue(0.0);
-                            src->SetType(cast->GetType());
-                            commaOp2->SetType(cast->GetType());
-                        }
-                        else
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_INT);
-                            commaOp2->AsIntCon()->SetValue(0);
-                            src->SetType(TYP_INT);
-                            commaOp2->SetType(TYP_INT);
-                        }
-                    }
-
-                    if (vnStore != nullptr)
-                    {
-                        fgValueNumberTreeConst(commaOp2);
-                    }
-
-                    // Return the GT_COMMA node as the new tree
-                    return src;
+                    commaOp2->ChangeOperConst(GT_CNS_DBL);
+                    commaOp2->AsDblCon()->SetValue(0.0);
+                    src->SetType(cast->GetType());
+                    commaOp2->SetType(cast->GetType());
                 }
-                break;
+                else
+                {
+                    commaOp2->ChangeOperConst(GT_CNS_INT);
+                    commaOp2->AsIntCon()->SetValue(0);
+                    src->SetType(TYP_INT);
+                    commaOp2->SetType(TYP_INT);
+                }
 
-            default:
-                break;
-        }
+                if (vnStore != nullptr)
+                {
+                    fgValueNumberTreeConst(commaOp2);
+                }
+
+                // Return the GT_COMMA node as the new tree
+                return src;
+            }
+            break;
+
+        default:
+            break;
     }
 
     if (cast->gtOverflow())
@@ -706,7 +708,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
 REMOVE_CAST:
     // Here we've eliminated the cast, so just return its operand
-    assert(!gtIsActiveCSE_Candidate(cast));
     DEBUG_DESTROY_NODE(cast);
     return src;
 }
@@ -916,7 +917,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 // If 'dstt' is unsigned and one of the operands can be narrowed into 'dsst',
                 // the result of the GT_AND will also fit into 'dstt' and can be narrowed.
                 // The same is true if one of the operands is an int const and can be narrowed into 'dsst'.
-                if (!gtIsActiveCSE_Candidate(op2) && ((op2->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt)))
+                if ((op2->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt))
                 {
                     if (optNarrowTree(op2, srct, dstt, NoVNPair, false))
                     {
@@ -929,8 +930,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                     }
                 }
 
-                if ((opToNarrow == nullptr) && !gtIsActiveCSE_Candidate(op1) &&
-                    ((op1->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt)))
+                if ((opToNarrow == nullptr) && ((op1->gtOper == GT_CNS_INT) || varTypeIsUnsigned(dstt)))
                 {
                     if (optNarrowTree(op1, srct, dstt, NoVNPair, false))
                     {
@@ -990,8 +990,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 noway_assert(genActualType(tree->gtType) == genActualType(op1->gtType));
                 noway_assert(genActualType(tree->gtType) == genActualType(op2->gtType));
             COMMON_BINOP:
-                if (gtIsActiveCSE_Candidate(op1) || gtIsActiveCSE_Candidate(op2) ||
-                    !optNarrowTree(op1, srct, dstt, NoVNPair, doit) || !optNarrowTree(op2, srct, dstt, NoVNPair, doit))
+                if (!optNarrowTree(op1, srct, dstt, NoVNPair, doit) || !optNarrowTree(op2, srct, dstt, NoVNPair, doit))
                 {
                     noway_assert(doit == false);
                     return false;
@@ -1132,7 +1131,7 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
                 return false;
 
             case GT_COMMA:
-                if (!gtIsActiveCSE_Candidate(op2) && optNarrowTree(op2, srct, dstt, vnpNarrow, doit))
+                if (optNarrowTree(op2, srct, dstt, vnpNarrow, doit))
                 {
                     /* Simply change the type of the tree */
 
@@ -5156,16 +5155,6 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
         if (tree->gtOverflowEx() || op2->gtOverflowEx())
         {
-            return;
-        }
-
-        if (gtIsActiveCSE_Candidate(op2))
-        {
-            // If we have marked op2 as a CSE candidate,
-            // we can't perform a commutative reordering
-            // because any value numbers that we computed for op2
-            // will be incorrect after performing a commutative reordering
-            //
             return;
         }
 
@@ -9947,12 +9936,6 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
         return nullptr;
     }
 
-    if (gtIsActiveCSE_Candidate(tree) || gtIsActiveCSE_Candidate(op1))
-    {
-        // The optimization removes 'tree' from IR and changes the value of 'op1'.
-        return nullptr;
-    }
-
     if (tree->OperMayOverflow() && (tree->gtOverflow() || op1->gtOverflow()))
     {
         return nullptr;
@@ -9963,12 +9946,6 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 
     if (!varTypeIsIntegralOrI(tree->TypeGet()) || cns1->TypeIs(TYP_REF) || !cns1->TypeIs(cns2->TypeGet()))
     {
-        return nullptr;
-    }
-
-    if (gtIsActiveCSE_Candidate(cns1) || gtIsActiveCSE_Candidate(cns2))
-    {
-        // The optimization removes 'cns2' from IR and changes the value of 'cns1'.
         return nullptr;
     }
 
@@ -10290,7 +10267,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_MUL:
             noway_assert(op2 != nullptr);
 
-            if (opts.OptimizationEnabled() && !optValnumCSE_phase && !tree->gtOverflow())
+            if (opts.OptimizationEnabled() && !tree->gtOverflow())
             {
                 // MUL(NEG(a), C) => MUL(a, NEG(C))
                 if (op1->OperIs(GT_NEG) && !op1->gtGetOp1()->IsCnsIntOrI() && op2->IsCnsIntOrI() &&
@@ -10362,7 +10339,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             // array.Length is always positive so GT_DIV can be changed to GT_UDIV
             // if op2 is a positive cns
-            if (!optValnumCSE_phase && op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
+            if (op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
                 op2->AsIntCon()->IconValue() >= 2) // for 0 and 1 it doesn't matter if it's UDIV or DIV
             {
                 assert(tree->OperIs(GT_DIV));
@@ -10370,7 +10347,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 return fgMorphSmpOp(tree, mac);
             }
 
-            if (opts.OptimizationEnabled() && !optValnumCSE_phase)
+            if (opts.OptimizationEnabled())
             {
                 // DIV(NEG(a), C) => DIV(a, NEG(C))
                 if (op1->OperIs(GT_NEG) && !op1->gtGetOp1()->IsCnsIntOrI() && op2->IsCnsIntOrI() &&
@@ -10449,7 +10426,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             // array.Length is always positive so GT_DIV can be changed to GT_UDIV
             // if op2 is a positive cns
-            if (!optValnumCSE_phase && op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
+            if (op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
                 op2->AsIntCon()->IconValue() >= 2) // for 0 and 1 it doesn't matter if it's UMOD or MOD
             {
                 assert(tree->OperIs(GT_MOD));
@@ -10507,10 +10484,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         ASSIGN_HELPER_FOR_MOD:
 
             // For "val % 1", return 0 if op1 doesn't have any side effects
-            // and we are not in the CSE phase, we cannot discard 'tree'
-            // because it may contain CSE expressions that we haven't yet examined.
-            //
-            if (((op1->gtFlags & GTF_SIDE_EFFECT) == 0) && !optValnumCSE_phase)
+            if ((op1->gtFlags & GTF_SIDE_EFFECT) == 0)
             {
                 if (op2->IsIntegralConst(1))
                 {
@@ -10585,7 +10559,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // the redundant division. If there's no redundant division then
             // nothing is lost, lowering would have done this transform anyway.
 
-            if (!optValnumCSE_phase && ((tree->OperGet() == GT_MOD) && op2->IsIntegralConst()))
+            if (tree->OperIs(GT_MOD) && op2->IsIntegralConst())
             {
                 ssize_t divisorValue    = op2->AsIntCon()->IconValue();
                 size_t  absDivisorValue = (divisorValue == SSIZE_T_MIN) ? static_cast<size_t>(divisorValue)
@@ -10921,8 +10895,7 @@ DONE_MORPHING_CHILDREN:
                 (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) ||
                  (effectiveOp1->OperIs(GT_LCL_VAR) && lvaGetDesc(effectiveOp1->AsLclVar())->lvNormalizeOnLoad())))
             {
-                if (!gtIsActiveCSE_Candidate(op2) && op2->OperIs(GT_CAST) &&
-                    varTypeIsIntegral(op2->AsCast()->CastOp()) && !op2->gtOverflow())
+                if (op2->OperIs(GT_CAST) && varTypeIsIntegral(op2->AsCast()->CastOp()) && !op2->gtOverflow())
                 {
                     var_types castType = op2->CastToType();
 
@@ -10968,15 +10941,6 @@ DONE_MORPHING_CHILDREN:
 
         case GT_EQ:
         case GT_NE:
-
-            /* Make sure we're allowed to do this */
-
-            if (optValnumCSE_phase)
-            {
-                // It is not safe to reorder/delete CSE's
-                break;
-            }
-
             // Pattern-matching optimization:
             //    (a % c) ==/!= 0
             // for power-of-2 constant `c`
@@ -11292,21 +11256,10 @@ DONE_MORPHING_CHILDREN:
         SKIP:
             /* Now check for compares with small constant longs that can be cast to int */
 
-            if (!cns2->OperIsConst())
+            if (!cns2->OperIsConst() || !cns2->TypeIs(TYP_LONG) || ((cns2->AsIntConCommon()->LngValue() >> 31) != 0))
             {
-                goto COMPARE;
-            }
-
-            if (cns2->TypeGet() != TYP_LONG)
-            {
-                goto COMPARE;
-            }
-
-            /* Is the constant 31 bits or smaller? */
-
-            if ((cns2->AsIntConCommon()->LngValue() >> 31) != 0)
-            {
-                goto COMPARE;
+                noway_assert(tree->OperIsCompare());
+                break;
             }
 
             /* Is the first comparand mask operation of type long ? */
@@ -11316,8 +11269,7 @@ DONE_MORPHING_CHILDREN:
                 /* Another interesting case: cast from int */
 
                 if (op1->gtOper == GT_CAST && op1->CastFromType() == TYP_INT &&
-                    !gtIsActiveCSE_Candidate(op1) && // op1 cannot be a CSE candidate
-                    !op1->gtOverflow())              // cannot be an overflow checking cast
+                    !op1->gtOverflow()) // cannot be an overflow checking cast
                 {
                     /* Simply make this into an integer comparison */
 
@@ -11325,7 +11277,8 @@ DONE_MORPHING_CHILDREN:
                     tree->AsOp()->gtOp2 = gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT);
                 }
 
-                goto COMPARE;
+                noway_assert(tree->OperIsCompare());
+                break;
             }
 
             noway_assert(op1->TypeGet() == TYP_LONG && op1->OperGet() == GT_AND);
@@ -11337,13 +11290,10 @@ DONE_MORPHING_CHILDREN:
 
                 GenTree* andMask = op1->AsOp()->gtOp2;
 
-                if (andMask->gtOper != GT_CNS_NATIVELONG)
+                if (!andMask->OperIs(GT_CNS_NATIVELONG) || ((andMask->AsIntConCommon()->LngValue() >> 32) != 0))
                 {
-                    goto COMPARE;
-                }
-                if ((andMask->AsIntConCommon()->LngValue() >> 32) != 0)
-                {
-                    goto COMPARE;
+                    noway_assert(tree->OperIsCompare());
+                    break;
                 }
 
                 // Now we narrow AsOp()->gtOp1 of AND to int.
@@ -11379,87 +11329,80 @@ DONE_MORPHING_CHILDREN:
                 cns2->AsIntCon()->gtIconVal = ival2;
             }
 
-            goto COMPARE;
+            noway_assert(tree->OperIsCompare());
+            break;
 
         case GT_LT:
         case GT_LE:
         case GT_GE:
         case GT_GT:
-
-            if (op2->gtOper == GT_CNS_INT)
+            if (!op2->OperIs(GT_CNS_INT))
             {
-                cns2 = op2;
-                /* Check for "expr relop 1" */
-                if (cns2->IsIntegralConst(1))
+                if (!op1->OperIs(GT_CNS_INT))
                 {
-                    /* Check for "expr >= 1" */
-                    if (oper == GT_GE)
-                    {
-                        /* Change to "expr != 0" for unsigned and "expr > 0" for signed */
-                        oper = (tree->IsUnsigned()) ? GT_NE : GT_GT;
-                        goto SET_OPER;
-                    }
-                    /* Check for "expr < 1" */
-                    else if (oper == GT_LT)
-                    {
-                        /* Change to "expr == 0" for unsigned and "expr <= 0" for signed */
-                        oper = (tree->IsUnsigned()) ? GT_EQ : GT_LE;
-                        goto SET_OPER;
-                    }
+                    break;
                 }
-                /* Check for "expr relop -1" */
-                else if (!tree->IsUnsigned() && cns2->IsIntegralConst(-1))
+
+                oper = GenTree::SwapRelop(oper);
+                std::swap(op1, op2);
+
+                tree->SetOper(oper, GenTree::PRESERVE_VN);
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
+            }
+
+            if (op2->IsIntegralConst(0))
+            {
+                if (((oper == GT_GT) || (oper == GT_LE)) && tree->IsUnsigned())
                 {
-                    /* Check for "expr <= -1" */
-                    if (oper == GT_LE)
-                    {
-                        /* Change to "expr < 0" */
-                        oper = GT_LT;
-                        goto SET_OPER;
-                    }
-                    /* Check for "expr > -1" */
-                    else if (oper == GT_GT)
-                    {
-                        /* Change to "expr >= 0" */
-                        oper = GT_GE;
-
-                    SET_OPER:
-                        // IF we get here we should be changing 'oper'
-                        assert(tree->OperGet() != oper);
-
-                        // Keep the old ValueNumber for 'tree' as the new expr
-                        // will still compute the same value as before
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
-                        cns2->AsIntCon()->gtIconVal = 0;
-
-                        // vnStore is null before the ValueNumber phase has run
-                        if (vnStore != nullptr)
-                        {
-                            // Update the ValueNumber for 'cns2', as we just changed it to 0
-                            fgValueNumberTreeConst(cns2);
-                        }
-                        op2 = tree->AsOp()->gtOp2 = gtFoldExpr(op2);
-                    }
+                    // IL doesn't have a cne instruction so compilers use cgt.un instead. The JIT
+                    // recognizes certain patterns that involve GT_NE (e.g (x & 4) != 0) and fails
+                    // if GT_GT is used instead. Transform (x GT_GT.unsigned 0) into (x GT_NE 0)
+                    // and (x GT_LE.unsigned 0) into (x GT_EQ 0). The later case is rare, it sometimes
+                    // occurs as a result of branch inversion.
+                    oper = (oper == GT_LE) ? GT_EQ : GT_NE;
+                    tree->SetOper(oper, GenTree::PRESERVE_VN);
+                    tree->gtFlags &= ~GTF_UNSIGNED;
                 }
-                else if (tree->IsUnsigned() && op2->IsIntegralConst(0))
+
+                break;
+            }
+
+            // Convert 1 compares to 0 compares (e.g. x < 1 becomes x <= 0)
+
+            if (op2->IsIntegralConst(1))
+            {
+                if (oper == GT_GE)
                 {
-                    if ((oper == GT_GT) || (oper == GT_LE))
-                    {
-                        // IL doesn't have a cne instruction so compilers use cgt.un instead. The JIT
-                        // recognizes certain patterns that involve GT_NE (e.g (x & 4) != 0) and fails
-                        // if GT_GT is used instead. Transform (x GT_GT.unsigned 0) into (x GT_NE 0)
-                        // and (x GT_LE.unsigned 0) into (x GT_EQ 0). The later case is rare, it sometimes
-                        // occurs as a result of branch inversion.
-                        oper = (oper == GT_LE) ? GT_EQ : GT_NE;
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
-                        tree->gtFlags &= ~GTF_UNSIGNED;
-                    }
+                    oper = tree->IsUnsigned() ? GT_NE : GT_GT;
+                }
+                else if (oper == GT_LT)
+                {
+                    oper = tree->IsUnsigned() ? GT_EQ : GT_LE;
+                }
+            }
+            else if (op2->IsIntegralConst(-1))
+            {
+                if (oper == GT_LE)
+                {
+                    oper = tree->IsUnsigned() ? oper : GT_LT;
+                }
+                else if (oper == GT_GT)
+                {
+                    oper = tree->IsUnsigned() ? oper : GT_GE;
                 }
             }
 
-        COMPARE:
+            if (tree->GetOper() != oper)
+            {
+                tree->SetOper(oper, GenTree::PRESERVE_VN);
+                op2->AsIntCon()->SetValue(0);
 
-            noway_assert(tree->OperIsCompare());
+                if (vnStore != nullptr)
+                {
+                    op2->gtVNPair.SetBoth(vnStore->VNZeroForType(op2->GetType()));
+                }
+            }
             break;
 
         case GT_MUL:
@@ -11621,8 +11564,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             // Fold "cmp & 1" to just "cmp"
-            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsCompare() && op2->IsIntegralConst(1) &&
-                !gtIsActiveCSE_Candidate(tree) && !gtIsActiveCSE_Candidate(op2))
+            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsCompare() && op2->IsIntegralConst(1))
             {
                 DEBUG_DESTROY_NODE(op2);
                 DEBUG_DESTROY_NODE(tree);
@@ -11630,7 +11572,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             // See if we can fold floating point operations (can regress minopts mode)
-            if (opts.OptimizationEnabled() && varTypeIsFloating(tree->TypeGet()) && !optValnumCSE_phase)
+            if (opts.OptimizationEnabled() && varTypeIsFloating(tree->TypeGet()))
             {
                 if ((oper == GT_MUL) && !op1->IsCnsFltOrDbl() && op2->IsCnsFltOrDbl())
                 {
@@ -11659,15 +11601,29 @@ DONE_MORPHING_CHILDREN:
                 }
             }
 
+            if (varTypeIsIntegralOrI(tree->TypeGet()) && tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
+            {
+                GenTree* foldedTree = fgMorphAssociative(tree->AsOp());
+                if (foldedTree != nullptr)
+                {
+                    tree = foldedTree;
+                    op1  = tree->gtGetOp1();
+                    op2  = tree->gtGetOp2();
+                    if (!tree->OperIs(oper))
+                    {
+                        return tree;
+                    }
+                }
+            }
+
             /* See if we can fold GT_ADD nodes. */
 
             if (oper == GT_ADD)
             {
                 /* Fold "((x+icon1)+(y+icon2)) to ((x+y)+(icon1+icon2))" */
 
-                if (op1->gtOper == GT_ADD && op2->gtOper == GT_ADD && !gtIsActiveCSE_Candidate(op2) &&
-                    op1->AsOp()->gtOp2->gtOper == GT_CNS_INT && op2->AsOp()->gtOp2->gtOper == GT_CNS_INT &&
-                    !op1->gtOverflow() && !op2->gtOverflow())
+                if (op1->gtOper == GT_ADD && op2->gtOper == GT_ADD && op1->AsOp()->gtOp2->gtOper == GT_CNS_INT &&
+                    op2->AsOp()->gtOp2->gtOper == GT_CNS_INT && !op1->gtOverflow() && !op2->gtOverflow())
                 {
                     // Don't create a byref pointer that may point outside of the ref object.
                     // If a GC happens, the byref won't get updated. This can happen if one
@@ -11702,16 +11658,14 @@ DONE_MORPHING_CHILDREN:
 
                     // Fold (x + 0).
 
-                    if ((op2->AsIntConCommon()->IconValue() == 0) && !gtIsActiveCSE_Candidate(tree))
+                    if (op2->AsIntConCommon()->IconValue() == 0)
                     {
-
                         // If this addition is adding an offset to a null pointer,
                         // avoid the work and yield the null pointer immediately.
                         // Dereferencing the pointer in either case will have the
                         // same effect.
 
-                        if (!optValnumCSE_phase && varTypeIsGC(op2->TypeGet()) &&
-                            ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
+                        if (varTypeIsGC(op2->TypeGet()) && ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
                         {
                             op2->gtType = tree->gtType;
                             DEBUG_DESTROY_NODE(op1);
@@ -11722,8 +11676,7 @@ DONE_MORPHING_CHILDREN:
                         // Remove the addition iff it won't change the tree type
                         // to TYP_REF.
 
-                        if (!gtIsActiveCSE_Candidate(op2) &&
-                            ((op1->TypeGet() == tree->TypeGet()) || (op1->TypeGet() != TYP_REF)))
+                        if ((op1->TypeGet() == tree->TypeGet()) || (op1->TypeGet() != TYP_REF))
                         {
                             if (fgGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
                                 (op2->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
@@ -11790,7 +11743,7 @@ DONE_MORPHING_CHILDREN:
                 }
             }
             /* See if we can fold GT_MUL by const nodes */
-            else if (oper == GT_MUL && op2->IsCnsIntOrI() && !optValnumCSE_phase)
+            else if (oper == GT_MUL && op2->IsCnsIntOrI())
             {
 #ifndef TARGET_64BIT
                 noway_assert(typ <= TYP_UINT);
@@ -11898,22 +11851,6 @@ DONE_MORPHING_CHILDREN:
                 op1  = tree->AsOp()->gtOp1;
                 op2  = tree->AsOp()->gtOp2;
             }
-
-            if (varTypeIsIntegralOrI(tree->TypeGet()) && tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
-            {
-                GenTree* foldedTree = fgMorphAssociative(tree->AsOp());
-                if (foldedTree != nullptr)
-                {
-                    tree = foldedTree;
-                    op1  = tree->gtGetOp1();
-                    op2  = tree->gtGetOp2();
-                    if (!tree->OperIs(oper))
-                    {
-                        return tree;
-                    }
-                }
-            }
-
             break;
 
         case GT_NOT:
@@ -11923,8 +11860,7 @@ DONE_MORPHING_CHILDREN:
             // Consider for example the following expression: NEG(NEG(OP)), where any
             // NEG is a CSE candidate. Were we to morph this to just OP, CSE would fail to find
             // the original NEG in the statement.
-            if (op1->OperIs(oper) && opts.OptimizationEnabled() && !gtIsActiveCSE_Candidate(tree) &&
-                !gtIsActiveCSE_Candidate(op1))
+            if (op1->OperIs(oper) && opts.OptimizationEnabled())
             {
                 JITDUMP("Remove double negation/not\n")
                 GenTree* op1op1 = op1->gtGetOp1();
@@ -11934,8 +11870,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             // Distribute negation over simple multiplication/division expressions
-            if (opts.OptimizationEnabled() && !optValnumCSE_phase && tree->OperIs(GT_NEG) &&
-                op1->OperIs(GT_MUL, GT_DIV))
+            if (opts.OptimizationEnabled() && tree->OperIs(GT_NEG) && op1->OperIs(GT_MUL, GT_DIV))
             {
                 GenTreeOp* mulOrDiv = op1->AsOp();
                 GenTree*   op1op1   = mulOrDiv->gtGetOp1();
@@ -11963,7 +11898,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             /* Any constant cases should have been folded earlier */
-            noway_assert(!op1->OperIsConst() || !opts.OptEnabled(CLFLG_CONSTANTFOLD) || optValnumCSE_phase);
+            noway_assert(!op1->OperIsConst() || !opts.OptEnabled(CLFLG_CONSTANTFOLD));
             break;
 
         case GT_CKFINITE:
@@ -11986,12 +11921,6 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_IND:
-            // Can not remove a GT_IND if it is currently a CSE candidate.
-            if (gtIsActiveCSE_Candidate(tree))
-            {
-                break;
-            }
-
 #ifdef TARGET_ARM
             // Check for a misalignment floating point indirection.
             // TODO-MIKE-Cleanup: This should be moved to lowering
@@ -12064,10 +11993,6 @@ DONE_MORPHING_CHILDREN:
                 typ = tree->gtType = TYP_VOID;
             }
 
-            // If we are in the Valuenum CSE phase then don't morph away anything as these
-            // nodes may have CSE defs/uses in them.
-            //
-            if (!optValnumCSE_phase)
             {
                 // Extract the side effects from the left side of the comma.  Since they don't "go" anywhere, this
                 // is all we need.
@@ -12147,10 +12072,7 @@ DONE_MORPHING_CHILDREN:
 
     assert(oper == tree->gtOper);
 
-    // If we are in the Valuenum CSE phase then don't morph away anything as these
-    // nodes may have CSE defs/uses in them.
-    //
-    if (!optValnumCSE_phase && (oper != GT_ASG))
+    if (oper != GT_ASG)
     {
         /* Check for op1 as a GT_COMMA with a unconditional throw node */
         if (op1 && fgIsCommaThrow(op1, true))
@@ -12607,13 +12529,6 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
     switch (oper)
     {
         case GT_ASG:
-            // Make sure we're allowed to do this.
-            if (optValnumCSE_phase)
-            {
-                // It is not safe to reorder/delete CSE's
-                break;
-            }
-
             if (typ == TYP_LONG)
             {
                 break;
@@ -12716,7 +12631,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 
             /* Check for the case "(val + icon) << icon" */
 
-            if (!optValnumCSE_phase && op2->IsCnsIntOrI() && op1->gtOper == GT_ADD && !op1->gtOverflow())
+            if (op2->IsCnsIntOrI() && op1->gtOper == GT_ADD && !op1->gtOverflow())
             {
                 GenTree* cns = op1->AsOp()->gtOp2;
 
@@ -12751,27 +12666,22 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             break;
 
         case GT_XOR:
+            /* "x ^ -1" is "~x" */
 
-            if (!optValnumCSE_phase)
+            if (op2->IsIntegralConst(-1))
             {
-                /* "x ^ -1" is "~x" */
-
-                if (op2->IsIntegralConst(-1))
-                {
-                    tree->ChangeOper(GT_NOT);
-                    tree->gtOp2 = nullptr;
-                    DEBUG_DESTROY_NODE(op2);
-                }
-                else if (op2->IsIntegralConst(1) && op1->OperIsCompare())
-                {
-                    /* "binaryVal ^ 1" is "!binaryVal" */
-                    gtReverseCond(op1);
-                    DEBUG_DESTROY_NODE(op2);
-                    DEBUG_DESTROY_NODE(tree);
-                    return op1;
-                }
+                tree->ChangeOper(GT_NOT);
+                tree->gtOp2 = nullptr;
+                DEBUG_DESTROY_NODE(op2);
             }
-
+            else if (op2->IsIntegralConst(1) && op1->OperIsCompare())
+            {
+                /* "binaryVal ^ 1" is "!binaryVal" */
+                gtReverseCond(op1);
+                DEBUG_DESTROY_NODE(op2);
+                DEBUG_DESTROY_NODE(tree);
+                return op1;
+            }
             break;
 
         case GT_INIT_VAL:
@@ -13367,7 +13277,8 @@ void Compiler::fgMorphClearDebugNodeMorphed(GenTree* tree)
 
 GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 {
-    assert(tree);
+    assert(tree != nullptr);
+    assert(!optValnumCSE_phase);
 
 #ifdef DEBUG
     if (verbose)
@@ -13528,7 +13439,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             length = fgMorphTree(length);
 
             // If the index is a COMMA(throw, x), just return that.
-            if (!optValnumCSE_phase && fgIsCommaThrow(index))
+            if (fgIsCommaThrow(index))
             {
                 tree = index;
             }
@@ -14139,6 +14050,7 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 {
     assert(block != nullptr);
     assert(stmt != nullptr);
+    assert(!optValnumCSE_phase);
 
     // Reset some ambient state
     fgRemoveRestOfBlock = false;
@@ -14147,54 +14059,40 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 
     GenTree* morph = fgMorphTree(stmt->GetRootNode());
 
-    // Bug 1106830 - During the CSE phase we can't just remove
-    // morph->AsOp()->gtOp2 as it could contain CSE expressions.
-    // This leads to a noway_assert in OptCSE.cpp when
-    // searching for the removed CSE ref. (using gtFindLink)
-    //
-    if (!optValnumCSE_phase)
+    // Check for morph as a GT_COMMA with an unconditional throw
+    if (fgIsCommaThrow(morph, true))
     {
-        // Check for morph as a GT_COMMA with an unconditional throw
-        if (fgIsCommaThrow(morph, true))
-        {
 #ifdef DEBUG
-            if (verbose)
-            {
-                printf("Folding a top-level fgIsCommaThrow stmt\n");
-                printf("Removing thenExpr as unreachable:\n");
-                gtDispTree(morph->AsOp()->gtOp2);
-                printf("\n");
-            }
-#endif
-            // Use the call as the new stmt
-            morph = morph->AsOp()->gtOp1;
-            noway_assert(morph->gtOper == GT_CALL);
+        if (verbose)
+        {
+            printf("Folding a top-level fgIsCommaThrow stmt\n");
+            printf("Removing thenExpr as unreachable:\n");
+            gtDispTree(morph->AsOp()->gtOp2);
+            printf("\n");
         }
+#endif
+        // Use the call as the new stmt
+        morph = morph->AsOp()->gtOp1;
+        noway_assert(morph->gtOper == GT_CALL);
+    }
 
-        // we can get a throw as a statement root
-        if (fgIsThrow(morph))
-        {
+    // we can get a throw as a statement root
+    if (fgIsThrow(morph))
+    {
 #ifdef DEBUG
-            if (verbose)
-            {
-                printf("We have a top-level fgIsThrow stmt\n");
-                printf("Removing the rest of block as unreachable:\n");
-            }
-#endif
-            fgRemoveRestOfBlock = true;
+        if (verbose)
+        {
+            printf("We have a top-level fgIsThrow stmt\n");
+            printf("Removing the rest of block as unreachable:\n");
         }
+#endif
+        fgRemoveRestOfBlock = true;
     }
 
     stmt->SetRootNode(morph);
 
     // Can the entire tree be removed?
-    bool removedStmt = false;
-
-    // Defer removing statements during CSE so we don't inadvertently remove any CSE defs.
-    if (!optValnumCSE_phase)
-    {
-        removedStmt = fgCheckRemoveStmt(block, stmt);
-    }
+    bool removedStmt = fgCheckRemoveStmt(block, stmt);
 
     // Or this is the last statement of a conditional branch that was just folded?
     if (!removedStmt && (stmt->GetNextStmt() == nullptr) && !fgRemoveRestOfBlock)
@@ -14380,7 +14278,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
 #endif
 
         /* Check for morphedTree as a GT_COMMA with an unconditional throw */
-        if (!gtIsActiveCSE_Candidate(morphedTree) && fgIsCommaThrow(morphedTree, true))
+        if (fgIsCommaThrow(morphedTree, true))
         {
             /* Use the call as the new stmt */
             morphedTree = morphedTree->AsOp()->gtOp1;
