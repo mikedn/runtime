@@ -156,6 +156,18 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = varActualType(src->GetType());
     }
 
+    if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->AsCast()->GetCastType()) &&
+        (varTypeSize(src->AsCast()->GetCastType()) >= varTypeSize(dstType)) && !cast->gtOverflow() && !src->gtOverflow()
+#ifndef TARGET_64BIT
+        && !src->AsCast()->GetOp(0)->TypeIs(TYP_LONG)
+#endif
+            )
+    {
+        src = src->AsCast()->GetOp(0);
+        cast->SetOp(0, src);
+        srcType = varActualType(src->GetType());
+    }
+
     noway_assert(!varTypeIsGC(dstType));
 
     if (varTypeIsGC(srcType))
