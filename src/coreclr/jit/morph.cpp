@@ -11256,21 +11256,10 @@ DONE_MORPHING_CHILDREN:
         SKIP:
             /* Now check for compares with small constant longs that can be cast to int */
 
-            if (!cns2->OperIsConst())
+            if (!cns2->OperIsConst() || !cns2->TypeIs(TYP_LONG) || ((cns2->AsIntConCommon()->LngValue() >> 31) != 0))
             {
-                goto COMPARE;
-            }
-
-            if (cns2->TypeGet() != TYP_LONG)
-            {
-                goto COMPARE;
-            }
-
-            /* Is the constant 31 bits or smaller? */
-
-            if ((cns2->AsIntConCommon()->LngValue() >> 31) != 0)
-            {
-                goto COMPARE;
+                noway_assert(tree->OperIsCompare());
+                break;
             }
 
             /* Is the first comparand mask operation of type long ? */
@@ -11288,7 +11277,8 @@ DONE_MORPHING_CHILDREN:
                     tree->AsOp()->gtOp2 = gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT);
                 }
 
-                goto COMPARE;
+                noway_assert(tree->OperIsCompare());
+                break;
             }
 
             noway_assert(op1->TypeGet() == TYP_LONG && op1->OperGet() == GT_AND);
@@ -11300,13 +11290,10 @@ DONE_MORPHING_CHILDREN:
 
                 GenTree* andMask = op1->AsOp()->gtOp2;
 
-                if (andMask->gtOper != GT_CNS_NATIVELONG)
+                if (!andMask->OperIs(GT_CNS_NATIVELONG) || ((andMask->AsIntConCommon()->LngValue() >> 32) != 0))
                 {
-                    goto COMPARE;
-                }
-                if ((andMask->AsIntConCommon()->LngValue() >> 32) != 0)
-                {
-                    goto COMPARE;
+                    noway_assert(tree->OperIsCompare());
+                    break;
                 }
 
                 // Now we narrow AsOp()->gtOp1 of AND to int.
@@ -11342,7 +11329,8 @@ DONE_MORPHING_CHILDREN:
                 cns2->AsIntCon()->gtIconVal = ival2;
             }
 
-            goto COMPARE;
+            noway_assert(tree->OperIsCompare());
+            break;
 
         case GT_LT:
         case GT_LE:
@@ -11363,62 +11351,9 @@ DONE_MORPHING_CHILDREN:
                 tree->AsOp()->SetOp(1, op2);
             }
 
-            cns2 = op2;
-            /* Check for "expr relop 1" */
-            if (cns2->IsIntegralConst(1))
+            if (op2->IsIntegralConst(0))
             {
-                /* Check for "expr >= 1" */
-                if (oper == GT_GE)
-                {
-                    /* Change to "expr != 0" for unsigned and "expr > 0" for signed */
-                    oper = (tree->IsUnsigned()) ? GT_NE : GT_GT;
-                    goto SET_OPER;
-                }
-                /* Check for "expr < 1" */
-                else if (oper == GT_LT)
-                {
-                    /* Change to "expr == 0" for unsigned and "expr <= 0" for signed */
-                    oper = (tree->IsUnsigned()) ? GT_EQ : GT_LE;
-                    goto SET_OPER;
-                }
-            }
-            /* Check for "expr relop -1" */
-            else if (!tree->IsUnsigned() && cns2->IsIntegralConst(-1))
-            {
-                /* Check for "expr <= -1" */
-                if (oper == GT_LE)
-                {
-                    /* Change to "expr < 0" */
-                    oper = GT_LT;
-                    goto SET_OPER;
-                }
-                /* Check for "expr > -1" */
-                else if (oper == GT_GT)
-                {
-                    /* Change to "expr >= 0" */
-                    oper = GT_GE;
-
-                SET_OPER:
-                    // IF we get here we should be changing 'oper'
-                    assert(tree->OperGet() != oper);
-
-                    // Keep the old ValueNumber for 'tree' as the new expr
-                    // will still compute the same value as before
-                    tree->SetOper(oper, GenTree::PRESERVE_VN);
-                    cns2->AsIntCon()->gtIconVal = 0;
-
-                    // vnStore is null before the ValueNumber phase has run
-                    if (vnStore != nullptr)
-                    {
-                        // Update the ValueNumber for 'cns2', as we just changed it to 0
-                        fgValueNumberTreeConst(cns2);
-                    }
-                    op2 = tree->AsOp()->gtOp2 = gtFoldExpr(op2);
-                }
-            }
-            else if (tree->IsUnsigned() && op2->IsIntegralConst(0))
-            {
-                if ((oper == GT_GT) || (oper == GT_LE))
+                if (((oper == GT_GT) || (oper == GT_LE)) && tree->IsUnsigned())
                 {
                     // IL doesn't have a cne instruction so compilers use cgt.un instead. The JIT
                     // recognizes certain patterns that involve GT_NE (e.g (x & 4) != 0) and fails
@@ -11429,11 +11364,45 @@ DONE_MORPHING_CHILDREN:
                     tree->SetOper(oper, GenTree::PRESERVE_VN);
                     tree->gtFlags &= ~GTF_UNSIGNED;
                 }
+
+                break;
             }
 
-        COMPARE:
+            // Convert 1 compares to 0 compares (e.g. x < 1 becomes x <= 0)
 
-            noway_assert(tree->OperIsCompare());
+            if (op2->IsIntegralConst(1))
+            {
+                if (oper == GT_GE)
+                {
+                    oper = tree->IsUnsigned() ? GT_NE : GT_GT;
+                }
+                else if (oper == GT_LT)
+                {
+                    oper = tree->IsUnsigned() ? GT_EQ : GT_LE;
+                }
+            }
+            else if (op2->IsIntegralConst(-1))
+            {
+                if (oper == GT_LE)
+                {
+                    oper = tree->IsUnsigned() ? oper : GT_LT;
+                }
+                else if (oper == GT_GT)
+                {
+                    oper = tree->IsUnsigned() ? oper : GT_GE;
+                }
+            }
+
+            if (tree->GetOper() != oper)
+            {
+                tree->SetOper(oper, GenTree::PRESERVE_VN);
+                op2->AsIntCon()->SetValue(0);
+
+                if (vnStore != nullptr)
+                {
+                    op2->gtVNPair.SetBoth(vnStore->VNZeroForType(op2->GetType()));
+                }
+            }
             break;
 
         case GT_MUL:
