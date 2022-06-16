@@ -5463,8 +5463,14 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     {
         bool remove = false;
 
-#ifndef TARGET_64BIT
-        if (src->OperIs(GT_LONG))
+#ifdef TARGET_64BIT
+        if ((srcType == TYP_LONG) && src->OperIs(GT_LCL_VAR) && varActualTypeIsInt(dstType))
+        {
+            src->SetType(TYP_INT);
+            remove = dstType == TYP_INT;
+        }
+#else
+        if (srcType == TYP_LONG)
         {
             assert((dstType == TYP_INT) || (dstType == TYP_UINT));
 
@@ -5476,8 +5482,8 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
         else
 #endif
 
-            if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType) &&
-                (varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
+        if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType) &&
+            (varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
         {
             // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
 
