@@ -2379,35 +2379,15 @@ private:
         return call;
     }
 
-    const AssertionDsc* FindSubtypeAssertion(const ASSERT_TP assertions, ValueNum vn, GenTree* methodTable)
+    const AssertionDsc* FindSubtypeAssertion(const ASSERT_TP assertions, ValueNum objVN, ValueNum methodTableVN)
     {
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if ((assertion.kind != OAK_EQUAL) ||
-                ((assertion.op1.kind != O1K_SUBTYPE) && (assertion.op1.kind != O1K_EXACT_TYPE)))
-            {
-                continue;
-            }
-
-            if (assertion.op1.vn != vn)
-            {
-                continue;
-            }
-
-            if (assertion.op2.kind != O2K_CONST_INT)
-            {
-                continue;
-            }
-
-            ValueNum methodTableVN = vnStore->VNNormalValue(methodTable->GetConservativeVN());
-
-            ssize_t      iconVal   = 0;
-            GenTreeFlags iconFlags = GTF_EMPTY;
-
-            if (vnStore->IsVNIntegralConstant(methodTableVN, &iconVal, &iconFlags) &&
-                (assertion.op2.intCon.value == iconVal))
+            if ((assertion.kind == OAK_EQUAL) &&
+                ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE)) &&
+                (assertion.op1.vn == objVN) && (assertion.op2.vn == methodTableVN))
             {
                 return &assertion;
             }
@@ -2446,8 +2426,10 @@ private:
             return nullptr;
         }
 
-        ValueNum            objectVN  = objectArg->GetConservativeVN();
-        const AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, call->GetArgNodeByArgNum(0));
+        ValueNum objectVN      = objectArg->GetConservativeVN();
+        ValueNum methodTableVN = vnStore->VNNormalValue(call->GetArgNodeByArgNum(0)->GetConservativeVN());
+
+        const AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, methodTableVN);
 
         if (assertion == nullptr)
         {
