@@ -2736,8 +2736,7 @@ private:
             return;
         }
 
-        if ((assertion.kind == OAK_EQUAL) &&
-            ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE)))
+        if ((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_SUBTYPE))
         {
             AddTypeImpliedNotNullAssertions(assertion, assertions);
             return;
@@ -2750,8 +2749,7 @@ private:
 
     void AddTypeImpliedNotNullAssertions(const AssertionDsc& typeAssertion, ASSERT_TP& assertions)
     {
-        assert(typeAssertion.kind == OAK_EQUAL);
-        assert((typeAssertion.op1.kind == O1K_SUBTYPE) || (typeAssertion.op1.kind == O1K_EXACT_TYPE));
+        assert((typeAssertion.kind == OAK_EQUAL) && (typeAssertion.op1.kind == O1K_SUBTYPE));
 
         const ASSERT_TP vnAssertions = GetVNAssertions(typeAssertion.op1.vn);
 
@@ -2778,9 +2776,8 @@ private:
 
                 if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
                 {
-                    JITDUMP("%s A%02d implies A%02d\n",
-                            (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
-                            &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
+                    JITDUMP("Assertion A%02d implies A%02d\n", &typeAssertion - assertionTable,
+                            &notNullAssertion - assertionTable);
                 }
 
                 // There is at most one not null assertion that is implied by a type assertion.
