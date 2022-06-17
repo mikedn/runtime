@@ -496,7 +496,6 @@ enum ApOp1Kind : uint8_t
 enum ApOp2Kind : uint8_t
 {
     O2K_INVALID,
-    O2K_IND_CNS_INT,
     O2K_CONST_INT,
 #ifndef TARGET_64BIT
     O2K_CONST_LONG,
@@ -611,7 +610,6 @@ struct AssertionDsc
 
         switch (op2.kind)
         {
-            case O2K_IND_CNS_INT:
             case O2K_CONST_INT:
                 return op2.intCon == that.op2.intCon;
 #ifndef TARGET_64BIT
@@ -1071,28 +1069,27 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            op2 = op2->AsIndir()->GetAddr();
-
-            assertion.op2.kind = O2K_IND_CNS_INT;
+            assertion.op2.kind = O2K_VALUE_NUMBER;
+            assertion.op2.vn   = vnStore->VNNormalValue(op2->GetConservativeVN());
         }
         else
         {
+            ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
+
+            if (!vnStore->IsVNIntegralConstant(vn2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
+
             assertion.op2.kind = O2K_CONST_INT;
+            assertion.op2.vn   = vn2;
         }
-
-        ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
-
-        if (!vnStore->IsVNIntegralConstant(vn2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
 
         assertion.kind     = kind;
         assertion.op1.kind = O1K_EXACT_TYPE;
         assertion.op1.vn   = vn1;
-        assertion.op2.vn   = vn2;
 
         return AddEqualityAssertions(assertion);
     }
@@ -3982,7 +3979,7 @@ private:
         if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
         {
             assert(vnStore->TypeOfVN(op1.vn) == TYP_REF);
-            assert((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_IND_CNS_INT));
+            assert((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_VALUE_NUMBER));
             assert(op2.intCon.flags != GTF_EMPTY);
             assert(vnStore->TypeOfVN(op2.vn) == TYP_I_IMPL);
 
@@ -4076,10 +4073,12 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
             oper = (kind == OAK_EQUAL) ? "EQ" : "NE";
         }
 
-        const char* addr = (op2.kind == O2K_IND_CNS_INT) ? "[\0]\0" : "\0\0";
+        printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN, index, op1.vn, oper, op2.vn);
 
-        printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN " (%s0x%p%s)", index, op1.vn, oper, op2.vn, addr,
-               dspPtr(op2.intCon.value), addr + 2);
+        if (op2.kind == O2K_CONST_INT)
+        {
+            printf(" (0x%p)", dspPtr(op2.intCon.value));
+        }
 
         return;
     }
