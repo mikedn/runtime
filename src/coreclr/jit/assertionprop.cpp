@@ -1044,14 +1044,11 @@ private:
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind)
+    AssertionIndex CreateExactTypeAssertion(GenTreeLclVar* addr, GenTree* op2, ApKind kind)
     {
-        assert((op1 != nullptr) && (op2 != nullptr));
-        assert(op1->OperIs(GT_IND));
-        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
-
-        GenTreeLclVar* addr = op1->GetAddr()->AsLclVar();
         assert(addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF));
+        assert(op2 != nullptr);
+        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
         // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
         if (addr->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
@@ -1059,10 +1056,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        unsigned   lclNum = addr->GetLclNum();
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-
-        assert(lcl->IsInSsa());
+        assert(compiler->lvaGetDesc(addr)->IsInSsa());
 
         ValueNum vn1 = addr->GetConservativeVN();
 
@@ -1585,7 +1579,7 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            return CreateExactTypeAssertion(op1->AsIndir(), op2, assertionKind);
+            return CreateExactTypeAssertion(addr->AsLclVar(), op2, assertionKind);
         }
 
         if (!compiler->opts.IsReadyToRun() && (op1->IsCall() || op2->IsCall()))
