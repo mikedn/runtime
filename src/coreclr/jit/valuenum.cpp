@@ -5050,7 +5050,26 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     ValueNumPair addrExcVNP;
     vnStore->VNPUnpackExc(addr->GetVNP(), &addrVNP, &addrExcVNP);
 
-    VNFuncApp funcApp;
+    if (addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL))
+    {
+        assert(load->OperIs(GT_IND) && !load->IsVolatile());
+
+        ValueNumPair vnp;
+        VNFuncApp    funcApp;
+
+        if (addrVNP.BothEqual() && vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_JitNew))
+        {
+            vnp.SetBoth(funcApp[0]);
+        }
+        else
+        {
+            vnp = vnStore->VNPairForFunc(TYP_I_IMPL, VNF_ObjMT, addrVNP);
+        }
+
+        load->SetVNP(vnStore->VNPWithExc(vnp, addrExcVNP));
+
+        return;
+    }
 
     if (load->IsInvariant())
     {
@@ -5058,12 +5077,7 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
 
         ValueNumPair vnp;
 
-        if (load->OperIs(GT_IND) && addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL) &&
-            vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_JitNew) && addrVNP.BothEqual())
-        {
-            vnp.SetBoth(funcApp.m_args[0]);
-        }
-        else if ((load->gtFlags & GTF_IND_NONNULL) != 0)
+        if ((load->gtFlags & GTF_IND_NONNULL) != 0)
         {
             vnp = vnStore->VNPairForFunc(load->GetType(), VNF_NonNullIndirect, addrVNP);
         }
@@ -5079,9 +5093,10 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
     }
 
     // The conservative VN of a load is always a new, unique VN.
-    ValueNum conservativeVN = vnStore->VNForExpr(compCurBB, load->GetType());
-    ValueNum valueVN;
-    GenTree* obj;
+    ValueNum  conservativeVN = vnStore->VNForExpr(compCurBB, load->GetType());
+    ValueNum  valueVN;
+    VNFuncApp funcApp;
+    GenTree*  obj;
 
     if (load->IsVolatile())
     {
@@ -5138,16 +5153,6 @@ void Compiler::vnIndirLoad(GenTreeIndir* load)
         {
             valueVN = vnObjFieldLoad(load, vnStore->VNNormalValue(obj->GetLiberalVN()), fieldSeq);
         }
-    }
-    else if (load->TypeIs(TYP_I_IMPL) && addr->TypeIs(TYP_REF))
-    {
-        // TODO-MIKE-CQ: Handle method table pointer loads properly. This code gives these
-        // loads unique VNs, this prevents CSEing of such loads.
-        // These loads can be handled by vnMemoryLoad below but then it turns out
-        // that CSEing is a problem for FindSubtypeAssertion - it specifically looks for
-        // indirs that load the method table pointer.
-
-        valueVN = conservativeVN;
     }
     else
     {
