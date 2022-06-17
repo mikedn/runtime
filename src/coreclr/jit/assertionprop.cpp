@@ -1042,41 +1042,29 @@ private:
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateExactTypeAssertion(GenTreeLclVar* addr, GenTree* op2, ApKind kind)
+    AssertionIndex CreateExactTypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
     {
-        assert(addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF));
-        assert(op2 != nullptr);
+        assert(vnStore->TypeOfVN(objVN) == TYP_REF);
+        assert(mt->TypeIs(TYP_I_IMPL));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
-
-        if (compiler->lvaGetDesc(addr)->IsAddressExposed())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        ValueNum vn1 = addr->GetConservativeVN();
-
-        if (vn1 == NoVN)
-        {
-            return NO_ASSERTION_INDEX;
-        }
 
         AssertionDsc assertion;
 
         if (compiler->opts.IsReadyToRun())
         {
-            if (!op2->OperIs(GT_IND))
+            if (!mt->OperIs(GT_IND) || (mt->GetConservativeVN() == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
 
             assertion.op2.kind = O2K_VALUE_NUMBER;
-            assertion.op2.vn   = vnStore->VNNormalValue(op2->GetConservativeVN());
+            assertion.op2.vn   = vnStore->VNNormalValue(mt->GetConservativeVN());
         }
         else
         {
-            ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
+            ValueNum mtVN = vnStore->VNNormalValue(mt->GetConservativeVN());
 
-            if (!vnStore->IsVNIntegralConstant(vn2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
+            if (!vnStore->IsVNIntegralConstant(mtVN, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1084,36 +1072,23 @@ private:
             assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
 
             assertion.op2.kind = O2K_CONST_INT;
-            assertion.op2.vn   = vn2;
+            assertion.op2.vn   = mtVN;
         }
 
         assertion.kind     = kind;
         assertion.op1.kind = O1K_EXACT_TYPE;
-        assertion.op1.vn   = vn1;
+        assertion.op1.vn   = objVN;
 
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
+    AssertionIndex CreateSubtypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
     {
-        assert((op1 != nullptr) && (op2 != nullptr));
-        assert(op1->OperIs(GT_LCL_VAR));
+        assert(vnStore->TypeOfVN(objVN) == TYP_REF);
+        assert(mt->TypeIs(TYP_I_IMPL));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        if (compiler->lvaGetDesc(op1)->IsAddressExposed())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        if (!op2->IsIntCon())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        ValueNum vn1 = op1->GetConservativeVN();
-        ValueNum vn2 = op2->GetConservativeVN();
-
-        if ((vn1 == NoVN) || (vn2 == NoVN))
+        if (!mt->IsIntCon() || (mt->GetConservativeVN() == NoVN))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1122,11 +1097,11 @@ private:
 
         assertion.kind             = kind;
         assertion.op1.kind         = O1K_SUBTYPE;
-        assertion.op1.vn           = vn1;
+        assertion.op1.vn           = objVN;
         assertion.op2.kind         = O2K_CONST_INT;
-        assertion.op2.vn           = vn2;
-        assertion.op2.intCon.value = op2->AsIntCon()->GetValue();
-        assertion.op2.intCon.flags = op2->GetIconHandleFlag();
+        assertion.op2.vn           = mt->GetConservativeVN();
+        assertion.op2.intCon.value = mt->AsIntCon()->GetValue();
+        assertion.op2.intCon.flags = mt->AsIntCon()->GetHandleKind();
 
         return AddEqualityAssertions(assertion);
     }
@@ -1568,12 +1543,13 @@ private:
 
             GenTree* addr = op1->AsIndir()->GetAddr();
 
-            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR))
+            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
+                compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed() || (addr->GetConservativeVN() == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
 
-            return CreateExactTypeAssertion(addr->AsLclVar(), op2, assertionKind);
+            return CreateExactTypeAssertion(addr->GetConservativeVN(), op2, assertionKind);
         }
 
         if (!compiler->opts.IsReadyToRun() && (op1->IsCall() || op2->IsCall()))
@@ -1597,23 +1573,28 @@ private:
             // Also note The CASTCLASS helpers won't appear in predicates as they throw on failure.
             // So the helper list here is smaller than the one in PropagateCall.
 
-            if ((helper == CORINFO_HELP_ISINSTANCEOFINTERFACE) || (helper == CORINFO_HELP_ISINSTANCEOFARRAY) ||
-                (helper == CORINFO_HELP_ISINSTANCEOFCLASS) || (helper == CORINFO_HELP_ISINSTANCEOFANY))
+            if ((helper != CORINFO_HELP_ISINSTANCEOFINTERFACE) && (helper != CORINFO_HELP_ISINSTANCEOFARRAY) &&
+                (helper != CORINFO_HELP_ISINSTANCEOFCLASS) && (helper != CORINFO_HELP_ISINSTANCEOFANY))
             {
-                GenTree* objectArg      = call->GetArgNodeByArgNum(1);
-                GenTree* methodTableArg = call->GetArgNodeByArgNum(0);
-
-                assert(objectArg->TypeIs(TYP_REF));
-                assert(methodTableArg->TypeIs(TYP_I_IMPL));
-
-                if (objectArg->OperIs(GT_LCL_VAR))
-                {
-                    // Reverse the assertion
-                    assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
-
-                    return CreateSubtypeAssertion(objectArg->AsLclVar(), methodTableArg, assertionKind);
-                }
+                return NO_ASSERTION_INDEX;
             }
+
+            GenTree* objectArg      = call->GetArgNodeByArgNum(1);
+            GenTree* methodTableArg = call->GetArgNodeByArgNum(0);
+
+            assert(objectArg->TypeIs(TYP_REF));
+            assert(methodTableArg->TypeIs(TYP_I_IMPL));
+
+            if (!objectArg->OperIs(GT_LCL_VAR) || compiler->lvaGetDesc(objectArg->AsLclVar())->IsAddressExposed() ||
+                (objectArg->GetConservativeVN() == NoVN))
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            // Reverse the assertion
+            assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
+
+            return CreateSubtypeAssertion(objectArg->GetConservativeVN(), methodTableArg, assertionKind);
         }
 
         return NO_ASSERTION_INDEX;
