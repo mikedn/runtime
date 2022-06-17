@@ -1042,29 +1042,6 @@ private:
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateReadyToRunExactTypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
-    {
-        assert(vnStore->TypeOfVN(objVN) == TYP_REF);
-        assert(mt->TypeIs(TYP_I_IMPL));
-        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
-        assert(compiler->opts.IsReadyToRun());
-
-        if (!mt->OperIs(GT_IND) || (mt->GetConservativeVN() == NoVN))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        AssertionDsc assertion;
-
-        assertion.kind     = kind;
-        assertion.op1.kind = O1K_EXACT_TYPE;
-        assertion.op1.vn   = objVN;
-        assertion.op2.kind = O2K_VALUE_NUMBER;
-        assertion.op2.vn   = vnStore->VNNormalValue(mt->GetConservativeVN());
-
-        return AddEqualityAssertions(assertion);
-    }
-
     AssertionIndex CreateExactTypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
     {
         assert(vnStore->TypeOfVN(objVN) == TYP_REF);
@@ -1097,6 +1074,7 @@ private:
         assert(vnStore->TypeOfVN(objVN) == TYP_REF);
         assert(mt->TypeIs(TYP_I_IMPL));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
+        assert(!compiler->opts.IsReadyToRun());
 
         if (!mt->IsIntCon() || (mt->GetConservativeVN() == NoVN))
         {
@@ -1553,20 +1531,33 @@ private:
     {
         assert(compiler->opts.IsReadyToRun());
 
-        if (op1->OperIs(GT_IND) && op2->OperIs(GT_IND))
+        if (!op1->OperIs(GT_IND) || !op2->OperIs(GT_IND))
         {
-            GenTree* addr = op1->AsIndir()->GetAddr();
-
-            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
-                compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed() || (addr->GetConservativeVN() == NoVN))
-            {
-                return NO_ASSERTION_INDEX;
-            }
-
-            return CreateReadyToRunExactTypeAssertion(addr->GetConservativeVN(), op2, assertionKind);
+            return NO_ASSERTION_INDEX;
         }
 
-        return NO_ASSERTION_INDEX;
+        GenTree* addr = op1->AsIndir()->GetAddr();
+
+        if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
+            compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed())
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        if ((op1->GetConservativeVN() == NoVN) || (op2->GetConservativeVN() == NoVN))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionDsc assertion;
+
+        assertion.kind     = assertionKind;
+        assertion.op1.kind = O1K_VALUE_NUMBER;
+        assertion.op1.vn   = vnStore->VNNormalValue(op1->GetConservativeVN());
+        assertion.op2.kind = O2K_VALUE_NUMBER;
+        assertion.op2.vn   = vnStore->VNNormalValue(op2->GetConservativeVN());
+
+        return AddEqualityAssertions(assertion);
     }
 
     AssertionIndex GenerateJTrueTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
