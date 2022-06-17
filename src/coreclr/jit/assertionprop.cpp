@@ -1050,13 +1050,10 @@ private:
         assert(op2 != nullptr);
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (addr->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
+        if (compiler->lvaGetDesc(addr)->IsAddressExposed())
         {
             return NO_ASSERTION_INDEX;
         }
-
-        assert(compiler->lvaGetDesc(addr)->IsInSsa());
 
         ValueNum vn1 = addr->GetConservativeVN();
 
