@@ -1108,12 +1108,6 @@ private:
         assert(op1->OperIs(GT_LCL_VAR));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (op1->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
         if (compiler->lvaGetDesc(op1)->IsAddressExposed())
         {
             return NO_ASSERTION_INDEX;
