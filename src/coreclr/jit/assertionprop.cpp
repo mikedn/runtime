@@ -1119,35 +1119,25 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        AssertionDsc assertion;
-
-        if (op2->OperIs(GT_IND))
-        {
-            op2 = op2->AsIndir()->GetAddr();
-
-            assertion.op2.kind = O2K_IND_CNS_INT;
-        }
-        else
-        {
-            assertion.op2.kind = O2K_CONST_INT;
-        }
-
         if (!op2->IsIntCon())
         {
             return NO_ASSERTION_INDEX;
         }
 
         ValueNum vn1 = op1->GetConservativeVN();
-        ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
+        ValueNum vn2 = op2->GetConservativeVN();
 
         if ((vn1 == NoVN) || (vn2 == NoVN))
         {
             return NO_ASSERTION_INDEX;
         }
 
+        AssertionDsc assertion;
+
         assertion.kind             = kind;
         assertion.op1.kind         = O1K_SUBTYPE;
         assertion.op1.vn           = vn1;
+        assertion.op2.kind         = O2K_CONST_INT;
         assertion.op2.vn           = vn2;
         assertion.op2.intCon.value = op2->AsIntCon()->GetValue();
         assertion.op2.intCon.flags = op2->GetIconHandleFlag();
@@ -1600,7 +1590,7 @@ private:
             return CreateExactTypeAssertion(op1->AsIndir(), op2, assertionKind);
         }
 
-        if (op1->IsCall() || op2->IsCall())
+        if (!compiler->opts.IsReadyToRun() && (op1->IsCall() || op2->IsCall()))
         {
             if (!op1->IsCall())
             {
@@ -2451,7 +2441,7 @@ private:
             return UpdateTree(call, call, stmt);
         }
 
-        if (!call->IsHelperCall())
+        if (compiler->opts.IsReadyToRun() || !call->IsHelperCall())
         {
             return nullptr;
         }
