@@ -1042,42 +1042,52 @@ private:
         return AddEqualityAssertions(assertion);
     }
 
+    AssertionIndex CreateReadyToRunExactTypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
+    {
+        assert(vnStore->TypeOfVN(objVN) == TYP_REF);
+        assert(mt->TypeIs(TYP_I_IMPL));
+        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
+        assert(compiler->opts.IsReadyToRun());
+
+        if (!mt->OperIs(GT_IND) || (mt->GetConservativeVN() == NoVN))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionDsc assertion;
+
+        assertion.kind     = kind;
+        assertion.op1.kind = O1K_EXACT_TYPE;
+        assertion.op1.vn   = objVN;
+        assertion.op2.kind = O2K_VALUE_NUMBER;
+        assertion.op2.vn   = vnStore->VNNormalValue(mt->GetConservativeVN());
+
+        return AddEqualityAssertions(assertion);
+    }
+
     AssertionIndex CreateExactTypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
     {
         assert(vnStore->TypeOfVN(objVN) == TYP_REF);
         assert(mt->TypeIs(TYP_I_IMPL));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
+        assert(!compiler->opts.IsReadyToRun());
 
         AssertionDsc assertion;
 
-        if (compiler->opts.IsReadyToRun())
+        ValueNum mtVN = vnStore->VNNormalValue(mt->GetConservativeVN());
+
+        if (!vnStore->IsVNIntegralConstant(mtVN, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
         {
-            if (!mt->OperIs(GT_IND) || (mt->GetConservativeVN() == NoVN))
-            {
-                return NO_ASSERTION_INDEX;
-            }
-
-            assertion.op2.kind = O2K_VALUE_NUMBER;
-            assertion.op2.vn   = vnStore->VNNormalValue(mt->GetConservativeVN());
+            return NO_ASSERTION_INDEX;
         }
-        else
-        {
-            ValueNum mtVN = vnStore->VNNormalValue(mt->GetConservativeVN());
 
-            if (!vnStore->IsVNIntegralConstant(mtVN, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
-            {
-                return NO_ASSERTION_INDEX;
-            }
-
-            assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-
-            assertion.op2.kind = O2K_CONST_INT;
-            assertion.op2.vn   = mtVN;
-        }
+        assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
 
         assertion.kind     = kind;
         assertion.op1.kind = O1K_EXACT_TYPE;
         assertion.op1.vn   = objVN;
+        assertion.op2.kind = O2K_CONST_INT;
+        assertion.op2.vn   = mtVN;
 
         return AddEqualityAssertions(assertion);
     }
@@ -1529,11 +1539,40 @@ private:
             }
         }
 
-        return GenerateJTrueTypeAssertions(op1, op2, assertionKind);
+        if (compiler->opts.IsReadyToRun())
+        {
+            return GenerateJTrueReadyToRunTypeAssertions(op1, op2, assertionKind);
+        }
+        else
+        {
+            return GenerateJTrueTypeAssertions(op1, op2, assertionKind);
+        }
+    }
+
+    AssertionIndex GenerateJTrueReadyToRunTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
+    {
+        assert(compiler->opts.IsReadyToRun());
+
+        if (op1->OperIs(GT_IND) && op2->OperIs(GT_IND))
+        {
+            GenTree* addr = op1->AsIndir()->GetAddr();
+
+            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
+                compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed() || (addr->GetConservativeVN() == NoVN))
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            return CreateReadyToRunExactTypeAssertion(addr->GetConservativeVN(), op2, assertionKind);
+        }
+
+        return NO_ASSERTION_INDEX;
     }
 
     AssertionIndex GenerateJTrueTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
     {
+        assert(!compiler->opts.IsReadyToRun());
+
         if (op1->OperIs(GT_IND) || op2->OperIs(GT_IND))
         {
             if (!op1->OperIs(GT_IND))
@@ -1552,7 +1591,7 @@ private:
             return CreateExactTypeAssertion(addr->GetConservativeVN(), op2, assertionKind);
         }
 
-        if (!compiler->opts.IsReadyToRun() && (op1->IsCall() || op2->IsCall()))
+        if (op1->IsCall() || op2->IsCall())
         {
             if (!op1->IsCall())
             {
