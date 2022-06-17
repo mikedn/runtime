@@ -1064,28 +1064,32 @@ private:
 
         assert(lcl->IsInSsa());
 
+        ValueNum vn1 = addr->GetConservativeVN();
+
+        if (vn1 == NoVN)
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
         AssertionDsc assertion;
 
-        // Ngen case
-        if (op2->OperIs(GT_IND))
+        if (compiler->opts.IsReadyToRun())
         {
+            if (!op2->OperIs(GT_IND))
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
             op2 = op2->AsIndir()->GetAddr();
 
             assertion.op2.kind = O2K_IND_CNS_INT;
         }
-        // JIT case
         else
         {
             assertion.op2.kind = O2K_CONST_INT;
         }
 
-        ValueNum vn1 = addr->GetConservativeVN();
         ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
-
-        if ((vn1 == NoVN) || (vn2 == NoVN))
-        {
-            return NO_ASSERTION_INDEX;
-        }
 
         if (!vnStore->IsVNIntegralConstant(vn2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
         {
@@ -2393,27 +2397,12 @@ private:
                 continue;
             }
 
-            ValueNum methodTableVN;
-
-            if (assertion.op2.kind == O2K_IND_CNS_INT)
-            {
-                if (!methodTable->OperIs(GT_IND))
-                {
-                    continue;
-                }
-
-                methodTableVN = methodTable->AsIndir()->GetAddr()->GetConservativeVN();
-            }
-            else if (assertion.op2.kind == O2K_CONST_INT)
-            {
-                methodTableVN = methodTable->GetConservativeVN();
-            }
-            else
+            if (assertion.op2.kind != O2K_CONST_INT)
             {
                 continue;
             }
 
-            methodTableVN = vnStore->VNNormalValue(methodTableVN);
+            ValueNum methodTableVN = vnStore->VNNormalValue(methodTable->GetConservativeVN());
 
             ssize_t      iconVal   = 0;
             GenTreeFlags iconFlags = GTF_EMPTY;
